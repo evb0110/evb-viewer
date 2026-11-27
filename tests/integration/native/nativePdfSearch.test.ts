@@ -329,7 +329,7 @@ describe('native PDF search integration', () => {
     ] as const)('preserves Poppler search results or cancellation after a partial RTL reread: %s', async (outcome) => {
         const pdfPath = resolve('tests/fixtures/electron/semtext/search.pdf');
         const popplerPages = [];
-        for await (const page of streamPdfPageTexts(pdfPath)) popplerPages.push(page);
+        for await (const page of streamPdfPageTexts(pdfPath)) {popplerPages.push(page);}
         expect(popplerPages).toHaveLength(2);
         const worker = vi.spyOn(workerTasks, 'runResultWorkerTask');
         const controller = new AbortController();
@@ -339,7 +339,7 @@ describe('native PDF search integration', () => {
             for await (const page of streamPdfPageTexts(pdfPath, {
                 visiblePageOnly: true,
                 signal,
-            })) pages.push(page);
+            })) {pages.push(page);}
             return pages;
         };
         try {
@@ -450,7 +450,7 @@ describe('native PDF search integration', () => {
             const rawBlank = await makeTwoPagePdf(false, 10);
             const padToLength = (buf: Uint8Array, targetLen: number): Uint8Array => {
                 const diff = targetLen - buf.byteLength;
-                if (diff <= 0) return buf;
+                if (diff <= 0) {return buf;}
                 return Buffer.concat([
                     buf,
                     Buffer.from(diff === 1 ? '\n' : `\n%${' '.repeat(diff - 2)}`),

@@ -1,10 +1,10 @@
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
-interface IUsePdfViewerReloadTransitionOptions {summarizeViewerStateForLog?: () => unknown;}
+interface IUsePdfViewerReloadTransitionOptions {
+    summarizeViewerStateForLog?: () => unknown;
+}
 
-export const usePdfViewerReloadTransition = (
-    options: IUsePdfViewerReloadTransitionOptions,
-) => {
+export const usePdfViewerReloadTransition = (options: IUsePdfViewerReloadTransitionOptions) => {
     const isVisualReloadTransitionActive = ref(false);
     const lastTransitionToken = ref(0);
     const activeTransitionToken = ref<number | null>(null);

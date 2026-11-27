@@ -1,17 +1,17 @@
-import {
-    extname,
-    resolve,
-} from 'path';
-import type { WebContents } from 'electron';
-import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
-import { isReservedTempPath } from '@electron/utils/pathValidator';
+import {extname, resolve} from 'path';
+import type {WebContents} from 'electron';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
+import {isReservedTempPath} from '@electron/utils/pathValidator';
 
 const DOCX_WRITE_PATH_MAX_ENTRIES = 64;
 const DOCX_WRITE_PATH_TTL_MS = 15 * 60 * 1000;
-const allowedDocxWritePaths = new Map<string, {
-    expiresAt: number;
-    senderWebContentsId: number;
-}>();
+const allowedDocxWritePaths = new Map<
+    string,
+    {
+        expiresAt: number;
+        senderWebContentsId: number;
+    }
+>();
 const ownerCleanupRegistered = new Set<number>();
 
 type TDocxWritePathOwner = number | WebContents;
@@ -32,10 +32,7 @@ export function normalizeDocxPath(filePath: string) {
 }
 
 function pruneAllowedDocxWritePaths(now = Date.now()) {
-    for (const [
-        docxPath,
-        grant,
-    ] of allowedDocxWritePaths.entries()) {
+    for (const [docxPath, grant] of allowedDocxWritePaths.entries()) {
         if (grant.expiresAt <= now) {
             allowedDocxWritePaths.delete(docxPath);
         }
@@ -64,10 +61,7 @@ function getOwnerWebContentsId(owner: TDocxWritePathOwner) {
 }
 
 function removeAllowedDocxWritePathsForOwner(senderWebContentsId: number) {
-    for (const [
-        docxPath,
-        grant,
-    ] of allowedDocxWritePaths.entries()) {
+    for (const [docxPath, grant] of allowedDocxWritePaths.entries()) {
         if (grant.senderWebContentsId === senderWebContentsId) {
             allowedDocxWritePaths.delete(docxPath);
         }
@@ -90,10 +84,14 @@ function registerOwnerCleanup(owner: TDocxWritePathOwner, senderWebContentsId: n
     }
 
     ownerCleanupRegistered.add(senderWebContentsId);
-    const stop = onSenderLifetimeEnd(owner, () => {
-        stop();
-        removeAllowedDocxWritePathsForOwner(senderWebContentsId);
-    }, {navigation: true});
+    const stop = onSenderLifetimeEnd(
+        owner,
+        () => {
+            stop();
+            removeAllowedDocxWritePathsForOwner(senderWebContentsId);
+        },
+        {navigation: true},
+    );
 }
 
 export function allowDocxWritePath(filePath: string, owner: TDocxWritePathOwner) {

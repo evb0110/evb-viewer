@@ -12,7 +12,7 @@
                 <span
                     v-if="menu.comment.color"
                     class="annotation-context-menu-color-swatch"
-                    :style="{ background: menu.comment.color }"
+                    :style="{background: menu.comment.color}"
                 />
                 {{ annotationLabel }}
             </p>
@@ -46,14 +46,18 @@
                         :key="swatch.value"
                         type="button"
                         class="annotation-context-menu-color-button"
-                        :style="{ backgroundColor: swatch.value }"
+                        :style="{backgroundColor: swatch.value}"
                         :aria-label="swatch.value"
                         :aria-pressed="swatch.pressed"
                         @click="updateColor(swatch.value)"
                     />
                 </div>
             </div>
-            <p v-if="menu.comment.readOnly" class="annotation-context-menu-read-only" data-annotation-read-only-notice>
+            <p
+                v-if="menu.comment.readOnly"
+                class="annotation-context-menu-read-only"
+                data-annotation-read-only-notice
+            >
                 {{ t('annotations.readOnlyBorderStyle') }}
             </p>
             <button
@@ -164,13 +168,13 @@
 
 <script setup lang="ts">
 import PdfContextMenuBase from '@app/modules/pdf-viewer/components/PdfContextMenuBase.vue';
-import type { TAnnotationTool } from '@app/types/annotations';
-import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
-import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
-import { parseCssRgbColor } from '@app/modules/pdf-viewer/engine/text-markup-color/parseCssRgbColor';
-import { rgbToHex } from '@app/modules/pdf-viewer/engine/text-markup-color/rgbToHex';
-import type { IAnnotationContextMenuState } from '@app/types/pdfContextMenu';
-import { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
+import type {TAnnotationTool} from '@app/types/annotations';
+import {ANNOTATION_COLOR_SWATCHES} from '@app/constants/pdfColors';
+import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
+import {parseCssRgbColor} from '@app/modules/pdf-viewer/engine/text-markup-color/parseCssRgbColor';
+import {rgbToHex} from '@app/modules/pdf-viewer/engine/text-markup-color/rgbToHex';
+import type {IAnnotationContextMenuState} from '@app/types/pdfContextMenu';
+import {isNoteEligibleComment} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isNoteEligibleComment';
 
 const {
     menu,
@@ -198,25 +202,18 @@ const emit = defineEmits<{
     'open-note': [];
     'copy-text': [];
     'copy-selection-text': [];
-    'delete': [];
+    delete: [];
     'update-color': [color: string];
-    'markup': [tool: TAnnotationTool];
+    markup: [tool: TAnnotationTool];
     'create-free-note': [];
     'create-selection-note': [];
     'insert-image-from-file': [];
     'paste-image-from-clipboard': [];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
-const EDITABLE_COLOR_SUBTYPES = new Set([
-    'highlight',
-    'underline',
-    'strikeout',
-    'strikethrough',
-    'squiggly',
-    'text',
-]);
+const EDITABLE_COLOR_SUBTYPES = new Set(['highlight', 'underline', 'strikeout', 'strikethrough', 'squiggly', 'text']);
 
 function getFallbackColorForSubtype(subtype: string | null | undefined) {
     if (menu.comment?.annotationKind === 'shape') {
@@ -243,10 +240,7 @@ const canOpenNote = computed(() => {
     return isNoteEligibleComment(comment);
 });
 
-function normalizeColorInputValue(
-    color: string | null | undefined,
-    subtype: string | null | undefined,
-) {
+function normalizeColorInputValue(color: string | null | undefined, subtype: string | null | undefined) {
     const value = color?.trim() ?? '';
     const parsed = parseCssRgbColor(value);
     if (parsed) {
@@ -258,7 +252,10 @@ function normalizeColorInputValue(
         return getFallbackColorForSubtype(subtype);
     }
     return hex.length === 3
-        ? `#${hex.split('').map(channel => channel + channel).join('')}`
+        ? `#${hex
+              .split('')
+              .map((channel) => channel + channel)
+              .join('')}`
         : `#${hex}`;
 }
 
@@ -270,26 +267,25 @@ const canEditColor = computed(() => {
     return EDITABLE_COLOR_SUBTYPES.has(subtype);
 });
 
-const editableColor = computed(() => normalizeColorInputValue(
-    menu.comment?.color,
-    menu.comment?.subtype,
-));
+const editableColor = computed(() => normalizeColorInputValue(menu.comment?.color, menu.comment?.subtype));
 
 function normalizeColorValue(color: string | null | undefined) {
     return color?.trim().toLowerCase() ?? '';
 }
 
-const NORMALIZED_COLOR_SWATCHES = ANNOTATION_COLOR_SWATCHES.map(value => ({
+const NORMALIZED_COLOR_SWATCHES = ANNOTATION_COLOR_SWATCHES.map((value) => ({
     value,
     normalized: normalizeColorValue(value),
 }));
 
 const normalizedEditableColor = computed(() => normalizeColorValue(editableColor.value));
 
-const colorSwatches = computed(() => NORMALIZED_COLOR_SWATCHES.map(swatch => ({
-    value: swatch.value,
-    pressed: swatch.normalized === normalizedEditableColor.value,
-})));
+const colorSwatches = computed(() =>
+    NORMALIZED_COLOR_SWATCHES.map((swatch) => ({
+        value: swatch.value,
+        pressed: swatch.normalized === normalizedEditableColor.value,
+    })),
+);
 
 function openNote() {
     emit('open-note');

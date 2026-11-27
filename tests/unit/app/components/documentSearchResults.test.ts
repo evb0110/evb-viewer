@@ -2,22 +2,10 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    reactive,
-} from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, reactive} from 'vue';
 import type {ISearchIndexCoverage} from '@contracts/search';
-import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
+import type {IDocumentSearchMatch} from '@app/modules/document-viewer/search/documentSearch';
 import DocumentSearchResults from '@app/components/document-viewer/DocumentSearchResults.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -62,17 +50,24 @@ afterEach(() => {
 async function mountResults(state: ISearchResultsHarnessState, clientHeight: number) {
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({setup: () => () => h(DocumentSearchResults, {
-        results: state.results,
-        currentResultIndex: state.currentResultIndex,
-        currentResultNavigationId: state.currentResultNavigationId,
-        searchQuery: 'lezgian',
-        searchProgress: state.coverage ? {
-            processed: state.coverage.pagesScanned,
-            total: state.coverage.pageCount,
-            coverage: state.coverage,
-        } : undefined,
-    })}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(DocumentSearchResults, {
+                    results: state.results,
+                    currentResultIndex: state.currentResultIndex,
+                    currentResultNavigationId: state.currentResultNavigationId,
+                    searchQuery: 'lezgian',
+                    searchProgress: state.coverage
+                        ? {
+                              processed: state.coverage.pagesScanned,
+                              total: state.coverage.pageCount,
+                              coverage: state.coverage,
+                          }
+                        : undefined,
+                }),
+        }),
+    );
     app.component('UIcon', Stub);
     app.component('UProgress', Stub);
     app.mount(host);
@@ -103,9 +98,7 @@ async function mountResults(state: ISearchResultsHarnessState, clientHeight: num
 }
 
 function groupButton(host: HTMLElement, pageNumber: number) {
-    const button = host.querySelector<HTMLButtonElement>(
-        `.document-search-results-group-toggle[data-page-number="${String(pageNumber)}"]`,
-    );
+    const button = host.querySelector<HTMLButtonElement>(`.document-search-results-group-toggle[data-page-number="${String(pageNumber)}"]`);
     expect(button).not.toBeNull();
     return button!;
 }
@@ -146,17 +139,11 @@ describe('DocumentSearchResults', () => {
 
     it('reveals rows inserted below a final group header without another wheel gesture', async () => {
         const state = reactive<ISearchResultsHarnessState>({
-            results: [
-                match(0, 0),
-                match(1, 1),
-            ],
+            results: [match(0, 0), match(1, 1)],
             currentResultIndex: -1,
             currentResultNavigationId: 0,
         });
-        const {
-            host,
-            list,
-        } = await mountResults(state, 120);
+        const {host, list} = await mountResults(state, 120);
         list.scrollTop = 36;
         list.dispatchEvent(new Event('scroll'));
         await nextTick();
@@ -166,24 +153,16 @@ describe('DocumentSearchResults', () => {
         await nextTick();
 
         expect(list.scrollTop).toBe(136);
-        expect(host.querySelector(
-            '.document-search-result[data-page-number="2"][data-page-match-number="1"]',
-        )).not.toBeNull();
+        expect(host.querySelector('.document-search-result[data-page-number="2"][data-page-match-number="1"]')).not.toBeNull();
     });
 
     it('does not move the list when an expanded group span already fits', async () => {
         const state = reactive<ISearchResultsHarnessState>({
-            results: [
-                match(0, 0),
-                match(1, 1),
-            ],
+            results: [match(0, 0), match(1, 1)],
             currentResultIndex: -1,
             currentResultNavigationId: 0,
         });
-        const {
-            host,
-            list,
-        } = await mountResults(state, 272);
+        const {host, list} = await mountResults(state, 272);
 
         groupButton(host, 2).click();
         await nextTick();

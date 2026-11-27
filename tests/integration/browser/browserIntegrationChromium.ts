@@ -1,14 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import {
-    chromium,
-    type Browser,
-    type BrowserContext,
-    type Download,
-    type Page,
-    type Video,
-} from 'playwright';
+import {randomUUID} from 'node:crypto';
+import {mkdir} from 'node:fs/promises';
+import {join} from 'node:path';
+import {chromium, type Browser, type BrowserContext, type Download, type Page, type Video} from 'playwright';
 
 export const BROWSER_INTEGRATION_WS_ENDPOINT_ENV = 'EVB_BROWSER_INTEGRATION_WS_ENDPOINT';
 
@@ -23,20 +16,28 @@ function combineErrors(errors: unknown[], message: string): unknown {
 // videos into the requested directory as each context closes and surface any
 // export failure instead of dropping video evidence silently.
 function attachRemoteVideoExport(context: BrowserContext, videoDir: string): void {
-    if (wrappedVideoContexts.has(context)) return;
+    if (wrappedVideoContexts.has(context)) {
+        return;
+    }
     wrappedVideoContexts.add(context);
     const videos = new Set<Video>();
     const trackPage = (page: Page) => {
         const video = page.video();
-        if (video) videos.add(video);
+        if (video) {
+            videos.add(video);
+        }
     };
-    for (const page of context.pages()) trackPage(page);
+    for (const page of context.pages()) {
+        trackPage(page);
+    }
     context.on('page', trackPage);
 
     let exported = false;
     const originalClose = context.close.bind(context);
     context.close = async (options) => {
-        for (const page of context.pages()) trackPage(page);
+        for (const page of context.pages()) {
+            trackPage(page);
+        }
         const failures: unknown[] = [];
         try {
             await originalClose(options);
@@ -47,9 +48,9 @@ function attachRemoteVideoExport(context: BrowserContext, videoDir: string): voi
             exported = true;
             if (videos.size > 0) {
                 try {
-                    await mkdir(videoDir, { recursive: true });
+                    await mkdir(videoDir, {recursive: true});
                     const results = await Promise.allSettled(
-                        [...videos].map(video => video.saveAs(join(videoDir, `${randomUUID()}.webm`))),
+                        [...videos].map((video) => video.saveAs(join(videoDir, `${randomUUID()}.webm`))),
                     );
                     for (const result of results) {
                         if (result.status === 'rejected') {
@@ -112,14 +113,16 @@ export async function connectOrLaunchChromium(): Promise<Browser> {
     if (wsEndpoint) {
         return wrapConnectedBrowserForVideoExport(await chromium.connect(wsEndpoint));
     }
-    return chromium.launch({ headless: true });
+    return chromium.launch({headless: true});
 }
 
 export async function closeChromiumBrowser(browser: Browser | undefined): Promise<void> {
-    if (!browser) return;
+    if (!browser) {
+        return;
+    }
     const failures: unknown[] = [];
     try {
-        const results = await Promise.allSettled(browser.contexts().map(context => context.close()));
+        const results = await Promise.allSettled(browser.contexts().map((context) => context.close()));
         for (const result of results) {
             if (result.status === 'rejected') {
                 failures.push(result.reason);

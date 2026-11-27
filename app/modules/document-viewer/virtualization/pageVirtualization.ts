@@ -1,24 +1,21 @@
 export interface ILazyIndexedCollection<T> extends Array<T> {
     readonly get: (index: number) => T | undefined;
-    readonly map: <U>(
-        callback: (value: T, index: number, source: T[]) => U,
-        thisArg?: unknown,
-    ) => ILazyIndexedCollection<U>;
+    readonly map: <U>(callback: (value: T, index: number, source: T[]) => U, thisArg?: unknown) => ILazyIndexedCollection<U>;
 }
 
 const LAZY_INDEXED_COLLECTION_MARKER = Symbol('lazy-indexed-collection');
 const LAZY_INDEXED_COLLECTION_DEFAULT_CHUNK_SIZE = 256;
 
-interface ILazyIndexedCollectionTarget<T> extends ILazyIndexedCollection<T> {[LAZY_INDEXED_COLLECTION_MARKER]: true;}
+interface ILazyIndexedCollectionTarget<T> extends ILazyIndexedCollection<T> {
+    [LAZY_INDEXED_COLLECTION_MARKER]: true;
+}
 
 function isArrayIndex(value: PropertyKey): value is `${number}` {
     if (typeof value !== 'string' || value.length === 0) {
         return false;
     }
     const index = Number(value);
-    return Number.isSafeInteger(index)
-        && index >= 0
-        && String(index) === value;
+    return Number.isSafeInteger(index) && index >= 0 && String(index) === value;
 }
 
 export function createLazyIndexedCollection<T>(options: {
@@ -73,18 +70,10 @@ export function createLazyIndexedCollection<T>(options: {
             }
             return getChunk(Math.floor(index / chunkSize))[index % chunkSize];
         },
-        map<U>(
-            callback: (value: T, index: number, source: T[]) => U,
-            thisArg?: unknown,
-        ): ILazyIndexedCollection<U> {
+        map<U>(callback: (value: T, index: number, source: T[]) => U, thisArg?: unknown): ILazyIndexedCollection<U> {
             return createLazyIndexedCollection<U>({
                 length: options.length,
-                getValue: index => callback.call(
-                    thisArg,
-                    target.get(index) as T,
-                    index,
-                    lazyProxy ?? target,
-                ),
+                getValue: (index) => callback.call(thisArg, target.get(index) as T, index, lazyProxy ?? target),
                 chunkSize,
                 maxCachedChunks,
             });
@@ -112,9 +101,11 @@ export function createLazyIndexedCollection<T>(options: {
 }
 
 export function isLazyIndexedCollection<T>(value: unknown): value is ILazyIndexedCollection<T> {
-    return typeof value === 'object'
-        && value !== null
-        && (value as Partial<ILazyIndexedCollectionTarget<T>>)[LAZY_INDEXED_COLLECTION_MARKER] === true;
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        (value as Partial<ILazyIndexedCollectionTarget<T>>)[LAZY_INDEXED_COLLECTION_MARKER] === true
+    );
 }
 
 export interface IDocumentViewerPageRange {
@@ -134,9 +125,7 @@ interface ICreateAnchorPageWindowOptions {
 }
 
 function normalizePositiveInteger(value: number) {
-    return Number.isFinite(value) && value > 0
-        ? Math.trunc(value)
-        : 0;
+    return Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
 }
 
 function normalizeNonNegativeInteger(value: number | undefined) {
@@ -160,10 +149,7 @@ export function createPageNumbersForWindow(range: IDocumentViewerPageRange) {
         return [] as number[];
     }
 
-    return Array.from(
-        { length: range.end - range.start + 1 },
-        (_, index) => range.start + index,
-    );
+    return Array.from({length: range.end - range.start + 1}, (_, index) => range.start + index);
 }
 
 export function createAnchorPageWindow(options: ICreateAnchorPageWindowOptions): IDocumentViewerPageRange | null {

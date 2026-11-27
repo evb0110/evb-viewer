@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import runProject8ProcessProof from '@scripts/diagnostics/project8-process-proof/project8ProcessProofHarness';
 
 describe('Project 8 real process proof fixture', () => {

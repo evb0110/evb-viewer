@@ -1,11 +1,4 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {createPdfjsDocumentSourceLoader} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {pdfjsDocumentTeardownCoordinator} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
@@ -93,11 +86,9 @@ describe('createPdfjsDocumentSourceLoader', () => {
         mocks.preparePdfjsBrowserRuntime.mockResolvedValue(undefined);
         mocks.createPdfjsDocumentOptions.mockReset();
         mocks.createPdfjsDocumentOptions.mockReturnValue({});
-        mocks.documentFiles.readFileRange.mockImplementation(async (
-            _path: string,
-            _offset: number,
-            length: number,
-        ) => new Uint8Array(length));
+        mocks.documentFiles.readFileRange.mockImplementation(
+            async (_path: string, _offset: number, length: number) => new Uint8Array(length),
+        );
         vi.stubGlobal('URL', {
             createObjectURL: mocks.createObjectURL,
             revokeObjectURL: mocks.revokeObjectURL,
@@ -112,7 +103,7 @@ describe('createPdfjsDocumentSourceLoader', () => {
         const pendingTasks: IMockPendingTask[] = [];
         mocks.getDocument.mockImplementation((_options: IPdfjsDocumentOptions) => {
             let resolve!: (document: Record<string, unknown>) => void;
-            const promise = new Promise<Record<string, unknown>>(resolveDocument => {
+            const promise = new Promise<Record<string, unknown>>((resolveDocument) => {
                 resolve = resolveDocument;
             });
             const task: IMockTask = {
@@ -141,9 +132,9 @@ describe('createPdfjsDocumentSourceLoader', () => {
         expect(firstTask).toBeDefined();
 
         await expect(loader.open(createPathSource('/tmp/stale.pdf'), 0)).resolves.toBeNull();
-        await expect(loader.open(new Blob([new Uint8Array((16 * 1024 * 1024) + 1)]), renderVersion))
-            .rejects
-            .toThrow('PDF.js blob loading is capped');
+        await expect(loader.open(new Blob([new Uint8Array(16 * 1024 * 1024 + 1)]), renderVersion)).rejects.toThrow(
+            'PDF.js blob loading is capped',
+        );
         expect(firstTransport?.abort).not.toHaveBeenCalled();
         expect(firstTask?.destroy).not.toHaveBeenCalled();
 
@@ -183,11 +174,7 @@ describe('createPdfjsDocumentSourceLoader', () => {
         for (const pendingTask of pendingTasks) {
             pendingTask.resolve({});
         }
-        await expect(Promise.all([
-            firstOpen,
-            secondOpen,
-            thirdOpen,
-        ])).resolves.toHaveLength(3);
+        await expect(Promise.all([firstOpen, secondOpen, thirdOpen])).resolves.toHaveLength(3);
     });
 
     it('cancels a pending range preload before the replacement is submitted', async () => {
@@ -233,7 +220,7 @@ describe('createPdfjsDocumentSourceLoader', () => {
             onRangeReadFailure: mocks.onRangeReadFailure,
         });
         let completed: {document: unknown} | null = null;
-        const opening = loader.open(source, 1).then(document => {
+        const opening = loader.open(source, 1).then((document) => {
             completed = {document};
             return document;
         });
@@ -272,18 +259,8 @@ describe('createPdfjsDocumentSourceLoader', () => {
         await expect(loader.open(createPathSource(path, size), 1)).resolves.toEqual({numPages: 1});
 
         expect(tailStart).toBeGreaterThan(2 ** 31);
-        expect(mocks.documentFiles.readFileRange).toHaveBeenNthCalledWith(
-            1,
-            path,
-            0,
-            CHUNK_BYTES,
-        );
-        expect(mocks.documentFiles.readFileRange).toHaveBeenNthCalledWith(
-            2,
-            path,
-            tailStart,
-            CHUNK_BYTES,
-        );
+        expect(mocks.documentFiles.readFileRange).toHaveBeenNthCalledWith(1, path, 0, CHUNK_BYTES);
+        expect(mocks.documentFiles.readFileRange).toHaveBeenNthCalledWith(2, path, tailStart, CHUNK_BYTES);
 
         const options = mocks.getDocument.mock.calls[0]?.[0] as IPdfjsDocumentOptions;
         const transport = options.range;
@@ -291,23 +268,12 @@ describe('createPdfjsDocumentSourceLoader', () => {
         expect(transport?.requestDataRange).not.toBeNull();
 
         transport?.requestDataRange?.(requestedStart, requestedEnd);
-        await vi.waitFor(() => expect(transport?.onDataRange).toHaveBeenCalledWith(
-            requestedStart,
-            expect.any(Uint8Array),
-        ));
+        await vi.waitFor(() => expect(transport?.onDataRange).toHaveBeenCalledWith(requestedStart, expect.any(Uint8Array)));
 
-        const [
-            observedStart,
-            observedData,
-        ] = transport!.onDataRange.mock.calls[0] as [number, Uint8Array];
+        const [observedStart, observedData] = transport!.onDataRange.mock.calls[0] as [number, Uint8Array];
         expect(observedStart).toBe(requestedStart);
         expect(observedData.byteLength).toBe(requestedEnd - requestedStart);
-        expect(mocks.documentFiles.readFileRange).toHaveBeenNthCalledWith(
-            3,
-            path,
-            requestedStart,
-            requestedEnd - requestedStart,
-        );
+        expect(mocks.documentFiles.readFileRange).toHaveBeenNthCalledWith(3, path, requestedStart, requestedEnd - requestedStart);
     });
 
     it('keeps the loading task available for a range failure after initial loading', async () => {
@@ -317,20 +283,15 @@ describe('createPdfjsDocumentSourceLoader', () => {
             promise: Promise.resolve({numPages: 2}),
         };
         mocks.getDocument.mockReturnValue(task);
-        mocks.documentFiles.readFileRange.mockImplementationOnce(async (
-            _path: string,
-            _offset: number,
-            length: number,
-        ) => new Uint8Array(length));
+        mocks.documentFiles.readFileRange.mockImplementationOnce(
+            async (_path: string, _offset: number, length: number) => new Uint8Array(length),
+        );
         mocks.documentFiles.readFileRange.mockRejectedValueOnce(rangeError);
 
         const loader = createPdfjsDocumentSourceLoader({
             getRenderVersion: () => 1,
             onRangeReadFailure: () => {
-                loader.destroyLoadingTask(
-                    'test range failure cleanup rejected',
-                    'test range failure cleanup failed',
-                );
+                loader.destroyLoadingTask('test range failure cleanup rejected', 'test range failure cleanup failed');
             },
         });
 

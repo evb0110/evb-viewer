@@ -1,43 +1,29 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {completedPageProgress} from '@evb/scan-cleanup/core/policy/scanCleanupDetectionResultPolicy';
 import {SCAN_CLEANUP_PROGRESS_SCHEMA} from '@contracts/scan-cleanup/progress';
 import * as v from 'valibot';
 
 function decodeProgress(partial: ReturnType<typeof completedPageProgress>, completedUnits: number) {
-    return () => v.parse(SCAN_CLEANUP_PROGRESS_SCHEMA, {
-        stage: 'detecting',
-        completedUnits,
-        totalUnits: 138_000,
-        percent: 0,
-        ...partial,
-    });
+    return () =>
+        v.parse(SCAN_CLEANUP_PROGRESS_SCHEMA, {
+            stage: 'detecting',
+            completedUnits,
+            totalUnits: 138_000,
+            percent: 0,
+            ...partial,
+        });
 }
 
 describe('completedPageProgress', () => {
     it('reports the full list when every completed page was classified', () => {
-        const progress = completedPageProgress(new Set([
-            1,
-            2,
-            3,
-        ]), 3);
-        expect(progress).toEqual({completedPageNumbers: [
-            1,
-            2,
-            3,
-        ]});
+        const progress = completedPageProgress(new Set([1, 2, 3]), 3);
+        expect(progress).toEqual({completedPageNumbers: [1, 2, 3]});
         expect(decodeProgress(progress, 3)).not.toThrow();
     });
 
     it('flags a bounded prefix when pages completed without a classification', () => {
-        const progress = completedPageProgress(new Set([
-            1,
-            3,
-        ]), 5);
+        const progress = completedPageProgress(new Set([1, 3]), 5);
         expect(progress.completedPageNumbersTruncated).toBe(true);
         expect(decodeProgress(progress, 5)).not.toThrow();
     });

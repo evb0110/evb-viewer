@@ -1,23 +1,9 @@
-import {
-    access,
-    mkdir,
-    mkdtemp,
-    rm,
-    symlink,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import {access, mkdir, mkdtemp, rm, symlink, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 
-import {
-    pruneBuildArtifacts,
-    pruneDirectory,
-} from '@scripts/prune-build-artifacts.mjs';
+import {pruneBuildArtifacts, pruneDirectory} from '@scripts/prune-build-artifacts.mjs';
 
 describe('build artifact pruning', () => {
     it('preserves traced runtime dependencies while removing app-owned test artifacts', async () => {
@@ -51,24 +37,26 @@ describe('build artifact pruning', () => {
             await mkdir(path.dirname(outsideArtifact), {recursive: true});
             await writeFile(outsideArtifact, 'export const keep = true;', 'utf8');
 
-            await expect(pruneBuildArtifacts({
-                rootDirectory: projectRoot,
-                roots: ['../outside'],
-            })).rejects.toThrow('outside the project');
-            await expect(pruneBuildArtifacts({
-                rootDirectory: projectRoot,
-                roots: [outsideRoot],
-            })).rejects.toThrow('outside the project');
+            await expect(
+                pruneBuildArtifacts({
+                    rootDirectory: projectRoot,
+                    roots: ['../outside'],
+                }),
+            ).rejects.toThrow('outside the project');
+            await expect(
+                pruneBuildArtifacts({
+                    rootDirectory: projectRoot,
+                    roots: [outsideRoot],
+                }),
+            ).rejects.toThrow('outside the project');
 
-            await symlink(
-                outsideRoot,
-                path.join(projectRoot, 'linked-build'),
-                process.platform === 'win32' ? 'junction' : 'dir',
-            );
-            await expect(pruneBuildArtifacts({
-                rootDirectory: projectRoot,
-                roots: ['linked-build'],
-            })).rejects.toThrow('outside the project');
+            await symlink(outsideRoot, path.join(projectRoot, 'linked-build'), process.platform === 'win32' ? 'junction' : 'dir');
+            await expect(
+                pruneBuildArtifacts({
+                    rootDirectory: projectRoot,
+                    roots: ['linked-build'],
+                }),
+            ).rejects.toThrow('outside the project');
             await expect(access(outsideArtifact)).resolves.toBeUndefined();
         } finally {
             await rm(parent, {

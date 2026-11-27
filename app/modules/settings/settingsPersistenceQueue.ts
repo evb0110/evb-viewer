@@ -1,9 +1,5 @@
-import {
-    SETTINGS_SAVE_KEYS,
-    sanitizeSettings,
-    type TSettingsSavePatch,
-} from '@contracts/settings';
-import type { ISettingsData } from '@contracts/shared';
+import {SETTINGS_SAVE_KEYS, sanitizeSettings, type TSettingsSavePatch} from '@contracts/settings';
+import type {ISettingsData} from '@contracts/shared';
 
 export type TSettingsPersistenceStatus = 'idle' | 'saving' | 'failed';
 
@@ -18,18 +14,14 @@ export interface ISettingsPersistenceQueueOptions {
     onStatusChanged?: (status: TSettingsPersistenceStatus, error?: unknown) => void;
 }
 
-export interface ISettingsPersistenceQueue {save: () => Promise<boolean>;}
+export interface ISettingsPersistenceQueue {
+    save: () => Promise<boolean>;
+}
 
-export function buildSettingsPatch(
-    previousSettings: ISettingsData | null,
-    nextSettings: ISettingsData,
-) {
+export function buildSettingsPatch(previousSettings: ISettingsData | null, nextSettings: ISettingsData) {
     const patch: TSettingsSavePatch = {};
     for (const key of SETTINGS_SAVE_KEYS) {
-        if (
-            Object.hasOwn(nextSettings, key)
-            && (!previousSettings || nextSettings[key] !== previousSettings[key])
-        ) {
+        if (Object.hasOwn(nextSettings, key) && (!previousSettings || nextSettings[key] !== previousSettings[key])) {
             Object.assign(patch, {[key]: nextSettings[key]});
         }
     }
@@ -42,9 +34,7 @@ export function buildSettingsPatch(
  * user's next change or an explicit retry; a local file write gains nothing
  * from timed retries.
  */
-export function createSettingsPersistenceQueue(
-    options: ISettingsPersistenceQueueOptions,
-): ISettingsPersistenceQueue {
+export function createSettingsPersistenceQueue(options: ISettingsPersistenceQueueOptions): ISettingsPersistenceQueue {
     let saveInFlight: Promise<boolean> | null = null;
     let dirtyRevision = 0;
 

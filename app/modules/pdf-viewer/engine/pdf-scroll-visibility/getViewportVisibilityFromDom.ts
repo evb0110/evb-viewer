@@ -1,11 +1,7 @@
-import { clamp } from 'es-toolkit/math';
-import {
-    parsePageNumber,
-    requirePageIndex,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
-import { measureDevPerf } from '@app/utils/devPerf';
+import {clamp} from 'es-toolkit/math';
+import {parsePageNumber, requirePageIndex, requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import {measureDevPerf} from '@app/utils/devPerf';
 import type {
     IViewportVisibilityResult,
     IVisiblePageRange,
@@ -46,20 +42,12 @@ export function isBufferedPageElement(element: HTMLElement) {
     return element.classList.contains('page_container--buffered') === true;
 }
 
-function getViewportIntersectionLength(
-    start: number,
-    end: number,
-    viewportStart: number,
-    viewportEnd: number,
-) {
+function getViewportIntersectionLength(start: number, end: number, viewportStart: number, viewportEnd: number) {
     return Math.max(0, Math.min(end, viewportEnd) - Math.max(start, viewportStart));
 }
 
 function getLayoutPageTop(metrics: IPdfPageLayoutMetrics, index: number) {
-    return Math.max(
-        0,
-        (getResolvedLayoutPageTop(metrics, requirePageIndex(index)) ?? 0) - metrics.paddingTop,
-    );
+    return Math.max(0, (getResolvedLayoutPageTop(metrics, requirePageIndex(index)) ?? 0) - metrics.paddingTop);
 }
 
 function getLayoutRowTop(metrics: IPdfPageLayoutMetrics, rowIndex: number) {
@@ -131,26 +119,15 @@ export function getViewportVisibilityFromLayout(
     if (!metrics || metrics.base.totalPages !== totalPages) {
         return null;
     }
-    const viewportTop = Math.max(
-        0,
-        container.scrollTop + Math.max(0, physicalScrollOrigin) - metrics.paddingTop,
-    );
+    const viewportTop = Math.max(0, container.scrollTop + Math.max(0, physicalScrollOrigin) - metrics.paddingTop);
     const viewportBottom = viewportTop + container.clientHeight;
-    const layoutPageCount = Math.min(
-        totalPages,
-        metrics.base.pageRowIndices.length,
-        metrics.base.pageHeights.length,
-    );
+    const layoutPageCount = Math.min(totalPages, metrics.base.pageRowIndices.length, metrics.base.pageHeights.length);
     if (layoutPageCount <= 0) {
         return null;
     }
     const firstVisibleRowIndex = findFirstVisibleLayoutRowIndex(metrics, viewportTop);
     const lastVisibleRowIndex = findLastVisibleLayoutRowIndex(metrics, viewportBottom);
-    if (
-        firstVisibleRowIndex === -1
-        || lastVisibleRowIndex === -1
-        || lastVisibleRowIndex < firstVisibleRowIndex
-    ) {
+    if (firstVisibleRowIndex === -1 || lastVisibleRowIndex === -1 || lastVisibleRowIndex < firstVisibleRowIndex) {
         return null;
     }
     const viewportLeft = Math.max(0, container.scrollLeft);
@@ -159,32 +136,16 @@ export function getViewportVisibilityFromLayout(
     let lastVisiblePage: TPageNumber | null = null;
     let mostVisiblePage: TPageNumber | null = null;
     let maxVisibleArea = 0;
-    const firstVisibleIndex = clamp(
-        (metrics.base.rowStartPages[firstVisibleRowIndex] ?? 1) - 1,
-        0,
-        layoutPageCount - 1,
-    );
-    const lastVisibleIndex = clamp(
-        (metrics.base.rowEndPages[lastVisibleRowIndex] ?? layoutPageCount) - 1,
-        0,
-        layoutPageCount - 1,
-    );
+    const firstVisibleIndex = clamp((metrics.base.rowStartPages[firstVisibleRowIndex] ?? 1) - 1, 0, layoutPageCount - 1);
+    const lastVisibleIndex = clamp((metrics.base.rowEndPages[lastVisibleRowIndex] ?? layoutPageCount) - 1, 0, layoutPageCount - 1);
     for (let index = firstVisibleIndex; index <= lastVisibleIndex; index += 1) {
         const pageTop = getLayoutPageTop(metrics, index);
         const pageHeight = getLayoutPageHeight(metrics, requirePageIndex(index));
         const pageLeft = getLayoutPageLeft(metrics, index, container.clientWidth);
         const pageWidth = getLayoutPageWidth(metrics, requirePageIndex(index));
-        const visibleArea = getViewportIntersectionLength(
-            pageTop,
-            pageTop + pageHeight,
-            viewportTop,
-            viewportBottom,
-        ) * getViewportIntersectionLength(
-            pageLeft,
-            pageLeft + pageWidth,
-            viewportLeft,
-            viewportRight,
-        );
+        const visibleArea =
+            getViewportIntersectionLength(pageTop, pageTop + pageHeight, viewportTop, viewportBottom) *
+            getViewportIntersectionLength(pageLeft, pageLeft + pageWidth, viewportLeft, viewportRight);
         if (visibleArea <= 0) {
             continue;
         }
@@ -204,9 +165,8 @@ export function getViewportVisibilityFromLayout(
             start: requirePageNumber(clamp(firstVisiblePage, 1, totalPages), totalPages),
             end: requirePageNumber(clamp(lastVisiblePage, 1, totalPages), totalPages),
         },
-        mostVisiblePage: maxVisibleArea > 0 && mostVisiblePage !== null
-            ? requirePageNumber(clamp(mostVisiblePage, 1, totalPages), totalPages)
-            : null,
+        mostVisiblePage:
+            maxVisibleArea > 0 && mostVisiblePage !== null ? requirePageNumber(clamp(mostVisiblePage, 1, totalPages), totalPages) : null,
     };
 }
 
@@ -236,17 +196,9 @@ function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics 
         const pageBottom = pageTop + pageElement.offsetHeight;
         const pageLeft = pageElement.offsetLeft;
         const pageRight = pageLeft + pageElement.offsetWidth;
-        const visibleArea = getViewportIntersectionLength(
-            pageTop,
-            pageBottom,
-            viewportTop,
-            viewportBottom,
-        ) * getViewportIntersectionLength(
-            pageLeft,
-            pageRight,
-            viewportLeft,
-            viewportRight,
-        );
+        const visibleArea =
+            getViewportIntersectionLength(pageTop, pageBottom, viewportTop, viewportBottom) *
+            getViewportIntersectionLength(pageLeft, pageRight, viewportLeft, viewportRight);
 
         if (visibleArea > 0) {
             firstVisiblePage ??= pageNumber;
@@ -267,44 +219,45 @@ function collectVisiblePageMetrics(container: HTMLElement): IVisiblePageMetrics 
         range:
             firstVisiblePage !== null && lastVisiblePage !== null
                 ? {
-                    start: firstVisiblePage,
-                    end: lastVisiblePage,
-                }
+                      start: firstVisiblePage,
+                      end: lastVisiblePage,
+                  }
                 : null,
         mostVisiblePage,
         maxVisibleArea,
     };
 }
 
-export function getViewportVisibilityFromDom(
-    container: HTMLElement,
-    totalPages: number,
-): IViewportVisibilityResult {
-    return measureDevPerf('pdf:scroll-visibility', () => {
-        if (totalPages <= 0) {
-            return {
-                range: null,
-                mostVisiblePage: null,
-            };
-        }
+export function getViewportVisibilityFromDom(container: HTMLElement, totalPages: number): IViewportVisibilityResult {
+    return measureDevPerf(
+        'pdf:scroll-visibility',
+        () => {
+            if (totalPages <= 0) {
+                return {
+                    range: null,
+                    mostVisiblePage: null,
+                };
+            }
 
-        const visible = collectVisiblePageMetrics(container);
-        return {
-            range: visible.range
-                ? {
-                    start: requirePageNumber(clamp(visible.range.start, 1, totalPages), totalPages),
-                    end: requirePageNumber(clamp(visible.range.end, 1, totalPages), totalPages),
-                }
-                : null,
-            mostVisiblePage:
-                visible.maxVisibleArea > 0 && visible.mostVisiblePage !== null
-                    ? requirePageNumber(clamp(visible.mostVisiblePage, 1, totalPages), totalPages)
+            const visible = collectVisiblePageMetrics(container);
+            return {
+                range: visible.range
+                    ? {
+                          start: requirePageNumber(clamp(visible.range.start, 1, totalPages), totalPages),
+                          end: requirePageNumber(clamp(visible.range.end, 1, totalPages), totalPages),
+                      }
                     : null,
-        };
-    }, {
-        thresholdMs: 8,
-        details: { totalPages },
-    });
+                mostVisiblePage:
+                    visible.maxVisibleArea > 0 && visible.mostVisiblePage !== null
+                        ? requirePageNumber(clamp(visible.mostVisiblePage, 1, totalPages), totalPages)
+                        : null,
+            };
+        },
+        {
+            thresholdMs: 8,
+            details: {totalPages},
+        },
+    );
 }
 
 /**
@@ -326,5 +279,5 @@ export function getViewportVisibility(
     const domVisibility = getViewportVisibilityFromDom(container, totalPages);
     return domVisibility.range || domVisibility.mostVisiblePage !== null
         ? domVisibility
-        : getViewportVisibilityFromLayout(container, totalPages, metrics, physicalScrollOrigin) ?? domVisibility;
+        : (getViewportVisibilityFromLayout(container, totalPages, metrics, physicalScrollOrigin) ?? domVisibility);
 }

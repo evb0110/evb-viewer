@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     FEATURE_REGISTRATION_DESCRIPTORS,
     RAW_IPC_HANDLER_DESCRIPTORS,
@@ -26,7 +21,7 @@ describe('main-process feature registration table', () => {
     });
 
     it('registers every feature once, documents first', () => {
-        expect(FEATURE_REGISTRATION_DESCRIPTORS.map(descriptor => descriptor.name)).toEqual([
+        expect(FEATURE_REGISTRATION_DESCRIPTORS.map((descriptor) => descriptor.name)).toEqual([
             'documentPicker',
             'documentOpen',
             'documentWorkingCopy',
@@ -66,16 +61,14 @@ describe('main-process feature registration table', () => {
                 reason: 'temporary native window-close handshake response',
             },
         ]);
-        expect(new Set(RAW_IPC_HANDLER_DESCRIPTORS.map(handler => handler.name)).size)
-            .toBe(RAW_IPC_HANDLER_DESCRIPTORS.length);
+        expect(new Set(RAW_IPC_HANDLER_DESCRIPTORS.map((handler) => handler.name)).size).toBe(RAW_IPC_HANDLER_DESCRIPTORS.length);
     });
 
     it('rejects duplicate and orphan raw registrations at the runtime seam', () => {
         const audit = createRawIpcRegistrationAudit();
 
         audit.register('renderer-log', () => undefined);
-        expect(() => audit.register('renderer-log', () => undefined))
-            .toThrow('Duplicate raw IPC registration: renderer-log (global)');
+        expect(() => audit.register('renderer-log', () => undefined)).toThrow('Duplicate raw IPC registration: renderer-log (global)');
         expect(audit.getRegisteredNames()).toEqual(['renderer-log']);
     });
 
@@ -84,12 +77,10 @@ describe('main-process feature registration table', () => {
 
         audit.register('window-close-response', () => undefined, 'window:1');
         audit.register('window-close-response', () => undefined, 'window:2');
-        expect(audit.getRegisteredNames()).toEqual([
-            'window-close-response',
-            'window-close-response',
-        ]);
-        expect(() => audit.register('window-close-response', () => undefined, 'window:1'))
-            .toThrow('Duplicate raw IPC registration: window-close-response (window:1)');
+        expect(audit.getRegisteredNames()).toEqual(['window-close-response', 'window-close-response']);
+        expect(() => audit.register('window-close-response', () => undefined, 'window:1')).toThrow(
+            'Duplicate raw IPC registration: window-close-response (window:1)',
+        );
 
         audit.release('window-close-response', 'window:1');
         expect(audit.getRegisteredNames()).toEqual(['window-close-response']);
@@ -97,7 +88,7 @@ describe('main-process feature registration table', () => {
 
     it('disposes retained registrations in reverse order exactly once', async () => {
         const calls: string[] = [];
-        const registrations = FEATURE_REGISTRATION_DESCRIPTORS.slice(0, 3).map(descriptor => ({
+        const registrations = FEATURE_REGISTRATION_DESCRIPTORS.slice(0, 3).map((descriptor) => ({
             descriptor,
             dispose: vi.fn(async () => {
                 calls.push(descriptor.name);
@@ -108,22 +99,13 @@ describe('main-process feature registration table', () => {
         await runtime.disposeAll();
         await runtime.disposeAll();
 
-        expect(calls).toEqual([
-            'documentWorkingCopy',
-            'documentOpen',
-            'documentPicker',
-        ]);
-        expect(registrations.map(registration => registration.dispose.mock.calls.length))
-            .toEqual([
-                1,
-                1,
-                1,
-            ]);
+        expect(calls).toEqual(['documentWorkingCopy', 'documentOpen', 'documentPicker']);
+        expect(registrations.map((registration) => registration.dispose.mock.calls.length)).toEqual([1, 1, 1]);
     });
 
     it('shares the in-flight disposal promise with concurrent shutdown callers', async () => {
         let release!: () => void;
-        const blocker = new Promise<void>(resolve => {
+        const blocker = new Promise<void>((resolve) => {
             release = resolve;
         });
         const registration = {
@@ -148,5 +130,4 @@ describe('main-process feature registration table', () => {
         await expect(first).resolves.toBeUndefined();
         expect(secondSettled).toBe(true);
     });
-
 });

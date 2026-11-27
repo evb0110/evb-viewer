@@ -22,10 +22,7 @@ export const useRuntimeErrorReports = () => {
         lease?.discard();
     }
 
-    function createRetainedReport(
-        report: IRuntimeErrorReport,
-        existing: IRuntimeErrorReport | undefined,
-    ) {
+    function createRetainedReport(report: IRuntimeErrorReport, existing: IRuntimeErrorReport | undefined) {
         let pendingDiagnostic = report.pendingDiagnostic;
         if (existing?.pendingDiagnostic?.isLive) {
             if (pendingDiagnostic && pendingDiagnostic !== existing.pendingDiagnostic) {
@@ -36,13 +33,7 @@ export const useRuntimeErrorReports = () => {
             discardLease(existing.pendingDiagnostic);
         }
 
-        if (
-            pendingDiagnostic
-            && reports.value.some(candidate => (
-                candidate.id !== existing?.id
-                && candidate.pendingDiagnostic?.isLive
-            ))
-        ) {
+        if (pendingDiagnostic && reports.value.some((candidate) => candidate.id !== existing?.id && candidate.pendingDiagnostic?.isLive)) {
             discardLease(pendingDiagnostic);
             pendingDiagnostic = undefined;
         }
@@ -54,7 +45,7 @@ export const useRuntimeErrorReports = () => {
     }
 
     function addReport(report: IRuntimeErrorReport) {
-        const existing = reports.value.find(candidate => candidate.id === report.id);
+        const existing = reports.value.find((candidate) => candidate.id === report.id);
         if (existing) {
             const retainedReport = createRetainedReport(report, existing);
             const nextReports = [
@@ -64,13 +55,9 @@ export const useRuntimeErrorReports = () => {
                     count: existing.count + 1,
                     occurredAt: Date.now(),
                 },
-                ...reports.value.filter(candidate => candidate.id !== report.id),
+                ...reports.value.filter((candidate) => candidate.id !== report.id),
             ].slice(0, 6);
-            const retainedEventIds = new Set(
-                nextReports
-                    .map(candidate => candidate.pendingDiagnostic?.failure.eventId)
-                    .filter(Boolean),
-            );
+            const retainedEventIds = new Set(nextReports.map((candidate) => candidate.pendingDiagnostic?.failure.eventId).filter(Boolean));
             for (const candidate of reports.value) {
                 const lease = candidate.pendingDiagnostic;
                 if (lease && !retainedEventIds.has(lease.failure.eventId)) {
@@ -82,15 +69,8 @@ export const useRuntimeErrorReports = () => {
         }
 
         const retainedReport = createRetainedReport(report, undefined);
-        const nextReports = [
-            retainedReport,
-            ...reports.value,
-        ].slice(0, 6);
-        const retainedEventIds = new Set(
-            nextReports
-                .map(candidate => candidate.pendingDiagnostic?.failure.eventId)
-                .filter(Boolean),
-        );
+        const nextReports = [retainedReport, ...reports.value].slice(0, 6);
+        const retainedEventIds = new Set(nextReports.map((candidate) => candidate.pendingDiagnostic?.failure.eventId).filter(Boolean));
         for (const candidate of reports.value) {
             const lease = candidate.pendingDiagnostic;
             if (lease && !retainedEventIds.has(lease.failure.eventId)) {
@@ -101,11 +81,11 @@ export const useRuntimeErrorReports = () => {
     }
 
     function clearPendingDiagnostic(id: string, expectedLease?: ILiveDiagnosticLease) {
-        reports.value = reports.value.map(report => {
+        reports.value = reports.value.map((report) => {
             if (
-                report.id !== id
-                || !report.pendingDiagnostic
-                || expectedLease && report.pendingDiagnostic.failure.eventId !== expectedLease.failure.eventId
+                report.id !== id ||
+                !report.pendingDiagnostic ||
+                (expectedLease && report.pendingDiagnostic.failure.eventId !== expectedLease.failure.eventId)
             ) {
                 return report;
             }
@@ -118,7 +98,7 @@ export const useRuntimeErrorReports = () => {
     }
 
     function discardPendingDiagnostics() {
-        reports.value = reports.value.map(report => {
+        reports.value = reports.value.map((report) => {
             if (!report.pendingDiagnostic) {
                 return report;
             }
@@ -160,9 +140,9 @@ export const useRuntimeErrorReports = () => {
     }
 
     function dismissRuntimeErrorReport(id: string) {
-        const report = reports.value.find(candidate => candidate.id === id);
+        const report = reports.value.find((candidate) => candidate.id === id);
         discardLease(report?.pendingDiagnostic);
-        reports.value = reports.value.filter(report => report.id !== id);
+        reports.value = reports.value.filter((report) => report.id !== id);
     }
 
     function clearRuntimeErrorReports() {

@@ -1,39 +1,24 @@
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { captureFailureForPresentation } from '@app/utils/failureReporter';
-import type { Ref } from 'vue';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { TSplitPayload } from '@contracts/windowTabs';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { createWorkingCopySnapshotFromData } from '@app/services/pdf-file/createWorkingCopySnapshotFromData';
-import { readDocumentBytes } from '@app/utils/documentBytes';
-import type { IWorkspacePdfViewerSplitPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import type { IDocumentViewPort } from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
-import type { TPdfSource } from '@app/types/pdfUi';
-import {
-    getDocumentFilesCapability,
-    getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
-import {
-    isNativeDocumentRef,
-    resolveDocumentRefBackend,
-} from '@app/utils/documentRef';
-import {
-    getWorkspaceViewerAdapter,
-    resolveWorkspaceViewerAdapter,
-} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
-import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
-import { retainDocumentOpenWorkingCopyForRetry } from '@app/modules/workspace-shell/document-sessions/retainDocumentOpenWorkingCopyForRetry';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
+import type {Ref} from 'vue';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {TSplitPayload} from '@contracts/windowTabs';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {createWorkingCopySnapshotFromData} from '@app/services/pdf-file/createWorkingCopySnapshotFromData';
+import {readDocumentBytes} from '@app/utils/documentBytes';
+import type {IWorkspacePdfViewerSplitPort} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type {IDocumentViewPort} from '@app/modules/workspace-shell/document-sessions/createDocumentViews';
+import type {TPdfSource} from '@app/types/pdfUi';
+import {getDocumentFilesCapability, getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
+import {isNativeDocumentRef, resolveDocumentRefBackend} from '@app/utils/documentRef';
+import {getWorkspaceViewerAdapter, resolveWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
+import type {TDocumentOpenOutcome} from '@app/types/documentOpenOutcome';
+import {retainDocumentOpenWorkingCopyForRetry} from '@app/modules/workspace-shell/document-sessions/retainDocumentOpenWorkingCopyForRetry';
 import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
-import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
-import {
-    isPathPdfSource,
-    NativePdfSaveRequiredError,
-} from '@app/modules/pdf-viewer/public';
+import {runWithoutDocumentOperationLease} from '@app/utils/runWithoutDocumentOperationLease';
+import {isPathPdfSource, NativePdfSaveRequiredError} from '@app/modules/pdf-viewer/public';
 import {
     consumeNativePdfMutationProjection,
     type INativePdfSaveTransactionOptions,
@@ -54,32 +39,30 @@ interface IUseWorkspaceSplitPayloadOptions {
     pdfData: Ref<Uint8Array | null>;
     openFileWithViewerLifecycle: (result: TOpenFileResult, transactionId?: string) => Promise<TDocumentOpenOutcome>;
     /** Waits for the reload of the document in one view, which then returns to `page`. */
-    prepareViewReload: (view: IDocumentViewPort, page: number) => {
+    prepareViewReload: (
+        view: IDocumentViewPort,
+        page: number,
+    ) => {
         promise: Promise<void>;
-        cancel: () => void
+        cancel: () => void;
     };
     documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
     getNativeSaveTransactionOptions: () => INativePdfSaveTransactionOptions;
-    runWithDocumentOperationLease?: <T>(
-        kind: TDocumentOperationKind,
-        operation: () => Promise<T>,
-    ) => Promise<T>;
+    runWithDocumentOperationLease?: <T>(kind: TDocumentOperationKind, operation: () => Promise<T>) => Promise<T>;
 }
 
-type TPdfSnapshotSplitPayload = Extract<TSplitPayload, { kind: 'pdfSnapshot' }>;
+type TPdfSnapshotSplitPayload = Extract<TSplitPayload, {kind: 'pdfSnapshot'}>;
 const PDF_VIEWER_ADAPTER = getWorkspaceViewerAdapter('pdf');
 const DJVU_VIEWER_ADAPTER = getWorkspaceViewerAdapter('djvu');
 
 function isDjvuSplitPayload(payload: TSplitPayload): payload is Extract<TSplitPayload, {kind: 'djvu'}> {
-    return DJVU_VIEWER_ADAPTER.capabilities.sidebar
-        && DJVU_VIEWER_ADAPTER.documentTypes.includes('djvu')
-        && payload.kind === 'djvu';
+    return DJVU_VIEWER_ADAPTER.capabilities.sidebar && DJVU_VIEWER_ADAPTER.documentTypes.includes('djvu') && payload.kind === 'djvu';
 }
 
 function isPdfSplitPayload(payload: TSplitPayload): payload is TPdfSnapshotSplitPayload {
-    return PDF_VIEWER_ADAPTER.capabilities.pdfDocument
-        && PDF_VIEWER_ADAPTER.documentTypes.includes('pdf')
-        && payload.kind === 'pdfSnapshot';
+    return (
+        PDF_VIEWER_ADAPTER.capabilities.pdfDocument && PDF_VIEWER_ADAPTER.documentTypes.includes('pdf') && payload.kind === 'pdfSnapshot'
+    );
 }
 
 function normalizeSplitPayloadPage(page: number | undefined) {
@@ -99,16 +82,14 @@ function normalizeSplitPayloadTotalPages(total: number | undefined, fallbackPage
 }
 
 export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptions) => {
-    const { t } = useTypedI18n();
-    const { presentFailureToast } = useFailureToast();
-    const runWithDocumentOperationLease = options.runWithDocumentOperationLease
-        ?? runWithoutDocumentOperationLease;
+    const {t} = useTypedI18n();
+    const {presentFailureToast} = useFailureToast();
+    const runWithDocumentOperationLease = options.runWithDocumentOperationLease ?? runWithoutDocumentOperationLease;
 
     function getPathBackedDesktopSnapshotSource() {
         const sourcePath = options.workingCopyPath.value;
         const source = options.pdfSrc.value;
-        return isPathPdfSource(source) && source.path === sourcePath && isNativeDocumentRef(sourcePath)
-            ? sourcePath : null;
+        return isPathPdfSource(source) && source.path === sourcePath && isNativeDocumentRef(sourcePath) ? sourcePath : null;
     }
 
     function createPdfSnapshotPayload(snapshotPath: TDocumentRef, isDirty: boolean, page: number): TPdfSnapshotSplitPayload {
@@ -165,12 +146,14 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             forceWriterSave: false,
             ...(workingCopyPath ? {workingPath: workingCopyPath} : {}),
             ...options.getNativeSaveTransactionOptions(),
-            source: {getSourcePdfData: async () => {
-                if (options.pdfData.value) {
-                    return options.pdfData.value;
-                }
-                return workingCopyPath ? readDocumentBytes(workingCopyPath) : null;
-            }},
+            source: {
+                getSourcePdfData: async () => {
+                    if (options.pdfData.value) {
+                        return options.pdfData.value;
+                    }
+                    return workingCopyPath ? readDocumentBytes(workingCopyPath) : null;
+                },
+            },
         });
         // As printing does: a view with edits moves only with them. Unless
         // the working copy is known to hold them already, only a complete
@@ -190,10 +173,10 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             }
         }
         if (
-            viewerTransaction?.nativeMutationProjection
-            && workingCopyPath
-            && options.documentRevisionToken?.value !== null
-            && options.documentRevisionToken?.value !== undefined
+            viewerTransaction?.nativeMutationProjection &&
+            workingCopyPath &&
+            options.documentRevisionToken?.value !== null &&
+            options.documentRevisionToken?.value !== undefined
         ) {
             const snapshotPath = await consumeNativePdfMutationProjection({
                 workingPath: workingCopyPath,
@@ -201,9 +184,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
                 projection: viewerTransaction.nativeMutationProjection,
                 operation: 'clone',
                 originalPath: options.originalPath.value,
-                ...(viewerTransaction.verifyAnnotationSavePath
-                    ? {verifyPathBeforeExpose: viewerTransaction.verifyAnnotationSavePath}
-                    : {}),
+                ...(viewerTransaction.verifyAnnotationSavePath ? {verifyPathBeforeExpose: viewerTransaction.verifyAnnotationSavePath} : {}),
                 ...(viewerTransaction.assertAnnotationSaveCurrent
                     ? {assertBeforeExpose: viewerTransaction.assertAnnotationSaveCurrent}
                     : {}),
@@ -282,12 +263,8 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             projection: viewerTransaction.nativeMutationProjection,
             operation: 'clone',
             originalPath: options.originalPath.value,
-            ...(viewerTransaction.verifyAnnotationSavePath
-                ? {verifyPathBeforeExpose: viewerTransaction.verifyAnnotationSavePath}
-                : {}),
-            ...(viewerTransaction.assertAnnotationSaveCurrent
-                ? {assertBeforeExpose: viewerTransaction.assertAnnotationSaveCurrent}
-                : {}),
+            ...(viewerTransaction.verifyAnnotationSavePath ? {verifyPathBeforeExpose: viewerTransaction.verifyAnnotationSavePath} : {}),
+            ...(viewerTransaction.assertAnnotationSaveCurrent ? {assertBeforeExpose: viewerTransaction.assertAnnotationSaveCurrent} : {}),
         });
     }
 
@@ -313,7 +290,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
 
         const snapshot = await resolvePdfSnapshotData();
         if (!snapshot) {
-            return { kind: 'empty' };
+            return {kind: 'empty'};
         }
 
         const snapshotPath = await createWorkingCopySnapshotFromData({
@@ -334,8 +311,8 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             pdfSourcePath: isPathPdfSource(options.pdfSrc.value)
                 ? options.pdfSrc.value.path
                 : options.pdfSrc.value
-                    ? parseDocumentRef('browser://documents/in-memory-pdf')
-                    : null,
+                  ? parseDocumentRef('browser://documents/in-memory-pdf')
+                  : null,
         });
         // DjVu check must precede pdfSrc guard: DjVu mode has pdfSrc=null.
         if (activeViewerAdapter === DJVU_VIEWER_ADAPTER && activeViewerAdapter.capabilities.sidebar && options.djvuSourcePath.value) {
@@ -351,7 +328,7 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
         }
 
         if (!options.pdfSrc.value) {
-            return { kind: 'empty' };
+            return {kind: 'empty'};
         }
 
         return capturePdfSnapshotPayload(page);
@@ -380,11 +357,14 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
 
         if (isDjvuSplitPayload(payload) && DJVU_VIEWER_ADAPTER.capabilities.sidebar) {
             const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
-            const outcome = await options.openFileWithViewerLifecycle({
-                kind: 'djvu',
-                workingPath: '',
-                originalPath: payload.sourcePath,
-            }, transactionId);
+            const outcome = await options.openFileWithViewerLifecycle(
+                {
+                    kind: 'djvu',
+                    workingPath: '',
+                    originalPath: payload.sourcePath,
+                },
+                transactionId,
+            );
             if (outcome.status !== 'opened') {
                 return outcome;
             }
@@ -403,13 +383,14 @@ export const useWorkspaceSplitPayload = (options: IUseWorkspaceSplitPayloadOptio
             return {status: 'cancelled'};
         }
         const pageToRestore = normalizeSplitPayloadPage(payload.currentPage);
-        const restorePageWaiter = pageToRestore && pageToRestore > 1
-            ? options.prepareViewReload(view, pageToRestore)
-            : null;
+        const restorePageWaiter = pageToRestore && pageToRestore > 1 ? options.prepareViewReload(view, pageToRestore) : null;
         const restorePagePromise = restorePageWaiter?.promise.catch((error: unknown) => {
             BrowserLogger.warn('workspace', 'Split payload page restore failed', error);
             presentFailureToast({
-                ...captureFailureForPresentation({code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED', local: {source: 'workspace', message: 'Split payload page restore failed', cause: error}}),
+                ...captureFailureForPresentation({
+                    code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
+                    local: {source: 'workspace', message: 'Split payload page restore failed', cause: error},
+                }),
                 title: t('tabs.transferErrors.restoreFailed'),
             });
         });

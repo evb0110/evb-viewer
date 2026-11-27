@@ -1,15 +1,7 @@
-import type {
-    IPdfDocument,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { IBookmarkItem } from '@app/types/pdfOutline';
-import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import type {IPdfDocument, IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {describe, expect, it, vi} from 'vitest';
+import type {IBookmarkItem} from '@app/types/pdfOutline';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import {
     buildOutlineFromBookmarkEntries,
     flattenBookmarks,
@@ -19,63 +11,29 @@ import {
     resolveBookmarkPageTargets,
     summarizeBookmarkStyles,
 } from '@app/utils/pdfOutlineHelpers';
-import { cast } from '@tests/helpers/cast';
+import {cast} from '@tests/helpers/cast';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import type {TPageIndex} from '@contracts/pageNumbers';
 
 type TOutlinePdfDocumentStub = Pick<IPdfDocument, 'numPages' | 'getDestination' | 'getPageIndex' | 'getPage'>;
 type TPdfPageView = [number, number, number, number];
 
-function createPdfPageStub(view: TPdfPageView = [
-    0,
-    0,
-    612,
-    792,
-], rotation = 0): IPdfPage {
+function createPdfPageStub(view: TPdfPageView = [0, 0, 612, 792], rotation = 0): IPdfPage {
     return cast<IPdfPage>({
         view,
         rotate: rotation,
         getViewport: vi.fn(() => {
-            const [
-                left,
-                bottom,
-                right,
-                top,
-            ] = view;
+            const [left, bottom, right, top] = view;
             const width = right - left;
             const height = top - bottom;
-            const transform = rotation === 90 ? [
-                0,
-                1,
-                1,
-                0,
-                -bottom,
-                -left,
-            ]
-                : rotation === 180 ? [
-                    -1,
-                    0,
-                    0,
-                    1,
-                    right,
-                    -bottom,
-                ]
-                    : rotation === 270 ? [
-                        0,
-                        -1,
-                        -1,
-                        0,
-                        top,
-                        right,
-                    ]
-                        : [
-                            1,
-                            0,
-                            0,
-                            -1,
-                            -left,
-                            top,
-                        ];
+            const transform =
+                rotation === 90
+                    ? [0, 1, 1, 0, -bottom, -left]
+                    : rotation === 180
+                      ? [-1, 0, 0, 1, right, -bottom]
+                      : rotation === 270
+                        ? [0, -1, -1, 0, top, right]
+                        : [1, 0, 0, -1, -left, top];
             return {
                 height: rotation % 180 === 0 ? height : width,
                 transform,
@@ -106,11 +64,7 @@ function createBookmark(id: string, pageIndex: number | null): IBookmarkItem {
         id,
         title: id,
         dest: null,
-        pageIndex: pageIndex === null
-            ? null
-            : Number.isNaN(pageIndex)
-                ? cast<TPageIndex>(pageIndex)
-                : requirePageIndex(pageIndex),
+        pageIndex: pageIndex === null ? null : Number.isNaN(pageIndex) ? cast<TPageIndex>(pageIndex) : requirePageIndex(pageIndex),
         bold: false,
         italic: false,
         color: null,
@@ -134,14 +88,12 @@ function createDeepBookmarkEntry(depth: number): IPdfBookmarkEntry {
     return entry!;
 }
 
-function countOutlineDepth(items: Array<{ items?: readonly unknown[] | undefined }>) {
+function countOutlineDepth(items: Array<{items?: readonly unknown[] | undefined}>) {
     let depth = 0;
     let current = items[0] ?? null;
     while (current) {
         depth += 1;
-        current = Array.isArray(current.items)
-            ? current.items[0] as { items?: unknown[] } | undefined ?? null
-            : null;
+        current = Array.isArray(current.items) ? ((current.items[0] as {items?: unknown[]} | undefined) ?? null) : null;
     }
     return depth;
 }
@@ -193,104 +145,81 @@ describe('pdfOutlineHelpers', () => {
     it('projects pending bookmark entries into visible outline items without PDF.js', () => {
         let bookmarkId = 0;
 
-        const resolved = buildOutlineFromBookmarkEntries([{
-            title: 'Contents',
-            pageIndex: requirePageIndex(4),
-            namedDest: 'page-5',
-            bold: true,
-            italic: false,
-            color: '#ABC',
-            items: [{
-                title: 'Chapter',
-                pageIndex: cast<TPageIndex>(10.8),
-                pageYRatio: 0.42,
-                namedDest: null,
-                bold: false,
-                italic: true,
-                color: '#123456',
-                items: [],
-            }],
-        }], () => {
-            const id = `bookmark-${bookmarkId}`;
-            bookmarkId += 1;
-            return id;
-        });
+        const resolved = buildOutlineFromBookmarkEntries(
+            [
+                {
+                    title: 'Contents',
+                    pageIndex: requirePageIndex(4),
+                    namedDest: 'page-5',
+                    bold: true,
+                    italic: false,
+                    color: '#ABC',
+                    items: [
+                        {
+                            title: 'Chapter',
+                            pageIndex: cast<TPageIndex>(10.8),
+                            pageYRatio: 0.42,
+                            namedDest: null,
+                            bold: false,
+                            italic: true,
+                            color: '#123456',
+                            items: [],
+                        },
+                    ],
+                },
+            ],
+            () => {
+                const id = `bookmark-${bookmarkId}`;
+                bookmarkId += 1;
+                return id;
+            },
+        );
 
-        expect(resolved).toEqual([{
-            id: 'bookmark-0',
-            title: 'Contents',
-            dest: 'page-5',
-            pageIndex: 4,
-            bold: true,
-            italic: false,
-            color: '#aabbcc',
-            items: [{
-                id: 'bookmark-1',
-                title: 'Chapter',
-                dest: null,
-                pageIndex: 10,
-                pageYRatio: 0.42,
-                bold: false,
-                italic: true,
-                color: '#123456',
-                items: [],
-            }],
-        }]);
+        expect(resolved).toEqual([
+            {
+                id: 'bookmark-0',
+                title: 'Contents',
+                dest: 'page-5',
+                pageIndex: 4,
+                bold: true,
+                italic: false,
+                color: '#aabbcc',
+                items: [
+                    {
+                        id: 'bookmark-1',
+                        title: 'Chapter',
+                        dest: null,
+                        pageIndex: 10,
+                        pageYRatio: 0.42,
+                        bold: false,
+                        italic: true,
+                        color: '#123456',
+                        items: [],
+                    },
+                ],
+            },
+        ]);
     });
 
     it.each([
-        [
-            0,
-            0.25,
-        ],
-        [
-            90,
-            0.25,
-        ],
-        [
-            180,
-            0.75,
-        ],
-        [
-            270,
-            0.75,
-        ],
+        [0, 0.25],
+        [90, 0.25],
+        [180, 0.75],
+        [270, 0.75],
     ])('maps an imported bookmark through the cropped page view at %s degrees', async (rotation, expected) => {
-        const pdfDoc = createPdfDocumentStub({getPage: async () => createPdfPageStub([
-            60,
-            80,
-            460,
-            320,
-        ], rotation)});
-        const target = await resolveBookmarkDestinationTarget(pdfDoc, [
-            0,
-            {name: 'XYZ'},
-            160,
-            260,
-            null,
-        ]);
+        const pdfDoc = createPdfDocumentStub({getPage: async () => createPdfPageStub([60, 80, 460, 320], rotation)});
+        const target = await resolveBookmarkDestinationTarget(pdfDoc, [0, {name: 'XYZ'}, 160, 260, null]);
         expect(target?.pageYRatio).toBeCloseTo(expected!);
     });
 
     it('resolves the vertical anchor of a lazily loaded bookmark with its page', async () => {
         const pdfDoc = createPdfDocumentStub({
             numPages: 2,
-            getPage: vi.fn(async (_pageNumber: number) => createPdfPageStub([
-                0,
-                0,
-                612,
-                800,
-            ])),
+            getPage: vi.fn(async (_pageNumber: number) => createPdfPageStub([0, 0, 612, 800])),
         });
         const lazyBookmark: IBookmarkItem = {
             ...createBookmark('lazy', null),
-            dest: [
-                0,
-                { name: 'XYZ' },
-                null,
-                600,
-                null,
-            ],
+            dest: [0, {name: 'XYZ'}, null, 600, null],
         };
 
         const targets = await resolveBookmarkPageTargets(pdfDoc, [lazyBookmark], new Map(), new Map());
@@ -315,34 +244,25 @@ describe('pdfOutlineHelpers', () => {
         expect(getDestination).toHaveBeenCalledOnce();
 
         controller.abort();
-        destination.resolve([{
-            num: 4,
-            gen: 0,
-        }]);
+        destination.resolve([
+            {
+                num: 4,
+                gen: 0,
+            },
+        ]);
 
         await expect(resolution).rejects.toMatchObject({name: 'AbortError'});
         expect(getPageIndex).not.toHaveBeenCalled();
     });
 
     it('resolves /XYZ bookmark top coordinates into normalized page y targets', async () => {
-        const getPage = vi.fn(async (_pageNumber: number) => createPdfPageStub([
-            0,
-            100,
-            612,
-            900,
-        ]));
+        const getPage = vi.fn(async (_pageNumber: number) => createPdfPageStub([0, 100, 612, 900]));
         const pdfDoc = createPdfDocumentStub({
             numPages: 6,
             getPage,
         });
 
-        await expect(resolveBookmarkDestinationTarget(pdfDoc, [
-            2,
-            { name: 'XYZ' },
-            null,
-            500,
-            null,
-        ])).resolves.toEqual({
+        await expect(resolveBookmarkDestinationTarget(pdfDoc, [2, {name: 'XYZ'}, null, 500, null])).resolves.toEqual({
             page: 3,
             pageYRatio: 0.5,
         });
@@ -356,22 +276,12 @@ describe('pdfOutlineHelpers', () => {
             getPage,
         });
 
-        await expect(resolveBookmarkDestinationTarget(pdfDoc, [
-            1,
-            { name: 'XYZ' },
-            null,
-            null,
-            null,
-        ])).resolves.toEqual({page: 2});
+        await expect(resolveBookmarkDestinationTarget(pdfDoc, [1, {name: 'XYZ'}, null, null, null])).resolves.toEqual({page: 2});
         expect(getPage).not.toHaveBeenCalled();
     });
 
     it('preserves an explicitly active bookmark when multiple entries share the current page', () => {
-        const bookmarks = [
-            createBookmark('first-on-page', 4),
-            createBookmark('last-on-page', 4),
-            createBookmark('next-page', 5),
-        ];
+        const bookmarks = [createBookmark('first-on-page', 4), createBookmark('last-on-page', 4), createBookmark('next-page', 5)];
 
         expect(resolveActiveBookmarkForPage(bookmarks, 5, 'first-on-page')?.id).toBe('first-on-page');
     });
@@ -381,35 +291,20 @@ describe('pdfOutlineHelpers', () => {
         const child = createBookmark('chapter-opening', 4);
         parent.items = [child];
 
-        expect(resolveActiveBookmarkForPage(
-            flattenBookmarks([
-                createBookmark('intro', 0),
-                parent,
-            ]),
-            5,
-            'intro',
-        )?.id).toBe('chapter');
+        expect(resolveActiveBookmarkForPage(flattenBookmarks([createBookmark('intro', 0), parent]), 5, 'intro')?.id).toBe('chapter');
     });
 
     it('keeps the later sibling when equal-page candidates share a depth', () => {
         const parent = createBookmark('chapter', 4);
         parent.items = [createBookmark('chapter-opening', 4)];
 
-        expect(resolveActiveBookmarkForPage(
-            flattenBookmarks([
-                parent,
-                createBookmark('appendix', 4),
-            ]),
-            5,
-            null,
-        )?.id).toBe('appendix');
+        expect(resolveActiveBookmarkForPage(flattenBookmarks([parent, createBookmark('appendix', 4)]), 5, null)?.id).toBe('appendix');
     });
 
     it('ignores bookmarks with non-finite page indices', () => {
-        expect(resolveActiveBookmarkForPage([
-            createBookmark('chapter', 4),
-            createBookmark('invalid', Number.NaN),
-        ], 5, null)?.id).toBe('chapter');
+        expect(resolveActiveBookmarkForPage([createBookmark('chapter', 4), createBookmark('invalid', Number.NaN)], 5, null)?.id).toBe(
+            'chapter',
+        );
     });
 
     it('uses the nearest preceding page even when outline destinations are out of order', () => {

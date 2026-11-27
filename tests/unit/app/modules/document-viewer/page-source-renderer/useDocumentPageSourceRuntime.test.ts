@@ -1,12 +1,12 @@
 import {
-    buildDocumentPageSourceScrollLayout, createLayoutPhysicalScrollSession, getLayoutContentHeight, getLayoutPhysicalScrollSegment, PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, resolveDocumentPageTopsBounded,
+    buildDocumentPageSourceScrollLayout,
+    createLayoutPhysicalScrollSession,
+    getLayoutContentHeight,
+    getLayoutPhysicalScrollSegment,
+    PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
+    resolveDocumentPageTopsBounded,
 } from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     resolveDocumentPageDisplayLayoutsBounded,
     resolveDocumentPageHeightsBounded,
@@ -19,46 +19,51 @@ import {
     isSparseDocumentPageMetrics,
 } from '@app/modules/document-viewer/page-source-renderer/loadPrioritizedDocumentPageMetrics';
 import {DOCUMENT_PAGE_GUTTER_PX} from '@app/modules/document-viewer/layout/documentPageGutterPx';
-import {
-    createLazyIndexedCollection,
-    isLazyIndexedCollection,
-} from '@app/modules/document-viewer/virtualization/pageVirtualization';
+import {createLazyIndexedCollection, isLazyIndexedCollection} from '@app/modules/document-viewer/virtualization/pageVirtualization';
 
 describe('document page-source ready-edge reconciliation', () => {
     it('preserves the committed navigation target until a trusted page is observed', () => {
-        expect(resolveDocumentPageSourceReadyEdgeSemanticPage({
-            lifecycle: 'ready',
-            requestedPage: 11,
-            committedPage: 11,
-            observedPage: null,
-        })).toBe(11);
+        expect(
+            resolveDocumentPageSourceReadyEdgeSemanticPage({
+                lifecycle: 'ready',
+                requestedPage: 11,
+                committedPage: 11,
+                observedPage: null,
+            }),
+        ).toBe(11);
     });
 
     it('falls back to the requested page when no page is committed', () => {
-        expect(resolveDocumentPageSourceReadyEdgeSemanticPage({
-            lifecycle: 'ready',
-            requestedPage: 11,
-            committedPage: null,
-            observedPage: null,
-        })).toBe(11);
+        expect(
+            resolveDocumentPageSourceReadyEdgeSemanticPage({
+                lifecycle: 'ready',
+                requestedPage: 11,
+                committedPage: null,
+                observedPage: null,
+            }),
+        ).toBe(11);
     });
 
     it('does not reconcile before the viewport session is ready', () => {
-        expect(resolveDocumentPageSourceReadyEdgeSemanticPage({
-            lifecycle: 'opening',
-            requestedPage: 11,
-            committedPage: 11,
-            observedPage: null,
-        })).toBeNull();
+        expect(
+            resolveDocumentPageSourceReadyEdgeSemanticPage({
+                lifecycle: 'opening',
+                requestedPage: 11,
+                committedPage: 11,
+                observedPage: null,
+            }),
+        ).toBeNull();
     });
 
     it('leaves a physically observed page for viewport reconciliation', () => {
-        expect(resolveDocumentPageSourceReadyEdgeSemanticPage({
-            lifecycle: 'ready',
-            requestedPage: 11,
-            committedPage: 11,
-            observedPage: 18,
-        })).toBeNull();
+        expect(
+            resolveDocumentPageSourceReadyEdgeSemanticPage({
+                lifecycle: 'ready',
+                requestedPage: 11,
+                committedPage: 11,
+                observedPage: 18,
+            }),
+        ).toBeNull();
     });
 });
 
@@ -80,34 +85,17 @@ describe('document page-source layout memory bounds', () => {
             },
         });
 
-        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(
-            metrics,
-            600,
-            800,
-            1,
-            'custom',
-        );
+        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(metrics, 600, 800, 1, 'custom');
         const pageHeights = resolveDocumentPageHeightsBounded(displayLayouts);
         const pageTops = resolveDocumentPageTopsBounded(pageHeights);
-        const pageLayouts = resolveDocumentPageLayoutsBounded(
-            displayLayouts,
-            pageTops,
-            true,
-        );
-        const zoomAnchorLayouts = resolveDocumentPageZoomAnchorLayoutsBounded(
-            pageLayouts,
-            pageWidth => Math.max(DOCUMENT_PAGE_GUTTER_PX, (800 - pageWidth) / 2),
+        const pageLayouts = resolveDocumentPageLayoutsBounded(displayLayouts, pageTops, true);
+        const zoomAnchorLayouts = resolveDocumentPageZoomAnchorLayoutsBounded(pageLayouts, (pageWidth) =>
+            Math.max(DOCUMENT_PAGE_GUTTER_PX, (800 - pageWidth) / 2),
         );
 
-        for (const collection of [
-            displayLayouts,
-            pageHeights,
-            pageTops,
-            pageLayouts,
-            zoomAnchorLayouts,
-        ]) {
+        for (const collection of [displayLayouts, pageHeights, pageTops, pageLayouts, zoomAnchorLayouts]) {
             expect(isLazyIndexedCollection(collection)).toBe(true);
-            expect(Object.keys(collection).filter(key => /^\d+$/u.test(key))).toEqual([]);
+            expect(Object.keys(collection).filter((key) => /^\d+$/u.test(key))).toEqual([]);
             expect(collection).toHaveLength(1_000_000);
         }
         expect(zoomAnchorLayouts[0]).toMatchObject({
@@ -126,16 +114,10 @@ describe('document page-source layout memory bounds', () => {
         });
         expect(isSparseDocumentPageMetrics(metrics)).toBe(true);
 
-        const layouts = resolveDocumentPageDisplayLayoutsBounded(
-            metrics,
-            600,
-            800,
-            1,
-            'custom',
-        );
+        const layouts = resolveDocumentPageDisplayLayoutsBounded(metrics, 600, 800, 1, 'custom');
 
         expect(isLazyIndexedCollection(layouts)).toBe(true);
-        expect(Object.keys(layouts).filter(key => /^\d+$/u.test(key))).toEqual([]);
+        expect(Object.keys(layouts).filter((key) => /^\d+$/u.test(key))).toEqual([]);
         expect(layouts).toHaveLength(1_000_000);
         expect(layouts[999_999]).toMatchObject({
             width: 600,
@@ -158,10 +140,7 @@ describe('document page-source layout memory bounds', () => {
             rotation: 0,
         });
         const getMetric = vi.spyOn(metrics, 'get');
-        for (const availableWidth of [
-            800,
-            1_000,
-        ]) {
+        for (const availableWidth of [800, 1_000]) {
             const layouts = resolveDocumentPageDisplayLayoutsBounded(metrics, 800, availableWidth, 1, 'fit-width', true);
             // One scale for the document: the widest page fits, the others are half its width.
             expect(layouts[499_999]!.width).toBeLessThanOrEqual(availableWidth);
@@ -208,22 +187,12 @@ describe('document page-source layout memory bounds', () => {
             heightPoints: 1_000,
             rotation: 0,
         });
-        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(
-            metrics,
-            600,
-            800,
-            1,
-            'custom',
-        );
+        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(metrics, 600, 800, 1, 'custom');
         const pageHeights = resolveDocumentPageHeightsBounded(displayLayouts);
         const pageTops = resolveDocumentPageTopsBounded(pageHeights);
         const lastPageIndex = 999_999;
 
-        expect(pageTops[lastPageIndex]).toBe(
-            DOCUMENT_PAGE_GUTTER_PX
-            + (1_000 - 800)
-            + lastPageIndex * (800 + DOCUMENT_PAGE_GUTTER_PX),
-        );
+        expect(pageTops[lastPageIndex]).toBe(DOCUMENT_PAGE_GUTTER_PX + (1_000 - 800) + lastPageIndex * (800 + DOCUMENT_PAGE_GUTTER_PX));
         expect(getMetric.mock.calls.length).toBeLessThan(1_000);
     });
 
@@ -233,13 +202,7 @@ describe('document page-source layout memory bounds', () => {
             heightPoints: 800,
             rotation: 0,
         });
-        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(
-            metrics,
-            600,
-            800,
-            1,
-            'custom',
-        );
+        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(metrics, 600, 800, 1, 'custom');
         Object.defineProperty(displayLayouts, 'map', {
             configurable: true,
             value: () => {
@@ -249,19 +212,11 @@ describe('document page-source layout memory bounds', () => {
 
         const pageHeights = resolveDocumentPageHeightsBounded(displayLayouts);
         const pageTops = resolveDocumentPageTopsBounded(pageHeights);
-        const pageLayouts = resolveDocumentPageLayoutsBounded(
-            displayLayouts,
-            pageTops,
-            true,
-        );
+        const pageLayouts = resolveDocumentPageLayoutsBounded(displayLayouts, pageTops, true);
 
-        for (const collection of [
-            pageHeights,
-            pageTops,
-            pageLayouts,
-        ]) {
+        for (const collection of [pageHeights, pageTops, pageLayouts]) {
             expect(isLazyIndexedCollection(collection)).toBe(true);
-            expect(Object.keys(collection).filter(key => /^\d+$/u.test(key))).toEqual([]);
+            expect(Object.keys(collection).filter((key) => /^\d+$/u.test(key))).toEqual([]);
             expect(collection).toHaveLength(1_000_000);
         }
         expect(pageHeights[0]).toBe(800);
@@ -288,16 +243,8 @@ describe('document page-source layout memory bounds', () => {
             value: getMetric,
         });
 
-        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(
-            metrics,
-            600,
-            800,
-            1,
-            'custom',
-        );
-        const pageTops = resolveDocumentPageTopsBounded(
-            resolveDocumentPageHeightsBounded(displayLayouts),
-        );
+        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(metrics, 600, 800, 1, 'custom');
+        const pageTops = resolveDocumentPageTopsBounded(resolveDocumentPageHeightsBounded(displayLayouts));
 
         expect(pageTops.at(-1)).toBe(20 + (138_000 - 1) * 820);
         expect(getMetric).toHaveBeenCalledTimes(0);
@@ -309,18 +256,10 @@ describe('document page-source layout memory bounds', () => {
             heightPoints: 800,
             rotation: 0,
         });
-        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(
-            metrics,
-            600,
-            800,
-            1,
-            'custom',
-        );
+        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(metrics, 600, 800, 1, 'custom');
         const pageLayouts = resolveDocumentPageLayoutsBounded(
             displayLayouts,
-            resolveDocumentPageTopsBounded(
-                resolveDocumentPageHeightsBounded(displayLayouts),
-            ),
+            resolveDocumentPageTopsBounded(resolveDocumentPageHeightsBounded(displayLayouts)),
             true,
         );
         Object.defineProperty(pageLayouts, 'map', {
@@ -330,13 +269,12 @@ describe('document page-source layout memory bounds', () => {
             },
         });
 
-        const zoomAnchorLayouts = resolveDocumentPageZoomAnchorLayoutsBounded(
-            pageLayouts,
-            pageWidth => Math.max(DOCUMENT_PAGE_GUTTER_PX, (800 - pageWidth) / 2),
+        const zoomAnchorLayouts = resolveDocumentPageZoomAnchorLayoutsBounded(pageLayouts, (pageWidth) =>
+            Math.max(DOCUMENT_PAGE_GUTTER_PX, (800 - pageWidth) / 2),
         );
 
         expect(isLazyIndexedCollection(zoomAnchorLayouts)).toBe(true);
-        expect(Object.keys(zoomAnchorLayouts).filter(key => /^\d+$/u.test(key))).toEqual([]);
+        expect(Object.keys(zoomAnchorLayouts).filter((key) => /^\d+$/u.test(key))).toEqual([]);
         expect(zoomAnchorLayouts).toHaveLength(1_000_000);
         expect(zoomAnchorLayouts[0]).toMatchObject({
             left: 100,
@@ -347,7 +285,6 @@ describe('document page-source layout memory bounds', () => {
     });
 });
 
-
 describe('page-source logical and physical scroll coordinates', () => {
     it('keeps neighboring pages distinct across segments and the final page reachable', () => {
         const metrics = createProvisionalDocumentPageMetrics(5_010, {
@@ -356,18 +293,10 @@ describe('page-source logical and physical scroll coordinates', () => {
             rotation: 0,
         });
         const heights = resolveDocumentPageHeightsBounded(resolveDocumentPageDisplayLayoutsBounded(metrics, 650, 900, 10, 'custom'));
-        const {
-            layout, pageTops,
-        } = buildDocumentPageSourceScrollLayout(heights);
+        const {layout, pageTops} = buildDocumentPageSourceScrollLayout(heights);
         const viewport = createLayoutPhysicalScrollSession();
         expect(getLayoutContentHeight(layout)).toBe(40_180_220);
-        for (const page of [
-            1,
-            1046,
-            1047,
-            2093,
-            5010,
-        ]) {
+        for (const page of [1, 1046, 1047, 2093, 5010]) {
             const pageTop = pageTops[page - 1]!;
             const origin = viewport.place(layout, pageTop - 20, 650);
             const segment = getLayoutPhysicalScrollSegment(layout, origin)!;
@@ -378,15 +307,12 @@ describe('page-source logical and physical scroll coordinates', () => {
             expect(physicalTop).toBeLessThan(segment.height);
             expect(segment.height).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + 8020);
             expect(origin + physicalTop).toBe(pageTop);
-            if (page > 1) expect(physicalTop - (pageTops[page - 2]! - origin)).toBe(8020);
+            if (page > 1) {
+                expect(physicalTop - (pageTops[page - 2]! - origin)).toBe(8020);
+            }
         }
         // The same logical point survives rebasing in both directions.
-        for (const top of [
-            8_388_000,
-            8_389_000,
-            8_000_000,
-            0,
-        ]) {
+        for (const top of [8_388_000, 8_389_000, 8_000_000, 0]) {
             const origin = viewport.place(layout, top, 650);
             expect(origin + (top - origin)).toBe(top);
             expect(top - origin).toBeGreaterThanOrEqual(0);

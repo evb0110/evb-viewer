@@ -1,9 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { createVisibleWindowElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {describe, expect, it} from 'vitest';
+import {createVisibleWindowElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 
 interface IVisibleWindowState {
     availHeight: number;
@@ -32,13 +28,15 @@ describe('Electron E2E - Visible Window Lifecycle', () => {
     it('shows and maximizes the real application window after renderer readiness', async () => {
         const session = sessionFixture.getSession();
 
-        await expect.poll(
-            () => session.page.evaluate(readVisibleWindowState),
-            {timeout: 20_000},
-        ).toSatisfy((state: IVisibleWindowState) => state.visibilityState === 'visible'
-            && state.availWidth > 0
-            && state.availHeight > 0
-            && state.outerWidth >= Math.floor(state.availWidth * 0.9)
-            && state.outerHeight >= Math.floor(state.availHeight * 0.85));
+        await expect
+            .poll(() => session.page.evaluate(readVisibleWindowState), {timeout: 20_000})
+            .toSatisfy(
+                (state: IVisibleWindowState) =>
+                    state.visibilityState === 'visible' &&
+                    state.availWidth > 0 &&
+                    state.availHeight > 0 &&
+                    state.outerWidth >= Math.floor(state.availWidth * 0.9) &&
+                    state.outerHeight >= Math.floor(state.availHeight * 0.85),
+            );
     });
 });

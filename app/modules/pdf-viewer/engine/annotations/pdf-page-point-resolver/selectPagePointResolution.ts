@@ -3,9 +3,6 @@ import type {
     IPagePointResolutionSelection,
 } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/pdfPagePointResolverTypes';
 
-
-
-
 interface IPagePointResolutionInputs {
     targetPageContainer: HTMLElement | null;
     documentPointContainer: HTMLElement | null;
@@ -15,26 +12,11 @@ interface IPagePointResolutionInputs {
     byGeometryPage: number | null;
 }
 
-
 export function selectPagePointResolution(inputs: IPagePointResolutionInputs): IPagePointResolutionSelection {
-    const {
-        targetPageContainer,
-        documentPointContainer,
-        geometryResolution,
-        byTargetPage,
-        byElementFromPointPage,
-        byGeometryPage,
-    } = inputs;
-    const targetConflictsWithElementPoint = (
-        byTargetPage !== null
-        && byElementFromPointPage !== null
-        && byTargetPage !== byElementFromPointPage
-    );
-    const targetConflictsWithGeometry = (
-        byTargetPage !== null
-        && byGeometryPage !== null
-        && byTargetPage !== byGeometryPage
-    );
+    const {targetPageContainer, documentPointContainer, geometryResolution, byTargetPage, byElementFromPointPage, byGeometryPage} = inputs;
+    const targetConflictsWithElementPoint =
+        byTargetPage !== null && byElementFromPointPage !== null && byTargetPage !== byElementFromPointPage;
+    const targetConflictsWithGeometry = byTargetPage !== null && byGeometryPage !== null && byTargetPage !== byGeometryPage;
     const hasTargetConflict = targetConflictsWithElementPoint || targetConflictsWithGeometry;
 
     if (targetPageContainer && !hasTargetConflict) {

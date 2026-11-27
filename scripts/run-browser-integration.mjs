@@ -1,14 +1,8 @@
-import {
-    execFileSync,
-    spawn,
-    spawnSync,
-} from 'node:child_process';
-import { once } from 'node:events';
-import {
-    mkdirSync, rmSync, writeFileSync,
-} from 'node:fs';
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {execFileSync, spawn, spawnSync} from 'node:child_process';
+import {once} from 'node:events';
+import {mkdirSync, rmSync, writeFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 // One development server owns the compiled client/worker graph for this lane,
 // and the supervised CLI starts one shared Chromium server for ordinary specs.
@@ -19,26 +13,10 @@ const BROWSER_ORIGIN_ENV = 'EVB_BROWSER_INTEGRATION_ORIGIN';
 const BROWSER_SERVER_OUTPUT_PATH_ENV = 'EVB_BROWSER_INTEGRATION_SERVER_OUTPUT_PATH';
 
 /** @type {readonly NodeJS.Signals[]} */
-const SHUTDOWN_SIGNALS = process.platform === 'win32'
-    ? [
-        'SIGINT',
-        'SIGTERM',
-        'SIGHUP',
-    ]
-    : [
-        'SIGINT',
-        'SIGTERM',
-        'SIGHUP',
-        'SIGQUIT',
-    ];
+const SHUTDOWN_SIGNALS = process.platform === 'win32' ? ['SIGINT', 'SIGTERM', 'SIGHUP'] : ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT'];
 
 /** @type {readonly NodeJS.Signals[]} */
-const DIRECT_SHUTDOWN_SIGNALS = process.platform === 'win32'
-    ? ['SIGHUP']
-    : [
-        'SIGHUP',
-        'SIGQUIT',
-    ];
+const DIRECT_SHUTDOWN_SIGNALS = process.platform === 'win32' ? ['SIGHUP'] : ['SIGHUP', 'SIGQUIT'];
 
 /**
  * @typedef {{
@@ -52,7 +30,9 @@ const DIRECT_SHUTDOWN_SIGNALS = process.platform === 'win32'
 
 /** @param {number} pgid */
 function isProcessGroupPresentUnix(pgid) {
-    if (process.platform === 'win32' || !Number.isFinite(pgid) || pgid <= 0 || pgid === process.pid) return false;
+    if (process.platform === 'win32' || !Number.isFinite(pgid) || pgid <= 0 || pgid === process.pid) {
+        return false;
+    }
     try {
         process.kill(-pgid, 0);
         return true;
@@ -73,27 +53,26 @@ function collectLiveProcessGroupPidsUnix(pgid) {
         };
     }
     try {
-        const output = execFileSync('ps', [
-            '-eo',
-            'pid=,pgid=,stat=',
-        ], {
+        const output = execFileSync('ps', ['-eo', 'pid=,pgid=,stat='], {
             encoding: 'utf8',
-            stdio: [
-                'ignore',
-                'pipe',
-                'ignore',
-            ],
+            stdio: ['ignore', 'pipe', 'ignore'],
         });
         /** @type {number[]} */
         const pids = [];
         for (const line of output.split('\n')) {
             const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)/u);
-            if (!match) continue;
+            if (!match) {
+                continue;
+            }
             const pid = Number(match[1]);
             const group = Number(match[2]);
             const stat = match[3] ?? '';
-            if (group !== pgid || !Number.isFinite(pid) || pid <= 0) continue;
-            if (stat.startsWith('Z') || stat.startsWith('X')) continue;
+            if (group !== pgid || !Number.isFinite(pid) || pid <= 0) {
+                continue;
+            }
+            if (stat.startsWith('Z') || stat.startsWith('X')) {
+                continue;
+            }
             pids.push(pid);
         }
         return {
@@ -147,7 +126,9 @@ function inspectProcessGroupUnix(pgid) {
  * @param {NodeJS.Signals} signal
  */
 function killProcessGroupUnix(pgid, signal) {
-    if (process.platform === 'win32' || !Number.isFinite(pgid) || pgid <= 0 || pgid === process.pid) return;
+    if (process.platform === 'win32' || !Number.isFinite(pgid) || pgid <= 0 || pgid === process.pid) {
+        return;
+    }
     try {
         process.kill(-pgid, signal);
     } catch {}
@@ -172,11 +153,15 @@ function killProcessGroupUnix(pgid, signal) {
  */
 function createTrackedProcess(child, processTree) {
     const pid = child.pid;
-    if (!pid || !Number.isFinite(pid) || pid <= 0) return null;
+    if (!pid || !Number.isFinite(pid) || pid <= 0) {
+        return null;
+    }
     let exited = child.exitCode !== null || child.signalCode !== null;
     let groupCleared = false;
     const syncGroupCleared = () => {
-        if (!exited) return;
+        if (!exited) {
+            return;
+        }
         if (process.platform === 'win32' || !isProcessGroupPresentUnix(pid)) {
             groupCleared = true;
         }
@@ -193,7 +178,9 @@ function createTrackedProcess(child, processTree) {
         pid,
         isRootRunning: () => !exited && processTree.isProcessAlive(pid),
         hasActiveGroup: () => {
-            if (process.platform === 'win32' || groupCleared) return false;
+            if (process.platform === 'win32' || groupCleared) {
+                return false;
+            }
             if (exited && !isProcessGroupPresentUnix(pid)) {
                 groupCleared = true;
                 return false;
@@ -220,7 +207,9 @@ function forceKillTrackedProcessesSync(targets, processTree) {
     /** @type {ITrackedProcess[]} */
     const trackedList = [];
     for (const target of targets) {
-        if (!target) continue;
+        if (!target) {
+            continue;
+        }
         trackedList.push(target);
         if (target.isRootRunning()) {
             liveRoots.add(target.pid);
@@ -232,12 +221,7 @@ function forceKillTrackedProcessesSync(targets, processTree) {
 
     if (process.platform === 'win32') {
         for (const pid of liveRoots) {
-            spawnSync('taskkill', [
-                '/PID',
-                String(pid),
-                '/T',
-                '/F',
-            ], { stdio: 'ignore' });
+            spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], {stdio: 'ignore'});
         }
         return;
     }
@@ -253,7 +237,7 @@ function forceKillTrackedProcessesSync(targets, processTree) {
                 expanded.add(descendant);
             }
         }
-        processTree.killPids([...expanded], { signal: 'SIGKILL' });
+        processTree.killPids([...expanded], {signal: 'SIGKILL'});
     }
     for (const target of trackedList) {
         if (!target.isRootRunning() && !isProcessGroupPresentUnix(target.pid)) {
@@ -268,7 +252,9 @@ function forceKillTrackedProcessesSync(targets, processTree) {
  * @param {IProcessTreeHelper} processTree
  */
 async function terminateTrackedProcessTree(target, label, processTree) {
-    if (!target) return;
+    if (!target) {
+        return;
+    }
     const rootWasRunning = target.isRootRunning();
     const terminated = rootWasRunning ? await processTree.killProcessTree(target.pid) : true;
     const checkRemaining = () => {
@@ -276,10 +262,10 @@ async function terminateTrackedProcessTree(target, label, processTree) {
         const group = target.hasActiveGroup()
             ? inspectProcessGroupUnix(target.pid)
             : {
-                alive: false,
-                verified: true,
-                pids: [],
-            };
+                  alive: false,
+                  verified: true,
+                  pids: [],
+              };
         if (!rootAlive && !group.alive && group.verified) {
             target.markGroupCleared();
         }
@@ -299,12 +285,14 @@ async function terminateTrackedProcessTree(target, label, processTree) {
                 const groupState = target.hasActiveGroup()
                     ? inspectProcessGroupUnix(target.pid)
                     : {
-                        alive: false,
-                        verified: true,
-                        pids: [],
-                    };
-                if (!groupState.alive && groupState.verified) break;
-                await new Promise(resolveWait => setTimeout(resolveWait, 80));
+                          alive: false,
+                          verified: true,
+                          pids: [],
+                      };
+                if (!groupState.alive && groupState.verified) {
+                    break;
+                }
+                await new Promise((resolveWait) => setTimeout(resolveWait, 80));
             }
         }
     }
@@ -314,7 +302,7 @@ async function terminateTrackedProcessTree(target, label, processTree) {
         forceKillTrackedProcessesSync([target], processTree);
         const forceDeadline = Date.now() + 2_000;
         while (Date.now() < forceDeadline && checkRemaining().hasRemaining) {
-            await new Promise(resolveWait => setTimeout(resolveWait, 80));
+            await new Promise((resolveWait) => setTimeout(resolveWait, 80));
         }
     }
 
@@ -338,27 +326,20 @@ function reraiseSignal(signal) {
  *   launchChromiumServer: boolean,
  * }} options
  */
-async function startBrowserIntegrationHarness({
-    abortSignal,
-    launchChromiumServer,
-}) {
-    const { tsImport } = await import('tsx/esm/api');
-    const [
-        processTree,
-        { buildNuxtDevServerEnv },
-        playwrightModule,
-    ] = await Promise.all([
+async function startBrowserIntegrationHarness({abortSignal, launchChromiumServer}) {
+    const {tsImport} = await import('tsx/esm/api');
+    const [processTree, {buildNuxtDevServerEnv}, playwrightModule] = await Promise.all([
         tsImport('./electron-run/electronRunProcessTree.ts', import.meta.url),
         tsImport('./electron-run/electronRunLaunchConfig.ts', import.meta.url),
         launchChromiumServer ? import('playwright') : Promise.resolve(null),
     ]);
-    const { findFreePort } = processTree;
+    const {findFreePort} = processTree;
 
     const port = await findFreePort();
     const origin = `http://127.0.0.1:${String(port)}`;
     const sessionName = `browser-lifecycle-${process.pid}`;
     const outputPath = resolve('.devkit', `${sessionName}.log`);
-    mkdirSync(resolve('.devkit'), { recursive: true });
+    mkdirSync(resolve('.devkit'), {recursive: true});
 
     /** @type {Promise<import('playwright').BrowserServer | null> | null} */
     let browserServerPromise = null;
@@ -367,30 +348,27 @@ async function startBrowserIntegrationHarness({
     let serverOutput = '';
     // Give Nuxt its own POSIX process group so descendants remain targetable
     // even if the Nuxt leader exits before teardown and workers reparent.
-    const devServer = spawn(process.execPath, [
-        resolve(process.cwd(), 'node_modules/nuxt/bin/nuxt.mjs'),
-        'dev',
-        '--host',
-        '127.0.0.1',
-        '--port',
-        String(port),
-    ], {
-        cwd: process.cwd(),
-        detached: process.platform !== 'win32',
-        env: buildNuxtDevServerEnv({
-            ...process.env,
-            // Match Vitest's globalSetup environment so Nuxt sets `import.meta.test = true`
-            // (disabling the dev-error-overlay HMR client plugin on Playwright-routed pages).
-            TEST: process.env.TEST ?? 'true',
-            VITEST: process.env.VITEST ?? 'true',
-            SENTRY_BROWSER_DSN: `http://consenttest@127.0.0.1:${String(port)}/1`,
-        }, port, sessionName),
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
-    });
+    const devServer = spawn(
+        process.execPath,
+        [resolve(process.cwd(), 'node_modules/nuxt/bin/nuxt.mjs'), 'dev', '--host', '127.0.0.1', '--port', String(port)],
+        {
+            cwd: process.cwd(),
+            detached: process.platform !== 'win32',
+            env: buildNuxtDevServerEnv(
+                {
+                    ...process.env,
+                    // Match Vitest's globalSetup environment so Nuxt sets `import.meta.test = true`
+                    // (disabling the dev-error-overlay HMR client plugin on Playwright-routed pages).
+                    TEST: process.env.TEST ?? 'true',
+                    VITEST: process.env.VITEST ?? 'true',
+                    SENTRY_BROWSER_DSN: `http://consenttest@127.0.0.1:${String(port)}/1`,
+                },
+                port,
+                sessionName,
+            ),
+            stdio: ['ignore', 'pipe', 'pipe'],
+        },
+    );
     const trackedDevServer = createTrackedProcess(devServer, processTree);
     /** @param {Buffer} chunk */
     const captureOutput = (chunk) => {
@@ -404,19 +382,20 @@ async function startBrowserIntegrationHarness({
     // Targets only live unreaped roots and currently owned POSIX process groups
     // so reparented descendants are killed without ever signaling recycled PIDs.
     const forceKillOnExit = () => {
-        forceKillTrackedProcessesSync([
-            trackedBrowser,
-            trackedDevServer,
-        ], processTree);
-        rmSync(outputPath, { force: true });
+        forceKillTrackedProcessesSync([trackedBrowser, trackedDevServer], processTree);
+        rmSync(outputPath, {force: true});
     };
     process.on('exit', forceKillOnExit);
 
     const stopBrowserServer = async () => {
-        if (!browserServerPromise) return;
+        if (!browserServerPromise) {
+            return;
+        }
         const activeServer = await browserServerPromise.catch(() => null);
         browserServerPromise = null;
-        if (!activeServer) return;
+        if (!activeServer) {
+            return;
+        }
         const browserProc = activeServer.process();
         if (!trackedBrowser && browserProc) {
             trackedBrowser = createTrackedProcess(browserProc, processTree);
@@ -432,36 +411,27 @@ async function startBrowserIntegrationHarness({
         } catch {
             await activeServer.kill().catch(() => {});
         }
-        await terminateTrackedProcessTree(
-            trackedBrowser,
-            'browser integration Chromium server',
-            processTree,
-        );
+        await terminateTrackedProcessTree(trackedBrowser, 'browser integration Chromium server', processTree);
         trackedBrowser = null;
     };
 
     const stopDevServer = async () => {
         try {
-            await terminateTrackedProcessTree(
-                trackedDevServer,
-                'browser lifecycle Nuxt',
-                processTree,
-            );
+            await terminateTrackedProcessTree(trackedDevServer, 'browser lifecycle Nuxt', processTree);
         } finally {
-            rmSync(outputPath, { force: true });
+            rmSync(outputPath, {force: true});
         }
     };
 
     /** @type {Promise<void> | null} */
     let stopPromise = null;
     const stop = () => {
-        if (stopPromise) return stopPromise;
+        if (stopPromise) {
+            return stopPromise;
+        }
         stopPromise = (async () => {
-            const results = await Promise.allSettled([
-                stopBrowserServer(),
-                stopDevServer(),
-            ]);
-            const rejected = results.find(result => result.status === 'rejected');
+            const results = await Promise.allSettled([stopBrowserServer(), stopDevServer()]);
+            const rejected = results.find((result) => result.status === 'rejected');
             if (rejected) {
                 forceKillOnExit();
                 process.off('exit', forceKillOnExit);
@@ -474,19 +444,21 @@ async function startBrowserIntegrationHarness({
 
     try {
         if (playwrightModule) {
-            browserServerPromise = playwrightModule.chromium.launchServer({
-                headless: true,
-                host: '127.0.0.1',
-                handleSIGINT: false,
-                handleSIGTERM: false,
-                handleSIGHUP: false,
-            }).then((server) => {
-                const browserProc = server.process();
-                if (browserProc) {
-                    trackedBrowser = createTrackedProcess(browserProc, processTree);
-                }
-                return server;
-            });
+            browserServerPromise = playwrightModule.chromium
+                .launchServer({
+                    headless: true,
+                    host: '127.0.0.1',
+                    handleSIGINT: false,
+                    handleSIGTERM: false,
+                    handleSIGHUP: false,
+                })
+                .then((server) => {
+                    const browserProc = server.process();
+                    if (browserProc) {
+                        trackedBrowser = createTrackedProcess(browserProc, processTree);
+                    }
+                    return server;
+                });
             // Prevent unhandled rejection if devServer startup fails before we await browserServerPromise.
             browserServerPromise.catch(() => {});
         }
@@ -504,20 +476,21 @@ async function startBrowserIntegrationHarness({
             }
             try {
                 const requestSignal = abortSignal
-                    ? AbortSignal.any([
-                        abortSignal,
-                        AbortSignal.timeout(Math.max(1, deadline - Date.now())),
-                    ])
+                    ? AbortSignal.any([abortSignal, AbortSignal.timeout(Math.max(1, deadline - Date.now()))])
                     : AbortSignal.timeout(Math.max(1, deadline - Date.now()));
-                const response = await fetch(origin, { signal: requestSignal });
+                const response = await fetch(origin, {signal: requestSignal});
                 await response.body?.cancel();
-                if (response.ok) break;
+                if (response.ok) {
+                    break;
+                }
             } catch {
                 // The development server is still compiling or binding.
             }
             await new Promise((resolveWait) => {
                 const timer = setTimeout(resolveWait, 250);
-                if (!abortSignal) return;
+                if (!abortSignal) {
+                    return;
+                }
                 const onAbort = () => {
                     clearTimeout(timer);
                     resolveWait(undefined);
@@ -526,7 +499,7 @@ async function startBrowserIntegrationHarness({
                     onAbort();
                     return;
                 }
-                abortSignal.addEventListener('abort', onAbort, { once: true });
+                abortSignal.addEventListener('abort', onAbort, {once: true});
             });
         }
         let wsEndpoint = null;
@@ -554,9 +527,11 @@ async function runSupervisedCli() {
     const args = process.argv.slice(2);
     // pnpm run SCRIPT -- OPTIONS retains the separator. Vitest treats everything
     // after it as positional arguments, so remove it before forwarding the options.
-    if (args[0] === '--') args.shift();
+    if (args[0] === '--') {
+        args.shift();
+    }
 
-    const { tsImport } = await import('tsx/esm/api');
+    const {tsImport} = await import('tsx/esm/api');
     const processTree = await tsImport('./electron-run/electronRunProcessTree.ts', import.meta.url);
 
     const abortController = new AbortController();
@@ -581,7 +556,9 @@ async function runSupervisedCli() {
     };
 
     const finalizePendingSignal = () => {
-        if (!receivedSignal || signalReraised) return false;
+        if (!receivedSignal || signalReraised) {
+            return false;
+        }
         signalReraised = true;
         removeSignalHandlers();
         reraiseSignal(receivedSignal);
@@ -589,11 +566,7 @@ async function runSupervisedCli() {
     };
 
     const stopVitestChild = async () => {
-        await terminateTrackedProcessTree(
-            trackedVitest,
-            'Vitest browser integration',
-            processTree,
-        );
+        await terminateTrackedProcessTree(trackedVitest, 'Vitest browser integration', processTree);
     };
 
     /** @param {NodeJS.Signals | null} signal */
@@ -602,17 +575,16 @@ async function runSupervisedCli() {
             receivedSignal = signal;
             abortController.abort();
         }
-        if (teardownPromise) return teardownPromise;
+        if (teardownPromise) {
+            return teardownPromise;
+        }
         teardownPromise = (async () => {
             // Keep signal handlers installed while teardown runs so a second
             // signal (or a signal arriving during ordinary teardown) cannot
             // terminate the supervisor before child processes are reaped.
             const resolvedHarness = harness ?? (harnessPromise ? await harnessPromise.catch(() => null) : null);
-            const results = await Promise.allSettled([
-                stopVitestChild(),
-                resolvedHarness ? resolvedHarness.stop() : Promise.resolve(),
-            ]);
-            const rejected = results.find(result => result.status === 'rejected');
+            const results = await Promise.allSettled([stopVitestChild(), resolvedHarness ? resolvedHarness.stop() : Promise.resolve()]);
+            const rejected = results.find((result) => result.status === 'rejected');
             if (rejected) {
                 forceKillTrackedProcessesSync([trackedVitest], processTree);
                 resolvedHarness?.forceStop();
@@ -626,9 +598,11 @@ async function runSupervisedCli() {
 
     /** @param {NodeJS.Signals} signal */
     const handleSignal = (signal) => {
-        void teardown(signal).catch(() => {}).finally(() => {
-            finalizePendingSignal();
-        });
+        void teardown(signal)
+            .catch(() => {})
+            .finally(() => {
+                finalizePendingSignal();
+            });
     };
     for (const signal of SHUTDOWN_SIGNALS) {
         process.on(signal, handleSignal);
@@ -645,33 +619,32 @@ async function runSupervisedCli() {
             finalizePendingSignal();
             return;
         }
-        vitestChild = spawn(process.execPath, [
-            fileURLToPath(new URL('../node_modules/vitest/vitest.mjs', import.meta.url)),
-            'run',
-            '--project',
-            'browser-integration',
-            ...args,
-        ], {
-            detached: process.platform !== 'win32',
-            stdio: [
-                'ignore',
-                'inherit',
-                'inherit',
+        vitestChild = spawn(
+            process.execPath,
+            [
+                fileURLToPath(new URL('../node_modules/vitest/vitest.mjs', import.meta.url)),
+                'run',
+                '--project',
+                'browser-integration',
+                ...args,
             ],
-            env: {
-                ...process.env,
-                [BROWSER_ORIGIN_ENV]: harness.origin,
-                [BROWSER_SERVER_OUTPUT_PATH_ENV]: harness.outputPath,
-                [BROWSER_WS_ENDPOINT_ENV]: /** @type {string} */ (harness.wsEndpoint),
+            {
+                detached: process.platform !== 'win32',
+                stdio: ['ignore', 'inherit', 'inherit'],
+                env: {
+                    ...process.env,
+                    [BROWSER_ORIGIN_ENV]: harness.origin,
+                    [BROWSER_SERVER_OUTPUT_PATH_ENV]: harness.outputPath,
+                    [BROWSER_WS_ENDPOINT_ENV]: /** @type {string} */ (harness.wsEndpoint),
+                },
             },
-        });
+        );
         trackedVitest = createTrackedProcess(vitestChild, processTree);
-        const [
-            exitCode,
-            exitSignal,
-        ] = await once(vitestChild, 'close');
+        const [exitCode, exitSignal] = await once(vitestChild, 'close');
         await teardown(null);
-        if (finalizePendingSignal()) return;
+        if (finalizePendingSignal()) {
+            return;
+        }
         removeSignalHandlers();
         process.exitCode = exitCode ?? (exitSignal ? 1 : 1);
     } catch (error) {
@@ -681,7 +654,9 @@ async function runSupervisedCli() {
             return;
         }
         await teardown(null);
-        if (finalizePendingSignal()) return;
+        if (finalizePendingSignal()) {
+            return;
+        }
         removeSignalHandlers();
         throw error;
     }
@@ -719,7 +694,9 @@ export async function setup(project) {
     let stopDirectPromise = null;
 
     const stopDirect = () => {
-        if (stopDirectPromise) return stopDirectPromise;
+        if (stopDirectPromise) {
+            return stopDirectPromise;
+        }
         stopDirectPromise = (async () => {
             const resolvedHarness = harness ?? (harnessPromise ? await harnessPromise.catch(() => null) : null);
             if (resolvedHarness) {
@@ -741,7 +718,9 @@ export async function setup(project) {
     };
 
     const finalizeDirectSignal = () => {
-        if (!receivedDirectSignal || directSignalReraised) return false;
+        if (!receivedDirectSignal || directSignalReraised) {
+            return false;
+        }
         directSignalReraised = true;
         removeDirectSignalHandlers();
         reraiseSignal(receivedDirectSignal);
@@ -754,9 +733,11 @@ export async function setup(project) {
             receivedDirectSignal = signal;
             abortController.abort();
         }
-        void stopDirect().catch(() => {}).finally(() => {
-            finalizeDirectSignal();
-        });
+        void stopDirect()
+            .catch(() => {})
+            .finally(() => {
+                finalizeDirectSignal();
+            });
     };
     for (const signal of DIRECT_SHUTDOWN_SIGNALS) {
         process.on(signal, handleDirectSignal);

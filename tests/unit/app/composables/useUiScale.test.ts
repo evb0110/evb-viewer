@@ -1,17 +1,10 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { IHostEnvironmentSnapshot } from '@contracts/hostPlatformFeature';
-import type { TRefStore } from '@tests/unit/app/composables/installNuxtStateTestStubs';
-import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import type {IHostEnvironmentSnapshot} from '@contracts/hostPlatformFeature';
+import type {TRefStore} from '@tests/unit/app/composables/installNuxtStateTestStubs';
+import {installNuxtStateTestStubs} from '@tests/unit/app/composables/installNuxtStateTestStubs';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 
 /**
  * Windows reports its own display scaling and then scales the app on top of it,
@@ -27,26 +20,27 @@ const mocks = vi.hoisted(() => ({
     warn: vi.fn(),
 }));
 
-const platformApi = createElectronPlatformApiFixture({host: {
-    getEnvironment: mocks.getEnvironment,
-    onEnvironmentChange: (listener: (snapshot: IHostEnvironmentSnapshot) => void) => {
-        mocks.environmentListeners.push(listener);
-        return mocks.stopEnvironmentListener;
+const platformApi = createElectronPlatformApiFixture({
+    host: {
+        getEnvironment: mocks.getEnvironment,
+        onEnvironmentChange: (listener: (snapshot: IHostEnvironmentSnapshot) => void) => {
+            mocks.environmentListeners.push(listener);
+            return mocks.stopEnvironmentListener;
+        },
     },
-}});
+});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: mocks.warn,
-}}));
+vi.mock('@app/utils/browserLogger', () => ({
+    BrowserLogger: {
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: mocks.warn,
+    },
+}));
 
-const {
-    applyUiScaleToDocument,
-    useUiScale,
-} = await import('@app/composables/useUiScale');
+const {applyUiScaleToDocument, useUiScale} = await import('@app/composables/useUiScale');
 
 const cookieStore: TRefStore = new Map();
 const stateStore: TRefStore = new Map();
@@ -166,7 +160,7 @@ describe('useUiScale', () => {
         const uiScale = useUiScale();
 
         const stop = uiScale.attachHostEnvironmentListener();
-        mocks.environmentListeners.forEach(listener => listener(windowsSnapshot(1.5)));
+        mocks.environmentListeners.forEach((listener) => listener(windowsSnapshot(1.5)));
 
         expect(uiScale.effectiveScale.value).toBeCloseTo(0.8666667, 5);
         expect(stop).toBe(mocks.stopEnvironmentListener);

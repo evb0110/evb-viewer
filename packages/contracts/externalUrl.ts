@@ -1,22 +1,18 @@
-import { assertNonEmptyString } from '@contracts/ipcAssertions';
+import {assertNonEmptyString} from '@contracts/ipcAssertions';
 
-export const ALLOWED_EXTERNAL_PROTOCOLS = new Set([
-    'http:',
-    'https:',
-    'mailto:',
-]);
+export const ALLOWED_EXTERNAL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
 
 type TExternalUrlDecision =
     | {
-        ok: true;
-        normalizedUrl: string;
-        url: URL;
-    }
+          ok: true;
+          normalizedUrl: string;
+          url: URL;
+      }
     | {
-        ok: false;
-        reason: 'empty' | 'invalid' | 'unsupported-protocol';
-        protocol?: string;
-    };
+          ok: false;
+          reason: 'empty' | 'invalid' | 'unsupported-protocol';
+          protocol?: string;
+      };
 
 function tryParseUrl(value: string) {
     try {
@@ -59,9 +55,7 @@ export function inspectAllowedExternalUrl(rawUrl: string): TExternalUrlDecision 
 
 export function normalizeAllowedExternalUrl(rawUrl: string) {
     const decision = inspectAllowedExternalUrl(rawUrl);
-    return decision.ok
-        ? decision.normalizedUrl
-        : null;
+    return decision.ok ? decision.normalizedUrl : null;
 }
 
 export function sanitizeAllowedExternalUrl(rawUrl: unknown) {

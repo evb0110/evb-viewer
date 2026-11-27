@@ -1,8 +1,5 @@
-import type { IOcrWord } from '@contracts/shared';
-import {
-    buildOcrTextLayerItemText,
-    isLastOcrWordInLine,
-} from '@contracts/ocrText';
+import type {IOcrWord} from '@contracts/shared';
+import {buildOcrTextLayerItemText, isLastOcrWordInLine} from '@contracts/ocrText';
 
 interface IPageWithSearchWords {
     text?: string;
@@ -16,19 +13,13 @@ interface IIndexedGlyphBox extends IOcrWord {
     endOffset?: number;
 }
 
-type TWordWithGlyphs = IOcrWord & { chars?: IIndexedGlyphBox[] };
+type TWordWithGlyphs = IOcrWord & {chars?: IIndexedGlyphBox[]};
 
-function getGlyphOffset(
-    value: number | undefined,
-    fallback: number,
-): number {
+function getGlyphOffset(value: number | undefined, fallback: number): number {
     return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
-function unionBoxes(
-    boxes: readonly IOcrWord[],
-    text: string,
-): IOcrWord | null {
+function unionBoxes(boxes: readonly IOcrWord[], text: string): IOcrWord | null {
     if (boxes.length === 0) {
         return null;
     }
@@ -46,12 +37,12 @@ function unionBoxes(
     }
 
     if (
-        !Number.isFinite(minX)
-        || !Number.isFinite(minY)
-        || !Number.isFinite(maxX)
-        || !Number.isFinite(maxY)
-        || maxX <= minX
-        || maxY <= minY
+        !Number.isFinite(minX) ||
+        !Number.isFinite(minY) ||
+        !Number.isFinite(maxX) ||
+        !Number.isFinite(maxY) ||
+        maxX <= minX ||
+        maxY <= minY
     ) {
         return null;
     }
@@ -65,11 +56,7 @@ function unionBoxes(
     };
 }
 
-function cropWordByCharacterRatio(
-    word: IOcrWord,
-    relativeStart: number,
-    relativeEnd: number,
-) {
+function cropWordByCharacterRatio(word: IOcrWord, relativeStart: number, relativeEnd: number) {
     const textLength = Math.max(1, word.text.length);
     const clampedStart = Math.max(0, Math.min(textLength, relativeStart));
     const clampedEnd = Math.max(clampedStart, Math.min(textLength, relativeEnd));
@@ -85,17 +72,13 @@ function cropWordByCharacterRatio(
     };
 }
 
-function cropWordToMatch(
-    word: TWordWithGlyphs,
-    relativeStart: number,
-    relativeEnd: number,
-) {
+function cropWordToMatch(word: TWordWithGlyphs, relativeStart: number, relativeEnd: number) {
     const selectedGlyphs = Array.isArray(word.chars)
         ? word.chars.filter((glyph, index) => {
-            const glyphStart = getGlyphOffset(glyph.startOffset, index);
-            const glyphEnd = getGlyphOffset(glyph.endOffset, glyphStart + glyph.text.length);
-            return glyphStart < relativeEnd && glyphEnd > relativeStart;
-        })
+              const glyphStart = getGlyphOffset(glyph.startOffset, index);
+              const glyphEnd = getGlyphOffset(glyph.endOffset, glyphStart + glyph.text.length);
+              return glyphStart < relativeEnd && glyphEnd > relativeStart;
+          })
         : [];
 
     if (selectedGlyphs.length > 0) {
@@ -264,12 +247,7 @@ function compareSuffixToNeedle(text: string, suffixPos: number, needle: string):
 }
 
 function maxOccurrenceInSuffixIndex(suffixIndex: ISuffixMaxIndex, needle: string): number {
-    const {
-        text,
-        sa,
-        maxTree,
-        treeSize,
-    } = suffixIndex;
+    const {text, sa, maxTree, treeSize} = suffixIndex;
     const length = sa.length;
     if (length === 0) {
         return -1;
@@ -331,19 +309,16 @@ function isValidPageGeometry(page: IPageWithSearchWords): page is IPageWithSearc
     pageWidth: number;
     pageHeight: number;
 } {
-    const {
-        pageWidth,
-        pageHeight,
-    } = page;
+    const {pageWidth, pageHeight} = page;
     return Boolean(
-        page.words
-        && page.words.length > 0
-        && typeof pageWidth === 'number'
-        && Number.isFinite(pageWidth)
-        && typeof pageHeight === 'number'
-        && Number.isFinite(pageHeight)
-        && pageWidth > 0
-        && pageHeight > 0,
+        page.words &&
+        page.words.length > 0 &&
+        typeof pageWidth === 'number' &&
+        Number.isFinite(pageWidth) &&
+        typeof pageHeight === 'number' &&
+        Number.isFinite(pageHeight) &&
+        pageWidth > 0 &&
+        pageHeight > 0,
     );
 }
 
@@ -355,10 +330,7 @@ function findLogicalWordStart(index: ISearchPageWordIndex, needle: string): numb
     if (needle.length === 0) {
         return index.logicalTextCursor <= pageText.length ? index.logicalTextCursor : -1;
     }
-    if (
-        needle.length > pageText.length - index.logicalTextCursor
-        || index.failedLogicalLookups.has(needle)
-    ) {
+    if (needle.length > pageText.length - index.logicalTextCursor || index.failedLogicalLookups.has(needle)) {
         return -1;
     }
     if (index.pageTextChars !== null) {
@@ -402,18 +374,9 @@ function findLogicalWordStart(index: ISearchPageWordIndex, needle: string): numb
 }
 
 function ensureWordIndexUpTo(index: ISearchPageWordIndex, endOffset: number) {
-    const {
-        pageWords,
-        words,
-        starts,
-        ends,
-        prefixMaxStarts,
-        prefixMaxEnds,
-    } = index;
+    const {pageWords, words, starts, ends, prefixMaxStarts, prefixMaxEnds} = index;
     while (index.nextWordIndex < pageWords.length) {
-        const lastMaxStart = prefixMaxStarts.length > 0
-            ? prefixMaxStarts[prefixMaxStarts.length - 1]!
-            : Number.NEGATIVE_INFINITY;
+        const lastMaxStart = prefixMaxStarts.length > 0 ? prefixMaxStarts[prefixMaxStarts.length - 1]! : Number.NEGATIVE_INFINITY;
         if (lastMaxStart >= endOffset) {
             break;
         }
@@ -428,12 +391,8 @@ function ensureWordIndexUpTo(index: ISearchPageWordIndex, endOffset: number) {
         const wordStart = logicalWordStart >= 0 ? logicalWordStart : index.fallbackCursor;
         const wordEnd = wordStart + word.text.length;
 
-        const prevMaxStart = prefixMaxStarts.length > 0
-            ? prefixMaxStarts[prefixMaxStarts.length - 1]!
-            : Number.NEGATIVE_INFINITY;
-        const prevMaxEnd = prefixMaxEnds.length > 0
-            ? prefixMaxEnds[prefixMaxEnds.length - 1]!
-            : Number.NEGATIVE_INFINITY;
+        const prevMaxStart = prefixMaxStarts.length > 0 ? prefixMaxStarts[prefixMaxStarts.length - 1]! : Number.NEGATIVE_INFINITY;
+        const prevMaxEnd = prefixMaxEnds.length > 0 ? prefixMaxEnds[prefixMaxEnds.length - 1]! : Number.NEGATIVE_INFINITY;
         words.push(word);
         starts.push(wordStart);
         ends.push(wordEnd);
@@ -478,9 +437,7 @@ function upperBoundOffset(values: readonly number[], target: number, upperLimit:
     return low;
 }
 
-export function createSearchPageWordIndex(
-    page: IPageWithSearchWords,
-): ISearchPageWordIndex | null {
+export function createSearchPageWordIndex(page: IPageWithSearchWords): ISearchPageWordIndex | null {
     if (!isValidPageGeometry(page)) {
         return null;
     }
@@ -511,13 +468,7 @@ export function collectSearchMatchWordsFromIndex(
         return undefined;
     }
     ensureWordIndexUpTo(index, endOffset);
-    const {
-        words,
-        starts,
-        ends,
-        prefixMaxStarts,
-        prefixMaxEnds,
-    } = index;
+    const {words, starts, ends, prefixMaxStarts, prefixMaxEnds} = index;
     const stopIndex = lowerBoundOffset(prefixMaxStarts, endOffset, words.length);
     const firstIndex = upperBoundOffset(prefixMaxEnds, startOffset, stopIndex);
     const matchWords: IOcrWord[] = [];
@@ -537,11 +488,7 @@ export function collectSearchMatchWordsFromIndex(
     return matchWords.length > 0 ? matchWords : undefined;
 }
 
-export function collectSearchMatchWords(
-    page: IPageWithSearchWords,
-    startOffset: number,
-    endOffset: number,
-): IOcrWord[] | undefined {
+export function collectSearchMatchWords(page: IPageWithSearchWords, startOffset: number, endOffset: number): IOcrWord[] | undefined {
     if (!isValidPageGeometry(page) || endOffset <= startOffset) {
         return undefined;
     }

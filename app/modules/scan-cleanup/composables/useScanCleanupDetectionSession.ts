@@ -29,13 +29,11 @@ import {
     type IScanCleanupInkSheet,
 } from '@evb/scan-cleanup/core/policy/scanCleanupPagePolicy';
 import {createScanCleanupPlacementAnchorCalibrationSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
-import {
-    isScanCleanupSourceSha256,toPlainScanCleanupOptions,
-} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {isScanCleanupSourceSha256, toPlainScanCleanupOptions} from '@contracts/scan-cleanup/scanCleanupSettings';
 import type {TDocumentRef} from '@contracts/documentRef';
-import { createEpochMs } from '@contracts/timestamps';
-import { createDisposalFlag } from '@app/utils/createDisposalFlag';
-import type { TJobId } from '@contracts/shared';
+import {createEpochMs} from '@contracts/timestamps';
+import {createDisposalFlag} from '@app/utils/createDisposalFlag';
+import type {TJobId} from '@contracts/shared';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {ComputedRef} from 'vue';
 import {until} from '@vueuse/core';
@@ -118,12 +116,11 @@ function selectScanCleanupDetectionByPage<T>(
     select: (record: IScanCleanupDetectionPageRecord) => T | null | undefined,
 ) {
     const selected = new Map<number, T>();
-    for (const [
-        pageNumber,
-        record,
-    ] of records) {
+    for (const [pageNumber, record] of records) {
         const value = select(record);
-        if (value !== null && value !== undefined) selected.set(pageNumber, value);
+        if (value !== null && value !== undefined) {
+            selected.set(pageNumber, value);
+        }
     }
     return selected;
 }
@@ -168,11 +165,7 @@ function detectionPhaseRank(stage: TScanCleanupDetectionJobState['progress']['st
 }
 
 function detectionIsTerminal(state: {status: string} | null) {
-    return state !== null && [
-        'completed',
-        'failed',
-        'canceled',
-    ].includes(state.status);
+    return state !== null && ['completed', 'failed', 'canceled'].includes(state.status);
 }
 
 // The page edits detection depends on, read as the contract's detection
@@ -193,7 +186,7 @@ function detectionOverrideSignature(pageOverride: IScanCleanupPageOverride) {
 
 function withoutMargins(documentSignature: string) {
     return JSON.stringify({
-        ...JSON.parse(documentSignature) as object,
+        ...(JSON.parse(documentSignature) as object),
         marginsMm: null,
     });
 }
@@ -219,33 +212,35 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // Map order is retention order: documents above the streaming limit keep
     // only the most recently touched pages.
     const records = shallowRef<TScanCleanupDetectionRecords>(new Map());
-    const select = <T>(selector: (record: IScanCleanupDetectionPageRecord) => T | null | undefined) => computed(
-        () => selectScanCleanupDetectionByPage(records.value, selector),
-    );
-    const detectedLayoutByPage = select(record => record.result?.classification ?? record.keptLayout);
-    const confidenceByPage = select(record => record.result?.confidence);
-    const textAxisByPage = select(record => record.result?.textAxis);
-    const recommendedOutputModeByPage = select(record => record.result?.recommendedOutputMode);
-    const recommendedOutputModeConfidenceByPage = select(record => record.result?.recommendedOutputModeConfidence);
-    const recommendedOutputModeReasonByPage = select(record => record.result?.recommendedOutputModeReason);
+    const select = <T>(selector: (record: IScanCleanupDetectionPageRecord) => T | null | undefined) =>
+        computed(() => selectScanCleanupDetectionByPage(records.value, selector));
+    const detectedLayoutByPage = select((record) => record.result?.classification ?? record.keptLayout);
+    const confidenceByPage = select((record) => record.result?.confidence);
+    const textAxisByPage = select((record) => record.result?.textAxis);
+    const recommendedOutputModeByPage = select((record) => record.result?.recommendedOutputMode);
+    const recommendedOutputModeConfidenceByPage = select((record) => record.result?.recommendedOutputModeConfidence);
+    const recommendedOutputModeReasonByPage = select((record) => record.result?.recommendedOutputModeReason);
     // Pages the running job has finished a stage for, accumulated across the
     // job: the rasterizing stage reports read pages and the detecting stage
     // reports analyzed ones, and neither set is a superset of the other. A page
     // leaves its loading state as soon as its own work lands, instead of
     // waiting for the whole batch.
-    const settledPages = computed<ReadonlySet<number>>(() => new Set(
-        selectScanCleanupDetectionByPage(records.value, record => record.settled || null).keys(),
-    ));
-    const currentPageCount = computed(() => [...records.value.values()].filter(record => record.result).length);
+    const settledPages = computed<ReadonlySet<number>>(
+        () => new Set(selectScanCleanupDetectionByPage(records.value, (record) => record.settled || null).keys()),
+    );
+    const currentPageCount = computed(() => [...records.value.values()].filter((record) => record.result).length);
     const detectionResultCount = ref(0);
     // Native detection knows the document size before the PDF viewer may have
     // published its own metadata. Keep that count with the detection evidence
     // so completion checks do not treat an uninitialized viewer count as zero.
     const detectionDocumentPageCount = ref(0);
     // A completed job that reported every page of the document it measured.
-    const detectionEvidenceComplete = computed(() => jobState.value?.status === 'completed'
-        && detectionDocumentPageCount.value > 0
-        && detectionResultCount.value >= detectionDocumentPageCount.value);
+    const detectionEvidenceComplete = computed(
+        () =>
+            jobState.value?.status === 'completed' &&
+            detectionDocumentPageCount.value > 0 &&
+            detectionResultCount.value >= detectionDocumentPageCount.value,
+    );
     const detectionResultStoreId = shallowRef<string | null>(null);
     const placementAnchorSummary = shallowRef<IScanCleanupPlacementAnchorSummary | null>(null);
     const placementAnchorCalibrationInFlight = ref(false);
@@ -253,25 +248,23 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     let placementAnchorCalibrationGeneration = 0;
 
     function currentPlacementAnchorCalibrationSignature() {
-        return createScanCleanupPlacementAnchorCalibrationSignature(
-            toPlainScanCleanupOptions(options.settings),
-        );
+        return createScanCleanupPlacementAnchorCalibrationSignature(toPlainScanCleanupOptions(options.settings));
     }
 
     const placementAnchorCalibrationPending = computed(() => {
         const capability = getScanCleanupCapability();
-        return placementAnchorCalibrationInFlight.value || Boolean(
-            capability?.resolvePlacementAnchorCalibration
-            && resolveScanCleanupSupport(getScanCleanupCapability()).calibration
-            && jobState.value?.status === 'completed'
-            && detectionResultStoreId.value !== null
-            && usesScanCleanupInkAlignment(options.settings)
-            && placementAnchorCalibrationError.value === ''
-            && (
-                placementAnchorSummary.value === null
-                || placementAnchorSummary.value.identity.calibrationSignature
-                    !== currentPlacementAnchorCalibrationSignature()
-            ),
+        return (
+            placementAnchorCalibrationInFlight.value ||
+            Boolean(
+                capability?.resolvePlacementAnchorCalibration &&
+                resolveScanCleanupSupport(getScanCleanupCapability()).calibration &&
+                jobState.value?.status === 'completed' &&
+                detectionResultStoreId.value !== null &&
+                usesScanCleanupInkAlignment(options.settings) &&
+                placementAnchorCalibrationError.value === '' &&
+                (placementAnchorSummary.value === null ||
+                    placementAnchorSummary.value.identity.calibrationSignature !== currentPlacementAnchorCalibrationSignature()),
+            )
         );
     });
     // Bumped whenever the document lifecycle replaces the session. A pending
@@ -293,8 +286,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     let rememberedSourcePath = options.sourcePath.value;
 
     function rememberDocumentAliases(lifecycleKey: string | null | undefined) {
-        if (lifecycleKey) documentAliases.add(lifecycleKey);
-        if (options.sourcePath.value) documentAliases.add(options.sourcePath.value);
+        if (lifecycleKey) {
+            documentAliases.add(lifecycleKey);
+        }
+        if (options.sourcePath.value) {
+            documentAliases.add(options.sourcePath.value);
+        }
     }
 
     function enqueueDetectionRetirement(detectionJobId: TJobId, documentRevision: string) {
@@ -306,7 +303,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             if (!capability || lifecycle.isDisposed()) {
                 return;
             }
-            await new Promise<void>(resolve => {
+            await new Promise<void>((resolve) => {
                 let settled = false;
                 let timeout: ReturnType<typeof setTimeout> | null = null;
                 const finish = () => {
@@ -321,7 +318,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     }
                     const waiters = terminalWaiters.get(detectionJobId);
                     waiters?.delete(finish);
-                    if (waiters?.size === 0) terminalWaiters.delete(detectionJobId);
+                    if (waiters?.size === 0) {
+                        terminalWaiters.delete(detectionJobId);
+                    }
                     resolve();
                 };
                 detectionRetirementFinishes.add(finish);
@@ -330,23 +329,30 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 terminalWaiters.set(detectionJobId, waiters);
                 timeout = setTimeout(finish, DETECTION_CANCELLATION_TIMEOUT_MS);
                 detectionRetirementTimeouts.add(timeout);
-                void capability.cancelDetection(detectionJobId, {
-                    ownerId: options.ownerId,
-                    documentRevision,
-                }).then(async () => {
-                    if (lifecycle.isDisposed()) {
-                        finish();
-                        return;
-                    }
-                    // IPC acknowledges the transition to `canceling`, not the
-                    // terminal cancellation. Reusing the stable broker owner
-                    // before that terminal event can rejoin the retiring job.
-                    const state = await capability.getDetectionJobState(detectionJobId, {
+                void capability
+                    .cancelDetection(detectionJobId, {
                         ownerId: options.ownerId,
                         documentRevision,
-                    }).catch(() => null);
-                    if (!state || detectionIsTerminal(state)) finish();
-                }).catch(finish);
+                    })
+                    .then(async () => {
+                        if (lifecycle.isDisposed()) {
+                            finish();
+                            return;
+                        }
+                        // IPC acknowledges the transition to `canceling`, not the
+                        // terminal cancellation. Reusing the stable broker owner
+                        // before that terminal event can rejoin the retiring job.
+                        const state = await capability
+                            .getDetectionJobState(detectionJobId, {
+                                ownerId: options.ownerId,
+                                documentRevision,
+                            })
+                            .catch(() => null);
+                        if (!state || detectionIsTerminal(state)) {
+                            finish();
+                        }
+                    })
+                    .catch(finish);
             });
         });
         return detectionRetirementTail;
@@ -372,12 +378,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
             const classification = resolveManualLayoutClassification(
                 options.settings,
-                getScanCleanupPageOverride(
-                    options.settings.pageOverrides,
-                    requirePageNumber(pageNumber, options.totalPages.value),
-                ),
+                getScanCleanupPageOverride(options.settings.pageOverrides, requirePageNumber(pageNumber, options.totalPages.value)),
             );
-            if (classification !== undefined) layouts.set(pageNumber, classification);
+            if (classification !== undefined) {
+                layouts.set(pageNumber, classification);
+            }
         }
         return layouts;
     });
@@ -385,43 +390,31 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // core summary and the CLI read from their results: a measured sheet votes
     // for the reference height whether or not it carries page-plan evidence.
     const inkSheets = computed<IScanCleanupInkSheet[]>(() => {
-        const sheets = [...records.value].map(([
+        const sheets = [...records.value].map(([pageNumber, record]) => ({
             pageNumber,
-            record,
-        ]) => ({
-            pageNumber,
-            layoutClassification: record.result?.pagePlanEvidence?.layoutClassification
-                ?? record.result?.classification
-                ?? record.keptLayout,
+            layoutClassification:
+                record.result?.pagePlanEvidence?.layoutClassification ?? record.result?.classification ?? record.keptLayout,
             evidence: record.result?.pagePlanEvidence,
             metadata: record.sourcePageMetadata,
         }));
-        return [
-            ...sheets.filter(sheet => sheet.evidence),
-            ...sheets.filter(sheet => !sheet.evidence && sheet.metadata),
-        ];
+        return [...sheets.filter((sheet) => sheet.evidence), ...sheets.filter((sheet) => !sheet.evidence && sheet.metadata)];
     });
     const authoritativeLayoutByPage = computed<ReadonlyMap<number, TScanCleanupLayoutClassification>>(() => {
         const layouts = new Map(detectedLayoutByPage.value);
-        for (const [
-            pageNumber,
-            classification,
-        ] of manualLayoutOverrideByPage.value) {
+        for (const [pageNumber, classification] of manualLayoutOverrideByPage.value) {
             layouts.set(pageNumber, classification);
         }
         return layouts;
     });
-    const isDetecting = computed(() => jobState.value?.status === 'queued'
-        || jobState.value?.status === 'running'
-        || jobState.value?.status === 'canceling');
+    const isDetecting = computed(
+        () => jobState.value?.status === 'queued' || jobState.value?.status === 'running' || jobState.value?.status === 'canceling',
+    );
     const terminalStatus = computed<'completed' | 'failed' | 'canceled' | null>(() => {
         const status = jobState.value?.status;
         if (status === 'completed' && !evidenceIsCurrent()) {
             return null;
         }
-        return status === 'completed' || status === 'failed' || status === 'canceled'
-            ? status
-            : null;
+        return status === 'completed' || status === 'failed' || status === 'canceled' ? status : null;
     });
     const layoutDetectionComplete = computed(() => terminalStatus.value === 'completed');
     const cancelRequested = computed(() => jobState.value?.status === 'canceling');
@@ -430,16 +423,22 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // final document plan. Terminal detection is authoritative for the UI:
     // cleanup starting in that turn must not keep the provisional caption or
     // page frames alive.
-    const pending = computed(() => starting.value
-        || isDetecting.value
-        || placementAnchorCalibrationPending.value
-        || (autoPending.value && terminalStatus.value === null));
-    const canStartDetection = computed(() => Boolean(options.sourcePath.value)
-        && !isDetecting.value
-        && !starting.value
-        // Automatic detection starts through this gate too, so a platform
-        // that cannot detect never starts it.
-        && resolveScanCleanupSupport(getScanCleanupCapability()).detection);
+    const pending = computed(
+        () =>
+            starting.value ||
+            isDetecting.value ||
+            placementAnchorCalibrationPending.value ||
+            (autoPending.value && terminalStatus.value === null),
+    );
+    const canStartDetection = computed(
+        () =>
+            Boolean(options.sourcePath.value) &&
+            !isDetecting.value &&
+            !starting.value &&
+            // Automatic detection starts through this gate too, so a platform
+            // that cannot detect never starts it.
+            resolveScanCleanupSupport(getScanCleanupCapability()).detection,
+    );
     const canStart = computed(() => canStartDetection.value && !options.isRunning.value);
     const canDetectAll = computed(() => canStart.value && !autoPending.value);
     // The job's own progress, or null before a job has reported. Pages are
@@ -450,21 +449,15 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // Clamped to the native page count, which can arrive before the viewer
     // publishes its own.
     const analyzedPages = computed(() => Math.min(resolveDetectionDocumentPageCount(), detectionResultCount.value));
-    const blankPageCount = computed(() => jobState.value?.status === 'completed'
-        ? jobState.value.blankPageCount
-            ?? jobState.value.results.filter(result => result.recommendedOutputModeReason === 'blank').length
-        : 0);
+    const blankPageCount = computed(() =>
+        jobState.value?.status === 'completed'
+            ? (jobState.value.blankPageCount ??
+              jobState.value.results.filter((result) => result.recommendedOutputModeReason === 'blank').length)
+            : 0,
+    );
     const outputEstimate = computed(() => {
-        const estimate = estimateScanCleanupOutputPages(
-            options.totalPages.value,
-            options.settings,
-            authoritativeLayoutByPage.value,
-        );
-        if (!shouldShowScanCleanupOutputEstimate(
-            options.totalPages.value,
-            options.settings,
-            authoritativeLayoutByPage.value,
-        )) {
+        const estimate = estimateScanCleanupOutputPages(options.totalPages.value, options.settings, authoritativeLayoutByPage.value);
+        if (!shouldShowScanCleanupOutputEstimate(options.totalPages.value, options.settings, authoritativeLayoutByPage.value)) {
             return '';
         }
         return t(estimate.exact ? 'scanCleanup.estimateExact' : 'scanCleanup.estimateAbout', {
@@ -494,33 +487,30 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             normalizeIllumination: !lossless && (options.settings.normalizeIllumination ?? true),
             autoDewarp: !lossless && (options.settings.autoDewarp ?? false),
             autoDewarpDepth: options.settings.autoDewarpDepth,
-            pageOverrideDefaults: detectionOverrideSignature(
-                options.settings.pageOverrideDefaults ?? createScanCleanupPageOverride(),
-            ),
+            pageOverrideDefaults: detectionOverrideSignature(options.settings.pageOverrideDefaults ?? createScanCleanupPageOverride()),
         });
     });
     function pageOverrideSignature(pageNumber: number) {
-        return detectionOverrideSignature(pageNumber === 0
-            ? getScanCleanupPageOverrideDefaults(options.settings.pageOverrides)
-            : getScanCleanupPageOverride(
-                options.settings.pageOverrides,
-                requirePageNumber(pageNumber),
-            ));
+        return detectionOverrideSignature(
+            pageNumber === 0
+                ? getScanCleanupPageOverrideDefaults(options.settings.pageOverrides)
+                : getScanCleanupPageOverride(options.settings.pageOverrides, requirePageNumber(pageNumber)),
+        );
     }
 
     // The default page portion is the same for every untouched page: only
     // explicitly edited pages carry their own signature.
     const defaultPageOverrideSignature = computed(() => pageOverrideSignature(0));
-    const pageOverrideSignatureToken = computed(() => Object.keys(options.settings.pageOverrides)
-        .map(pageKey => {
-            const pageSignature = pageOverrideSignature(Number(pageKey));
-            return pageSignature === defaultPageOverrideSignature.value
-                ? ''
-                : `${pageKey}:${pageSignature}`;
-        })
-        .filter(Boolean)
-        .sort()
-        .join(','));
+    const pageOverrideSignatureToken = computed(() =>
+        Object.keys(options.settings.pageOverrides)
+            .map((pageKey) => {
+                const pageSignature = pageOverrideSignature(Number(pageKey));
+                return pageSignature === defaultPageOverrideSignature.value ? '' : `${pageKey}:${pageSignature}`;
+            })
+            .filter(Boolean)
+            .sort()
+            .join(','),
+    );
     let detectionDocumentSignature = documentSignature.value;
     let detectionPageOverrideSignatureToken = pageOverrideSignatureToken.value;
     // Pages edited since the current job started. Its results for them were
@@ -537,11 +527,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         const current = new Map<number, string>();
         for (const pageKey of Object.keys(options.settings.pageOverrides)) {
             const pageNumber = Number(pageKey);
-            if (
-                Number.isSafeInteger(pageNumber)
-                && pageNumber >= 1
-                && pageNumber <= options.totalPages.value
-            ) {
+            if (Number.isSafeInteger(pageNumber) && pageNumber >= 1 && pageNumber <= options.totalPages.value) {
                 const pageSignature = pageOverrideSignature(pageNumber);
                 if (pageSignature !== defaultPageOverrideSignature.value) {
                     current.set(pageNumber, pageSignature);
@@ -556,9 +542,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     let observedTotalPages = options.totalPages.value;
 
     function resolveDetectionDocumentPageCount(fallback = options.totalPages.value) {
-        return detectionDocumentPageCount.value > 0
-            ? detectionDocumentPageCount.value
-            : fallback;
+        return detectionDocumentPageCount.value > 0 ? detectionDocumentPageCount.value : fallback;
     }
 
     function evidenceIsCurrent(documentPageCount = resolveDetectionDocumentPageCount()) {
@@ -567,18 +551,18 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         // edits replace the map. The count therefore proves coverage and the
         // scalar document token avoids walking a million-page document.
         return (
-            documentPageCount > 0
-            && (
-                currentPageCount.value === documentPageCount
-                || (detectionEvidenceComplete.value && detectionResultCount.value === documentPageCount)
-            )
-        )
-            && detectionDocumentSignature === documentSignature.value
-            && detectionPageOverrideSignatureToken === pageOverrideSignatureToken.value;
+            documentPageCount > 0 &&
+            (currentPageCount.value === documentPageCount ||
+                (detectionEvidenceComplete.value && detectionResultCount.value === documentPageCount)) &&
+            detectionDocumentSignature === documentSignature.value &&
+            detectionPageOverrideSignatureToken === pageOverrideSignatureToken.value
+        );
     }
 
     function settleTerminalWaiters(jobId: TJobId) {
-        for (const settle of terminalWaiters.get(jobId) ?? []) settle();
+        for (const settle of terminalWaiters.get(jobId) ?? []) {
+            settle();
+        }
         terminalWaiters.delete(jobId);
     }
 
@@ -602,18 +586,17 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         placementAnchorSummary.value = null;
         placementAnchorCalibrationInFlight.value = false;
         placementAnchorCalibrationError.value = '';
-        records.value = new Map(keepLayouts
-            ? [...detectedLayoutByPage.value].map(([
-                pageNumber,
-                keptLayout,
-            ]) => [
-                pageNumber,
-                {
-                    settled: false,
-                    keptLayout,
-                },
-            ])
-            : []);
+        records.value = new Map(
+            keepLayouts
+                ? [...detectedLayoutByPage.value].map(([pageNumber, keptLayout]) => [
+                      pageNumber,
+                      {
+                          settled: false,
+                          keptLayout,
+                      },
+                  ])
+                : [],
+        );
     }
 
     // No earlier start reply or event can publish into the session afterwards.
@@ -622,7 +605,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     function detachDetectionJob(jobRevision: string) {
         const detached = jobState.value;
         requestGeneration += 1;
-        if (detached) settleTerminalWaiters(detached.jobId);
+        if (detached) {
+            settleTerminalWaiters(detached.jobId);
+        }
         if (detached && !detectionIsTerminal(detached)) {
             void enqueueDetectionRetirement(detached.jobId, jobRevision);
         }
@@ -640,7 +625,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
         autoPending.value = false;
         const key = options.lifecycleDocumentKey.value;
-        if (key !== null) detectionSessionCache.delete(key);
+        if (key !== null) {
+            detectionSessionCache.delete(key);
+        }
     }
 
     function clearDetectionEvidenceForPages(pageNumbers: ReadonlySet<number>) {
@@ -650,7 +637,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         placementAnchorSummary.value = null;
         placementAnchorCalibrationInFlight.value = false;
         placementAnchorCalibrationError.value = '';
-        replaceRecords(next => {
+        replaceRecords((next) => {
             for (const pageNumber of pageNumbers) {
                 next.delete(pageNumber);
                 pagesEditedDuringDetection.add(pageNumber);
@@ -668,7 +655,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         update(next);
         if (documentPageCount > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT) {
             for (const pageNumber of next.keys()) {
-                if (next.size <= DETECTION_PAGE_CACHE_LIMIT) break;
+                if (next.size <= DETECTION_PAGE_CACHE_LIMIT) {
+                    break;
+                }
                 next.delete(pageNumber);
             }
         }
@@ -680,7 +669,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         settledPageNumbers: readonly number[],
         documentPageCount: number,
     ) {
-        replaceRecords(next => {
+        replaceRecords((next) => {
             const touch = (pageNumber: number, record: IScanCleanupDetectionPageRecord) => {
                 next.delete(pageNumber);
                 next.set(pageNumber, record);
@@ -690,18 +679,20 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 // A job a settings change outlived still reports pages, but
                 // they were measured under the old settings: only the source
                 // geometry and the page's settled state carry over.
-                touch(result.pageNumber, detectionDocumentSignature === documentSignature.value
-                    && !pagesEditedDuringDetection.has(result.pageNumber)
-                    ? {
-                        settled: true,
-                        result,
-                        sourcePageMetadata: result.sourcePageMetadata,
-                    }
-                    : {
-                        settled: true,
-                        keptLayout: previous?.result?.classification ?? previous?.keptLayout,
-                        sourcePageMetadata: result.sourcePageMetadata,
-                    });
+                touch(
+                    result.pageNumber,
+                    detectionDocumentSignature === documentSignature.value && !pagesEditedDuringDetection.has(result.pageNumber)
+                        ? {
+                              settled: true,
+                              result,
+                              sourcePageMetadata: result.sourcePageMetadata,
+                          }
+                        : {
+                              settled: true,
+                              keptLayout: previous?.result?.classification ?? previous?.keptLayout,
+                              sourcePageMetadata: result.sourcePageMetadata,
+                          },
+                );
             }
             for (const pageNumber of settledPageNumbers) {
                 touch(pageNumber, {
@@ -717,7 +708,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             abandonUnobservedDetection(state.jobId);
             return;
         }
-        if (detectionIsTerminal(state)) settleTerminalWaiters(state.jobId);
+        if (detectionIsTerminal(state)) {
+            settleTerminalWaiters(state.jobId);
+        }
         if (lifecycle.isDisposed() || state.jobId !== currentJobId()) {
             return;
         }
@@ -726,20 +719,15 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             const currentPhase = detectionPhaseRank(current.progress.stage);
             const nextPhase = detectionPhaseRank(state.progress.stage);
             if (
-                state.updatedAtMs < current.updatedAtMs
-                || nextPhase < currentPhase
-                || (
-                    nextPhase === currentPhase
-                    && state.progress.completedUnits < current.progress.completedUnits
-                )
+                state.updatedAtMs < current.updatedAtMs ||
+                nextPhase < currentPhase ||
+                (nextPhase === currentPhase && state.progress.completedUnits < current.progress.completedUnits)
             ) {
                 return;
             }
         }
-        const reportedResultCount = state.resultCount
-            ?? (state.progress.stage === 'detecting'
-                ? state.progress.completedUnits
-                : detectionResultCount.value);
+        const reportedResultCount =
+            state.resultCount ?? (state.progress.stage === 'detecting' ? state.progress.completedUnits : detectionResultCount.value);
         // On a hard reopen, detection can publish its first running state
         // before the PDF viewer has finished loading its own page count. The
         // native state already carries the authoritative document size, so it
@@ -750,16 +738,16 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         // detection job. Viewer metadata can still describe the document that
         // was open before a hard reopen, so it must not keep a replacement job
         // in the large-document retention mode.
-        const nativePageCount = state.progress.totalUnits > 0
-            ? state.progress.totalUnits
-            : null;
-        const documentPageCount = nativePageCount ?? Math.max(
-            options.totalPages.value,
-            detectionDocumentPageCount.value,
-            state.progress.completedUnits,
-            reportedResultCount,
-            state.results.length,
-        );
+        const nativePageCount = state.progress.totalUnits > 0 ? state.progress.totalUnits : null;
+        const documentPageCount =
+            nativePageCount ??
+            Math.max(
+                options.totalPages.value,
+                detectionDocumentPageCount.value,
+                state.progress.completedUnits,
+                reportedResultCount,
+                state.results.length,
+            );
         if (nativePageCount !== null) {
             detectionDocumentPageCount.value = nativePageCount;
         } else if (documentPageCount > detectionDocumentPageCount.value) {
@@ -776,15 +764,15 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
         placementAnchorSummary.value = state.placementAnchorSummary ?? null;
         placementAnchorCalibrationError.value = '';
-        const completedWithCurrentEvidence = state.status === 'completed'
-            && evidenceIsCurrent(documentPageCount);
+        const completedWithCurrentEvidence = state.status === 'completed' && evidenceIsCurrent(documentPageCount);
         if (state.status === 'failed') {
             // A scratch refusal is the one detection failure the user can act
             // on, so it is stated in full instead of a generic headline with
             // the English exception appended to it.
-            error.value = state.errorCode === 'insufficient-scratch'
-                ? formatScanCleanupScratchMessage(i18n, state.scratchShortfall)
-                : formatScanCleanupErrorByCode(i18n, state.errorCode, state.error);
+            error.value =
+                state.errorCode === 'insufficient-scratch'
+                    ? formatScanCleanupScratchMessage(i18n, state.scratchShortfall)
+                    : formatScanCleanupErrorByCode(i18n, state.errorCode, state.error);
             errorCode.value = state.errorCode;
         } else if (state.status === 'completed') {
             error.value = '';
@@ -795,10 +783,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
         const key = options.lifecycleDocumentKey.value;
         if (
-            !lifecycle.isDisposed()
-            && key
-            && completedWithCurrentEvidence
-            && documentPageCount <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
+            !lifecycle.isDisposed() &&
+            key &&
+            completedWithCurrentEvidence &&
+            documentPageCount <= DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
         ) {
             detectionSessionCache.set(key, {
                 ownerId: options.ownerId,
@@ -830,27 +818,31 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
         // Layouts measured under the same settings but margins stay until the
         // new job replaces them, as the settings watcher kept them.
-        const keepLayouts = detectionPageOverrideSignatureToken === pageOverrideSignatureToken.value
-            && withoutMargins(detectionDocumentSignature) === withoutMargins(documentSignature.value);
+        const keepLayouts =
+            detectionPageOverrideSignatureToken === pageOverrideSignatureToken.value &&
+            withoutMargins(detectionDocumentSignature) === withoutMargins(documentSignature.value);
         captureDetectionSignatures();
         const requestSourcePath = options.sourcePath.value;
         const requestDocumentRevision = options.documentRevision.value;
         const generation = ++requestGeneration;
-        const isStale = () => lifecycle.isDisposed()
-            || generation !== requestGeneration
-            || requestSourcePath !== options.sourcePath.value
-            || requestDocumentRevision !== options.documentRevision.value;
+        const isStale = () =>
+            lifecycle.isDisposed() ||
+            generation !== requestGeneration ||
+            requestSourcePath !== options.sourcePath.value ||
+            requestDocumentRevision !== options.documentRevision.value;
         jobState.value = null;
         detectionResultStoreId.value = null;
         starting.value = true;
         let result;
         try {
-            result = await capability.detectAll(toBridgeSafeScanCleanupPayload({
-                sourcePdfPath: requestSourcePath,
-                ownerId: options.ownerId,
-                documentRevision: requestDocumentRevision,
-                options: toPlainScanCleanupOptions(options.settings),
-            }));
+            result = await capability.detectAll(
+                toBridgeSafeScanCleanupPayload({
+                    sourcePdfPath: requestSourcePath,
+                    ownerId: options.ownerId,
+                    documentRevision: requestDocumentRevision,
+                    options: toPlainScanCleanupOptions(options.settings),
+                }),
+            );
         } catch (caught) {
             if (isStale()) {
                 scheduleAutoDetect();
@@ -860,7 +852,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
             return;
         } finally {
-            if (!lifecycle.isDisposed()) starting.value = false;
+            if (!lifecycle.isDisposed()) {
+                starting.value = false;
+            }
         }
         if (isStale()) {
             if (result.started) {
@@ -921,7 +915,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         await Promise.resolve()
             .then(() => capability.cancelDetection(result.jobId, owner))
             .catch(() => false);
-        if (!isStale()) abandonUnobservedDetection(result.jobId, failure);
+        if (!isStale()) {
+            abandonUnobservedDetection(result.jobId, failure);
+        }
     }
 
     async function refreshDetection() {
@@ -936,11 +932,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         const storeId = detectionResultStoreId.value;
         const sourcePdfPath = options.sourcePath.value;
         if (
-            !capability?.resolvePlacementAnchorCalibration
-            || storeId === null
-            || sourcePdfPath === null
-            || jobState.value?.status !== 'completed'
-            || !usesScanCleanupInkAlignment(options.settings)
+            !capability?.resolvePlacementAnchorCalibration ||
+            storeId === null ||
+            sourcePdfPath === null ||
+            jobState.value?.status !== 'completed' ||
+            !usesScanCleanupInkAlignment(options.settings)
         ) {
             return;
         }
@@ -962,25 +958,19 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 }),
             );
             if (
-                lifecycle.isDisposed()
-                || generation !== placementAnchorCalibrationGeneration
-                || storeId !== detectionResultStoreId.value
-                || signature !== currentPlacementAnchorCalibrationSignature()
+                lifecycle.isDisposed() ||
+                generation !== placementAnchorCalibrationGeneration ||
+                storeId !== detectionResultStoreId.value ||
+                signature !== currentPlacementAnchorCalibrationSignature()
             ) {
                 return;
             }
-            if (
-                calibration.summary.identity.calibrationSignature !== signature
-            ) {
+            if (calibration.summary.identity.calibrationSignature !== signature) {
                 throw new Error('Scan cleanup placement calibration returned a stale identity');
             }
             placementAnchorSummary.value = calibration.summary;
         } catch (caught) {
-            if (
-                lifecycle.isDisposed()
-                || generation !== placementAnchorCalibrationGeneration
-                || storeId !== detectionResultStoreId.value
-            ) {
+            if (lifecycle.isDisposed() || generation !== placementAnchorCalibrationGeneration || storeId !== detectionResultStoreId.value) {
                 return;
             }
             placementAnchorCalibrationError.value = formatScanCleanupErrorByCode(i18n, 'internal', caught);
@@ -994,20 +984,18 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
     }
 
-    async function resolvePlacementAnchorsForPage(
-        pageNumber: number,
-    ): Promise<IScanCleanupPlacementAnchorCalibration | undefined> {
+    async function resolvePlacementAnchorsForPage(pageNumber: number): Promise<IScanCleanupPlacementAnchorCalibration | undefined> {
         const capability = getScanCleanupCapability();
         const storeId = detectionResultStoreId.value;
         const sourcePdfPath = options.sourcePath.value;
         const signature = currentPlacementAnchorCalibrationSignature();
         if (
-            !capability?.resolvePlacementAnchorCalibration
-            || storeId === null
-            || sourcePdfPath === null
-            || placementAnchorSummary.value === null
-            || placementAnchorSummary.value.identity.calibrationSignature !== signature
-            || !usesScanCleanupInkAlignment(options.settings)
+            !capability?.resolvePlacementAnchorCalibration ||
+            storeId === null ||
+            sourcePdfPath === null ||
+            placementAnchorSummary.value === null ||
+            placementAnchorSummary.value.identity.calibrationSignature !== signature ||
+            !usesScanCleanupInkAlignment(options.settings)
         ) {
             return undefined;
         }
@@ -1022,10 +1010,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }),
         );
         if (
-            lifecycle.isDisposed()
-            || storeId !== detectionResultStoreId.value
-            || signature !== currentPlacementAnchorCalibrationSignature()
-            || calibration.summary.identity.calibrationSignature !== signature
+            lifecycle.isDisposed() ||
+            storeId !== detectionResultStoreId.value ||
+            signature !== currentPlacementAnchorCalibrationSignature() ||
+            calibration.summary.identity.calibrationSignature !== signature
         ) {
             return undefined;
         }
@@ -1061,8 +1049,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         await new Promise<void>((resolve, reject) => {
             const timeout = cancelCurrent
                 ? setTimeout(() => {
-                    finish(new Error(t('scanCleanup.detectAll.cancelTimeout')));
-                }, DETECTION_CANCELLATION_TIMEOUT_MS)
+                      finish(new Error(t('scanCleanup.detectAll.cancelTimeout')));
+                  }, DETECTION_CANCELLATION_TIMEOUT_MS)
                 : null;
 
             function finish(caught?: unknown) {
@@ -1071,11 +1059,15 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 }
                 settled.value = true;
                 detectionWaitResolvers.delete(finish);
-                if (timeout !== null) clearTimeout(timeout);
+                if (timeout !== null) {
+                    clearTimeout(timeout);
+                }
                 if (targetJobId && terminalWaiter) {
                     const waiters = terminalWaiters.get(targetJobId);
                     waiters?.delete(terminalWaiter);
-                    if (waiters?.size === 0) terminalWaiters.delete(targetJobId);
+                    if (waiters?.size === 0) {
+                        terminalWaiters.delete(targetJobId);
+                    }
                 }
                 if (caught === undefined) {
                     resolve();
@@ -1130,7 +1122,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     // run waiting for evidence must keep its event waiter in
                     // place; cancellation, conversely, may treat absence as
                     // terminal because there is no remaining work to stop.
-                    if (cancelCurrent) finish();
+                    if (cancelCurrent) {
+                        finish();
+                    }
                     return;
                 }
                 applyState(latest);
@@ -1154,8 +1148,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         const waitSourcePath = options.sourcePath.value;
         const waitDocumentRevision = options.documentRevision.value;
         let mayStartMissingDetection = jobState.value === null;
-        const belongsToWaitedDocument = () => waitSourcePath === options.sourcePath.value
-            && waitDocumentRevision === options.documentRevision.value;
+        const belongsToWaitedDocument = () =>
+            waitSourcePath === options.sourcePath.value && waitDocumentRevision === options.documentRevision.value;
         // A run owns this wait even when its workspace is hidden. Disposal and
         // document identity still end the wait.
         while (!lifecycle.isDisposed() && belongsToWaitedDocument()) {
@@ -1170,11 +1164,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 mayStartMissingDetection = true;
             }
             if (jobState.value === null && !starting.value) {
-                if (
-                    !mayStartMissingDetection
-                    || error.value
-                    || getScanCleanupCapability() === null
-                ) {
+                if (!mayStartMissingDetection || error.value || getScanCleanupCapability() === null) {
                     return;
                 }
                 if (scheduledAutoDetection !== null) {
@@ -1193,8 +1183,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     return;
                 }
                 if (jobState.value === null) {
-                    const replacementScheduled = Boolean(scheduledAutoDetection)
-                        || generation !== requestGeneration;
+                    const replacementScheduled = Boolean(scheduledAutoDetection) || generation !== requestGeneration;
                     if (!replacementScheduled || error.value) {
                         return;
                     }
@@ -1216,20 +1205,18 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
 
     function cacheIsFresh(entry: IDetectionSessionCacheEntry, lifecycleDocumentKey: string) {
         const documentIdentity = lifecycleDocumentKey.split('\u0000', 1)[0] ?? '';
-        const authoritativeIdentity = isScanCleanupSourceSha256(options.sourceSha256.value)
-            && documentIdentity === options.sourceSha256.value.toLowerCase();
-        const documentPageCount = options.totalPages.value > 0
-            ? options.totalPages.value
-            : entry.totalPages;
+        const authoritativeIdentity =
+            isScanCleanupSourceSha256(options.sourceSha256.value) && documentIdentity === options.sourceSha256.value.toLowerCase();
+        const documentPageCount = options.totalPages.value > 0 ? options.totalPages.value : entry.totalPages;
         // Vue publishes path, key and hash separately: a key that still names
         // the previous source must not restore its evidence for this path.
         if (
-            entry.sourcePath !== options.sourcePath.value
-            || (!authoritativeIdentity && entry.ownerId !== options.ownerId)
-            || entry.totalPages !== documentPageCount
-            || documentPageCount > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT
-            || entry.documentSignature !== documentSignature.value
-            || entry.signatureToken !== pageOverrideSignatureToken.value
+            entry.sourcePath !== options.sourcePath.value ||
+            (!authoritativeIdentity && entry.ownerId !== options.ownerId) ||
+            entry.totalPages !== documentPageCount ||
+            documentPageCount > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT ||
+            entry.documentSignature !== documentSignature.value ||
+            entry.signatureToken !== pageOverrideSignatureToken.value
         ) {
             return false;
         }
@@ -1258,12 +1245,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     async function maybeAutoDetect() {
         const key = options.lifecycleDocumentKey.value;
         if (
-            lifecycle.isDisposed()
-            || !options.active()
-            || !options.sourcePath.value
-            || !canStart.value
-            || restoreSession(key)
-            || (key !== null && autoDetectionCanceledDocuments.has(key))
+            lifecycle.isDisposed() ||
+            !options.active() ||
+            !options.sourcePath.value ||
+            !canStart.value ||
+            restoreSession(key) ||
+            (key !== null && autoDetectionCanceledDocuments.has(key))
         ) {
             autoPending.value = false;
             return;
@@ -1303,101 +1290,91 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     // One synchronous transition over the source identity. Vue assigns the
     // path, revision, legacy key and hash as separate props, so the first
     // change detaches the old job before any read, Run click or event.
-    watch([
-        options.sourcePath,
-        options.documentRevision,
-        options.lifecycleDocumentKey,
-        options.sourceSha256,
-    ], ([
-        sourcePath,
-        documentRevision,
-        key,
-        sourceSha256,
-    ], [
-        previousSourcePath,
-        previousDocumentRevision,
-        previousKey,
-    ]) => {
-        // A hash published for the same path and revision only renames the
-        // cache entry: the native job, its waiters and its evidence stay.
-        const promoted = promoteScanCleanupDetectionState({
-            provisionalLifecycleKey: previousKey,
-            authoritativeLifecycleKey: key,
-            sourcePath,
-            sourceSha256,
-            documentRevision,
-        });
-        if (!promoted) {
-            detachDetectionJob(previousDocumentRevision);
-            // The workspace can stay mounted while its document is closed,
-            // and closing can clear the path before the legacy key. A panel
-            // unmount alone keeps the entry for a later reopen.
-            if (sourcePath === null) discardScanCleanupDetectionStateForAliases([...documentAliases]);
-            // A new source releases the previous document's aliases, so
-            // closing the new one keeps that document's restore entry.
-            if (sourcePath !== previousSourcePath) documentAliases.clear();
-        }
-        if (!promoted || jobState.value === null) {
-            autoPending.value = Boolean(options.active() && sourcePath);
-            scheduleAutoDetect();
-        }
-    }, {flush: 'sync'});
+    watch(
+        [options.sourcePath, options.documentRevision, options.lifecycleDocumentKey, options.sourceSha256],
+        ([sourcePath, documentRevision, key, sourceSha256], [previousSourcePath, previousDocumentRevision, previousKey]) => {
+            // A hash published for the same path and revision only renames the
+            // cache entry: the native job, its waiters and its evidence stay.
+            const promoted = promoteScanCleanupDetectionState({
+                provisionalLifecycleKey: previousKey,
+                authoritativeLifecycleKey: key,
+                sourcePath,
+                sourceSha256,
+                documentRevision,
+            });
+            if (!promoted) {
+                detachDetectionJob(previousDocumentRevision);
+                // The workspace can stay mounted while its document is closed,
+                // and closing can clear the path before the legacy key. A panel
+                // unmount alone keeps the entry for a later reopen.
+                if (sourcePath === null) {
+                    discardScanCleanupDetectionStateForAliases([...documentAliases]);
+                }
+                // A new source releases the previous document's aliases, so
+                // closing the new one keeps that document's restore entry.
+                if (sourcePath !== previousSourcePath) {
+                    documentAliases.clear();
+                }
+            }
+            if (!promoted || jobState.value === null) {
+                autoPending.value = Boolean(options.active() && sourcePath);
+                scheduleAutoDetect();
+            }
+        },
+        {flush: 'sync'},
+    );
     // Aliases, superseded entries and the settings baseline follow the settled
     // tuple: a half-published path and legacy key name no document, and the
     // document settings for a new key load in this same flush.
-    watch(options.lifecycleDocumentKey, (key, previousKey) => {
-        const promoted = isScanCleanupLifecycleIdentityPromotion(
-            previousKey,
-            key,
-            options.sourcePath.value,
-            options.sourceSha256.value,
-            options.documentRevision.value,
-        );
-        const sourceChanged = Boolean(
-            options.sourcePath.value
-            && options.sourcePath.value !== rememberedSourcePath
-            && !promoted,
-        );
-        if (sourceChanged) {
-            documentAliases.clear();
-        }
-        rememberedSourcePath = options.sourcePath.value;
-        // A promotion owns both spellings of one document. On a real source
-        // switch, retaining the previous document here would let closing the
-        // new document evict an unrelated recent restore entry.
-        if (!sourceChanged) rememberDocumentAliases(previousKey);
-        rememberDocumentAliases(key);
-        if (promoted) return;
-        if (key === null) {
-            discardScanCleanupDetectionStateForAliases([...documentAliases]);
-            documentAliases.clear();
-        }
-        retireSupersededScanCleanupDetectionState(key);
-        observedDocumentSignature = documentSignature.value;
-        observedPageOverrideSignatures = readPageOverrideSignatures();
-        observedTotalPages = options.totalPages.value;
-    }, {immediate: true});
+    watch(
+        options.lifecycleDocumentKey,
+        (key, previousKey) => {
+            const promoted = isScanCleanupLifecycleIdentityPromotion(
+                previousKey,
+                key,
+                options.sourcePath.value,
+                options.sourceSha256.value,
+                options.documentRevision.value,
+            );
+            const sourceChanged = Boolean(options.sourcePath.value && options.sourcePath.value !== rememberedSourcePath && !promoted);
+            if (sourceChanged) {
+                documentAliases.clear();
+            }
+            rememberedSourcePath = options.sourcePath.value;
+            // A promotion owns both spellings of one document. On a real source
+            // switch, retaining the previous document here would let closing the
+            // new document evict an unrelated recent restore entry.
+            if (!sourceChanged) {
+                rememberDocumentAliases(previousKey);
+            }
+            rememberDocumentAliases(key);
+            if (promoted) {
+                return;
+            }
+            if (key === null) {
+                discardScanCleanupDetectionStateForAliases([...documentAliases]);
+                documentAliases.clear();
+            }
+            retireSupersededScanCleanupDetectionState(key);
+            observedDocumentSignature = documentSignature.value;
+            observedPageOverrideSignatures = readPageOverrideSignatures();
+            observedTotalPages = options.totalPages.value;
+        },
+        {immediate: true},
+    );
     // Recommendations are page diagnostics and survive output-mode changes.
     // Switching back to automatic mode must have usable recommendations, so a
     // previously canceled or stranded detection is rescheduled here.
     watch(
-        [
-            options.active,
-            () => options.settings.outputMode === 'auto'
-                && options.settings.preserveOriginalQuality !== true,
-        ],
-        ([
-            active,
-            automaticMode,
-        ], [
-            wasActive,
-            wasAutomaticMode,
-        ]) => {
+        [options.active, () => options.settings.outputMode === 'auto' && options.settings.preserveOriginalQuality !== true],
+        ([active, automaticMode], [wasActive, wasAutomaticMode]) => {
             const becameActive = active && !wasActive;
             const enteredAutomaticMode = automaticMode && !wasAutomaticMode;
             if (enteredAutomaticMode) {
                 const key = options.lifecycleDocumentKey.value;
-                if (key !== null) autoDetectionCanceledDocuments.delete(key);
+                if (key !== null) {
+                    autoDetectionCanceledDocuments.delete(key);
+                }
             }
             if (becameActive || enteredAutomaticMode) {
                 scheduleAutoDetect();
@@ -1411,16 +1388,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         const currentTotalPages = options.totalPages.value;
         const currentPageSignatures = readPageOverrideSignatures();
         const documentChanged = currentDocumentSignature !== observedDocumentSignature;
-        const pageCountChanged = currentTotalPages !== observedTotalPages
-            && !(
-                observedTotalPages === 0
-                && detectionDocumentPageCount.value === currentTotalPages
-            );
+        const pageCountChanged =
+            currentTotalPages !== observedTotalPages &&
+            !(observedTotalPages === 0 && detectionDocumentPageCount.value === currentTotalPages);
         const changedPages = new Set<number>();
-        for (const pageNumber of new Set([
-            ...observedPageOverrideSignatures.keys(),
-            ...currentPageSignatures.keys(),
-        ])) {
+        for (const pageNumber of new Set([...observedPageOverrideSignatures.keys(), ...currentPageSignatures.keys()])) {
             if (observedPageOverrideSignatures.get(pageNumber) !== currentPageSignatures.get(pageNumber)) {
                 changedPages.add(pageNumber);
             }
@@ -1429,11 +1401,15 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             // Margins are applied after a page is split, so a change to
             // them alone keeps every page's layout: the matched page stays
             // measurable while detection measures the content again.
-            clearDetectionEvidence(!pageCountChanged
-                && changedPages.size === 0
-                && withoutMargins(currentDocumentSignature) === withoutMargins(observedDocumentSignature));
+            clearDetectionEvidence(
+                !pageCountChanged &&
+                    changedPages.size === 0 &&
+                    withoutMargins(currentDocumentSignature) === withoutMargins(observedDocumentSignature),
+            );
         } else {
-            if (changedPages.size > 0) clearDetectionEvidenceForPages(changedPages);
+            if (changedPages.size > 0) {
+                clearDetectionEvidenceForPages(changedPages);
+            }
         }
         observedDocumentSignature = currentDocumentSignature;
         observedPageOverrideSignatures = currentPageSignatures;
@@ -1442,41 +1418,38 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return;
         }
         const key = options.lifecycleDocumentKey.value;
-        if (key !== null) detectionSessionCache.delete(key);
+        if (key !== null) {
+            detectionSessionCache.delete(key);
+        }
         if (!isDetecting.value) {
             jobState.value = null;
             scheduleAutoDetect();
         }
     }
-    watch([
-        documentSignature,
-        pageOverrideSignatureToken,
-        options.totalPages,
-    ], reconcileDetectionSignatures);
-    watch(
-        [
-            () => currentPlacementAnchorCalibrationSignature(),
-            detectionResultStoreId,
-            () => jobState.value?.status,
-        ],
-        () => {
-            const currentSignature = currentPlacementAnchorCalibrationSignature();
-            if (
-                jobState.value?.status === 'completed'
-                && detectionResultStoreId.value !== null
-                && usesScanCleanupInkAlignment(options.settings)
-                && placementAnchorSummary.value?.identity.calibrationSignature !== currentSignature
-            ) {
-                void refreshPlacementAnchorCalibration();
-            }
-        },
-    );
+    watch([documentSignature, pageOverrideSignatureToken, options.totalPages], reconcileDetectionSignatures);
+    watch([() => currentPlacementAnchorCalibrationSignature(), detectionResultStoreId, () => jobState.value?.status], () => {
+        const currentSignature = currentPlacementAnchorCalibrationSignature();
+        if (
+            jobState.value?.status === 'completed' &&
+            detectionResultStoreId.value !== null &&
+            usesScanCleanupInkAlignment(options.settings) &&
+            placementAnchorSummary.value?.identity.calibrationSignature !== currentSignature
+        ) {
+            void refreshPlacementAnchorCalibration();
+        }
+    });
     onBeforeUnmount(() => {
         lifecycle.dispose();
-        for (const finish of [...detectionRetirementFinishes]) finish();
-        for (const timeout of detectionRetirementTimeouts) clearTimeout(timeout);
+        for (const finish of [...detectionRetirementFinishes]) {
+            finish();
+        }
+        for (const timeout of detectionRetirementTimeouts) {
+            clearTimeout(timeout);
+        }
         detectionRetirementTimeouts.clear();
-        for (const finish of [...detectionWaitResolvers]) finish();
+        for (const finish of [...detectionWaitResolvers]) {
+            finish();
+        }
         if (scheduledAutoDetection !== null) {
             clearTimeout(scheduledAutoDetection);
             scheduledAutoDetection = null;
@@ -1484,10 +1457,12 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         stopSubscription?.();
         const jobId = currentJobId();
         if (jobId && isDetecting.value) {
-            void getScanCleanupCapability()?.cancelDetection(jobId, {
-                ownerId: options.ownerId,
-                documentRevision: options.documentRevision.value,
-            }).catch(() => undefined);
+            void getScanCleanupCapability()
+                ?.cancelDetection(jobId, {
+                    ownerId: options.ownerId,
+                    documentRevision: options.documentRevision.value,
+                })
+                .catch(() => undefined);
         }
     });
 
@@ -1500,7 +1475,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             ...(result.documentPrior == null ? {} : {documentPrior: result.documentPrior}),
             ...(result.pagePlanEvidence === undefined ? {} : {pagePlanEvidence: result.pagePlanEvidence}),
             ...(result.recommendedOutputMode === undefined ? {} : {recommendedOutputMode: result.recommendedOutputMode}),
-            ...(result.softAlphaForegroundRecommendation === undefined ? {} : {softAlphaForegroundRecommendation: result.softAlphaForegroundRecommendation}),
+            ...(result.softAlphaForegroundRecommendation === undefined
+                ? {}
+                : {softAlphaForegroundRecommendation: result.softAlphaForegroundRecommendation}),
         };
     }
 
@@ -1523,10 +1500,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
         };
         if (pageNumbers === null) {
-            for (const [
-                pageNumber,
-                record,
-            ] of currentRecords) {
+            for (const [pageNumber, record] of currentRecords) {
                 collectPage(pageNumber, record);
             }
         } else {
@@ -1546,10 +1520,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             const selected = selectScanCleanupDetectionByPage(currentRecords, selector);
             return selected.size === 0 ? undefined : Object.fromEntries(selected);
         };
-        const outputModeRecommendations = byPage(record => record.result?.recommendedOutputMode);
-        const softAlphaForegroundRecommendations = byPage(record => record.result?.softAlphaForegroundRecommendation);
-        const sourcePageMetadataByPage = byPage(record => record.sourcePageMetadata);
-        const documentPriorByPage = byPage(record => record.result?.documentPrior);
+        const outputModeRecommendations = byPage((record) => record.result?.recommendedOutputMode);
+        const softAlphaForegroundRecommendations = byPage((record) => record.result?.softAlphaForegroundRecommendation);
+        const sourcePageMetadataByPage = byPage((record) => record.sourcePageMetadata);
+        const documentPriorByPage = byPage((record) => record.result?.documentPrior);
         return {
             pagePlanEvidenceByPage,
             pagePlanEvidenceCount: pagePlanEvidenceByPage.size,
@@ -1561,19 +1535,20 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 layoutByPage: toScanCleanupLayoutByPage(layouts),
                 ...(sourcePageMetadataByPage === undefined ? {} : {sourcePageMetadataByPage}),
                 ...(documentPriorByPage === undefined ? {} : {documentPriorByPage}),
-                ...(pagePlanEvidenceByPage.size === 0
-                    ? {}
-                    : {pagePlanEvidenceByPage: Object.fromEntries(pagePlanEvidenceByPage)}),
+                ...(pagePlanEvidenceByPage.size === 0 ? {} : {pagePlanEvidenceByPage: Object.fromEntries(pagePlanEvidenceByPage)}),
             },
         };
     }
 
     return {
         activePages: computed<ReadonlySet<number>>(() => {
-            if (!isDetecting.value) return new Set();
+            if (!isDetecting.value) {
+                return new Set();
+            }
             const total = resolveDetectionDocumentPageCount();
-            return new Set((jobState.value?.progress.activePageNumbers ?? [])
-                .filter(pageNumber => pageNumber >= 1 && pageNumber <= total));
+            return new Set(
+                (jobState.value?.progress.activePageNumbers ?? []).filter((pageNumber) => pageNumber >= 1 && pageNumber <= total),
+            );
         }),
         authoritativeLayoutByPage,
         blankPageCount,

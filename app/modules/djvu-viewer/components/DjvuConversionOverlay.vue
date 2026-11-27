@@ -12,36 +12,26 @@
 
 <script setup lang="ts">
 import AppProgressOverlay from '@app/components/AppProgressOverlay.vue';
-import { useStageElapsedClock } from '@app/composables/useStageElapsedClock';
+import {useStageElapsedClock} from '@app/composables/useStageElapsedClock';
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 // Modal only in the pane in use; a visible inactive pane shows its progress
 // without taking focus or keys from the rest of the window.
-const {
-    isConverting,
-    modal,
-    percent,
-    phase,
-} = defineProps<{
+const {isConverting, modal, percent, phase} = defineProps<{
     isConverting: boolean;
     modal: boolean;
     phase: 'converting' | 'assembling' | 'bookmarks' | 'optimizing' | null;
     percent: number;
 }>();
 
-const emit = defineEmits<{cancel: [];}>();
+const emit = defineEmits<{cancel: []}>();
 
 // Assembling, bookmarks and the interaction pass have no page count; their
 // elapsed time keeps the overlay moving on a long book.
 const stageClock = useStageElapsedClock(
-    () => (isConverting ? phase ?? 'preparing' : null),
-    new Set([
-        'preparing',
-        'assembling',
-        'bookmarks',
-        'optimizing',
-    ] as const),
+    () => (isConverting ? (phase ?? 'preparing') : null),
+    new Set(['preparing', 'assembling', 'bookmarks', 'optimizing'] as const),
 );
 
 const overlayTitle = computed(() => {

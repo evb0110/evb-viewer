@@ -1,22 +1,11 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    ref,
-    shallowRef,
-} from 'vue';
-import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
-import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import { requireDocumentRef } from '@contracts/documentRef';
-import {
-    requireDocumentRevisionToken, type IDocumentRevisionInfo,
-} from '@contracts/documentRevision';
-import { requireEpochMs } from '@contracts/timestamps';
+import {describe, expect, it, vi} from 'vitest';
+import {computed, ref, shallowRef} from 'vue';
+import {useShellWorkspaceToolbar} from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
+import {createDefaultWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
+import type {IWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken, type IDocumentRevisionInfo} from '@contracts/documentRevision';
+import {requireEpochMs} from '@contracts/timestamps';
 import {
     createWorkspaceDocumentController,
     type IWorkspaceDocumentController,
@@ -29,10 +18,7 @@ function createSnapshot(overrides: Partial<IWorkspaceToolbarSnapshot> = {}): IWo
     };
 }
 
-function createSession(
-    snapshot: Partial<IWorkspaceToolbarSnapshot> = {},
-    revisionInfo: IDocumentRevisionInfo | null = null,
-) {
+function createSession(snapshot: Partial<IWorkspaceToolbarSnapshot> = {}, revisionInfo: IDocumentRevisionInfo | null = null) {
     const session = createWorkspaceDocumentController({tabId: 'tab-1'});
     session.commitFile({
         originalPath: requireDocumentRef('/docs/paper.pdf'),
@@ -59,17 +45,19 @@ function createToolbarOptions(overrides: Partial<Omit<Parameters<typeof useShell
 
 describe('useShellWorkspaceToolbar', () => {
     it('reads toolbar state from the active tab controller', () => {
-        const activeDocumentSession = shallowRef<IWorkspaceDocumentController | null>(createSession({
-            hasPdf: true,
-            toolbarHasPdf: true,
-            canSave: true,
-            currentPage: 12,
-            totalPages: 80,
-            zoom: 1.5,
-            effectiveZoom: 1.5,
-        }));
+        const activeDocumentSession = shallowRef<IWorkspaceDocumentController | null>(
+            createSession({
+                hasPdf: true,
+                toolbarHasPdf: true,
+                canSave: true,
+                currentPage: 12,
+                totalPages: 80,
+                zoom: 1.5,
+                effectiveZoom: 1.5,
+            }),
+        );
 
-        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({ activeDocumentSession }));
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({activeDocumentSession}));
 
         expect(toolbar.shellToolbarSnapshot.value).toMatchObject({
             hasPdf: true,
@@ -93,18 +81,20 @@ describe('useShellWorkspaceToolbar', () => {
         };
         const activeDocumentSession = shallowRef<IWorkspaceDocumentController | null>(createSession({hasPdf: true}, documentIdentity));
 
-        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({ activeDocumentSession }));
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({activeDocumentSession}));
 
         expect(toolbar.shellToolbarOcrWorkingCopyPath.value).toBe('/tmp/working-copy.pdf');
         expect(toolbar.shellToolbarOcrDocumentRevision.value).toBe('revision-4');
     });
 
     it('updates when the active tab changes', () => {
-        const activeDocumentSession = shallowRef<IWorkspaceDocumentController | null>(createSession({
-            hasPdf: true,
-            canSave: false,
-        }));
-        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({ activeDocumentSession }));
+        const activeDocumentSession = shallowRef<IWorkspaceDocumentController | null>(
+            createSession({
+                hasPdf: true,
+                canSave: false,
+            }),
+        );
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({activeDocumentSession}));
 
         activeDocumentSession.value = createSession({
             hasPdf: true,
@@ -124,10 +114,12 @@ describe('useShellWorkspaceToolbar', () => {
     it('keeps the shell toolbar visible until workspace toolbar content can take over', () => {
         const activeDocumentSession = shallowRef<IWorkspaceDocumentController | null>(null);
         const hasWorkspaceToolbarContent = ref(false);
-        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({
-            activeDocumentSession,
-            hasWorkspaceToolbarContent,
-        }));
+        const toolbar = useShellWorkspaceToolbar(
+            createToolbarOptions({
+                activeDocumentSession,
+                hasWorkspaceToolbarContent,
+            }),
+        );
 
         expect(toolbar.showShellToolbar.value).toBe(true);
 
@@ -146,13 +138,15 @@ describe('useShellWorkspaceToolbar', () => {
     });
 
     it('keeps field models as read-only mirrors', () => {
-        const activeDocumentSession = shallowRef<IWorkspaceDocumentController | null>(createSession({
-            hasPdf: true,
-            zoom: 1.25,
-            currentPage: 5,
-            totalPages: 10,
-        }));
-        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({ activeDocumentSession }));
+        const activeDocumentSession = shallowRef<IWorkspaceDocumentController | null>(
+            createSession({
+                hasPdf: true,
+                zoom: 1.25,
+                currentPage: 5,
+                totalPages: 10,
+            }),
+        );
+        const toolbar = useShellWorkspaceToolbar(createToolbarOptions({activeDocumentSession}));
 
         toolbar.shellToolbarZoom.value = 3;
 

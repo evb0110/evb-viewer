@@ -1,4 +1,4 @@
-import type { IDjvuPageSize } from '@contracts/electronApiDjvu';
+import type {IDjvuPageSize} from '@contracts/electronApiDjvu';
 import type {
     IDjvuDocInfo,
     IDjvuOutlineRawItem,
@@ -40,73 +40,73 @@ export interface IDjvuEngineOutlineResult {
 
 export type TDjvuEngineWorkerRequest =
     | {
-        id: number;
-        type: 'getDocInfo';
-        djvuPath: string;
-    }
+          id: number;
+          type: 'getDocInfo';
+          djvuPath: string;
+      }
     | {
-        id: number;
-        type: 'getPageInfo';
-        djvuPath: string;
-        pageNumber: number;
-    }
+          id: number;
+          type: 'getPageInfo';
+          djvuPath: string;
+          pageNumber: number;
+      }
     | {
-        id: number;
-        type: 'getPageSizes';
-        djvuPath: string;
-        pageNumbers?: readonly number[];
-    }
+          id: number;
+          type: 'getPageSizes';
+          djvuPath: string;
+          pageNumbers?: readonly number[];
+      }
     | {
-        id: number;
-        type: 'getPageStructures';
-        djvuPath: string;
-        pageNumbers?: readonly number[];
-    }
+          id: number;
+          type: 'getPageStructures';
+          djvuPath: string;
+          pageNumbers?: readonly number[];
+      }
     | {
-        id: number;
-        type: 'getOutline';
-        djvuPath: string;
-    }
+          id: number;
+          type: 'getOutline';
+          djvuPath: string;
+      }
     | {
-        id: number;
-        type: 'getMetadata';
-        djvuPath: string;
-    }
+          id: number;
+          type: 'getMetadata';
+          djvuPath: string;
+      }
     | {
-        id: number;
-        type: 'hasText';
-        djvuPath: string;
-    }
+          id: number;
+          type: 'hasText';
+          djvuPath: string;
+      }
     | {
-        id: number;
-        type: 'getPageText';
-        djvuPath: string;
-        pageNumber: number;
-        includeZones: boolean;
-    }
+          id: number;
+          type: 'getPageText';
+          djvuPath: string;
+          pageNumber: number;
+          includeZones: boolean;
+      }
     | {
-        id: number;
-        type: 'renderPageToFile';
-        djvuPath: string;
-        pageNumber: number;
-        outputPath: string;
-        options: IDjvuEngineRenderToFileOptions;
-    };
+          id: number;
+          type: 'renderPageToFile';
+          djvuPath: string;
+          pageNumber: number;
+          outputPath: string;
+          options: IDjvuEngineRenderToFileOptions;
+      };
 
 export type TDjvuEngineWorkerReply =
     | {
-        id: number;
-        ok: true;
-        heapBytes: number;
-        result: unknown;
-    }
+          id: number;
+          ok: true;
+          heapBytes: number;
+          result: unknown;
+      }
     | {
-        id: number;
-        ok: false;
-        heapBytes: number;
-        error: string;
-        errorName?: string;
-    };
+          id: number;
+          ok: false;
+          heapBytes: number;
+          error: string;
+          errorName?: string;
+      };
 
 export type TDjvuEngineResultMap = {
     getDocInfo: IDjvuEngineDocInfoResult;

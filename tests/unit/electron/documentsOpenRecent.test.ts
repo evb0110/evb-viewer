@@ -1,18 +1,10 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentOpenErrors';
-import { findSerializableErrorEnvelope } from '@contracts/serializableError';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
+import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 
 const mocks = vi.hoisted(() => {
     const allowedPathsByOwner = new Map<number, Set<string>>();
-    const getOwnerId = (owner: number | { id?: number } | undefined) => (
-        typeof owner === 'number' ? owner : owner?.id ?? 0
-    );
+    const getOwnerId = (owner: number | {id?: number} | undefined) => (typeof owner === 'number' ? owner : (owner?.id ?? 0));
     return {
         allowedPathsByOwner,
         missingPaths: new Set<string>(),
@@ -36,23 +28,20 @@ vi.mock('electron', () => ({
     app: {getPath: vi.fn(() => '/home/test/Documents')},
     dialog: {showOpenDialog: (...args: unknown[]) => mocks.showOpenDialog(...args)},
 }));
-vi.mock('@electron/te', () => ({ te: (key: string) => key }));
-vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
-vi.mock('@electron/image/pdfConversion', () => ({ isSupportedOpenPath: () => true }));
+vi.mock('@electron/te', () => ({te: (key: string) => key}));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/image/pdfConversion', () => ({isSupportedOpenPath: () => true}));
 vi.mock('@electron/image/pdfCombineShared', () => ({PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS: ['.png']}));
-vi.mock('@electron/recentFiles', () => ({ getRecentFiles: mocks.getRecentFiles }));
-vi.mock('@electron/features/documents/main/openInputPaths.service', () => ({ openInputPaths: mocks.openInputPaths }));
+vi.mock('@electron/recentFiles', () => ({getRecentFiles: mocks.getRecentFiles}));
+vi.mock('@electron/features/documents/main/openInputPaths.service', () => ({openInputPaths: mocks.openInputPaths}));
 vi.mock('@electron/features/documents/main/nativePdfMetadata', () => ({handlePdfOpeningGeometry: mocks.handlePdfOpeningGeometry}));
 vi.mock('@electron/features/documents/main/documentDialogCommon', () => ({
-    errorWithDetails: (fallbackMessage: string, details: unknown) => (
-        details instanceof Error
-            ? new Error(`${fallbackMessage}: ${details.message}`)
-            : new Error(fallbackMessage)
-    ),
+    errorWithDetails: (fallbackMessage: string, details: unknown) =>
+        details instanceof Error ? new Error(`${fallbackMessage}: ${details.message}`) : new Error(fallbackMessage),
     showOpenDocumentDialogForContext: mocks.showOpenDocumentDialog,
 }));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({
-    allowOpenPath: (filePath: string, owner?: number | { id?: number }) => {
+    allowOpenPath: (filePath: string, owner?: number | {id?: number}) => {
         if (mocks.missingPaths.has(filePath)) {
             return null;
         }
@@ -63,7 +52,7 @@ vi.mock('@electron/file-access/openPathCapabilities', () => ({
         return filePath;
     },
     logRejectedOpenPath: mocks.logRejectedOpenPath,
-    requireOpenPath: (filePath: string, owner?: number | { id?: number }) => {
+    requireOpenPath: (filePath: string, owner?: number | {id?: number}) => {
         const ownerId = mocks.getOwnerId(owner);
         if (!mocks.allowedPathsByOwner.get(ownerId)?.has(filePath)) {
             throw new Error(`Path not allowed: ${filePath}`);
@@ -116,7 +105,7 @@ describe('document direct-open recent authorization', () => {
             originalPath: recentPath,
             workingPath: '/tmp/restart-recent-working.pdf',
         });
-        const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');
+        const {handleOpenPdfDirect} = await import('@electron/features/documents/main/documentOpenHandlers');
         const context = createOpenContext(42);
 
         await expect(handleOpenPdfDirect(context, recentPath)).resolves.toEqual({
@@ -138,7 +127,7 @@ describe('document direct-open recent authorization', () => {
             originalPath: grantedPath,
             workingPath: '/tmp/direct-granted-working.pdf',
         });
-        const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');
+        const {handleOpenPdfDirect} = await import('@electron/features/documents/main/documentOpenHandlers');
 
         await expect(handleOpenPdfDirect(context, grantedPath)).resolves.toEqual({
             kind: 'pdf',
@@ -160,7 +149,7 @@ describe('document direct-open recent authorization', () => {
             originalPath: directPath,
             workingPath: '/tmp/cold-large-working.pdf',
         });
-        const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');
+        const {handleOpenPdfDirect} = await import('@electron/features/documents/main/documentOpenHandlers');
 
         await expect(handleOpenPdfDirect(context, directPath)).resolves.toEqual({
             kind: 'pdf',
@@ -171,11 +160,11 @@ describe('document direct-open recent authorization', () => {
         expect(mocks.openInputPaths).toHaveBeenCalledWith([directPath], {}, context.sender);
     });
 
-    it('carries a restore open\'s Recent Files exemption and refuses a malformed request', async () => {
+    it("carries a restore open's Recent Files exemption and refuses a malformed request", async () => {
         const restoredPath = '/tmp/restored-tab.pdf';
         const context = createOpenContext(42);
         mocks.allowedPathsByOwner.set(42, new Set([restoredPath]));
-        const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');
+        const {handleOpenPdfDirect} = await import('@electron/features/documents/main/documentOpenHandlers');
 
         await handleOpenPdfDirect(context, restoredPath, {recordRecent: false});
         await handleOpenPdfDirect(context, restoredPath, {password: 'secret', recordRecent: true});
@@ -193,7 +182,7 @@ describe('document direct-open recent authorization', () => {
     it('rejects paths granted only to a different owner', async () => {
         const wronglyGrantedPath = '/tmp/wrong-owner.pdf';
         mocks.allowedPathsByOwner.set(0, new Set([wronglyGrantedPath]));
-        const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');
+        const {handleOpenPdfDirect} = await import('@electron/features/documents/main/documentOpenHandlers');
 
         await expect(handleOpenPdfDirect(createOpenContext(42), wronglyGrantedPath)).rejects.toThrow('errors.file.invalid');
 
@@ -203,7 +192,7 @@ describe('document direct-open recent authorization', () => {
 
     it('still rejects a direct-open path that is neither capability-granted nor recent', async () => {
         const unknownPath = '/tmp/not-recent.pdf';
-        const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');
+        const {handleOpenPdfDirect} = await import('@electron/features/documents/main/documentOpenHandlers');
 
         await expect(handleOpenPdfDirect(createOpenContext(24), unknownPath)).rejects.toThrow('errors.file.invalid');
 
@@ -213,12 +202,14 @@ describe('document direct-open recent authorization', () => {
 
     it('names a Recent file that is gone instead of refusing it', async () => {
         const gonePath = '/tmp/moved-away/gone.pdf';
-        mocks.getRecentFiles.mockResolvedValue([{
-            originalPath: gonePath,
-            fileName: 'gone.pdf',
-        }]);
+        mocks.getRecentFiles.mockResolvedValue([
+            {
+                originalPath: gonePath,
+                fileName: 'gone.pdf',
+            },
+        ]);
         mocks.missingPaths.add(gonePath);
-        const { handleOpenPdfDirect } = await import('@electron/features/documents/main/documentOpenHandlers');
+        const {handleOpenPdfDirect} = await import('@electron/features/documents/main/documentOpenHandlers');
 
         const refusal = await handleOpenPdfDirect(createOpenContext(7), gonePath).catch((error: unknown) => error);
 
@@ -240,9 +231,11 @@ describe('document direct-open recent authorization', () => {
 
         await expect(handleOpenImageDialog(context)).resolves.toBeNull();
 
-        expect(mocks.showOpenDialog).toHaveBeenCalledWith(expect.objectContaining({
-            defaultPath: '/home/test/Documents',
-            properties: ['openFile'],
-        }));
+        expect(mocks.showOpenDialog).toHaveBeenCalledWith(
+            expect.objectContaining({
+                defaultPath: '/home/test/Documents',
+                properties: ['openFile'],
+            }),
+        );
     });
 });

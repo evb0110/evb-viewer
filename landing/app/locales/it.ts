@@ -1,7 +1,8 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Strumenti offline per pulire scansioni grezze e file DjVu, eseguire l\'OCR, aggiungere annotazioni ed esportare PDF su macOS, Windows e Linux. Gratis e con licenza MIT.',
+        description:
+            "Strumenti offline per pulire scansioni grezze e file DjVu, eseguire l'OCR, aggiungere annotazioni ed esportare PDF su macOS, Windows e Linux. Gratis e con licenza MIT.",
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -30,7 +31,8 @@ export default {
         seo: {
             title: 'App web EVB Viewer e download desktop',
             ogTitle: 'EVB Viewer per lavoro documentale web e desktop',
-            ogDescription: 'Trasforma scansioni grezze e file DjVu in PDF ricercabili e annotabili con pulizia, OCR, annotazioni ed esportazione offline su macOS, Windows e Linux. Gratis e con licenza MIT.',
+            ogDescription:
+                'Trasforma scansioni grezze e file DjVu in PDF ricercabili e annotabili con pulizia, OCR, annotazioni ed esportazione offline su macOS, Windows e Linux. Gratis e con licenza MIT.',
         },
         hero: {
             lede: 'EVB Viewer pulisce le scansioni grezze e i file DjVu, ne riconosce il testo e salva PDF ricercabili e annotabili. Funziona offline su macOS, Windows e Linux, è gratuito e con licenza MIT.',
@@ -40,20 +42,23 @@ export default {
             downloadInstaller: 'Scarica {installerLabel}',
             browseInstallers: 'Sfoglia tutti gli installer',
             openInBrowser: 'Usa nel browser',
-            detectionUnavailable: 'Il rilevamento automatico dell’installer non è disponibile. Puoi comunque aprire l’app web o scegliere una build desktop qui sotto.',
+            detectionUnavailable:
+                'Il rilevamento automatico dell’installer non è disponibile. Puoi comunque aprire l’app web o scegliere una build desktop qui sotto.',
             suggestedDevice: 'Build desktop suggerita: {installerLabel}',
             published: 'Pubblicato il {date}',
         },
         film: {
-            ariaLabel: 'Registrazione di EVB Viewer: una scansione grezza del 1880 viene pulita, riconosciuta in tedesco e vi si cerca «Edessa».',
+            ariaLabel:
+                'Registrazione di EVB Viewer: una scansione grezza del 1880 viene pulita, riconosciuta in tedesco e vi si cerca «Edessa».',
             play: 'Riproduci la registrazione',
             pause: 'Metti in pausa la registrazione',
             position: 'Posizione nella registrazione',
-            caption: 'Registrato nell\'app reale con una scansione del 1880 di pubblico dominio.',
+            caption: "Registrato nell'app reale con una scansione del 1880 di pubblico dominio.",
         },
         installers: {
             heading: 'Download desktop',
-            description: 'Le build desktop aggiungono la pulizia delle scansioni, l’integrazione nativa con il sistema operativo e flussi più pesanti come grandi unioni. L’installer consigliato si basa sul dispositivo attuale, ma ogni build resta selezionabile.',
+            description:
+                'Le build desktop aggiungono la pulizia delle scansioni, l’integrazione nativa con il sistema operativo e flussi più pesanti come grandi unioni. L’installer consigliato si basa sul dispositivo attuale, ma ogni build resta selezionabile.',
             loading: 'Caricamento dei link dell’ultima release...',
             error: 'Impossibile caricare gli artefatti della release in questo momento.',
             retry: 'Riprova',
@@ -107,7 +112,7 @@ export default {
                 },
                 search: {
                     title: 'Ricerca e navigazione',
-                    text: 'Cerca nel testo riconosciuto su tutte le pagine, passa da un risultato all\'altro e muoviti con miniature, segnalibri, schede e viste divise.',
+                    text: "Cerca nel testo riconosciuto su tutte le pagine, passa da un risultato all'altro e muoviti con miniature, segnalibri, schede e viste divise.",
                 },
                 annotate: {
                     title: 'Annotazioni nel file',
@@ -153,11 +158,11 @@ export default {
                 },
                 files: {
                     question: 'I miei documenti vengono caricati da qualche parte?',
-                    answer: 'No. L\'app desktop pulisce, riconosce, annota ed esporta i documenti sul tuo computer e funziona offline. L\'app web elabora nel browser i file che apri.',
+                    answer: "No. L'app desktop pulisce, riconosce, annota ed esporta i documenti sul tuo computer e funziona offline. L'app web elabora nel browser i file che apri.",
                 },
                 languages: {
-                    question: 'Quali lingue riconosce l\'OCR?',
-                    answer: 'Circa 30, tra cui inglese, tedesco, francese, russo, greco, ebraico, arabo e siriaco. Inglese e russo sono inclusi nell\'app; gli altri modelli si scaricano una volta, alla prima scelta. L’app web legge le stesse lingue.',
+                    question: "Quali lingue riconosce l'OCR?",
+                    answer: "Circa 30, tra cui inglese, tedesco, francese, russo, greco, ebraico, arabo e siriaco. Inglese e russo sono inclusi nell'app; gli altri modelli si scaricano una volta, alla prima scelta. L’app web legge le stesse lingue.",
                 },
                 formats: {
                     question: 'Quali file apre?',
@@ -168,17 +173,19 @@ export default {
                     answer: 'Sì, su {webAppUrl}. L’app web apre PDF, file DjVu e immagini locali, esegue l’OCR nelle stesse lingue dell’app desktop e modifica, salva, unisce e ottimizza anche documenti di grandi dimensioni; per produrre una scansione pulita serve ancora l’app desktop.',
                 },
                 assistant: {
-                    question: 'Usa l\'IA?',
+                    question: "Usa l'IA?",
                     answer: 'EVB Assistant è opzionale e disattivato per impostazione predefinita. Se lo attivi, usa il tuo account Codex o Claude e può esporre un server MCP locale; pulizia delle scansioni, OCR, ricerca ed esportazione non lo usano mai.',
                 },
             },
         },
         entryPoints: {
             heading: 'Scegli il punto di ingresso giusto',
-            description: 'Inizia nel browser per lavorare rapidamente con PDF, DjVu e immagini locali, compreso l’OCR in circa 30 lingue, oppure scegli l’app desktop per la pulizia delle scansioni, l’integrazione nativa con il sistema operativo e unioni più grandi.',
+            description:
+                'Inizia nel browser per lavorare rapidamente con PDF, DjVu e immagini locali, compreso l’OCR in circa 30 lingue, oppure scegli l’app desktop per la pulizia delle scansioni, l’integrazione nativa con il sistema operativo e unioni più grandi.',
             web: {
                 title: 'App web',
-                description: 'Ideale per aprire subito PDF locali, file DjVu e immagini comuni, poi rivedere, annotare ed esportare senza installare nulla.',
+                description:
+                    'Ideale per aprire subito PDF locali, file DjVu e immagini comuni, poi rivedere, annotare ed esportare senza installare nulla.',
                 point1: 'Flussi di lavoro PDF, DjVu e immagini',
                 point2: 'Nessun attrito di installazione o aggiornamento',
                 point3: 'Ottima per revisione rapida, annotazioni, modifiche pagina, OCR ed esportazione',
@@ -186,7 +193,8 @@ export default {
             },
             desktop: {
                 title: 'App desktop',
-                description: 'Ideale per la pulizia delle scansioni, l’integrazione nativa con il sistema operativo, lavori di unione più grandi e flussi che richiedono più dei limiti di memoria del browser.',
+                description:
+                    'Ideale per la pulizia delle scansioni, l’integrazione nativa con il sistema operativo, lavori di unione più grandi e flussi che richiedono più dei limiti di memoria del browser.',
                 point1: 'Pulizia delle scansioni prima dell’OCR',
                 point2: 'Lavori di unione ed esportazione più grandi',
                 point3: 'Finestre di dialogo desktop native e integrazione con il sistema operativo',
@@ -195,7 +203,8 @@ export default {
         },
         explore: {
             heading: 'Esplora il prodotto nel contesto',
-            description: 'Usa le pagine dettagliate per indicazioni sulle funzionalità browser rispetto a desktop e una guida utente pratica.',
+            description:
+                'Usa le pagine dettagliate per indicazioni sulle funzionalità browser rispetto a desktop e una guida utente pratica.',
             featuresPage: 'Apri pagina completa delle funzionalità',
             docsPage: 'Apri documentazione completa',
         },
@@ -204,25 +213,30 @@ export default {
         seo: {
             title: 'Funzionalità EVB Viewer per browser e desktop',
             ogTitle: 'Panoramica delle funzionalità di EVB Viewer',
-            ogDescription: 'Scopri cosa copre oggi EVB Viewer nel browser e cosa aggiunge l’app desktop per la pulizia delle scansioni, l’integrazione nativa con il sistema operativo e lavori più grandi.',
+            ogDescription:
+                'Scopri cosa copre oggi EVB Viewer nel browser e cosa aggiunge l’app desktop per la pulizia delle scansioni, l’integrazione nativa con il sistema operativo e lavori più grandi.',
         },
         hero: {
             badge: 'Pulizia nativa delle scansioni e OCR',
             title: 'Pulisci le scansioni grezze, poi cerca e annota il PDF',
-            subtitle: 'EVB Viewer funziona offline su macOS, Windows e Linux. Il suo motore nativo in Rust raddrizza le pagine, rimuove le piccole macchie, binarizza, ritaglia e separa le doppie pagine. L\'OCR di Tesseract con i modelli tessdata-best supporta 30 lingue. È pensato per archivisti, bibliotecari, storici, filologi e persone che gestiscono biblioteche personali di scansioni.',
+            subtitle:
+                "EVB Viewer funziona offline su macOS, Windows e Linux. Il suo motore nativo in Rust raddrizza le pagine, rimuove le piccole macchie, binarizza, ritaglia e separa le doppie pagine. L'OCR di Tesseract con i modelli tessdata-best supporta 30 lingue. È pensato per archivisti, bibliotecari, storici, filologi e persone che gestiscono biblioteche personali di scansioni.",
         },
         capabilities: {
             heading: 'Capacità principali dell’area di lavoro',
-            description: 'Leggi, rivedi, annota, riorganizza ed esporta documenti in un’unica area di lavoro, poi scegli l’ambiente adatto al lavoro.',
+            description:
+                'Leggi, rivedi, annota, riorganizza ed esporta documenti in un’unica area di lavoro, poi scegli l’ambiente adatto al lavoro.',
         },
         cards: {
             pdfDjvu: {
                 title: 'PDF, immagini e DjVu dove ha senso',
-                description: 'I flussi browser aprono PDF locali, file DjVu e immagini comuni. L’app desktop aggiunge la pulizia delle scansioni ed evita i limiti di memoria del browser sui lavori più pesanti.',
+                description:
+                    'I flussi browser aprono PDF locali, file DjVu e immagini comuni. L’app desktop aggiunge la pulizia delle scansioni ed evita i limiti di memoria del browser sui lavori più pesanti.',
             },
             ocr: {
                 title: 'OCR con output ricercabile',
-                description: 'L’OCR viene eseguito localmente nel browser e nelle build desktop e mantiene il risultato ricercabile dentro il documento modificato. Entrambi leggono le stesse lingue, circa 30.',
+                description:
+                    'L’OCR viene eseguito localmente nel browser e nelle build desktop e mantiene il risultato ricercabile dentro il documento modificato. Entrambi leggono le stesse lingue, circa 30.',
             },
             annotations: {
                 title: 'Strumenti di annotazione avanzati',
@@ -230,7 +244,8 @@ export default {
             },
             pages: {
                 title: 'Operazioni sulle pagine',
-                description: 'Elimina, estrai, riordina, ruota, ritaglia e cattura pagine. Le unioni nel browser sono limitate dalla memoria; il desktop è migliore per grandi lotti.',
+                description:
+                    'Elimina, estrai, riordina, ruota, ritaglia e cattura pagine. Le unioni nel browser sono limitate dalla memoria; il desktop è migliore per grandi lotti.',
             },
             workspace: {
                 title: 'Gestione dell’area di lavoro',
@@ -243,7 +258,8 @@ export default {
         },
         workflow: {
             heading: 'Come il prodotto si inserisce nel lavoro reale',
-            description: 'Una sessione tipica di EVB Viewer inizia con lavoro rapido nel browser e passa al desktop quando la pulizia delle scansioni o la scala lo richiedono.',
+            description:
+                'Una sessione tipica di EVB Viewer inizia con lavoro rapido nel browser e passa al desktop quando la pulizia delle scansioni o la scala lo richiedono.',
             load: {
                 title: 'Inizia nel browser',
                 body: 'Apri subito un PDF locale, un file DjVu o un’immagine quando un’installazione rallenterebbe il compito.',
@@ -285,11 +301,13 @@ export default {
         seo: {
             title: 'Documentazione EVB Viewer per flussi browser e desktop',
             ogTitle: 'Guida utente EVB Viewer',
-            ogDescription: 'Inizia con l’app browser per file locali e OCR, poi installa l’app desktop quando hai bisogno della pulizia delle scansioni, dell’integrazione nativa con il sistema operativo o di lavori più grandi di unione/esportazione.',
+            ogDescription:
+                'Inizia con l’app browser per file locali e OCR, poi installa l’app desktop quando hai bisogno della pulizia delle scansioni, dell’integrazione nativa con il sistema operativo o di lavori più grandi di unione/esportazione.',
         },
         hero: {
             title: 'Guide per l’app browser e l’app desktop',
-            subtitle: 'Inizia con l’app web per lavorare rapidamente con PDF, DjVu e immagini locali, OCR compreso, poi passa all’app desktop per la pulizia delle scansioni, l’integrazione nativa con il sistema operativo o lavori più grandi di unione/esportazione.',
+            subtitle:
+                'Inizia con l’app web per lavorare rapidamente con PDF, DjVu e immagini locali, OCR compreso, poi passa all’app desktop per la pulizia delle scansioni, l’integrazione nativa con il sistema operativo o lavori più grandi di unione/esportazione.',
         },
         guideCardAction: 'Vai alla sezione',
         browserQuickstart: {
@@ -352,7 +370,8 @@ export default {
             li3: 'Il nome del file generato segue il primo file selezionato, ad esempio {example}.',
             li4: 'Se un documento è già aperto, l’output combinato si apre in una nuova scheda così il lavoro corrente resta intatto.',
             li5: '{openRecent} conserva la cronologia e include un comando per cancellare i file recenti.',
-            convertIntro: '{menuPath} ha due comportamenti: in modalità DjVu apre le opzioni di conversione DjVu; altrimenti apre la selezione file e crea un PDF dalle sorgenti selezionate.',
+            convertIntro:
+                '{menuPath} ha due comportamenti: in modalità DjVu apre le opzioni di conversione DjVu; altrimenti apre la selezione file e crea un PDF dalle sorgenti selezionate.',
         },
         tabsSplits: {
             heading: 'Schede ed editor diviso',
@@ -424,7 +443,8 @@ export default {
             actionCol: 'Azione',
             shortcutCol: 'Scorciatoia',
             menuFile: 'File',
-            menuFileActions: 'Apri file, Apri recenti, Salva, Salva con nome, Esporta DOCX/Immagini/TIFF, Converti in PDF, Nuova scheda, Chiudi scheda',
+            menuFileActions:
+                'Apri file, Apri recenti, Salva, Salva con nome, Esporta DOCX/Immagini/TIFF, Converti in PDF, Nuova scheda, Chiudi scheda',
             menuActions: 'Azioni',
             menuActionsActions: 'Annulla, Ripeti, Copia',
             menuPages: 'Pagine',
@@ -451,7 +471,8 @@ export default {
             shortcutSplitEditor: 'Dividi editor a destra',
             shortcutFind: 'Trova nel documento',
             shortcutCycleTabs: 'Scorri schede',
-            contextMenuNote: 'La maggior parte dei controlli di modifica e layout è disponibile sia dai menu sia dai menu contestuali di scheda/pagina.',
+            contextMenuNote:
+                'La maggior parte dei controlli di modifica e layout è disponibile sia dai menu sia dai menu contestuali di scheda/pagina.',
             repoNote: 'Per bug e richieste di funzionalità, consulta il repository del progetto.',
         },
         license: {

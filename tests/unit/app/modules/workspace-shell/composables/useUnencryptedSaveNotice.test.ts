@@ -1,14 +1,5 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    ref,
-    watch,
-} from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {ref, watch} from 'vue';
 import {useUnencryptedSaveNotice} from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
@@ -60,15 +51,9 @@ describe('useUnencryptedSaveNotice', () => {
         const first = useUnencryptedSaveNotice();
         const second = useUnencryptedSaveNotice();
         const openTransitions: boolean[] = [];
-        const stopWatchingOpen = watch(
-            first.unencryptedSaveNoticeOpen,
-            value => openTransitions.push(value),
-            {flush: 'sync'},
-        );
+        const stopWatchingOpen = watch(first.unencryptedSaveNoticeOpen, (value) => openTransitions.push(value), {flush: 'sync'});
         const saveWorkingCopy = vi.fn();
-        const runSave = async (request: Promise<Awaited<ReturnType<
-            typeof first.requestUnencryptedSaveNotice
-        >>>) => {
+        const runSave = async (request: Promise<Awaited<ReturnType<typeof first.requestUnencryptedSaveNotice>>>) => {
             const result = await request;
             if (result.confirmed) {
                 saveWorkingCopy();
@@ -83,10 +68,7 @@ describe('useUnencryptedSaveNotice', () => {
         first.unencryptedSaveNoticeDontShowAgain.value = true;
         first.confirmUnencryptedSaveNotice();
 
-        await expect(Promise.all([
-            firstSave,
-            secondSave,
-        ])).resolves.toEqual([
+        await expect(Promise.all([firstSave, secondSave])).resolves.toEqual([
             {
                 confirmed: true,
                 dontShowAgain: true,
@@ -96,10 +78,7 @@ describe('useUnencryptedSaveNotice', () => {
                 dontShowAgain: true,
             },
         ]);
-        expect(openTransitions).toEqual([
-            true,
-            false,
-        ]);
+        expect(openTransitions).toEqual([true, false]);
         expect(saveWorkingCopy).toHaveBeenCalledTimes(2);
         stopWatchingOpen();
     });

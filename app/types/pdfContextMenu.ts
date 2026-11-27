@@ -1,5 +1,5 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import type { TPageSelection } from '@contracts/pageNumbers';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import type {TPageSelection} from '@contracts/pageNumbers';
 
 export interface IAnnotationContextMenuState {
     visible: boolean;

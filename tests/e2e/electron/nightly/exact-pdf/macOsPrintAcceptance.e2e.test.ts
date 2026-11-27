@@ -1,32 +1,24 @@
 import {execFile} from 'node:child_process';
-import {
-    existsSync, mkdirSync, readFileSync, rmSync,
-} from 'node:fs';
-import {
-    basename, dirname, isAbsolute, join, resolve,
-} from 'node:path';
+import {existsSync, mkdirSync, readFileSync, rmSync} from 'node:fs';
+import {basename, dirname, isAbsolute, join, resolve} from 'node:path';
 import {promisify} from 'node:util';
 import {decode} from 'fast-png';
-import {
-    afterAll, describe, expect, it, onTestFinished,
-} from 'vitest';
+import {afterAll, describe, expect, it, onTestFinished} from 'vitest';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
-    resolveExactPdfFixtureExpectation, readExactPdfFixtureIdentity, validateExactPdfFixtureIdentity,
+    resolveExactPdfFixtureExpectation,
+    readExactPdfFixtureIdentity,
+    validateExactPdfFixtureIdentity,
 } from '@scripts/ci/stageExactPdfFixture';
 import {resolveLargePdfFixtureAvailability} from '@tests/e2e/electron/helpers/fixtures';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {createVisibleWindowElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import type {TDocumentRef} from '@contracts/documentRef';
-import {
-    requirePageNumber, type TPageNumber,
-} from '@contracts/pageNumbers';
-import {
-    openPdfInApp, waitForPdfLoaded, waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {requirePageNumber, type TPageNumber} from '@contracts/pageNumbers';
+import {openPdfInApp, waitForPdfLoaded, waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
 const execFileAsync = promisify(execFile);
 const MACOS_PRINT_ACCEPTANCE_ENABLE_ENV = 'EVB_E2E_MACOS_PRINT_ACCEPTANCE';
 const MACOS_PRINT_ACCEPTANCE_OUTPUT_ENV = 'EVB_E2E_MACOS_PRINT_OUTPUT_PATH';
@@ -43,21 +35,26 @@ const MIN_PRINT_DISTINCT_COLOR_BUCKETS = 8;
 const exactFixtureExpectation = resolveExactPdfFixtureExpectation();
 const configuredFixturePath = process.env[LARGE_PDF_FIXTURE_ENV]?.trim() ?? '';
 const configuredOutputPath = process.env[MACOS_PRINT_ACCEPTANCE_OUTPUT_ENV]?.trim() ?? '';
-const fixture = configuredFixturePath ? resolveLargePdfFixtureAvailability() : {
-    path:null,
-    reason:`${LARGE_PDF_FIXTURE_ENV} must point to the exact local 882-page fixture`,
-    required:false,
-};
+const fixture = configuredFixturePath
+    ? resolveLargePdfFixtureAvailability()
+    : {
+          path: null,
+          reason: `${LARGE_PDF_FIXTURE_ENV} must point to the exact local 882-page fixture`,
+          required: false,
+      };
 const outputPath = isAbsolute(configuredOutputPath) ? configuredOutputPath : null;
-const acceptanceEnabled = process.platform === 'darwin' && process.env[MACOS_PRINT_ACCEPTANCE_ENABLE_ENV] === '1' && isAbsolute(configuredOutputPath);
+const acceptanceEnabled =
+    process.platform === 'darwin' && process.env[MACOS_PRINT_ACCEPTANCE_ENABLE_ENV] === '1' && isAbsolute(configuredOutputPath);
 const acceptanceDescribe = acceptanceEnabled ? describe : describe.skip;
 const acceptanceDir = resolve(process.cwd(), '.devkit', 'tmp', `macos-print-acceptance-${Date.now()}`);
 const renderedFirstPagePrefix = join(acceptanceDir, 'printed-first-page');
 const renderedFirstPagePath = `${renderedFirstPagePrefix}.png`;
-afterAll(() => rmSync(acceptanceDir, {
-    force:true,
-    recursive:true,
-}));
+afterAll(() =>
+    rmSync(acceptanceDir, {
+        force: true,
+        recursive: true,
+    }),
+);
 
 function escapeAppleScriptString(value: string) {
     return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
@@ -184,33 +181,33 @@ end tell
 }
 
 async function completeMacOsPrintDialog(targetPath: string, electronPid: number) {
-    await execFileAsync('osascript', [
-        '-e',
-        buildMacOsPrintDialogScript(targetPath, electronPid),
-    ], {
+    await execFileAsync('osascript', ['-e', buildMacOsPrintDialogScript(targetPath, electronPid)], {
         maxBuffer: 64 * 1024,
         timeout: PRINT_DIALOG_AUTOMATION_TIMEOUT_MS,
     });
 }
 
-
 async function renderPdfPage(pdfPath: string, pageNumber: number, outputPrefix = renderedFirstPagePrefix) {
     mkdirSync(dirname(outputPrefix), {recursive: true});
-    await execFileAsync(getPdfNativeToolPaths().pdftoppm, [
-        '-png',
-        '-singlefile',
-        '-r',
-        String(PRINT_VALIDATION_DPI),
-        '-f',
-        String(pageNumber),
-        '-l',
-        String(pageNumber),
-        pdfPath,
-        outputPrefix,
-    ], {
-        maxBuffer: 128 * 1024,
-        timeout: 30_000,
-    });
+    await execFileAsync(
+        getPdfNativeToolPaths().pdftoppm,
+        [
+            '-png',
+            '-singlefile',
+            '-r',
+            String(PRINT_VALIDATION_DPI),
+            '-f',
+            String(pageNumber),
+            '-l',
+            String(pageNumber),
+            pdfPath,
+            outputPrefix,
+        ],
+        {
+            maxBuffer: 128 * 1024,
+            timeout: 30_000,
+        },
+    );
 }
 
 interface IPrintRasterMetrics {
@@ -255,18 +252,11 @@ function inspectPrintedPageRaster(
     for (let y = 0; y < image.height; y += 1) {
         for (let x = startX; x < endX; x += 1) {
             const offset = (y * image.width + x) * channelCount;
-            const alpha = channelCount >= 4 ? image.data[offset + 3] ?? 255 : 255;
+            const alpha = channelCount >= 4 ? (image.data[offset + 3] ?? 255) : 255;
             const red = image.data[offset] ?? 255;
             const green = image.data[offset + 1] ?? 255;
             const blue = image.data[offset + 2] ?? 255;
-            if (
-                alpha > 8
-                && (
-                    red < 245
-                    || green < 245
-                    || blue < 245
-                )
-            ) {
+            if (alpha > 8 && (red < 245 || green < 245 || blue < 245)) {
                 nonWhitePixels += 1;
             }
 
@@ -274,7 +264,7 @@ function inspectPrintedPageRaster(
                 continue;
             }
 
-            const luminance = (red * 0.2126) + (green * 0.7152) + (blue * 0.0722);
+            const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
             if (luminance >= 220) {
                 substantialLightPixels += 1;
             }
@@ -284,7 +274,7 @@ function inspectPrintedPageRaster(
             const delta = luminance - luminanceMean;
             luminanceMean += delta / sampleCount;
             luminanceM2 += delta * (luminance - luminanceMean);
-            distinctColorBuckets.add((red >> 4) << 8 | (green >> 4) << 4 | (blue >> 4));
+            distinctColorBuckets.add(((red >> 4) << 8) | ((green >> 4) << 4) | (blue >> 4));
         }
     }
 
@@ -298,105 +288,95 @@ function inspectPrintedPageRaster(
     };
 }
 
-
 acceptanceDescribe('Electron E2E - macOS PDF print acceptance', () => {
     const sessionFixture = createVisibleWindowElectronE2ESessionFixture({
         sessionName: () => `e2e-macos-print-acceptance-${Date.now()}`,
         timeoutMs: PRINT_ACCEPTANCE_TIMEOUT_MS,
     });
 
-    it('prints page 1 of the exact 882-page PDF through the real system sheet', async () => {
-        const session = sessionFixture.getSession();
-        if (!configuredFixturePath) {
-            throw new Error(`${LARGE_PDF_FIXTURE_ENV} must point to the exact local 882-page fixture`);
-        }
-        if (!fixture.path) {
-            throw new Error(`Exact fixture is unavailable: ${fixture.reason}`);
-        }
-        const electronPid = getSessionInfo(session.name)?.electronPid;
-        if (!electronPid) {
-            throw new Error(`Electron PID is unavailable for ${session.name}`);
-        }
-        if (process.env[PRINT_DIALOG_TEST_MODE_ENV]?.trim()) {
-            throw new Error(`${PRINT_DIALOG_TEST_MODE_ENV} must be unset for native macOS print acceptance`);
-        }
-        if (outputPath === null) {
-            throw new Error(`${MACOS_PRINT_ACCEPTANCE_OUTPUT_ENV} must be an absolute output path`);
-        }
-        if (existsSync(outputPath)) {
-            throw new Error(`Refusing to overwrite an existing print acceptance output: ${outputPath}`);
-        }
-        onTestFinished(() => rmSync(outputPath, {force: true}));
-        mkdirSync(dirname(outputPath), {recursive: true});
-
-        const sourceIdentity = await readExactPdfFixtureIdentity(fixture.path, {
-            maxBytes: exactFixtureExpectation.bytes,
-            timeoutMs: PRINT_ACCEPTANCE_TIMEOUT_MS,
-        });
-        validateExactPdfFixtureIdentity(sourceIdentity, exactFixtureExpectation);
-
-        await openPdfInApp(session.page, fixture.path, PRINT_ACCEPTANCE_TIMEOUT_MS);
-        await waitForPdfLoaded(session.page, PRINT_ACCEPTANCE_TIMEOUT_MS);
-        await waitForViewerInteractive(session.page, PRINT_ACCEPTANCE_TIMEOUT_MS);
-        const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
-        const pageNumbers: TPageNumber[] = [requirePageNumber(1)];
-        const printPromise = session.page.evaluate(async ({
-            path,
-            pageNumbers,
-        }: {
-            path: TDocumentRef;
-            pageNumbers: TPageNumber[];
-        }) => {
-            const printPdfPath = (window as IE2EWindow).electronAPI?.documentPdf?.printPdfPath;
-            if (!printPdfPath) {
-                throw new Error('electronAPI.documentPdf.printPdfPath is unavailable');
+    it(
+        'prints page 1 of the exact 882-page PDF through the real system sheet',
+        async () => {
+            const session = sessionFixture.getSession();
+            if (!configuredFixturePath) {
+                throw new Error(`${LARGE_PDF_FIXTURE_ENV} must point to the exact local 882-page fixture`);
             }
+            if (!fixture.path) {
+                throw new Error(`Exact fixture is unavailable: ${fixture.reason}`);
+            }
+            const electronPid = getSessionInfo(session.name)?.electronPid;
+            if (!electronPid) {
+                throw new Error(`Electron PID is unavailable for ${session.name}`);
+            }
+            if (process.env[PRINT_DIALOG_TEST_MODE_ENV]?.trim()) {
+                throw new Error(`${PRINT_DIALOG_TEST_MODE_ENV} must be unset for native macOS print acceptance`);
+            }
+            if (outputPath === null) {
+                throw new Error(`${MACOS_PRINT_ACCEPTANCE_OUTPUT_ENV} must be an absolute output path`);
+            }
+            if (existsSync(outputPath)) {
+                throw new Error(`Refusing to overwrite an existing print acceptance output: ${outputPath}`);
+            }
+            onTestFinished(() => rmSync(outputPath, {force: true}));
+            mkdirSync(dirname(outputPath), {recursive: true});
 
-            return printPdfPath(path, 'macos-print-acceptance.pdf', {
-                pageNumbers,
-                viewMode: 'single',
-                orientation: 'auto',
+            const sourceIdentity = await readExactPdfFixtureIdentity(fixture.path, {
+                maxBytes: exactFixtureExpectation.bytes,
+                timeoutMs: PRINT_ACCEPTANCE_TIMEOUT_MS,
             });
-        }, {
-            path: workingCopyPath,
-            pageNumbers,
-        });
-        void printPromise.catch(() => undefined);
+            validateExactPdfFixtureIdentity(sourceIdentity, exactFixtureExpectation);
 
-        await completeMacOsPrintDialog(outputPath, electronPid);
-        const printResult = await printPromise;
-        expect(printResult).toEqual(expect.objectContaining({success: true}));
-        expect(existsSync(outputPath)).toBe(true);
+            await openPdfInApp(session.page, fixture.path, PRINT_ACCEPTANCE_TIMEOUT_MS);
+            await waitForPdfLoaded(session.page, PRINT_ACCEPTANCE_TIMEOUT_MS);
+            await waitForViewerInteractive(session.page, PRINT_ACCEPTANCE_TIMEOUT_MS);
+            const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
+            const pageNumbers: TPageNumber[] = [requirePageNumber(1)];
+            const printPromise = session.page.evaluate(
+                async ({path, pageNumbers}: {path: TDocumentRef; pageNumbers: TPageNumber[]}) => {
+                    const printPdfPath = (window as IE2EWindow).electronAPI?.documentPdf?.printPdfPath;
+                    if (!printPdfPath) {
+                        throw new Error('electronAPI.documentPdf.printPdfPath is unavailable');
+                    }
 
-        await runDesktopQpdfWasm([
-            '--check',
-            outputPath,
-        ], {
-            timeoutMs: 60_000,
-            commandLabel: 'qpdf(e2e-macos-print-check)',
-        });
-        const {stdout: pageCountOutput} = await runDesktopQpdfWasm([
-            '--show-npages',
-            outputPath,
-        ], {
-            timeoutMs: 60_000,
-            commandLabel: 'qpdf(e2e-macos-print-page-count)',
-        });
-        expect(Number.parseInt(pageCountOutput.trim(), 10)).toBe(1);
+                    return printPdfPath(path, 'macos-print-acceptance.pdf', {
+                        pageNumbers,
+                        viewMode: 'single',
+                        orientation: 'auto',
+                    });
+                },
+                {
+                    path: workingCopyPath,
+                    pageNumbers,
+                },
+            );
+            void printPromise.catch(() => undefined);
 
-        await renderPdfPage(outputPath, 1);
-        const rasterMetrics = inspectPrintedPageRaster(renderedFirstPagePath);
-        expect(rasterMetrics.totalPixels).toBeGreaterThan(0);
-        expect(rasterMetrics.nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
-        expect(rasterMetrics.substantialLightPixels).toBeGreaterThan(
-            rasterMetrics.totalPixels * MIN_PRINT_LIGHT_BACKGROUND_RATIO,
-        );
-        expect(
-            rasterMetrics.luminanceRange > MIN_PRINT_LUMINANCE_RANGE
-            || rasterMetrics.luminanceVariance > MIN_PRINT_LUMINANCE_RANGE
-            || rasterMetrics.distinctColorBuckets >= MIN_PRINT_DISTINCT_COLOR_BUCKETS,
-        ).toBe(true);
-    }, PRINT_ACCEPTANCE_TIMEOUT_MS);
+            await completeMacOsPrintDialog(outputPath, electronPid);
+            const printResult = await printPromise;
+            expect(printResult).toEqual(expect.objectContaining({success: true}));
+            expect(existsSync(outputPath)).toBe(true);
+
+            await runDesktopQpdfWasm(['--check', outputPath], {
+                timeoutMs: 60_000,
+                commandLabel: 'qpdf(e2e-macos-print-check)',
+            });
+            const {stdout: pageCountOutput} = await runDesktopQpdfWasm(['--show-npages', outputPath], {
+                timeoutMs: 60_000,
+                commandLabel: 'qpdf(e2e-macos-print-page-count)',
+            });
+            expect(Number.parseInt(pageCountOutput.trim(), 10)).toBe(1);
+
+            await renderPdfPage(outputPath, 1);
+            const rasterMetrics = inspectPrintedPageRaster(renderedFirstPagePath);
+            expect(rasterMetrics.totalPixels).toBeGreaterThan(0);
+            expect(rasterMetrics.nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
+            expect(rasterMetrics.substantialLightPixels).toBeGreaterThan(rasterMetrics.totalPixels * MIN_PRINT_LIGHT_BACKGROUND_RATIO);
+            expect(
+                rasterMetrics.luminanceRange > MIN_PRINT_LUMINANCE_RANGE ||
+                    rasterMetrics.luminanceVariance > MIN_PRINT_LUMINANCE_RANGE ||
+                    rasterMetrics.distinctColorBuckets >= MIN_PRINT_DISTINCT_COLOR_BUCKETS,
+            ).toBe(true);
+        },
+        PRINT_ACCEPTANCE_TIMEOUT_MS,
+    );
 });
-
-

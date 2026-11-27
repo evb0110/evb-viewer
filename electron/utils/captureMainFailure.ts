@@ -1,9 +1,6 @@
-import { randomUUID } from 'node:crypto';
-import type {
-    FailureReceipt,
-    FailureSeverity,
-} from '@contracts/diagnostics/failureReceipt';
-import { createEpochMs } from '@contracts/timestamps';
+import {randomUUID} from 'node:crypto';
+import type {FailureReceipt, FailureSeverity} from '@contracts/diagnostics/failureReceipt';
+import {createEpochMs} from '@contracts/timestamps';
 
 export interface IMainFailureInput {
     code: string;
@@ -31,12 +28,12 @@ let captureSender: TMainFailureCaptureSender | null = null;
 let fallbackSenderLoad: Promise<TMainFailureCaptureSender | null> | null = null;
 let pendingCaptures: Array<{
     input: IMainFailureInput;
-    eventId: string
+    eventId: string;
 }> = [];
 
 function loadFallbackCaptureSender() {
     fallbackSenderLoad ??= import('@sentry/core').then(
-        core => {
+        (core) => {
             captureSender ??= core.captureException;
             return captureSender;
         },
@@ -60,10 +57,7 @@ function dispatchCapture(sender: TMainFailureCaptureSender, input: IMainFailureI
         captureContext: {
             level: severity,
             tags: {diagnostic_code: input.code},
-            fingerprint: [
-                '{{ default }}',
-                input.code,
-            ],
+            fingerprint: ['{{ default }}', input.code],
         },
     });
 }
@@ -76,7 +70,7 @@ function send(input: IMainFailureInput, eventId: string) {
     if (managedBySdk) {
         return;
     }
-    void loadFallbackCaptureSender().then(sender => {
+    void loadFallbackCaptureSender().then((sender) => {
         if (sender !== null && preference === 'granted') {
             dispatchCapture(sender, input, eventId);
         }
@@ -116,18 +110,21 @@ export function setMainFailureCaptureState(
         }
         return;
     }
-    void load.then(() => {
-        if (pendingLoad !== load || preference !== 'granted') {
-            return;
-        }
-        pendingLoad = null;
-        flushPendingCaptures();
-    }, () => {
-        if (pendingLoad === load) {
+    void load.then(
+        () => {
+            if (pendingLoad !== load || preference !== 'granted') {
+                return;
+            }
             pendingLoad = null;
-            pendingCaptures = [];
-        }
-    });
+            flushPendingCaptures();
+        },
+        () => {
+            if (pendingLoad === load) {
+                pendingLoad = null;
+                pendingCaptures = [];
+            }
+        },
+    );
 }
 
 /**

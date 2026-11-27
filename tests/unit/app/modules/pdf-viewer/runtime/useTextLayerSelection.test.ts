@@ -1,17 +1,7 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    setupTextLayer,
-    teardownTextLayer,
-} from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {setupTextLayer, teardownTextLayer} from '@app/modules/pdf-viewer/runtime/composables/useTextLayerSelection';
 
 interface ITextLayerHarness {
     cleanup: () => void;

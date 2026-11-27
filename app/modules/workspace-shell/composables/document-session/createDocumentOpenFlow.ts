@@ -1,38 +1,28 @@
-import { trackWebEvent } from '@app/utils/trackWebEvent';
-import type { TTranslateFn } from '@i18n-app';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    getFailureReceipt,
-    type ExpectedOutcome,
-} from '@contracts/diagnostics/failureReceipt';
+import {trackWebEvent} from '@app/utils/trackWebEvent';
+import type {TTranslateFn} from '@i18n-app';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {getFailureReceipt, type ExpectedOutcome} from '@contracts/diagnostics/failureReceipt';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
-import type {
-    IDocumentDirectOpenRequest,
-    IDocumentsOpenCapability,
-    TOpenFileResult,
-} from '@contracts/electronApiDocuments';
-import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
-import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
+import type {IDocumentDirectOpenRequest, IDocumentsOpenCapability, TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {TDocumentOpenOutcome} from '@app/types/documentOpenOutcome';
+import type {IPdfRasterDisplayProfileOpenOptions} from '@app/types/pdfRasterDisplayProfile';
 import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
-import type { TPdfSource } from '@app/types/pdfUi';
-import { createRequestId } from '@contracts/shared';
-import { parseEpochMs } from '@contracts/timestamps';
-import { isRecord } from '@contracts/runtimeGuards';
-import { DocumentOpenRefusalError } from '@contracts/documentOpenErrors';
-import type { IDocumentSessionState } from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
-import type { IPdfLoadedState } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
-import type { IPdfConformanceDeferralOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { waitForVisualFrames } from '@app/utils/asyncHelpers';
-import { readDocumentBytes } from '@app/utils/documentBytes';
-import { getErrorMessage } from '@app/utils/error';
-import { getPerformanceProfile } from '@app/utils/performanceProfile';
-import { resolveOpenPathSecondaryPerformancePolicy } from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
+import type {TPdfSource} from '@app/types/pdfUi';
+import {createRequestId} from '@contracts/shared';
+import {parseEpochMs} from '@contracts/timestamps';
+import {isRecord} from '@contracts/runtimeGuards';
+import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
+import type {IDocumentSessionState} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
+import type {IPdfLoadedState} from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
+import type {IPdfConformanceDeferralOptions} from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
+import {waitForVisualFrames} from '@app/utils/asyncHelpers';
+import {readDocumentBytes} from '@app/utils/documentBytes';
+import {getErrorMessage} from '@app/utils/error';
+import {getPerformanceProfile} from '@app/utils/performanceProfile';
+import {resolveOpenPathSecondaryPerformancePolicy} from '@app/utils/resolveOpenPathSecondaryPerformancePolicy';
 import {
     getDocumentFilesCapability,
     getDocumentOpenCapability,
@@ -66,10 +56,7 @@ export interface IDocumentDirectOpenOptions extends IPdfRasterDisplayProfileOpen
     recordRecent?: boolean;
 }
 
-function readDirectOpenRequest(
-    options: IDocumentDirectOpenOptions,
-    password?: string,
-): IDocumentDirectOpenRequest | undefined {
+function readDirectOpenRequest(options: IDocumentDirectOpenOptions, password?: string): IDocumentDirectOpenRequest | undefined {
     const request: IDocumentDirectOpenRequest = {
         ...(password === undefined ? {} : {password}),
         ...(options.recordRecent === false ? {recordRecent: false} : {}),
@@ -82,19 +69,14 @@ function openDocumentDirectWith(
     path: TDocumentRef,
     request: IDocumentDirectOpenRequest | undefined,
 ) {
-    return request === undefined
-        ? capability.openDocumentDirect(path)
-        : capability.openDocumentDirect(path, request);
+    return request === undefined ? capability.openDocumentDirect(path) : capability.openDocumentDirect(path, request);
 }
 
 export interface ICreateDocumentOpenFlowDeps {
     cleanupAbandonedWorkingCopy: (path: TDocumentRef) => Promise<void>;
     clearPdfConformanceProfile: () => void;
     cleanupPreviousWorkingCopy: (path: TDocumentRef, nextPath: TDocumentRef) => Promise<void>;
-    deferPdfConformanceProfile: (
-        path: TDocumentRef,
-        options?: IPdfConformanceDeferralOptions,
-    ) => void;
+    deferPdfConformanceProfile: (path: TDocumentRef, options?: IPdfConformanceDeferralOptions) => void;
     resetCommandSink: () => void;
     /** The controller's open transaction this file open runs under: a newer claim or a close ends it. */
     readOpenTransactionId: () => string | null;
@@ -108,17 +90,10 @@ export interface ICreateDocumentOpenFlowDeps {
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
-export function createDocumentOpenFlow(
-    state: IDocumentSessionState,
-    deps: ICreateDocumentOpenFlowDeps,
-) {
+export function createDocumentOpenFlow(state: IDocumentSessionState, deps: ICreateDocumentOpenFlowDeps) {
     const {maxInMemoryPdfBytes} = resolveOpenPathSecondaryPerformancePolicy(getPerformanceProfile());
-    const {
-        requestPassword,
-        cancelPasswordPrompt,
-        closePasswordPrompt,
-    } = useDocumentPasswordPrompt();
-    const { presentNoticeToast } = useFailureToast();
+    const {requestPassword, cancelPasswordPrompt, closePasswordPrompt} = useDocumentPasswordPrompt();
+    const {presentNoticeToast} = useFailureToast();
     function assertPdfHasBytes(size: number) {
         if (!(size > 0)) {
             throw new DocumentOpenRefusalError('empty-pdf', 'The PDF file is empty (0 bytes)');
@@ -126,19 +101,13 @@ export function createDocumentOpenFlow(
     }
 
     function toPdfBlob(snapshot: Uint8Array) {
-        const ownedSnapshot = (
-            snapshot.buffer instanceof ArrayBuffer
-            && snapshot.byteOffset === 0
-            && snapshot.byteLength === snapshot.buffer.byteLength
-        )
-            ? snapshot as Uint8Array<ArrayBuffer>
-            : (
-                snapshot.byteOffset === 0
-                && snapshot.byteLength === snapshot.buffer.byteLength
-            )
-                ? new Uint8Array(snapshot)
-                : snapshot.slice();
-        return new Blob([ownedSnapshot], { type: 'application/pdf' });
+        const ownedSnapshot =
+            snapshot.buffer instanceof ArrayBuffer && snapshot.byteOffset === 0 && snapshot.byteLength === snapshot.buffer.byteLength
+                ? (snapshot as Uint8Array<ArrayBuffer>)
+                : snapshot.byteOffset === 0 && snapshot.byteLength === snapshot.buffer.byteLength
+                  ? new Uint8Array(snapshot)
+                  : snapshot.slice();
+        return new Blob([ownedSnapshot], {type: 'application/pdf'});
     }
 
     function getLoadedPdfFileSize(nextState: IPdfLoadedState) {
@@ -146,12 +115,7 @@ export function createDocumentOpenFlow(
             return nextState.pdfData.byteLength;
         }
         const source = nextState.pdfSrc;
-        if (
-            source
-            && typeof source === 'object'
-            && 'kind' in source
-            && source.kind === 'path'
-        ) {
+        if (source && typeof source === 'object' && 'kind' in source && source.kind === 'path') {
             return source.size;
         }
         return null;
@@ -161,10 +125,7 @@ export function createDocumentOpenFlow(
         return getDocumentPickerCapability().openDocumentDialog();
     }
 
-    function trackOpenedDocument(
-        result: TOpenedFileResult,
-        openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
-    ) {
+    function trackOpenedDocument(result: TOpenedFileResult, openMethod: 'picker' | 'preselected' | 'direct' | 'batch') {
         trackWebEvent('document_opened', {
             documentKind: result.kind,
             openMethod,
@@ -185,12 +146,14 @@ export function createDocumentOpenFlow(
     }
     function publishBatchOpeningLabel(processed: number, total: number) {
         const normalizedTotal = Math.max(0, total);
-        deps.setOpeningLabel(normalizedTotal > 0
-            ? deps.t('tabs.preparingBatch', {
-                processed: Math.min(Math.max(processed, 0), normalizedTotal),
-                total: normalizedTotal,
-            })
-            : null);
+        deps.setOpeningLabel(
+            normalizedTotal > 0
+                ? deps.t('tabs.preparingBatch', {
+                      processed: Math.min(Math.max(processed, 0), normalizedTotal),
+                      total: normalizedTotal,
+                  })
+                : null,
+        );
     }
 
     function resetOpenState() {
@@ -235,37 +198,23 @@ export function createDocumentOpenFlow(
         return deps.readOpenTransactionId() === requestId;
     }
 
-    async function cleanupAbandonedPdfWorkingCopy(
-        result: TOpenFileResult,
-        reason: string,
-    ) {
-        if (
-            !isPdfOpenResult(result)
-            || state.isActiveWorkingCopy(result.workingPath)
-            || isDocumentOpenWorkingCopyRetained(result)
-        ) {
+    async function cleanupAbandonedPdfWorkingCopy(result: TOpenFileResult, reason: string) {
+        if (!isPdfOpenResult(result) || state.isActiveWorkingCopy(result.workingPath) || isDocumentOpenWorkingCopyRetained(result)) {
             return;
         }
 
         try {
             await deps.cleanupAbandonedWorkingCopy(result.workingPath);
         } catch (cleanupError) {
-            BrowserLogger.warn(
-                RECENT_OPEN_LOG_SECTION,
-                'Failed to cleanup abandoned PDF working copy',
-                {
-                    path: result.workingPath,
-                    reason,
-                    error: cleanupError,
-                },
-            );
+            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Failed to cleanup abandoned PDF working copy', {
+                path: result.workingPath,
+                reason,
+                error: cleanupError,
+            });
         }
     }
 
-    async function settleStaleOpenResult(
-        result: TOpenFileResult,
-        reason: string,
-    ): Promise<TDocumentOpenOutcome> {
+    async function settleStaleOpenResult(result: TOpenFileResult, reason: string): Promise<TDocumentOpenOutcome> {
         await cleanupAbandonedPdfWorkingCopy(result, reason);
         return {
             status: 'stale',
@@ -306,26 +255,18 @@ export function createDocumentOpenFlow(
             if (!isCurrentOpenRequest(openRequestId)) {
                 return result
                     ? settleStaleOpenResult(result, 'stale-picker-result')
-                    : { status: 'cancelled' } satisfies TDocumentOpenOutcome;
+                    : ({status: 'cancelled'} satisfies TDocumentOpenOutcome);
             }
             if (!result) {
-                return { status: 'cancelled' } satisfies TDocumentOpenOutcome;
+                return {status: 'cancelled'} satisfies TDocumentOpenOutcome;
             }
             if (isPdfPasswordFailureResult(result)) {
-                return await openPdfWithPasswordPrompt(
-                    openRequestId,
-                    result,
-                    preSelected ? 'preselected' : 'picker',
-                );
+                return await openPdfWithPasswordPrompt(openRequestId, result, preSelected ? 'preselected' : 'picker');
             }
             if (isDjvuOpenResult(result)) {
                 return prepareDjvuOpen(result, preSelected ? 'preselected' : 'picker');
             }
-            return await finishPdfOpenResult(
-                openRequestId,
-                result,
-                preSelected ? 'preselected' : 'picker',
-            );
+            return await finishPdfOpenResult(openRequestId, result, preSelected ? 'preselected' : 'picker');
         } catch (e) {
             return handleCaughtOpenError(openRequestId, e, preSelected?.originalPath ?? null, (message) => {
                 recordOpenFailure(message, e, {
@@ -338,7 +279,7 @@ export function createDocumentOpenFlow(
 
     async function finishPdfOpenResult(
         openRequestId: string | null,
-        result: Extract<TOpenFileResult, { kind: 'pdf' }>,
+        result: Extract<TOpenFileResult, {kind: 'pdf'}>,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
         options: IPdfRasterDisplayProfileOpenOptions = {},
     ) {
@@ -352,13 +293,18 @@ export function createDocumentOpenFlow(
                 description: deps.t('errors.file.recoveryKeptOriginal', {path: result.keptOriginalPath}),
                 duration: Number.POSITIVE_INFINITY,
                 progress: false,
-                onDismiss: () => void getDocumentOpenCapability().forgetKeptOriginal?.(originalPath).catch((error: unknown) => {
-                    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) return;
-                    BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Could not dismiss a kept-original notice', {
-                        originalPath,
-                        error: getErrorMessage(error),
-                    });
-                }),
+                onDismiss: () =>
+                    void getDocumentOpenCapability()
+                        .forgetKeptOriginal?.(originalPath)
+                        .catch((error: unknown) => {
+                            if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) {
+                                return;
+                            }
+                            BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Could not dismiss a kept-original notice', {
+                                originalPath,
+                                error: getErrorMessage(error),
+                            });
+                        }),
             });
         }
         if (result.recoveryDirtyBaseline === true) {
@@ -368,26 +314,26 @@ export function createDocumentOpenFlow(
             // intent explicit at the open transaction boundary.
             retainDocumentOpenWorkingCopyForRetry(result);
         }
-        const registeredRasterDisplayProfile = consumeRegisteredPdfRasterDisplayProfile(
-            result.originalPath,
-            result.workingPath,
-        );
-        const rasterDisplayProfile = options.rasterDisplayProfile
-            ?? registeredRasterDisplayProfile;
+        const registeredRasterDisplayProfile = consumeRegisteredPdfRasterDisplayProfile(result.originalPath, result.workingPath);
+        const rasterDisplayProfile = options.rasterDisplayProfile ?? registeredRasterDisplayProfile;
         const documentFiles = getDocumentFilesCapability();
         // The source's revision lets a cached validation of the same bytes stand.
-        const validationRevision = documentFiles.statFile(result.originalPath)
+        const validationRevision = documentFiles
+            .statFile(result.originalPath)
             .catch(() => documentFiles.statFile(result.workingPath))
-            .then((source): IPdfValidationSourceRevision | null => {
-                const modifiedAt = parseEpochMs(source.modifiedAt);
-                return modifiedAt === null
-                    ? null
-                    : {
-                        documentId: result.originalPath,
-                        size: source.size,
-                        modifiedAt,
-                    };
-            }, () => null);
+            .then(
+                (source): IPdfValidationSourceRevision | null => {
+                    const modifiedAt = parseEpochMs(source.modifiedAt);
+                    return modifiedAt === null
+                        ? null
+                        : {
+                              documentId: result.originalPath,
+                              size: source.size,
+                              modifiedAt,
+                          };
+                },
+                () => null,
+            );
         const job = await loadPdfFromPath(result.workingPath, {
             originalPath: result.originalPath,
             markDirty: result.isGenerated === true || result.recoveryDirtyBaseline === true,
@@ -432,16 +378,17 @@ export function createDocumentOpenFlow(
             requestPassword,
             closePasswordPrompt,
             isCurrentOpenRequest,
-            openDocumentDirect: (path, password) => openDocumentDirectWith(
-                getDocumentOpenCapability(),
-                path,
-                readDirectOpenRequest(options, password),
-            ),
+            openDocumentDirect: (path, password) =>
+                openDocumentDirectWith(getDocumentOpenCapability(), path, readDirectOpenRequest(options, password)),
             cleanupAbandonedPdfWorkingCopy,
-            setError: message => { state.error.value = message; },
+            setError: (message) => {
+                state.error.value = message;
+            },
             reportUnsupportedEncryption,
             trackOpenedDocument,
-            setPendingDjvuPath: path => { state.pendingDjvu.value = path; },
+            setPendingDjvuPath: (path) => {
+                state.pendingDjvu.value = path;
+            },
             finishPdfOpenResult,
             t: deps.t,
         });
@@ -463,11 +410,7 @@ export function createDocumentOpenFlow(
                 openRequestId,
                 path,
             });
-            const result = await openDocumentDirectWith(
-                getDocumentOpenCapability(),
-                path,
-                readDirectOpenRequest(options),
-            );
+            const result = await openDocumentDirectWith(getDocumentOpenCapability(), path, readDirectOpenRequest(options));
             logPdfRenderTrace('pdf-open-capability-end', {
                 openRequestId,
                 path,
@@ -478,10 +421,10 @@ export function createDocumentOpenFlow(
             if (!isCurrentOpenRequest(openRequestId)) {
                 return result
                     ? settleStaleOpenResult(result, 'stale-direct-result')
-                    : {
-                        status: 'failed',
-                        error: deps.t('errors.file.invalid'),
-                    } satisfies TDocumentOpenOutcome;
+                    : ({
+                          status: 'failed',
+                          error: deps.t('errors.file.invalid'),
+                      } satisfies TDocumentOpenOutcome);
             }
             if (!result) {
                 const message = deps.t('errors.file.invalid');
@@ -498,39 +441,26 @@ export function createDocumentOpenFlow(
                 return await openPdfWithPasswordPrompt(openRequestId, result, 'direct', options);
             }
 
-            BrowserLogger.debug(
-                RECENT_OPEN_LOG_SECTION,
-                'openDocumentDirect returned result',
-                {
-                    path,
-                    kind: result.kind,
-                    isGenerated:
-                        isPdfOpenResult(result) ? Boolean(result.isGenerated) : undefined,
-                    workingPath: isPdfOpenResult(result) ? result.workingPath : undefined,
-                },
-            );
+            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openDocumentDirect returned result', {
+                path,
+                kind: result.kind,
+                isGenerated: isPdfOpenResult(result) ? Boolean(result.isGenerated) : undefined,
+                workingPath: isPdfOpenResult(result) ? result.workingPath : undefined,
+            });
 
             if (isDjvuOpenResult(result)) {
                 return prepareDjvuOpen(result, 'direct');
             }
-            BrowserLogger.debug(
-                RECENT_OPEN_LOG_SECTION,
-                'Loading PDF from working path',
-                {
-                    path,
-                    workingPath: result.workingPath,
-                },
-            );
+            BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Loading PDF from working path', {
+                path,
+                workingPath: result.workingPath,
+            });
             const outcome = await finishPdfOpenResult(openRequestId, result, 'direct', options);
             if (outcome.status === 'stale') {
-                BrowserLogger.debug(
-                    RECENT_OPEN_LOG_SECTION,
-                    'openFileDirect skipped stale load result',
-                    {
-                        path,
-                        workingPath: result.workingPath,
-                    },
-                );
+                BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect skipped stale load result', {
+                    path,
+                    workingPath: result.workingPath,
+                });
                 return outcome;
             }
             BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'openFileDirect completed', {
@@ -569,7 +499,7 @@ export function createDocumentOpenFlow(
             const documentOpen = getDocumentOpenCapability();
             const normalizedPaths = paths
                 .filter((path) => path.trim().length > 0)
-                .map(path => parseDocumentRef(path))
+                .map((path) => parseDocumentRef(path))
                 .filter((path): path is TDocumentRef => path !== null);
 
             if (normalizedPaths.length === 0) {
@@ -586,26 +516,17 @@ export function createDocumentOpenFlow(
             const requestId = createRequestId('document-open');
             publishBatchOpeningLabel(0, normalizedPaths.length);
 
-            const stopProgress = documentOpen.onOpenDocumentDirectBatchProgress(
-                (progress) => {
-                    if (
-                        progress.operation !== 'document-open'
-                        || progress.requestId !== requestId
-                        || !isCurrentOpenRequest(openRequestId)
-                    ) {
-                        return;
-                    }
+            const stopProgress = documentOpen.onOpenDocumentDirectBatchProgress((progress) => {
+                if (progress.operation !== 'document-open' || progress.requestId !== requestId || !isCurrentOpenRequest(openRequestId)) {
+                    return;
+                }
 
-                    publishBatchOpeningLabel(progress.processed, progress.total);
-                },
-            );
+                publishBatchOpeningLabel(progress.processed, progress.total);
+            });
 
             let result: TOpenFileResult | null = null;
             try {
-                result = await documentOpen.openDocumentDirectBatch(
-                    normalizedPaths,
-                    requestId,
-                );
+                result = await documentOpen.openDocumentDirectBatch(normalizedPaths, requestId);
             } finally {
                 stopProgress();
             }
@@ -613,10 +534,10 @@ export function createDocumentOpenFlow(
             if (!isCurrentOpenRequest(openRequestId)) {
                 return result
                     ? settleStaleOpenResult(result, 'stale-batch-result')
-                    : {
-                        status: 'failed',
-                        error: deps.t('errors.file.invalid'),
-                    } satisfies TDocumentOpenOutcome;
+                    : ({
+                          status: 'failed',
+                          error: deps.t('errors.file.invalid'),
+                      } satisfies TDocumentOpenOutcome);
             }
             deps.setOpeningLabel(null);
             if (!result) {
@@ -635,7 +556,7 @@ export function createDocumentOpenFlow(
             }
             return await finishPdfOpenResult(openRequestId, result, 'batch');
         } catch (e) {
-            return handleCaughtOpenError(openRequestId, e, paths.length === 1 ? paths[0] ?? null : null, (message) => {
+            return handleCaughtOpenError(openRequestId, e, paths.length === 1 ? (paths[0] ?? null) : null, (message) => {
                 deps.setOpeningLabel(null);
                 recordOpenFailure(message, e);
             });
@@ -665,30 +586,43 @@ export function createDocumentOpenFlow(
             return null;
         }
 
-        if (!options?.preserveHistory) deps.resetCommandSink();
+        if (!options?.preserveHistory) {
+            deps.resetCommandSink();
+        }
 
         const commitRevisionSwap = await options?.beforeSourceCommit?.(state.documentRevisionToken.value);
-        if (options?.isCurrent?.() === false) return null;
-        if (commitRevisionSwap) commitRevisionSwap();
+        if (options?.isCurrent?.() === false) {
+            return null;
+        }
+        if (commitRevisionSwap) {
+            commitRevisionSwap();
+        }
 
         // A replacement can paint while history and old-copy cleanup still wait. Publish its identity with its
         // source, before either can yield; only the open's own commit, current as just checked, starts a new document.
-        state.commitFile({
-            ...(options?.originalPath ? {originalPath: options.originalPath} : {}),
-            workingCopyPath: path,
-            isDjvu: false,
-        }, options?.preserveHistory ? null : deps.readOpenTransactionId());
+        state.commitFile(
+            {
+                ...(options?.originalPath ? {originalPath: options.originalPath} : {}),
+                workingCopyPath: path,
+                isDjvu: false,
+            },
+            options?.preserveHistory ? null : deps.readOpenTransactionId(),
+        );
         if (!options?.preserveHistory) {
             state.openedWorkingCopyPath.value = path;
         }
-        if (!options?.preserveHistory && state.pdfSrc.value) deps.resetDocumentPresentation();
+        if (!options?.preserveHistory && state.pdfSrc.value) {
+            deps.resetDocumentPresentation();
+        }
         state.pdfData.value = nextState.pdfData;
         const job = state.publishPdfSource(nextState.pdfSrc, options?.preserveHistory ? 'reload' : 'open');
-        if (!options?.preserveHistory) state.recoveryDirtyBaseline.value = options?.recoveryDirtyBaseline === true;
+        if (!options?.preserveHistory) {
+            state.recoveryDirtyBaseline.value = options?.recoveryDirtyBaseline === true;
+        }
         deps.clearPdfConformanceProfile();
 
         if (!options?.preserveHistory) {
-            if (!await deps.resetHistory({isCurrent: options?.isCurrent}) || options?.isCurrent?.() === false) {
+            if (!(await deps.resetHistory({isCurrent: options?.isCurrent})) || options?.isCurrent?.() === false) {
                 return null;
             }
             deps.syncDirtyFromHistory();
@@ -702,52 +636,48 @@ export function createDocumentOpenFlow(
             state.isDirty.value = options.markDirty;
         }
 
-        if (
-            options?.previousPath
-            && options.previousPath !== path
-            && options.isCurrent?.() !== false
-        ) {
+        if (options?.previousPath && options.previousPath !== path && options.isCurrent?.() !== false) {
             await deps.cleanupPreviousWorkingCopy(options.previousPath, path);
             if (options.isCurrent?.() === false) {
                 return null;
             }
         }
 
-        deps.deferPdfConformanceProfile(path, { fileSize: getLoadedPdfFileSize(nextState) });
+        deps.deferPdfConformanceProfile(path, {fileSize: getLoadedPdfFileSize(nextState)});
         return job;
     }
 
-    async function refreshDocumentRevisionToken(
-        path: TDocumentRef,
-        isCurrent?: (() => boolean) | undefined,
-    ) {
+    async function refreshDocumentRevisionToken(path: TDocumentRef, isCurrent?: (() => boolean) | undefined) {
         if (isCurrent?.() === false) {
             return false;
         }
 
-        const revision = await getDocumentFilesCapability().getDocumentRevision(path).catch((error: unknown) => {
-            if (isCurrent?.() === false) return null;
-            BrowserLogger.warn('pdf-file', 'Failed to resolve document revision', {
-                path,
-                error,
+        const revision = await getDocumentFilesCapability()
+            .getDocumentRevision(path)
+            .catch((error: unknown) => {
+                if (isCurrent?.() === false) {
+                    return null;
+                }
+                BrowserLogger.warn('pdf-file', 'Failed to resolve document revision', {
+                    path,
+                    error,
+                });
+                return null;
             });
-            return null;
-        });
-        if (isCurrent?.() === false) return false;
+        if (isCurrent?.() === false) {
+            return false;
+        }
         state.documentRevisionInfo.value = revision;
         return true;
     }
 
-    async function readPdfStateFromPath(
-        path: TDocumentRef,
-        traceContext?: {openRequestId: string | null},
-    ): Promise<IPdfLoadedState> {
+    async function readPdfStateFromPath(path: TDocumentRef, traceContext?: {openRequestId: string | null}): Promise<IPdfLoadedState> {
         const statStartedAt = performance.now();
         logPdfRenderTrace('pdf-open-source-stat-start', {
             path,
             ...traceContext,
         });
-        const { size } = await getDocumentFilesCapability().statFile(path);
+        const {size} = await getDocumentFilesCapability().statFile(path);
         logPdfRenderTrace('pdf-open-source-stat-end', {
             path,
             ...traceContext,
@@ -798,13 +728,16 @@ export function createDocumentOpenFlow(
         };
     }
 
-    async function loadPdfFromPath(path: TDocumentRef, opts: {
-        originalPath?: TDocumentRef;
-        markDirty?: boolean;
-        recoveryDirtyBaseline?: boolean;
-        openRequestId: string | null;
-        validationRevision?: Promise<IPdfValidationSourceRevision | null>;
-    }) {
+    async function loadPdfFromPath(
+        path: TDocumentRef,
+        opts: {
+            originalPath?: TDocumentRef;
+            markDirty?: boolean;
+            recoveryDirtyBaseline?: boolean;
+            openRequestId: string | null;
+            validationRevision?: Promise<IPdfValidationSourceRevision | null>;
+        },
+    ) {
         const traceContext = {openRequestId: opts.openRequestId};
         const isCurrent = () => isCurrentOpenRequest(opts.openRequestId);
         // Yield one visual frame so upstream loading indicators (e.g. the
@@ -854,15 +787,9 @@ export function createDocumentOpenFlow(
             path,
             ...traceContext,
         });
-        const {
-            validation,
-            cacheResult,
-        } = await (opts.validationRevision ?? Promise.resolve(null))
-            .then(revision => validatePdfRevision(
-                revision,
-                () => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'opening'}),
-                'opening',
-            ));
+        const {validation, cacheResult} = await (opts.validationRevision ?? Promise.resolve(null)).then((revision) =>
+            validatePdfRevision(revision, () => getDocumentPdfCapability().validatePdfPath(path, {purpose: 'opening'}), 'opening'),
+        );
         logPdfRenderTrace('pdf-open-validate-end', {
             path,
             ...traceContext,
@@ -906,7 +833,7 @@ export function createDocumentOpenFlow(
     }
 
     return {
-        applyLoadedPdfState: async (...args: Parameters<typeof publishLoadedPdfState>) => await publishLoadedPdfState(...args) !== null,
+        applyLoadedPdfState: async (...args: Parameters<typeof publishLoadedPdfState>) => (await publishLoadedPdfState(...args)) !== null,
         loadPdfFromPath,
         openFile,
         openFileDirect,

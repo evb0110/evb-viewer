@@ -1,12 +1,8 @@
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import type { IRunNativeToolCommandOptions } from '@electron/native-tools/runNativeToolCommand';
-import type { IProcessResult } from '@electron/native-tools/processResult';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import type {IRunNativeToolCommandOptions} from '@electron/native-tools/runNativeToolCommand';
+import type {IProcessResult} from '@electron/native-tools/processResult';
 
-type TRunNativeToolCommand = (
-    command: string,
-    args: string[],
-    options?: IRunNativeToolCommandOptions,
-) => Promise<IProcessResult>;
+type TRunNativeToolCommand = (command: string, args: string[], options?: IRunNativeToolCommandOptions) => Promise<IProcessResult>;
 
 function qpdfObjectArgument(ref: string) {
     const match = /^(\d+) (\d+) R$/u.exec(ref);
@@ -25,10 +21,7 @@ export async function validateTargetedPdfObjects(
     run: TRunNativeToolCommand = runNativeToolCommand,
 ) {
     for (const ref of changedObjectRefs) {
-        const result = await run(validationBinary, [
-            qpdfObjectArgument(ref),
-            pdfPath,
-        ], {
+        const result = await run(validationBinary, [qpdfObjectArgument(ref), pdfPath], {
             timeoutMs: 60_000,
             maxStdoutBytes: 1024 * 1024,
             maxStderrBytes: 256 * 1024,

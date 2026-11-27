@@ -1,15 +1,6 @@
 import {createHash} from 'node:crypto';
-import {
-    lstat,
-    readFile,
-    readdir,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    basename,
-    join,
-    resolve,
-} from 'node:path';
+import {lstat, readFile, readdir, writeFile} from 'node:fs/promises';
+import {basename, join, resolve} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 
@@ -20,7 +11,9 @@ import {fileURLToPath} from 'node:url';
 
 /** @param {string} filePath */
 async function sha256(filePath) {
-    return createHash('sha256').update(await readFile(filePath)).digest('hex');
+    return createHash('sha256')
+        .update(await readFile(filePath))
+        .digest('hex');
 }
 
 /** @param {string} left @param {string} right */
@@ -48,7 +41,7 @@ async function collectPayloadFiles(rootPath, currentPath = rootPath) {
             throw new Error(`Packaged payload contains a symbolic link: ${relativePath}`);
         }
         if (fileStat.isDirectory()) {
-            files.push(...await collectPayloadFiles(rootPath, absolutePath));
+            files.push(...(await collectPayloadFiles(rootPath, absolutePath)));
             continue;
         }
         if (!fileStat.isFile()) {
@@ -87,19 +80,11 @@ async function createPayloadProvenance(appAsarPath) {
 }
 
 /** @param {IBuildProvenanceOptions} options */
-export async function createBuildProvenance({
-    appAsarPath,
-    arch,
-    channel,
-    outputPath,
-}) {
+export async function createBuildProvenance({appAsarPath, arch, channel, outputPath}) {
     const packageJson = JSON.parse(await readFile(resolve('package.json'), 'utf8'));
     const provenance = {
         schemaVersion: 2,
-        commitSha: execFileSync('git', [
-            'rev-parse',
-            'HEAD',
-        ], {encoding: 'utf8'}).trim(),
+        commitSha: execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).trim(),
         version: packageJson.version,
         arch,
         channel,
@@ -118,13 +103,7 @@ export async function createBuildProvenance({
 export async function assertMatchingBuildProvenance(directPath, storePath) {
     const direct = /** @type {IProvenance} */ (JSON.parse(await readFile(directPath, 'utf8')));
     const store = /** @type {IProvenance} */ (JSON.parse(await readFile(storePath, 'utf8')));
-    for (const field of /** @type {(keyof IProvenance)[]} */ ([
-        'schemaVersion',
-        'commitSha',
-        'version',
-        'arch',
-        'lockfileSha256',
-    ])) {
+    for (const field of /** @type {(keyof IProvenance)[]} */ (['schemaVersion', 'commitSha', 'version', 'arch', 'lockfileSha256'])) {
         if (direct[field] !== store[field]) {
             throw new Error(`Build provenance mismatch for ${field}: direct=${direct[field]} store=${store[field]}`);
         }
@@ -135,13 +114,11 @@ export async function assertMatchingBuildProvenance(directPath, storePath) {
     if (!direct.payload || !store.payload) {
         throw new Error('Complete packaged payload provenance is required for direct-download and Store parity.');
     }
-    for (const field of /** @type {(keyof IProvenancePayload)[]} */ ([
-        'sha256',
-        'fileCount',
-        'byteLength',
-    ])) {
+    for (const field of /** @type {(keyof IProvenancePayload)[]} */ (['sha256', 'fileCount', 'byteLength'])) {
         if (direct.payload[field] !== store.payload[field]) {
-            throw new Error(`Packaged payload provenance mismatch for ${field}: direct=${direct.payload[field]} store=${store.payload[field]}`);
+            throw new Error(
+                `Packaged payload provenance mismatch for ${field}: direct=${direct.payload[field]} store=${store.payload[field]}`,
+            );
         }
     }
     const directFiles = direct.payload.files ?? [];
@@ -152,8 +129,8 @@ export async function assertMatchingBuildProvenance(directPath, storePath) {
             const storeFile = storeFiles[index];
             if (JSON.stringify(directFile) !== JSON.stringify(storeFile)) {
                 throw new Error(
-                    'Complete packaged payload file manifest mismatch between direct-download and Store packages: '
-                    + `direct=${directFile?.path ?? '<missing>'} store=${storeFile?.path ?? '<missing>'}`,
+                    'Complete packaged payload file manifest mismatch between direct-download and Store packages: ' +
+                        `direct=${directFile?.path ?? '<missing>'} store=${storeFile?.path ?? '<missing>'}`,
                 );
             }
         }
@@ -166,17 +143,9 @@ export async function assertMatchingBuildProvenance(directPath, storePath) {
 
 /** @param {string[]} argv @returns {Promise<void>} */
 async function main(argv) {
-    const [
-        command,
-        ...args
-    ] = argv;
+    const [command, ...args] = argv;
     if (command === 'create' && args.length === 4) {
-        const [
-            channel,
-            arch,
-            appAsarPath,
-            outputPath,
-        ] = args;
+        const [channel, arch, appAsarPath, outputPath] = args;
         if (channel !== undefined && arch !== undefined && appAsarPath !== undefined && outputPath !== undefined) {
             await createBuildProvenance({
                 appAsarPath,
@@ -188,17 +157,16 @@ async function main(argv) {
         }
     }
     if (command === 'assert-match' && args.length === 2) {
-        const [
-            directPath,
-            storePath,
-        ] = args;
+        const [directPath, storePath] = args;
         if (directPath !== undefined && storePath !== undefined) {
             await assertMatchingBuildProvenance(directPath, storePath);
             process.stdout.write('Direct-download and Store packaged application provenance matches.\n');
             return;
         }
     }
-    throw new Error('Usage: build-provenance.mjs create <channel> <arch> <app.asar> <output.json> | assert-match <direct.json> <store.json>');
+    throw new Error(
+        'Usage: build-provenance.mjs create <channel> <arch> <app.asar> <output.json> | assert-match <direct.json> <store.json>',
+    );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {

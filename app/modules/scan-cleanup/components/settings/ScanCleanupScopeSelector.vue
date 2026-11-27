@@ -34,13 +34,7 @@
 <script setup lang="ts">
 import type {TScanCleanupSettingsScope} from '@app/modules/scan-cleanup/composables/useScanCleanupSelection';
 
-const {
-    customizedCounts,
-    highlightedScope,
-    modelValue,
-    pageNumber,
-    selectedCount,
-} = defineProps<{
+const {customizedCounts, highlightedScope, modelValue, pageNumber, selectedCount} = defineProps<{
     customizedCounts: Record<TScanCleanupSettingsScope, number>;
     highlightedScope: TScanCleanupSettingsScope | null;
     modelValue: TScanCleanupSettingsScope;
@@ -59,10 +53,14 @@ const scopeItems = computed(() => [
         value: 'page' as const,
         label: t('scanCleanup.settings.scope.page', {page: pageNumber}),
     },
-    ...(selectedCount >= 2 ? [{
-        value: 'selected' as const,
-        label: t('scanCleanup.settings.scope.selected', {count: selectedCount}),
-    }] : []),
+    ...(selectedCount >= 2
+        ? [
+              {
+                  value: 'selected' as const,
+                  label: t('scanCleanup.settings.scope.selected', {count: selectedCount}),
+              },
+          ]
+        : []),
 ]);
 </script>
 

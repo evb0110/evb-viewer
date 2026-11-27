@@ -12,8 +12,14 @@
             <slot />
         </span>
 
-        <template v-if="slots.content" #content="slotProps">
-            <slot name="content" v-bind="slotProps" />
+        <template
+            v-if="slots.content"
+            #content="slotProps"
+        >
+            <slot
+                name="content"
+                v-bind="slotProps"
+            />
         </template>
     </UTooltip>
 </template>
@@ -56,7 +62,7 @@ const {
     usefulness = 'auto',
 } = defineProps<IAppTooltipProps>();
 
-const emit = defineEmits<{ 'update:open': [value: boolean] }>();
+const emit = defineEmits<{'update:open': [value: boolean]}>();
 const slots = useSlots();
 
 const triggerRef = useTemplateRef<HTMLElement>('triggerRef');
@@ -69,17 +75,37 @@ const reference = shallowRef(createReference());
 const isUseful = ref(usefulness === 'always' || usefulness === 'auto' || usefulness === 'no-text');
 const tooltipProps = computed(() => {
     const props: Record<string, unknown> = {disabled: disabled || !isUseful.value};
-    if (text !== undefined) props.text = text;
-    if (content !== undefined) props.content = content;
-    if (arrow !== undefined) props.arrow = arrow;
+    if (text !== undefined) {
+        props.text = text;
+    }
+    if (content !== undefined) {
+        props.content = content;
+    }
+    if (arrow !== undefined) {
+        props.arrow = arrow;
+    }
     props.portal = portal;
-    if (tooltipClass !== undefined) props.class = tooltipClass;
-    if (defaultOpen !== undefined) props.defaultOpen = defaultOpen;
-    if (open !== undefined) props.open = open;
-    if (delayDuration !== undefined) props.delayDuration = delayDuration;
-    if (disableHoverableContent !== undefined) props.disableHoverableContent = disableHoverableContent;
-    if (disableClosingTrigger !== undefined) props.disableClosingTrigger = disableClosingTrigger;
-    if (ignoreNonKeyboardFocus !== undefined) props.ignoreNonKeyboardFocus = ignoreNonKeyboardFocus;
+    if (tooltipClass !== undefined) {
+        props.class = tooltipClass;
+    }
+    if (defaultOpen !== undefined) {
+        props.defaultOpen = defaultOpen;
+    }
+    if (open !== undefined) {
+        props.open = open;
+    }
+    if (delayDuration !== undefined) {
+        props.delayDuration = delayDuration;
+    }
+    if (disableHoverableContent !== undefined) {
+        props.disableHoverableContent = disableHoverableContent;
+    }
+    if (disableClosingTrigger !== undefined) {
+        props.disableClosingTrigger = disableClosingTrigger;
+    }
+    if (ignoreNonKeyboardFocus !== undefined) {
+        props.ignoreNonKeyboardFocus = ignoreNonKeyboardFocus;
+    }
     props.reference = reference.value;
     props.ui = {
         content: 'app-tooltip-content',
@@ -108,7 +134,7 @@ function referenceElement() {
     const root = triggerRef.value;
     const element = root?.firstElementChild;
 
-    return element instanceof HTMLElement ? element : root ?? undefined;
+    return element instanceof HTMLElement ? element : (root ?? undefined);
 }
 
 function hasUsefulText(element: HTMLElement) {
@@ -138,10 +164,11 @@ function refreshUsefulness() {
         return;
     }
 
-    isUseful.value = usefulness === 'always'
-        || (usefulness === 'no-text' && !hasUsefulText(root))
-        || (usefulness === 'overflow' && hasOverflowingContent(root))
-        || (usefulness === 'auto' && (!hasUsefulText(root) || hasOverflowingContent(root)));
+    isUseful.value =
+        usefulness === 'always' ||
+        (usefulness === 'no-text' && !hasUsefulText(root)) ||
+        (usefulness === 'overflow' && hasOverflowingContent(root)) ||
+        (usefulness === 'auto' && (!hasUsefulText(root) || hasOverflowingContent(root)));
 }
 
 watch(() => usefulness, refreshUsefulness);

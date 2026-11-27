@@ -1,17 +1,6 @@
-import {
-    isFailureCode,
-    isFailureEventId,
-    type FailureReceipt,
-    type FailureSeverity,
-} from '@contracts/diagnostics/failureReceipt';
-import {
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
-import {
-    parseIsoTimestamp,
-    type TIsoTimestamp,
-} from '@contracts/timestamps';
+import {isFailureCode, isFailureEventId, type FailureReceipt, type FailureSeverity} from '@contracts/diagnostics/failureReceipt';
+import {isOneOf, isRecord} from '@contracts/runtimeGuards';
+import {parseIsoTimestamp, type TIsoTimestamp} from '@contracts/timestamps';
 
 export type TMenuEventCallback = () => void;
 
@@ -41,56 +30,43 @@ interface IDebugLogEntryBase {
 // Main-process diagnostic logs use the native Electron/logger channel casing.
 // The ERROR branch requires a main-owned failure identity. The non-ERROR branch
 // makes it impossible to attach one.
-export type IDebugLogEntry = IDebugLogEntryBase & (
-    | {
-        readonly level?: Exclude<TDebugLogLevel, 'ERROR'>;
-        readonly failureRef?: never;
-    }
-    | {
-        readonly level: 'ERROR';
-        readonly failureRef: IDebugLogFailureRef;
-    }
-);
+export type IDebugLogEntry = IDebugLogEntryBase &
+    (
+        | {
+              readonly level?: Exclude<TDebugLogLevel, 'ERROR'>;
+              readonly failureRef?: never;
+          }
+        | {
+              readonly level: 'ERROR';
+              readonly failureRef: IDebugLogFailureRef;
+          }
+    );
 
-const DEBUG_LOG_LEVELS = [
-    'DEBUG',
-    'INFO',
-    'WARN',
-    'ERROR',
-] as const satisfies readonly TDebugLogLevel[];
+const DEBUG_LOG_LEVELS = ['DEBUG', 'INFO', 'WARN', 'ERROR'] as const satisfies readonly TDebugLogLevel[];
 
-const DEBUG_LOG_ENTRY_KEYS = [
-    'source',
-    'message',
-    'timestamp',
-    'level',
-    'failureRef',
-] as const;
+const DEBUG_LOG_ENTRY_KEYS = ['source', 'message', 'timestamp', 'level', 'failureRef'] as const;
 
-const DEBUG_LOG_FAILURE_REF_KEYS = [
-    'eventId',
-    'code',
-    'severity',
-] as const;
+const DEBUG_LOG_FAILURE_REF_KEYS = ['eventId', 'code', 'severity'] as const;
 
 function hasOnlyKeys(value: Record<string, unknown>, allowedKeys: readonly string[]) {
     try {
-        return Reflect.ownKeys(value).every(key => (
-            typeof key === 'string' && allowedKeys.includes(key)
-        ));
+        return Reflect.ownKeys(value).every((key) => typeof key === 'string' && allowedKeys.includes(key));
     } catch {
         return false;
     }
 }
 
 function decodeDebugLogFailureRef(value: unknown): IDebugLogFailureRef | null {
-    if (!isRecord(value) || !hasOnlyKeys(value, DEBUG_LOG_FAILURE_REF_KEYS)
-        || !Object.hasOwn(value, 'eventId')
-        || !Object.hasOwn(value, 'code')
-        || !Object.hasOwn(value, 'severity')
-        || !isFailureEventId(value.eventId)
-        || !isFailureCode(value.code)
-        || (value.severity !== 'error' && value.severity !== 'fatal')) {
+    if (
+        !isRecord(value) ||
+        !hasOnlyKeys(value, DEBUG_LOG_FAILURE_REF_KEYS) ||
+        !Object.hasOwn(value, 'eventId') ||
+        !Object.hasOwn(value, 'code') ||
+        !Object.hasOwn(value, 'severity') ||
+        !isFailureEventId(value.eventId) ||
+        !isFailureCode(value.code) ||
+        (value.severity !== 'error' && value.severity !== 'fatal')
+    ) {
         return null;
     }
 
@@ -109,12 +85,14 @@ function decodeDebugLogFailureRef(value: unknown): IDebugLogFailureRef | null {
 export function decodeDebugLogEntry(value: unknown): IDebugLogEntry | null {
     try {
         const timestamp = isRecord(value) ? parseIsoTimestamp(value.timestamp) : null;
-        if (!isRecord(value)
-            || !hasOnlyKeys(value, DEBUG_LOG_ENTRY_KEYS)
-            || typeof value.source !== 'string'
-            || typeof value.message !== 'string'
-            || timestamp === null
-            || (value.level !== undefined && !isOneOf(DEBUG_LOG_LEVELS, value.level))) {
+        if (
+            !isRecord(value) ||
+            !hasOnlyKeys(value, DEBUG_LOG_ENTRY_KEYS) ||
+            typeof value.source !== 'string' ||
+            typeof value.message !== 'string' ||
+            timestamp === null ||
+            (value.level !== undefined && !isOneOf(DEBUG_LOG_LEVELS, value.level))
+        ) {
             return null;
         }
 

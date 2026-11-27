@@ -1,7 +1,8 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Offlinegereedschap om ruwe scans en DjVu-bestanden op te schonen, OCR uit te voeren, annotaties toe te voegen en PDF-bestanden te exporteren op macOS, Windows en Linux. Gratis en onder de MIT-licentie.',
+        description:
+            'Offlinegereedschap om ruwe scans en DjVu-bestanden op te schonen, OCR uit te voeren, annotaties toe te voegen en PDF-bestanden te exporteren op macOS, Windows en Linux. Gratis en onder de MIT-licentie.',
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -30,7 +31,8 @@ export default {
         seo: {
             title: 'EVB Viewer web-app en desktopdownloads',
             ogTitle: 'EVB Viewer voor documentwerk op web en desktop',
-            ogDescription: 'Zet ruwe scans en DjVu-bestanden om in doorzoekbare en annoteerbare PDF-bestanden met offline opschoning, OCR, annotaties en export op macOS, Windows en Linux. Gratis en onder de MIT-licentie.',
+            ogDescription:
+                'Zet ruwe scans en DjVu-bestanden om in doorzoekbare en annoteerbare PDF-bestanden met offline opschoning, OCR, annotaties en export op macOS, Windows en Linux. Gratis en onder de MIT-licentie.',
         },
         hero: {
             lede: 'EVB Viewer schoont ruwe scans en DjVu-bestanden op, herkent hun tekst en slaat doorzoekbare PDF’s met annotaties op. Het werkt offline op macOS, Windows en Linux, is gratis en heeft een MIT-licentie.',
@@ -40,7 +42,8 @@ export default {
             downloadInstaller: '{installerLabel} downloaden',
             browseInstallers: 'Alle installers bekijken',
             openInBrowser: 'In browser gebruiken',
-            detectionUnavailable: 'Automatische installerdetectie is niet beschikbaar. Je kunt nog steeds de web-app openen of hieronder een desktopbuild kiezen.',
+            detectionUnavailable:
+                'Automatische installerdetectie is niet beschikbaar. Je kunt nog steeds de web-app openen of hieronder een desktopbuild kiezen.',
             suggestedDevice: 'Aanbevolen desktopbuild: {installerLabel}',
             published: 'Gepubliceerd op {date}',
         },
@@ -53,7 +56,8 @@ export default {
         },
         installers: {
             heading: 'Desktopdownloads',
-            description: 'Desktopbuilds voegen scanopschoning, native OS-integratie en zwaardere workflows zoals grote samenvoegingen toe. De aanbevolen installer is gebaseerd op je huidige apparaat, maar elke build blijft selecteerbaar.',
+            description:
+                'Desktopbuilds voegen scanopschoning, native OS-integratie en zwaardere workflows zoals grote samenvoegingen toe. De aanbevolen installer is gebaseerd op je huidige apparaat, maar elke build blijft selecteerbaar.',
             loading: 'Links naar de nieuwste release worden geladen...',
             error: 'Release-artefacten konden nu niet worden geladen.',
             retry: 'Opnieuw proberen',
@@ -175,10 +179,12 @@ export default {
         },
         entryPoints: {
             heading: 'Kies het juiste startpunt',
-            description: 'Begin in de browser voor snel lokaal PDF-, DjVu- en afbeeldingswerk, inclusief OCR in ongeveer 30 talen, of kies de desktop-app voor scanopschoning, native OS-integratie en grotere samenvoegingen.',
+            description:
+                'Begin in de browser voor snel lokaal PDF-, DjVu- en afbeeldingswerk, inclusief OCR in ongeveer 30 talen, of kies de desktop-app voor scanopschoning, native OS-integratie en grotere samenvoegingen.',
             web: {
                 title: 'Web-app',
-                description: 'Het beste voor het direct openen van lokale PDF’s, DjVu-bestanden en gangbare afbeeldingen, en daarna bekijken, markeren en exporteren zonder iets te installeren.',
+                description:
+                    'Het beste voor het direct openen van lokale PDF’s, DjVu-bestanden en gangbare afbeeldingen, en daarna bekijken, markeren en exporteren zonder iets te installeren.',
                 point1: 'PDF-, DjVu- en afbeeldingsworkflows',
                 point2: 'Geen installatie- of updaterfrictie',
                 point3: 'Geweldig voor snelle review, markering, paginabewerking, OCR en export',
@@ -186,7 +192,8 @@ export default {
             },
             desktop: {
                 title: 'Desktop-app',
-                description: 'Het beste voor scanopschoning, native OS-integratie, grotere samenvoegklussen en workflows die meer nodig hebben dan de geheugenlimieten van de browser.',
+                description:
+                    'Het beste voor scanopschoning, native OS-integratie, grotere samenvoegklussen en workflows die meer nodig hebben dan de geheugenlimieten van de browser.',
                 point1: 'Scanopschoning vóór OCR',
                 point2: 'Grotere samenvoeg- en exportklussen',
                 point3: 'Native desktopdialogen en OS-integratie',
@@ -204,25 +211,30 @@ export default {
         seo: {
             title: 'EVB Viewer-functies voor browser en desktop',
             ogTitle: 'EVB Viewer functieoverzicht',
-            ogDescription: 'Bekijk wat EVB Viewer vandaag in de browser dekt en wat de desktop-app toevoegt voor scanopschoning, native OS-integratie en grotere klussen.',
+            ogDescription:
+                'Bekijk wat EVB Viewer vandaag in de browser dekt en wat de desktop-app toevoegt voor scanopschoning, native OS-integratie en grotere klussen.',
         },
         hero: {
             badge: 'Native scanopschoning en OCR',
             title: 'Ruwe scans opschonen en daarna de PDF doorzoeken en annoteren',
-            subtitle: 'EVB Viewer werkt offline op macOS, Windows en Linux. De native Rust-engine maakt pagina\'s recht, verwijdert kleine vlekken, binariseert, snijdt bij en splitst dubbele pagina\'s. OCR van Tesseract met tessdata-best-modellen ondersteunt 30 talen. Het is bedoeld voor archivarissen, bibliothecarissen, historici, filologen en mensen die persoonlijke scanbibliotheken onderhouden.',
+            subtitle:
+                "EVB Viewer werkt offline op macOS, Windows en Linux. De native Rust-engine maakt pagina's recht, verwijdert kleine vlekken, binariseert, snijdt bij en splitst dubbele pagina's. OCR van Tesseract met tessdata-best-modellen ondersteunt 30 talen. Het is bedoeld voor archivarissen, bibliothecarissen, historici, filologen en mensen die persoonlijke scanbibliotheken onderhouden.",
         },
         capabilities: {
             heading: 'Kernmogelijkheden van de werkruimte',
-            description: 'Lees, review, annoteer, reorganiseer en exporteer documenten in één werkruimte, en kies daarna de runtime die bij de klus past.',
+            description:
+                'Lees, review, annoteer, reorganiseer en exporteer documenten in één werkruimte, en kies daarna de runtime die bij de klus past.',
         },
         cards: {
             pdfDjvu: {
                 title: 'PDF, afbeeldingen en DjVu waar het past',
-                description: 'Browserworkflows openen lokale PDF’s, DjVu-bestanden en gangbare afbeeldingen. De desktop-app voegt scanopschoning toe en vermijdt browsergeheugenlimieten bij zwaardere klussen.',
+                description:
+                    'Browserworkflows openen lokale PDF’s, DjVu-bestanden en gangbare afbeeldingen. De desktop-app voegt scanopschoning toe en vermijdt browsergeheugenlimieten bij zwaardere klussen.',
             },
             ocr: {
                 title: 'OCR met doorzoekbare uitvoer',
-                description: 'OCR draait lokaal in de browser en in desktopbuilds en houdt het doorzoekbare resultaat binnen het bewerkte document. Beide lezen dezelfde talen, ongeveer 30.',
+                description:
+                    'OCR draait lokaal in de browser en in desktopbuilds en houdt het doorzoekbare resultaat binnen het bewerkte document. Beide lezen dezelfde talen, ongeveer 30.',
             },
             annotations: {
                 title: 'Uitgebreide annotatietools',
@@ -230,11 +242,13 @@ export default {
             },
             pages: {
                 title: 'Paginabewerkingen',
-                description: 'Verwijder, extraheer, herschik, roteer, snijd bij en leg pagina’s vast. Browser-samenvoegingen zijn geheugenbeperkt; desktop is beter voor grote batches.',
+                description:
+                    'Verwijder, extraheer, herschik, roteer, snijd bij en leg pagina’s vast. Browser-samenvoegingen zijn geheugenbeperkt; desktop is beter voor grote batches.',
             },
             workspace: {
                 title: 'Werkruimtebeheer',
-                description: 'Gebruik tabbladen, gesplitste lay-outs, bladwijzers, zoeken en gerichte zijpanelen in plaats van tussen tools te springen.',
+                description:
+                    'Gebruik tabbladen, gesplitste lay-outs, bladwijzers, zoeken en gerichte zijpanelen in plaats van tussen tools te springen.',
             },
             exports: {
                 title: 'Meerdere exportdoelen',
@@ -243,7 +257,8 @@ export default {
         },
         workflow: {
             heading: 'Hoe het product in echt werk past',
-            description: 'Een typische EVB Viewer-sessie begint met snel browserwerk en gaat naar desktop wanneer scanopschoning of schaal daarom vraagt.',
+            description:
+                'Een typische EVB Viewer-sessie begint met snel browserwerk en gaat naar desktop wanneer scanopschoning of schaal daarom vraagt.',
             load: {
                 title: 'Start in de browser',
                 body: 'Open meteen een lokale PDF, DjVu-bestand of afbeelding wanneer installatie de taak zou vertragen.',
@@ -285,11 +300,13 @@ export default {
         seo: {
             title: 'EVB Viewer-documentatie voor browser- en desktopworkflows',
             ogTitle: 'EVB Viewer gebruikershandleiding',
-            ogDescription: 'Begin met de browser-app voor lokale bestanden en OCR en installeer daarna de desktop-app wanneer je scanopschoning, native OS-integratie of grotere samenvoeg/exportklussen nodig hebt.',
+            ogDescription:
+                'Begin met de browser-app voor lokale bestanden en OCR en installeer daarna de desktop-app wanneer je scanopschoning, native OS-integratie of grotere samenvoeg/exportklussen nodig hebt.',
         },
         hero: {
             title: 'Gidsen voor de browser- en desktop-app',
-            subtitle: 'Begin met de web-app voor snel lokaal PDF-, DjVu- en afbeeldingswerk, inclusief OCR, en ga daarna naar de desktop-app voor scanopschoning, native OS-integratie of grotere samenvoeg/exportklussen.',
+            subtitle:
+                'Begin met de web-app voor snel lokaal PDF-, DjVu- en afbeeldingswerk, inclusief OCR, en ga daarna naar de desktop-app voor scanopschoning, native OS-integratie of grotere samenvoeg/exportklussen.',
         },
         guideCardAction: 'Naar sectie springen',
         browserQuickstart: {
@@ -352,7 +369,8 @@ export default {
             li3: 'De naamgeving van gegenereerde bestanden volgt het eerst geselecteerde bestand, bijvoorbeeld {example}.',
             li4: 'Als er al een document open is, opent gecombineerde uitvoer in een nieuw tabblad zodat huidig werk intact blijft.',
             li5: '{openRecent} bewaart geschiedenis en bevat een opdracht om recente bestanden te wissen.',
-            convertIntro: '{menuPath} heeft twee gedragingen: in DjVu-modus opent het DjVu-conversieopties; anders opent het bestandsselectie en maakt het een PDF van de gekozen bronnen.',
+            convertIntro:
+                '{menuPath} heeft twee gedragingen: in DjVu-modus opent het DjVu-conversieopties; anders opent het bestandsselectie en maakt het een PDF van de gekozen bronnen.',
         },
         tabsSplits: {
             heading: 'Tabbladen en gesplitste editor',
@@ -424,7 +442,8 @@ export default {
             actionCol: 'Actie',
             shortcutCol: 'Sneltoets',
             menuFile: 'Bestand',
-            menuFileActions: 'Bestand openen, Recent openen, Opslaan, Opslaan als, DOCX/Afbeeldingen/TIFF exporteren, Converteren naar PDF, Nieuw tabblad, Tabblad sluiten',
+            menuFileActions:
+                'Bestand openen, Recent openen, Opslaan, Opslaan als, DOCX/Afbeeldingen/TIFF exporteren, Converteren naar PDF, Nieuw tabblad, Tabblad sluiten',
             menuActions: 'Acties',
             menuActionsActions: 'Ongedaan maken, Opnieuw, Kopiëren',
             menuPages: 'Pagina’s',
@@ -432,7 +451,8 @@ export default {
             menuView: 'Weergave',
             menuViewActions: 'Zoombediening, passend-modi, paginalay-outmodi, editorpanelen splitsen/focussen/verplaatsen/kopiëren',
             menuWindow: 'Venster',
-            menuWindowActions: 'Actief tabblad naar nieuw venster verplaatsen, actief tabblad naar ander venster verplaatsen, dit venster samenvoegen in',
+            menuWindowActions:
+                'Actief tabblad naar nieuw venster verplaatsen, actief tabblad naar ander venster verplaatsen, dit venster samenvoegen in',
             menuHelp: 'Help',
             menuHelpActions: 'Over EVB Viewer',
             shortcutOpenFile: 'Bestand openen',
@@ -451,7 +471,8 @@ export default {
             shortcutSplitEditor: 'Editor naar rechts splitsen',
             shortcutFind: 'Zoeken in document',
             shortcutCycleTabs: 'Door tabbladen bladeren',
-            contextMenuNote: 'De meeste bewerkings- en lay-outbediening is beschikbaar vanuit menu’s en vanuit tabblad-/paginacontextmenu’s.',
+            contextMenuNote:
+                'De meeste bewerkings- en lay-outbediening is beschikbaar vanuit menu’s en vanuit tabblad-/paginacontextmenu’s.',
             repoNote: 'Zie de projectrepository voor bugs en functieverzoeken.',
         },
         license: {

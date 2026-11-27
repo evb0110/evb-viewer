@@ -47,15 +47,10 @@
 </template>
 
 <script setup lang="ts">
-import {
-    useEventListener,
-    useResizeObserver,
-} from '@vueuse/core';
-import {
-    isReadOnlyAnnotation, type AnnotationEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import type { TAnnotationResizeHandle } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
+import {useEventListener, useResizeObserver} from '@vueuse/core';
+import {isReadOnlyAnnotation, type AnnotationEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import type {TAnnotationResizeHandle} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 
 const MOVE_HANDLE_OFFSET_UPDATE_THRESHOLD_PX = 0.25;
 
@@ -95,7 +90,7 @@ function positionMoveHandle() {
     }
     const bounds = viewport.getBoundingClientRect();
     const button = grip.getBoundingClientRect();
-    const angle = ((entity && 'rotation' in entity ? entity.rotation : 0) + viewRotation) * Math.PI / 180;
+    const angle = (((entity && 'rotation' in entity ? entity.rotation : 0) + viewRotation) * Math.PI) / 180;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
     const naturalX = button.x + button.width / 2 - (moveOffset.value.x * cos - moveOffset.value.y * sin);
@@ -125,42 +120,35 @@ function positionMoveHandle() {
         y: dy * cos - dx * sin,
     };
     if (
-        Math.abs(next.x - moveOffset.value.x) > MOVE_HANDLE_OFFSET_UPDATE_THRESHOLD_PX
-        || Math.abs(next.y - moveOffset.value.y) > MOVE_HANDLE_OFFSET_UPDATE_THRESHOLD_PX
+        Math.abs(next.x - moveOffset.value.x) > MOVE_HANDLE_OFFSET_UPDATE_THRESHOLD_PX ||
+        Math.abs(next.y - moveOffset.value.y) > MOVE_HANDLE_OFFSET_UPDATE_THRESHOLD_PX
     ) {
         moveOffset.value = next;
     }
 }
 
-watch([
-    () => entity,
-    () => displayRect,
-    () => viewRotation,
-], async () => {
-    await nextTick();
-    positionMoveHandle();
-}, {flush: 'post'});
+watch(
+    [() => entity, () => displayRect, () => viewRotation],
+    async () => {
+        await nextTick();
+        positionMoveHandle();
+    },
+    {flush: 'post'},
+);
 const viewportRef = computed(() => handlesRef.value?.closest<HTMLElement>('.pdfViewer') ?? null);
-const resizeTargets = computed(() => (
-    handlesRef.value && viewportRef.value
-        ? [
-            handlesRef.value,
-            viewportRef.value,
-        ]
-        : []
-));
+const resizeTargets = computed(() => (handlesRef.value && viewportRef.value ? [handlesRef.value, viewportRef.value] : []));
 useResizeObserver(resizeTargets, positionMoveHandle);
 useEventListener(viewportRef, 'scroll', positionMoveHandle, {passive: true});
-useEventListener(
-    () => (viewportRef.value && typeof window !== 'undefined' ? window : null),
-    'resize',
-    positionMoveHandle,
+useEventListener(() => (viewportRef.value && typeof window !== 'undefined' ? window : null), 'resize', positionMoveHandle);
+watch(
+    handlesRef,
+    (root) => {
+        if (root && viewportRef.value) {
+            positionMoveHandle();
+        }
+    },
+    {flush: 'post'},
 );
-watch(handlesRef, (root) => {
-    if (root && viewportRef.value) {
-        positionMoveHandle();
-    }
-}, {flush: 'post'});
 
 function normalizeSelectionRect(value: IAnnotationMarkerRect): IAnnotationMarkerRect {
     const right = value.left + value.width;
@@ -173,16 +161,11 @@ function normalizeSelectionRect(value: IAnnotationMarkerRect): IAnnotationMarker
     };
 }
 
-const handles = computed(() => ([
-    'nw',
-    'n',
-    'ne',
-    'e',
-    'se',
-    's',
-    'sw',
-    'w',
-] as const).filter(handle => !readOnly.value && (entity?.kind !== 'text-box' || (handle !== 'n' && handle !== 's'))));
+const handles = computed(() =>
+    (['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const).filter(
+        (handle) => !readOnly.value && (entity?.kind !== 'text-box' || (handle !== 'n' && handle !== 's')),
+    ),
+);
 
 const rect = computed(() => {
     const currentEntity = entity;
@@ -194,13 +177,17 @@ const rect = computed(() => {
         : null;
 });
 
-const handlesStyle = computed(() => rect.value ? {
-    left: `${rect.value.left * 100}%`,
-    top: `${rect.value.top * 100}%`,
-    width: `${rect.value.width * 100}%`,
-    height: `${rect.value.height * 100}%`,
-    transform: `rotate(${entity && 'rotation' in entity ? entity.rotation : 0}deg)`,
-} : undefined);
+const handlesStyle = computed(() =>
+    rect.value
+        ? {
+              left: `${rect.value.left * 100}%`,
+              top: `${rect.value.top * 100}%`,
+              width: `${rect.value.width * 100}%`,
+              height: `${rect.value.height * 100}%`,
+              transform: `rotate(${entity && 'rotation' in entity ? entity.rotation : 0}deg)`,
+          }
+        : undefined,
+);
 
 function handlePointerDown(handle: TAnnotationResizeHandle, event: PointerEvent) {
     if (entity?.kind === 'text-box' || entity?.kind === 'placed-image' || entity?.kind === 'shape') {
@@ -212,10 +199,7 @@ function handlePointerDown(handle: TAnnotationResizeHandle, event: PointerEvent)
 <style scoped>
 .pdf-annotation-selection-handles .pdf-annotation-move-handle,
 .pdf-annotation-read-only-notice {
-    transform: translate(
-        calc(-50% + var(--pdf-annotation-move-offset-x, 0px)),
-        var(--pdf-annotation-move-offset-y, 0)
-    );
+    transform: translate(calc(-50% + var(--pdf-annotation-move-offset-x, 0px)), var(--pdf-annotation-move-offset-y, 0));
 }
 
 .pdf-annotation-read-only-notice {

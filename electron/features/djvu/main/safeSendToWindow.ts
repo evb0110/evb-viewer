@@ -1,7 +1,7 @@
-import type { BrowserWindow } from 'electron';
-import type { IDjvuEventMap } from '@contracts/djvuPlatformFeature';
-import { createLogger } from '@electron/utils/createLogger';
-import { sendPlatformEvent } from '@electron/utils/sendPlatformEvent';
+import type {BrowserWindow} from 'electron';
+import type {IDjvuEventMap} from '@contracts/djvuPlatformFeature';
+import {createLogger} from '@electron/utils/createLogger';
+import {sendPlatformEvent} from '@electron/utils/sendPlatformEvent';
 
 const logger = createLogger('djvu-ipcShared');
 

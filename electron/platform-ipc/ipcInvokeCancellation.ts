@@ -11,10 +11,7 @@ interface IIpcInvokeCancellationRegistration {
 // so one renderer can never cancel another's invoke by guessing a request id.
 const activeInvokes = new WeakMap<object, Map<TRequestId, AbortController>>();
 
-export function beginIpcInvokeCancellation(
-    sender: WebContents,
-    requestId: TRequestId,
-): IIpcInvokeCancellationRegistration {
+export function beginIpcInvokeCancellation(sender: WebContents, requestId: TRequestId): IIpcInvokeCancellationRegistration {
     const senderInvokes = activeInvokes.get(sender) ?? new Map<TRequestId, AbortController>();
     const controller = new AbortController();
     senderInvokes.set(requestId, controller);
@@ -40,12 +37,7 @@ function createIpcInvokeTimeoutError(reason: string) {
     return error;
 }
 
-export function cancelIpcInvoke(
-    sender: WebContents,
-    requestId: TRequestId,
-    reason?: string,
-    options?: {timedOut?: boolean},
-) {
+export function cancelIpcInvoke(sender: WebContents, requestId: TRequestId, reason?: string, options?: {timedOut?: boolean}) {
     const controller = activeInvokes.get(sender)?.get(requestId);
     if (!controller || controller.signal.aborted) {
         return;

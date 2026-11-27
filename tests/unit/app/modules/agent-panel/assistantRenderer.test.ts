@@ -1,28 +1,16 @@
 // @vitest-environment happy-dom
-import {
-    afterEach, beforeEach, describe, expect, it, vi,
-} from 'vitest';
-import {
-    createApp, defineComponent, h, nextTick, reactive, ref, type Component,
-} from 'vue';
-import type {
-    IAssistantChat, IAssistantEvent, IAssistantItem, IAssistantSelection, IAssistantState,
-} from '@contracts/assistant';
-import type {
-    IAgentAssistantChatScope, IAgentAssistantErrorEnvelope,
-} from '@contracts/agent';
-import {
-    requireIsoTimestamp, requireEpochMs,
-} from '@contracts/timestamps';
-import { requireTabId } from '@contracts/windowTabs';
-import {
-    createAssistantInstance, createAssistantState,
-} from '@tests/helpers/createAgentAssistantStatus';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, reactive, ref, type Component} from 'vue';
+import type {IAssistantChat, IAssistantEvent, IAssistantItem, IAssistantSelection, IAssistantState} from '@contracts/assistant';
+import type {IAgentAssistantChatScope, IAgentAssistantErrorEnvelope} from '@contracts/agent';
+import {requireIsoTimestamp, requireEpochMs} from '@contracts/timestamps';
+import {requireTabId} from '@contracts/windowTabs';
+import {createAssistantInstance, createAssistantState} from '@tests/helpers/createAgentAssistantStatus';
 import AgentAssistantPanel from '@app/modules/agent-panel/components/AgentAssistantPanel.vue';
 import AssistantComposer from '@app/modules/agent-panel/components/AssistantComposer.vue';
 import AssistantTimeline from '@app/modules/agent-panel/components/AssistantTimeline.vue';
 import AssistantProviderModelPicker from '@app/modules/agent-panel/components/AssistantProviderModelPicker.vue';
-import { STORAGE_KEYS } from '@app/constants/storageKeys';
+import {STORAGE_KEYS} from '@app/constants/storageKeys';
 
 const api = vi.hoisted(() => ({
     getAssistantState: vi.fn(),
@@ -34,9 +22,11 @@ const api = vi.hoisted(() => ({
     onAssistantEvent: vi.fn(),
     reportRuntimeError: vi.fn(),
 }));
-vi.mock('@app/utils/getAgentCapability', () => ({ getAgentCapability: () => api }));
-vi.mock('@app/composables/useRuntimeErrorReports', () => ({ useRuntimeErrorReports: () => ({ reportRuntimeError: api.reportRuntimeError }) }));
-vi.mock('@app/composables/useTypedI18n', () => ({ useTypedI18n: () => ({ t: (key: string, params?: Record<string, string | number>) => key + (params ? JSON.stringify(params) : '') }) }));
+vi.mock('@app/utils/getAgentCapability', () => ({getAgentCapability: () => api}));
+vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: api.reportRuntimeError})}));
+vi.mock('@app/composables/useTypedI18n', () => ({
+    useTypedI18n: () => ({t: (key: string, params?: Record<string, string | number>) => key + (params ? JSON.stringify(params) : '')}),
+}));
 const scope: IAgentAssistantChatScope = {
     kind: 'document',
     key: 'a',
@@ -70,12 +60,16 @@ function chat(items: IAssistantItem[] = []): IAssistantChat {
         turn: null,
     };
 }
-function envelope(message: string, retryable: boolean, code: IAgentAssistantErrorEnvelope['code'] = 'INTERNAL'): IAgentAssistantErrorEnvelope {
+function envelope(
+    message: string,
+    retryable: boolean,
+    code: IAgentAssistantErrorEnvelope['code'] = 'INTERNAL',
+): IAgentAssistantErrorEnvelope {
     return {
         code,
         message,
         retryable,
-        details: { timestamp: requireEpochMs(Date.now()) },
+        details: {timestamp: requireEpochMs(Date.now())},
     };
 }
 let current: IAssistantState;
@@ -92,62 +86,76 @@ const Button = defineComponent({
             default: 'button',
         },
     },
-    setup: (props, {
-        attrs, slots,
-    }) => () => h('button', {
-        ...attrs,
-        type: props.type,
-        disabled: props.disabled,
-    }, [
-        slots.leading?.(),
-        props.label,
-        slots.default?.(),
-    ]),
+    setup:
+        (props, {attrs, slots}) =>
+        () =>
+            h(
+                'button',
+                {
+                    ...attrs,
+                    type: props.type,
+                    disabled: props.disabled,
+                },
+                [slots.leading?.(), props.label, slots.default?.()],
+            ),
 });
 const Slot = defineComponent({
-    props: { open: Boolean },
-    setup: (props, { slots }) => () => h('div', { 'data-open': String(props.open) }, [
-        slots.default?.(),
-        slots.content?.(),
-    ]),
+    props: {open: Boolean},
+    setup:
+        (props, {slots}) =>
+        () =>
+            h('div', {'data-open': String(props.open)}, [slots.default?.(), slots.content?.()]),
 });
 const Input = defineComponent({
     inheritAttrs: false,
-    props: { modelValue: String },
+    props: {modelValue: String},
     emits: ['update:modelValue'],
-    setup: (props, {
-        attrs, emit, expose,
-    }) => {
+    setup: (props, {attrs, emit, expose}) => {
         const inputRef = ref<HTMLInputElement | null>(null);
-        expose({ inputRef });
-        return () => h('input', {
-            ...attrs,
-            ref: inputRef,
-            value: props.modelValue,
-            onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
-        });
+        expose({inputRef});
+        return () =>
+            h('input', {
+                ...attrs,
+                ref: inputRef,
+                value: props.modelValue,
+                onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
+            });
     },
 });
-function mount(component: Component = AgentAssistantPanel, props: Record<string, unknown> = {
-    chatScope: scope,
-    activeDocumentName: 'A.pdf',
-}) {
+function mount(
+    component: Component = AgentAssistantPanel,
+    props: Record<string, unknown> = {
+        chatScope: scope,
+        activeDocumentName: 'A.pdf',
+    },
+) {
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({ setup: () => () => h(component, props) }));
+    const app = createApp(defineComponent({setup: () => () => h(component, props)}));
     app.component('UButton', Button);
-    app.component('UIcon', defineComponent({ setup: () => () => h('span') }));
+    app.component('UIcon', defineComponent({setup: () => () => h('span')}));
     app.component('AppTooltip', Slot);
     app.component('UPopover', Slot);
     app.component('UInput', Input);
     app.mount(host);
-    unmounts.push(() => { app.unmount(); host.remove(); });
+    unmounts.push(() => {
+        app.unmount();
+        host.remove();
+    });
     return host;
 }
-async function settle() { for (let index = 0; index < 6; index++) await nextTick(); }
+async function settle() {
+    for (let index = 0; index < 6; index++) {
+        await nextTick();
+    }
+}
 function button(host: HTMLElement, label: string) {
-    const found = [...host.querySelectorAll('button')].find(node => node.textContent === label || node.getAttribute('aria-label') === label);
-    if (!found) throw new Error('Missing button ' + label);
+    const found = [...host.querySelectorAll('button')].find(
+        (node) => node.textContent === label || node.getAttribute('aria-label') === label,
+    );
+    if (!found) {
+        throw new Error('Missing button ' + label);
+    }
     return found;
 }
 // The picker lists the open provider's models as options; a provider is chosen in its rail first.
@@ -156,26 +164,35 @@ async function pickModel(host: HTMLElement, label: string, instanceLabel?: strin
         button(host, instanceLabel).click();
         await settle();
     }
-    const row = [...host.querySelectorAll<HTMLElement>('[role="option"]')].find(node => node.querySelector('.row-name')?.firstChild?.textContent === label);
-    if (!row) throw new Error('Missing model ' + label);
+    const row = [...host.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        (node) => node.querySelector('.row-name')?.firstChild?.textContent === label,
+    );
+    if (!row) {
+        throw new Error('Missing model ' + label);
+    }
     row.click();
     await settle();
 }
 function radio(host: HTMLElement, label: string) {
-    const found = [...host.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find(node => node.textContent?.trim() === label);
-    if (!found) throw new Error('Missing choice ' + label);
+    const found = [...host.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find((node) => node.textContent?.trim() === label);
+    if (!found) {
+        throw new Error('Missing choice ' + label);
+    }
     return found;
 }
 async function draft(host: HTMLElement, text: string) {
     const input = host.querySelector('textarea');
-    if (!input) throw new Error('Missing composer');
+    if (!input) {
+        throw new Error('Missing composer');
+    }
     input.value = text;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('input', {bubbles: true}));
     await settle();
 }
 beforeEach(() => {
-    localStorage.clear(); vi.clearAllMocks();
-    current = createAssistantState({ chat: chat() });
+    localStorage.clear();
+    vi.clearAllMocks();
+    current = createAssistantState({chat: chat()});
     api.getAssistantState.mockImplementation(async () => current);
     api.sendAssistantMessage.mockImplementation(async () => ({
         ok: true,
@@ -187,16 +204,17 @@ beforeEach(() => {
         ok: true,
         state: current,
     }));
-    api.onAssistantEvent.mockImplementation((callback: typeof listener) => { listener = callback; return dispose; });
+    api.onAssistantEvent.mockImplementation((callback: typeof listener) => {
+        listener = callback;
+        return dispose;
+    });
 });
-afterEach(() => { unmounts.splice(0).forEach(unmount => unmount()); });
+afterEach(() => {
+    unmounts.splice(0).forEach((unmount) => unmount());
+});
 
 describe('assistant renderer on instance contract', () => {
-    it.each([
-        'checking',
-        'warning',
-        'error',
-    ] as const)('keeps history and sending visible for a selected %s instance', async state => {
+    it.each(['checking', 'warning', 'error'] as const)('keeps history and sending visible for a selected %s instance', async (state) => {
         current = createAssistantState({
             instances: [
                 createAssistantInstance({
@@ -216,17 +234,21 @@ describe('assistant renderer on instance contract', () => {
         await settle();
         expect(host.textContent).toContain('Existing');
         expect(host.querySelector('.provider-banner')?.textContent).not.toContain('OTHER FAILURE');
-        if (state !== 'checking') expect(host.querySelector('.provider-banner')?.textContent).toContain('initialize failed: actual network detail');
+        if (state !== 'checking') {
+            expect(host.querySelector('.provider-banner')?.textContent).toContain('initialize failed: actual network detail');
+        }
         await draft(host, 'next message');
         const send = host.querySelector<HTMLButtonElement>('.composer-send');
         expect(send?.disabled).toBe(false);
         send?.click();
         await settle();
-        expect(api.sendAssistantMessage).toHaveBeenCalledWith(expect.objectContaining({
-            text: 'next message',
-            scope,
-            selection,
-        }));
+        expect(api.sendAssistantMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                text: 'next message',
+                scope,
+                selection,
+            }),
+        );
     });
 
     it('offers no sign-in for a failure that did not establish a missing login', async () => {
@@ -239,7 +261,7 @@ describe('assistant renderer on instance contract', () => {
         const host = mount();
         await settle();
         expect(host.textContent).toContain('Codex did not start within 10 seconds.');
-        expect([...host.querySelectorAll('button')].some(candidate => candidate.textContent?.includes('assistant.signIn'))).toBe(false);
+        expect([...host.querySelectorAll('button')].some((candidate) => candidate.textContent?.includes('assistant.signIn'))).toBe(false);
     });
 
     it('refreshes the selected instance and exposes device-code sign-in', async () => {
@@ -340,7 +362,7 @@ describe('assistant renderer on instance contract', () => {
         await draft(host, 'Use page 2');
         button(host, 'assistant.sendSteer').click();
         await settle();
-        expect(api.sendAssistantMessage).toHaveBeenCalledWith(expect.objectContaining({ text: 'Use page 2' }));
+        expect(api.sendAssistantMessage).toHaveBeenCalledWith(expect.objectContaining({text: 'Use page 2'}));
     });
 
     it('retries the failed turn with its own message and keeps the draft being typed', async () => {
@@ -386,10 +408,12 @@ describe('assistant renderer on instance contract', () => {
             ok: false,
             state: {
                 ...current,
-                chat: chat([item('failure', 'system', 'Fallback', {
-                    status: 'failed',
-                    errorEnvelope: envelope('Exact provider failure', true),
-                })]),
+                chat: chat([
+                    item('failure', 'system', 'Fallback', {
+                        status: 'failed',
+                        errorEnvelope: envelope('Exact provider failure', true),
+                    }),
+                ]),
             },
             error: envelope('Exact provider failure', true),
         }));
@@ -405,7 +429,7 @@ describe('assistant renderer on instance contract', () => {
         const host = mount();
         await settle();
         api.sendAssistantMessage.mockImplementation(async () => {
-            const old = createAssistantState({ chat: chat() });
+            const old = createAssistantState({chat: chat()});
             listener({
                 type: 'item',
                 sessionKey: 'codex:a',
@@ -441,21 +465,23 @@ describe('assistant renderer on instance contract', () => {
         await settle();
         expect(host.querySelector('.timeline-error')).toBeNull();
         expect(api.reportRuntimeError).toHaveBeenCalledOnce();
-        expect(api.reportRuntimeError).toHaveBeenCalledWith(expect.objectContaining({ description: 'Another document is busy' }));
+        expect(api.reportRuntimeError).toHaveBeenCalledWith(expect.objectContaining({description: 'Another document is busy'}));
         expect(host.querySelector('textarea')?.value).toBe('Try this');
     });
 
     it('retries only retryable errors with the last user text and original images, and treats completed system rows as notices', async () => {
-        const attachments = [{
-            type: 'image' as const,
-            id: 'image',
-            name: 'page.png',
-            mimeType: 'image/png' as const,
-            sizeBytes: 1,
-            dataUrl: 'data:image/png;base64,AA==',
-        }];
+        const attachments = [
+            {
+                type: 'image' as const,
+                id: 'image',
+                name: 'page.png',
+                mimeType: 'image/png' as const,
+                sizeBytes: 1,
+                dataUrl: 'data:image/png;base64,AA==',
+            },
+        ];
         current.chat = chat([
-            item('user', 'user', 'Read this', { attachments }),
+            item('user', 'user', 'Read this', {attachments}),
             item('error', 'system', 'Fallback', {
                 status: 'failed',
                 errorEnvelope: envelope('Retry this failure', true),
@@ -468,27 +494,36 @@ describe('assistant renderer on instance contract', () => {
         expect(host.querySelector('.timeline-notice')?.textContent).toContain('Starts with a fresh context');
         button(host, 'assistant.turnRetry').click();
         await settle();
-        expect(api.sendAssistantMessage).toHaveBeenCalledWith(expect.objectContaining({
-            text: 'Read this',
-            attachments,
-        }));
+        expect(api.sendAssistantMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                text: 'Read this',
+                attachments,
+            }),
+        );
     });
 
     it('migrates the old selection and persists model/effort/speed under v2', async () => {
-        localStorage.setItem(STORAGE_KEYS.ASSISTANT_SELECTION_LEGACY, JSON.stringify({
-            provider: 'claude',
-            model: 'sonnet',
-        }));
+        localStorage.setItem(
+            STORAGE_KEYS.ASSISTANT_SELECTION_LEGACY,
+            JSON.stringify({
+                provider: 'claude',
+                model: 'sonnet',
+            }),
+        );
         current = createAssistantState({
-            instances: [createAssistantInstance({
-                id: 'claude',
-                driver: 'claude',
-                defaultModel: 'sonnet',
-                models: [{
-                    id: 'sonnet',
-                    label: 'Sonnet',
-                }],
-            })],
+            instances: [
+                createAssistantInstance({
+                    id: 'claude',
+                    driver: 'claude',
+                    defaultModel: 'sonnet',
+                    models: [
+                        {
+                            id: 'sonnet',
+                            label: 'Sonnet',
+                        },
+                    ],
+                }),
+            ],
             selection: null,
         });
         const host = mount();
@@ -502,11 +537,14 @@ describe('assistant renderer on instance contract', () => {
     });
 
     it('falls back from a removed instance/model to the main selection and default model', async () => {
-        localStorage.setItem(STORAGE_KEYS.ASSISTANT_SELECTION, JSON.stringify({
-            ...selection,
-            instanceId: 'removed',
-            model: 'old',
-        }));
+        localStorage.setItem(
+            STORAGE_KEYS.ASSISTANT_SELECTION,
+            JSON.stringify({
+                ...selection,
+                instanceId: 'removed',
+                model: 'old',
+            }),
+        );
         const host = mount();
         await settle();
         expect(host.querySelector('.picker-trigger')?.textContent).toContain('GPT');
@@ -520,12 +558,14 @@ describe('assistant renderer on instance contract', () => {
             canSignIn: true,
             state: 'warning',
         });
-        current.instances.push(createAssistantInstance({
-            id: 'disabled',
-            label: 'HIDDEN',
-            enabled: false,
-            state: 'disabled',
-        }));
+        current.instances.push(
+            createAssistantInstance({
+                id: 'disabled',
+                label: 'HIDDEN',
+                enabled: false,
+                state: 'disabled',
+            }),
+        );
         const host = mount();
         await settle();
         await draft(host, 'hello');
@@ -535,32 +575,38 @@ describe('assistant renderer on instance contract', () => {
     });
 
     it('switches instance/model/effort/speed atomically through the picker and sends its selection', async () => {
-        current.instances.push(createAssistantInstance({
-            id: 'codex-b',
-            label: 'B',
-            state: 'warning',
-            message: 'B warning',
-            models: [{
-                id: 'gpt-b',
-                label: 'GPT B',
-                reasoningEfforts: [
+        current.instances.push(
+            createAssistantInstance({
+                id: 'codex-b',
+                label: 'B',
+                state: 'warning',
+                message: 'B warning',
+                models: [
                     {
-                        id: 'low',
-                        label: 'Low',
-                    },
-                    {
-                        id: 'high',
-                        label: 'High',
+                        id: 'gpt-b',
+                        label: 'GPT B',
+                        reasoningEfforts: [
+                            {
+                                id: 'low',
+                                label: 'Low',
+                            },
+                            {
+                                id: 'high',
+                                label: 'High',
+                            },
+                        ],
+                        defaultReasoningEffort: 'high',
+                        serviceTiers: [
+                            {
+                                id: 'priority',
+                                label: 'Fast',
+                            },
+                        ],
                     },
                 ],
-                defaultReasoningEffort: 'high',
-                serviceTiers: [{
-                    id: 'priority',
-                    label: 'Fast',
-                }],
-            }],
-            defaultModel: 'gpt-b',
-        }));
+                defaultModel: 'gpt-b',
+            }),
+        );
         const host = mount();
         await settle();
         await pickModel(host, 'GPT B', 'B');
@@ -576,19 +622,20 @@ describe('assistant renderer on instance contract', () => {
         await draft(host, 'Use B');
         button(host, 'assistant.send').click();
         await settle();
-        expect(api.sendAssistantMessage).toHaveBeenCalledWith(expect.objectContaining({selection: {
-            instanceId: 'codex-b',
-            model: 'gpt-b',
-            effort: 'low',
-            speedMode: 'fast',
-        }}));
+        expect(api.sendAssistantMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                selection: {
+                    instanceId: 'codex-b',
+                    model: 'gpt-b',
+                    effort: 'low',
+                    speedMode: 'fast',
+                },
+            }),
+        );
     });
 
     it('keeps image-only retries and the image preview gallery', async () => {
-        const attachments = [
-            'one',
-            'two',
-        ].map(id => ({
+        const attachments = ['one', 'two'].map((id) => ({
             type: 'image' as const,
             id,
             name: id + '.png',
@@ -597,7 +644,7 @@ describe('assistant renderer on instance contract', () => {
             dataUrl: 'data:image/png;base64,AA==',
         }));
         current.chat = chat([
-            item('user', 'user', '', { attachments }),
+            item('user', 'user', '', {attachments}),
             item('error', 'system', 'Retry', {
                 status: 'failed',
                 errorEnvelope: envelope('Retry', true),
@@ -608,26 +655,33 @@ describe('assistant renderer on instance contract', () => {
         host.querySelector<HTMLButtonElement>('.message-images button')?.click();
         await settle();
         expect(document.querySelector('[role="dialog"]')?.textContent).toContain('one.png');
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight' }));
+        window.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight'}));
         await settle();
         expect(document.querySelector('[role="dialog"]')?.textContent).toContain('two.png');
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+        window.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}));
         await settle();
         expect(document.querySelector('[role="dialog"]')).toBeNull();
         button(host, 'assistant.turnRetry').click();
         await settle();
-        expect(api.sendAssistantMessage).toHaveBeenCalledWith(expect.objectContaining({
-            text: '',
-            attachments,
-        }));
+        expect(api.sendAssistantMessage).toHaveBeenCalledWith(
+            expect.objectContaining({
+                text: '',
+                attachments,
+            }),
+        );
     });
 
     it('keeps typed text when the first selection arrives and clears it on later provider/document switches', async () => {
         const first = Promise.withResolvers<IAssistantState>();
         api.getAssistantState.mockReturnValueOnce(first.promise);
-        current.instances.push(createAssistantInstance({
-            id: 'codex-b', label: 'B', defaultModel: 'gpt-b', models: [{id: 'gpt-b', label: 'GPT B'}],
-        }));
+        current.instances.push(
+            createAssistantInstance({
+                id: 'codex-b',
+                label: 'B',
+                defaultModel: 'gpt-b',
+                models: [{id: 'gpt-b', label: 'GPT B'}],
+            }),
+        );
         const props = reactive({chatScope: scope});
         const host = mount(AgentAssistantPanel, props);
         await draft(host, 'Typed before discovery finished');
@@ -664,7 +718,7 @@ describe('assistant renderer on instance contract', () => {
     it('drops stale snapshots after switching scope', async () => {
         const first = Promise.withResolvers<IAssistantState>();
         api.getAssistantState.mockReturnValueOnce(first.promise);
-        const props = reactive({ chatScope: scope });
+        const props = reactive({chatScope: scope});
         const host = mount(AgentAssistantPanel, props);
         props.chatScope = {
             ...scope,
@@ -676,7 +730,7 @@ describe('assistant renderer on instance contract', () => {
             sessionKey: 'codex:b',
         };
         await settle();
-        first.resolve(createAssistantState({ chat: chat([item('a', 'assistant', 'STALE')]) }));
+        first.resolve(createAssistantState({chat: chat([item('a', 'assistant', 'STALE')])}));
         await settle();
         expect(host.textContent).not.toContain('STALE');
         expect(host.textContent).toContain('New document');
@@ -699,20 +753,26 @@ describe('composer keyboard and picker', () => {
             onSubmit: submit,
         });
         const input = host.querySelector('textarea');
-        input?.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'Enter',
-            isComposing: true,
-        }));
-        input?.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'Enter',
-            shiftKey: true,
-        }));
-        input?.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'Enter',
-            keyCode: 229,
-        }));
+        input?.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                isComposing: true,
+            }),
+        );
+        input?.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                shiftKey: true,
+            }),
+        );
+        input?.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                keyCode: 229,
+            }),
+        );
         expect(submit).not.toHaveBeenCalled();
-        input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+        input?.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
         expect(submit).toHaveBeenCalledOnce();
         expect(input?.disabled).toBe(false);
     });
@@ -727,8 +787,8 @@ describe('timeline presentation and following', () => {
                 toolName: 'read_page',
                 toolDetail: 'Page two',
             }),
-            item('answer', 'assistant', '**Partial**', { status: 'interrupted' }),
-            item('tool2', 'tool', '', { toolName: 'search' }),
+            item('answer', 'assistant', '**Partial**', {status: 'interrupted'}),
+            item('tool2', 'tool', '', {toolName: 'search'}),
         ];
         const host = mount(AssistantTimeline, {
             sessionKey: 'codex:a',
@@ -763,7 +823,9 @@ describe('timeline presentation and following', () => {
         const host = mount(AssistantTimeline, props);
         await settle();
         const viewport = host.querySelector<HTMLElement>('.assistant-timeline');
-        if (!viewport) throw new Error('Missing viewport');
+        if (!viewport) {
+            throw new Error('Missing viewport');
+        }
         Object.defineProperties(viewport, {
             scrollHeight: {
                 configurable: true,
@@ -793,9 +855,13 @@ it('#1608 reports a failed assistant preference write after a model choice', asy
     api.reportRuntimeError.mockImplementation((presentation: {title: string; description?: string}) => {
         messages.push([presentation.title, presentation.description].filter(Boolean).join(' '));
     });
-    current.instances[0] = createAssistantInstance({models: [
-        {id: 'gpt', label: 'GPT'}, {id: 'other', label: 'Other model'},
-    ], defaultModel: 'gpt'});
+    current.instances[0] = createAssistantInstance({
+        models: [
+            {id: 'gpt', label: 'GPT'},
+            {id: 'other', label: 'Other model'},
+        ],
+        defaultModel: 'gpt',
+    });
     const host = mount();
     await settle();
     const write = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
@@ -805,7 +871,9 @@ it('#1608 reports a failed assistant preference write after a model choice', asy
         await pickModel(host, 'Other model');
         expect(host.querySelector('.picker-trigger')?.textContent).toContain('Other model');
         expect(messages.join(' ')).toMatch(/preference|saved|storage|quota/i);
-    } finally {write.mockRestore();}
+    } finally {
+        write.mockRestore();
+    }
 });
 
 function timelineProps(items: IAssistantItem[], extra: Record<string, unknown> = {}) {
@@ -821,55 +889,67 @@ function timelineProps(items: IAssistantItem[], extra: Record<string, unknown> =
     });
 }
 function texts(host: HTMLElement, selector: string) {
-    return [...host.querySelectorAll(selector)].map(node => node.textContent ?? '');
+    return [...host.querySelectorAll(selector)].map((node) => node.textContent ?? '');
 }
 
 describe('work rows name actions and show one state', () => {
     it('labels EVB tools in words, with icon and verb from the same item state', async () => {
-        const host = mount(AssistantTimeline, timelineProps([
-            item('user', 'user', 'Add bookmarks'),
-            item('snapshot', 'tool', '', { toolName: 'evb_workspace_snapshot' }),
-            item('pages', 'tool', '', {
-                toolName: 'mcp__evb__evb_read_document_pages',
-                status: 'streaming',
-            }),
-        ], {
-            running: true,
-            turn: {
-                id: 'turn',
-                phase: 'tool-running',
-                startedAtMs: Date.now(),
-                usage: null,
-            },
-        }));
+        const host = mount(
+            AssistantTimeline,
+            timelineProps(
+                [
+                    item('user', 'user', 'Add bookmarks'),
+                    item('snapshot', 'tool', '', {toolName: 'evb_workspace_snapshot'}),
+                    item('pages', 'tool', '', {
+                        toolName: 'mcp__evb__evb_read_document_pages',
+                        status: 'streaming',
+                    }),
+                ],
+                {
+                    running: true,
+                    turn: {
+                        id: 'turn',
+                        phase: 'tool-running',
+                        startedAtMs: Date.now(),
+                        usage: null,
+                    },
+                },
+            ),
+        );
         await settle();
         const summary = host.querySelector<HTMLElement>('.work-summary');
         expect(summary?.textContent).toBe('assistant.work.readActiveassistant.work.steps{"count":2}');
         expect(summary?.querySelector('[name="i-ph-circle-notch"]')).not.toBeNull();
         expect(texts(host, '.work-entry summary')).toEqual(['assistant.work.workspaceDone', 'assistant.work.readActive']);
-        const icons = [...host.querySelectorAll('.work-entry summary')].map(row => row.querySelector('.work-icon')?.getAttribute('name'));
+        const icons = [...host.querySelectorAll('.work-entry summary')].map((row) => row.querySelector('.work-icon')?.getAttribute('name'));
         expect(icons).toEqual(['i-ph-check', 'i-ph-circle-notch']);
         expect(texts(host, '.work-tool-name')).toEqual(['evb_workspace_snapshot', 'mcp__evb__evb_read_document_pages']);
     });
 
     it('never pairs a check mark with a running label in an earlier group of a running turn', async () => {
-        const host = mount(AssistantTimeline, timelineProps([
-            item('user', 'user', 'Add bookmarks'),
-            item('snapshot', 'tool', '', { toolName: 'evb_workspace_snapshot' }),
-            item('progress', 'assistant', 'Small document. Reading all pages.', { status: 'streaming' }),
-            item('describe', 'tool', '', {
-                toolName: 'evb_describe_capability',
-                status: 'streaming',
-            }),
-        ], {
-            running: true,
-            turn: {
-                id: 'turn',
-                phase: 'tool-running',
-                startedAtMs: Date.now(),
-                usage: null,
-            },
-        }));
+        const host = mount(
+            AssistantTimeline,
+            timelineProps(
+                [
+                    item('user', 'user', 'Add bookmarks'),
+                    item('snapshot', 'tool', '', {toolName: 'evb_workspace_snapshot'}),
+                    item('progress', 'assistant', 'Small document. Reading all pages.', {status: 'streaming'}),
+                    item('describe', 'tool', '', {
+                        toolName: 'evb_describe_capability',
+                        status: 'streaming',
+                    }),
+                ],
+                {
+                    running: true,
+                    turn: {
+                        id: 'turn',
+                        phase: 'tool-running',
+                        startedAtMs: Date.now(),
+                        usage: null,
+                    },
+                },
+            ),
+        );
         await settle();
         const [earlier, live] = [...host.querySelectorAll<HTMLElement>('.work-summary')];
         expect(earlier?.textContent).toBe('assistant.work.workspaceDone');
@@ -879,26 +959,26 @@ describe('work rows name actions and show one state', () => {
     });
 
     it('names a finished group by its most telling action and marks a failed one', async () => {
-        const host = mount(AssistantTimeline, timelineProps([
-            item('user-1', 'user', 'Add bookmarks', { turnId: 'turn-1' }),
-            ...[
-                'evb_workspace_snapshot',
-                'evb_search_document',
-                'evb_run_action',
-                'some_other_tool',
-            ].map(toolName => item(toolName, 'tool', '', {
-                toolName,
-                turnId: 'turn-1',
-            })),
-            item('answer', 'assistant', 'Done', { turnId: 'turn-1' }),
-            item('user-2', 'user', 'Again', { turnId: 'turn-2' }),
-            item('think', 'reasoning', 'Considering', { turnId: 'turn-2' }),
-            item('read', 'tool', '', {
-                toolName: 'evb_read_document_pages',
-                status: 'failed',
-                turnId: 'turn-2',
-            }),
-        ]));
+        const host = mount(
+            AssistantTimeline,
+            timelineProps([
+                item('user-1', 'user', 'Add bookmarks', {turnId: 'turn-1'}),
+                ...['evb_workspace_snapshot', 'evb_search_document', 'evb_run_action', 'some_other_tool'].map((toolName) =>
+                    item(toolName, 'tool', '', {
+                        toolName,
+                        turnId: 'turn-1',
+                    }),
+                ),
+                item('answer', 'assistant', 'Done', {turnId: 'turn-1'}),
+                item('user-2', 'user', 'Again', {turnId: 'turn-2'}),
+                item('think', 'reasoning', 'Considering', {turnId: 'turn-2'}),
+                item('read', 'tool', '', {
+                    toolName: 'evb_read_document_pages',
+                    status: 'failed',
+                    turnId: 'turn-2',
+                }),
+            ]),
+        );
         await settle();
         const [finished, failed] = [...host.querySelectorAll<HTMLElement>('.work-summary')];
         expect(finished?.textContent).toBe('assistant.work.actionDoneassistant.work.steps{"count":4}');
@@ -961,9 +1041,9 @@ describe('failed replies, provider status and presets', () => {
     it('renders preset chips the same way in the empty state and above the composer', async () => {
         const host = mount();
         await settle();
-        const empty = [...host.querySelectorAll('.timeline-empty .assistant-presets button')].map(node => node.outerHTML);
+        const empty = [...host.querySelectorAll('.timeline-empty .assistant-presets button')].map((node) => node.outerHTML);
         expect(empty).toHaveLength(3);
-        expect(empty.every(html => /icon="i-ph-/u.test(html))).toBe(true);
+        expect(empty.every((html) => /icon="i-ph-/u.test(html))).toBe(true);
         listener({
             type: 'item',
             sessionKey: 'codex:a',
@@ -971,71 +1051,81 @@ describe('failed replies, provider status and presets', () => {
         });
         await settle();
         expect(host.querySelector('.timeline-empty')).toBeNull();
-        expect([...host.querySelectorAll('.assistant-presets-footer .assistant-presets button')].map(node => node.outerHTML)).toEqual(empty);
+        expect([...host.querySelectorAll('.assistant-presets-footer .assistant-presets button')].map((node) => node.outerHTML)).toEqual(
+            empty,
+        );
     });
 });
 
 describe('model picker keyboard', () => {
     it('moves between effort rows and models with arrow keys and keeps one effort tab stop', async () => {
         const props = reactive({
-            instances: [createAssistantInstance({
-                models: [
-                    {
-                        id: 'gpt',
-                        label: 'GPT',
-                        reasoningEfforts: [
-                            'low',
-                            'medium',
-                            'high',
-                        ].map(id => ({
-                            id,
-                            label: id,
-                            isDefault: id === 'medium',
-                        })),
-                        defaultReasoningEffort: 'medium',
-                    },
-                    {
-                        id: 'other',
-                        label: 'Other model',
-                    },
-                ],
-                defaultModel: 'gpt',
-            })],
-            selection: { ...selection } as IAssistantSelection,
-            onSelect: (next: IAssistantSelection) => { props.selection = next; },
+            instances: [
+                createAssistantInstance({
+                    models: [
+                        {
+                            id: 'gpt',
+                            label: 'GPT',
+                            reasoningEfforts: ['low', 'medium', 'high'].map((id) => ({
+                                id,
+                                label: id,
+                                isDefault: id === 'medium',
+                            })),
+                            defaultReasoningEffort: 'medium',
+                        },
+                        {
+                            id: 'other',
+                            label: 'Other model',
+                        },
+                    ],
+                    defaultModel: 'gpt',
+                }),
+            ],
+            selection: {...selection} as IAssistantSelection,
+            onSelect: (next: IAssistantSelection) => {
+                props.selection = next;
+            },
         });
         const host = mount(AssistantProviderModelPicker, props);
         await settle();
         const efforts = [...host.querySelectorAll<HTMLButtonElement>('[data-effort-level]')];
-        expect(efforts.map(row => row.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
-        expect(efforts.map(row => row.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true']);
+        expect(efforts.map((row) => row.getAttribute('tabindex'))).toEqual(['-1', '-1', '0']);
+        expect(efforts.map((row) => row.getAttribute('aria-checked'))).toEqual(['false', 'false', 'true']);
         expect(efforts[1]?.textContent).toBe('mediumassistant.effortDefault');
         efforts[2]?.focus();
-        efforts[2]?.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'ArrowUp',
-            bubbles: true,
-        }));
+        efforts[2]?.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowUp',
+                bubbles: true,
+            }),
+        );
         expect(document.activeElement).toBe(efforts[1]);
         await settle();
-        expect(efforts.map(row => row.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false']);
-        expect(efforts.map(row => row.getAttribute('tabindex'))).toEqual(['-1', '0', '-1']);
-        efforts[1]?.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'ArrowLeft',
-            bubbles: true,
-        }));
+        expect(efforts.map((row) => row.getAttribute('aria-checked'))).toEqual(['false', 'true', 'false']);
+        expect(efforts.map((row) => row.getAttribute('tabindex'))).toEqual(['-1', '0', '-1']);
+        efforts[1]?.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowLeft',
+                bubbles: true,
+            }),
+        );
         const search = host.querySelector<HTMLInputElement>('.search-input');
         expect(document.activeElement).toBe(search);
         const models = [...host.querySelectorAll<HTMLElement>('[role="option"]')];
-        search?.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'ArrowDown',
-            bubbles: true,
-        }));
+        search?.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'ArrowDown',
+                bubbles: true,
+            }),
+        );
         await settle();
         expect(search?.getAttribute('aria-activedescendant')).toBe(models[1]?.id);
-        search?.dispatchEvent(new KeyboardEvent('keydown', {
-            key: 'Enter',
-            bubbles: true,
-        }));
+        search?.dispatchEvent(
+            new KeyboardEvent('keydown', {
+                key: 'Enter',
+                bubbles: true,
+            }),
+        );
         await settle();
         expect(host.querySelector('.picker-trigger')?.textContent).toBe('Other model');
         expect(host.querySelector('[data-effort-level]')).toBeNull();
@@ -1061,7 +1151,9 @@ describe('timeline viewport', () => {
         const host = mount(AssistantTimeline, props);
         await settle();
         const viewport = host.querySelector<HTMLElement>('.assistant-timeline');
-        if (!viewport) throw new Error('Missing viewport');
+        if (!viewport) {
+            throw new Error('Missing viewport');
+        }
         geometry(viewport, 1200, 400);
         for (const top of [800, 100]) {
             viewport.scrollTop = top;
@@ -1069,7 +1161,7 @@ describe('timeline viewport', () => {
         }
         await settle();
         expect(host.querySelector('.scroll-to-end')).not.toBeNull();
-        props.items.push(item('next-user', 'user', 'Next question', { turnId: 'turn-2' }));
+        props.items.push(item('next-user', 'user', 'Next question', {turnId: 'turn-2'}));
         await settle();
         expect(host.querySelector('.scroll-to-end')).toBeNull();
         expect(viewport.scrollTop).toBe(1200);
@@ -1079,7 +1171,9 @@ describe('timeline viewport', () => {
         const host = mount(AssistantTimeline, timelineProps([item('answer', 'assistant', 'Answer')]));
         await settle();
         const viewport = host.querySelector<HTMLElement>('.assistant-timeline');
-        if (!viewport) throw new Error('Missing viewport');
+        if (!viewport) {
+            throw new Error('Missing viewport');
+        }
         geometry(viewport, 1200, 400);
         viewport.scrollTop = 800;
         viewport.dispatchEvent(new Event('scroll'));
@@ -1101,7 +1195,9 @@ describe('timeline viewport', () => {
         await settle();
         const viewport = host.querySelector<HTMLElement>('.assistant-timeline');
         const content = host.querySelector<HTMLElement>('.timeline-content');
-        if (!viewport || !content) throw new Error('Missing timeline');
+        if (!viewport || !content) {
+            throw new Error('Missing timeline');
+        }
         geometry(viewport, 700, 400);
         Object.defineProperty(content, 'offsetHeight', {
             configurable: true,
@@ -1114,7 +1210,7 @@ describe('timeline viewport', () => {
             });
         });
         try {
-            props.items.push(item('sent', 'user', 'Add bookmarks', { turnId: 'turn-2' }));
+            props.items.push(item('sent', 'user', 'Add bookmarks', {turnId: 'turn-2'}));
             await settle();
             expect(host.querySelector<HTMLElement>('.timeline-anchor-space')?.style.height).toBe('300px');
         } finally {

@@ -1,9 +1,5 @@
-import { getErrorMessage } from '@electron/utils/error';
-import {
-    readFile,
-    unlink,
-    writeFile,
-} from 'node:fs/promises';
+import {getErrorMessage} from '@electron/utils/error';
+import {readFile, unlink, writeFile} from 'node:fs/promises';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {
     assertScanCleanupLegacyStorageByteLimit,
@@ -27,24 +23,12 @@ import {
     type IScanCleanupSettingsReadRequest,
     type IScanCleanupSettingsUpdateRequest,
 } from '@contracts/scan-cleanup/scanCleanupSettings';
-import {
-    createScanCleanupInputBudget,
-    type IScanCleanupInputBudget,
-} from '@contracts/scan-cleanup/inputLimits';
-import {
-    SCAN_CLEANUP_MANUAL_SPLIT_MAX,
-    SCAN_CLEANUP_MANUAL_SPLIT_MIN,
-} from '@contracts/scan-cleanup/geometry';
+import {createScanCleanupInputBudget, type IScanCleanupInputBudget} from '@contracts/scan-cleanup/inputLimits';
+import {SCAN_CLEANUP_MANUAL_SPLIT_MAX, SCAN_CLEANUP_MANUAL_SPLIT_MIN} from '@contracts/scan-cleanup/geometry';
 import {decodeScanCleanupPageOverrides} from '@contracts/scan-cleanup/ipcRequestCodecs';
 import type {TScanCleanupOutputModeSetting} from '@contracts/scan-cleanup/domain';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
-import {
-    createLogger,
-    type ILogger,
-} from '@electron/utils/createLogger';
+import {atomicReplace, makeSiblingTempPath} from '@electron/utils/atomicReplace';
+import {createLogger, type ILogger} from '@electron/utils/createLogger';
 import {quarantineCorruptFile} from '@electron/utils/quarantineCorruptFile';
 
 interface IScanCleanupSettingsStoreFileSystem {
@@ -84,7 +68,7 @@ const DEFAULT_STORE_FILE_SYSTEM: IScanCleanupSettingsStoreFileSystem = {
     writeFile: async (filePath, value, encoding) => {
         await writeFile(filePath, value, {encoding});
     },
-    unlink: async filePath => {
+    unlink: async (filePath) => {
         await unlink(filePath);
     },
 };
@@ -95,9 +79,7 @@ function finiteTimestamp(value: unknown): number | null {
 }
 
 function legacyTimestamp(entry: Record<string, unknown> | null, fallback: number) {
-    return finiteTimestamp(entry?.lastUsedAtMs)
-        ?? finiteTimestamp(entry?.updatedAt)
-        ?? fallback;
+    return finiteTimestamp(entry?.lastUsedAtMs) ?? finiteTimestamp(entry?.updatedAt) ?? fallback;
 }
 
 function decodeLegacyDocumentEntry(
@@ -110,50 +92,37 @@ function decodeLegacyDocumentEntry(
         return null;
     }
     const legacyOverrides = scanCleanupPreferenceRecord(stored.overrides);
-    const migratedOverrides = legacyOverrides === null
-        ? stored.overrides
-        : Object.fromEntries(Object.entries(legacyOverrides).map(([
-            page,
-            override,
-        ]) => {
-            const pageOverride = scanCleanupPreferenceRecord(override);
-            const manualSplit = scanCleanupPreferenceRecord(pageOverride?.manualSplit);
-            const xNormalized = manualSplit?.xNormalized;
-            if (typeof xNormalized !== 'number' || !Number.isFinite(xNormalized)) {
-                return [
-                    page,
-                    override,
-                ];
-            }
-            return [
-                page,
-                {
-                    ...pageOverride,
-                    manualSplit: {
-                        ...manualSplit,
-                        xNormalized: Math.min(
-                            SCAN_CLEANUP_MANUAL_SPLIT_MAX,
-                            Math.max(SCAN_CLEANUP_MANUAL_SPLIT_MIN, xNormalized),
-                        ),
-                    },
-                },
-            ];
-        }));
-    const overrides = stored.overrides === undefined
-        ? undefined
-        : decodeScanCleanupPageOverrides(migratedOverrides, budget);
-    const outputMode = [
-        'auto',
-        'bw',
-        'mixed',
-        'grayscale',
-        'color',
-    ].includes(String(stored.outputMode))
-        ? stored.outputMode as TScanCleanupOutputModeSetting
+    const migratedOverrides =
+        legacyOverrides === null
+            ? stored.overrides
+            : Object.fromEntries(
+                  Object.entries(legacyOverrides).map(([page, override]) => {
+                      const pageOverride = scanCleanupPreferenceRecord(override);
+                      const manualSplit = scanCleanupPreferenceRecord(pageOverride?.manualSplit);
+                      const xNormalized = manualSplit?.xNormalized;
+                      if (typeof xNormalized !== 'number' || !Number.isFinite(xNormalized)) {
+                          return [page, override];
+                      }
+                      return [
+                          page,
+                          {
+                              ...pageOverride,
+                              manualSplit: {
+                                  ...manualSplit,
+                                  xNormalized: Math.min(
+                                      SCAN_CLEANUP_MANUAL_SPLIT_MAX,
+                                      Math.max(SCAN_CLEANUP_MANUAL_SPLIT_MIN, xNormalized),
+                                  ),
+                              },
+                          },
+                      ];
+                  }),
+              );
+    const overrides = stored.overrides === undefined ? undefined : decodeScanCleanupPageOverrides(migratedOverrides, budget);
+    const outputMode = ['auto', 'bw', 'mixed', 'grayscale', 'color'].includes(String(stored.outputMode))
+        ? (stored.outputMode as TScanCleanupOutputModeSetting)
         : undefined;
-    const marginsMm = stored.marginsMm === undefined
-        ? undefined
-        : decodeScanCleanupMarginsMm(stored.marginsMm);
+    const marginsMm = stored.marginsMm === undefined ? undefined : decodeScanCleanupMarginsMm(stored.marginsMm);
     return {
         ...(overrides === undefined ? {} : {overrides}),
         ...(marginsMm === undefined ? {} : {marginsMm}),
@@ -180,22 +149,14 @@ function recordLegacyMigrationFailure(
     diagnostics.firstCause ??= getErrorMessage(error);
 }
 
-function parseLegacyStorageValue(
-    raw: string | null,
-    diagnostics: ILegacyMigrationDiagnostics,
-    label: string,
-) {
+function parseLegacyStorageValue(raw: string | null, diagnostics: ILegacyMigrationDiagnostics, label: string) {
     if (!raw) {
         return null;
     }
     try {
         return JSON.parse(raw) as unknown;
     } catch (error) {
-        recordLegacyMigrationFailure(
-            diagnostics,
-            'invalidEnvelopes',
-            new Error(`${label}: ${getErrorMessage(error)}`),
-        );
+        recordLegacyMigrationFailure(diagnostics, 'invalidEnvelopes', new Error(`${label}: ${getErrorMessage(error)}`));
         return null;
     }
 }
@@ -244,11 +205,7 @@ function readLegacyCandidates(
     if (settingsValue !== null) {
         const storedSettings = scanCleanupPreferenceRecord(settingsValue);
         if (storedSettings === null) {
-            recordLegacyMigrationFailure(
-                diagnostics,
-                'invalidGlobals',
-                new Error('global settings are not an object'),
-            );
+            recordLegacyMigrationFailure(diagnostics, 'invalidGlobals', new Error('global settings are not an object'));
         } else {
             try {
                 settings = decodeScanCleanupGlobalPreferences(settingsValue, {preInkAlignment: true});
@@ -267,24 +224,13 @@ function readLegacyCandidates(
             }
         }
     }
-    const rawOverridesValue = parseLegacyStorageValue(
-        legacyStorage.documentOverridesRaw,
-        diagnostics,
-        'document settings',
-    );
+    const rawOverridesValue = parseLegacyStorageValue(legacyStorage.documentOverridesRaw, diagnostics, 'document settings');
     const rawOverrides = scanCleanupPreferenceRecord(rawOverridesValue);
     if (rawOverridesValue !== null && rawOverrides === null) {
-        recordLegacyMigrationFailure(
-            diagnostics,
-            'invalidEnvelopes',
-            new Error('document settings are not an object'),
-        );
+        recordLegacyMigrationFailure(diagnostics, 'invalidEnvelopes', new Error('document settings are not an object'));
     }
     if (rawOverrides) {
-        for (const [
-            legacyDocumentKey,
-            value,
-        ] of Object.entries(rawOverrides)) {
+        for (const [legacyDocumentKey, value] of Object.entries(rawOverrides)) {
             let entry: IScanCleanupDocumentOverrideEntry | null;
             try {
                 entry = decodeLegacyDocumentEntry(value, legacyFallbackTimestamp, budget);
@@ -322,28 +268,19 @@ function readLegacyCandidates(
     };
 }
 
-function chooseNewerEntry(
-    previous: IScanCleanupDocumentOverrideEntry | undefined,
-    candidate: IScanCleanupDocumentOverrideEntry,
-) {
-    return previous === undefined || candidate.lastUsedAtMs >= previous.lastUsedAtMs
-        ? candidate
-        : previous;
+function chooseNewerEntry(previous: IScanCleanupDocumentOverrideEntry | undefined, candidate: IScanCleanupDocumentOverrideEntry) {
+    return previous === undefined || candidate.lastUsedAtMs >= previous.lastUsedAtMs ? candidate : previous;
 }
 
-function pruneDocumentOverrides(
-    state: IScanCleanupSettingsFile,
-    now: number,
-) {
+function pruneDocumentOverrides(state: IScanCleanupSettingsFile, now: number) {
     const entries = Object.entries(state.documentOverrides)
-        .filter(([
-            , entry,
-        ]) => now - entry.lastUsedAtMs <= SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS)
+        .filter(([, entry]) => now - entry.lastUsedAtMs <= SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_AGE_MS)
         .sort((left, right) => right[1].lastUsedAtMs - left[1].lastUsedAtMs)
         .slice(0, SCAN_CLEANUP_DOCUMENT_OVERRIDE_MAX_ENTRIES);
     const nextEntries = Object.fromEntries(entries);
-    const changed = entries.length !== Object.keys(state.documentOverrides).length
-        || entries.some(([key]) => state.documentOverrides[key] === undefined);
+    const changed =
+        entries.length !== Object.keys(state.documentOverrides).length ||
+        entries.some(([key]) => state.documentOverrides[key] === undefined);
     if (changed) {
         state.documentOverrides = nextEntries;
     }
@@ -354,15 +291,14 @@ function cloneSettingsFile(state: IScanCleanupSettingsFile): IScanCleanupSetting
     return cloneScanCleanupPreferenceValue(state);
 }
 
-function cloneSettingsResult(
-    state: IScanCleanupSettingsFile,
-    repaired: boolean,
-): IScanCleanupSettingsResult {
+function cloneSettingsResult(state: IScanCleanupSettingsFile, repaired: boolean): IScanCleanupSettingsResult {
     const cloned = cloneSettingsFile(state);
-    return repaired ? {
-        ...cloned,
-        repaired: true,
-    } : cloned;
+    return repaired
+        ? {
+              ...cloned,
+              repaired: true,
+          }
+        : cloned;
 }
 
 export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStoreOptions): IScanCleanupSettingsStore {
@@ -372,18 +308,23 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
         ...DEFAULT_STORE_FILE_SYSTEM,
         ...options.fileSystem,
     };
-    const replace = options.replace ?? (async (sourcePath, targetPath) => {
-        await atomicReplace(sourcePath, targetPath, {
-            durable: true,
-            markMutationCommitStarted: false,
+    const replace =
+        options.replace ??
+        (async (sourcePath, targetPath) => {
+            await atomicReplace(sourcePath, targetPath, {
+                durable: true,
+                markMutationCommitStarted: false,
+            });
         });
-    });
     let queue = Promise.resolve();
     const reportedLegacyWarnings = new Set<string>();
 
     function enqueue<T>(operation: () => Promise<T>) {
         const next = queue.then(operation, operation);
-        queue = next.then(() => undefined, () => undefined);
+        queue = next.then(
+            () => undefined,
+            () => undefined,
+        );
         return next;
     }
 
@@ -441,21 +382,17 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
         initialRead: boolean,
         timestamp: number,
     ) {
-        const {
-            settings,
-            settingsPatch,
-            documentCandidates,
-            documentCandidatesByLegacyKey,
-            diagnostics,
-        } = readLegacyCandidates(request.legacyStorage, timestamp);
-        const invalidCount = diagnostics.invalidGlobals
-            + diagnostics.invalidDocumentEntries
-            + diagnostics.invalidEnvelopes;
+        const {settings, settingsPatch, documentCandidates, documentCandidatesByLegacyKey, diagnostics} = readLegacyCandidates(
+            request.legacyStorage,
+            timestamp,
+        );
+        const invalidCount = diagnostics.invalidGlobals + diagnostics.invalidDocumentEntries + diagnostics.invalidEnvelopes;
         if (invalidCount > 0) {
-            const warning = 'Skipped malformed scan-cleanup legacy settings while preserving valid data: '
-                + `${String(diagnostics.invalidGlobals)} global, `
-                + `${String(diagnostics.invalidDocumentEntries)} document entr${diagnostics.invalidDocumentEntries === 1 ? 'y' : 'ies'}, `
-                + `${String(diagnostics.invalidEnvelopes)} envelope; first issue: ${diagnostics.firstCause ?? 'unknown'}`;
+            const warning =
+                'Skipped malformed scan-cleanup legacy settings while preserving valid data: ' +
+                `${String(diagnostics.invalidGlobals)} global, ` +
+                `${String(diagnostics.invalidDocumentEntries)} document entr${diagnostics.invalidDocumentEntries === 1 ? 'y' : 'ies'}, ` +
+                `${String(diagnostics.invalidEnvelopes)} envelope; first issue: ${diagnostics.firstCause ?? 'unknown'}`;
             if (!reportedLegacyWarnings.has(warning)) {
                 reportedLegacyWarnings.add(warning);
                 logger.warn(warning);
@@ -466,10 +403,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
             state.settings = settings;
             changed = true;
         } else if (!initialRead) {
-            for (const [
-                key,
-                value,
-            ] of Object.entries(settingsPatch)) {
+            for (const [key, value] of Object.entries(settingsPatch)) {
                 const preferenceKey = key as keyof typeof state.settings;
                 const defaultValue = DEFAULT_SCAN_CLEANUP_PREFERENCES[preferenceKey];
                 if (JSON.stringify(state.settings[preferenceKey]) === JSON.stringify(defaultValue)) {
@@ -479,10 +413,7 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
             }
         }
         if (initialRead) {
-            for (const [
-                sourceSha256,
-                candidate,
-            ] of documentCandidates) {
+            for (const [sourceSha256, candidate] of documentCandidates) {
                 const nextEntry = chooseNewerEntry(state.documentOverrides[sourceSha256], candidate.entry);
                 if (nextEntry !== state.documentOverrides[sourceSha256]) {
                     state.documentOverrides[sourceSha256] = nextEntry;
@@ -554,10 +485,11 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
                     lastUsedAtMs: now(),
                 };
                 applyScanCleanupDocumentPreferencePatch(nextEntry, patch);
-                const hasDocumentValues = nextEntry.overrides !== undefined
-                    || nextEntry.pageOverrideDefaults !== undefined
-                    || nextEntry.marginsMm !== undefined
-                    || nextEntry.outputMode !== undefined;
+                const hasDocumentValues =
+                    nextEntry.overrides !== undefined ||
+                    nextEntry.pageOverrideDefaults !== undefined ||
+                    nextEntry.marginsMm !== undefined ||
+                    nextEntry.outputMode !== undefined;
                 if (hasDocumentValues) {
                     state.documentOverrides[sourceSha256] = nextEntry;
                 } else {

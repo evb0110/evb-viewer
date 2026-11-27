@@ -41,12 +41,8 @@ interface ICachedRasterEntry {
 }
 
 export function buildScanCleanupRasterCacheKey(input: IScanCleanupRasterCacheKeyInput) {
-    const {
-        ref, revision, pageSize, dpi, region,
-    } = input;
-    const regionKey = region === undefined
-        ? 'full'
-        : `${region.x},${region.y},${region.width},${region.height}`;
+    const {ref, revision, pageSize, dpi, region} = input;
+    const regionKey = region === undefined ? 'full' : `${region.x},${region.y},${region.width},${region.height}`;
     return `${ref}\u0000${revision}\u0000${pageSize.pageNumber}\u0000${pageSize.renderBox}\u0000${pageSize.rotation}\u0000${pageSize.xPoints},${pageSize.yPoints},${pageSize.widthPoints},${pageSize.heightPoints}\u0000${dpi}\u0000${regionKey}`;
 }
 
@@ -54,10 +50,7 @@ export function buildScanCleanupRasterCacheKey(input: IScanCleanupRasterCacheKey
  * Only full-page rasters at analysis/preview resolution (<= 150 DPI) are cached
  * so heavy 300-600 DPI conversion renders never evict hot analysis/preview pages.
  */
-export function isCacheableScanCleanupRaster(
-    dpi: number,
-    region: IScanCleanupRasterCacheKeyInput['region'],
-) {
+export function isCacheableScanCleanupRaster(dpi: number, region: IScanCleanupRasterCacheKeyInput['region']) {
     return region === undefined && dpi <= PREVIEW_DPI;
 }
 
@@ -74,7 +67,9 @@ export function createBrowserScanCleanupRasterCache(maxBytes = scanCleanupRaster
 
     function deleteEntry(key: string) {
         const existing = entries.get(key);
-        if (!existing) return;
+        if (!existing) {
+            return;
+        }
         entries.delete(key);
         totalBytes -= existing.ppm.byteLength;
     }
@@ -108,7 +103,9 @@ export function createBrowserScanCleanupRasterCache(maxBytes = scanCleanupRaster
         deleteEntry(key);
         while (totalBytes + byteLength > maxBytes && entries.size > 0) {
             const oldestKey = entries.keys().next().value;
-            if (oldestKey === undefined) break;
+            if (oldestKey === undefined) {
+                break;
+            }
             deleteEntry(oldestKey);
         }
         const stored: ICachedRasterEntry = {

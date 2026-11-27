@@ -1,4 +1,4 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 
 export interface ICommentQueryMatchPart {
     text: string;
@@ -6,9 +6,7 @@ export interface ICommentQueryMatchPart {
 }
 
 function normalizeTimestamp(value: number | null | undefined) {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
-        ? value
-        : null;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function getAnnotationCommentCreatedAt(comment: IAnnotationCommentSummary) {
@@ -16,8 +14,7 @@ function getAnnotationCommentCreatedAt(comment: IAnnotationCommentSummary) {
 }
 
 export function getAnnotationCommentDisplayTimestamp(comment: IAnnotationCommentSummary) {
-    return normalizeTimestamp(comment.modifiedAt)
-        ?? normalizeTimestamp(comment.createdAt);
+    return normalizeTimestamp(comment.modifiedAt) ?? normalizeTimestamp(comment.createdAt);
 }
 
 function getAnnotationCommentSortTimestamp(comment: IAnnotationCommentSummary) {
@@ -65,55 +62,50 @@ export function getAnnotationCommentPreviewText(comment: IAnnotationCommentSumma
     return comment.previewText?.trim() ?? '';
 }
 
-export function matchesCommentQuery(
-    comment: IAnnotationCommentSummary,
-    normalizedQuery: string,
-    fallbackAuthor?: string | null,
-) {
+export function matchesCommentQuery(comment: IAnnotationCommentSummary, normalizedQuery: string, fallbackAuthor?: string | null) {
     if (!normalizedQuery) {
         return true;
     }
 
     const commentAuthor = comment.author?.trim();
     const fallback = fallbackAuthor?.trim();
-    const author = commentAuthor && commentAuthor.length > 0
-        ? commentAuthor
-        : fallback ?? '';
+    const author = commentAuthor && commentAuthor.length > 0 ? commentAuthor : (fallback ?? '');
     const pageNumber = String(comment.pageNumber);
-    const pageTokens = [
-        `p${pageNumber}`,
-        `page ${pageNumber}`,
-    ];
+    const pageTokens = [`p${pageNumber}`, `page ${pageNumber}`];
 
     return (
-        (comment.displayText ?? '').toLowerCase().includes(normalizedQuery)
-        ||
-        comment.text.toLowerCase().includes(normalizedQuery)
-        || (comment.previewText ?? '').toLowerCase().includes(normalizedQuery)
-        || (comment.replies?.some(reply => (
-            reply.contents.toLowerCase().includes(normalizedQuery)
-            || (reply.author ?? '').toLowerCase().includes(normalizedQuery)
-        )) ?? false)
-        || (comment.kindLabel ?? '').toLowerCase().includes(normalizedQuery)
-        || (comment.subtype ?? '').toLowerCase().includes(normalizedQuery)
-        || author.toLowerCase().includes(normalizedQuery)
-        || pageTokens.some(token => token.includes(normalizedQuery))
+        (comment.displayText ?? '').toLowerCase().includes(normalizedQuery) ||
+        comment.text.toLowerCase().includes(normalizedQuery) ||
+        (comment.previewText ?? '').toLowerCase().includes(normalizedQuery) ||
+        (comment.replies?.some(
+            (reply) =>
+                reply.contents.toLowerCase().includes(normalizedQuery) || (reply.author ?? '').toLowerCase().includes(normalizedQuery),
+        ) ??
+            false) ||
+        (comment.kindLabel ?? '').toLowerCase().includes(normalizedQuery) ||
+        (comment.subtype ?? '').toLowerCase().includes(normalizedQuery) ||
+        author.toLowerCase().includes(normalizedQuery) ||
+        pageTokens.some((token) => token.includes(normalizedQuery))
     );
 }
 
 export function splitByQueryMatches(text: string, normalizedQuery: string): ICommentQueryMatchPart[] {
     if (!normalizedQuery) {
-        return [{
-            text,
-            match: false,
-        }];
+        return [
+            {
+                text,
+                match: false,
+            },
+        ];
     }
 
     if (!text) {
-        return [{
-            text,
-            match: false,
-        }];
+        return [
+            {
+                text,
+                match: false,
+            },
+        ];
     }
 
     // Lowercasing can change a character's length (İ becomes i̇), so matches
@@ -164,11 +156,17 @@ export function splitByQueryMatches(text: string, normalizedQuery: string): ICom
         cursor = matchEnd;
         // Resume after the last original character the match touched.
         foldedCursor = foldedMatch + queryLength;
-        while (foldedCursor < loweredText.length && originalStart[foldedCursor]! < matchEnd) foldedCursor += 1;
+        while (foldedCursor < loweredText.length && originalStart[foldedCursor]! < matchEnd) {
+            foldedCursor += 1;
+        }
     }
 
-    return parts.length ? parts : [{
-        text,
-        match: false,
-    }];
+    return parts.length
+        ? parts
+        : [
+              {
+                  text,
+                  match: false,
+              },
+          ];
 }

@@ -1,53 +1,54 @@
-import {
-    mkdirSync, writeFileSync,
-} from 'node:fs';
+import {mkdirSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {PDFDocument} from 'pdf-lib';
-import {
-    expect, it,
-} from 'vitest';
+import {expect, it} from 'vitest';
 import {devices} from 'playwright';
 import type {Page} from 'playwright';
-import {
-    lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled,
-} from './documentLifecycleTestHelpers';
+import {lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled} from './documentLifecycleTestHelpers';
 
 async function readSettingsLayout(page: Page) {
     return page.evaluate(() => ({
-        overflow: [...document.querySelectorAll<HTMLElement>('.tool-page-body, .settings-card, .settings-grid, .settings-card [role="radiogroup"]')]
-            .filter(element => element.scrollWidth > element.clientWidth + 1)
-            .map(element => ({
+        overflow: [
+            ...document.querySelectorAll<HTMLElement>(
+                '.tool-page-body, .settings-card, .settings-grid, .settings-card [role="radiogroup"]',
+            ),
+        ]
+            .filter((element) => element.scrollWidth > element.clientWidth + 1)
+            .map((element) => ({
                 className: element.className,
                 width: element.clientWidth,
                 contentWidth: element.scrollWidth,
                 text: element.innerText.slice(0, 200),
             })),
         truncatedNavigation: [...document.querySelectorAll<HTMLElement>('.rail-item > span:not(.iconify, .rail-count)')]
-            .filter(element => element.scrollWidth > element.clientWidth + 1)
-            .map(element => element.textContent),
+            .filter((element) => element.scrollWidth > element.clientWidth + 1)
+            .map((element) => element.textContent),
         themeIconCounts: [...document.querySelectorAll<HTMLElement>('.settings-card label')]
-            .filter(element => element.querySelector('[role="radio"][value="light"], [role="radio"][value="dark"]'))
-            .map(element => [...element.querySelectorAll<HTMLElement>('.iconify, svg')]
-                .filter(icon => icon.getBoundingClientRect().width > 0).length),
+            .filter((element) => element.querySelector('[role="radio"][value="light"], [role="radio"][value="dark"]'))
+            .map(
+                (element) =>
+                    [...element.querySelectorAll<HTMLElement>('.iconify, svg')].filter((icon) => icon.getBoundingClientRect().width > 0)
+                        .length,
+            ),
     }));
 }
 
 async function readClippedToolbarControls(page: Page) {
     return page.evaluate(() => {
         const toolbar = document.querySelector<HTMLElement>('[role="toolbar"][aria-label="Document toolbar"]')!;
-        const clippingOverflows = new Set([
-            'hidden',
-            'clip',
-            'auto',
-            'scroll',
-        ]);
-        return [...toolbar.querySelectorAll<HTMLButtonElement>('button')].flatMap(button => {
+        const clippingOverflows = new Set(['hidden', 'clip', 'auto', 'scroll']);
+        return [...toolbar.querySelectorAll<HTMLButtonElement>('button')].flatMap((button) => {
             const rect = button.getBoundingClientRect();
-            if (!rect.width || !rect.height || getComputedStyle(button).visibility === 'hidden') return [];
+            if (!rect.width || !rect.height || getComputedStyle(button).visibility === 'hidden') {
+                return [];
+            }
             let ancestor = button.parentElement;
             const bounds = toolbar.getBoundingClientRect();
-            let clipped = rect.left < bounds.left - 1 || rect.right > bounds.right + 1
-                || rect.top < bounds.top - 1 || rect.bottom > bounds.bottom + 1;
+            let clipped =
+                rect.left < bounds.left - 1 ||
+                rect.right > bounds.right + 1 ||
+                rect.top < bounds.top - 1 ||
+                rect.bottom > bounds.bottom + 1;
             while (ancestor) {
                 const style = getComputedStyle(ancestor);
                 const clip = ancestor.getBoundingClientRect();
@@ -59,11 +60,15 @@ async function readClippedToolbarControls(page: Page) {
                 }
                 ancestor = ancestor.parentElement;
             }
-            return clipped ? [{
-                label: button.getAttribute('aria-label') ?? button.textContent?.trim(),
-                left: rect.left,
-                right: rect.right,
-            }] : [];
+            return clipped
+                ? [
+                      {
+                          label: button.getAttribute('aria-label') ?? button.textContent?.trim(),
+                          left: rect.left,
+                          right: rect.right,
+                      },
+                  ]
+                : [];
         });
     });
 }
@@ -95,23 +100,21 @@ it('keeps settings and document controls readable and reachable from phone to de
         });
         await page.goto(lifecycle.origin, {waitUntil: 'domcontentloaded'});
         await waitForOpenFileReady(page);
-        await page.locator('.start-rail').getByRole('button', {
-            name: 'Settings',
-            exact: true,
-        }).click();
-        await page.getByRole('textbox', {
-            name: 'Author Name',
-            exact: true,
-        }).waitFor();
+        await page
+            .locator('.start-rail')
+            .getByRole('button', {
+                name: 'Settings',
+                exact: true,
+            })
+            .click();
+        await page
+            .getByRole('textbox', {
+                name: 'Author Name',
+                exact: true,
+            })
+            .waitFor();
         await page.evaluate(() => document.fonts.ready);
-        for (const width of [
-            290,
-            320,
-            390,
-            768,
-            900,
-            1280,
-        ]) {
+        for (const width of [290, 320, 390, 768, 900, 1280]) {
             await page.setViewportSize({
                 width,
                 height: 900,
@@ -123,10 +126,7 @@ it('keeps settings and document controls readable and reachable from phone to de
                 ...layout,
             });
             await page.screenshot({path: resolve(evidenceDir, `settings-${width}.png`)});
-            expect.soft(layout.themeIconCounts, `one theme icon per choice at ${width}px`).toEqual([
-                1,
-                1,
-            ]);
+            expect.soft(layout.themeIconCounts, `one theme icon per choice at ${width}px`).toEqual([1, 1]);
             expect.soft(layout.overflow, `settings controls fit at ${width}px`).toEqual([]);
             expect.soft(layout.truncatedNavigation, `start navigation is readable at ${width}px`).toEqual([]);
         }
@@ -139,10 +139,16 @@ it('keeps settings and document controls readable and reachable from phone to de
         await page.getByText('Light', {exact: true}).click();
         await expect.poll(() => page.locator('html').getAttribute('class')).not.toContain('dark');
         await page.getByText('Large', {exact: true}).click();
-        await expect.poll(() => page.getByRole('radio', {
-            name: 'Large',
-            exact: true,
-        }).getAttribute('aria-checked')).toBe('true');
+        await expect
+            .poll(() =>
+                page
+                    .getByRole('radio', {
+                        name: 'Large',
+                        exact: true,
+                    })
+                    .getAttribute('aria-checked'),
+            )
+            .toBe('true');
         const largeLayout = await readSettingsLayout(page);
         observations.push({
             surface: 'settings-large',
@@ -153,47 +159,53 @@ it('keeps settings and document controls readable and reachable from phone to de
         expect.soft(largeLayout.truncatedNavigation).toEqual([]);
         await page.screenshot({path: resolve(evidenceDir, 'settings-large-390.png')});
         await page.getByText('Auto', {exact: true}).click();
-        await page.locator('.start-rail').getByRole('button', {
-            name: 'Recent Files',
-            exact: true,
-        }).click();
+        await page
+            .locator('.start-rail')
+            .getByRole('button', {
+                name: 'Recent Files',
+                exact: true,
+            })
+            .click();
         keepFileChooserInterceptionEnabled(page);
         const pdf = await PDFDocument.create();
-        for (let index = 1; index <= 60; index += 1) pdf.addPage([
-            420,
-            600,
-        ]).drawText(`Mobile reading page ${index}`, {
-            x: 24,
-            y: 560,
-            size: 18,
-        });
+        for (let index = 1; index <= 60; index += 1) {
+            pdf.addPage([420, 600]).drawText(`Mobile reading page ${index}`, {
+                x: 24,
+                y: 560,
+                size: 18,
+            });
+        }
         const chooser = page.waitForEvent('filechooser');
-        await page.getByRole('button', {
-            name: 'Open File',
-            exact: true,
-        }).first().click();
-        await (await chooser).setFiles({
+        await page
+            .getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            })
+            .first()
+            .click();
+        await (
+            await chooser
+        ).setFiles({
             name: 'Mobile reading document.pdf',
             mimeType: 'application/pdf',
             buffer: Buffer.from(await pdf.save()),
         });
         await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 60_000});
-        for (const width of [
-            290,
-            320,
-            390,
-            768,
-            900,
-            1280,
-        ]) {
+        for (const width of [290, 320, 390, 768, 900, 1280]) {
             await page.setViewportSize({
                 width,
                 height: 900,
             });
-            await expect.poll(() => page.evaluate(() => {
-                const viewport = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
-                return viewport.scrollWidth - viewport.clientWidth;
-            }), {timeout: 10_000}).toBeLessThanOrEqual(1);
+            await expect
+                .poll(
+                    () =>
+                        page.evaluate(() => {
+                            const viewport = document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')!;
+                            return viewport.scrollWidth - viewport.clientWidth;
+                        }),
+                    {timeout: 10_000},
+                )
+                .toBeLessThanOrEqual(1);
             if (width >= 900) {
                 await page.getByRole('button', {name: /^Last Page\b/iu}).click();
                 await expect.poll(() => page.locator('.page-controls-current-primary').innerText()).toBe('60');
@@ -219,10 +231,12 @@ it('keeps settings and document controls readable and reachable from phone to de
         await page.getByRole('button', {name: /^Next page$/iu}).click();
         await expect.poll(() => page.locator('.page-controls-current-primary').innerText()).toBe('4');
         await page.locator('.zoom-controls-display').click();
-        await page.getByRole('button', {
-            name: '100%',
-            exact: true,
-        }).click();
+        await page
+            .getByRole('button', {
+                name: '100%',
+                exact: true,
+            })
+            .click();
         await expect.poll(() => page.locator('.zoom-controls-display-value').innerText()).toBe('100%');
         expect(problems).toEqual([]);
     } finally {
@@ -278,18 +292,22 @@ it('fits Start, menus and the sidebar to a touch phone', async () => {
         for (let swipe = 0; swipe < 3; swipe += 1) {
             await cdp.send('Input.dispatchTouchEvent', {
                 type: 'touchStart',
-                touchPoints: [{
-                    x,
-                    y: startY,
-                }],
+                touchPoints: [
+                    {
+                        x,
+                        y: startY,
+                    },
+                ],
             });
             for (let step = 1; step <= 10; step += 1) {
                 await cdp.send('Input.dispatchTouchEvent', {
                     type: 'touchMove',
-                    touchPoints: [{
-                        x,
-                        y: startY - Math.round(travel * step / 10),
-                    }],
+                    touchPoints: [
+                        {
+                            x,
+                            y: startY - Math.round((travel * step) / 10),
+                        },
+                    ],
                 });
             }
             await cdp.send('Input.dispatchTouchEvent', {
@@ -297,7 +315,11 @@ it('fits Start, menus and the sidebar to a touch phone', async () => {
                 touchPoints: [],
             });
         }
-        await expect.poll(async () => (await readStartReach(page)).recentBottomOverflow, {message: 'scrolling Start reaches the end of the recent list'}).toBeLessThanOrEqual(1);
+        await expect
+            .poll(async () => (await readStartReach(page)).recentBottomOverflow, {
+                message: 'scrolling Start reaches the end of the recent list',
+            })
+            .toBeLessThanOrEqual(1);
         const after = await readStartReach(page);
         await page.screenshot({path: resolve(evidenceDir, 'landscape-start-scrolled.png')});
         expect.soft(after.recentHeight, 'the recent list keeps a usable height').toBeGreaterThanOrEqual(200);
@@ -318,43 +340,50 @@ it('fits Start, menus and the sidebar to a touch phone', async () => {
         // iOS Safari zooms the page into a focused field with text under 16px.
         expect.soft(touchSizes.searchFont, 'fields keep iOS from zooming on focus').toBeGreaterThanOrEqual(16);
         expect.soft(touchSizes.tabClose, 'the tab close button is finger sized').toBeGreaterThanOrEqual(32);
-        const readPhoneChrome = () => page.evaluate(() => ({
-            pageFieldsVisible: getComputedStyle(document.querySelector<HTMLElement>('.toolbar-center')!).visibility === 'visible',
-            statusRepeats: [...document.querySelectorAll<HTMLElement>('.status-bar-file, .status-bar-item')]
-                .filter(element => element.getBoundingClientRect().width > 0)
-                .map(element => element.innerText),
-            saveStateShown: (document.querySelector<HTMLElement>('.status-save-dot')?.getBoundingClientRect().width ?? 0) > 0,
-            railLabelPx: Number.parseFloat(getComputedStyle(document.querySelector<HTMLElement>('.rail-item span')!).fontSize),
-        }));
+        const readPhoneChrome = () =>
+            page.evaluate(() => ({
+                pageFieldsVisible: getComputedStyle(document.querySelector<HTMLElement>('.toolbar-center')!).visibility === 'visible',
+                statusRepeats: [...document.querySelectorAll<HTMLElement>('.status-bar-file, .status-bar-item')]
+                    .filter((element) => element.getBoundingClientRect().width > 0)
+                    .map((element) => element.innerText),
+                saveStateShown: (document.querySelector<HTMLElement>('.status-save-dot')?.getBoundingClientRect().width ?? 0) > 0,
+                railLabelPx: Number.parseFloat(getComputedStyle(document.querySelector<HTMLElement>('.rail-item span')!).fontSize),
+            }));
         const startChrome = await readPhoneChrome();
         expect.soft(startChrome.pageFieldsVisible, 'Start shows no empty page and zoom fields').toBe(false);
         expect.soft(startChrome.statusRepeats, 'the status row does not repeat the tab and toolbar').toEqual([]);
         expect.soft(startChrome.railLabelPx, 'small text grows on a touch screen').toBeGreaterThanOrEqual(13);
         keepFileChooserInterceptionEnabled(page);
         const pdf = await PDFDocument.create();
-        for (let index = 1; index <= 8; index += 1) pdf.addPage([
-            420,
-            600,
-        ]).drawText(`Phone page ${index}`, {
-            x: 24,
-            y: 560,
-            size: 18,
-        });
+        for (let index = 1; index <= 8; index += 1) {
+            pdf.addPage([420, 600]).drawText(`Phone page ${index}`, {
+                x: 24,
+                y: 560,
+                size: 18,
+            });
+        }
         const chooser = page.waitForEvent('filechooser');
-        await page.getByRole('button', {
-            name: 'Open File',
-            exact: true,
-        }).first().click();
-        await (await chooser).setFiles({
+        await page
+            .getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            })
+            .first()
+            .click();
+        await (
+            await chooser
+        ).setFiles({
             name: 'Phone document.pdf',
             mimeType: 'application/pdf',
             buffer: Buffer.from(await pdf.save()),
         });
         await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 60_000});
-        await page.getByRole('button', {
-            name: 'Menu',
-            exact: true,
-        }).tap();
+        await page
+            .getByRole('button', {
+                name: 'Menu',
+                exact: true,
+            })
+            .tap();
         const menuText = await page.getByRole('menu').first().innerText();
         expect.soft(menuText, 'a touch screen has no keyboard for shortcut hints').not.toMatch(/⌘|Ctrl\+/u);
         await page.keyboard.press('Escape');
@@ -364,22 +393,20 @@ it('fits Start, menus and the sidebar to a touch phone', async () => {
         expect.soft(documentChrome.saveStateShown, 'the status row keeps the save state').toBe(true);
         await page.getByRole('button', {name: 'More tools'}).tap();
         const moreToolsText = await page.getByRole('menu').first().innerText();
-        expect.soft(moreToolsText, 'More tools does not repeat the app menu\'s File and Edit commands').not.toMatch(/Open File|Save|Undo/u);
+        expect.soft(moreToolsText, "More tools does not repeat the app menu's File and Edit commands").not.toMatch(/Open File|Save|Undo/u);
         await page.keyboard.press('Escape');
-        const readViewer = () => page.evaluate(() => ({
-            width: Math.round(document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')!.getBoundingClientRect().width),
-            pageBox: (({
-                left, top, width, height,
-            }) => [
-                left,
-                top,
-                width,
-                height,
-            ].map(Math.round))(document.querySelector<HTMLElement>('.page_container')!.getBoundingClientRect()),
-            zoom: document.querySelector<HTMLElement>('.zoom-controls-display-value')!.innerText,
-            sidebarOpen: !document.querySelector<HTMLElement>('.sidebar-wrapper')!.classList.contains('is-closed'),
-            sidebarWidth: Math.round(document.querySelector<HTMLElement>('.sidebar-wrapper')!.getBoundingClientRect().width),
-        }));
+        const readViewer = () =>
+            page.evaluate(() => ({
+                width: Math.round(
+                    document.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]')!.getBoundingClientRect().width,
+                ),
+                pageBox: (({left, top, width, height}) => [left, top, width, height].map(Math.round))(
+                    document.querySelector<HTMLElement>('.page_container')!.getBoundingClientRect(),
+                ),
+                zoom: document.querySelector<HTMLElement>('.zoom-controls-display-value')!.innerText,
+                sidebarOpen: !document.querySelector<HTMLElement>('.sidebar-wrapper')!.classList.contains('is-closed'),
+                sidebarWidth: Math.round(document.querySelector<HTMLElement>('.sidebar-wrapper')!.getBoundingClientRect().width),
+            }));
         const closed = await readViewer();
         await page.getByRole('button', {name: 'More tools'}).tap();
         await page.getByRole('menuitem', {name: /Toggle Sidebar/iu}).tap();
@@ -401,18 +428,23 @@ it('fits Start, menus and the sidebar to a touch phone', async () => {
         await page.getByRole('button', {name: 'More tools'}).tap();
         await page.getByRole('menuitem', {name: /Toggle Sidebar/iu}).tap();
         await expect.poll(async () => (await readViewer()).sidebarWidth).toBeGreaterThan(200);
-        expect.soft(await page.evaluate(() => {
-            const sidebar = document.querySelector<HTMLElement>('.sidebar-wrapper')!.getBoundingClientRect();
-            const center = document.elementFromPoint(sidebar.left + sidebar.width / 2, sidebar.top + sidebar.height / 2);
-            const beside = document.elementFromPoint(window.innerWidth - 16, window.innerHeight / 2);
-            return {
-                sidebar: Boolean(center?.closest('.sidebar-wrapper')),
-                beside: beside?.classList.contains('sidebar-scrim') ?? false,
-            };
-        }), 'the sidebar stays above the crop overlay').toEqual({
-            sidebar: true,
-            beside: true,
-        });
+        expect
+            .soft(
+                await page.evaluate(() => {
+                    const sidebar = document.querySelector<HTMLElement>('.sidebar-wrapper')!.getBoundingClientRect();
+                    const center = document.elementFromPoint(sidebar.left + sidebar.width / 2, sidebar.top + sidebar.height / 2);
+                    const beside = document.elementFromPoint(window.innerWidth - 16, window.innerHeight / 2);
+                    return {
+                        sidebar: Boolean(center?.closest('.sidebar-wrapper')),
+                        beside: beside?.classList.contains('sidebar-scrim') ?? false,
+                    };
+                }),
+                'the sidebar stays above the crop overlay',
+            )
+            .toEqual({
+                sidebar: true,
+                beside: true,
+            });
         await page.touchscreen.tap(viewport.width - 16, viewport.height / 2);
         await expect.poll(async () => (await readViewer()).sidebarOpen).toBe(false);
         await page.keyboard.press('Escape');
@@ -422,11 +454,17 @@ it('fits Start, menus and the sidebar to a touch phone', async () => {
             width: 360,
             height: 740,
         });
-        await expect.poll(() => page.evaluate(() => {
-            const pageTop = document.querySelector<HTMLElement>('.page-controls')!.getBoundingClientRect().top;
-            const zoomTop = document.querySelector<HTMLElement>('.zoom-controls')!.getBoundingClientRect().top;
-            return Math.abs(pageTop - zoomTop);
-        }), {message: 'page and zoom controls share a toolbar row at 360 px'}).toBeLessThanOrEqual(1);
+        await expect
+            .poll(
+                () =>
+                    page.evaluate(() => {
+                        const pageTop = document.querySelector<HTMLElement>('.page-controls')!.getBoundingClientRect().top;
+                        const zoomTop = document.querySelector<HTMLElement>('.zoom-controls')!.getBoundingClientRect().top;
+                        return Math.abs(pageTop - zoomTop);
+                    }),
+                {message: 'page and zoom controls share a toolbar row at 360 px'},
+            )
+            .toBeLessThanOrEqual(1);
         await page.screenshot({path: resolve(evidenceDir, 'portrait-360.png')});
         expect(problems).toEqual([]);
     } finally {
@@ -454,27 +492,32 @@ it('scrolls phone Start as one page through every recent file', async () => {
         await page.addStyleTag({content: 'html { font-size: 18.24px !important; }'});
         keepFileChooserInterceptionEnabled(page);
         const pdf = await PDFDocument.create();
-        pdf.addPage([
-            420,
-            600,
-        ]);
+        pdf.addPage([420, 600]);
         // Six recent files at the larger text overflow the phone's height.
         for (let index = 1; index <= 6; index += 1) {
             const nextChooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().tap();
-            await (await nextChooser).setFiles({
+            await page
+                .getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                })
+                .first()
+                .tap();
+            await (
+                await nextChooser
+            ).setFiles({
                 name: `Phone recent ${index}.pdf`,
                 mimeType: 'application/pdf',
                 buffer: Buffer.from(await pdf.save()),
             });
             await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 60_000});
-            await page.getByRole('button', {
-                name: 'Close Tab',
-                exact: true,
-            }).first().tap();
+            await page
+                .getByRole('button', {
+                    name: 'Close Tab',
+                    exact: true,
+                })
+                .first()
+                .tap();
             await expect.poll(() => page.locator('.recent-row--data:not(.recent-row--skeleton)').count()).toBe(index);
         }
         await page.locator('.empty-state').waitFor({state: 'visible'});
@@ -485,18 +528,22 @@ it('scrolls phone Start as one page through every recent file', async () => {
         for (let swipe = 0; swipe < 4; swipe += 1) {
             await startCdp.send('Input.dispatchTouchEvent', {
                 type: 'touchStart',
-                touchPoints: [{
-                    x: swipeX,
-                    y: swipeStartY,
-                }],
+                touchPoints: [
+                    {
+                        x: swipeX,
+                        y: swipeStartY,
+                    },
+                ],
             });
             for (let step = 1; step <= 10; step += 1) {
                 await startCdp.send('Input.dispatchTouchEvent', {
                     type: 'touchMove',
-                    touchPoints: [{
-                        x: swipeX,
-                        y: swipeStartY - Math.round((startPane.height - 16) * step / 10),
-                    }],
+                    touchPoints: [
+                        {
+                            x: swipeX,
+                            y: swipeStartY - Math.round(((startPane.height - 16) * step) / 10),
+                        },
+                    ],
                 });
             }
             await startCdp.send('Input.dispatchTouchEvent', {
@@ -504,17 +551,18 @@ it('scrolls phone Start as one page through every recent file', async () => {
                 touchPoints: [],
             });
         }
-        const readLastRecent = () => page.evaluate(() => {
-            const pane = document.querySelector<HTMLElement>('.empty-state')!.getBoundingClientRect();
-            const rows = document.querySelectorAll<HTMLElement>('.recent-row--data');
-            const last = rows[rows.length - 1]!.querySelector<HTMLElement>('.recent-open')!.getBoundingClientRect();
-            return {
-                visible: last.top >= pane.top - 1 && last.bottom <= pane.bottom + 1,
-                tableScrollRange: (({
-                    scrollHeight, clientHeight,
-                }) => scrollHeight - clientHeight)(document.querySelector<HTMLElement>('.recent-table')!),
-            };
-        });
+        const readLastRecent = () =>
+            page.evaluate(() => {
+                const pane = document.querySelector<HTMLElement>('.empty-state')!.getBoundingClientRect();
+                const rows = document.querySelectorAll<HTMLElement>('.recent-row--data');
+                const last = rows[rows.length - 1]!.querySelector<HTMLElement>('.recent-open')!.getBoundingClientRect();
+                return {
+                    visible: last.top >= pane.top - 1 && last.bottom <= pane.bottom + 1,
+                    tableScrollRange: (({scrollHeight, clientHeight}) => scrollHeight - clientHeight)(
+                        document.querySelector<HTMLElement>('.recent-table')!,
+                    ),
+                };
+            });
         await expect.poll(async () => (await readLastRecent()).visible, {message: 'swiping Start reaches the last recent file'}).toBe(true);
         const start = await page.evaluate(() => ({
             tableHeaderWidth: document.querySelector<HTMLElement>('.recent-row--head')!.getBoundingClientRect().width,
@@ -539,27 +587,22 @@ function readStartGeometry(page: Page) {
                 return null;
             }
             const box = element.getBoundingClientRect();
-            return [
-                box.left,
-                box.top,
-                box.width,
-                box.height,
-            ].map(Math.round);
+            return [box.left, box.top, box.width, box.height].map(Math.round);
         };
         const toolbar = document.querySelector('[role="toolbar"][aria-label="Document toolbar"]');
         return {
             toolbarButtons: toolbar
                 ? [...toolbar.querySelectorAll('button')]
-                    .filter(button => button.getBoundingClientRect().width > 0)
-                    .map(button => `${button.getAttribute('aria-label') ?? button.textContent?.trim()} ${rect(button)?.join(',')}`)
+                      .filter((button) => button.getBoundingClientRect().width > 0)
+                      .map((button) => `${button.getAttribute('aria-label') ?? button.textContent?.trim()} ${rect(button)?.join(',')}`)
                 : [],
             tabBar: rect(document.querySelector('.tab-bar')),
             rail: rect(document.querySelector('.start-rail')),
             openPanel: rect(document.querySelector('.start-open-panel')),
             recentCard: rect(document.querySelector('.start-recent')),
             recentRows: [...document.querySelectorAll('.recent-row--data')]
-                .filter(row => row.getBoundingClientRect().height > 0)
-                .map(row => rect(row)),
+                .filter((row) => row.getBoundingClientRect().height > 0)
+                .map((row) => rect(row)),
         };
     });
 }
@@ -580,29 +623,31 @@ it('paints the settled phone layout before the app starts', async () => {
         await openStartPage(page);
         keepFileChooserInterceptionEnabled(page);
         const pdf = await PDFDocument.create();
-        pdf.addPage([
-            420,
-            600,
-        ]);
-        for (const name of [
-            'First paint one.pdf',
-            'First paint two.pdf',
-        ]) {
+        pdf.addPage([420, 600]);
+        for (const name of ['First paint one.pdf', 'First paint two.pdf']) {
             const chooser = page.waitForEvent('filechooser');
-            await page.getByRole('button', {
-                name: 'Open File',
-                exact: true,
-            }).first().tap();
-            await (await chooser).setFiles({
+            await page
+                .getByRole('button', {
+                    name: 'Open File',
+                    exact: true,
+                })
+                .first()
+                .tap();
+            await (
+                await chooser
+            ).setFiles({
                 name,
                 mimeType: 'application/pdf',
                 buffer: Buffer.from(await pdf.save()),
             });
             await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 60_000});
-            await page.getByRole('button', {
-                name: 'Close Tab',
-                exact: true,
-            }).first().tap();
+            await page
+                .getByRole('button', {
+                    name: 'Close Tab',
+                    exact: true,
+                })
+                .first()
+                .tap();
         }
         await expect.poll(() => page.locator('.recent-row--data:not(.recent-row--skeleton)').count()).toBe(2);
         await page.close();
@@ -610,7 +655,7 @@ it('paints the settled phone layout before the app starts', async () => {
         // The first paint: the prerendered HTML, its styles and inline head
         // scripts, before any app script runs.
         const firstPaintPage = await phone.newPage();
-        await firstPaintPage.route('**/*', route => (route.request().resourceType() === 'script' ? route.abort() : route.continue()));
+        await firstPaintPage.route('**/*', (route) => (route.request().resourceType() === 'script' ? route.abort() : route.continue()));
         await firstPaintPage.goto(lifecycle.origin, {waitUntil: 'load'});
         await firstPaintPage.evaluate(() => document.fonts.ready);
         const firstPaint = await readStartGeometry(firstPaintPage);
@@ -624,10 +669,7 @@ it('paints the settled phone layout before the app starts', async () => {
 
         expect(settled.recentRows).toHaveLength(2);
         expect(firstPaint, 'the first paint already has the settled toolbar, tabs and Start').toEqual(settled);
-        expect([
-            ...problems,
-            ...settledProblems,
-        ]).toEqual([]);
+        expect([...problems, ...settledProblems]).toEqual([]);
     } finally {
         await phone.close();
     }
@@ -648,29 +690,32 @@ it('pinches the document, not the interface, on a touch phone', async () => {
         await openStartPage(page);
         keepFileChooserInterceptionEnabled(page);
         const pdf = await PDFDocument.create();
-        pdf.addPage([
-            420,
-            600,
-        ]).drawText('Pinch me', {
+        pdf.addPage([420, 600]).drawText('Pinch me', {
             x: 24,
             y: 560,
             size: 18,
         });
         const chooser = page.waitForEvent('filechooser');
-        await page.getByRole('button', {
-            name: 'Open File',
-            exact: true,
-        }).first().tap();
-        await (await chooser).setFiles({
+        await page
+            .getByRole('button', {
+                name: 'Open File',
+                exact: true,
+            })
+            .first()
+            .tap();
+        await (
+            await chooser
+        ).setFiles({
             name: 'Pinch document.pdf',
             mimeType: 'application/pdf',
             buffer: Buffer.from(await pdf.save()),
         });
         await page.locator('.page_container--rendered canvas').first().waitFor({timeout: 60_000});
-        const readZoom = () => page.evaluate(() => ({
-            documentZoom: Number.parseInt(document.querySelector<HTMLElement>('.zoom-controls-display-value')!.innerText, 10),
-            pageScale: window.visualViewport?.scale ?? 1,
-        }));
+        const readZoom = () =>
+            page.evaluate(() => ({
+                documentZoom: Number.parseInt(document.querySelector<HTMLElement>('.zoom-controls-display-value')!.innerText, 10),
+                pageScale: window.visualViewport?.scale ?? 1,
+            }));
         await expect.poll(async () => (await readZoom()).documentZoom).toBeGreaterThan(0);
         const before = await readZoom();
         const cdp = await phone.newCDPSession(page);
@@ -693,7 +738,7 @@ it('pinches the document, not the interface, on a touch phone', async () => {
                 ],
             });
             for (let step = 1; step <= 12; step += 1) {
-                const halfSpan = fromHalfSpan + (toHalfSpan - fromHalfSpan) * step / 12;
+                const halfSpan = fromHalfSpan + ((toHalfSpan - fromHalfSpan) * step) / 12;
                 await cdp.send('Input.dispatchTouchEvent', {
                     type: 'touchMove',
                     touchPoints: [
@@ -718,7 +763,8 @@ it('pinches the document, not the interface, on a touch phone', async () => {
         };
         const viewport = (await page.locator('[data-document-viewer-chassis-viewport]').boundingBox())!;
         await pinch(Math.round(viewport.x + viewport.width / 2), Math.round(viewport.y + viewport.height / 2), 40, 120);
-        await expect.poll(async () => (await readZoom()).documentZoom, {message: 'spreading two fingers zooms the document by their ratio'})
+        await expect
+            .poll(async () => (await readZoom()).documentZoom, {message: 'spreading two fingers zooms the document by their ratio'})
             .toBeGreaterThanOrEqual(Math.round(before.documentZoom * 2.5));
         const pinched = await readZoom();
         expect(pinched.pageScale, 'the interface itself does not zoom').toBe(1);

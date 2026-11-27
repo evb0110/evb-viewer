@@ -1,9 +1,6 @@
-import {
-    availableParallelism,
-    cpus,
-} from 'os';
-import { limitAsync } from 'es-toolkit/promise';
-import { clamp } from 'es-toolkit/math';
+import {availableParallelism, cpus} from 'os';
+import {limitAsync} from 'es-toolkit/promise';
+import {clamp} from 'es-toolkit/math';
 
 function parsePositiveInt(value: string | undefined) {
     if (!value) {
@@ -17,9 +14,7 @@ function parsePositiveInt(value: string | undefined) {
 }
 
 function getCpuCount() {
-    const count = typeof availableParallelism === 'function'
-        ? availableParallelism()
-        : cpus().length;
+    const count = typeof availableParallelism === 'function' ? availableParallelism() : cpus().length;
     return Math.max(1, count);
 }
 
@@ -32,11 +27,7 @@ export function getOcrConcurrency(targetCount: number) {
     return clamp(getCpuCount(), 1, safeTargetCount);
 }
 
-export async function forEachConcurrent<T>(
-    items: T[],
-    concurrency: number,
-    fn: (item: T, index: number) => Promise<void>,
-) {
+export async function forEachConcurrent<T>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<void>) {
     if (items.length === 0) {
         return;
     }

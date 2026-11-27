@@ -1,25 +1,9 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    ref,
-    type Ref,
-} from 'vue';
-import {
-    provideAssistantPanel,
-    useAssistantPanel,
-} from '@app/composables/useAssistantPanel';
-import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, ref, type Ref} from 'vue';
+import {provideAssistantPanel, useAssistantPanel} from '@app/composables/useAssistantPanel';
+import {installNuxtStateTestStubs} from '@tests/unit/app/composables/installNuxtStateTestStubs';
 
 const cookieStore = new Map<string, Ref<unknown>>();
 const stateStore = new Map<string, Ref<unknown>>();

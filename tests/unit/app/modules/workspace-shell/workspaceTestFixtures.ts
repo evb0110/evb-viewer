@@ -1,14 +1,11 @@
-import { vi } from 'vitest';
-import {
-    ref,
-    type Ref,
-} from 'vue';
+import {vi} from 'vitest';
+import {ref, type Ref} from 'vue';
 import type {
     IDocumentMutationFrontier,
     IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { cast } from '@tests/helpers/cast';
-import { requireDocumentRef } from '@contracts/documentRef';
+import {cast} from '@tests/helpers/cast';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {
     createDefaultWorkspaceToolbarSnapshot,
     type IWorkspaceAutomationStateSnapshot,
@@ -31,7 +28,8 @@ function createWorkspaceAutomationStateSnapshot(
     };
 }
 
-const COMMAND_NAME_PATTERN = /^(?:handle|set|pageOps|capture|restore|wait|run|read|create|comment|highlight|scroll|getAll|getDeleted|close)/u;
+const COMMAND_NAME_PATTERN =
+    /^(?:handle|set|pageOps|capture|restore|wait|run|read|create|comment|highlight|scroll|getAll|getDeleted|close)/u;
 
 /** A workspace command surface whose every command is a spy resolving to true. */
 export function createWorkspaceExposeFixture(
@@ -50,12 +48,16 @@ export function createWorkspaceExposeFixture(
         }),
         ...overrides,
     };
-    return cast<IWorkspaceExpose>(new Proxy(surface, {get(target, key) {
-        if (typeof key === 'string' && !(key in target) && COMMAND_NAME_PATTERN.test(key)) {
-            target[key] = vi.fn(async () => true);
-        }
-        return target[key as string];
-    }}));
+    return cast<IWorkspaceExpose>(
+        new Proxy(surface, {
+            get(target, key) {
+                if (typeof key === 'string' && !(key in target) && COMMAND_NAME_PATTERN.test(key)) {
+                    target[key] = vi.fn(async () => true);
+                }
+                return target[key as string];
+            },
+        }),
+    );
 }
 
 export interface IKeyboardEventFixtureOptions {

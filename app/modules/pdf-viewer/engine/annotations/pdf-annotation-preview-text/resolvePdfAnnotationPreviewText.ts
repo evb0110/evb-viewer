@@ -1,7 +1,7 @@
 import {isFiniteNumber} from '@contracts/runtimeGuards';
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
-import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import {normalizeMarkerRect} from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
+import {isTextMarkupSubtype} from '@app/services/pdf/annotationSubtype';
 import type {
     IPdfTextPreviewItem,
     IPdfTextPreviewViewport,
@@ -30,14 +30,13 @@ interface ITextRange {
     start: number;
 }
 
-
 function hasUsableViewport(viewport: IPdfTextPreviewViewport | null | undefined): viewport is IPdfTextPreviewViewport {
     return Boolean(
-        viewport
-        && viewport.transform.length >= 6
-        && viewport.transform.slice(0, 6).every(isFiniteNumber)
-        && viewport.width > 0
-        && viewport.height > 0,
+        viewport &&
+        viewport.transform.length >= 6 &&
+        viewport.transform.slice(0, 6).every(isFiniteNumber) &&
+        viewport.width > 0 &&
+        viewport.height > 0,
     );
 }
 
@@ -49,54 +48,27 @@ function clampPreviewText(text: string) {
 }
 
 function joinPreviewSegments(segments: string[]) {
-    return clampPreviewText(
-        segments
-            .join(' ')
-            .replace(/\s+/g, ' ')
-            .trim(),
-    );
+    return clampPreviewText(segments.join(' ').replace(/\s+/g, ' ').trim());
 }
 
 function expandMarkerRect(rect: IAnnotationMarkerRect) {
-    return normalizeMarkerRect({
-        left: rect.left - TARGET_RECT_PADDING,
-        top: rect.top - TARGET_RECT_PADDING,
-        width: rect.width + TARGET_RECT_PADDING * 2,
-        height: rect.height + TARGET_RECT_PADDING * 2,
-    }) ?? rect;
+    return (
+        normalizeMarkerRect({
+            left: rect.left - TARGET_RECT_PADDING,
+            top: rect.top - TARGET_RECT_PADDING,
+            width: rect.width + TARGET_RECT_PADDING * 2,
+            height: rect.height + TARGET_RECT_PADDING * 2,
+        }) ?? rect
+    );
 }
 
 // The item's box from its own corners: it runs along its text matrix from its
 // origin for its width, and up for its height, and the whole viewport
 // transform, with its rotation and UserUnit, places those corners on the page.
-function toTextItemGeometry(
-    item: IPdfTextPreviewItem,
-    viewport: IPdfTextPreviewViewport,
-): Omit<ITextPreviewItemGeometry, 'text'> | null {
-    const [
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-    ] = item.transform ?? [];
-    const [
-        va,
-        vb,
-        vc,
-        vd,
-        ve,
-        vf,
-    ] = viewport.transform;
-    if (![
-        a,
-        b,
-        c,
-        d,
-        e,
-        f,
-    ].every(isFiniteNumber)) {
+function toTextItemGeometry(item: IPdfTextPreviewItem, viewport: IPdfTextPreviewViewport): Omit<ITextPreviewItemGeometry, 'text'> | null {
+    const [a, b, c, d, e, f] = item.transform ?? [];
+    const [va, vb, vc, vd, ve, vf] = viewport.transform;
+    if (![a, b, c, d, e, f].every(isFiniteNumber)) {
         return null;
     }
     const along = Math.hypot(a!, b!);
@@ -106,26 +78,13 @@ function toTextItemGeometry(
     if (along <= 0 || up <= 0 || width <= 0 || height <= 0) {
         return null;
     }
-    const place = (x: number, y: number) => [
-        va! * x + vc! * y + ve!,
-        vb! * x + vd! * y + vf!,
-    ] as const;
+    const place = (x: number, y: number) => [va! * x + vc! * y + ve!, vb! * x + vd! * y + vf!] as const;
     const origin = place(e!, f!);
-    const end = place(e! + a! / along * width, f! + b! / along * width);
-    const top = place(e! + c! / up * height, f! + d! / up * height);
-    const corners = [
-        origin,
-        end,
-        top,
-        [
-            end[0] - origin[0] + top[0],
-            end[1] - origin[1] + top[1],
-        ] as const,
-    ];
+    const end = place(e! + (a! / along) * width, f! + (b! / along) * width);
+    const top = place(e! + (c! / up) * height, f! + (d! / up) * height);
+    const corners = [origin, end, top, [end[0] - origin[0] + top[0], end[1] - origin[1] + top[1]] as const];
     const xs = corners.map(([x]) => x / viewport.width);
-    const ys = corners.map(([
-        , y,
-    ]) => y / viewport.height);
+    const ys = corners.map(([, y]) => y / viewport.height);
     const rect = normalizeMarkerRect({
         left: Math.min(...xs),
         top: Math.min(...ys),
@@ -135,11 +94,13 @@ function toTextItemGeometry(
     const dx = end[0] - origin[0];
     const dy = end[1] - origin[1];
     const horizontal = Math.abs(dx) >= Math.abs(dy);
-    return rect ? {
-        rect,
-        horizontal,
-        reversed: horizontal ? dx < 0 : dy < 0,
-    } : null;
+    return rect
+        ? {
+              rect,
+              horizontal,
+              reversed: horizontal ? dx < 0 : dy < 0,
+          }
+        : null;
 }
 
 function intervalOverlap(start: number, end: number, targetStart: number, targetEnd: number) {
@@ -158,9 +119,7 @@ function clamp01(value: number) {
 }
 
 function toTextRangeForTarget(
-    {
-        text, rect: textRect, horizontal: isHorizontal, reversed,
-    }: ITextPreviewItemGeometry,
+    {text, rect: textRect, horizontal: isHorizontal, reversed}: ITextPreviewItemGeometry,
     targetRect: IAnnotationMarkerRect,
 ) {
     const expandedTarget = expandMarkerRect(targetRect);
@@ -171,12 +130,7 @@ function toTextRangeForTarget(
     const expandedTargetInlineStart = isHorizontal ? expandedTarget.left : expandedTarget.top;
     const expandedTargetInlineLength = isHorizontal ? expandedTarget.width : expandedTarget.height;
     const expandedTargetInlineEnd = expandedTargetInlineStart + expandedTargetInlineLength;
-    const inlineOverlap = intervalOverlap(
-        inlineStart,
-        inlineEnd,
-        expandedTargetInlineStart,
-        expandedTargetInlineEnd,
-    );
+    const inlineOverlap = intervalOverlap(inlineStart, inlineEnd, expandedTargetInlineStart, expandedTargetInlineEnd);
     if (inlineLength <= 0 || inlineOverlap <= 0) {
         return null;
     }
@@ -187,31 +141,17 @@ function toTextRangeForTarget(
     const targetCrossStart = isHorizontal ? targetRect.top : targetRect.left;
     const targetCrossLength = isHorizontal ? targetRect.height : targetRect.width;
     const targetCrossEnd = targetCrossStart + targetCrossLength;
-    const unpaddedCrossOverlap = intervalOverlap(
-        crossStart,
-        crossEnd,
-        targetCrossStart,
-        targetCrossEnd,
-    );
+    const unpaddedCrossOverlap = intervalOverlap(crossStart, crossEnd, targetCrossStart, targetCrossEnd);
     const crossCenter = crossStart + crossLength / 2;
     const crossCenterInsideTarget = intervalContains(crossCenter, targetCrossStart, targetCrossEnd);
-    if (
-        !crossCenterInsideTarget
-        && crossLength > 0
-        && unpaddedCrossOverlap / crossLength < MIN_UNPADDED_CROSS_AXIS_OVERLAP_RATIO
-    ) {
+    if (!crossCenterInsideTarget && crossLength > 0 && unpaddedCrossOverlap / crossLength < MIN_UNPADDED_CROSS_AXIS_OVERLAP_RATIO) {
         return null;
     }
 
     const expandedTargetCrossStart = isHorizontal ? expandedTarget.top : expandedTarget.left;
     const expandedTargetCrossLength = isHorizontal ? expandedTarget.height : expandedTarget.width;
     const expandedTargetCrossEnd = expandedTargetCrossStart + expandedTargetCrossLength;
-    const crossOverlap = intervalOverlap(
-        crossStart,
-        crossEnd,
-        expandedTargetCrossStart,
-        expandedTargetCrossEnd,
-    );
+    const crossOverlap = intervalOverlap(crossStart, crossEnd, expandedTargetCrossStart, expandedTargetCrossEnd);
     const minCrossLength = Math.min(crossLength, expandedTargetCrossLength);
     if (minCrossLength <= 0 || crossOverlap / minCrossLength < MIN_CROSS_AXIS_OVERLAP_RATIO) {
         return null;
@@ -241,22 +181,22 @@ function toTextRangeForTarget(
 
     return end > start
         ? {
-            start,
-            end,
-        }
+              start,
+              end,
+          }
         : null;
 }
 
 function mergeTextRanges(ranges: ITextRange[]) {
     const ordered = [...ranges]
-        .filter(range => range.end > range.start)
+        .filter((range) => range.end > range.start)
         .sort((left, right) => left.start - right.start || left.end - right.end);
     const merged: ITextRange[] = [];
 
     for (const range of ordered) {
         const previous = merged.at(-1);
         if (!previous || range.start > previous.end) {
-            merged.push({ ...range });
+            merged.push({...range});
             continue;
         }
         previous.end = Math.max(previous.end, range.end);
@@ -265,10 +205,7 @@ function mergeTextRanges(ranges: ITextRange[]) {
     return merged;
 }
 
-function extractTextItemSegments(
-    item: ITextPreviewItemGeometry,
-    targets: readonly IAnnotationMarkerRect[],
-) {
+function extractTextItemSegments(item: ITextPreviewItemGeometry, targets: readonly IAnnotationMarkerRect[]) {
     const {text} = item;
     const ranges = mergeTextRanges(
         targets.flatMap((target) => {
@@ -277,9 +214,7 @@ function extractTextItemSegments(
         }),
     );
 
-    return ranges
-        .map(range => text.slice(range.start, range.end).trim())
-        .filter(Boolean);
+    return ranges.map((range) => text.slice(range.start, range.end).trim()).filter(Boolean);
 }
 
 function resolvePreviewTextForTargets(
@@ -305,23 +240,27 @@ export function createPdfAnnotationPreviewTextResolver(
     textItems: readonly IPdfTextPreviewItem[],
     viewport: IPdfTextPreviewViewport | null | undefined,
 ) {
-    const geometry: readonly ITextPreviewItemGeometry[] = textItems.length > 0 && hasUsableViewport(viewport)
-        ? textItems.flatMap((item) => {
-            const text = item.str ?? '';
-            if (!text.trim()) {
-                return [];
-            }
-            const geometry = toTextItemGeometry(item, viewport);
-            return geometry ? [{
-                text,
-                ...geometry,
-            }] : [];
-        })
-        : [];
+    const geometry: readonly ITextPreviewItemGeometry[] =
+        textItems.length > 0 && hasUsableViewport(viewport)
+            ? textItems.flatMap((item) => {
+                  const text = item.str ?? '';
+                  if (!text.trim()) {
+                      return [];
+                  }
+                  const geometry = toTextItemGeometry(item, viewport);
+                  return geometry
+                      ? [
+                            {
+                                text,
+                                ...geometry,
+                            },
+                        ]
+                      : [];
+              })
+            : [];
 
-    return (subtype: string | null | undefined, targets: readonly IAnnotationMarkerRect[]) => (
-        resolvePreviewTextForTargets(subtype, targets, geometry)
-    );
+    return (subtype: string | null | undefined, targets: readonly IAnnotationMarkerRect[]) =>
+        resolvePreviewTextForTargets(subtype, targets, geometry);
 }
 
 /** Extracts derived text when the caller already has canonical marker rects. */

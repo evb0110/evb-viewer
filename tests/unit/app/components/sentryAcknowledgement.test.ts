@@ -1,19 +1,18 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createApp } from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp} from 'vue';
 import SentryAcknowledgement from '@landing/app/components/SentryAcknowledgement.vue';
 
-vi.mock('@landing/app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => ({
-    'footer.sentryAcknowledgement.message': 'Thank you to Sentry for supporting EVB Viewer through its open-source program.',
-    'footer.sentryAcknowledgement.linkLabel': 'Learn about Sentry for Open Source',
-}[key] ?? key)})}));
+vi.mock('@landing/app/composables/useTypedI18n', () => ({
+    useTypedI18n: () => ({
+        t: (key: string) =>
+            ({
+                'footer.sentryAcknowledgement.message': 'Thank you to Sentry for supporting EVB Viewer through its open-source program.',
+                'footer.sentryAcknowledgement.linkLabel': 'Learn about Sentry for Open Source',
+            })[key] ?? key,
+    }),
+}));
 
 const activeUnmounts = new Set<() => void>();
 

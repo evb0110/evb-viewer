@@ -1,17 +1,17 @@
 import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type { TPageNumber } from '@contracts/pageNumbers';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { IOcrWord } from '@contracts/shared';
-import type { TOcrIndexRotation } from '@contracts/ocrIndex';
-import type { IDocumentTextCatalogPage } from '@contracts/documentTextCatalog';
-import { STORAGE_KEYS } from '@app/constants/storageKeys';
-import { createWordBoxOverlays } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/createWordBoxOverlays';
-import { loadSharedDocumentOcrPage } from '@app/modules/pdf-viewer/engine/document-text-catalog/sharedDocumentTextCatalogCache';
-import { transformOcrWordToViewport } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport';
-import { transformWordBox } from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { safeGetLocalStorageItem } from '@app/utils/localStorage';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IOcrWord} from '@contracts/shared';
+import type {TOcrIndexRotation} from '@contracts/ocrIndex';
+import type {IDocumentTextCatalogPage} from '@contracts/documentTextCatalog';
+import {STORAGE_KEYS} from '@app/constants/storageKeys';
+import {createWordBoxOverlays} from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/createWordBoxOverlays';
+import {loadSharedDocumentOcrPage} from '@app/modules/pdf-viewer/engine/document-text-catalog/sharedDocumentTextCatalogCache';
+import {transformOcrWordToViewport} from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport';
+import {transformWordBox} from '@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {safeGetLocalStorageItem} from '@app/utils/localStorage';
 
 export function isOcrDebugEnabled() {
     return safeGetLocalStorageItem(STORAGE_KEYS.OCR_DEBUG_BOXES) === '1';
@@ -22,7 +22,7 @@ export const usePdfWordBoxes = () => {
 
     function clearWordBoxes(container: HTMLElement) {
         const boxes = container.querySelectorAll('.pdf-word-box');
-        boxes.forEach(box => box.remove());
+        boxes.forEach((box) => box.remove());
     }
 
     function renderPageWordBoxes(
@@ -99,12 +99,12 @@ export const usePdfWordBoxes = () => {
             pageContainer.appendChild(boxContainer);
         }
 
-        boxes.forEach(box => boxContainer.appendChild(box));
+        boxes.forEach((box) => boxContainer.appendChild(box));
     }
 
     function clearOcrDebugBoxes(container: HTMLElement) {
         const boxes = container.querySelectorAll('.pdf-ocr-debug-box');
-        boxes.forEach(box => box.remove());
+        boxes.forEach((box) => box.remove());
     }
 
     async function loadOcrPageData(
@@ -168,13 +168,7 @@ export const usePdfWordBoxes = () => {
         let transformErrors = 0;
 
         for (const word of words) {
-            const transformed = transformOcrWordToViewport(
-                word,
-                ocrPageData,
-                pageWidth,
-                pageHeight,
-                viewport,
-            );
+            const transformed = transformOcrWordToViewport(word, ocrPageData, pageWidth, pageHeight, viewport);
 
             if (!transformed || transformed.width <= 0 || transformed.height <= 0) {
                 transformErrors++;
@@ -200,15 +194,17 @@ export const usePdfWordBoxes = () => {
         const renderedCount = words.length - transformErrors;
         BrowserLogger.debug('ocr-debug', `Page ${pageNumber}: rendered ${renderedCount}/${words.length} boxes`, {
             transformErrors,
-            sampleWord: words[0] ? {
-                text: words[0].text,
-                originalCoords: {
-                    x: words[0].x,
-                    y: words[0].y,
-                    w: words[0].width,
-                    h: words[0].height,
-                },
-            } : null,
+            sampleWord: words[0]
+                ? {
+                      text: words[0].text,
+                      originalCoords: {
+                          x: words[0].x,
+                          y: words[0].y,
+                          w: words[0].width,
+                          h: words[0].height,
+                      },
+                  }
+                : null,
         });
     }
 

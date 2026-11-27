@@ -1,12 +1,5 @@
-import type {
-    TDocumentBackend,
-    TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    inferDocumentRefBackend,
-    isBrowserLegacyDocumentRef,
-    isNativeLegacyDocumentRef,
-} from '@contracts/documentRef';
+import type {TDocumentBackend, TDocumentRef} from '@contracts/documentRef';
+import {inferDocumentRefBackend, isBrowserLegacyDocumentRef, isNativeLegacyDocumentRef} from '@contracts/documentRef';
 
 export function isBrowserDocumentRef(documentRef: TDocumentRef | null | undefined) {
     return typeof documentRef === 'string' && isBrowserLegacyDocumentRef(documentRef);

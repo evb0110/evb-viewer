@@ -1,10 +1,7 @@
 import type {IAgentOcrRunOptions} from '@contracts/agentOcr';
 import {parseAgentOcrRunOptions} from '@contracts/agentOcr';
 import type {TOcrQualityProfile} from '@contracts/electronApiOcr';
-import {
-    DEFAULT_OCR_RECOGNITION_OPTIONS,
-    POOR_SCAN_OCR_RECOGNITION_OPTIONS,
-} from '@contracts/electronApiOcr';
+import {DEFAULT_OCR_RECOGNITION_OPTIONS, POOR_SCAN_OCR_RECOGNITION_OPTIONS} from '@contracts/electronApiOcr';
 import type {IOcrSettings} from '@app/utils/ocr/ocrTypes';
 
 export const OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE = '__automatic_page_segmentation__';
@@ -17,10 +14,7 @@ function normalizeSelectedOcrLanguages(selectedLanguages: string[]) {
     return Array.from(new Set(selectedLanguages));
 }
 
-function normalizeAgentLanguages(
-    value: unknown,
-    availableLanguageCodes: ReadonlySet<string>,
-) {
+function normalizeAgentLanguages(value: unknown, availableLanguageCodes: ReadonlySet<string>) {
     if (!Array.isArray(value)) {
         return null;
     }
@@ -43,14 +37,14 @@ function normalizeAgentLanguages(
 export function cloneOcrSettingsSnapshot(value: IOcrSettings | null | undefined) {
     return value
         ? {
-            pageRange: value.pageRange,
-            customRange: value.customRange,
-            selectedLanguages: [...value.selectedLanguages],
-            qualityProfile: value.qualityProfile,
-            preprocessingMode: value.preprocessingMode,
-            pageSegmentationMode: value.pageSegmentationMode,
-            supersessionPolicy: value.supersessionPolicy,
-        }
+              pageRange: value.pageRange,
+              customRange: value.customRange,
+              selectedLanguages: [...value.selectedLanguages],
+              qualityProfile: value.qualityProfile,
+              preprocessingMode: value.preprocessingMode,
+              pageSegmentationMode: value.pageSegmentationMode,
+              supersessionPolicy: value.supersessionPolicy,
+          }
         : null;
 }
 
@@ -61,10 +55,10 @@ export function applyAgentOcrOptionsToSettings(
 ) {
     const parsedOptions = parseAgentOcrRunOptions(options);
     // A profile supplies defaults before the agent's explicit options override them.
-    const profileSettings = parsedOptions.qualityProfile !== undefined
-        && parsedOptions.qualityProfile !== currentSettings.qualityProfile
-        ? resolveQualityProfileSettings(currentSettings, parsedOptions.qualityProfile, currentSettings.qualityProfile)
-        : currentSettings;
+    const profileSettings =
+        parsedOptions.qualityProfile !== undefined && parsedOptions.qualityProfile !== currentSettings.qualityProfile
+            ? resolveQualityProfileSettings(currentSettings, parsedOptions.qualityProfile, currentSettings.qualityProfile)
+            : currentSettings;
     const nextSettings = {
         ...profileSettings,
         selectedLanguages: [...currentSettings.selectedLanguages],
@@ -89,9 +83,8 @@ export function applyAgentOcrOptionsToSettings(
     // explicitly; asked for it, or inheriting it from the dialog, without
     // acknowledging, it still repairs EVB's own recognition.
     const supersessionPolicy = parsedOptions.supersessionPolicy ?? currentSettings.supersessionPolicy;
-    nextSettings.supersessionPolicy = supersessionPolicy === 'replace-all' && parsedOptions.replaceAllAcknowledged !== true
-        ? 'replace-evb'
-        : supersessionPolicy;
+    nextSettings.supersessionPolicy =
+        supersessionPolicy === 'replace-all' && parsedOptions.replaceAllAcknowledged !== true ? 'replace-evb' : supersessionPolicy;
 
     const languages = normalizeAgentLanguages(parsedOptions.languages, availableLanguageCodes);
     if (languages !== null) {
@@ -102,19 +95,13 @@ export function applyAgentOcrOptionsToSettings(
 }
 
 export function resolveOcrPageSegmentationSelectValue(pageSegmentationMode: number | null) {
-    return pageSegmentationMode === null
-        ? OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE
-        : String(pageSegmentationMode);
+    return pageSegmentationMode === null ? OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE : String(pageSegmentationMode);
 }
 
 export function resolveOcrPageSegmentationModeFromSelectValue(value: string) {
-    const pageSegmentationMode = value === OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE
-        ? null
-        : Number(value);
+    const pageSegmentationMode = value === OCR_PAGE_SEGMENTATION_AUTOMATIC_VALUE ? null : Number(value);
 
-    return isOcrPageSegmentationMode(pageSegmentationMode)
-        ? pageSegmentationMode
-        : null;
+    return isOcrPageSegmentationMode(pageSegmentationMode) ? pageSegmentationMode : null;
 }
 
 export function resolveQualityProfileSettings(
@@ -130,9 +117,9 @@ export function resolveQualityProfileSettings(
     }
 
     if (
-        previousProfile === 'poor-scan'
-        && nextProfile !== 'poor-scan'
-        && currentSettings.preprocessingMode === POOR_SCAN_OCR_RECOGNITION_OPTIONS.preprocessingMode
+        previousProfile === 'poor-scan' &&
+        nextProfile !== 'poor-scan' &&
+        currentSettings.preprocessingMode === POOR_SCAN_OCR_RECOGNITION_OPTIONS.preprocessingMode
     ) {
         return {
             ...currentSettings,

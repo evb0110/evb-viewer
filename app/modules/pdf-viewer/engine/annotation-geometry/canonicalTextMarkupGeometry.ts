@@ -1,9 +1,7 @@
-import { clamp } from 'es-toolkit/math';
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import { normalizeMarkerRectBounds } from '@app/utils/pdfMarkerRect';
-import {
-    MIN_MARKER_RECT_SIZE,
-} from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
+import {clamp} from 'es-toolkit/math';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import {normalizeMarkerRectBounds} from '@app/utils/pdfMarkerRect';
+import {MIN_MARKER_RECT_SIZE} from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
 
 /**
  * The one boundary where PDF text-markup geometry becomes canonical.
@@ -83,34 +81,25 @@ function roundCanonicalCoordinate(value: number) {
  * `toMarkerRectFromPdfRect`, which widens degenerate rects the same way — is
  * unchanged by a second pass.
  */
-export function toCanonicalTextMarkupRect(
-    rect: IAnnotationMarkerRect | null | undefined,
-): IAnnotationMarkerRect | null {
-    if (!rect || ![
-        rect.left,
-        rect.top,
-        rect.width,
-        rect.height,
-    ].every(value => typeof value === 'number' && Number.isFinite(value))) {
+export function toCanonicalTextMarkupRect(rect: IAnnotationMarkerRect | null | undefined): IAnnotationMarkerRect | null {
+    if (!rect || ![rect.left, rect.top, rect.width, rect.height].every((value) => typeof value === 'number' && Number.isFinite(value))) {
         return null;
     }
     // Clamp into the page box first, then widen, so a degenerate rect on the
     // far page edge settles instead of oscillating between the two rules.
-    const clamped = normalizeMarkerRectBounds({
-        left: rect.left,
-        top: rect.top,
-        right: rect.left + rect.width,
-        bottom: rect.top + rect.height,
-    }, { clampSizeToRemaining: true });
+    const clamped = normalizeMarkerRectBounds(
+        {
+            left: rect.left,
+            top: rect.top,
+            right: rect.left + rect.width,
+            bottom: rect.top + rect.height,
+        },
+        {clampSizeToRemaining: true},
+    );
     if (!clamped) {
         return null;
     }
-    let {
-        left,
-        top,
-        width,
-        height,
-    } = clamped;
+    let {left, top, width, height} = clamped;
     if (width < MIN_MARKER_RECT_SIZE) {
         left = clamp(left + width / 2 - MIN_MARKER_RECT_SIZE / 2, 0, 1 - MIN_MARKER_RECT_SIZE);
         width = MIN_MARKER_RECT_SIZE;
@@ -158,16 +147,10 @@ export function matchCanonicalTextMarkupGeometry(
     let maxCoordinateDelta = 0;
     let worstRectIndex: number | null = null;
     let matched = true;
-    for (const [
-        expectedIndex,
-        expectedRect,
-    ] of expected.entries()) {
+    for (const [expectedIndex, expectedRect] of expected.entries()) {
         let bestIndex: number | null = null;
         let bestDelta = Number.POSITIVE_INFINITY;
-        for (const [
-            reopenedIndex,
-            reopenedRect,
-        ] of reopened.entries()) {
+        for (const [reopenedIndex, reopenedRect] of reopened.entries()) {
             if (claimed.has(reopenedIndex)) {
                 continue;
             }

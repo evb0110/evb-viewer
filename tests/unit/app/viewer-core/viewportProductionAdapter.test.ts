@@ -1,9 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { createProductionViewportAdapter } from '@tests/helpers/viewer-core/createProductionViewportAdapter';
+import {describe, expect, it} from 'vitest';
+import {createProductionViewportAdapter} from '@tests/helpers/viewer-core/createProductionViewportAdapter';
 
 describe('viewportSimulation production seams', () => {
     it('I13 production geometry mounts a bounded local window at page 500', () => {

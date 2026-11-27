@@ -1,5 +1,5 @@
-import type { CSSProperties } from 'vue';
-import type { ILocalRect } from '@app/modules/document-viewer/public';
+import type {CSSProperties} from 'vue';
+import type {ILocalRect} from '@app/modules/document-viewer/public';
 
 export function regionRectStyle(rect: ILocalRect | null): CSSProperties {
     if (!rect) {

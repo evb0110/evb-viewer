@@ -1,10 +1,7 @@
-import { ZOOM } from '@app/constants/pdfLayout';
-import { isMacClientPlatform } from '@app/utils/clientPlatform';
-import { clampDocumentManualZoom } from '@app/modules/document-viewer/zoomPolicy';
-import type {
-    IZoomStateAccess,
-    TPdfZoomState,
-} from '@contracts/shared';
+import {ZOOM} from '@app/constants/pdfLayout';
+import {isMacClientPlatform} from '@app/utils/clientPlatform';
+import {clampDocumentManualZoom} from '@app/modules/document-viewer/zoomPolicy';
+import type {IZoomStateAccess, TPdfZoomState} from '@contracts/shared';
 
 const DOCUMENT_WHEEL_ZOOM_SENSITIVITY = 0.0016;
 const WHEEL_ZOOM_CLAMP_REBASE_EPSILON = 0.001;
@@ -16,17 +13,9 @@ export const WHEEL_DELTA_PAGE_MODE = 2;
 
 export type TDocumentWheelIntent = 'scroll' | 'platform-scroll' | 'zoom';
 
-const DOCUMENT_WHEEL_ZOOM_MODIFIER_KEYS = new Set([
-    'Alt',
-    'AltGraph',
-    'Control',
-    'Meta',
-    'Shift',
-]);
+const DOCUMENT_WHEEL_ZOOM_MODIFIER_KEYS = new Set(['Alt', 'AltGraph', 'Control', 'Meta', 'Shift']);
 
-export function isDocumentWheelZoomSessionBoundaryKey(
-    event: Pick<KeyboardEvent, 'key' | 'repeat'>,
-) {
+export function isDocumentWheelZoomSessionBoundaryKey(event: Pick<KeyboardEvent, 'key' | 'repeat'>) {
     return !event.repeat && !DOCUMENT_WHEEL_ZOOM_MODIFIER_KEYS.has(event.key);
 }
 
@@ -37,10 +26,13 @@ export function shouldResetDocumentWheelZoomSession(
     if (!isInteractionActive) {
         return false;
     }
-    return event?.type !== 'keydown' || isDocumentWheelZoomSessionBoundaryKey({
-        key: event.key ?? '',
-        repeat: event.repeat === true,
-    });
+    return (
+        event?.type !== 'keydown' ||
+        isDocumentWheelZoomSessionBoundaryKey({
+            key: event.key ?? '',
+            repeat: event.repeat === true,
+        })
+    );
 }
 
 /**
@@ -87,16 +79,22 @@ interface IDocumentWheelZoomSink {
     emitZoom: (value: number) => void;
 }
 
-interface IReadonlyValue<TValue> {readonly value: TValue;}
+interface IReadonlyValue<TValue> {
+    readonly value: TValue;
+}
 
-interface IDocumentWheelZoomHandlerOptions {beforeZoom?: (interaction: IDocumentWheelInteraction, packetAt: number, startsNewSession: boolean) => void;}
+interface IDocumentWheelZoomHandlerOptions {
+    beforeZoom?: (interaction: IDocumentWheelInteraction, packetAt: number, startsNewSession: boolean) => void;
+}
 
 interface IDocumentWheelZoomAccumulator {
     cumulativeDelta: number;
     startZoom: number;
 }
 
-interface IDocumentWheelZoomConsumeOptions extends IDocumentWheelZoomHandlerOptions {accumulator?: IDocumentWheelZoomAccumulator;}
+interface IDocumentWheelZoomConsumeOptions extends IDocumentWheelZoomHandlerOptions {
+    accumulator?: IDocumentWheelZoomAccumulator;
+}
 
 function normalizeWheelDelta(value: number, deltaMode: number, viewport: HTMLElement) {
     if (deltaMode === WHEEL_DELTA_LINE_MODE) {
@@ -150,12 +148,7 @@ export function resolveDocumentPinchZoomDeltaPx(previousSpan: number, nextSpan: 
 }
 
 function resolveDocumentWheelCumulativeDelta(startZoom: number, targetZoom: number) {
-    if (
-        !Number.isFinite(startZoom)
-        || startZoom <= 0
-        || !Number.isFinite(targetZoom)
-        || targetZoom <= 0
-    ) {
+    if (!Number.isFinite(startZoom) || startZoom <= 0 || !Number.isFinite(targetZoom) || targetZoom <= 0) {
         return null;
     }
 
@@ -193,9 +186,10 @@ export function resolveDocumentWheelZoomTarget(
         };
     }
 
-    const nextEffectiveZoom = limits.minimumZoom === undefined && limits.maximumZoom === undefined
-        ? clampDocumentManualZoom(rawNextEffectiveZoom)
-        : Math.min(maximumZoom, Math.max(minimumZoom, rawNextEffectiveZoom));
+    const nextEffectiveZoom =
+        limits.minimumZoom === undefined && limits.maximumZoom === undefined
+            ? clampDocumentManualZoom(rawNextEffectiveZoom)
+            : Math.min(maximumZoom, Math.max(minimumZoom, rawNextEffectiveZoom));
     const clamped = Math.abs(rawNextEffectiveZoom - nextEffectiveZoom) > Number.EPSILON;
     if (Math.abs(rawNextEffectiveZoom - nextEffectiveZoom) >= WHEEL_ZOOM_CLAMP_REBASE_EPSILON) {
         const clampedCumulativeDelta = resolveDocumentWheelCumulativeDelta(startZoom, nextEffectiveZoom);
@@ -241,19 +235,11 @@ export function consumeDocumentWheelZoomInteraction(
     }
     if (Math.abs(target.nextEffectiveZoom - sink.effectiveZoom) < WHEEL_ZOOM_COMMIT_DEADZONE) {
         if (!target.clamped && Math.abs(target.cumulativeDelta) > Number.EPSILON) {
-            options.beforeZoom?.(
-                interaction,
-                options.packetAt ?? performance.now(),
-                options.startsNewSession ?? true,
-            );
+            options.beforeZoom?.(interaction, options.packetAt ?? performance.now(), options.startsNewSession ?? true);
         }
         return true;
     }
-    options.beforeZoom?.(
-        interaction,
-        options.packetAt ?? performance.now(),
-        options.startsNewSession ?? true,
-    );
+    options.beforeZoom?.(interaction, options.packetAt ?? performance.now(), options.startsNewSession ?? true);
     sink.emitZoom(target.nextZoom);
     return true;
 }
@@ -271,11 +257,13 @@ export function createDocumentWheelZoomHandler(
         onNonZoom?: () => void;
     } = {},
 ) {
-    let session: (IDocumentWheelZoomAccumulator & {
-        lastPacketAt: number;
-        requested: TPdfZoomState;
-        sessionKey: unknown;
-    }) | null = null;
+    let session:
+        | (IDocumentWheelZoomAccumulator & {
+              lastPacketAt: number;
+              requested: TPdfZoomState;
+              sessionKey: unknown;
+          })
+        | null = null;
     const reset = () => {
         session = null;
     };
@@ -288,17 +276,14 @@ export function createDocumentWheelZoomHandler(
         const packetAt = performance.now();
         const zoom = readZoom();
         let activeSession = session;
-        if (
-            activeSession !== null
-            && (activeSession.sessionKey !== options.readSessionKey?.() || activeSession.requested !== zoom.state)
-        ) {
+        if (activeSession !== null && (activeSession.sessionKey !== options.readSessionKey?.() || activeSession.requested !== zoom.state)) {
             activeSession = null;
         }
         let startsNewSession = false;
         if (
-            activeSession === null
-            || packetAt < activeSession.lastPacketAt
-            || packetAt - activeSession.lastPacketAt >= DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS
+            activeSession === null ||
+            packetAt < activeSession.lastPacketAt ||
+            packetAt - activeSession.lastPacketAt >= DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS
         ) {
             startsNewSession = true;
             activeSession = {
@@ -312,23 +297,27 @@ export function createDocumentWheelZoomHandler(
         }
         activeSession.lastPacketAt = packetAt;
         const requested = activeSession.requested;
-        return consumeDocumentWheelZoomInteraction(interaction, {
-            // A fit shows the scale its layout computed; a manual request is its scale.
-            effectiveZoom: requested.kind === 'custom' ? requested.scale : activeSession.startZoom,
-            // A wheel zoom always leaves fit mode: one custom zoom state.
-            emitZoom: (scale) => {
-                zoom.set({
-                    kind: 'custom',
-                    scale,
-                });
-                activeSession.requested = zoom.state;
+        return consumeDocumentWheelZoomInteraction(
+            interaction,
+            {
+                // A fit shows the scale its layout computed; a manual request is its scale.
+                effectiveZoom: requested.kind === 'custom' ? requested.scale : activeSession.startZoom,
+                // A wheel zoom always leaves fit mode: one custom zoom state.
+                emitZoom: (scale) => {
+                    zoom.set({
+                        kind: 'custom',
+                        scale,
+                    });
+                    activeSession.requested = zoom.state;
+                },
             },
-        }, {
-            accumulator: activeSession,
-            packetAt,
-            startsNewSession,
-            ...(options.beforeZoom ? {beforeZoom: options.beforeZoom} : {}),
-        });
+            {
+                accumulator: activeSession,
+                packetAt,
+                startsNewSession,
+                ...(options.beforeZoom ? {beforeZoom: options.beforeZoom} : {}),
+            },
+        );
     };
     return Object.assign(handleInteraction, {reset});
 }

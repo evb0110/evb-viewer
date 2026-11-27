@@ -1,9 +1,9 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { Ref } from 'vue';
-import { tryOnScopeDispose } from '@vueuse/core';
-import { SELECTION_CACHE_TTL_MS } from '@app/constants/timeouts';
-import { errorToLogText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {Ref} from 'vue';
+import {tryOnScopeDispose} from '@vueuse/core';
+import {SELECTION_CACHE_TTL_MS} from '@app/constants/timeouts';
+import {errorToLogText} from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 interface IUseAnnotationTextSelectionCacheOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -29,10 +29,12 @@ export const useAnnotationTextSelectionCache = ({
     let selectionGesturePending = false;
 
     function sameRange(first: Range, second: Range) {
-        return first.startContainer === second.startContainer
-            && first.startOffset === second.startOffset
-            && first.endContainer === second.endContainer
-            && first.endOffset === second.endOffset;
+        return (
+            first.startContainer === second.startContainer &&
+            first.startOffset === second.startOffset &&
+            first.endContainer === second.endContainer &&
+            first.endOffset === second.endOffset
+        );
     }
 
     function advanceSelectionRevision() {
@@ -53,9 +55,7 @@ export const useAnnotationTextSelectionCache = ({
     });
 
     function getElementFromRangeNode(node: Node) {
-        return node.nodeType === Node.TEXT_NODE
-            ? node.parentElement
-            : node instanceof HTMLElement ? node : null;
+        return node.nodeType === Node.TEXT_NODE ? node.parentElement : node instanceof HTMLElement ? node : null;
     }
 
     function getTextLayerFromRangeNode(node: Node) {
@@ -123,7 +123,7 @@ export const useAnnotationTextSelectionCache = ({
         if (!cachedSelectionRange) {
             return null;
         }
-        if ((Date.now() - cachedSelectionTimestamp) > SELECTION_CACHE_TTL_MS) {
+        if (Date.now() - cachedSelectionTimestamp > SELECTION_CACHE_TTL_MS) {
             clearSelectionCache();
             return null;
         }
@@ -235,17 +235,15 @@ export const useAnnotationTextSelectionCache = ({
      */
     function doesRangeSpanTextLayers(activeRange: Range) {
         const container = viewerContainer.value;
-        const startLayer = getElementFromRangeNode(activeRange.startContainer)
-            ?.closest<HTMLElement>('.text-layer, .textLayer');
-        const endLayer = getElementFromRangeNode(activeRange.endContainer)
-            ?.closest<HTMLElement>('.text-layer, .textLayer');
+        const startLayer = getElementFromRangeNode(activeRange.startContainer)?.closest<HTMLElement>('.text-layer, .textLayer');
+        const endLayer = getElementFromRangeNode(activeRange.endContainer)?.closest<HTMLElement>('.text-layer, .textLayer');
         return Boolean(
-            container
-            && startLayer
-            && endLayer
-            && startLayer !== endLayer
-            && container.contains(startLayer)
-            && container.contains(endLayer),
+            container &&
+            startLayer &&
+            endLayer &&
+            startLayer !== endLayer &&
+            container.contains(startLayer) &&
+            container.contains(endLayer),
         );
     }
 
@@ -266,9 +264,7 @@ export const useAnnotationTextSelectionCache = ({
 
     function getPageNumberForTextLayer(textLayer: HTMLElement) {
         const pageContainer = textLayer.closest<HTMLElement>('.page_container');
-        const pageNumber = pageContainer?.dataset.page
-            ? Number(pageContainer.dataset.page)
-            : currentPage.value;
+        const pageNumber = pageContainer?.dataset.page ? Number(pageContainer.dataset.page) : currentPage.value;
         return requirePageNumber(pageNumber);
     }
 

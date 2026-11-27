@@ -1,13 +1,7 @@
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    parseDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import { isRecord } from '@contracts/runtimeGuards';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {parseDocumentRevisionToken, type TDocumentRevisionToken} from '@contracts/documentRevision';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {isRecord} from '@contracts/runtimeGuards';
 import {
     decodeSerializableErrorEnvelope,
     encodeSerializableErrorEnvelope,
@@ -15,12 +9,9 @@ import {
 } from '@contracts/serializableError';
 import * as v from 'valibot';
 
-const DOCUMENT_MUTATION_ERROR_CODES = [
-    'MISSING_REVISION',
-    'STALE_REVISION',
-] as const;
+const DOCUMENT_MUTATION_ERROR_CODES = ['MISSING_REVISION', 'STALE_REVISION'] as const;
 
-export type TDocumentMutationErrorCode = typeof DOCUMENT_MUTATION_ERROR_CODES[number];
+export type TDocumentMutationErrorCode = (typeof DOCUMENT_MUTATION_ERROR_CODES)[number];
 
 const documentMutationErrorDetailsInputSchema = v.object({
     documentRef: v.optional(v.unknown()),
@@ -31,14 +22,10 @@ const documentMutationErrorDetailsInputSchema = v.object({
 const documentMutationErrorDetailsSchema = v.pipe(
     documentMutationErrorDetailsInputSchema,
     // Branded document references and revisions keep their canonical parsers.
-    v.transform(details => {
+    v.transform((details) => {
         const documentRef = parseDocumentRef(details.documentRef);
-        const expectedRevision = details.expectedRevision === null
-            ? null
-            : parseDocumentRevisionToken(details.expectedRevision);
-        const actualRevision = details.actualRevision === null
-            ? null
-            : parseDocumentRevisionToken(details.actualRevision);
+        const expectedRevision = details.expectedRevision === null ? null : parseDocumentRevisionToken(details.expectedRevision);
+        const actualRevision = details.actualRevision === null ? null : parseDocumentRevisionToken(details.actualRevision);
         return {
             ...(documentRef === null ? {} : {documentRef}),
             ...(expectedRevision !== null || details.expectedRevision === null ? {expectedRevision} : {}),
@@ -53,11 +40,9 @@ const documentMutationErrorEnvelopeSchema = v.pipe(
         code: v.picklist(DOCUMENT_MUTATION_ERROR_CODES),
         details: v.optional(documentMutationErrorDetailsSchema),
     }),
-    v.transform(envelope => ({
+    v.transform((envelope) => ({
         ...envelope,
-        message: envelope.message.length > 0
-            ? envelope.message
-            : getDefaultDocumentMutationErrorMessage(envelope.code),
+        message: envelope.message.length > 0 ? envelope.message : getDefaultDocumentMutationErrorMessage(envelope.code),
     })),
 );
 
@@ -96,21 +81,21 @@ function documentMutationErrorDetails(error: Record<string, unknown>) {
     };
 }
 
-function getDocumentMutationErrorPayloadInternal(
-    error: unknown,
-    seen: Set<object>,
-): IDocumentMutationErrorPayload | null {
+function getDocumentMutationErrorPayloadInternal(error: unknown, seen: Set<object>): IDocumentMutationErrorPayload | null {
     if (error instanceof DocumentMutationError) {
         const details = {
             ...(error.documentRef === undefined ? {} : {documentRef: error.documentRef}),
             ...(error.expectedRevision === undefined ? {} : {expectedRevision: error.expectedRevision}),
             ...(error.actualRevision === undefined ? {} : {actualRevision: error.actualRevision}),
         };
-        return decodeSerializableErrorEnvelope(error.message, documentMutationErrorEnvelopeSchema) ?? parseDocumentMutationError({
-            code: error.code,
-            message: getDefaultDocumentMutationErrorMessage(error.code),
-            ...(Object.keys(details).length === 0 ? {} : {details}),
-        });
+        return (
+            decodeSerializableErrorEnvelope(error.message, documentMutationErrorEnvelopeSchema) ??
+            parseDocumentMutationError({
+                code: error.code,
+                message: getDefaultDocumentMutationErrorMessage(error.code),
+                ...(Object.keys(details).length === 0 ? {} : {details}),
+            })
+        );
     }
     if (isRecord(error)) {
         if (seen.has(error)) {
@@ -118,12 +103,14 @@ function getDocumentMutationErrorPayloadInternal(
         }
         seen.add(error);
         const legacyDetails = error.details === undefined ? documentMutationErrorDetails(error) : null;
-        const envelope = parseDocumentMutationError(legacyDetails === null
-            ? error
-            : {
-                ...error,
-                ...(Object.keys(legacyDetails).length === 0 ? {} : {details: legacyDetails}),
-            });
+        const envelope = parseDocumentMutationError(
+            legacyDetails === null
+                ? error
+                : {
+                      ...error,
+                      ...(Object.keys(legacyDetails).length === 0 ? {} : {details: legacyDetails}),
+                  },
+        );
         if (envelope) {
             return envelope;
         }
@@ -175,14 +162,10 @@ export function createStaleRevisionError(payload: {
     });
 }
 
-export function createMissingRevisionError(payload: {
-    documentRef?: TDocumentRef;
-    message?: string;
-}) {
+export function createMissingRevisionError(payload: {documentRef?: TDocumentRef; message?: string}) {
     return new DocumentMutationError({
         code: 'MISSING_REVISION',
         message: payload.message ?? 'Document revision token is required',
         ...(payload.documentRef === undefined ? {} : {details: {documentRef: payload.documentRef}}),
     });
 }
-

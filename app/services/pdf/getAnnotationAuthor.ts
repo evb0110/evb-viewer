@@ -1,7 +1,4 @@
-export function getAnnotationAuthor(annotation: {
-    titleObj?: { str?: string | null };
-    title?: string;
-}) {
+export function getAnnotationAuthor(annotation: {titleObj?: {str?: string | null}; title?: string}) {
     const withObj = annotation.titleObj?.str?.trim();
     if (withObj) {
         return withObj;

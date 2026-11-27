@@ -1,7 +1,7 @@
-import { DEFAULT_DJVU_SOURCE_DPI } from '@contracts/djvuConversionPolicy';
-import { SerializableError } from '@contracts/serializableError';
-import type { IDjvuPageSize } from '@contracts/electronApiDjvu';
-import type { IDjvuComponentRequest } from '@djvu-core/djvuLibreTypes';
+import {DEFAULT_DJVU_SOURCE_DPI} from '@contracts/djvuConversionPolicy';
+import {SerializableError} from '@contracts/serializableError';
+import type {IDjvuPageSize} from '@contracts/electronApiDjvu';
+import type {IDjvuComponentRequest} from '@djvu-core/djvuLibreTypes';
 
 /**
  * Streaming range-backed DjVu source layout shared across browser and desktop.
@@ -16,7 +16,9 @@ import type { IDjvuComponentRequest } from '@djvu-core/djvuLibreTypes';
 export type TDjvuRangeReader = (offset: number, length: number) => Promise<Uint8Array>;
 
 /** Reads a sibling component of an indirect document by its DIRM file name. */
-export interface IDjvuComponentFiles { readComponent(name: string, length?: number): Promise<Uint8Array>; }
+export interface IDjvuComponentFiles {
+    readComponent(name: string, length?: number): Promise<Uint8Array>;
+}
 
 export interface IDjvuSourceLayout {
     /** Bytes supplied to `evb_djvu_open`: the index, or a single-page file. */
@@ -122,21 +124,20 @@ function awaitWithSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<
             reject(abortReason(signal));
         };
         signal.addEventListener('abort', onAbort, {once: true});
-        promise.then((value) => {
-            signal.removeEventListener('abort', onAbort);
-            resolve(value);
-        }, (error: unknown) => {
-            signal.removeEventListener('abort', onAbort);
-            reject(error);
-        });
+        promise.then(
+            (value) => {
+                signal.removeEventListener('abort', onAbort);
+                resolve(value);
+            },
+            (error: unknown) => {
+                signal.removeEventListener('abort', onAbort);
+                reject(error);
+            },
+        );
     });
 }
 
-function createWindowedRangeStore(
-    readRange: TDjvuRangeReader,
-    fileSize: number,
-    windowBytes = DJVU_SOURCE_READ_WINDOW_BYTES,
-) {
+function createWindowedRangeStore(readRange: TDjvuRangeReader, fileSize: number, windowBytes = DJVU_SOURCE_READ_WINDOW_BYTES) {
     let window: {
         start: number;
         bytes: Uint8Array;
@@ -204,9 +205,9 @@ function coalesceHeadRanges(targets: readonly ICoalescedHeadEntry[]): ICoalesced
         const entryEnd = entry.offset + entry.length;
         const current = spans.at(-1);
         if (
-            current
-            && entry.offset - current.end <= DJVU_HEAD_COALESCE_GAP_BYTES
-            && Math.max(current.end, entryEnd) - current.start <= DJVU_SOURCE_READ_WINDOW_BYTES
+            current &&
+            entry.offset - current.end <= DJVU_HEAD_COALESCE_GAP_BYTES &&
+            Math.max(current.end, entryEnd) - current.start <= DJVU_SOURCE_READ_WINDOW_BYTES
         ) {
             current.end = Math.max(current.end, entryEnd);
             current.entries.push(entry);
@@ -231,16 +232,22 @@ interface IDjvmLayout {
 }
 
 function parseDir0Entries(documentBytes: Uint8Array): {
-    entriesByName: Map<string, {
-        offset: number;
-        size: number;
-    }>;
+    entriesByName: Map<
+        string,
+        {
+            offset: number;
+            size: number;
+        }
+    >;
     firstPageOffset: number | null;
 } {
-    const entriesByName = new Map<string, {
-        offset: number;
-        size: number;
-    }>();
+    const entriesByName = new Map<
+        string,
+        {
+            offset: number;
+            size: number;
+        }
+    >();
     let firstPageOffset: number | null = null;
     if (documentBytes.byteLength < FILE_HEADER_BYTES + CHUNK_HEADER_BYTES) {
         return {
@@ -315,8 +322,8 @@ function extractPageHeadFromForm(bytes: Uint8Array, formOffset: number): Uint8Ar
     if (formOffset + FORM_HEADER_BYTES + CHUNK_HEADER_BYTES <= formEnd) {
         const firstChunkId = readAscii(bytes, formOffset + FORM_HEADER_BYTES);
         if (
-            (formType === 'DJVU' && firstChunkId === 'INFO')
-            || ((formType === 'BM44' || formType === 'PM44') && (firstChunkId === 'BM44' || firstChunkId === 'PM44'))
+            (formType === 'DJVU' && firstChunkId === 'INFO') ||
+            ((formType === 'BM44' || formType === 'PM44') && (firstChunkId === 'BM44' || firstChunkId === 'PM44'))
         ) {
             return bytes.slice(formOffset, Math.min(formEnd, formOffset + DJVU_COMPONENT_HEAD_BYTES));
         }
@@ -328,11 +335,12 @@ function extractPageHeadFromForm(bytes: Uint8Array, formOffset: number): Uint8Ar
             const chunkLen = readUint32(bytes, pos + 4);
             const payloadStart = pos + CHUNK_HEADER_BYTES;
             const payloadEnd = Math.min(formEnd, payloadStart + chunkLen);
-            const isMatch = (formType === 'DJVU' && chunkId === 'INFO')
-                || ((formType === 'BM44' || formType === 'PM44')
-                    && (chunkId === 'BM44' || chunkId === 'PM44')
-                    && payloadStart < payloadEnd
-                    && bytes[payloadStart] === 0);
+            const isMatch =
+                (formType === 'DJVU' && chunkId === 'INFO') ||
+                ((formType === 'BM44' || formType === 'PM44') &&
+                    (chunkId === 'BM44' || chunkId === 'PM44') &&
+                    payloadStart < payloadEnd &&
+                    bytes[payloadStart] === 0);
             if (isMatch) {
                 const copyPayloadLen = Math.min(10, payloadEnd - payloadStart);
                 const head = new Uint8Array(FORM_HEADER_BYTES + CHUNK_HEADER_BYTES + copyPayloadLen);
@@ -410,10 +418,12 @@ function buildIndirectIndex(dirmData: Uint8Array, navmChunk: Uint8Array | null) 
 }
 
 export function isIndirectDjvuHeader(bytes: Uint8Array) {
-    return bytes.byteLength >= 25
-        && readAscii(bytes, 0, 8) === 'AT&TFORM'
-        && readAscii(bytes, 12, 8) === 'DJVMDIRM'
-        && (bytes[24]! & DIRM_BUNDLED_FLAG) === 0;
+    return (
+        bytes.byteLength >= 25 &&
+        readAscii(bytes, 0, 8) === 'AT&TFORM' &&
+        readAscii(bytes, 12, 8) === 'DJVMDIRM' &&
+        (bytes[24]! & DIRM_BUNDLED_FLAG) === 0
+    );
 }
 
 /**
@@ -478,10 +488,7 @@ export async function readDjvuSourceLayout(options: {
         }
         const documentBytes = await awaitWithSignal(options.readRange(0, fileSize), options.signal);
         options.signal?.throwIfAborted();
-        const {
-            entriesByName,
-            firstPageOffset,
-        } = parseDir0Entries(documentBytes);
+        const {entriesByName, firstPageOffset} = parseDir0Entries(documentBytes);
         return {
             documentBytes,
             // Expose the multi-page DIR0 directory so shared preview openers fetch
@@ -501,15 +508,14 @@ export async function readDjvuSourceLayout(options: {
                     );
                 }
                 const slice = documentBytes.subarray(entry.offset, entry.offset + entry.size);
-                return readAscii(slice, 0, 4) === IFF_MAGIC
-                    ? slice.slice()
-                    : wrapDjvuComponentWithIffMagic(slice);
+                return readAscii(slice, 0, 4) === IFF_MAGIC ? slice.slice() : wrapDjvuComponentWithIffMagic(slice);
             },
             async readComponentHeads(requests, signal) {
                 signal?.throwIfAborted();
                 return requests.map((request) => {
-                    const offset = (request.name ? entriesByName.get(request.name)?.offset : undefined)
-                        ?? (request.index === 0 ? firstPageOffset ?? undefined : undefined);
+                    const offset =
+                        (request.name ? entriesByName.get(request.name)?.offset : undefined) ??
+                        (request.index === 0 ? (firstPageOffset ?? undefined) : undefined);
                     if (offset === undefined) {
                         return new Uint8Array(0);
                     }
@@ -522,9 +528,7 @@ export async function readDjvuSourceLayout(options: {
     const layout = await readDjvmLayout(readRange, fileSize, firstChunkHeader, maxIndexBytes);
     options.signal?.throwIfAborted();
     const dirmData = await readRange(layout.dirmDataOffset, layout.dirmDataLength);
-    const navmChunk = layout.navm
-        ? await readRange(layout.navm.offset, Math.min(layout.navm.length, fileSize - layout.navm.offset))
-        : null;
+    const navmChunk = layout.navm ? await readRange(layout.navm.offset, Math.min(layout.navm.length, fileSize - layout.navm.offset)) : null;
     const dflags = dirmData[0]!;
     const fileCount = (dirmData[1]! << 8) | dirmData[2]!;
 
@@ -539,9 +543,8 @@ export async function readDjvuSourceLayout(options: {
         if (fileSize > maxIndexBytes) {
             componentTooLarge(`Indirect DjVu index (${fileSize} bytes) exceeds the ${maxIndexBytes}-byte limit`);
         }
-        const readIndirectHead = async ({name}: IDjvuComponentRequest) => (
-            (await componentFiles.readComponent(name, IFF_MAGIC.length + DJVU_COMPONENT_HEAD_BYTES)).subarray(IFF_MAGIC.length)
-        );
+        const readIndirectHead = async ({name}: IDjvuComponentRequest) =>
+            (await componentFiles.readComponent(name, IFF_MAGIC.length + DJVU_COMPONENT_HEAD_BYTES)).subarray(IFF_MAGIC.length);
         const documentBytes = await awaitWithSignal(readRange(0, fileSize), options.signal);
         options.signal?.throwIfAborted();
         return {
@@ -555,8 +558,8 @@ export async function readDjvuSourceLayout(options: {
                 let formLen: number;
                 let prefixBytes: number;
                 if (
-                    head.byteLength >= IFF_MAGIC.length + CHUNK_HEADER_BYTES
-                    && (readAscii(head, 0, 8) === 'AT&TFORM' || readAscii(head, 0, 8) === 'SDJVFORM')
+                    head.byteLength >= IFF_MAGIC.length + CHUNK_HEADER_BYTES &&
+                    (readAscii(head, 0, 8) === 'AT&TFORM' || readAscii(head, 0, 8) === 'SDJVFORM')
                 ) {
                     prefixBytes = IFF_MAGIC.length;
                     formLen = readUint32(head, 8);
@@ -571,15 +574,11 @@ export async function readDjvuSourceLayout(options: {
                 }
                 const declaredBytes = prefixBytes + CHUNK_HEADER_BYTES + formLen;
                 if (declaredBytes > maxComponentBytes) {
-                    componentTooLarge(
-                        `DjVu component ${name} (${declaredBytes} bytes) exceeds the ${maxComponentBytes}-byte limit`,
-                    );
+                    componentTooLarge(`DjVu component ${name} (${declaredBytes} bytes) exceeds the ${maxComponentBytes}-byte limit`);
                 }
                 const bytes = await componentFiles.readComponent(name, declaredBytes);
                 if (bytes.byteLength > maxComponentBytes) {
-                    componentTooLarge(
-                        `DjVu component ${name} exceeds the ${maxComponentBytes}-byte limit`,
-                    );
+                    componentTooLarge(`DjVu component ${name} exceeds the ${maxComponentBytes}-byte limit`);
                 }
                 return bytes;
             },
@@ -589,10 +588,7 @@ export async function readDjvuSourceLayout(options: {
                 for (let start = 0; start < requests.length; start += DJVU_HEAD_BATCH_MAX_READS) {
                     signal?.throwIfAborted();
                     const batch = requests.slice(start, start + DJVU_HEAD_BATCH_MAX_READS);
-                    const batchHeads = await awaitWithSignal(
-                        Promise.all(batch.map(readIndirectHead)),
-                        signal,
-                    );
+                    const batchHeads = await awaitWithSignal(Promise.all(batch.map(readIndirectHead)), signal);
                     signal?.throwIfAborted();
                     heads.push(...batchHeads);
                 }
@@ -608,7 +604,7 @@ export async function readDjvuSourceLayout(options: {
     if (3 + offsetTableBytes > dirmData.byteLength) {
         invalidDjvu('The DjVu DIRM offset table is truncated');
     }
-    const offsets = Array.from({length: fileCount}, (_, index) => readUint32(dirmData, 3 + (index * recordBytes)));
+    const offsets = Array.from({length: fileCount}, (_, index) => readUint32(dirmData, 3 + index * recordBytes));
     const indirectDirm = new Uint8Array(dirmData.byteLength - offsetTableBytes);
     indirectDirm[0] = dflags & ~DIRM_BUNDLED_FLAG;
     indirectDirm.set(dirmData.subarray(1, 3), 1);
@@ -652,10 +648,7 @@ export async function readDjvuSourceLayout(options: {
             }
             const heads = new Array<Uint8Array>(requests.length);
             const missing: ICoalescedHeadEntry[] = [];
-            for (const [
-                position,
-                request,
-            ] of requests.entries()) {
+            for (const [position, request] of requests.entries()) {
                 const offset = componentOffset(request.index);
                 const length = Math.min(DJVU_COMPONENT_HEAD_BYTES, fileSize - offset);
                 const cached = rangeStore.tryReadCached(offset, length);
@@ -686,14 +679,11 @@ export async function readDjvuSourceLayout(options: {
                     spanIndex += 1;
                 }
                 const buffers = await awaitWithSignal(
-                    Promise.all(batch.map(span => rangeStore.readExact(span.start, span.end - span.start))),
+                    Promise.all(batch.map((span) => rangeStore.readExact(span.start, span.end - span.start))),
                     signal,
                 );
                 signal?.throwIfAborted();
-                for (const [
-                    batchIndex,
-                    span,
-                ] of batch.entries()) {
+                for (const [batchIndex, span] of batch.entries()) {
                     const buffer = buffers[batchIndex]!;
                     for (const entry of span.entries) {
                         const relative = entry.offset - span.start;
@@ -735,7 +725,7 @@ export function parseDjvuPageHead(head: Uint8Array, pageNumber: number): IDjvuPa
         if (dpi < 25 || dpi > 6000) {
             dpi = DEFAULT_DJVU_SOURCE_DPI;
         }
-        const orientation = infoLength >= 10 && info.byteLength >= 10 ? (info[9]! & 7) : 1;
+        const orientation = infoLength >= 10 && info.byteLength >= 10 ? info[9]! & 7 : 1;
         const swap = orientation === 5 || orientation === 6;
         return {
             width: swap ? rawHeight : rawWidth,

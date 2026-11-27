@@ -1,10 +1,4 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {createHash} from 'node:crypto';
 import {
     compileWasmModuleOnce,
@@ -22,9 +16,11 @@ const WASM_HEADER = Uint8Array.of(0, 97, 115, 109);
 
 function controlledBody() {
     let controller!: ReadableStreamDefaultController<Uint8Array>;
-    const body = new ReadableStream<Uint8Array>({start(streamController) {
-        controller = streamController;
-    }});
+    const body = new ReadableStream<Uint8Array>({
+        start(streamController) {
+            controller = streamController;
+        },
+    });
     return {
         body,
         controller,
@@ -65,11 +61,7 @@ describe('loadWasmWithDeadline', () => {
     });
 
     it('compiles the response stream when the server labels it as WASM', async () => {
-        const {
-            compiled,
-            instantiate,
-            instantiateStreaming,
-        } = stubWebAssembly();
+        const {compiled, instantiate, instantiateStreaming} = stubWebAssembly();
         const response = new Response(WASM_HEADER, {headers: {'content-type': 'application/wasm'}});
         stubFetch(response);
 
@@ -92,11 +84,7 @@ describe('loadWasmWithDeadline', () => {
     });
 
     it('falls back to the buffered path when the content type is not WASM', async () => {
-        const {
-            compiled,
-            instantiate,
-            instantiateStreaming,
-        } = stubWebAssembly();
+        const {compiled, instantiate, instantiateStreaming} = stubWebAssembly();
         stubFetch(new Response(WASM_HEADER, {headers: {'content-type': 'application/octet-stream'}}));
 
         await expect(loadWasmWithDeadline('/mislabelled.wasm')).resolves.toBe(compiled);
@@ -135,10 +123,7 @@ describe('loadWasmWithDeadline', () => {
     it('finishes a slow download that keeps sending bytes past the stall window', async () => {
         vi.useFakeTimers();
         const {compiled} = stubWebAssembly();
-        const {
-            body,
-            controller,
-        } = controlledBody();
+        const {body, controller} = controlledBody();
         const fetchMock = stubFetch(new Response(body, {headers: {'content-type': 'application/wasm'}}));
 
         const load = loadWasmWithDeadline('/slow.wasm', {}, 50);
@@ -157,10 +142,7 @@ describe('loadWasmWithDeadline', () => {
     it('aborts a download that stops sending bytes', async () => {
         vi.useFakeTimers();
         stubWebAssembly();
-        const {
-            body,
-            controller,
-        } = controlledBody();
+        const {body, controller} = controlledBody();
         const fetchMock = stubFetch(new Response(body, {headers: {'content-type': 'application/wasm'}}));
 
         const load = loadWasmWithDeadline('/stopped.wasm', {}, 50);
@@ -178,9 +160,12 @@ describe('loadWasmWithDeadline', () => {
 
     it('aborts a request whose response never starts', async () => {
         vi.useFakeTimers();
-        const fetchMock = vi.fn((_url: string, options: RequestInit) => new Promise((_resolve, reject) => {
-            options.signal?.addEventListener('abort', () => reject(options.signal?.reason));
-        }));
+        const fetchMock = vi.fn(
+            (_url: string, options: RequestInit) =>
+                new Promise((_resolve, reject) => {
+                    options.signal?.addEventListener('abort', () => reject(options.signal?.reason));
+                }),
+        );
         vi.stubGlobal('fetch', fetchMock);
 
         const rejection = loadWasmWithDeadline('/silent.wasm', {}, 25).catch((error: unknown) => error);
@@ -205,12 +190,14 @@ describe('loadWasmWithDeadline', () => {
         expect(fetchMock).toHaveBeenCalledOnce();
 
         // Simulate receiving the precompiled module on a worker thread for another path.
-        expect(handlePrecompiledWasmModuleMessage({
-            type: PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
-            path: '/worker-received-precompiled.wasm',
-            module: first.module,
-            digest: first.digest,
-        })).toBe(true);
+        expect(
+            handlePrecompiledWasmModuleMessage({
+                type: PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
+                path: '/worker-received-precompiled.wasm',
+                module: first.module,
+                digest: first.digest,
+            }),
+        ).toBe(true);
         const instantiated = await loadWasmWithDeadline('/worker-received-precompiled.wasm');
         expect(instantiated.module).toBe(first.module);
         expect(instantiated.instance).toBeInstanceOf(WebAssembly.Instance);
@@ -226,7 +213,11 @@ describe('loadWasmWithDeadline', () => {
         // Posting precompiled modules to a worker sends cached modules synchronously
         // without triggering a main-thread fetch/compile for cold paths.
         const posted: unknown[] = [];
-        const fakeWorker = {postMessage: (message: unknown) => { posted.push(message); }} as unknown as Worker;
+        const fakeWorker = {
+            postMessage: (message: unknown) => {
+                posted.push(message);
+            },
+        } as unknown as Worker;
         postPrecompiledWasmModules(fakeWorker, ['/compiled-once-test.wasm', '/never-compiled-cold.wasm']);
         expect(posted).toHaveLength(1);
         expect(posted[0]).toMatchObject({
@@ -271,7 +262,10 @@ function memoryGrowingExports(prefix: string, growOn: (memory: WebAssembly.Memor
 function stubInstances(create: () => WebAssembly.Exports) {
     const instances: WebAssembly.Exports[] = [];
     vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array(8))));
+    vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response(new Uint8Array(8))),
+    );
     vi.spyOn(WebAssembly, 'instantiate').mockImplementation((async () => {
         const exports = create();
         instances.push(exports);
@@ -296,7 +290,9 @@ describe('WASM memory high-water release', () => {
     });
 
     it('loads a fresh native tool after a call grows one past the mark, and finishes the call admitted beside it', async () => {
-        const instances = stubInstances(() => memoryGrowingExports('evb_test', (memory, pointer) => new Uint8Array(memory.buffer)[pointer] === 1));
+        const instances = stubInstances(() =>
+            memoryGrowingExports('evb_test', (memory, pointer) => new Uint8Array(memory.buffer)[pointer] === 1),
+        );
         const {createNativeWasmToolLoader} = await import('@app/platform/browser/nativeWasmTool');
         const tool = createNativeWasmToolLoader({
             path: '/wasm/evb-test.wasm',
@@ -323,9 +319,12 @@ describe('WASM memory high-water release', () => {
 
     it('lets the page engine verify an edit on the engine that wrote it after that engine passed the mark', async () => {
         const GROW = 99;
-        const instances = stubInstances(() => memoryGrowingExports('evb_pdf_page_ops', (memory, pointer) => (
-            new DataView(memory.buffer).getUint32(pointer + FILE_REQUEST_HEADER.operation, true) === GROW
-        )));
+        const instances = stubInstances(() =>
+            memoryGrowingExports(
+                'evb_pdf_page_ops',
+                (memory, pointer) => new DataView(memory.buffer).getUint32(pointer + FILE_REQUEST_HEADER.operation, true) === GROW,
+            ),
+        );
         const {loadPdfPageOpsWasm, runFileRequest} = await import('@app/platform/browser/pdfPageEngine');
 
         const writer = await loadPdfPageOpsWasm();
@@ -342,10 +341,14 @@ describe('WASM memory high-water release', () => {
     it('keeps the page engine that replaced a retired one when a file request still holding the retired one ends, past the mark or trapped', async () => {
         const GROW = 99;
         let trapping = false;
-        const instances = stubInstances(() => memoryGrowingExports('evb_pdf_page_ops', (memory, pointer) => {
-            if (trapping) throw new WebAssembly.RuntimeError('unreachable');
-            return new DataView(memory.buffer).getUint32(pointer + FILE_REQUEST_HEADER.operation, true) === GROW;
-        }));
+        const instances = stubInstances(() =>
+            memoryGrowingExports('evb_pdf_page_ops', (memory, pointer) => {
+                if (trapping) {
+                    throw new WebAssembly.RuntimeError('unreachable');
+                }
+                return new DataView(memory.buffer).getUint32(pointer + FILE_REQUEST_HEADER.operation, true) === GROW;
+            }),
+        );
         const {loadPdfPageOpsWasm, runFileRequest} = await import('@app/platform/browser/pdfPageEngine');
 
         const retired = await loadPdfPageOpsWasm();
@@ -367,17 +370,21 @@ describe('WASM memory high-water release', () => {
     it('keeps the page engine that replaced a retired one when a request still holding the retired one traps', async () => {
         const GROW = 99;
         let trapping = false;
-        const instances = stubInstances(() => memoryGrowingExports('evb_pdf_page_ops', (memory, pointer) => {
-            if (trapping) throw new WebAssembly.RuntimeError('unreachable');
-            return new DataView(memory.buffer).getUint32(pointer + FILE_REQUEST_HEADER.operation, true) === GROW;
-        }));
+        const instances = stubInstances(() =>
+            memoryGrowingExports('evb_pdf_page_ops', (memory, pointer) => {
+                if (trapping) {
+                    throw new WebAssembly.RuntimeError('unreachable');
+                }
+                return new DataView(memory.buffer).getUint32(pointer + FILE_REQUEST_HEADER.operation, true) === GROW;
+            }),
+        );
         const {loadPdfPageOpsWasm, runFileRequest} = await import('@app/platform/browser/pdfPageEngine');
         const {tryRunBrowserPageOpsWithWasm} = await import('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm');
 
         let admit!: () => void;
-        const admitted = new Promise<void>(resolve => void (admit = resolve));
+        const admitted = new Promise<void>((resolve) => void (admit = resolve));
         let held!: () => void;
-        const holding = new Promise<void>(resolve => void (held = resolve));
+        const holding = new Promise<void>((resolve) => void (held = resolve));
         // A byte request takes the engine, then waits for its caller before entering it.
         const request = tryRunBrowserPageOpsWithWasm('decrypt', {data: Uint8Array.of(1), password: ''}, async () => {
             held();
@@ -431,7 +438,9 @@ function sharedMemoryExports(prefix: string, code: number, envelope?: string) {
 class BrowserTextDecoder extends TextDecoder {
     public override decode(input?: AllowSharedBufferSource, options?: TextDecodeOptions) {
         const buffer = input && 'buffer' in input ? input.buffer : input;
-        if (buffer instanceof SharedArrayBuffer) throw new TypeError('The provided ArrayBufferView value must not be shared.');
+        if (buffer instanceof SharedArrayBuffer) {
+            throw new TypeError('The provided ArrayBufferView value must not be shared.');
+        }
         return super.decode(input, options);
     }
 }
@@ -489,22 +498,29 @@ describe('a native tool on a threaded build', () => {
  * that its thread could not be instantiated.
  */
 function stubThreadedBuild({runCode, failThreadStart = false}: {runCode: () => number; failThreadStart?: boolean}) {
-    const threadWorkers: Array<{name: string; starts: Array<{threadId: number; faultPointer: number}>; terminated: boolean; fault: (message: string) => void}> = [];
+    const threadWorkers: Array<{
+        name: string;
+        starts: Array<{threadId: number; faultPointer: number}>;
+        terminated: boolean;
+        fault: (message: string) => void;
+    }> = [];
     class ThreadWorker extends EventTarget {
-        public readonly record: typeof threadWorkers[number];
+        public readonly record: (typeof threadWorkers)[number];
         public constructor(_url: URL, options: {name: string}) {
             super();
             this.record = {
                 name: options.name,
                 starts: [],
                 terminated: false,
-                fault: message => this.reply({type: 'fault', message}),
+                fault: (message) => this.reply({type: 'fault', message}),
             };
             threadWorkers.push(this.record);
         }
 
         public postMessage(message: {type: string; threadId: number; faultPointer: number}) {
-            if (message.type === 'load') this.reply({type: 'ready'});
+            if (message.type === 'load') {
+                this.reply({type: 'ready'});
+            }
             if (message.type === 'start') {
                 this.record.starts.push({threadId: message.threadId, faultPointer: message.faultPointer});
                 this.reply(failThreadStart ? {type: 'failed', message: 'RangeError: too many tables'} : {type: 'started'});
@@ -521,29 +537,36 @@ function stubThreadedBuild({runCode, failThreadStart = false}: {runCode: () => n
     }
     vi.stubGlobal('Worker', ThreadWorker);
     vi.stubGlobal('location', {href: 'https://viewer.test/workspace'});
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array(8))));
+    vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response(new Uint8Array(8))),
+    );
     const compile = vi.spyOn(WebAssembly, 'compile').mockImplementation(async () => ({}) as WebAssembly.Module);
     const free = vi.fn();
     vi.spyOn(WebAssembly, 'instantiate').mockImplementation((async (_module: unknown, imports: WebAssembly.Imports) => {
         const memory = (imports.env as {memory: WebAssembly.Memory}).memory;
         const spawn = (imports.wasi as Record<string, (startArg: number) => number>)['thread-spawn']!;
-        return {exports: {
-            memory,
-            _initialize: () => undefined,
-            evb_wasm_request_allocation_abi_version: () => WASM_REQUEST_ALLOCATION_ABI_VERSION,
-            evb_test_thread_fault_ptr: () => 8,
-            evb_test_start_threads: (count: number) => {
-                for (let index = 0; index < count; index += 1) spawn(1000 + index);
-                return count;
+        return {
+            exports: {
+                memory,
+                _initialize: () => undefined,
+                evb_wasm_request_allocation_abi_version: () => WASM_REQUEST_ALLOCATION_ABI_VERSION,
+                evb_test_thread_fault_ptr: () => 8,
+                evb_test_start_threads: (count: number) => {
+                    for (let index = 0; index < count; index += 1) {
+                        spawn(1000 + index);
+                    }
+                    return count;
+                },
+                evb_test_alloc: () => TOOL_POINTER,
+                evb_test_free: free,
+                evb_test_run: () => runCode(),
+                evb_test_output_ptr: () => TOOL_POINTER,
+                evb_test_output_len: () => 1,
+                evb_test_error_ptr: () => 0,
+                evb_test_error_len: () => 0,
             },
-            evb_test_alloc: () => TOOL_POINTER,
-            evb_test_free: free,
-            evb_test_run: () => runCode(),
-            evb_test_output_ptr: () => TOOL_POINTER,
-            evb_test_output_len: () => 1,
-            evb_test_error_ptr: () => 0,
-            evb_test_error_len: () => 0,
-        }};
+        };
     }) as unknown as typeof WebAssembly.instantiate);
     return {
         threadWorkers,
@@ -575,9 +598,9 @@ describe('a native tool on its threaded build', () => {
 
         expect(await tool.call(Uint8Array.of(1))).toMatchObject({status: 'succeeded'});
         expect(await tool.call(Uint8Array.of(2))).toMatchObject({status: 'succeeded'});
-        expect(build.threadWorkers.map(worker => worker.name)).toEqual(Array(3).fill('test tool thread'));
-        expect(build.threadWorkers.flatMap(worker => worker.starts)).toEqual([1, 2, 3].map(threadId => ({threadId, faultPointer: 8})));
-        expect(build.threadWorkers.some(worker => worker.terminated)).toBe(false);
+        expect(build.threadWorkers.map((worker) => worker.name)).toEqual(Array(3).fill('test tool thread'));
+        expect(build.threadWorkers.flatMap((worker) => worker.starts)).toEqual([1, 2, 3].map((threadId) => ({threadId, faultPointer: 8})));
+        expect(build.threadWorkers.some((worker) => worker.terminated)).toBe(false);
     });
 
     it('fails the start when a thread cannot be instantiated, ending every thread', async () => {
@@ -585,19 +608,25 @@ describe('a native tool on its threaded build', () => {
         const {createNativeWasmToolLoader} = await import('@app/platform/browser/nativeWasmTool');
         const {NativeWasmThreadStartError} = await import('@app/platform/browser/nativeWasmThreadedTool');
 
-        const failed = await createNativeWasmToolLoader(THREADED_TEST_TOOL).call(Uint8Array.of(1)).catch((error: unknown) => error);
+        const failed = await createNativeWasmToolLoader(THREADED_TEST_TOOL)
+            .call(Uint8Array.of(1))
+            .catch((error: unknown) => error);
         expect(failed).toBeInstanceOf(NativeWasmThreadStartError);
         expect((failed as Error).message).toContain('too many tables');
-        expect(build.threadWorkers.every(worker => worker.terminated)).toBe(true);
+        expect(build.threadWorkers.every((worker) => worker.terminated)).toBe(true);
     });
 
-    it('reports a dead thread with its own message, ends the faulted instance\'s threads and starts new ones from the same module', async () => {
+    it("reports a dead thread with its own message, ends the faulted instance's threads and starts new ones from the same module", async () => {
         let fault = true;
-        const build = stubThreadedBuild({runCode: () => {
-            if (!fault) return 0;
-            build.threadWorkers[1]!.fault('RuntimeError: memory access out of bounds');
-            return -2;
-        }});
+        const build = stubThreadedBuild({
+            runCode: () => {
+                if (!fault) {
+                    return 0;
+                }
+                build.threadWorkers[1]!.fault('RuntimeError: memory access out of bounds');
+                return -2;
+            },
+        });
         const {createNativeWasmToolLoader} = await import('@app/platform/browser/nativeWasmTool');
         const tool = createNativeWasmToolLoader(THREADED_TEST_TOOL);
 
@@ -605,7 +634,7 @@ describe('a native tool on its threaded build', () => {
         expect(result).toMatchObject({status: 'failed', error: {code: 'panic'}});
         expect(result.status === 'failed' && result.error.message).toContain('memory access out of bounds');
         expect(build.free).not.toHaveBeenCalled();
-        expect(build.threadWorkers.every(worker => worker.terminated)).toBe(true);
+        expect(build.threadWorkers.every((worker) => worker.terminated)).toBe(true);
 
         fault = false;
         expect(await tool.call(Uint8Array.of(2))).toMatchObject({status: 'succeeded'});
@@ -619,6 +648,8 @@ describe('a native tool on its threaded build', () => {
         const {createNativeWasmToolLoader} = await import('@app/platform/browser/nativeWasmTool');
         const {NativeWasmThreadStartError} = await import('@app/platform/browser/nativeWasmThreadedTool');
 
-        await expect(createNativeWasmToolLoader(THREADED_TEST_TOOL).call(Uint8Array.of(1))).rejects.toBeInstanceOf(NativeWasmThreadStartError);
+        await expect(createNativeWasmToolLoader(THREADED_TEST_TOOL).call(Uint8Array.of(1))).rejects.toBeInstanceOf(
+            NativeWasmThreadStartError,
+        );
     });
 });

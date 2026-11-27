@@ -1,5 +1,5 @@
-import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type {IWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
+import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
 export function createTabViewSessionState(
     snapshot: IWorkspaceToolbarSnapshot,

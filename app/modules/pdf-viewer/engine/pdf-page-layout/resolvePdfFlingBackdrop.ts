@@ -1,9 +1,6 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
-import type {
-    IDocumentViewportFlingBackdrop,
-    IPdfPageLayoutMetrics,
-} from '@app/modules/document-viewer/public';
-import { resolvePdfLayoutRowShape } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolvePdfLayoutRowShape';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {IDocumentViewportFlingBackdrop, IPdfPageLayoutMetrics} from '@app/modules/document-viewer/public';
+import {resolvePdfLayoutRowShape} from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolvePdfLayoutRowShape';
 
 /**
  * Describes the current row for the chassis fling backdrop. The page track sits

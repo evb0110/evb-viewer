@@ -1,37 +1,15 @@
-import type {
-    Component,
-    ComputedRef,
-    Ref,
-} from 'vue';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type {
-    IZoomStateAccess,
-    TPdfViewRotation,
-    TPdfViewMode,
-    TPrintOrientation,
-} from '@contracts/shared';
-import {
-    requireJobId,
-    createRequestId,
-} from '@contracts/shared';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type {
-    IAnnotationCreationFailureReport,
-    IDocumentViewerExpose,
-    IPdfViewerExpose,
-} from '@app/modules/pdf-viewer/public';
+import type {Component, ComputedRef, Ref} from 'vue';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {IZoomStateAccess, TPdfViewRotation, TPdfViewMode, TPrintOrientation} from '@contracts/shared';
+import {requireJobId, createRequestId} from '@contracts/shared';
+import type {TPdfSource} from '@app/types/pdfUi';
+import type {IAnnotationCreationFailureReport, IDocumentViewerExpose, IPdfViewerExpose} from '@app/modules/pdf-viewer/public';
 import {isPathPdfSource} from '@app/modules/pdf-viewer/public';
-import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
+import type {TPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
 import type {TDocumentImageExportSourceKind} from '@contracts/imageExportPlatformFeature';
-import type {
-    IWorkspaceViewerCapabilities,
-    TDocumentCommitReceipt,
-} from '@app/types/workspaceExpose';
+import type {IWorkspaceViewerCapabilities, TDocumentCommitReceipt} from '@app/types/workspaceExpose';
 import {
     getWorkspaceViewerAdapter,
     resolveWorkspaceViewerViewMode,
@@ -43,17 +21,10 @@ import type {
     IWorkspaceViewerLifecycleHooks,
     TWorkspaceDocumentDriverId,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
-import type {
-    IDocumentPageSource,
-    IDocumentSourceCapabilities, IDocumentSearchMatch, 
-} from '@app/modules/document-viewer/public';
-import { getDocumentKindFromPath } from '@app/utils/supportedDocumentPaths';
-import { getDjvuCapability } from '@app/utils/getDjvuCapability';
-import {
-    createDocumentProjectionSession,
-    ensurePdfProjection,
-    PDF_SOURCE_CAPABILITIES,
-} from '@app/modules/document-viewer/public';
+import type {IDocumentPageSource, IDocumentSourceCapabilities, IDocumentSearchMatch} from '@app/modules/document-viewer/public';
+import {getDocumentKindFromPath} from '@app/utils/supportedDocumentPaths';
+import {getDjvuCapability} from '@app/utils/getDjvuCapability';
+import {createDocumentProjectionSession, ensurePdfProjection, PDF_SOURCE_CAPABILITIES} from '@app/modules/document-viewer/public';
 
 export type {TWorkspaceDocumentDriverId} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
 
@@ -89,7 +60,9 @@ export interface IWorkspaceDocumentDriverOperations {
     };
 }
 
-export interface IWorkspaceDocumentDriverLifecycle {createHooks: (context: IWorkspaceViewerLifecycleContext) => IWorkspaceViewerLifecycleHooks | null;}
+export interface IWorkspaceDocumentDriverLifecycle {
+    createHooks: (context: IWorkspaceViewerLifecycleContext) => IWorkspaceViewerLifecycleHooks | null;
+}
 
 export interface IWorkspaceDocumentDriverView {
     component: Component;
@@ -120,16 +93,16 @@ export interface IWorkspaceDriverCommand {
 export type TWorkspaceDriverCommandResult =
     | {status: 'completed'}
     | {
-        // A platform without a print dialog of its own prepared this PDF; the
-        // workspace prints it, then releases it.
-        status: 'printable-pdf';
-        documentRef: TDocumentRef;
-        release(): Promise<void>;
-    }
+          // A platform without a print dialog of its own prepared this PDF; the
+          // workspace prints it, then releases it.
+          status: 'printable-pdf';
+          documentRef: TDocumentRef;
+          release(): Promise<void>;
+      }
     | {
-        status: 'unavailable';
-        capability: keyof IWorkspaceViewerCapabilities;
-    };
+          status: 'unavailable';
+          capability: keyof IWorkspaceViewerCapabilities;
+      };
 
 export interface IWorkspaceDocumentDriver {
     readonly id: TWorkspaceDocumentDriverId;
@@ -209,10 +182,12 @@ async function prepareDjvuPrint(
     const requestId = createDriverPrintRequestId();
     const jobId = requireJobId(`djvu-print-${requestId}`);
     const cancelPrint = () => {
-        void getDjvuCapability().cancel(jobId).catch(() => undefined);
+        void getDjvuCapability()
+            .cancel(jobId)
+            .catch(() => undefined);
     };
     throwIfDriverPrintAborted(command.signal);
-    command.signal?.addEventListener('abort', cancelPrint, { once: true });
+    command.signal?.addEventListener('abort', cancelPrint, {once: true});
     let printablePdfPath: TDocumentRef | null = null;
     try {
         const printSession = createDocumentProjectionSession({
@@ -221,42 +196,44 @@ async function prepareDjvuPrint(
             source: createPrintProjectionSource('djvu', sourcePath),
             capabilities: command.sourceCapabilities,
         });
-        await ensurePdfProjection(printSession, {build: async () => {
-            const {
-                pageNumbers,
-                ...printRequest
-            } = command.request;
-            const result = await getDjvuCapability().printDjvuPath(sourcePath, {
-                ...printRequest,
-                ...(pageNumbers === undefined
-                    ? {}
-                    : {pageNumbers: pageNumbers.map(pageNumber => requirePageNumber(pageNumber))}),
-                requestId,
-                pdfStrategy: 'compact-djvu-aware',
-                ...(command.fileName ? { fileName: command.fileName } : {}),
-            });
-            printablePdfPath = result.printablePdfPath ?? null;
-            if (command.signal?.aborted || result.canceled) {
-                throw createDriverPrintAbortError();
-            }
-            if (!result.success) {
-                throw new Error(result.error ?? 'DjVu print preparation failed');
-            }
-            const outputState = await getDjvuCapability().getJobState(result.jobId ?? jobId);
-            if (
-                outputState?.operation !== 'djvu-print'
-                || (outputState.status !== 'handoff' && outputState.status !== 'completed')
-                || !('artifactPath' in outputState)
-                || !outputState.artifactPath
-            ) {
-                throw new Error('DjVu print completed without an accepted output-service handoff');
-            }
-            return {
-                documentRef: outputState.artifactPath,
-                source: createPrintProjectionSource('pdf', outputState.artifactPath),
-                capabilities: PDF_SOURCE_CAPABILITIES,
-            };
-        }}, 'print', command.signal);
+        await ensurePdfProjection(
+            printSession,
+            {
+                build: async () => {
+                    const {pageNumbers, ...printRequest} = command.request;
+                    const result = await getDjvuCapability().printDjvuPath(sourcePath, {
+                        ...printRequest,
+                        ...(pageNumbers === undefined ? {} : {pageNumbers: pageNumbers.map((pageNumber) => requirePageNumber(pageNumber))}),
+                        requestId,
+                        pdfStrategy: 'compact-djvu-aware',
+                        ...(command.fileName ? {fileName: command.fileName} : {}),
+                    });
+                    printablePdfPath = result.printablePdfPath ?? null;
+                    if (command.signal?.aborted || result.canceled) {
+                        throw createDriverPrintAbortError();
+                    }
+                    if (!result.success) {
+                        throw new Error(result.error ?? 'DjVu print preparation failed');
+                    }
+                    const outputState = await getDjvuCapability().getJobState(result.jobId ?? jobId);
+                    if (
+                        outputState?.operation !== 'djvu-print' ||
+                        (outputState.status !== 'handoff' && outputState.status !== 'completed') ||
+                        !('artifactPath' in outputState) ||
+                        !outputState.artifactPath
+                    ) {
+                        throw new Error('DjVu print completed without an accepted output-service handoff');
+                    }
+                    return {
+                        documentRef: outputState.artifactPath,
+                        source: createPrintProjectionSource('pdf', outputState.artifactPath),
+                        capabilities: PDF_SOURCE_CAPABILITIES,
+                    };
+                },
+            },
+            'print',
+            command.signal,
+        );
         if (printablePdfPath) {
             const documentRef = printablePdfPath;
             return {
@@ -269,7 +246,11 @@ async function prepareDjvuPrint(
         return {status: 'completed'};
     } catch (error) {
         // A print that ends here, a late cancel included, keeps nothing it prepared.
-        if (printablePdfPath) await getDjvuCapability().cleanupTemp(printablePdfPath).catch(() => undefined);
+        if (printablePdfPath) {
+            await getDjvuCapability()
+                .cleanupTemp(printablePdfPath)
+                .catch(() => undefined);
+        }
         throw error;
     } finally {
         command.signal?.removeEventListener('abort', cancelPrint);
@@ -285,21 +266,18 @@ export function createWorkspaceDocumentDriverForAdapter(
     return {
         id: driverProfile.id,
         capabilities: adapter.capabilities,
-        lifecycle: {createHooks: context => adapter.createLifecycleHooks?.(context) ?? null},
+        lifecycle: {createHooks: (context) => adapter.createLifecycleHooks?.(context) ?? null},
         get operations(): IWorkspaceDocumentDriverOperations {
-            const sourcePath = isDjvu
-                ? sources.djvuSourcePath.value
-                : sources.workingCopyPath.value;
-            const imageTarget = sourcePath === null
-                ? null
-                : {
-                    sourceKind: isDjvu ? 'djvu' : 'pdf',
-                    sourcePath,
-                    requiresFreshWorkingCopy: !isDjvu,
-                } satisfies IWorkspaceDocumentDriverExportTarget;
-            const multiPageTiffTarget = imageTarget === null
-                ? null
-                : {...imageTarget};
+            const sourcePath = isDjvu ? sources.djvuSourcePath.value : sources.workingCopyPath.value;
+            const imageTarget =
+                sourcePath === null
+                    ? null
+                    : ({
+                          sourceKind: isDjvu ? 'djvu' : 'pdf',
+                          sourcePath,
+                          requiresFreshWorkingCopy: !isDjvu,
+                      } satisfies IWorkspaceDocumentDriverExportTarget);
+            const multiPageTiffTarget = imageTarget === null ? null : {...imageTarget};
             const printPath = isDjvu ? null : sourcePath;
             return {
                 save: {
@@ -309,8 +287,8 @@ export function createWorkspaceDocumentDriverForAdapter(
                             return sources.save?.saveAsDjvuProjection() ?? Promise.resolve(false);
                         }
                         return action === 'save'
-                            ? sources.save?.save(onCommitted) ?? Promise.resolve(false)
-                            : sources.save?.saveAs() ?? Promise.resolve(false);
+                            ? (sources.save?.save(onCommitted) ?? Promise.resolve(false))
+                            : (sources.save?.saveAs() ?? Promise.resolve(false));
                     },
                 },
                 export: {
@@ -326,9 +304,7 @@ export function createWorkspaceDocumentDriverForAdapter(
         get source(): IWorkspaceDocumentDriverSource {
             return {
                 kind: isDjvu ? 'djvu' : 'pdf',
-                path: isDjvu
-                    ? sources.djvuSourcePath.value
-                    : sources.workingCopyPath.value,
+                path: isDjvu ? sources.djvuSourcePath.value : sources.workingCopyPath.value,
             };
         },
         get view(): IWorkspaceDocumentDriverView {
@@ -343,15 +319,11 @@ export function createWorkspaceDocumentDriverForAdapter(
                 showPdfSidebar: !isDjvu,
             };
         },
-        run: isDjvu
-            ? command => prepareDjvuPrint(sources, command)
-            : runUnavailableDriverCommand,
+        run: isDjvu ? (command) => prepareDjvuPrint(sources, command) : runUnavailableDriverCommand,
     };
 }
 
-export const useWorkspaceDocumentDriver = (
-    options: IWorkspaceDocumentDriverOptions,
-) => {
+export const useWorkspaceDocumentDriver = (options: IWorkspaceDocumentDriverOptions) => {
     const pendingDocumentKind = computed(() => getDocumentKindFromPath(options.pendingDocumentPath?.value ?? ''));
     const sources = {
         djvuSourcePath: options.djvuSourcePath,
@@ -375,39 +347,35 @@ export const useWorkspaceDocumentDriver = (
         djvu: createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('djvu'), sources),
         pdfjs: createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter('pdf'), sources),
     };
-    const driverList = [
-        drivers.djvu,
-        drivers.pdfjs,
-    ] as const;
+    const driverList = [drivers.djvu, drivers.pdfjs] as const;
     const activeDocumentDriver = computed(() => {
         const adapter = resolveWorkspaceViewerAdapter({
-            djvuSourcePath: options.djvuSourcePath.value
-                ?? (pendingDocumentKind.value === 'djvu' ? options.pendingDocumentPath?.value ?? null : null),
+            djvuSourcePath:
+                options.djvuSourcePath.value ??
+                (pendingDocumentKind.value === 'djvu' ? (options.pendingDocumentPath?.value ?? null) : null),
             isDjvuMode: options.isDjvuMode.value || pendingDocumentKind.value === 'djvu',
             pdfSourcePath: isPathPdfSource(options.pdfSrc.value)
                 ? options.pdfSrc.value.path
                 : options.pdfSrc.value
-                    ? parseDocumentRef('browser://documents/in-memory-pdf')
-                    : pendingDocumentKind.value === 'pdf'
-                        ? options.pendingDocumentPath?.value ?? null
-                        : null,
+                  ? parseDocumentRef('browser://documents/in-memory-pdf')
+                  : pendingDocumentKind.value === 'pdf'
+                    ? (options.pendingDocumentPath?.value ?? null)
+                    : null,
         });
-        return adapter
-            ? driverList.find(driver => driver.id === adapter.driverProfile.id) ?? null
-            : null;
+        return adapter ? (driverList.find((driver) => driver.id === adapter.driverProfile.id) ?? null) : null;
     });
 
     return {
         activeDocumentDriver,
-        handleSave: (onCommitted?: TDocumentCommitReceipt) => (
-            activeDocumentDriver.value?.operations.save.execute('save', onCommitted) ?? Promise.resolve(false)
-        ),
+        handleSave: (onCommitted?: TDocumentCommitReceipt) =>
+            activeDocumentDriver.value?.operations.save.execute('save', onCommitted) ?? Promise.resolve(false),
         handleSaveAs: () => activeDocumentDriver.value?.operations.save.execute('save-as') ?? Promise.resolve(false),
         mountedDocumentDriver: computed(() => activeDocumentDriver.value ?? drivers.pdfjs),
-        createLifecycleHooks: (context: IWorkspaceViewerLifecycleContext) => driverList.flatMap((driver) => {
-            const hooks = driver.lifecycle.createHooks(context);
-            return hooks ? [hooks] : [];
-        }),
+        createLifecycleHooks: (context: IWorkspaceViewerLifecycleContext) =>
+            driverList.flatMap((driver) => {
+                const hooks = driver.lifecycle.createHooks(context);
+                return hooks ? [hooks] : [];
+            }),
     };
 };
 
@@ -470,10 +438,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
         return {
             src: source,
             zoom: options.zoom,
-            viewMode: resolveWorkspaceViewerViewMode(
-                options.activeDocumentDriver.value.capabilities,
-                options.viewMode.value,
-            ),
+            viewMode: resolveWorkspaceViewerViewMode(options.activeDocumentDriver.value.capabilities, options.viewMode.value),
             continuousScroll: options.continuousScroll.value,
             dragMode: options.dragMode.value,
             documentRevisionToken: options.documentRevisionToken.value,
@@ -515,10 +480,10 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             rendererKind: driver.view.rendererKind,
             ...(driver.view.showDjvuSource
                 ? {
-                    isResizing: options.isWorkspaceLayoutResizing.value,
-                    searchResults: options.documentSourceSearchResults.value,
-                    currentSearchResultIndex: options.documentSourceCurrentResultIndex.value,
-                }
+                      isResizing: options.isWorkspaceLayoutResizing.value,
+                      searchResults: options.documentSourceSearchResults.value,
+                      currentSearchResultIndex: options.documentSourceCurrentResultIndex.value,
+                  }
                 : {}),
         };
     });
@@ -554,18 +519,8 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
 
     function bindActiveViewerRef(instance: unknown) {
         const driverView = options.activeDocumentDriver.value.view;
-        setViewerRef(
-            options.pdfViewerRef,
-            driverView.isPdfjs && instance
-                ? instance as IPdfViewerExpose
-                : null,
-        );
-        setViewerRef(
-            options.djvuViewerRef,
-            driverView.showDjvuSource && instance
-                ? instance as IDocumentViewerExpose
-                : null,
-        );
+        setViewerRef(options.pdfViewerRef, driverView.isPdfjs && instance ? (instance as IPdfViewerExpose) : null);
+        setViewerRef(options.djvuViewerRef, driverView.showDjvuSource && instance ? (instance as IDocumentViewerExpose) : null);
     }
 
     return {

@@ -1,16 +1,7 @@
-import {
-    mkdirSync,
-    writeFileSync,
-} from 'node:fs';
+import {mkdirSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
-import {
-    createCanvas,
-    loadImage,
-} from '@napi-rs/canvas';
-import type {
-    CDPSession,
-    Page,
-} from 'puppeteer-core';
+import {createCanvas, loadImage} from '@napi-rs/canvas';
+import type {CDPSession, Page} from 'puppeteer-core';
 
 export interface ISearchHighlightPaintViewportRect {
     bottom: number;
@@ -50,17 +41,8 @@ export interface ISearchHighlightPaintCapture {
     stop: () => Promise<ISearchHighlightPaintFrame[]>;
 }
 
-function isWarmHighlightPixel(
-    red: number,
-    green: number,
-    blue: number,
-    alpha: number,
-) {
-    return alpha > 0
-        && red > 175
-        && green > 95
-        && red - blue > 45
-        && green - blue > 20;
+function isWarmHighlightPixel(red: number, green: number, blue: number, alpha: number) {
+    return alpha > 0 && red > 175 && green > 95 && red - blue > 45 && green - blue > 20;
 }
 
 export async function countWarmHighlightPixels(
@@ -87,12 +69,10 @@ export async function countWarmHighlightPixels(
     const pixels = context.getImageData(startX, startY, endX - startX, endY - startY).data;
     let count = 0;
     for (let index = 0; index < pixels.length; index += 4) {
-        if (isWarmHighlightPixel(
-            pixels[index] ?? 0,
-            pixels[index + 1] ?? 0,
-            pixels[index + 2] ?? 0,
-            pixels[index + 3] ?? 0,
-        ) && (!orangeOnly || (pixels[index] ?? 0) - (pixels[index + 1] ?? 0) > 25)) {
+        if (
+            isWarmHighlightPixel(pixels[index] ?? 0, pixels[index + 1] ?? 0, pixels[index + 2] ?? 0, pixels[index + 3] ?? 0) &&
+            (!orangeOnly || (pixels[index] ?? 0) - (pixels[index + 1] ?? 0) > 25)
+        ) {
             count += 1;
         }
     }
@@ -115,16 +95,11 @@ export async function countOrangeHighlightPixelsInFrame(
     );
 }
 
-async function acknowledgeFrame(
-    client: CDPSession,
-    sessionId: number,
-) {
+async function acknowledgeFrame(client: CDPSession, sessionId: number) {
     await client.send('Page.screencastFrameAck', {sessionId}).catch(() => {});
 }
 
-export async function startSearchHighlightPaintCapture(
-    page: Page,
-): Promise<ISearchHighlightPaintCapture> {
+export async function startSearchHighlightPaintCapture(page: Page): Promise<ISearchHighlightPaintCapture> {
     const client = await page.target().createCDPSession();
     const frames: ISearchHighlightPaintFrame[] = [];
     const startedAt = Date.now();
@@ -186,12 +161,14 @@ export async function startSearchHighlightPaintCapture(
 }
 
 function sanitizeEvidenceLabel(label: string) {
-    return label
-        .trim()
-        .replace(/[^a-zA-Z0-9._-]+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 80) || 'search-highlight';
+    return (
+        label
+            .trim()
+            .replace(/[^a-zA-Z0-9._-]+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '')
+            .slice(0, 80) || 'search-highlight'
+    );
 }
 
 export function writeSearchHighlightPaintEvidence(input: {
@@ -204,23 +181,27 @@ export function writeSearchHighlightPaintEvidence(input: {
     mkdirSync(outputDir, {recursive: true});
     const stamp = `${Date.now()}-${sanitizeEvidenceLabel(input.label)}`;
     const framePaths = input.frames.map((frame, index) => {
-        const path = join(
-            outputDir,
-            `paint-frame-${stamp}-${String(index + 1).padStart(4, '0')}.jpg`,
-        );
+        const path = join(outputDir, `paint-frame-${stamp}-${String(index + 1).padStart(4, '0')}.jpg`);
         writeFileSync(path, frame.data);
         return path;
     });
     const tracePath = join(outputDir, `paint-trace-${stamp}.json`);
-    writeFileSync(tracePath, JSON.stringify({
-        diagnostic: input.diagnostic,
-        frames: input.frames.map((frame, index) => ({
-            capturedAtMs: frame.capturedAtMs,
-            metadata: frame.metadata,
-            path: framePaths[index],
-            orangePixelCount: input.orangePixelCounts[index] ?? null,
-        })),
-    }, null, 2));
+    writeFileSync(
+        tracePath,
+        JSON.stringify(
+            {
+                diagnostic: input.diagnostic,
+                frames: input.frames.map((frame, index) => ({
+                    capturedAtMs: frame.capturedAtMs,
+                    metadata: frame.metadata,
+                    path: framePaths[index],
+                    orangePixelCount: input.orangePixelCounts[index] ?? null,
+                })),
+            },
+            null,
+            2,
+        ),
+    );
     return {
         framePaths,
         tracePath,

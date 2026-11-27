@@ -1,4 +1,4 @@
-import type { TEditorLayoutNode } from '@contracts/editorPanes';
+import type {TEditorLayoutNode} from '@contracts/editorPanes';
 
 export function collectLayoutPaneOrder(node: TEditorLayoutNode | null): string[] {
     if (!node) {
@@ -9,8 +9,5 @@ export function collectLayoutPaneOrder(node: TEditorLayoutNode | null): string[]
         return [node.paneId];
     }
 
-    return [
-        ...collectLayoutPaneOrder(node.first),
-        ...collectLayoutPaneOrder(node.second),
-    ];
+    return [...collectLayoutPaneOrder(node.first), ...collectLayoutPaneOrder(node.second)];
 }

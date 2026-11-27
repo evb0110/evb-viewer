@@ -1,16 +1,10 @@
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
-import { useWebSeo } from '@app/composables/useWebSeo';
+import {readFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import {useWebSeo} from '@app/composables/useWebSeo';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -99,15 +93,13 @@ describe('useWebSeo', () => {
         useWebSeo();
         const payload = headPayload();
         expect(payload.htmlAttrs.lang).toBe('en');
-        expect(payload.link).toEqual([{
-            rel: 'canonical',
-            href: 'https://web.evb-viewer.com/',
-        }]);
-        expect(payload.script.map(script => script.key)).toEqual([
-            'ld-web-application',
-            'ld-website',
-            'ld-webpage',
+        expect(payload.link).toEqual([
+            {
+                rel: 'canonical',
+                href: 'https://web.evb-viewer.com/',
+            },
         ]);
+        expect(payload.script.map((script) => script.key)).toEqual(['ld-web-application', 'ld-website', 'ld-webpage']);
         const webApplication = JSON.parse(payload.script[0]!.innerHTML) as Record<string, unknown>;
         expect(webApplication['@type']).toBe('WebApplication');
         expect(webApplication.screenshot).toMatchObject({

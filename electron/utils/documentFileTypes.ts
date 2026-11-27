@@ -1,14 +1,9 @@
 import {extname} from 'path';
-import {
-    isSupportedOpenExtension,
-    PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
-} from '@pdf-core/documentOpenFileTypes';
+import {isSupportedOpenExtension, PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS} from '@pdf-core/documentOpenFileTypes';
 
 export {PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS};
 
-const SUPPORTED_IMAGE_EXTENSION_SET = new Set<string>(
-    PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS,
-);
+const SUPPORTED_IMAGE_EXTENSION_SET = new Set<string>(PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS);
 // Classify suffix punctuation only; callers retain the exact native path for I/O.
 export function getInputFileExtension(filePath: string) {
     return extname(filePath.replace(/[\s"']+$/u, '')).toLowerCase();

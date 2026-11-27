@@ -45,16 +45,16 @@ export function snapshotsMatch(
         ignoreIdentity?: boolean;
     } = {},
 ) {
-    return (options.contentOnly === true || (
-        (options.ignoreIdentity === true || left.deviceId === right.deviceId && left.inode === right.inode)
-        && left.mtimeNs === right.mtimeNs
-    ))
-        && left.sampleSha256 === right.sampleSha256
-        && left.size === right.size
-        && (options.contentOnly === true || options.allowBackupMetadataChange === true || (
-            left.ctimeNs === right.ctimeNs
-            && left.linkCount === right.linkCount
-        ));
+    return (
+        (options.contentOnly === true ||
+            ((options.ignoreIdentity === true || (left.deviceId === right.deviceId && left.inode === right.inode)) &&
+                left.mtimeNs === right.mtimeNs)) &&
+        left.sampleSha256 === right.sampleSha256 &&
+        left.size === right.size &&
+        (options.contentOnly === true ||
+            options.allowBackupMetadataChange === true ||
+            (left.ctimeNs === right.ctimeNs && left.linkCount === right.linkCount))
+    );
 }
 
 async function sampleFilePath(originalPath: string, size: bigint) {
@@ -64,11 +64,7 @@ async function sampleFilePath(originalPath: string, size: bigint) {
     }
     const sampleLength = Math.min(numericSize, SAVE_WITNESS_SAMPLE_BYTES);
     const lastOffset = numericSize - sampleLength;
-    const offsets = [...new Set([
-        0,
-        Math.floor(lastOffset / 2),
-        lastOffset,
-    ])];
+    const offsets = [...new Set([0, Math.floor(lastOffset / 2), lastOffset])];
     const hash = createHash('sha256');
     for (const offset of offsets) {
         const sample = Buffer.allocUnsafe(sampleLength);
@@ -82,10 +78,7 @@ async function sampleFilePath(originalPath: string, size: bigint) {
     return hash.digest('hex');
 }
 
-function createSnapshot(
-    fileStat: BigIntStats,
-    sampleSha256: string,
-): IOriginalPathSaveSnapshot {
+function createSnapshot(fileStat: BigIntStats, sampleSha256: string): IOriginalPathSaveSnapshot {
     return {
         ctimeNs: fileStat.ctimeNs,
         deviceId: fileStat.dev,
@@ -117,10 +110,13 @@ export async function capturePathSnapshot(originalPath: string, options: {ignore
     const sampleSha256 = await sampleFilePath(originalPath, before.size);
     const after = await lstat(originalPath, {bigint: true});
     const snapshot = createSnapshot(after, sampleSha256);
-    if (!after.isFile() || !snapshotsMatch(createSnapshot(before, sampleSha256), snapshot, {
-        ...options,
-        allowBackupMetadataChange: true,
-    })) {
+    if (
+        !after.isFile() ||
+        !snapshotsMatch(createSnapshot(before, sampleSha256), snapshot, {
+            ...options,
+            allowBackupMetadataChange: true,
+        })
+    ) {
         throw new OriginalPathSaveConflictError();
     }
     return snapshot;

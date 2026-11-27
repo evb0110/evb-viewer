@@ -1,28 +1,11 @@
 import {randomUUID} from 'node:crypto';
-import {
-    copyFile,
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {copyFile, mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
 import type {IPdfValidationResult} from '@contracts/pdfConformance';
-import {
-    findSerializableErrorEnvelope,
-    SERIALIZABLE_ERROR_ENVELOPE_SCHEMA,
-} from '@contracts/serializableError';
+import {findSerializableErrorEnvelope, SERIALIZABLE_ERROR_ENVELOPE_SCHEMA} from '@contracts/serializableError';
 
 const loggerMock = vi.hoisted(() => ({
     warn: vi.fn(),
@@ -72,12 +55,8 @@ vi.mock('@electron/file-access/openPathCapabilities', () => ({
 }));
 
 const store = await import('@electron/file-access/documentStore');
-const {
-    handleFileSaveStructured,
-    handleOptimizePdfForInteraction,
-    handleRepairPdfSave,
-    toDocumentSaveResult,
-} = await import('@electron/features/documents/main/workingCopySave');
+const {handleFileSaveStructured, handleOptimizePdfForInteraction, handleRepairPdfSave, toDocumentSaveResult} =
+    await import('@electron/features/documents/main/workingCopySave');
 const {savePdfAs} = await import('@electron/features/documents/main/documentSave.service');
 const {handleCreateWorkingCopyFromPath} = await import('@electron/features/documents/main/documentWorkingCopyHandlers');
 const {addRecentFile} = await import('@electron/recentFiles');
@@ -135,11 +114,9 @@ describe('workingCopySave publication facts', () => {
             return realWriteAtomic(target, bytes);
         });
 
-        const result = await handleFileSaveStructured(
-            {senderId: 42},
-            entry.ref,
-            {expectedDocumentRevisionToken: store.documentRevisionToken(entry)},
-        );
+        const result = await handleFileSaveStructured({senderId: 42}, entry.ref, {
+            expectedDocumentRevisionToken: store.documentRevisionToken(entry),
+        });
 
         expect(injectedAckFailure).toBe(true);
         expect(result).toEqual({
@@ -174,11 +151,9 @@ describe('workingCopySave publication facts', () => {
             throw new Error('EIO: destination rename outcome unknown');
         });
 
-        const result = await handleFileSaveStructured(
-            {senderId: 42},
-            entry.ref,
-            {expectedDocumentRevisionToken: store.documentRevisionToken(entry)},
-        );
+        const result = await handleFileSaveStructured({senderId: 42}, entry.ref, {
+            expectedDocumentRevisionToken: store.documentRevisionToken(entry),
+        });
 
         expect(result).toEqual({
             ok: false,
@@ -206,11 +181,9 @@ describe('workingCopySave publication facts', () => {
             Object.assign(new Error('EACCES: permission denied'), {code: 'EACCES'}),
         );
 
-        const result = await handleFileSaveStructured(
-            {senderId: 42},
-            entry.ref,
-            {expectedDocumentRevisionToken: store.documentRevisionToken(entry)},
-        );
+        const result = await handleFileSaveStructured({senderId: 42}, entry.ref, {
+            expectedDocumentRevisionToken: store.documentRevisionToken(entry),
+        });
 
         expect(result).toEqual({
             ok: false,
@@ -227,13 +200,17 @@ describe('workingCopySave publication facts', () => {
         await writeFile(pdfPath, ORIGINAL);
         const entry = await store.openDocumentFromFile(pdfPath, {ownerWebContentsId: 42});
 
-        const mapped = toDocumentSaveResult(entry, {
-            status: 'saved',
-            revision: null,
-            keptOriginal: join(tempRoot, 'kept (original).pdf'),
-            externalWriteCommitted: true,
-            acknowledgmentError: new Error('manifest write failed'),
-        }, VALID_PDF);
+        const mapped = toDocumentSaveResult(
+            entry,
+            {
+                status: 'saved',
+                revision: null,
+                keptOriginal: join(tempRoot, 'kept (original).pdf'),
+                externalWriteCommitted: true,
+                acknowledgmentError: new Error('manifest write failed'),
+            },
+            VALID_PDF,
+        );
 
         expect(mapped).toEqual({
             ok: false,
@@ -269,11 +246,9 @@ describe('workingCopySave publication facts', () => {
             return {status: 'conflict', keptOriginal: keptPath};
         });
 
-        const result = await handleFileSaveStructured(
-            {senderId: 42},
-            entry.ref,
-            {expectedDocumentRevisionToken: store.documentRevisionToken(entry)},
-        );
+        const result = await handleFileSaveStructured({senderId: 42}, entry.ref, {
+            expectedDocumentRevisionToken: store.documentRevisionToken(entry),
+        });
 
         expect(result).toEqual({
             ok: false,
@@ -316,13 +291,9 @@ describe('workingCopySave publication facts', () => {
 
         let caught: unknown;
         try {
-            await savePdfAs(
-                {senderId: 42, sender: {} as never, parentWindow: null},
-                entry.ref,
-                undefined,
-                async () => copyPath,
-                {expectedDocumentRevisionToken: store.documentRevisionToken(entry)},
-            );
+            await savePdfAs({senderId: 42, sender: {} as never, parentWindow: null}, entry.ref, undefined, async () => copyPath, {
+                expectedDocumentRevisionToken: store.documentRevisionToken(entry),
+            });
         } catch (error) {
             caught = error;
         }
@@ -357,12 +328,9 @@ describe('workingCopySave publication facts', () => {
             throw new Error('EIO: rename outcome unknown');
         });
 
-        const result = await handleCommitStagedPdfNativeMutations(
-            {senderId: 42},
-            entry.ref,
-            artifact,
-            {expectedDocumentRevisionToken: store.documentRevisionToken(entry)},
-        );
+        const result = await handleCommitStagedPdfNativeMutations({senderId: 42}, entry.ref, artifact, {
+            expectedDocumentRevisionToken: store.documentRevisionToken(entry),
+        });
 
         expect(result).toEqual({
             applied: false,
@@ -419,11 +387,7 @@ describe('workingCopySave publication facts', () => {
 
         let caught: unknown;
         try {
-            await handler(
-                {senderId: 42},
-                entry.ref,
-                {expectedDocumentRevisionToken: store.documentRevisionToken(entry)},
-            );
+            await handler({senderId: 42}, entry.ref, {expectedDocumentRevisionToken: store.documentRevisionToken(entry)});
         } catch (error) {
             caught = error;
         }

@@ -1,35 +1,27 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {Ref} from 'vue';
-import type {
-    IDocumentSidebarCapabilities,
-    TDocumentSidebarTab,
-} from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
+import type {IDocumentSidebarCapabilities, TDocumentSidebarTab} from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 import {
     DOCUMENT_SIDEBAR_TAB_ORDER,
     reconcileDocumentSidebarTab,
     resolveDocumentSidebarTabs,
 } from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 import {useDocumentSidebarCapabilitySession} from '@app/modules/document-viewer/sidebar/useDocumentSidebarCapabilitySession';
-import {
-    computed,
-    ref,
-} from 'vue';
+import {computed, ref} from 'vue';
 
 function createSession(options: {
     capabilities?: Ref<IDocumentSidebarCapabilities>;
     preferredTab: Ref<TDocumentSidebarTab>;
     ready?: Ref<boolean>;
 }) {
-    const capabilities = options.capabilities ?? ref({
-        annotations: true,
-        bookmarks: true,
-        pages: true,
-        search: true,
-    });
+    const capabilities =
+        options.capabilities ??
+        ref({
+            annotations: true,
+            bookmarks: true,
+            pages: true,
+            search: true,
+        });
     const ready = options.ready ?? ref(true);
     return useDocumentSidebarCapabilitySession({
         capabilities: computed(() => capabilities.value),
@@ -40,18 +32,15 @@ function createSession(options: {
 
 describe('document sidebar tabs', () => {
     it('keeps one canonical format-independent order', () => {
-        expect(DOCUMENT_SIDEBAR_TAB_ORDER).toEqual([
-            'annotations',
-            'thumbnails',
-            'bookmarks',
-            'search',
-        ]);
-        expect(resolveDocumentSidebarTabs({
-            annotations: true,
-            bookmarks: true,
-            pages: true,
-            search: true,
-        })).toEqual(DOCUMENT_SIDEBAR_TAB_ORDER);
+        expect(DOCUMENT_SIDEBAR_TAB_ORDER).toEqual(['annotations', 'thumbnails', 'bookmarks', 'search']);
+        expect(
+            resolveDocumentSidebarTabs({
+                annotations: true,
+                bookmarks: true,
+                pages: true,
+                search: true,
+            }),
+        ).toEqual(DOCUMENT_SIDEBAR_TAB_ORDER);
     });
 
     it('filters only unavailable domain augmentations without reordering tabs', () => {
@@ -61,11 +50,7 @@ describe('document sidebar tabs', () => {
             pages: true,
             search: true,
         });
-        expect(available).toEqual([
-            'thumbnails',
-            'bookmarks',
-            'search',
-        ]);
+        expect(available).toEqual(['thumbnails', 'bookmarks', 'search']);
         expect(reconcileDocumentSidebarTab('annotations', available)).toBe('thumbnails');
     });
 

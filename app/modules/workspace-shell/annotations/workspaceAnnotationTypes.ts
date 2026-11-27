@@ -1,5 +1,5 @@
 import type {Ref} from 'vue';
-import type { IShapeAnnotation } from '@app/types/annotations';
+import type {IShapeAnnotation} from '@app/types/annotations';
 import type {IPdfViewerSaveExpose} from '@app/modules/pdf-viewer/public';
 
 export interface IWorkspacePdfViewerForAnnotationUtils {

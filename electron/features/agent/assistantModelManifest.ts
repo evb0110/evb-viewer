@@ -1,4 +1,4 @@
-import type { TAssistantDriver } from '@contracts/assistant';
+import type {TAssistantDriver} from '@contracts/assistant';
 // T3 Code apps/server/src/provider/model-manifest.json (e8d3075e48), MIT, copied unchanged.
 import manifest from '@electron/features/agent/t3ModelManifest.json';
 
@@ -15,7 +15,7 @@ interface IManifestModel {
 }
 
 interface IManifestProvider {
-    profiles?: Record<string, { capabilities?: { optionDescriptors?: Array<{ id: string; options?: IManifestEffortOption[] }> } }>;
+    profiles?: Record<string, {capabilities?: {optionDescriptors?: Array<{id: string; options?: IManifestEffortOption[]}>}}>;
     models: IManifestModel[];
 }
 
@@ -36,16 +36,31 @@ export interface IAssistantManifestModel {
  */
 export function describeManifestModel(driver: TAssistantDriver, ids: readonly string[]): IAssistantManifestModel | null {
     const provider = (manifest.providers as Record<string, IManifestProvider | undefined>)[PROVIDER_BY_DRIVER[driver]];
-    if (!provider) return null;
-    const wanted = new Set(ids.map(id => id.trim().toLowerCase().replace(/\[[^\]]*\]$/u, '').replace(/-\d{8}$/u, '')).filter(Boolean));
-    const model = provider.models.find(entry => wanted.has(entry.slug.toLowerCase()))
-        ?? provider.models.find(entry => entry.aliases?.some(alias => wanted.has(alias.toLowerCase())));
-    if (!model) return null;
+    if (!provider) {
+        return null;
+    }
+    const wanted = new Set(
+        ids
+            .map((id) =>
+                id
+                    .trim()
+                    .toLowerCase()
+                    .replace(/\[[^\]]*\]$/u, '')
+                    .replace(/-\d{8}$/u, ''),
+            )
+            .filter(Boolean),
+    );
+    const model =
+        provider.models.find((entry) => wanted.has(entry.slug.toLowerCase())) ??
+        provider.models.find((entry) => entry.aliases?.some((alias) => wanted.has(alias.toLowerCase())));
+    if (!model) {
+        return null;
+    }
     const effort = model.profile
-        ? provider.profiles?.[model.profile]?.capabilities?.optionDescriptors?.find(descriptor => descriptor.id === 'effort')
+        ? provider.profiles?.[model.profile]?.capabilities?.optionDescriptors?.find((descriptor) => descriptor.id === 'effort')
         : undefined;
     return {
         isLegacy: model.status === 'legacy',
-        defaultEffort: effort?.options?.find(option => option.isDefault)?.id ?? null,
+        defaultEffort: effort?.options?.find((option) => option.isDefault)?.id ?? null,
     };
 }

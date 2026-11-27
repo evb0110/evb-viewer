@@ -20,7 +20,10 @@
             class="crop-selection"
             :style="selectionStyle"
         />
-        <div v-if="!selectionRect" class="crop-hint">
+        <div
+            v-if="!selectionRect"
+            class="crop-hint"
+        >
             {{ hintLabel }}
         </div>
     </div>
@@ -31,37 +34,30 @@ import type {
     IRegionSelectionOverlayBaseProps,
     IRegionSelectionOverlayEmits,
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSelectionOverlay';
-import { pdfCropSelectionKeyboardKey } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection';
-import { useEmittedPdfRegionSelectionOverlay } from '@app/modules/pdf-viewer/runtime/composables/pdf/useEmittedPdfRegionSelectionOverlay';
-import { usePdfSelectionOverlayFocus } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSelectionOverlayFocus';
-import { regionRectStyle } from '@app/modules/pdf-viewer/engine/region-selection/regionRectStyle';
+import {pdfCropSelectionKeyboardKey} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection';
+import {useEmittedPdfRegionSelectionOverlay} from '@app/modules/pdf-viewer/runtime/composables/pdf/useEmittedPdfRegionSelectionOverlay';
+import {usePdfSelectionOverlayFocus} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSelectionOverlayFocus';
+import {regionRectStyle} from '@app/modules/pdf-viewer/engine/region-selection/regionRectStyle';
 
-const {
-    active,
-    selectionRect,
-    hintLabel,
-} = defineProps<IRegionSelectionOverlayBaseProps>();
+const {active, selectionRect, hintLabel} = defineProps<IRegionSelectionOverlayBaseProps>();
 const emit = defineEmits<IRegionSelectionOverlayEmits>();
 const overlayRef = ref<HTMLElement | null>(null);
 const keyboardController = inject(pdfCropSelectionKeyboardKey, null);
 
-const {
-    handlePointerDown,
-    handlePointerMove,
-    handlePointerUp,
-    handleContextMenu,
-    handleWheel,
-} = useEmittedPdfRegionSelectionOverlay({
-    get active() {
-        return active;
+const {handlePointerDown, handlePointerMove, handlePointerUp, handleContextMenu, handleWheel} = useEmittedPdfRegionSelectionOverlay(
+    {
+        get active() {
+            return active;
+        },
+        get selectionRect() {
+            return selectionRect;
+        },
+        get hintLabel() {
+            return hintLabel;
+        },
     },
-    get selectionRect() {
-        return selectionRect;
-    },
-    get hintLabel() {
-        return hintLabel;
-    },
-}, emit);
+    emit,
+);
 
 const selectionStyle = computed(() => regionRectStyle(selectionRect));
 

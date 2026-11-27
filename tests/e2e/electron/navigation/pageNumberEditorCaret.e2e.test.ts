@@ -1,14 +1,13 @@
-import {
-    describe, expect, it,
-} from 'vitest';
-import {
-    createMultiPageTextFixturePdf,
-    createPageLabelRangesFixturePdf,
-} from '@tests/e2e/electron/helpers/fixtures';
+import {describe, expect, it} from 'vitest';
+import {createMultiPageTextFixturePdf, createPageLabelRangesFixturePdf} from '@tests/e2e/electron/helpers/fixtures';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import {
-    goToPageViaToolbar, openDocumentSidebarTab, openPdfInApp, waitForPdfLoaded, waitForToolbarCurrentPage,
+    goToPageViaToolbar,
+    openDocumentSidebarTab,
+    openPdfInApp,
+    waitForPdfLoaded,
+    waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import type {Page} from 'puppeteer-core';
 
@@ -23,7 +22,7 @@ describe('Electron E2E - page number editor caret', () => {
         // Numbering with prefix "1" from 1 shows page 4 as "14"; the label must reach page 4.
         await openDocumentSidebarTab(page, 'Pages');
         const disclosure = '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-disclosure';
-        if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+        if ((await page.$eval(disclosure, (button) => button.getAttribute('aria-expanded'))) !== 'true') {
             await clickAsUser(page, disclosure);
         }
         await clickAsUser(page, '#page-label-prefix-input');
@@ -31,20 +30,21 @@ describe('Electron E2E - page number editor caret', () => {
         await clickAsUser(page, '.workspace-host[data-workspace-active="true"] .pdf-sidebar-pages-primary-button');
         await goToPageLabelViaToolbar(page, '14');
         await waitForToolbarCurrentPage(page, 4);
-        expect(await page.$eval('.page_container[data-page="4"]', node => node.textContent ?? '')).toContain('Page 4 sample text');
+        expect(await page.$eval('.page_container[data-page="4"]', (node) => node.textContent ?? '')).toContain('Page 4 sample text');
         const prefix = 'LongPrefix-'.repeat(6);
-        const longLabelFixture = await createPageLabelRangesFixturePdf(`page-label-long-entry-${Date.now()}.pdf`, 3, [{
-            startPage: 1,
-            style: 'D',
-            prefix,
-            startNumber: 1,
-        }]);
+        const longLabelFixture = await createPageLabelRangesFixturePdf(`page-label-long-entry-${Date.now()}.pdf`, 3, [
+            {
+                startPage: 1,
+                style: 'D',
+                prefix,
+                startNumber: 1,
+            },
+        ]);
         await openPdfInApp(page, longLabelFixture);
         await waitForPdfLoaded(page);
         await goToPageLabelViaToolbar(page, `${prefix}2`);
         await waitForToolbarCurrentPage(page, 2);
-        expect(await page.$eval('.page_container[data-page="2"]', node => node.textContent ?? '')).toContain('Page 2 sample text');
-
+        expect(await page.$eval('.page_container[data-page="2"]', (node) => node.textContent ?? '')).toContain('Page 2 sample text');
     }, 90_000);
 
     it('goes to the lowercase label a typed value names, not the uppercase label of the same letters', async () => {
@@ -66,7 +66,7 @@ describe('Electron E2E - page number editor caret', () => {
         // Page 4 shows "IV" in the uppercase segment; page 14 shows "iv" in the lowercase one.
         await goToPageLabelViaToolbar(page, 'iv');
         await waitForToolbarCurrentPage(page, 14);
-        expect(await page.$eval('.page_container[data-page="14"]', node => node.textContent ?? '')).toContain('Page 14 sample text');
+        expect(await page.$eval('.page_container[data-page="14"]', (node) => node.textContent ?? '')).toContain('Page 14 sample text');
     }, 90_000);
 
     it('keeps the editor focused and moves the caret after a trusted click inside it', async () => {
@@ -76,7 +76,7 @@ describe('Electron E2E - page number editor caret', () => {
         await waitForPdfLoaded(page);
         await goToPageViaToolbar(page, 7);
         await waitForToolbarCurrentPage(page, 7);
-        expect(await page.$eval('.page_container[data-page="7"]', node => node.textContent ?? '')).toContain('Page 7 sample text');
+        expect(await page.$eval('.page_container[data-page="7"]', (node) => node.textContent ?? '')).toContain('Page 7 sample text');
         await goToPageViaToolbar(page, 12);
         await waitForToolbarCurrentPage(page, 12);
         const display = await page.$('#editor-global-toolbar-host .page-controls-display');
@@ -85,9 +85,9 @@ describe('Electron E2E - page number editor caret', () => {
         const input = await page.waitForSelector('#editor-global-toolbar-host .page-controls-inline-input', {visible: true});
         const bounds = await input!.boundingBox();
         expect(bounds).not.toBeNull();
-        const inputText = await input!.evaluate(element => (element as HTMLInputElement).value);
+        const inputText = await input!.evaluate((element) => (element as HTMLInputElement).value);
         expect(inputText).toBeTruthy();
-        const paddingRight = await input!.evaluate(element => Number.parseFloat(getComputedStyle(element).paddingRight));
+        const paddingRight = await input!.evaluate((element) => Number.parseFloat(getComputedStyle(element).paddingRight));
         const clickPoint = {
             x: bounds!.x + bounds!.width - paddingRight - 1,
             y: bounds!.y + bounds!.height / 2,
@@ -98,7 +98,7 @@ describe('Electron E2E - page number editor caret', () => {
         }, clickPoint);
         expect(hitInput, 'the trusted pointer lands inside the visible page-number input').toBe(true);
         await page.mouse.click(clickPoint.x, clickPoint.y);
-        const afterClick = await input!.evaluate(element => ({
+        const afterClick = await input!.evaluate((element) => ({
             connected: element.isConnected,
             focused: document.activeElement === element,
             value: (element as HTMLInputElement).value,

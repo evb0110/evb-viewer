@@ -1,14 +1,8 @@
-import { getCliErrorMessage } from './lib/cli-error.mjs';
-import { spawn } from 'node:child_process';
-import {
-    mkdirSync,
-    writeFileSync,
-} from 'node:fs';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
+import {spawn} from 'node:child_process';
+import {mkdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
-import {
-    fileURLToPath,
-    pathToFileURL,
-} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, '..');
@@ -24,13 +18,7 @@ export function getPnpmInvocation(args, platform = process.platform) {
     if (platform === 'win32') {
         return {
             command: 'cmd.exe',
-            args: [
-                '/d',
-                '/s',
-                '/c',
-                'pnpm',
-                ...args,
-            ],
+            args: ['/d', '/s', '/c', 'pnpm', ...args],
         };
     }
 
@@ -43,31 +31,24 @@ export function getPnpmInvocation(args, platform = process.platform) {
 /** @param {NodeJS.ProcessEnv} [env] @returns {NodeJS.ProcessEnv} */
 export function getStrictBuildEnv(env = process.env) {
     const nodeOptions = env.NODE_OPTIONS?.trim();
-    const hasHeapLimit = nodeOptions
-        ? /(?:^|\s)--max-old-space-size(?:=|\s)/u.test(nodeOptions)
-        : false;
+    const hasHeapLimit = nodeOptions ? /(?:^|\s)--max-old-space-size(?:=|\s)/u.test(nodeOptions) : false;
 
     return {
         ...env,
-        NODE_OPTIONS: hasHeapLimit
-            ? nodeOptions
-            : [
-                nodeOptions,
-                STRICT_BUILD_NODE_OPTIONS,
-            ].filter(Boolean).join(' '),
-        EVB_NUXT_BUILD_DIR: env.EVB_NUXT_BUILD_DIR
-            ?? path.join(strictBuildNuxtArtifactsDir, 'nuxt-build'),
-        EVB_NUXT_VITE_CACHE_DIR: env.EVB_NUXT_VITE_CACHE_DIR
-            ?? path.join(strictBuildNuxtArtifactsDir, 'vite-cache'),
+        NODE_OPTIONS: hasHeapLimit ? nodeOptions : [nodeOptions, STRICT_BUILD_NODE_OPTIONS].filter(Boolean).join(' '),
+        EVB_NUXT_BUILD_DIR: env.EVB_NUXT_BUILD_DIR ?? path.join(strictBuildNuxtArtifactsDir, 'nuxt-build'),
+        EVB_NUXT_VITE_CACHE_DIR: env.EVB_NUXT_VITE_CACHE_DIR ?? path.join(strictBuildNuxtArtifactsDir, 'vite-cache'),
     };
 }
 
 export const STRICT_BUILD_SCRIPT_NAME = 'build:desktop';
-const COLLAPSED_WARNING_PATTERNS = [/\b(?:WARN|\[warn\])\s+\[plugin @tailwindcss\/vite:generate:build\] Sourcemap is likely to be incorrect: a plugin \(@tailwindcss\/vite:generate:build\) was used to transform files, but didn't generate a sourcemap for the transformation\. Consult the plugin documentation for help(?: \(x\d+\))?$/u];
+const COLLAPSED_WARNING_PATTERNS = [
+    /\b(?:WARN|\[warn\])\s+\[plugin @tailwindcss\/vite:generate:build\] Sourcemap is likely to be incorrect: a plugin \(@tailwindcss\/vite:generate:build\) was used to transform files, but didn't generate a sourcemap for the transformation\. Consult the plugin documentation for help(?: \(x\d+\))?$/u,
+];
 
 /** @param {string} line @returns {boolean} */
 function isCollapsedWarning(line) {
-    return COLLAPSED_WARNING_PATTERNS.some(pattern => pattern.test(line.trim()));
+    return COLLAPSED_WARNING_PATTERNS.some((pattern) => pattern.test(line.trim()));
 }
 
 /** @param {(chunk: string) => void} write */
@@ -127,37 +108,30 @@ function createLineFilter(write) {
 
 /** @param {string} command @param {string[]} args @param {IBuildSpawnOptions} options @returns {Promise<string>} */
 function run(command, args, options = {}) {
-    const {
-        preserveExistingBuildLog = false,
-        ...spawnOptions
-    } = options;
+    const {preserveExistingBuildLog = false, ...spawnOptions} = options;
 
     return new Promise((resolve, reject) => {
         const child = spawn(command, args, {
             cwd: projectRoot,
             env: process.env,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
+            stdio: ['ignore', 'pipe', 'pipe'],
             ...spawnOptions,
         });
 
         let output = '';
-        const stdoutFilter = createLineFilter(line => process.stdout.write(line));
-        const stderrFilter = createLineFilter(line => process.stderr.write(line));
+        const stdoutFilter = createLineFilter((line) => process.stdout.write(line));
+        const stderrFilter = createLineFilter((line) => process.stderr.write(line));
 
         child.stdout?.setEncoding('utf8');
         child.stderr?.setEncoding('utf8');
 
         /** @param {string} chunk */
-        const handleStdout = chunk => {
+        const handleStdout = (chunk) => {
             output += chunk;
             stdoutFilter.push(chunk);
         };
         /** @param {string} chunk */
-        const handleStderr = chunk => {
+        const handleStderr = (chunk) => {
             output += chunk;
             stderrFilter.push(chunk);
         };
@@ -178,11 +152,13 @@ function run(command, args, options = {}) {
                 return;
             }
 
-            const error = /** @type {IBuildError} */ (new Error(
-                signal
-                    ? `${command} ${args.join(' ')} exited after signal ${signal}`
-                    : `${command} ${args.join(' ')} exited with status ${code ?? 1}`,
-            ));
+            const error = /** @type {IBuildError} */ (
+                new Error(
+                    signal
+                        ? `${command} ${args.join(' ')} exited after signal ${signal}`
+                        : `${command} ${args.join(' ')} exited with status ${code ?? 1}`,
+                )
+            );
             error.output = output;
             error.preserveExistingBuildLog = preserveExistingBuildLog;
             reject(error);
@@ -192,39 +168,28 @@ function run(command, args, options = {}) {
 
 /** @param {unknown} error @returns {error is IBuildError} */
 function isBuildError(error) {
-    return typeof error === 'object'
-        && error !== null
-        && 'output' in error
-        && typeof error.output === 'string';
+    return typeof error === 'object' && error !== null && 'output' in error && typeof error.output === 'string';
 }
 
 /** @param {unknown} error @returns {boolean} */
 export function shouldWriteErrorOutputToBuildLog(error) {
-    return isBuildError(error)
-        && error.output.length > 0
-        && !error.preserveExistingBuildLog;
+    return isBuildError(error) && error.output.length > 0 && !error.preserveExistingBuildLog;
 }
 
 /** @returns {Promise<void>} */
 async function main() {
-    mkdirSync(path.dirname(buildLogPath), { recursive: true });
-    const buildInvocation = getPnpmInvocation([
-        'run',
-        STRICT_BUILD_SCRIPT_NAME,
-    ]);
-    const output = await run(buildInvocation.command, buildInvocation.args, { env: getStrictBuildEnv() });
+    mkdirSync(path.dirname(buildLogPath), {recursive: true});
+    const buildInvocation = getPnpmInvocation(['run', STRICT_BUILD_SCRIPT_NAME]);
+    const output = await run(buildInvocation.command, buildInvocation.args, {env: getStrictBuildEnv()});
     writeFileSync(buildLogPath, output);
-    await run('node', [
-        'scripts/check-build-warnings.mjs',
-        '.tmp/build.log',
-    ], { preserveExistingBuildLog: true });
+    await run('node', ['scripts/check-build-warnings.mjs', '.tmp/build.log'], {preserveExistingBuildLog: true});
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     /** @param {unknown} error */
     main().catch((error) => {
         if (shouldWriteErrorOutputToBuildLog(error)) {
-            mkdirSync(path.dirname(buildLogPath), { recursive: true });
+            mkdirSync(path.dirname(buildLogPath), {recursive: true});
             writeFileSync(buildLogPath, error.output);
         }
 

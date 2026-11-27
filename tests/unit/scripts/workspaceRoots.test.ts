@@ -1,29 +1,14 @@
-import {
-    mkdir,
-    mkdtemp,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path, {
-    join,
-    resolve,
-} from 'node:path';
-import { pathToFileURL } from 'node:url';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path, {join, resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {describe, expect, it} from 'vitest';
 
 interface IWorkspaceRootsModule {
-    getAllArchitectureRoots: (options?: { projectRoot?: string }) => string[];
-    getFocusedArchitectureRoots: (options?: { projectRoot?: string }) => string[];
-    getWorkspacePackagePatterns: (options?: { projectRoot?: string }) => string[];
-    getWorkspacePackageRoots: (options?: {
-        includeWorkspaceRoot?: boolean;
-        projectRoot?: string;
-    }) => string[];
+    getAllArchitectureRoots: (options?: {projectRoot?: string}) => string[];
+    getFocusedArchitectureRoots: (options?: {projectRoot?: string}) => string[];
+    getWorkspacePackagePatterns: (options?: {projectRoot?: string}) => string[];
+    getWorkspacePackageRoots: (options?: {includeWorkspaceRoot?: boolean; projectRoot?: string}) => string[];
     parseWorkspacePackagePatterns: (sourceText: string) => string[];
 }
 
@@ -33,9 +18,7 @@ const {
     getWorkspacePackagePatterns,
     getWorkspacePackageRoots,
     parseWorkspacePackagePatterns,
-} = await import(
-    pathToFileURL(resolve(process.cwd(), 'scripts/workspace-roots.mjs')).href
-) as IWorkspaceRootsModule;
+} = (await import(pathToFileURL(resolve(process.cwd(), 'scripts/workspace-roots.mjs')).href)) as IWorkspaceRootsModule;
 
 async function createTempProject() {
     return mkdtemp(join(tmpdir(), 'evb-workspace-roots-'));
@@ -49,48 +32,34 @@ async function writeProjectFile(projectRoot: string, filePath: string, text = ''
 
 describe('workspace root helpers', () => {
     it('parses quoted workspace package patterns and stops at the next top-level section', () => {
-        expect(parseWorkspacePackagePatterns([
-            'packages:',
-            '  - \'.\'',
-            '  - "packages/*"',
-            '  - tools/internal',
-            '',
-            'ignoredSection:',
-            '  - should-not-appear',
-        ].join('\n'))).toEqual([
-            '.',
-            'packages/*',
-            'tools/internal',
-        ]);
+        expect(
+            parseWorkspacePackagePatterns(
+                ['packages:', "  - '.'", '  - "packages/*"', '  - tools/internal', '', 'ignoredSection:', '  - should-not-appear'].join(
+                    '\n',
+                ),
+            ),
+        ).toEqual(['.', 'packages/*', 'tools/internal']);
     });
 
     it('expands workspace package roots and keeps the workspace root opt-in', async () => {
         const projectRoot = await createTempProject();
         try {
-            await writeProjectFile(projectRoot, 'pnpm-workspace.yaml', [
-                'packages:',
-                '  - \'.\'',
-                '  - \'packages/*\'',
-                '  - tools/internal',
-            ].join('\n'));
+            await writeProjectFile(
+                projectRoot,
+                'pnpm-workspace.yaml',
+                ['packages:', "  - '.'", "  - 'packages/*'", '  - tools/internal'].join('\n'),
+            );
             await mkdir(join(projectRoot, 'packages', 'beta'), {recursive: true});
             await mkdir(join(projectRoot, 'packages', 'alpha'), {recursive: true});
             await mkdir(join(projectRoot, 'tools', 'internal'), {recursive: true});
 
-            expect(getWorkspacePackageRoots({projectRoot})).toEqual([
-                'packages/alpha',
-                'packages/beta',
-                'tools/internal',
-            ]);
-            expect(getWorkspacePackageRoots({
-                includeWorkspaceRoot: true,
-                projectRoot,
-            })).toEqual([
-                '.',
-                'packages/alpha',
-                'packages/beta',
-                'tools/internal',
-            ]);
+            expect(getWorkspacePackageRoots({projectRoot})).toEqual(['packages/alpha', 'packages/beta', 'tools/internal']);
+            expect(
+                getWorkspacePackageRoots({
+                    includeWorkspaceRoot: true,
+                    projectRoot,
+                }),
+            ).toEqual(['.', 'packages/alpha', 'packages/beta', 'tools/internal']);
             expect(getFocusedArchitectureRoots({projectRoot})).toEqual([
                 'app',
                 'electron',
@@ -136,11 +105,11 @@ describe('workspace root helpers', () => {
     it('rejects unsupported negated workspace package patterns', async () => {
         const projectRoot = await createTempProject();
         try {
-            await writeProjectFile(projectRoot, 'pnpm-workspace.yaml', [
-                'packages:',
-                '  - \'packages/*\'',
-                '  - \'!packages/legacy\'',
-            ].join('\n'));
+            await writeProjectFile(
+                projectRoot,
+                'pnpm-workspace.yaml',
+                ['packages:', "  - 'packages/*'", "  - '!packages/legacy'"].join('\n'),
+            );
             await mkdir(join(projectRoot, 'packages', 'alpha'), {recursive: true});
 
             expect(() => {

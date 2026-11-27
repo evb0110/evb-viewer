@@ -1,11 +1,7 @@
-import type { TPageIndex } from '@contracts/pageNumbers';
-import {
-    createLazyIndexedCollection, isLazyIndexedCollection,
-} from '@app/modules/document-viewer/virtualization/pageVirtualization';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
-import type {
-    IDocumentViewportWrite, IDocumentViewportWritePort,
-} from '@app/modules/document-viewer/runtime/documentViewportWritePort';
+import type {TPageIndex} from '@contracts/pageNumbers';
+import {createLazyIndexedCollection, isLazyIndexedCollection} from '@app/modules/document-viewer/virtualization/pageVirtualization';
+import {DOCUMENT_PAGE_GUTTER_PX} from '@app/modules/document-viewer/layout/documentPageGutterPx';
+import type {IDocumentViewportWrite, IDocumentViewportWritePort} from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 
 export interface IPdfPageLayoutBase {
     totalPages: number;
@@ -32,8 +28,10 @@ export interface IPdfPageLayoutMetrics {
 }
 
 // Physical scrolling needs the vertical rows, independent of page-width policy.
-type TLayoutScrollMetrics = Pick<IPdfPageLayoutMetrics, 'scale' | 'gap' | 'paddingTop' | 'paddingBottom'> & {base: Pick<IPdfPageLayoutBase, 'totalPages' | 'rowHeights' | 'rowHeightPrefixSums' | 'rowStartPages' | 'rowEndPages'>;};
-type TDocumentPageHeights = readonly number[] & { readonly sumRange?: (start: number, end: number) => number };
+type TLayoutScrollMetrics = Pick<IPdfPageLayoutMetrics, 'scale' | 'gap' | 'paddingTop' | 'paddingBottom'> & {
+    base: Pick<IPdfPageLayoutBase, 'totalPages' | 'rowHeights' | 'rowHeightPrefixSums' | 'rowStartPages' | 'rowEndPages'>;
+};
+type TDocumentPageHeights = readonly number[] & {readonly sumRange?: (start: number, end: number) => number};
 
 export const PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT = 8_388_608;
 
@@ -42,11 +40,7 @@ export const PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT = 8_388_608;
 // functions only say which origins are valid and when one has to move.
 // Origins sit at row starts, so no mounted row begins above the segment.
 
-function findFirstLayoutRowAtOrAfter(
-    layout: TLayoutScrollMetrics,
-    top: number,
-    strictlyAfter = false,
-) {
+function findFirstLayoutRowAtOrAfter(layout: TLayoutScrollMetrics, top: number, strictlyAfter = false) {
     let low = 0;
     let high = layout.base.rowHeights.length;
     while (low < high) {
@@ -75,18 +69,14 @@ function getLayoutMaxPhysicalScrollOrigin(layout: TLayoutScrollMetrics, contentH
  * The physical segment for an origin, or null when the whole document fits.
  * Its pages are the rows that start inside it; no other row can be placed.
  */
-export function getLayoutPhysicalScrollSegment(
-    layout: TLayoutScrollMetrics,
-    origin: number,
-) {
+export function getLayoutPhysicalScrollSegment(layout: TLayoutScrollMetrics, origin: number) {
     const contentHeight = getLayoutContentHeight(layout);
     if (contentHeight <= PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT) {
         return null;
     }
     // The last segment ends with the document and may exceed the cap by part of a row.
-    const height = origin >= getLayoutMaxPhysicalScrollOrigin(layout, contentHeight)
-        ? contentHeight - origin
-        : PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT;
+    const height =
+        origin >= getLayoutMaxPhysicalScrollOrigin(layout, contentHeight) ? contentHeight - origin : PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT;
     // One pixel absorbs rounding between an aligned origin and its row's top.
     const firstRow = findFirstLayoutRowAtOrAfter(layout, origin + layout.paddingTop - 1);
     const lastRow = Math.max(firstRow, findFirstLayoutRowAtOrAfter(layout, origin + height) - 1);
@@ -116,8 +106,10 @@ export function resolveLayoutPhysicalScrollOrigin(
     }
     const maxOrigin = getLayoutMaxPhysicalScrollOrigin(layout, contentHeight);
     if (
-        currentOrigin !== null && currentOrigin >= 0 && currentOrigin <= maxOrigin
-        && alignLayoutPhysicalScrollOrigin(layout, currentOrigin) === currentOrigin
+        currentOrigin !== null &&
+        currentOrigin >= 0 &&
+        currentOrigin <= maxOrigin &&
+        alignLayoutPhysicalScrollOrigin(layout, currentOrigin) === currentOrigin
     ) {
         const height = currentOrigin >= maxOrigin ? contentHeight - currentOrigin : PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT;
         const top = viewportTop - currentOrigin;
@@ -127,10 +119,10 @@ export function resolveLayoutPhysicalScrollOrigin(
             return currentOrigin;
         }
     }
-    return alignLayoutPhysicalScrollOrigin(layout, Math.min(
-        maxOrigin,
-        Math.max(0, viewportTop - PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT / 2),
-    ));
+    return alignLayoutPhysicalScrollOrigin(
+        layout,
+        Math.min(maxOrigin, Math.max(0, viewportTop - PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT / 2)),
+    );
 }
 
 export function getLayoutPageWidth(layout: IPdfPageLayoutMetrics, pageIndex: TPageIndex) {
@@ -146,9 +138,7 @@ export function getLayoutRowHeight(layout: TLayoutScrollMetrics, rowIndex: numbe
 }
 
 export function getLayoutRowTop(layout: TLayoutScrollMetrics, rowIndex: number) {
-    return layout.paddingTop
-        + (layout.base.rowHeightPrefixSums[rowIndex - 1] ?? 0) * layout.scale
-        + rowIndex * layout.gap;
+    return layout.paddingTop + (layout.base.rowHeightPrefixSums[rowIndex - 1] ?? 0) * layout.scale + rowIndex * layout.gap;
 }
 
 export function getLayoutPageTop(layout: IPdfPageLayoutMetrics, pageIndex: TPageIndex) {
@@ -158,15 +148,15 @@ export function getLayoutPageTop(layout: IPdfPageLayoutMetrics, pageIndex: TPage
 
 export function getLayoutContentHeight(layout: TLayoutScrollMetrics) {
     const rowCount = layout.base.rowHeights.length;
-    return layout.paddingTop
-        + layout.paddingBottom
-        + (layout.base.rowHeightPrefixSums[rowCount - 1] ?? 0) * layout.scale
-        + Math.max(0, rowCount - 1) * layout.gap;
+    return (
+        layout.paddingTop +
+        layout.paddingBottom +
+        (layout.base.rowHeightPrefixSums[rowCount - 1] ?? 0) * layout.scale +
+        Math.max(0, rowCount - 1) * layout.gap
+    );
 }
 
-export function resolveDocumentPageTopsBounded(
-    heights: TDocumentPageHeights,
-) {
+export function resolveDocumentPageTopsBounded(heights: TDocumentPageHeights) {
     if (!isLazyIndexedCollection(heights)) {
         let top = DOCUMENT_PAGE_GUTTER_PX;
         return heights.map((height) => {
@@ -179,16 +169,11 @@ export function resolveDocumentPageTopsBounded(
     if (sumRange) {
         return createLazyIndexedCollection({
             cacheValues: false,
-            getValue: index => DOCUMENT_PAGE_GUTTER_PX
-                + index * DOCUMENT_PAGE_GUTTER_PX
-                + sumRange(0, index),
+            getValue: (index) => DOCUMENT_PAGE_GUTTER_PX + index * DOCUMENT_PAGE_GUTTER_PX + sumRange(0, index),
             length: heights.length,
         });
     }
-    const prefixTops = new Map<number, number>([[
-        0,
-        DOCUMENT_PAGE_GUTTER_PX,
-    ]]);
+    const prefixTops = new Map<number, number>([[0, DOCUMENT_PAGE_GUTTER_PX]]);
     const resolvePageTop = (index: number) => {
         const cached = prefixTops.get(index);
         if (cached !== undefined) {
@@ -196,10 +181,7 @@ export function resolveDocumentPageTopsBounded(
         }
         let nearestIndex = 0;
         let top = DOCUMENT_PAGE_GUTTER_PX;
-        for (const [
-            cachedIndex,
-            cachedTop,
-        ] of prefixTops) {
+        for (const [cachedIndex, cachedTop] of prefixTops) {
             if (cachedIndex <= index && cachedIndex >= nearestIndex) {
                 nearestIndex = cachedIndex;
                 top = cachedTop;
@@ -210,7 +192,7 @@ export function resolveDocumentPageTopsBounded(
         }
         prefixTops.set(index, top);
         while (prefixTops.size > 32) {
-            const oldest = [...prefixTops.keys()].find(key => key !== 0 && key !== index);
+            const oldest = [...prefixTops.keys()].find((key) => key !== 0 && key !== index);
             if (oldest === undefined) {
                 break;
             }
@@ -230,7 +212,7 @@ export function buildDocumentPageSourceScrollLayout(heights: TDocumentPageHeight
     const pageTops = resolveDocumentPageTopsBounded(heights);
     const rows = createLazyIndexedCollection({
         length: heights.length,
-        getValue: index => index + 1,
+        getValue: (index) => index + 1,
     });
     const layout = {
         scale: 1,
@@ -244,8 +226,8 @@ export function buildDocumentPageSourceScrollLayout(heights: TDocumentPageHeight
             rowEndPages: rows,
             rowHeightPrefixSums: createLazyIndexedCollection({
                 length: heights.length,
-                getValue: index => (pageTops[index] ?? DOCUMENT_PAGE_GUTTER_PX)
-                    - DOCUMENT_PAGE_GUTTER_PX * (index + 1) + (heights[index] ?? 0),
+                getValue: (index) =>
+                    (pageTops[index] ?? DOCUMENT_PAGE_GUTTER_PX) - DOCUMENT_PAGE_GUTTER_PX * (index + 1) + (heights[index] ?? 0),
             }),
         },
     } satisfies TLayoutScrollMetrics;
@@ -271,14 +253,22 @@ export function createLayoutPhysicalScrollSession() {
         onApplied?: () => void;
     }) {
         const previousOrigin = origin.value;
-        const nextOrigin = place(options.layout, options.write.top ?? previousOrigin + options.container.scrollTop, options.container.clientHeight);
+        const nextOrigin = place(
+            options.layout,
+            options.write.top ?? previousOrigin + options.container.scrollTop,
+            options.container.clientHeight,
+        );
         const commit = () => {
-            if (!options.isCurrent() || origin.value !== nextOrigin) return false;
+            if (!options.isCurrent() || origin.value !== nextOrigin) {
+                return false;
+            }
             const applied = options.port.apply(options.container, {
                 ...options.write,
                 ...(options.write.top === undefined ? {} : {top: options.write.top - nextOrigin}),
             });
-            if (applied) options.onApplied?.();
+            if (applied) {
+                options.onApplied?.();
+            }
             return applied;
         };
         // Vue must install the new physical track before the browser can accept

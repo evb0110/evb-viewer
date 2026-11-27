@@ -11,10 +11,7 @@ export interface IScanCleanupPageRange extends Iterable<number> {
     readonly step: number;
     readonly size: number;
     has: (pageNumber: number) => boolean;
-    forEach: (
-        callback: (pageNumber: number, pageNumberAgain: number, range: IScanCleanupPageRange) => void,
-        thisArg?: unknown,
-    ) => void;
+    forEach: (callback: (pageNumber: number, pageNumberAgain: number, range: IScanCleanupPageRange) => void, thisArg?: unknown) => void;
 }
 
 export type TScanCleanupPageScope = ReadonlySet<number> | IScanCleanupPageRange;
@@ -38,9 +35,11 @@ export function resolveScanCleanupApplyScope(
         return createScanCleanupPageRange(leader, pageCount);
     }
     if (scope === 'selected') {
-        return new Set([...options.selectedPages]
-            .filter(page => Number.isInteger(page) && page >= 1 && page <= pageCount)
-            .sort((left, right) => left - right));
+        return new Set(
+            [...options.selectedPages]
+                .filter((page) => Number.isInteger(page) && page >= 1 && page <= pageCount)
+                .sort((left, right) => left - right),
+        );
     }
     if (scope === 'every-other') {
         return createScanCleanupPageRange(leader % 2 === 1 ? 1 : 2, pageCount, 2);
@@ -48,27 +47,22 @@ export function resolveScanCleanupApplyScope(
     return createScanCleanupPageRange(1, pageCount);
 }
 
-export function createScanCleanupPageRange(
-    startPageNumber: number,
-    endPageNumber: number,
-    step = 1,
-): IScanCleanupPageRange {
+export function createScanCleanupPageRange(startPageNumber: number, endPageNumber: number, step = 1): IScanCleanupPageRange {
     const normalizedStart = Math.max(1, Math.floor(startPageNumber));
     const normalizedEnd = Math.max(0, Math.floor(endPageNumber));
     const normalizedStep = Math.max(1, Math.floor(step));
-    const size = normalizedStart > normalizedEnd
-        ? 0
-        : Math.floor((normalizedEnd - normalizedStart) / normalizedStep) + 1;
+    const size = normalizedStart > normalizedEnd ? 0 : Math.floor((normalizedEnd - normalizedStart) / normalizedStep) + 1;
     const range: IScanCleanupPageRange = {
         kind: 'range',
         startPageNumber: normalizedStart,
         endPageNumber: normalizedEnd,
         step: normalizedStep,
         size,
-        has: pageNumber => Number.isInteger(pageNumber)
-            && pageNumber >= normalizedStart
-            && pageNumber <= normalizedEnd
-            && (pageNumber - normalizedStart) % normalizedStep === 0,
+        has: (pageNumber) =>
+            Number.isInteger(pageNumber) &&
+            pageNumber >= normalizedStart &&
+            pageNumber <= normalizedEnd &&
+            (pageNumber - normalizedStart) % normalizedStep === 0,
         forEach: (callback, thisArg) => {
             for (let pageNumber = normalizedStart; pageNumber <= normalizedEnd; pageNumber += normalizedStep) {
                 callback.call(thisArg, pageNumber, pageNumber, range);

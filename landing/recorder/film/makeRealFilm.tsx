@@ -3,19 +3,8 @@
 // A recorded flow of the real app: SVG snapshots of the live DOM (dom-to-svg), sequenced with a
 // pointer, click ripples and a camera. Adapted from the EVB Player landing films. recorder/render.mjs
 // renders it to the video the landing plays.
-import {
-    useEffect,
-    useState,
-} from 'react';
-import {
-    cancelRender,
-    continueRender,
-    delayRender,
-    Easing,
-    interpolate,
-    staticFile,
-    useCurrentFrame,
-} from 'remotion';
+import {useEffect, useState} from 'react';
+import {cancelRender, continueRender, delayRender, Easing, interpolate, staticFile, useCurrentFrame} from 'remotion';
 
 type TRect = [number, number, number, number];
 
@@ -62,10 +51,7 @@ const CAMERA_MOVE = 20;
  * to its static base.
  */
 function useFilmAssets(m: IFilmManifest) {
-    const [
-        svgs,
-        setSvgs,
-    ] = useState<Record<string, string> | null>(null);
+    const [svgs, setSvgs] = useState<Record<string, string> | null>(null);
     const [handle] = useState(() => delayRender(`Loading ${m.film}`));
     useEffect(() => {
         const base = staticFile(`films/${m.film}/`);
@@ -74,7 +60,7 @@ function useFilmAssets(m: IFilmManifest) {
             new FontFace(f.family, `url(${new URL(f.url, new URL(base, location.href)).pathname})`, {
                 weight: f.weight,
                 style: f.style,
-                ...(f.unicodeRange ? { unicodeRange: f.unicodeRange } : {}),
+                ...(f.unicodeRange ? {unicodeRange: f.unicodeRange} : {}),
             })
                 .load()
                 .then((face) => {
@@ -82,41 +68,22 @@ function useFilmAssets(m: IFilmManifest) {
                 }),
         );
         const files = [...new Set(m.steps.map((s) => s.svg))];
-        Promise.all([
-            Promise.all(files.map((file) => fetch(base + file).then((r) => r.text()))),
-            ...fonts,
-        ]).then(([texts]) => {
-            setSvgs(Object.fromEntries(files.map((file, i) => [
-                file,
-                texts[i]!.replaceAll('href="/films/', `href="${root}films/`),
-            ])));
-            continueRender(handle);
-        }, (error: unknown) => cancelRender(error));
-    }, [
-        m,
-        handle,
-    ]);
+        Promise.all([Promise.all(files.map((file) => fetch(base + file).then((r) => r.text()))), ...fonts]).then(
+            ([texts]) => {
+                setSvgs(Object.fromEntries(files.map((file, i) => [file, texts[i]!.replaceAll('href="/films/', `href="${root}films/`)])));
+                continueRender(handle);
+            },
+            (error: unknown) => cancelRender(error),
+        );
+    }, [m, handle]);
     return svgs;
 }
 
 function lerpRect(a: TRect, b: TRect, t: number): TRect {
-    return [
-        0,
-        1,
-        2,
-        3,
-    ].map((i) => a[i]! + (b[i]! - a[i]!) * t) as TRect;
+    return [0, 1, 2, 3].map((i) => a[i]! + (b[i]! - a[i]!) * t) as TRect;
 }
 
-function Pointer({
-    x,
-    y,
-    pressed,
-}: {
-    x: number;
-    y: number;
-    pressed: number
-}) {
+function Pointer({x, y, pressed}: {x: number; y: number; pressed: number}) {
     return (
         <svg
             width={28}
@@ -150,12 +117,7 @@ export function makeRealFilm(m: IFilmManifest) {
         acc += s.dur;
     }
     const total = acc;
-    const full: TRect = [
-        0,
-        0,
-        m.width,
-        m.height,
-    ];
+    const full: TRect = [0, 0, m.width, m.height];
 
     // Resolved pointer target and camera per step (inherit from previous when unset).
     const cursorAt: Array<[number, number] | null> = [];
@@ -170,10 +132,10 @@ export function makeRealFilm(m: IFilmManifest) {
         const frame = useCurrentFrame();
         const svgs = useFilmAssets(m);
         const markupFor = (s: IFilmStep) => svgs?.[s.svg] ?? '';
-        let i = starts.findIndex(
-            (st, k) => frame >= st && frame < st + m.steps[k]!.dur,
-        );
-        if (i < 0) i = m.steps.length - 1;
+        let i = starts.findIndex((st, k) => frame >= st && frame < st + m.steps[k]!.dur);
+        if (i < 0) {
+            i = m.steps.length - 1;
+        }
         const step = m.steps[i]!;
         const local = frame - starts[i]!;
         const prev = i > 0 ? m.steps[i - 1]! : null;
@@ -190,23 +152,11 @@ export function makeRealFilm(m: IFilmManifest) {
             curOpacity = local < half ? 0 : (local - half) / half;
         }
         // Loop seam: dip the last state to the background, and bring the first state in from it.
-        const loopOut = interpolate(frame, [
-            total - LOOP_OUT,
-            total,
-        ], [
-            1,
-            0,
-        ], {
+        const loopOut = interpolate(frame, [total - LOOP_OUT, total], [1, 0], {
             extrapolateLeft: 'clamp',
             extrapolateRight: 'clamp',
         });
-        const loopIn = interpolate(frame, [
-            0,
-            LOOP_IN,
-        ], [
-            0,
-            1,
-        ], {
+        const loopIn = interpolate(frame, [0, LOOP_IN], [0, 1], {
             extrapolateLeft: 'clamp',
             extrapolateRight: 'clamp',
         });
@@ -218,35 +168,18 @@ export function makeRealFilm(m: IFilmManifest) {
         // Different capture heights (scrolled full-page vs viewport) mean different coordinate spaces: cut the camera.
         const sameSpace = !prev || prev.height === step.height;
         const settle = sameSpace
-            ? interpolate(local, [
-                0,
-                CAMERA_MOVE,
-            ], [
-                0,
-                1,
-            ], {
-                extrapolateRight: 'clamp',
-                easing: Easing.inOut(Easing.cubic),
-            })
+            ? interpolate(local, [0, CAMERA_MOVE], [0, 1], {
+                  extrapolateRight: 'clamp',
+                  easing: Easing.inOut(Easing.cubic),
+              })
             : 1;
         let cam = lerpRect(fromCam, cameraAt[i]!, settle);
         if (step.pan) {
-            const t = interpolate(
-                local,
-                [
-                    CAMERA_MOVE * 0.5,
-                    step.dur - 6,
-                ],
-                [
-                    0,
-                    1,
-                ],
-                {
-                    extrapolateLeft: 'clamp',
-                    extrapolateRight: 'clamp',
-                    easing: Easing.inOut(Easing.sin),
-                },
-            );
+            const t = interpolate(local, [CAMERA_MOVE * 0.5, step.dur - 6], [0, 1], {
+                extrapolateLeft: 'clamp',
+                extrapolateRight: 'clamp',
+                easing: Easing.inOut(Easing.sin),
+            });
             cam = lerpRect(cam, step.pan[1], t);
         }
         const scale = Math.min(m.width / cam[2], m.height / cam[3]);
@@ -258,51 +191,22 @@ export function makeRealFilm(m: IFilmManifest) {
         const from = i > 0 ? cursorAt[i - 1] : null;
         let pointer: [number, number] | null = null;
         if (target) {
-            const t = interpolate(local, [
-                0,
-                CURSOR_MOVE,
-            ], [
-                0,
-                1,
-            ], {
+            const t = interpolate(local, [0, CURSOR_MOVE], [0, 1], {
                 extrapolateRight: 'clamp',
                 easing: Easing.inOut(Easing.cubic),
             });
-            pointer = from
-                ? [
-                    from[0] + (target[0] - from[0]) * t,
-                    from[1] + (target[1] - from[1]) * t,
-                ]
-                : target;
+            pointer = from ? [from[0] + (target[0] - from[0]) * t, from[1] + (target[1] - from[1]) * t] : target;
         }
         const clickT = step.click
-            ? interpolate(local, [
-                step.dur - 8,
-                step.dur,
-            ], [
-                0,
-                1,
-            ], {
-                extrapolateLeft: 'clamp',
-                extrapolateRight: 'clamp',
-            })
+            ? interpolate(local, [step.dur - 8, step.dur], [0, 1], {
+                  extrapolateLeft: 'clamp',
+                  extrapolateRight: 'clamp',
+              })
             : 0;
-        const pressed = step.click
-            ? Math.sin(Math.min(1, clickT) * Math.PI)
-            : 0;
-        const ripple =
-            i > 0 && m.steps[i - 1]!.click
-                ? interpolate(local, [
-                    0,
-                    14,
-                ], [
-                    0,
-                    1,
-                ], {extrapolateRight: 'clamp'})
-                : 0;
+        const pressed = step.click ? Math.sin(Math.min(1, clickT) * Math.PI) : 0;
+        const ripple = i > 0 && m.steps[i - 1]!.click ? interpolate(local, [0, 14], [0, 1], {extrapolateRight: 'clamp'}) : 0;
         const rippleAt = i > 0 ? cursorAt[i - 1] : null;
-        const caretOn =
-            step.caret && curOpacity > 0.9 && Math.floor(frame / 16) % 2 === 0;
+        const caretOn = step.caret && curOpacity > 0.9 && Math.floor(frame / 16) % 2 === 0;
 
         const layer = (s: IFilmStep, opacity: number, key: string) => (
             <div
@@ -315,7 +219,7 @@ export function makeRealFilm(m: IFilmManifest) {
                     height: s.height,
                     opacity,
                 }}
-                dangerouslySetInnerHTML={{ __html: markupFor(s) }}
+                dangerouslySetInnerHTML={{__html: markupFor(s)}}
             />
         );
 
@@ -340,9 +244,7 @@ export function makeRealFilm(m: IFilmManifest) {
                             transformOrigin: '0 0',
                         }}
                     >
-                        {prev &&
-                            prevOpacity > 0 &&
-                            layer(prev, prevOpacity, `p${i}`)}
+                        {prev && prevOpacity > 0 && layer(prev, prevOpacity, `p${i}`)}
                         {curOpacity > 0 && layer(step, curOpacity, `s${i}`)}
                         {caretOn && step.caret && (
                             <div
@@ -371,9 +273,7 @@ export function makeRealFilm(m: IFilmManifest) {
                                 }}
                             />
                         )}
-                        {pointer &&
-                            loopOut > 0.5 &&
-                            (i > 0 || loopIn > 0.5) && (
+                        {pointer && loopOut > 0.5 && (i > 0 || loopIn > 0.5) && (
                             <Pointer
                                 x={pointer[0]}
                                 y={pointer[1]}

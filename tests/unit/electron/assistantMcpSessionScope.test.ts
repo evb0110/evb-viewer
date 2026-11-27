@@ -1,16 +1,7 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type {
-    IAgentTabSnapshot,
-    IAgentWorkspaceSnapshot,
-    TAgentWorkspaceCommandTarget,
-} from '@contracts/agent';
+import {afterEach, describe, expect, it} from 'vitest';
+import type {IAgentTabSnapshot, IAgentWorkspaceSnapshot, TAgentWorkspaceCommandTarget} from '@contracts/agent';
 import {requireDocumentRef} from '@contracts/documentRef';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
+import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import {
     assertAssistantMcpSnapshotMatchesScope,
     clearAssistantMcpSessionScope,
@@ -19,13 +10,10 @@ import {
     setActiveAssistantMcpSessionScope,
     syncAssistantMcpSessionScope,
 } from '@electron/features/agent/assistantMcpSessionScope';
-import type { IAssistantSessionScopeBinding } from '@electron/features/agent/assistantMcpSessionScope';
+import type {IAssistantSessionScopeBinding} from '@electron/features/agent/assistantMcpSessionScope';
 import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import {
-    requireEpochMs,
-    requireIsoTimestamp,
-} from '@contracts/timestamps';
+import {requireEpochMs, requireIsoTimestamp} from '@contracts/timestamps';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireSessionId} from '@contracts/shared';
 import {requireTabId} from '@contracts/windowTabs';
@@ -112,11 +100,13 @@ function createSnapshot(tab: IAgentTabSnapshot = createTab()): IAgentWorkspaceSn
             recentFileCount: 0,
             recentFilesResolved: true,
         },
-        panes: [{
-            paneId: requirePaneId('pane-a'),
-            tabIds: [tab.tabId],
-            activeTabId: tab.tabId,
-        }],
+        panes: [
+            {
+                paneId: requirePaneId('pane-a'),
+                tabIds: [tab.tabId],
+                activeTabId: tab.tabId,
+            },
+        ],
         tabs: [tab],
         recentFiles: [],
         layout: null,
@@ -150,14 +140,12 @@ describe('assistantMcpSessionScope', () => {
         } satisfies IDocumentRevisionInfo;
 
         expect(() => assertAssistantMcpSnapshotMatchesScope(createSnapshot(), binding)).not.toThrow();
-        expect(() => assertAssistantMcpSnapshotMatchesScope(
-            createSnapshot(createTab({documentIdentity: staleIdentity})),
-            binding,
-        )).toThrow('document changed');
-        expect(() => assertAssistantMcpSnapshotMatchesScope(
-            createSnapshot(createTab({tabId: requireTabId('tab-b')})),
-            binding,
-        )).toThrow('document tab is no longer open');
+        expect(() => assertAssistantMcpSnapshotMatchesScope(createSnapshot(createTab({documentIdentity: staleIdentity})), binding)).toThrow(
+            'document changed',
+        );
+        expect(() => assertAssistantMcpSnapshotMatchesScope(createSnapshot(createTab({tabId: requireTabId('tab-b')})), binding)).toThrow(
+            'document tab is no longer open',
+        );
     });
 
     it('validates the bound session command target when one is present', () => {
@@ -167,13 +155,19 @@ describe('assistantMcpSessionScope', () => {
         } satisfies IAssistantSessionScopeBinding;
 
         expect(() => assertAssistantMcpSnapshotMatchesScope(createSnapshot(), scopedBinding)).not.toThrow();
-        expect(() => assertAssistantMcpSnapshotMatchesScope(
-            createSnapshot(createTab({commandTarget: {
-                ...commandTarget,
-                sessionRevision: 8,
-            }})),
-            scopedBinding,
-        )).toThrow('document changed');
+        expect(() =>
+            assertAssistantMcpSnapshotMatchesScope(
+                createSnapshot(
+                    createTab({
+                        commandTarget: {
+                            ...commandTarget,
+                            sessionRevision: 8,
+                        },
+                    }),
+                ),
+                scopedBinding,
+            ),
+        ).toThrow('document changed');
     });
 
     it('rejects a same-revision assistant snapshot when the document instance changed', () => {
@@ -182,16 +176,20 @@ describe('assistantMcpSessionScope', () => {
             commandTarget,
         } satisfies IAssistantSessionScopeBinding;
 
-        expect(() => assertAssistantMcpSnapshotMatchesScope(
-            createSnapshot(createTab({
-                documentInstanceId: requireDocumentInstanceId('instance-b'),
-                commandTarget: {
-                    ...commandTarget,
-                    documentInstanceId: requireDocumentInstanceId('instance-b'),
-                },
-            })),
-            scopedBinding,
-        )).toThrow('document changed');
+        expect(() =>
+            assertAssistantMcpSnapshotMatchesScope(
+                createSnapshot(
+                    createTab({
+                        documentInstanceId: requireDocumentInstanceId('instance-b'),
+                        commandTarget: {
+                            ...commandTarget,
+                            documentInstanceId: requireDocumentInstanceId('instance-b'),
+                        },
+                    }),
+                ),
+                scopedBinding,
+            ),
+        ).toThrow('document changed');
     });
 
     it('syncs and clears active bindings by session key', () => {

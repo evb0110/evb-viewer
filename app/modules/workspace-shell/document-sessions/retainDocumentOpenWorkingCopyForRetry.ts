@@ -1,4 +1,4 @@
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
 
 const retryableOpenResults = new WeakSet<TOpenFileResult>();
 

@@ -1,18 +1,7 @@
-import {
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'fs/promises';
+import {mkdtemp, readFile, rm, writeFile} from 'fs/promises';
 import {join} from 'path';
 import {tmpdir} from 'os';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {extractPdfMrcLayersBatch} from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
 import type {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 
@@ -25,12 +14,14 @@ async function createScratch() {
 }
 
 afterEach(async () => {
-    await Promise.all(scratchDirectories.splice(0).map(directory =>
-        rm(directory, {
-            recursive: true,
-            force: true,
-        }),
-    ));
+    await Promise.all(
+        scratchDirectories.splice(0).map((directory) =>
+            rm(directory, {
+                recursive: true,
+                force: true,
+            }),
+        ),
+    );
 });
 
 describe('batched PDF MRC extraction', () => {
@@ -44,19 +35,24 @@ describe('batched PDF MRC extraction', () => {
             if (command === '/qpdf') {
                 const objectTable: Record<string, unknown> = {
                     'obj:2 0 R': {stream: {dict: {'/SMask': '20 0 R'}}},
-                    'obj:20 0 R': {stream: {dict: {
-                        '/BitsPerComponent': 1,
-                        '/Decode': [
-                            1,
-                            0,
-                        ],
-                        '/Filter': '/JBIG2Decode',
-                    }}},
+                    'obj:20 0 R': {
+                        stream: {
+                            dict: {
+                                '/BitsPerComponent': 1,
+                                '/Decode': [1, 0],
+                                '/Filter': '/JBIG2Decode',
+                            },
+                        },
+                    },
                     'obj:4 0 R': {stream: {dict: {'/SMask': '40 0 R'}}},
-                    'obj:40 0 R': {stream: {dict: {
-                        '/BitsPerComponent': 1,
-                        '/Filter': '/JBIG2Decode',
-                    }}},
+                    'obj:40 0 R': {
+                        stream: {
+                            dict: {
+                                '/BitsPerComponent': 1,
+                                '/Filter': '/JBIG2Decode',
+                            },
+                        },
+                    },
                 };
                 // qpdf emits only the objects the selectors name, so the mock
                 // does the same: a lookup that still relied on the whole table
@@ -69,17 +65,12 @@ describe('batched PDF MRC extraction', () => {
                 return {
                     exitCode: 0,
                     stderr: '',
-                    stdout: JSON.stringify({qpdf: [
-                        {jsonversion: 2},
-                        Object.fromEntries(
-                            requested.flatMap(key =>
-                                key in objectTable ? [[
-                                    key,
-                                    objectTable[key],
-                                ]] : [],
-                            ),
-                        ),
-                    ]}),
+                    stdout: JSON.stringify({
+                        qpdf: [
+                            {jsonversion: 2},
+                            Object.fromEntries(requested.flatMap((key) => (key in objectTable ? [[key, objectTable[key]]] : []))),
+                        ],
+                    }),
                 };
             }
             if (args.includes('-list')) {
@@ -134,10 +125,7 @@ describe('batched PDF MRC extraction', () => {
                 stdout: '',
             };
         });
-        const targets = [
-            11,
-            35,
-        ].map(pageNumber => ({
+        const targets = [11, 35].map((pageNumber) => ({
             pageNumber,
             backgroundOutputPath: join(scratch, `background-${String(pageNumber)}.ppm`),
             foregroundOutputPath: join(scratch, `foreground-${String(pageNumber)}.jp2`),
@@ -154,56 +142,29 @@ describe('batched PDF MRC extraction', () => {
             runCommand,
             log: vi.fn(),
             rasterConcurrency: 2,
-            onProgress: (completed, total) => progress.push([
-                completed,
-                total,
-            ]),
+            onProgress: (completed, total) => progress.push([completed, total]),
         });
 
-        expect([...result.keys()].sort((left, right) => left - right)).toEqual([
-            11,
-            35,
-        ]);
+        expect([...result.keys()].sort((left, right) => left - right)).toEqual([11, 35]);
         expect(runCommand).toHaveBeenCalledTimes(12);
         // Two chunks, each asking once for its foreground objects and once for
         // the masks they point at, and never for more objects than that.
         expect(runCommand.mock.calls.filter(([command]) => command === '/qpdf')).toHaveLength(4);
-        expect(qpdfSelectorCounts).toEqual([
-            1,
-            1,
-            1,
-            1,
-        ]);
+        expect(qpdfSelectorCounts).toEqual([1, 1, 1, 1]);
         expect(peakListings).toBe(2);
         // A malformed PDF can make either tool spin, and the stage has no other
         // end condition when the caller passes no signal.
-        expect(runCommand.mock.calls.every(([
-            ,
-            ,
-            options,
-        ]) => (options?.timeoutMs ?? 0) > 0)).toBe(true);
-        expect(runCommand.mock.calls.some(([
-            ,
-            args,
-        ]) => args.includes('-png'))).toBe(false);
+        expect(runCommand.mock.calls.every(([, , options]) => (options?.timeoutMs ?? 0) > 0)).toBe(true);
+        expect(runCommand.mock.calls.some(([, args]) => args.includes('-png'))).toBe(false);
         expect(progress).toEqual([
-            [
-                1,
-                2,
-            ],
-            [
-                2,
-                2,
-            ],
+            [1, 2],
+            [2, 2],
         ]);
         expect(await readFile(targets[0]!.foregroundOutputPath, 'utf8')).toBe('FOREGROUND-11');
         expect(await readFile(targets[1]!.selectionMaskOutputPath, 'utf8')).toBe('MASK-35');
         expect(result.get(11)?.selectionMaskDecode).toBe('inverted');
         expect(result.get(35)?.selectionMaskDecode).toBe('default');
-        expect(runCommand.mock.calls.some(([
-            ,
-            args,
-        ]) => args.includes('-jpeg'))).toBe(false);
+        expect(runCommand.mock.calls.some(([, args]) => args.includes('-jpeg'))).toBe(false);
     });
 
     it('propagates an aborted object-table inspection without logging or caching a fallback', async () => {
@@ -232,12 +193,14 @@ describe('batched PDF MRC extraction', () => {
         });
         const extraction = extractPdfMrcLayersBatch({
             pdfPath: '/source.pdf',
-            targets: [{
-                pageNumber: 1,
-                backgroundOutputPath: join(scratch, 'background-1.ppm'),
-                foregroundOutputPath: join(scratch, 'foreground-1.jp2'),
-                selectionMaskOutputPath: join(scratch, 'selection-1.jb2e'),
-            }],
+            targets: [
+                {
+                    pageNumber: 1,
+                    backgroundOutputPath: join(scratch, 'background-1.ppm'),
+                    foregroundOutputPath: join(scratch, 'foreground-1.jp2'),
+                    selectionMaskOutputPath: join(scratch, 'selection-1.jb2e'),
+                },
+            ],
             pdfimagesBinary: '/pdfimages',
             qpdfBinary: '/qpdf',
             pdfImageCombineBinary: '/combine',
@@ -262,18 +225,30 @@ describe('batched PDF MRC extraction', () => {
                 return {
                     exitCode: 0,
                     stderr: '',
-                    stdout: JSON.stringify({qpdf: [{
-                        'obj:2 0 R': {stream: {dict: {'/SMask': '20 0 R'}}},
-                        'obj:20 0 R': {stream: {dict: {
-                            '/BitsPerComponent': 1,
-                            '/Filter': '/JBIG2Decode',
-                        }}},
-                        'obj:4 0 R': {stream: {dict: {'/SMask': '40 0 R'}}},
-                        'obj:40 0 R': {stream: {dict: {
-                            '/BitsPerComponent': 1,
-                            '/Filter': '/JBIG2Decode',
-                        }}},
-                    }]}),
+                    stdout: JSON.stringify({
+                        qpdf: [
+                            {
+                                'obj:2 0 R': {stream: {dict: {'/SMask': '20 0 R'}}},
+                                'obj:20 0 R': {
+                                    stream: {
+                                        dict: {
+                                            '/BitsPerComponent': 1,
+                                            '/Filter': '/JBIG2Decode',
+                                        },
+                                    },
+                                },
+                                'obj:4 0 R': {stream: {dict: {'/SMask': '40 0 R'}}},
+                                'obj:40 0 R': {
+                                    stream: {
+                                        dict: {
+                                            '/BitsPerComponent': 1,
+                                            '/Filter': '/JBIG2Decode',
+                                        },
+                                    },
+                                },
+                            },
+                        ],
+                    }),
                 };
             }
             const firstPage = Number(args[args.indexOf('-f') + 1]);
@@ -291,7 +266,9 @@ describe('batched PDF MRC extraction', () => {
                 };
             }
             if (args.includes('-all')) {
-                if (firstPage === 30) throw new Error('chunk 30 failed');
+                if (firstPage === 30) {
+                    throw new Error('chunk 30 failed');
+                }
                 const prefix = args.at(-1)!;
                 await Promise.all([
                     writeFile(`${prefix}-000.jp2`, 'BACKGROUND-1'),
@@ -320,10 +297,7 @@ describe('batched PDF MRC extraction', () => {
                 stdout: '',
             };
         });
-        const targets = [
-            1,
-            30,
-        ].map(pageNumber => ({
+        const targets = [1, 30].map((pageNumber) => ({
             pageNumber,
             backgroundOutputPath: join(scratch, `background-${String(pageNumber)}.ppm`),
             foregroundOutputPath: join(scratch, `foreground-${String(pageNumber)}.jp2`),
@@ -340,21 +314,12 @@ describe('batched PDF MRC extraction', () => {
             runCommand,
             log,
             rasterConcurrency: 2,
-            onProgress: (completed, total) => progress.push([
-                completed,
-                total,
-            ]),
+            onProgress: (completed, total) => progress.push([completed, total]),
         });
 
         expect([...result.keys()]).toEqual([1]);
         expect(await readFile(targets[0]!.foregroundOutputPath, 'utf8')).toBe('FOREGROUND-1');
-        expect(log).toHaveBeenCalledWith(
-            'warn',
-            expect.stringContaining('page(s) 30'),
-        );
-        expect(progress.at(-1)).toEqual([
-            2,
-            2,
-        ]);
+        expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('page(s) 30'));
+        expect(progress.at(-1)).toEqual([2, 2]);
     });
 });

@@ -1,38 +1,26 @@
-import { createHash } from 'node:crypto';
-import {
-    existsSync,
-    readdirSync,
-    readFileSync,
-} from 'node:fs';
+import {createHash} from 'node:crypto';
+import {existsSync, readdirSync, readFileSync} from 'node:fs';
 import path from 'node:path';
 
-const NATIVE_TOOL_CRATES = [
-    'pdf-image-combine',
-    'pdf-page-ops',
-    'scan-cleanup',
-];
+const NATIVE_TOOL_CRATES = ['pdf-image-combine', 'pdf-page-ops', 'scan-cleanup'];
 
-const WORKSPACE_FILES = [
-    'Cargo.toml',
-    'Cargo.lock',
-    'rust-toolchain.toml',
-];
+const WORKSPACE_FILES = ['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml'];
 
 /** @param {string} crateName @returns {string[]} */
 export function getNativeExternalBuildInputs(crateName) {
     return crateName === 'pdf-page-ops'
         ? [
-            // Text-box fonts in layout order: the script faces, then the
-            // general face. The generated face table the layout reads follows.
-            'public/fonts/annotation/NotoSansHebrew-Regular.ttf',
-            'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
-            'public/fonts/annotation/DejaVuSans.ttf',
-            'packages/contracts/annotationFontCoverage.json',
-            'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
-            'public/pdf/standard_fonts/LiberationSans-Bold.ttf',
-            'public/pdf/standard_fonts/LiberationSans-Italic.ttf',
-            'public/pdf/standard_fonts/LiberationSans-BoldItalic.ttf',
-        ]
+              // Text-box fonts in layout order: the script faces, then the
+              // general face. The generated face table the layout reads follows.
+              'public/fonts/annotation/NotoSansHebrew-Regular.ttf',
+              'public/fonts/annotation/NotoSansSyriac-Regular.ttf',
+              'public/fonts/annotation/DejaVuSans.ttf',
+              'packages/contracts/annotationFontCoverage.json',
+              'public/pdf/standard_fonts/LiberationSans-Regular.ttf',
+              'public/pdf/standard_fonts/LiberationSans-Bold.ttf',
+              'public/pdf/standard_fonts/LiberationSans-Italic.ttf',
+              'public/pdf/standard_fonts/LiberationSans-BoldItalic.ttf',
+          ]
         : [];
 }
 
@@ -60,8 +48,8 @@ function listFiles(directory) {
         recursive: true,
         withFileTypes: true,
     })
-        .filter(entry => entry.isFile())
-        .map(entry => path.join(entry.parentPath, entry.name));
+        .filter((entry) => entry.isFile())
+        .map((entry) => path.join(entry.parentPath, entry.name));
 }
 
 /**
@@ -77,7 +65,7 @@ function listFiles(directory) {
  */
 export function computeNativeBuildId(projectRoot, crateName) {
     const nativeRoot = path.join(projectRoot, 'native');
-    const files = WORKSPACE_FILES.map(name => path.join(nativeRoot, name));
+    const files = WORKSPACE_FILES.map((name) => path.join(nativeRoot, name));
     for (const name of crateClosure(nativeRoot, crateName)) {
         files.push(path.join(nativeRoot, name, 'Cargo.toml'), ...listFiles(path.join(nativeRoot, name, 'src')));
         const buildScript = path.join(nativeRoot, name, 'build.rs');
@@ -89,7 +77,7 @@ export function computeNativeBuildId(projectRoot, crateName) {
         files.push(path.join(projectRoot, input));
     }
     const hash = createHash('sha256');
-    for (const file of files.map(filePath => path.relative(nativeRoot, filePath).split(path.sep).join('/')).sort()) {
+    for (const file of files.map((filePath) => path.relative(nativeRoot, filePath).split(path.sep).join('/')).sort()) {
         hash.update(`${file}\0`);
         hash.update(readFileSync(path.join(nativeRoot, file)));
         hash.update('\0');
@@ -99,8 +87,5 @@ export function computeNativeBuildId(projectRoot, crateName) {
 
 /** Build IDs keyed by binary name, as the app embeds them. @param {string} projectRoot @returns {Record<string, string>} */
 export function computeNativeBuildIds(projectRoot) {
-    return Object.fromEntries(NATIVE_TOOL_CRATES.map(crateName => [
-        `evb-${crateName}`,
-        computeNativeBuildId(projectRoot, crateName),
-    ]));
+    return Object.fromEntries(NATIVE_TOOL_CRATES.map((crateName) => [`evb-${crateName}`, computeNativeBuildId(projectRoot, crateName)]));
 }

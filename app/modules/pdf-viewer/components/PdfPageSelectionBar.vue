@@ -8,7 +8,10 @@
         </span>
 
         <div class="page-selection-bar-actions">
-            <AppTooltip :text="t('pageOps.rotateCcw')" :delay-duration="400">
+            <AppTooltip
+                :text="t('pageOps.rotateCcw')"
+                :delay-duration="400"
+            >
                 <UButton
                     type="button"
                     class="page-selection-bar-button"
@@ -23,7 +26,10 @@
                 />
             </AppTooltip>
 
-            <AppTooltip :text="t('pageOps.rotateCw')" :delay-duration="400">
+            <AppTooltip
+                :text="t('pageOps.rotateCw')"
+                :delay-duration="400"
+            >
                 <UButton
                     type="button"
                     class="page-selection-bar-button"
@@ -38,7 +44,10 @@
                 />
             </AppTooltip>
 
-            <AppTooltip :text="t('pageOps.extractPages')" :delay-duration="400">
+            <AppTooltip
+                :text="t('pageOps.extractPages')"
+                :delay-duration="400"
+            >
                 <UButton
                     type="button"
                     class="page-selection-bar-button"
@@ -53,7 +62,10 @@
                 />
             </AppTooltip>
 
-            <AppTooltip :text="t('pageOps.exportPages')" :delay-duration="400">
+            <AppTooltip
+                :text="t('pageOps.exportPages')"
+                :delay-duration="400"
+            >
                 <UButton
                     type="button"
                     class="page-selection-bar-button"
@@ -68,7 +80,10 @@
                 />
             </AppTooltip>
 
-            <AppTooltip :text="t('pageOps.deletePages')" :delay-duration="400">
+            <AppTooltip
+                :text="t('pageOps.deletePages')"
+                :delay-duration="400"
+            >
                 <UButton
                     type="button"
                     class="page-selection-bar-button"
@@ -109,10 +124,10 @@ const emit = defineEmits<{
     'extract-pages': [];
     'export-pages': [];
     'delete-pages': [];
-    'deselect': [];
+    deselect: [];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 function onRotateCw() {
     emit('rotate-cw');

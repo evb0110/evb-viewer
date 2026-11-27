@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {PDFObject} from 'pdf-lib';
 import {
     getPdfAnnotationIdFromStableKey,
@@ -10,7 +6,9 @@ import {
     parsePdfAnnotationStableKeyRef,
 } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 
-interface ILiteralObject { [key: string]: PDFObject | string | number | boolean | null | undefined | ILiteralObject | TLiteralArray; }
+interface ILiteralObject {
+    [key: string]: PDFObject | string | number | boolean | null | undefined | ILiteralObject | TLiteralArray;
+}
 type TLiteralArray = Array<PDFObject | string | number | boolean | null | undefined | ILiteralObject | TLiteralArray>;
 
 describe('parsePdfAnnotationStableKey', () => {
@@ -54,8 +52,3 @@ describe('parsePdfAnnotationStableKey', () => {
         expect(parsePdfAnnotationStableKeyRef('uid:1:12R0')).toBeNull();
     });
 });
-
-
-
-
-

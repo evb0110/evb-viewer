@@ -1,20 +1,15 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { requireDocumentRef } from '@contracts/documentRef';
-import type { IPdfSearchProgress } from '@contracts/search';
-import { requireRequestId } from '@contracts/shared';
+import {describe, expect, it, vi} from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {IPdfSearchProgress} from '@contracts/search';
+import {requireRequestId} from '@contracts/shared';
 import {PLATFORM_API_DESCRIPTOR} from '@contracts/platformApi';
 import {
     createDefaultPlatformApiFixtureMethod,
     createPlatformApiFixtureOperation,
     type IPlatformApiFixtureEventMethod,
 } from '@tests/helpers/createDefaultPlatformApiFixtureMethod';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { createPlatformApiFixture } from '@tests/helpers/createPlatformApiFixture';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {createPlatformApiFixture} from '@tests/helpers/createPlatformApiFixture';
 
 function readPath(root: unknown, path: readonly string[]) {
     let value = root;
@@ -36,20 +31,19 @@ describe('createElectronPlatformApiFixture', () => {
         const api = createElectronPlatformApiFixture();
 
         for (const descriptor of PLATFORM_API_DESCRIPTOR.methods) {
-            expect(
-                readPath(api, descriptor.path),
-                formatPath(descriptor.path),
-            ).toEqual(expect.any(Function));
+            expect(readPath(api, descriptor.path), formatPath(descriptor.path)).toEqual(expect.any(Function));
         }
     });
 
     it('deep-merges split capability overrides', () => {
         const registerFilesForOpen = vi.fn(async () => [requireDocumentRef('/tmp/split.pdf')]);
         const openDocumentDialog = vi.fn(async () => null);
-        const api = createElectronPlatformApiFixture({documentPicker: {
-            registerFilesForOpen,
-            openDocumentDialog,
-        }});
+        const api = createElectronPlatformApiFixture({
+            documentPicker: {
+                registerFilesForOpen,
+                openDocumentDialog,
+            },
+        });
 
         expect(api.documentPicker.registerFilesForOpen).toBe(registerFilesForOpen);
         expect(api.documentPicker.openDocumentDialog).toBe(openDocumentDialog);
@@ -71,11 +65,10 @@ describe('createElectronPlatformApiFixture', () => {
 
     it('uses test fixtures for Search defaults', async () => {
         const api = createElectronPlatformApiFixture();
-        await expect(api.search.run('/tmp/example.pdf', 'needle'))
-            .resolves.toEqual({
-                results: [],
-                truncated: false,
-            });
+        await expect(api.search.run('/tmp/example.pdf', 'needle')).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
         await expect(api.search.warmIndex('/tmp/example.pdf')).resolves.toBe(true);
         await expect(api.search.cancel()).resolves.toEqual({canceled: false});
         await expect(api.search.resetCache()).resolves.toBe(true);
@@ -113,7 +106,7 @@ describe('createElectronPlatformApiFixture', () => {
         const api = createElectronPlatformApiFixture();
         const event = api.search.onProgress as typeof api.search.onProgress & IPlatformApiFixtureEventMethod<IPdfSearchProgress>;
         const received: IPdfSearchProgress[] = [];
-        api.search.onProgress(progress => received.push(progress));
+        api.search.onProgress((progress) => received.push(progress));
         const running = {
             requestId: requireRequestId('search-replay'),
             processed: 1,
@@ -153,7 +146,7 @@ describe('createElectronPlatformApiFixture', () => {
 
         interface IFixtureError {
             code: 'FIXTURE_FAILURE';
-            message: string
+            message: string;
         }
         const failedOperation = createPlatformApiFixtureOperation<{ok: true}, [], number, IFixtureError>();
         const failed = failedOperation.method();
@@ -168,7 +161,7 @@ describe('createElectronPlatformApiFixture', () => {
     });
 
     it('settles keyed operations independently', async () => {
-        const operation = createPlatformApiFixtureOperation<number, [string], string>({operationKey: requestId => requestId});
+        const operation = createPlatformApiFixtureOperation<number, [string], string>({operationKey: (requestId) => requestId});
         const first = operation.method('first');
         const second = operation.method('second');
 
@@ -192,8 +185,7 @@ describe('createElectronPlatformApiFixture', () => {
         const overrides = {documentFiles: {}};
         Reflect.set(overrides.documentFiles, 'readFile', undefined);
 
-        expect(() => createElectronPlatformApiFixture(overrides))
-            .toThrow('Missing platform API fixture method documentFiles.readFile');
+        expect(() => createElectronPlatformApiFixture(overrides)).toThrow('Missing platform API fixture method documentFiles.readFile');
     });
 
     it('keeps required override members typed while allowing optional capability omission', () => {
@@ -219,10 +211,7 @@ describe('createElectronPlatformApiFixture', () => {
 
     it('rejects unsupported default calls instead of silently resolving undefined', async () => {
         const method = createDefaultPlatformApiFixtureMethod({
-            path: [
-                'shell',
-                'unsupportedProbe',
-            ],
+            path: ['shell', 'unsupportedProbe'],
             kind: 'async',
             required: {
                 electron: false,
@@ -231,7 +220,6 @@ describe('createElectronPlatformApiFixture', () => {
             browserLazy: 'direct',
         });
 
-        await expect((method as () => Promise<unknown>)())
-            .rejects.toThrow('Unsupported platform API fixture call: shell.unsupportedProbe');
+        await expect((method as () => Promise<unknown>)()).rejects.toThrow('Unsupported platform API fixture call: shell.unsupportedProbe');
     });
 });

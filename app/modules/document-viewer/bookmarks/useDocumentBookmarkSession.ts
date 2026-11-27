@@ -1,6 +1,6 @@
-import { getErrorMessage } from '@app/utils/error';
-import type { Ref } from 'vue';
-import type { IDocumentPageSource } from '@app/modules/document-viewer/source/documentPageSource';
+import {getErrorMessage} from '@app/utils/error';
+import type {Ref} from 'vue';
+import type {IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 import {
     createDocumentBookmarkTree,
     findDocumentBookmark,
@@ -76,7 +76,9 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
 
     function setDisplayMode(mode: TDocumentBookmarkDisplayMode) {
         displayMode.value = mode;
-        if (mode === 'top-level') expandedIds.value = new Set();
+        if (mode === 'top-level') {
+            expandedIds.value = new Set();
+        }
     }
 
     function toggleExpanded(id: string) {
@@ -85,10 +87,15 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
             expandedIds: expandedIds.value,
             activePathIds: activePathIds.value,
         });
-        if (displayMode.value !== 'top-level') displayMode.value = 'top-level';
+        if (displayMode.value !== 'top-level') {
+            displayMode.value = 'top-level';
+        }
         const next = new Set(expandedIds.value);
-        if (wasExpanded) next.delete(id);
-        else next.add(id);
+        if (wasExpanded) {
+            next.delete(id);
+        } else {
+            next.add(id);
+        }
         expandedIds.value = next;
     }
 
@@ -97,17 +104,28 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
     }
 
     // A retiring source takes its outline with it; the accepted one loads its own.
-    watch(options.source, () => {
-        cancel();
-        items.value = [];
-        error.value = null;
-        expandedIds.value = new Set();
-        void load();
-    }, {flush: 'post'});
-    watch(options.isActive, (active) => {
-        if (active) void load();
-        else cancel();
-    }, {immediate: true});
+    watch(
+        options.source,
+        () => {
+            cancel();
+            items.value = [];
+            error.value = null;
+            expandedIds.value = new Set();
+            void load();
+        },
+        {flush: 'post'},
+    );
+    watch(
+        options.isActive,
+        (active) => {
+            if (active) {
+                void load();
+            } else {
+                cancel();
+            }
+        },
+        {immediate: true},
+    );
     onScopeDispose(cancel);
 
     return {

@@ -1,24 +1,18 @@
 import type * as TViMockOriginalModule from '@app/constants/storageKeys';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { IOcrWord } from '@contracts/shared';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import type {IOcrWord} from '@contracts/shared';
 import type {IPdfViewport} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { cast } from '@tests/helpers/cast';
+import {cast} from '@tests/helpers/cast';
 
 vi.mock('@app/constants/storageKeys', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     STORAGE_KEYS: {OCR_DEBUG_BOXES: 'pdfOcrDebugBoxes'},
 }));
 
-const { isOcrDebugEnabled } = await import('@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes');
-const { transformOcrWordToViewport } = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport');
-const { transformWordBox } = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox');
+const {isOcrDebugEnabled} = await import('@app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes');
+const {transformOcrWordToViewport} = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport');
+const {transformWordBox} = await import('@app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox');
 
 describe('transformOcrWordToViewport', () => {
     const baseWord: IOcrWord = {
@@ -30,21 +24,24 @@ describe('transformOcrWordToViewport', () => {
     };
 
     it('maps OCR pixels through the PDF viewport', () => {
-        const viewport = cast<IPdfViewport>({convertToViewportPoint: vi.fn((x: number, y: number) => [
-            x + 10,
-            y + 20,
-        ])});
+        const viewport = cast<IPdfViewport>({convertToViewportPoint: vi.fn((x: number, y: number) => [x + 10, y + 20])});
 
-        expect(transformOcrWordToViewport(
-            baseWord,
-            {render: {imagePx: {
-                w: 1000,
-                h: 500,
-            }}},
-            2000,
-            1000,
-            viewport,
-        )).toEqual({
+        expect(
+            transformOcrWordToViewport(
+                baseWord,
+                {
+                    render: {
+                        imagePx: {
+                            w: 1000,
+                            h: 500,
+                        },
+                    },
+                },
+                2000,
+                1000,
+                viewport,
+            ),
+        ).toEqual({
             x: 210,
             y: 860,
             width: 400,
@@ -60,26 +57,26 @@ describe('transformOcrWordToViewport', () => {
     });
 
     it('returns null when the viewport returns an invalid rectangle', () => {
-        const viewport = cast<IPdfViewport>({convertToViewportPoint: vi.fn()
-            .mockReturnValueOnce([
-                0,
-                Number.NaN,
-            ])
-            .mockReturnValueOnce([
-                10,
-                20,
-            ])});
+        const viewport = cast<IPdfViewport>({
+            convertToViewportPoint: vi.fn().mockReturnValueOnce([0, Number.NaN]).mockReturnValueOnce([10, 20]),
+        });
 
-        expect(transformOcrWordToViewport(
-            baseWord,
-            {render: {imagePx: {
-                w: 1000,
-                h: 500,
-            }}},
-            2000,
-            1000,
-            viewport,
-        )).toBeNull();
+        expect(
+            transformOcrWordToViewport(
+                baseWord,
+                {
+                    render: {
+                        imagePx: {
+                            w: 1000,
+                            h: 500,
+                        },
+                    },
+                },
+                2000,
+                1000,
+                viewport,
+            ),
+        ).toBeNull();
     });
 
     it.each([
@@ -120,73 +117,67 @@ describe('transformOcrWordToViewport', () => {
             },
         ],
     ] as const)('maps the OCR box through the current %d degree viewport', (rotation, expected) => {
-        const viewport = cast<IPdfViewport>({convertToViewportPoint: vi.fn((x: number, y: number) => {
-            if (rotation === 0) {
-                return [
-                    x,
-                    1000 - y,
-                ];
-            }
-            if (rotation === 90) {
-                return [
-                    y,
-                    x,
-                ];
-            }
-            if (rotation === 180) {
-                return [
-                    1000 - x,
-                    y,
-                ];
-            }
-            return [
-                1000 - y,
-                1000 - x,
-            ];
-        })});
+        const viewport = cast<IPdfViewport>({
+            convertToViewportPoint: vi.fn((x: number, y: number) => {
+                if (rotation === 0) {
+                    return [x, 1000 - y];
+                }
+                if (rotation === 90) {
+                    return [y, x];
+                }
+                if (rotation === 180) {
+                    return [1000 - x, y];
+                }
+                return [1000 - y, 1000 - x];
+            }),
+        });
 
-        expect(transformOcrWordToViewport(
-            baseWord,
-            {render: {imagePx: {
-                w: 1000,
-                h: 1000,
-            }}},
-            1000,
-            1000,
-            viewport,
-        )).toEqual(expected);
+        expect(
+            transformOcrWordToViewport(
+                baseWord,
+                {
+                    render: {
+                        imagePx: {
+                            w: 1000,
+                            h: 1000,
+                        },
+                    },
+                },
+                1000,
+                1000,
+                viewport,
+            ),
+        ).toEqual(expected);
     });
 
     it('maps the 100 by 200 audit case through a 180 degree viewport', () => {
         const viewport = cast<IPdfViewport>({
-            viewBox: [
-                0,
-                0,
-                100,
-                200,
-            ],
-            convertToViewportPoint: vi.fn((x: number, y: number) => [
-                100 - x,
-                y,
-            ]),
+            viewBox: [0, 0, 100, 200],
+            convertToViewportPoint: vi.fn((x: number, y: number) => [100 - x, y]),
         });
 
-        expect(transformOcrWordToViewport(
-            {
-                text: 'audit',
-                x: 10,
-                y: 20,
-                width: 30,
-                height: 10,
-            },
-            {render: {imagePx: {
-                w: 100,
-                h: 200,
-            }}},
-            100,
-            200,
-            viewport,
-        )).toEqual({
+        expect(
+            transformOcrWordToViewport(
+                {
+                    text: 'audit',
+                    x: 10,
+                    y: 20,
+                    width: 30,
+                    height: 10,
+                },
+                {
+                    render: {
+                        imagePx: {
+                            w: 100,
+                            h: 200,
+                        },
+                    },
+                },
+                100,
+                200,
+                viewport,
+            ),
+        ).toEqual({
             x: 60,
             y: 170,
             width: 30,
@@ -225,8 +216,7 @@ describe('transformWordBox', () => {
 
     it('fails loudly for rotated OCR artifacts because this legacy transform is rotation-blind', () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        expect(() => transformWordBox(baseWord, 1000, 500, 2000, 1000, 90))
-            .toThrow('transformOcrWordToViewport');
+        expect(() => transformWordBox(baseWord, 1000, 500, 2000, 1000, 90)).toThrow('transformOcrWordToViewport');
     });
 
     it('returns zero-size box when image dimensions are missing', () => {
@@ -291,7 +281,7 @@ describe('transformWordBox', () => {
 });
 
 describe('isOcrDebugEnabled', () => {
-    const globalObject = globalThis as {window?: unknown;};
+    const globalObject = globalThis as {window?: unknown};
     const originalWindow = globalObject.window;
 
     afterEach(() => {
@@ -304,7 +294,7 @@ describe('isOcrDebugEnabled', () => {
     });
 
     it('returns false when localStorage.getItem is missing', () => {
-        globalObject.window = { localStorage: {} };
+        globalObject.window = {localStorage: {}};
         expect(isOcrDebugEnabled()).toBe(false);
     });
 

@@ -1,19 +1,9 @@
-import {
-    BrowserWindow,
-    type IpcMainEvent,
-    type IpcMainInvokeEvent,
-} from 'electron';
+import {BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent} from 'electron';
 import type {TAgentService} from '@electron/features/agent/public';
 import type {scanCleanupMainBindings} from '@electron/features/scan-cleanup/scanCleanupMainBindings';
-import {
-    DOCUMENTS_CHANNELS,
-    DOCUMENTS_EVENT_CHANNELS,
-} from '@electron/features/documents/contract';
+import {DOCUMENTS_CHANNELS, DOCUMENTS_EVENT_CHANNELS} from '@electron/features/documents/contract';
 import {DOCX_EXPORT_STREAM_CHANNELS} from '@contracts/docxExport';
-import {
-    DOCUMENT_PLATFORM_FEATURES,
-    type DOCUMENT_FILES_PLATFORM_FEATURE,
-} from '@contracts/documentsPlatformFeature';
+import {DOCUMENT_PLATFORM_FEATURES, type DOCUMENT_FILES_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
 import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
 import {IMAGE_EXPORT_PLATFORM_FEATURE} from '@contracts/imageExportPlatformFeature';
 import {OCR_PLATFORM_FEATURE} from '@contracts/ocrPlatformFeature';
@@ -26,18 +16,11 @@ import {UPDATES_PLATFORM_FEATURE} from '@contracts/updatesPlatformFeature';
 import {HOST_PLATFORM_FEATURE} from '@contracts/hostPlatformFeature';
 import {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
 import {WINDOW_TABS_PLATFORM_FEATURE} from '@contracts/windowTabsPlatformFeature';
-import type {
-    TAnyDefinedPlatformFeature,
-    TFeatureEventMap,
-    TFeatureMainBindings,
-} from '@contracts/platformFeature';
+import type {TAnyDefinedPlatformFeature, TFeatureEventMap, TFeatureMainBindings} from '@contracts/platformFeature';
 import type {ICoreIpcHandlerOptions} from '@electron/platform-ipc/registerCoreIpcHandlers';
 import {registerCoreIpcHandlers} from '@electron/platform-ipc/registerCoreIpcHandlers';
 import {RAW_IPC_HANDLER_DESCRIPTORS} from '@electron/platform-ipc/rawIpcRegistration';
-import {
-    createValidatedIpcMainEventRegistrar,
-    createValidatedIpcMainRegistrar,
-} from '@electron/platform-ipc/validatedIpcRegistrar';
+import {createValidatedIpcMainEventRegistrar, createValidatedIpcMainRegistrar} from '@electron/platform-ipc/validatedIpcRegistrar';
 import {onDocumentRevisionChanged} from '@electron/file-access/documentStore';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
@@ -80,8 +63,9 @@ let documentsRuntimePromise: Promise<ILoadedDocumentsRuntime> | null = null;
 let loadedDocumentsRuntime: ILoadedDocumentsRuntime | null = null;
 let unsubscribePreloadRevisionBridge: (() => void) | null = null;
 
-type TDocumentRevisionChangedPayload =
-    TFeatureEventMap<typeof DOCUMENT_FILES_PLATFORM_FEATURE>[typeof DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged];
+type TDocumentRevisionChangedPayload = TFeatureEventMap<
+    typeof DOCUMENT_FILES_PLATFORM_FEATURE
+>[typeof DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged];
 
 function installPreloadDocumentRevisionBridge(context: IFeatureRegistrationContext) {
     if (unsubscribePreloadRevisionBridge || loadedDocumentsRuntime) {
@@ -93,10 +77,7 @@ function installPreloadDocumentRevisionBridge(context: IFeatureRegistrationConte
                 continue;
             }
             try {
-                window.webContents.send(
-                    DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged,
-                    event satisfies TDocumentRevisionChangedPayload,
-                );
+                window.webContents.send(DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged, event satisfies TDocumentRevisionChangedPayload);
             } catch (error) {
                 featureRegistrationLogger.debug(`Failed to send document revision event: ${getErrorMessage(error)}`);
             }
@@ -121,46 +102,48 @@ function installPreloadDocumentRevisionBridge(context: IFeatureRegistrationConte
 
 function loadDocumentsRuntime(onSubsystemLoaded?: (subsystem: TLazyMainSubsystem) => void): Promise<ILoadedDocumentsRuntime> {
     onSubsystemLoaded?.('documents');
-    documentsRuntimePromise ??= import('@electron/features/documents/documentsMainBindings').then((module) => {
-        const invokeHandlers = new Map<string, TDocumentsDirectInvokeHandler>();
-        const eventHandlers = new Map<string, TDocumentsDirectEventHandler>();
-        module.registerDocumentsDirectIpc(
-            {
-                handle: (channel, handler) => {
-                    invokeHandlers.set(channel, handler as TDocumentsDirectInvokeHandler);
+    documentsRuntimePromise ??= import('@electron/features/documents/documentsMainBindings')
+        .then((module) => {
+            const invokeHandlers = new Map<string, TDocumentsDirectInvokeHandler>();
+            const eventHandlers = new Map<string, TDocumentsDirectEventHandler>();
+            module.registerDocumentsDirectIpc(
+                {
+                    handle: (channel, handler) => {
+                        invokeHandlers.set(channel, handler as TDocumentsDirectInvokeHandler);
+                    },
                 },
-            },
-            {
-                on: (channel, handler) => {
-                    eventHandlers.set(channel, handler);
+                {
+                    on: (channel, handler) => {
+                        eventHandlers.set(channel, handler);
+                    },
                 },
-            },
-        );
-        if (invokeHandlers.size > 0) {
-            const expectedChannels = new Set<string>(DOCUMENTS_DIRECT_INVOKE_CHANNELS);
-            const unexpectedChannels = [...invokeHandlers.keys()].filter(channel => !expectedChannels.has(channel));
-            const missingChannels = DOCUMENTS_DIRECT_INVOKE_CHANNELS.filter(channel => !invokeHandlers.has(channel));
-            if (unexpectedChannels.length > 0 || missingChannels.length > 0) {
-                throw new Error(
-                    `documents-direct invoke channel mismatch (missing: ${missingChannels.join(', ') || 'none'}, unexpected: ${unexpectedChannels.join(', ') || 'none'})`,
-                );
+            );
+            if (invokeHandlers.size > 0) {
+                const expectedChannels = new Set<string>(DOCUMENTS_DIRECT_INVOKE_CHANNELS);
+                const unexpectedChannels = [...invokeHandlers.keys()].filter((channel) => !expectedChannels.has(channel));
+                const missingChannels = DOCUMENTS_DIRECT_INVOKE_CHANNELS.filter((channel) => !invokeHandlers.has(channel));
+                if (unexpectedChannels.length > 0 || missingChannels.length > 0) {
+                    throw new Error(
+                        `documents-direct invoke channel mismatch (missing: ${missingChannels.join(', ') || 'none'}, unexpected: ${unexpectedChannels.join(', ') || 'none'})`,
+                    );
+                }
             }
-        }
-        // The canonical bridge and invalidation effects are now installed by
-        // registerDocumentsDirectIpc; release the lightweight pre-load listener.
-        unsubscribePreloadRevisionBridge?.();
-        unsubscribePreloadRevisionBridge = null;
-        const runtime: ILoadedDocumentsRuntime = {
-            module,
-            invokeHandlers,
-            eventHandlers,
-        };
-        loadedDocumentsRuntime = runtime;
-        return runtime;
-    }).catch((error) => {
-        documentsRuntimePromise = null;
-        throw error;
-    });
+            // The canonical bridge and invalidation effects are now installed by
+            // registerDocumentsDirectIpc; release the lightweight pre-load listener.
+            unsubscribePreloadRevisionBridge?.();
+            unsubscribePreloadRevisionBridge = null;
+            const runtime: ILoadedDocumentsRuntime = {
+                module,
+                invokeHandlers,
+                eventHandlers,
+            };
+            loadedDocumentsRuntime = runtime;
+            return runtime;
+        })
+        .catch((error) => {
+            documentsRuntimePromise = null;
+            throw error;
+        });
     return documentsRuntimePromise;
 }
 
@@ -170,17 +153,15 @@ export interface IFeatureRegistrationDescriptor<TBindings extends TFeatureMainBi
     readonly name: string;
     readonly feature?: TAnyDefinedPlatformFeature;
     readonly create?: (context: IFeatureRegistrationContext) => Promise<TBindings>;
-    readonly register?: (
-        ipcMain: Electron.IpcMain,
-        context: IFeatureRegistrationContext,
-    ) => void;
+    readonly register?: (ipcMain: Electron.IpcMain, context: IFeatureRegistrationContext) => void;
     readonly disposeBindingKey?: keyof TBindings & string;
 }
 
-type TPlatformDescriptor<TBindings extends TFeatureMainBindingRecord = TFeatureMainBindingRecord> = IFeatureRegistrationDescriptor<TBindings> & {
-    readonly feature: TAnyDefinedPlatformFeature;
-    readonly create: (context: IFeatureRegistrationContext) => Promise<TBindings>;
-};
+type TPlatformDescriptor<TBindings extends TFeatureMainBindingRecord = TFeatureMainBindingRecord> =
+    IFeatureRegistrationDescriptor<TBindings> & {
+        readonly feature: TAnyDefinedPlatformFeature;
+        readonly create: (context: IFeatureRegistrationContext) => Promise<TBindings>;
+    };
 
 type TScanCleanupMainBindings = typeof scanCleanupMainBindings;
 
@@ -188,8 +169,7 @@ const scanCleanupDescriptor: TPlatformDescriptor<TScanCleanupMainBindings> = {
     name: 'scan-cleanup',
     feature: SCAN_CLEANUP_PLATFORM_FEATURE,
     create: async () => {
-        const {scanCleanupMainBindings} =
-            await import('@electron/features/scan-cleanup/scanCleanupMainBindings');
+        const {scanCleanupMainBindings} = await import('@electron/features/scan-cleanup/scanCleanupMainBindings');
         return scanCleanupMainBindings;
     },
     disposeBindingKey: 'disposeScanCleanupMainBindings',
@@ -199,10 +179,7 @@ const platformDescriptors: readonly TPlatformDescriptor[] = [
     {
         name: 'agent',
         feature: AGENT_PLATFORM_FEATURE,
-        create: async ({
-            agentService,
-            onSubsystemLoaded,
-        }) => {
+        create: async ({agentService, onSubsystemLoaded}) => {
             onSubsystemLoaded?.('agent');
             if (agentService) {
                 return agentService;
@@ -214,22 +191,17 @@ const platformDescriptors: readonly TPlatformDescriptor[] = [
     {
         name: 'settings',
         feature: SETTINGS_PLATFORM_FEATURE,
-        create: async ({
-            agentService,
-            isSubsystemLoaded,
-        }) => {
-            const {createSettingsMainBindings} =
-                await import('@electron/features/settings/createSettingsMainBindings');
+        create: async ({agentService, isSubsystemLoaded}) => {
+            const {createSettingsMainBindings} = await import('@electron/features/settings/createSettingsMainBindings');
             const shutdownAssistant = agentService
                 ? agentService.shutdownAssistant
                 : async () => {
-                    if (isSubsystemLoaded && !isSubsystemLoaded('agent')) {
-                        return;
-                    }
-                    const {shutdownAgentAssistantIfLoaded} =
-                        await import('@electron/features/agent/public');
-                    await shutdownAgentAssistantIfLoaded();
-                };
+                      if (isSubsystemLoaded && !isSubsystemLoaded('agent')) {
+                          return;
+                      }
+                      const {shutdownAgentAssistantIfLoaded} = await import('@electron/features/agent/public');
+                      await shutdownAgentAssistantIfLoaded();
+                  };
             return createSettingsMainBindings(shutdownAssistant);
         },
     },
@@ -244,9 +216,11 @@ const platformDescriptors: readonly TPlatformDescriptor[] = [
     {
         name: 'updates',
         feature: UPDATES_PLATFORM_FEATURE,
-        create: async ({loadUpdatesModule}) => (
-            await (loadUpdatesModule ? loadUpdatesModule() : import('@electron/updates'))
-        ) satisfies TFeatureMainBindings<typeof UPDATES_PLATFORM_FEATURE, IpcMainInvokeEvent>,
+        create: async ({loadUpdatesModule}) =>
+            (await (loadUpdatesModule ? loadUpdatesModule() : import('@electron/updates'))) satisfies TFeatureMainBindings<
+                typeof UPDATES_PLATFORM_FEATURE,
+                IpcMainInvokeEvent
+            >,
     },
     {
         name: 'host',
@@ -296,14 +270,13 @@ const platformDescriptors: readonly TPlatformDescriptor[] = [
         feature: DJVU_PLATFORM_FEATURE,
         create: async ({onSubsystemLoaded}) => {
             onSubsystemLoaded?.('djvu');
-            const {default: prepareDjvuMainBindings} =
-                await import('@electron/features/djvu/mainBindings');
+            const {default: prepareDjvuMainBindings} = await import('@electron/features/djvu/mainBindings');
             return prepareDjvuMainBindings();
         },
     },
 ];
 
-const documentDescriptors: readonly TPlatformDescriptor[] = DOCUMENT_PLATFORM_FEATURES.map(feature => ({
+const documentDescriptors: readonly TPlatformDescriptor[] = DOCUMENT_PLATFORM_FEATURES.map((feature) => ({
     name: feature.path.join('.'),
     feature,
     create: async ({onSubsystemLoaded}) => (await loadDocumentsRuntime(onSubsystemLoaded)).module.documentsMainBindings,
@@ -315,10 +288,7 @@ export const FEATURE_REGISTRATION_DESCRIPTORS: readonly IFeatureRegistrationDesc
         name: 'documents-direct',
         register: (ipcMain, context) => {
             installPreloadDocumentRevisionBridge(context);
-            const allowedChannels = new Set<string>([
-                ...Object.values(DOCUMENTS_CHANNELS),
-                ...Object.values(DOCX_EXPORT_STREAM_CHANNELS),
-            ]);
+            const allowedChannels = new Set<string>([...Object.values(DOCUMENTS_CHANNELS), ...Object.values(DOCX_EXPORT_STREAM_CHANNELS)]);
             const invokeRegistrar = createValidatedIpcMainRegistrar(ipcMain, {
                 allowedChannels,
                 lazyCodecs: async () => (await loadDocumentsRuntime(context.onSubsystemLoaded)).module.DOCUMENTS_DIRECT_ARG_DECODERS,

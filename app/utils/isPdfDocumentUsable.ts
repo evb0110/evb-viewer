@@ -1,5 +1,5 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { isPdfDocumentOperational } from '@app/services/pdfjs/isPdfDocumentOperational';
+import {isPdfDocumentOperational} from '@app/services/pdfjs/isPdfDocumentOperational';
 
 /**
  * Check whether a PDF document is still in a usable state.

@@ -1,59 +1,36 @@
-import { getErrorMessage } from '@app/utils/error';
-import {
-    createAbortError,
-    isAbortError,
-} from '@contracts/isAbortError';
+import {getErrorMessage} from '@app/utils/error';
+import {createAbortError, isAbortError} from '@contracts/isAbortError';
 import {isBrowserLegacyDocumentRef} from '@contracts/documentRef';
-import type { Ref } from 'vue';
-import { useTimeoutFn } from '@vueuse/core';
+import type {Ref} from 'vue';
+import {useTimeoutFn} from '@vueuse/core';
 import {
     BROWSER_PRINT_CLEANUP_TIMEOUT_MS,
     BROWSER_PRINT_LOAD_SETTLE_DELAY_MS,
     BROWSER_PRINT_LOAD_TIMEOUT_MS,
     PRINT_PREPARING_TOAST_DELAY_MS,
 } from '@app/constants/timeouts';
-import {
-    getFailureReceipt,
-    type ExpectedOutcome,
-} from '@contracts/diagnostics/failureReceipt';
-import { uniq } from 'es-toolkit/array';
-import {
-    createRequestId,
-    type TPdfViewMode,
-    type TRequestId,
-} from '@contracts/shared';
-import type { TPdfSource } from '@app/types/pdfUi';
+import {getFailureReceipt, type ExpectedOutcome} from '@contracts/diagnostics/failureReceipt';
+import {uniq} from 'es-toolkit/array';
+import {createRequestId, type TPdfViewMode, type TRequestId} from '@contracts/shared';
+import type {TPdfSource} from '@app/types/pdfUi';
 import {
     buildBrowserPrintFrameMarkup,
     normalizePrintPageNumbers,
     type IBrowserPrintDocument,
     type TPrintOrientation,
 } from '@app/utils/pdfPrintShared';
-import { buildPrintSelectionFileName } from '@app/utils/buildPrintSelectionFileName';
-import {
-    getDocumentPdfCapability,
-    isNativePrintCapabilityUnavailable,
-} from '@app/utils/platformDocuments';
-import type { TPageSelection } from '@pdf-core/pdfPageSelection';
-import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
-import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    createExplicitPageSelection,
-    materializePageSelection,
-    pageSelectionCount,
-} from '@pdf-core/pdfPageSelection';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { readDocumentBytes } from '@app/utils/documentBytes';
-import {
-    useFailureToast,
-    type IFailurePresentation,
-} from '@app/composables/useFailureToast';
-import { isPathPdfSource } from '@app/modules/pdf-viewer/public';
-import type { IPrintableSourcePath } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
+import {buildPrintSelectionFileName} from '@app/utils/buildPrintSelectionFileName';
+import {getDocumentPdfCapability, isNativePrintCapabilityUnavailable} from '@app/utils/platformDocuments';
+import type {TPageSelection} from '@pdf-core/pdfPageSelection';
+import {IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES} from '@contracts/electronApiDocuments';
+import {PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES} from '@contracts/shared';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {createExplicitPageSelection, materializePageSelection, pageSelectionCount} from '@pdf-core/pdfPageSelection';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {readDocumentBytes} from '@app/utils/documentBytes';
+import {useFailureToast, type IFailurePresentation} from '@app/composables/useFailureToast';
+import {isPathPdfSource} from '@app/modules/pdf-viewer/public';
+import type {IPrintableSourcePath} from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
 import type {
     TWorkspaceDriverCommandResult,
     IWorkspaceDriverPrintRequest,
@@ -84,9 +61,11 @@ function isCrossOriginFrameAccessError(error: unknown) {
         return false;
     }
 
-    return error.name === 'SecurityError'
-        || getErrorMessage(error).includes('cross-origin frame')
-        || getErrorMessage(error).includes('Blocked a frame with origin');
+    return (
+        error.name === 'SecurityError' ||
+        getErrorMessage(error).includes('cross-origin frame') ||
+        getErrorMessage(error).includes('Blocked a frame with origin')
+    );
 }
 
 function createPrintAbortError() {
@@ -104,7 +83,7 @@ function throwIfPrintAborted(signal: AbortSignal | undefined) {
 }
 
 function createPrintSignalOptions(signal: AbortSignal | undefined) {
-    return signal ? { signal } : {};
+    return signal ? {signal} : {};
 }
 
 function registerNativePrintCancellation(
@@ -138,11 +117,11 @@ interface IWorkspacePrintDeps {
     hasPendingPrintSerializationChanges?: Readonly<Ref<boolean>>;
     ensurePrintReady?: () => Promise<boolean>;
     createPrintableSourcePath?: (options?: {signal?: AbortSignal}) => Promise<IPrintableSourcePath | null>;
-    getPrintableSourceData: (options?: { signal?: AbortSignal }) => Promise<Uint8Array | null>;
+    getPrintableSourceData: (options?: {signal?: AbortSignal}) => Promise<Uint8Array | null>;
     renderLoadedPdfPagesForBrowserPrint?: (
         targetDocument: IBrowserPrintDocument,
         pageNumbers: number[],
-        options?: { signal?: AbortSignal },
+        options?: {signal?: AbortSignal},
     ) => Promise<void>;
     preparePrintSource?: (
         payload: IWorkspaceDriverPrintRequest,
@@ -170,19 +149,17 @@ interface IPrintRunOwner {
 }
 
 export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
     const toast = useToast();
-    const { presentFailureToast } = useFailureToast();
+    const {presentFailureToast} = useFailureToast();
     const printDialogOpen = ref(false);
     const printDialogSelectedPages = ref<number[]>([]);
     const printDialogPageSelection = shallowRef<TPageSelection | null>(null);
     const isPreparingPrint = ref(false);
     const activePrintAction = ref<'default' | 'current-page' | null>(null);
     const activePrintFrame = ref<HTMLIFrameElement | null>(null);
-    const printStatus = computed(() => isPreparingPrint.value ? t('print.preparing') : null);
-    const isPreparingCurrentPagePrint = computed(() => (
-        isPreparingPrint.value && activePrintAction.value === 'current-page'
-    ));
+    const printStatus = computed(() => (isPreparingPrint.value ? t('print.preparing') : null));
+    const isPreparingCurrentPagePrint = computed(() => isPreparingPrint.value && activePrintAction.value === 'current-page');
     let removeAfterPrintListener: (() => void) | null = null;
     let browserPrintCleanupTimer: number | null = null;
     let activePrintAbortController: AbortController | null = null;
@@ -195,28 +172,28 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         isPending: isPreparingPrintToastScheduled,
         start: startPreparingPrintToastDelay,
         stop: stopPreparingPrintToastDelay,
-    } = useTimeoutFn(() => {
-        if (!isPreparingPrint.value) {
-            return;
-        }
-        showPreparingPrintToast();
-    }, PRINT_PREPARING_TOAST_DELAY_MS, {immediate: false});
+    } = useTimeoutFn(
+        () => {
+            if (!isPreparingPrint.value) {
+                return;
+            }
+            showPreparingPrintToast();
+        },
+        PRINT_PREPARING_TOAST_DELAY_MS,
+        {immediate: false},
+    );
 
     const supportsAdvancedPrintOptions = computed(() => {
         const sourcePdf = deps.sourcePdf.value;
-        return deps.totalPages.value <= PRINT_LAYOUT_PAGE_COUNT_LIMIT
-            && (
-                !isPathPdfSource(sourcePdf)
-                || sourcePdf.size <= PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES
-            );
+        return (
+            deps.totalPages.value <= PRINT_LAYOUT_PAGE_COUNT_LIMIT &&
+            (!isPathPdfSource(sourcePdf) || sourcePdf.size <= PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES)
+        );
     });
     const supportsFirstPageSinglePrintLayout = computed(() => supportsAdvancedPrintOptions.value);
 
     function requiresNativePrintForHighPageCountLayout(payload: IPrintDialogSubmitPayload) {
-        if (
-            deps.totalPages.value <= PRINT_LAYOUT_PAGE_COUNT_LIMIT
-            || Boolean(payload.pageNumbers?.length)
-        ) {
+        if (deps.totalPages.value <= PRINT_LAYOUT_PAGE_COUNT_LIMIT || Boolean(payload.pageNumbers?.length)) {
             return false;
         }
 
@@ -293,10 +270,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         activePrintAction.value = null;
     }
 
-    function beginPrintRun(
-        intent: IPrintDialogSubmitPayload,
-        action: 'default' | 'current-page' = 'default',
-    ): IPrintRunOwner | null {
+    function beginPrintRun(intent: IPrintDialogSubmitPayload, action: 'default' | 'current-page' = 'default'): IPrintRunOwner | null {
         if (printScopeDisposed) {
             return null;
         }
@@ -328,30 +302,38 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     function isSamePrintSource(owner: IPrintRunOwner) {
         const currentSource = deps.sourcePdf.value;
         if (owner.sourcePdf === null || currentSource === null) {
-            return owner.sourcePdf === currentSource
-                && owner.workingCopyPath === deps.workingCopyPath.value
-                && owner.fileName === deps.fileName.value
-                && owner.totalPages === deps.totalPages.value;
+            return (
+                owner.sourcePdf === currentSource &&
+                owner.workingCopyPath === deps.workingCopyPath.value &&
+                owner.fileName === deps.fileName.value &&
+                owner.totalPages === deps.totalPages.value
+            );
         }
         if (isPathPdfSource(owner.sourcePdf) && isPathPdfSource(currentSource)) {
-            return owner.sourcePdf.path === currentSource.path
-                && owner.sourcePdf.size === currentSource.size
-                && owner.sourcePdf.revision === currentSource.revision
-                && owner.workingCopyPath === deps.workingCopyPath.value
-                && owner.fileName === deps.fileName.value
-                && owner.totalPages === deps.totalPages.value;
+            return (
+                owner.sourcePdf.path === currentSource.path &&
+                owner.sourcePdf.size === currentSource.size &&
+                owner.sourcePdf.revision === currentSource.revision &&
+                owner.workingCopyPath === deps.workingCopyPath.value &&
+                owner.fileName === deps.fileName.value &&
+                owner.totalPages === deps.totalPages.value
+            );
         }
-        return owner.sourcePdf === currentSource
-            && owner.workingCopyPath === deps.workingCopyPath.value
-            && owner.fileName === deps.fileName.value
-            && owner.totalPages === deps.totalPages.value;
+        return (
+            owner.sourcePdf === currentSource &&
+            owner.workingCopyPath === deps.workingCopyPath.value &&
+            owner.fileName === deps.fileName.value &&
+            owner.totalPages === deps.totalPages.value
+        );
     }
 
     function isPrintRunCurrent(owner: IPrintRunOwner) {
-        return !printScopeDisposed
-            && activePrintAbortController === owner.abortController
-            && !owner.abortController.signal.aborted
-            && isSamePrintSource(owner);
+        return (
+            !printScopeDisposed &&
+            activePrintAbortController === owner.abortController &&
+            !owner.abortController.signal.aborted &&
+            isSamePrintSource(owner)
+        );
     }
 
     function assertPrintRunCurrent(owner: IPrintRunOwner) {
@@ -365,9 +347,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         if (!isPrintRunCurrent(owner) || isAbortError(error)) {
             return;
         }
-        const localizedError = error instanceof Error && getErrorMessage(error)
-            ? t('print.failedWithReason', { reason: getErrorMessage(error) })
-            : t('print.failed');
+        const localizedError =
+            error instanceof Error && getErrorMessage(error)
+                ? t('print.failedWithReason', {reason: getErrorMessage(error)})
+                : t('print.failed');
         if (isNativePrintRequiredError(error)) {
             BrowserLogger.warn('workspace-print', 'Print needs an unavailable native backend', {
                 kind: 'expected',
@@ -429,7 +412,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
     function normalizeSelectedPages(view: IPrintViewSelection) {
         return uniq(view.selectedPages)
-            .filter(page => Number.isInteger(page) && page >= 1 && page <= deps.totalPages.value)
+            .filter((page) => Number.isInteger(page) && page >= 1 && page <= deps.totalPages.value)
             .sort((left, right) => left - right);
     }
 
@@ -440,17 +423,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         return createExplicitPageSelection(deps.totalPages.value, normalizeSelectedPages(view));
     }
 
-    function resolveBrowserPrintTitle(
-        payload: IPrintDialogSubmitPayload,
-        fileName = deps.fileName.value,
-    ) {
+    function resolveBrowserPrintTitle(payload: IPrintDialogSubmitPayload, fileName = deps.fileName.value) {
         return buildPrintSelectionFileName({
             fileName,
             pageNumbers: payload.pageNumbers,
             totalPages: deps.totalPages.value,
-            formatPage: page => t('print.fileNamePage', { page }),
-            formatPages: pages => t('print.fileNamePages', { pages }),
-            formatSelection: selection => t('print.fileNamePageSelection', selection),
+            formatPage: (page) => t('print.fileNamePage', {page}),
+            formatPages: (pages) => t('print.fileNamePages', {pages}),
+            formatSelection: (selection) => t('print.fileNamePageSelection', selection),
         });
     }
 
@@ -469,14 +449,17 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
         const currentPrintPage = page;
 
-        await handlePrintDialogSubmit({
-            pageNumbers: [currentPrintPage],
-            viewMode: 'single',
-            orientation: 'auto',
-        }, {
-            action: 'current-page',
-            reopenDialogOnError: false,
-        });
+        await handlePrintDialogSubmit(
+            {
+                pageNumbers: [currentPrintPage],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
+            {
+                action: 'current-page',
+                reopenDialogOnError: false,
+            },
+        );
     }
 
     function handlePrintDialogOpenChange(isOpen: boolean) {
@@ -557,16 +540,16 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 return;
             }
 
-            frame.addEventListener('load', onLoad, { once: true });
-            frame.addEventListener('error', onError, { once: true });
-            signal?.addEventListener('abort', onAbort, { once: true });
+            frame.addEventListener('load', onLoad, {once: true});
+            frame.addEventListener('error', onError, {once: true});
+            signal?.addEventListener('abort', onAbort, {once: true});
         });
     }
 
     async function waitForPrintFrameReady(targetWindow: Window, signal?: AbortSignal) {
         throwIfPrintAborted(signal);
         try {
-            const { waitForPrintPaint } = await import('@app/utils/pdfPrint');
+            const {waitForPrintPaint} = await import('@app/utils/pdfPrint');
             await waitForPrintPaint(targetWindow);
         } catch (error) {
             if (!isCrossOriginFrameAccessError(error)) {
@@ -609,10 +592,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     }
 
     async function printRenderedContentInHiddenFrame(
-        renderContent: (
-            targetDocument: IBrowserPrintDocument,
-            signal: AbortSignal | undefined,
-        ) => Promise<void>,
+        renderContent: (targetDocument: IBrowserPrintDocument, signal: AbortSignal | undefined) => Promise<void>,
         printTitle: string,
         signal?: AbortSignal,
         owner = 0,
@@ -662,12 +642,8 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     ) {
         await printRenderedContentInHiddenFrame(
             async (targetDocument, renderSignal) => {
-                const { renderPdfPagesForBrowserPrint } = await import('@app/utils/pdfPrint');
-                await renderPdfPagesForBrowserPrint(
-                    targetDocument,
-                    printablePdf,
-                    createPrintSignalOptions(renderSignal),
-                );
+                const {renderPdfPagesForBrowserPrint} = await import('@app/utils/pdfPrint');
+                await renderPdfPagesForBrowserPrint(targetDocument, printablePdf, createPrintSignalOptions(renderSignal));
             },
             printTitle,
             signal,
@@ -689,11 +665,8 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
 
         await printRenderedContentInHiddenFrame(
-            (targetDocument, renderSignal) => renderLoadedPdfPagesForBrowserPrint(
-                targetDocument,
-                pageNumbers,
-                createPrintSignalOptions(renderSignal),
-            ),
+            (targetDocument, renderSignal) =>
+                renderLoadedPdfPagesForBrowserPrint(targetDocument, pageNumbers, createPrintSignalOptions(renderSignal)),
             printTitle,
             signal,
             owner,
@@ -715,21 +688,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
         const documentPdfCapability = getDocumentPdfCapability();
         const printPdfData = documentPdfCapability.printPdfData;
-        if (
-            typeof printPdfData === 'function'
-            && printablePdf.byteLength <= IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES
-        ) {
+        if (typeof printPdfData === 'function' && printablePdf.byteLength <= IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES) {
             const requestId = createNativePrintRequestId();
             const stopNativeDialogOpenedListener = documentPdfCapability.onNativePrintDialogOpened?.((event) => {
                 if (event.requestId === requestId && (!printRunOwner || isPrintRunCurrent(printRunOwner))) {
                     clearPreparingPrintToast();
                 }
             });
-            const stopNativePrintCancellation = registerNativePrintCancellation(
-                documentPdfCapability.cancelPdfPrint,
-                requestId,
-                signal,
-            );
+            const stopNativePrintCancellation = registerNativePrintCancellation(documentPdfCapability.cancelPdfPrint, requestId, signal);
             closePrintDialogForSystemDialog();
             showPreparingPrintToast();
             if (printRunOwner) {
@@ -738,11 +704,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             try {
                 let result;
                 try {
-                    result = await printPdfData(
-                        printablePdf,
-                        printRunOwner?.fileName ?? deps.fileName.value ?? undefined,
-                        {requestId},
-                    );
+                    result = await printPdfData(printablePdf, printRunOwner?.fileName ?? deps.fileName.value ?? undefined, {requestId});
                 } catch (error) {
                     throwIfPrintAborted(signal);
                     throw error;
@@ -775,8 +737,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     }
 
     function hasPendingPrintSerializationChanges() {
-        return deps.hasPendingPrintSerializationChanges?.value
-            ?? deps.hasPendingUnsavedChanges.value;
+        return deps.hasPendingPrintSerializationChanges?.value ?? deps.hasPendingUnsavedChanges.value;
     }
 
     function hasPendingPathPrintChanges() {
@@ -785,11 +746,11 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
     function resolveLoadedPdfSinglePagePrint(payload: IPrintDialogSubmitPayload) {
         if (
-            !deps.renderLoadedPdfPagesForBrowserPrint
-            || hasPendingPrintSerializationChanges()
-            || payload.viewMode !== 'single'
-            || payload.orientation !== 'auto'
-            || !payload.pageNumbers?.length
+            !deps.renderLoadedPdfPagesForBrowserPrint ||
+            hasPendingPrintSerializationChanges() ||
+            payload.viewMode !== 'single' ||
+            payload.orientation !== 'auto' ||
+            !payload.pageNumbers?.length
         ) {
             return null;
         }
@@ -809,28 +770,19 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
 
         const totalPages = deps.totalPages.value;
-        if (
-            totalPages > 0
-            && pageNumbers.length === totalPages
-            && pageNumbers.every((pageNumber, index) => pageNumber === index + 1)
-        ) {
+        if (totalPages > 0 && pageNumbers.length === totalPages && pageNumbers.every((pageNumber, index) => pageNumber === index + 1)) {
             return undefined;
         }
 
         return pageNumbers;
     }
 
-    async function tryPrintPathInNativeDialog(
-        payload: IPrintDialogSubmitPayload,
-        signal: AbortSignal,
-        printRunOwner?: IPrintRunOwner,
-    ) {
+    async function tryPrintPathInNativeDialog(payload: IPrintDialogSubmitPayload, signal: AbortSignal, printRunOwner?: IPrintRunOwner) {
         const sourcePdf = deps.sourcePdf.value;
         const isPathSource = isPathPdfSource(sourcePdf);
-        const requiresLayoutComposition = payload.viewMode !== 'single'
-            || payload.orientation !== 'auto';
-        const managedPrintPath = deps.printPath?.value
-            ?? (isPathSource ? sourcePdf.path : requiresLayoutComposition ? deps.workingCopyPath.value : null);
+        const requiresLayoutComposition = payload.viewMode !== 'single' || payload.orientation !== 'auto';
+        const managedPrintPath =
+            deps.printPath?.value ?? (isPathSource ? sourcePdf.path : requiresLayoutComposition ? deps.workingCopyPath.value : null);
         // A browser document of any size prints through the browser's own
         // print path; only a native file goes to the platform dialog.
         if (!managedPrintPath || isBrowserLegacyDocumentRef(managedPrintPath)) {
@@ -839,24 +791,20 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
 
         const pageNumbers = resolveNativePathPrintPageNumbers(payload);
         if (pageNumbers === null) {
-            throw new NativePrintRequiredError(
-                'Native PDF printing is required because the selected path-backed pages are invalid',
-            );
+            throw new NativePrintRequiredError('Native PDF printing is required because the selected path-backed pages are invalid');
         }
 
         const documentPdfCapability = getDocumentPdfCapability();
         const printPdfPath = documentPdfCapability.printPdfPath;
         if (typeof printPdfPath !== 'function') {
-            throw new NativePrintRequiredError(
-                'Native PDF printing is required because path printing is unavailable',
-            );
+            throw new NativePrintRequiredError('Native PDF printing is required because path printing is unavailable');
         }
 
         let snapshot: IPrintableSourcePath | null = null;
         try {
             if (hasPendingPathPrintChanges()) {
                 throwIfPrintAborted(signal);
-                snapshot = await deps.createPrintableSourcePath?.({signal}) ?? null;
+                snapshot = (await deps.createPrintableSourcePath?.({signal})) ?? null;
                 if (!snapshot) {
                     throw new NativePrintRequiredError(
                         'Native PDF printing is required because the dirty document could not be materialized as a path',
@@ -871,9 +819,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             }
             const documentRef = parseDocumentRef(printPath);
             if (documentRef === null) {
-                throw new NativePrintRequiredError(
-                    'Native PDF printing is required because the print path is invalid',
-                );
+                throw new NativePrintRequiredError('Native PDF printing is required because the print path is invalid');
             }
             closePrintDialogForSystemDialog();
             showPreparingPrintToast();
@@ -883,11 +829,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                     clearPreparingPrintToast();
                 }
             });
-            const stopNativePrintCancellation = registerNativePrintCancellation(
-                documentPdfCapability.cancelPdfPrint,
-                requestId,
-                signal,
-            );
+            const stopNativePrintCancellation = registerNativePrintCancellation(documentPdfCapability.cancelPdfPrint, requestId, signal);
             let result;
             try {
                 if (printRunOwner) {
@@ -947,16 +889,17 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             return;
         }
         const printRunId = printOwner.runId;
-        const { signal } = printOwner.abortController;
+        const {signal} = printOwner.abortController;
 
         try {
             if (payload.pageSelection) {
-                const selection = payload.pageSelection.pageCount === deps.totalPages.value
-                    ? payload.pageSelection
-                    : resolveCurrentPageSelection({
-                        selectedPages: printDialogSelectedPages.value,
-                        pageSelection: printDialogPageSelection.value,
-                    });
+                const selection =
+                    payload.pageSelection.pageCount === deps.totalPages.value
+                        ? payload.pageSelection
+                        : resolveCurrentPageSelection({
+                              selectedPages: printDialogSelectedPages.value,
+                              pageSelection: printDialogPageSelection.value,
+                          });
                 const selectedCount = pageSelectionCount(selection);
                 if (selectedCount > PRINT_SELECTION_MATERIALIZATION_LIMIT) {
                     BrowserLogger.warn('workspace-print', 'Print selection was rejected', {
@@ -972,26 +915,21 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 payload = {
                     viewMode: payload.viewMode,
                     orientation: payload.orientation,
-                    ...(selectedCount === deps.totalPages.value
-                        ? {}
-                        : {pageNumbers: materializePageSelection(selection)}),
+                    ...(selectedCount === deps.totalPages.value ? {} : {pageNumbers: materializePageSelection(selection)}),
                 };
             }
-            if (
-                !isPathPdfSource(deps.sourcePdf.value)
-                && requiresNativePrintForHighPageCountLayout(payload)
-            ) {
+            if (!isPathPdfSource(deps.sourcePdf.value) && requiresNativePrintForHighPageCountLayout(payload)) {
                 throw new NativePrintRequiredError(t(HIGH_PAGE_COUNT_PRINT_LAYOUT_ERROR_KEY));
             }
             assertPrintRunCurrent(printOwner);
-            if (deps.ensurePrintReady && !await deps.ensurePrintReady()) {
+            if (deps.ensurePrintReady && !(await deps.ensurePrintReady())) {
                 throw new Error('Annotation notes could not be persisted for printing');
             }
             assertPrintRunCurrent(printOwner);
 
             if (deps.preparePrintSource) {
                 assertPrintRunCurrent(printOwner);
-                const nativePrintHandoff: { started: boolean } = { started: false };
+                const nativePrintHandoff: {started: boolean} = {started: false};
                 const driverResult = await deps.preparePrintSource(payload, {
                     signal,
                     onNativePrintHandoffStart: () => {
@@ -1009,7 +947,9 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                         printablePdf = await readDocumentBytes(driverResult.documentRef, {signal});
                     } finally {
                         await driverResult.release().catch((error: unknown) => {
-                            BrowserLogger.warn('workspace-print', 'Failed to release the prepared print PDF', {error: getErrorMessage(error)});
+                            BrowserLogger.warn('workspace-print', 'Failed to release the prepared print PDF', {
+                                error: getErrorMessage(error),
+                            });
                         });
                     }
                     assertPrintRunCurrent(printOwner);
@@ -1042,53 +982,35 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             const loadedPageNumbers = resolveLoadedPdfSinglePagePrint(payload);
             if (loadedPageNumbers) {
                 assertPrintRunCurrent(printOwner);
-                await printLoadedPdfPagesInHiddenFrame(
-                    loadedPageNumbers,
-                    browserPrintTitle,
-                    signal,
-                    printRunId,
-                    printOwner,
-                );
+                await printLoadedPdfPagesInHiddenFrame(loadedPageNumbers, browserPrintTitle, signal, printRunId, printOwner);
                 return;
             }
 
             assertPrintRunCurrent(printOwner);
-            const sourceData = await deps.getPrintableSourceData({ signal });
+            const sourceData = await deps.getPrintableSourceData({signal});
             assertPrintRunCurrent(printOwner);
             if (!sourceData) {
                 throw new Error('Missing printable PDF source data');
             }
 
             if (
-                deps.totalPages.value > PRINT_LAYOUT_PAGE_COUNT_LIMIT
-                && payload.viewMode === 'single'
-                && payload.orientation === 'auto'
-                && (!payload.pageNumbers || payload.pageNumbers.length === 0)
+                deps.totalPages.value > PRINT_LAYOUT_PAGE_COUNT_LIMIT &&
+                payload.viewMode === 'single' &&
+                payload.orientation === 'auto' &&
+                (!payload.pageNumbers || payload.pageNumbers.length === 0)
             ) {
-                await printPdfDataWithNativeHandoff(
-                    sourceData,
-                    browserPrintTitle,
-                    signal,
-                    printRunId,
-                    printOwner,
-                );
+                await printPdfDataWithNativeHandoff(sourceData, browserPrintTitle, signal, printRunId, printOwner);
                 return;
             }
 
-            const { layoutPdfForBrowserPrint } = await import('@app/platform/browser-api/public');
+            const {layoutPdfForBrowserPrint} = await import('@app/platform/browser-api/public');
             const printablePdf = await layoutPdfForBrowserPrint(sourceData, {
                 ...payload,
                 signal,
             });
             assertPrintRunCurrent(printOwner);
 
-            await printPdfDataWithNativeHandoff(
-                printablePdf.data,
-                browserPrintTitle,
-                signal,
-                printRunId,
-                printOwner,
-            );
+            await printPdfDataWithNativeHandoff(printablePdf.data, browserPrintTitle, signal, printRunId, printOwner);
         } catch (error) {
             if (isAbortError(error)) {
                 return;
@@ -1113,12 +1035,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     });
 
     watch(
-        [
-            () => deps.sourcePdf.value,
-            () => deps.workingCopyPath.value,
-            () => deps.fileName.value,
-            () => deps.totalPages.value,
-        ],
+        [() => deps.sourcePdf.value, () => deps.workingCopyPath.value, () => deps.fileName.value, () => deps.totalPages.value],
         invalidateActivePrintRun,
         {flush: 'sync'},
     );

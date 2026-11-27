@@ -1,17 +1,7 @@
-import {
-    isBrowserLegacyDocumentRef,
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    parseDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
+import {isBrowserLegacyDocumentRef, parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {parseDocumentRevisionToken, type TDocumentRevisionToken} from '@contracts/documentRevision';
 import {PDF_VALIDATION_RESULT_SCHEMA} from '@contracts/pdfConformance';
-import {
-    parseLeaseId,
-    type TLeaseId,
-} from '@contracts/shared';
+import {parseLeaseId, type TLeaseId} from '@contracts/shared';
 import * as v from 'valibot';
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
@@ -22,25 +12,25 @@ const BROWSER_REVISION_TOKEN_MAX_LENGTH = 512;
 
 const documentRefSchema = v.pipe(
     v.string(),
-    v.check(value => parseDocumentRef(value) !== null),
-    v.transform(value => parseDocumentRef(value) as TDocumentRef),
+    v.check((value) => parseDocumentRef(value) !== null),
+    v.transform((value) => parseDocumentRef(value) as TDocumentRef),
 );
 const browserDocumentRefSchema = v.pipe(
     v.string(),
     v.maxLength(BROWSER_DOCUMENT_REF_MAX_LENGTH),
-    v.check(value => value !== BROWSER_DOCUMENT_REF_PREFIX && isBrowserLegacyDocumentRef(value)),
-    v.transform(value => parseDocumentRef(value) as TDocumentRef),
+    v.check((value) => value !== BROWSER_DOCUMENT_REF_PREFIX && isBrowserLegacyDocumentRef(value)),
+    v.transform((value) => parseDocumentRef(value) as TDocumentRef),
 );
 const documentRevisionTokenSchema = v.pipe(
     v.string(),
     v.maxLength(BROWSER_REVISION_TOKEN_MAX_LENGTH),
-    v.check(value => parseDocumentRevisionToken(value) !== null),
-    v.transform(value => parseDocumentRevisionToken(value) as TDocumentRevisionToken),
+    v.check((value) => parseDocumentRevisionToken(value) !== null),
+    v.transform((value) => parseDocumentRevisionToken(value) as TDocumentRevisionToken),
 );
 const leaseIdSchema = v.pipe(
     v.string(),
-    v.check(value => parseLeaseId(value) !== null),
-    v.transform(value => parseLeaseId(value) as TLeaseId),
+    v.check((value) => parseLeaseId(value) !== null),
+    v.transform((value) => parseLeaseId(value) as TLeaseId),
 );
 const sha256Schema = v.pipe(v.string(), v.regex(SHA256_PATTERN));
 const nonNegativeSizeSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
@@ -60,15 +50,8 @@ const browserStoreFileIdentitySchema = v.object({
     documentRef: browserDocumentRefSchema,
     revisionToken: documentRevisionTokenSchema,
 });
-const nativeFileIdentitySchema = v.union([
-    posixFileIdentitySchema,
-    win32FileIdentitySchema,
-]);
-const fileIdentitySchema = v.variant('platform', [
-    posixFileIdentitySchema,
-    win32FileIdentitySchema,
-    browserStoreFileIdentitySchema,
-]);
+const nativeFileIdentitySchema = v.union([posixFileIdentitySchema, win32FileIdentitySchema]);
+const fileIdentitySchema = v.variant('platform', [posixFileIdentitySchema, win32FileIdentitySchema, browserStoreFileIdentitySchema]);
 
 const stagedArtifactValidationsSchema = v.pipe(
     v.object({
@@ -80,10 +63,11 @@ const stagedArtifactValidationsSchema = v.pipe(
         semanticScopeSha256: v.exactOptional(sha256Schema),
         changedObjectRefsSha256: v.exactOptional(sha256Schema),
     }),
-    v.check(value =>
-        (value.qpdfResult === undefined || value.qpdfResult.tool === 'qpdf')
-        && (!value.qpdfCheck || value.qpdfResult?.isValid === true)
-        && (!value.semanticCheck || value.semanticScopeSha256 !== undefined),
+    v.check(
+        (value) =>
+            (value.qpdfResult === undefined || value.qpdfResult.tool === 'qpdf') &&
+            (!value.qpdfCheck || value.qpdfResult?.isValid === true) &&
+            (!value.semanticCheck || value.semanticScopeSha256 !== undefined),
     ),
 );
 
@@ -104,11 +88,13 @@ const contentFingerprintStagedArtifactSchema = v.pipe(
         fileIdentity: fileIdentitySchema,
         revision: v.nullable(documentRevisionTokenSchema),
     }),
-    v.check(value => value.fileIdentity.platform !== 'browser' || (
-        value.fileIdentity.documentRef === value.path
-        && value.revision !== null
-        && value.fileIdentity.revisionToken === value.revision
-    )),
+    v.check(
+        (value) =>
+            value.fileIdentity.platform !== 'browser' ||
+            (value.fileIdentity.documentRef === value.path &&
+                value.revision !== null &&
+                value.fileIdentity.revisionToken === value.revision),
+    ),
 );
 
 const browserStoreStagedArtifactSchema = v.pipe(
@@ -119,10 +105,7 @@ const browserStoreStagedArtifactSchema = v.pipe(
         fileIdentity: browserStoreFileIdentitySchema,
         revision: documentRevisionTokenSchema,
     }),
-    v.check(value =>
-        value.fileIdentity.documentRef === value.path
-        && value.fileIdentity.revisionToken === value.revision,
-    ),
+    v.check((value) => value.fileIdentity.documentRef === value.path && value.fileIdentity.revisionToken === value.revision),
 );
 
 /** A native output authorized by its lease's file identity and private stat witness. */
@@ -134,15 +117,10 @@ const opaqueNativeStagedArtifactSchema = v.pipe(
         fileIdentity: nativeFileIdentitySchema,
         revision: v.nullable(documentRevisionTokenSchema),
     }),
-    v.transform(({
-        sha256: _sha256, ...artifact
-    }) => artifact),
+    v.transform(({sha256: _sha256, ...artifact}) => artifact),
 );
 
-export const TYPED_STAGED_ARTIFACT_SCHEMA = v.union([
-    contentFingerprintStagedArtifactSchema,
-    opaqueNativeStagedArtifactSchema,
-]);
+export const TYPED_STAGED_ARTIFACT_SCHEMA = v.union([contentFingerprintStagedArtifactSchema, opaqueNativeStagedArtifactSchema]);
 
 export type TArtifactFileIdentity = v.InferOutput<typeof fileIdentitySchema>;
 export type IBrowserStoreFileIdentity = v.InferOutput<typeof browserStoreFileIdentitySchema>;
@@ -158,11 +136,15 @@ export function createBrowserStoreFileIdentity(
     documentRef: TDocumentRef,
     revisionToken: TDocumentRevisionToken,
 ): IBrowserStoreFileIdentity {
-    const identity = v.safeParse(browserStoreFileIdentitySchema, {
-        platform: 'browser',
-        documentRef,
-        revisionToken,
-    }, {abortEarly: true});
+    const identity = v.safeParse(
+        browserStoreFileIdentitySchema,
+        {
+            platform: 'browser',
+            documentRef,
+            revisionToken,
+        },
+        {abortEarly: true},
+    );
     if (!identity.success) {
         throw new TypeError('Browser staged artifact identity requires a browser document ref and revision token');
     }

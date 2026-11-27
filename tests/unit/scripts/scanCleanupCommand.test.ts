@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {validateWordLossReport} from '@scripts/scan-cleanup-regress.mjs';
 import {runDiagnosticCommand} from '@scripts/diagnostics/scan-cleanup-command.mjs';
 
@@ -13,20 +9,17 @@ describe('scan-cleanup diagnostic command runner', () => {
     it('waits for inherited child streams before resolving', async () => {
         const inheritedChildScript = [
             'setTimeout(() => {',
-            '    process.stdout.write(\'late stdout\\n\');',
-            '    process.stderr.write(\'late stderr\\n\');',
+            "    process.stdout.write('late stdout\\n');",
+            "    process.stderr.write('late stderr\\n');",
             '}, 100);',
         ].join('\n');
         const parentScript = [
-            'const {spawn} = require(\'node:child_process\');',
+            "const {spawn} = require('node:child_process');",
             `const child = spawn(process.execPath, ['-e', ${JSON.stringify(inheritedChildScript)}], {detached: true, stdio: 'inherit'});`,
             'child.unref();',
         ].join('\n');
 
-        await expect(runDiagnosticCommand(process.execPath, [
-            '-e',
-            parentScript,
-        ])).resolves.toMatchObject({
+        await expect(runDiagnosticCommand(process.execPath, ['-e', parentScript])).resolves.toMatchObject({
             code: 0,
             stderr: 'late stderr\n',
             stdout: 'late stdout\n',
@@ -35,13 +28,12 @@ describe('scan-cleanup diagnostic command runner', () => {
 
     it('supports an explicit interpreter for script command overrides', async () => {
         const script = 'process.stdout.write(process.argv[1]);';
-        const commandOptions = {resolveCommand: () => ({
-            args: [
-                '-e',
-                script,
-            ],
-            command: process.execPath,
-        })};
+        const commandOptions = {
+            resolveCommand: () => ({
+                args: ['-e', script],
+                command: process.execPath,
+            }),
+        };
 
         await expect(runDiagnosticCommand('wrapper.mjs', ['fixture.pdf'], commandOptions)).resolves.toMatchObject({
             code: 0,
@@ -52,7 +44,7 @@ describe('scan-cleanup diagnostic command runner', () => {
     it('bounds the inherited-stream drain when a grandchild never exits', async () => {
         const grandchildScript = 'setInterval(() => {}, 60_000);';
         const parentScript = [
-            'const {spawn} = require(\'node:child_process\');',
+            "const {spawn} = require('node:child_process');",
             `const child = spawn(process.execPath, ['-e', ${JSON.stringify(grandchildScript)}], {detached: true, stdio: 'inherit'});`,
             'process.stdout.write(String(child.pid));',
             'child.unref();',
@@ -62,14 +54,9 @@ describe('scan-cleanup diagnostic command runner', () => {
         let grandchildPid: number | undefined;
         let cleanupError: unknown;
         try {
-            const result = await runDiagnosticCommand(process.execPath, [
-                '-e',
-                parentScript,
-            ], {stdioDrainTimeoutMs: 50});
+            const result = await runDiagnosticCommand(process.execPath, ['-e', parentScript], {stdioDrainTimeoutMs: 50});
             const parsedPid = Number(result.stdout.trim());
-            grandchildPid = Number.isSafeInteger(parsedPid) && parsedPid > 0
-                ? parsedPid
-                : undefined;
+            grandchildPid = Number.isSafeInteger(parsedPid) && parsedPid > 0 ? parsedPid : undefined;
             expect(result).toMatchObject({code: 0});
             expect(grandchildPid).toBeDefined();
             expect(Date.now() - startedAt).toBeLessThan(2_000);
@@ -78,9 +65,7 @@ describe('scan-cleanup diagnostic command runner', () => {
                 try {
                     process.kill(grandchildPid);
                 } catch (error) {
-                    const errorCode = error instanceof Error && 'code' in error
-                        ? error.code
-                        : undefined;
+                    const errorCode = error instanceof Error && 'code' in error ? error.code : undefined;
                     if (errorCode !== 'ESRCH') {
                         cleanupError = error;
                     }
@@ -93,7 +78,6 @@ describe('scan-cleanup diagnostic command runner', () => {
     });
 });
 
-
 describe('scan cleanup invented-ink baseline coverage', () => {
     const row = (page: number) => ({
         page,
@@ -105,17 +89,16 @@ describe('scan cleanup invented-ink baseline coverage', () => {
         inventedCount: 0,
         inventedInkFraction: 0,
     });
-    const baseline = {2: {
-        maxComponents: 1,
-        maxFraction: 0.017,
-        reason: 'Fixture restoration',
-    }};
+    const baseline = {
+        2: {
+            maxComponents: 1,
+            maxFraction: 0.017,
+            reason: 'Fixture restoration',
+        },
+    };
     const report = () => ({
         stampVerification: {status: 'valid'},
-        pages: [
-            row(1),
-            row(2),
-        ],
+        pages: [row(1), row(2)],
         summary: {
             auditCoverageComplete: true,
             analyzedOutputPages: 2,
@@ -130,17 +113,9 @@ describe('scan cleanup invented-ink baseline coverage', () => {
         },
     });
     it('accepts complete, unsuppressed coverage', () => {
-        expect(() => validateWordLossReport(report(), 'fixture', [
-            1,
-            2,
-        ], baseline)).not.toThrow();
+        expect(() => validateWordLossReport(report(), 'fixture', [1, 2], baseline)).not.toThrow();
     });
-    it.each([
-        'skipped',
-        'suppressed',
-        'missing',
-        'output-missing',
-    ])('rejects %s coverage outside the baselined page', defect => {
+    it.each(['skipped', 'suppressed', 'missing', 'output-missing'])('rejects %s coverage outside the baselined page', (defect) => {
         const broken = report();
         if (defect === 'skipped') {
             broken.pages[0]!.status = 'skipped';
@@ -156,9 +131,6 @@ describe('scan cleanup invented-ink baseline coverage', () => {
         } else {
             broken.summary.expectedOutputPages = 3;
         }
-        expect(() => validateWordLossReport(broken, 'fixture', [
-            1,
-            2,
-        ], baseline)).toThrow(/coverage|suppressed|analyzed|missing/);
+        expect(() => validateWordLossReport(broken, 'fixture', [1, 2], baseline)).toThrow(/coverage|suppressed|analyzed|missing/);
     });
 });

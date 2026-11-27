@@ -1,30 +1,18 @@
 // @vitest-environment happy-dom
 
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-} from 'vue';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import {createApp, defineComponent, h, nextTick, ref} from 'vue';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {TTranslateFn} from '@i18n-app';
 import EN_MESSAGES from '@i18n-app/messages/en';
 import {SerializableError} from '@contracts/serializableError';
 import {CombinePdfError} from '@app/services/pdf/combinePdfFiles';
 import {requireDocumentRef} from '@contracts/documentRef';
-import { CombinePdfPage } from '@app/modules/combine/public';
-import { useCombinePdfOperation } from '@app/modules/combine/useCombinePdfOperation';
-import { useCombinePdfQueue } from '@app/modules/combine/useCombinePdfQueue';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {CombinePdfPage} from '@app/modules/combine/public';
+import {useCombinePdfOperation} from '@app/modules/combine/useCombinePdfOperation';
+import {useCombinePdfQueue} from '@app/modules/combine/useCombinePdfQueue';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     combinePdfFiles: vi.fn(),
@@ -46,10 +34,13 @@ vi.mock('@app/services/pdf/combinePdfFiles', () => ({
     CombinePdfError: class CombinePdfError extends Error {
         public readonly failure: FailureReceipt | undefined;
 
-        public constructor(public readonly code: string, options?: {
-            failure?: FailureReceipt;
-            cause?: unknown
-        }) {
+        public constructor(
+            public readonly code: string,
+            options?: {
+                failure?: FailureReceipt;
+                cause?: unknown;
+            },
+        ) {
             super(`PDF combine failed (${code})`, {cause: options?.cause});
             this.failure = options?.failure;
         }
@@ -74,16 +65,25 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logErro
 
 const ButtonStub = defineComponent({
     inheritAttrs: false,
-    setup: (_props, {
-        attrs,
-        slots,
-    }) => () => h('button', {
-        ...attrs,
-        type: 'button',
-    }, slots.default?.()),
+    setup:
+        (_props, {attrs, slots}) =>
+        () =>
+            h(
+                'button',
+                {
+                    ...attrs,
+                    type: 'button',
+                },
+                slots.default?.(),
+            ),
 });
 const IconStub = defineComponent({setup: () => () => h('span')});
-const PassthroughStub = defineComponent({setup: (_props, {slots}) => () => h('span', slots.default?.())});
+const PassthroughStub = defineComponent({
+    setup:
+        (_props, {slots}) =>
+        () =>
+            h('span', slots.default?.()),
+});
 
 interface IQueueFile {
     id: string;
@@ -98,7 +98,9 @@ const translate: TTranslateFn = (key, ...args) => {
             return EN_MESSAGES.errors.browser.documentTooLarge.replace('{limitMiB}', String(params.limitMiB));
         }
     }
-    if (key === 'errors.browser.notEnoughMemory') return EN_MESSAGES.errors.browser.notEnoughMemory;
+    if (key === 'errors.browser.notEnoughMemory') {
+        return EN_MESSAGES.errors.browser.notEnoughMemory;
+    }
     return key;
 };
 
@@ -121,7 +123,7 @@ async function flushUpdates() {
 }
 
 function createQueueFile(id: string): IQueueFile {
-    const file = new File([new Uint8Array([1])], `${id}.pdf`, { type: 'application/pdf' });
+    const file = new File([new Uint8Array([1])], `${id}.pdf`, {type: 'application/pdf'});
     return {
         id,
         file,
@@ -132,71 +134,102 @@ function createQueueFile(id: string): IQueueFile {
 async function mountCombinePageStateMachine(openResult: (result: TOpenFileResult) => Promise<boolean>) {
     const host = document.createElement('div');
     document.body.append(host);
-    const Harness = defineComponent({setup() {
-        const files = ref<IQueueFile[]>([
-            createQueueFile('first'),
-            createQueueFile('second'),
-        ]);
-        const operation = useCombinePdfOperation({
-            files,
-            openResult,
-            emitOpenResult: () => undefined,
-            translate,
-        });
-        const queue = useCombinePdfQueue({
-            files,
-            isMutationLocked: operation.queueMutationLocked,
-            isSupported: () => true,
-            toQueueItem: file => ({
-                id: file.name,
-                file,
-                name: file.name,
-            }),
-        });
+    const Harness = defineComponent({
+        setup() {
+            const files = ref<IQueueFile[]>([createQueueFile('first'), createQueueFile('second')]);
+            const operation = useCombinePdfOperation({
+                files,
+                openResult,
+                emitOpenResult: () => undefined,
+                translate,
+            });
+            const queue = useCombinePdfQueue({
+                files,
+                isMutationLocked: operation.queueMutationLocked,
+                isSupported: () => true,
+                toQueueItem: (file) => ({
+                    id: file.name,
+                    file,
+                    name: file.name,
+                }),
+            });
 
-        return () => h('section', { class: 'combine-page-state-machine' }, [
-            h('ol', files.value.map(item => h('li', {
-                class: 'queue-row',
-                key: item.id,
-            }, item.name))),
-            h('button', {
-                class: 'remove',
-                disabled: operation.queueMutationLocked.value,
-                onClick: () => queue.removeFile(0),
-            }, 'Remove'),
-            h('button', {
-                class: 'clear',
-                disabled: operation.queueMutationLocked.value,
-                onClick: queue.clearFiles,
-            }, 'Clear'),
-            operation.pendingCombinedResult.value && !operation.isCombining.value
-                ? h('button', {
-                    class: 'save-as',
-                    onClick: operation.savePendingAs,
-                }, 'Save As')
-                : null,
-            operation.pendingCombinedResult.value && !operation.isCombining.value
-                ? h('button', {
-                    class: 'discard',
-                    onClick: operation.discardPendingResult,
-                }, 'Discard')
-                : null,
-            operation.canCancel.value && operation.phase.value === 'combining'
-                ? h('button', {
-                    class: 'cancel',
-                    onClick: operation.cancel,
-                }, 'Cancel')
-                : null,
-            h('button', {
-                class: 'combine',
-                onClick: operation.combine,
-            }, operation.pendingCombinedResult.value ? 'Retry' : 'Combine'),
-            operation.combineError.value
-                ? h('output', { class: 'error' }, operation.combineError.value)
-                : null,
-            h('output', { class: 'phase' }, operation.phase.value),
-        ]);
-    }});
+            return () =>
+                h('section', {class: 'combine-page-state-machine'}, [
+                    h(
+                        'ol',
+                        files.value.map((item) =>
+                            h(
+                                'li',
+                                {
+                                    class: 'queue-row',
+                                    key: item.id,
+                                },
+                                item.name,
+                            ),
+                        ),
+                    ),
+                    h(
+                        'button',
+                        {
+                            class: 'remove',
+                            disabled: operation.queueMutationLocked.value,
+                            onClick: () => queue.removeFile(0),
+                        },
+                        'Remove',
+                    ),
+                    h(
+                        'button',
+                        {
+                            class: 'clear',
+                            disabled: operation.queueMutationLocked.value,
+                            onClick: queue.clearFiles,
+                        },
+                        'Clear',
+                    ),
+                    operation.pendingCombinedResult.value && !operation.isCombining.value
+                        ? h(
+                              'button',
+                              {
+                                  class: 'save-as',
+                                  onClick: operation.savePendingAs,
+                              },
+                              'Save As',
+                          )
+                        : null,
+                    operation.pendingCombinedResult.value && !operation.isCombining.value
+                        ? h(
+                              'button',
+                              {
+                                  class: 'discard',
+                                  onClick: operation.discardPendingResult,
+                              },
+                              'Discard',
+                          )
+                        : null,
+                    operation.canCancel.value && operation.phase.value === 'combining'
+                        ? h(
+                              'button',
+                              {
+                                  class: 'cancel',
+                                  onClick: operation.cancel,
+                              },
+                              'Cancel',
+                          )
+                        : null,
+                    h(
+                        'button',
+                        {
+                            class: 'combine',
+                            onClick: operation.combine,
+                        },
+                        operation.pendingCombinedResult.value ? 'Retry' : 'Combine',
+                    ),
+                    operation.combineError.value ? h('output', {class: 'error'}, operation.combineError.value) : null,
+                    h('output', {class: 'phase'}, operation.phase.value),
+                ]);
+        },
+    });
     const app = createApp(Harness);
     app.mount(host);
     await nextTick();
@@ -251,9 +284,7 @@ describe('mounted Combine PDF page state machine', () => {
             isGenerated: true,
         };
         mocks.combinePdfFiles.mockReturnValueOnce(combined.promise);
-        const openResult = vi.fn()
-            .mockResolvedValueOnce(false)
-            .mockResolvedValueOnce(true);
+        const openResult = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
         const page = await mountCombinePageStateMachine(openResult);
 
         (page.host.querySelector('.combine') as HTMLButtonElement).click();
@@ -285,7 +316,9 @@ describe('mounted Combine PDF page state machine', () => {
         await flushUpdates();
         // No document opened the result, so Save As names the working copy's
         // current revision; the main process refuses a save without one.
-        expect(mocks.savePdfAs).toHaveBeenCalledWith('/tmp/combined-working.pdf', undefined, {expectedDocumentRevisionToken: 'current-revision-of:/tmp/combined-working.pdf'});
+        expect(mocks.savePdfAs).toHaveBeenCalledWith('/tmp/combined-working.pdf', undefined, {
+            expectedDocumentRevisionToken: 'current-revision-of:/tmp/combined-working.pdf',
+        });
         // Saved elsewhere, the temporary combined file has no owner left.
         expect(mocks.cleanupFile).toHaveBeenCalledWith('/tmp/combined-working.pdf');
 
@@ -413,9 +446,7 @@ describe('mounted Combine PDF page state machine', () => {
             desktop: true,
             message: 'errors.file.invalid',
         },
-    ])('shows the engine refusal as "$message"', async ({
-        envelope, message, desktop = false,
-    }) => {
+    ])('shows the engine refusal as "$message"', async ({envelope, message, desktop = false}) => {
         mocks.hasElectronAPI.mockReturnValue(desktop);
         mocks.combinePdfFiles.mockRejectedValueOnce(new CombinePdfError('limit', {cause: new SerializableError(envelope)}));
         const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(true));
@@ -430,10 +461,7 @@ describe('mounted Combine PDF page state machine', () => {
         }
     });
 
-    it.each([
-        'invalid-input',
-        'unsupported',
-    ] as const)('keeps %s refusals localized and preserves the queue', async (code) => {
+    it.each(['invalid-input', 'unsupported'] as const)('keeps %s refusals localized and preserves the queue', async (code) => {
         mocks.combinePdfFiles.mockRejectedValueOnce(new CombinePdfError(code));
         const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(true));
         try {
@@ -454,9 +482,7 @@ describe('mounted Combine PDF page state machine', () => {
             originalPath: requireDocumentRef(`/tmp/${name}.pdf`),
             isGenerated: true,
         });
-        mocks.combinePdfFiles
-            .mockResolvedValueOnce(pendingResult('combined-a'))
-            .mockResolvedValueOnce(pendingResult('combined-b'));
+        mocks.combinePdfFiles.mockResolvedValueOnce(pendingResult('combined-a')).mockResolvedValueOnce(pendingResult('combined-b'));
         const saveA = deferred<string | null>();
         mocks.savePdfAs.mockReturnValueOnce(saveA.promise);
         const page = await mountCombinePageStateMachine(vi.fn().mockResolvedValue(false));

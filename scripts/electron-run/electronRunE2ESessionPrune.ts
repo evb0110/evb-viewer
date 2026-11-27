@@ -1,9 +1,5 @@
-import {
-    readdirSync,
-    rmSync,
-    statSync,
-} from 'node:fs';
-import { join } from 'node:path';
+import {readdirSync, rmSync, statSync} from 'node:fs';
+import {join} from 'node:path';
 import {getErrorMessage} from '@contracts/getErrorMessage';
 import {
     cleanupStaleSessionArtifacts,
@@ -11,10 +7,7 @@ import {
     getSessionStartingInfo,
     type ICleanupStaleSessionArtifactsOptions,
 } from '@scripts/electron-run/electronRunSessionArtifacts';
-import {
-    sessionDir,
-    sessionsBaseDir,
-} from '@scripts/electron-run/electronRunSessionPaths';
+import {sessionDir, sessionsBaseDir} from '@scripts/electron-run/electronRunSessionPaths';
 import {hasWorkspaceRecoveryEvidence} from '@scripts/electron-run/electronRunSessionCleanup';
 
 const DEFAULT_STALE_E2E_SESSION_AGE_MS = 24 * 60 * 60 * 1000;
@@ -52,23 +45,20 @@ export function assertE2ESessionName(name: string) {
     return name;
 }
 
-export function selectStaleE2ESessionDirs(
-    candidates: IE2ESessionDirCandidate[],
-    options: ISelectStaleE2ESessionsOptions = {},
-) {
+export function selectStaleE2ESessionDirs(candidates: IE2ESessionDirCandidate[], options: ISelectStaleE2ESessionsOptions = {}) {
     const nowMs = options.nowMs ?? Date.now();
     const maxAgeMs = options.maxAgeMs ?? DEFAULT_STALE_E2E_SESSION_AGE_MS;
     return candidates
-        .filter(candidate => isE2ESessionName(candidate.name))
-        .filter(candidate => nowMs - candidate.mtimeMs > maxAgeMs)
+        .filter((candidate) => isE2ESessionName(candidate.name))
+        .filter((candidate) => nowMs - candidate.mtimeMs > maxAgeMs)
         .sort((left, right) => left.mtimeMs - right.mtimeMs);
 }
 
 function listE2ESessionDirCandidates(): IE2ESessionDirCandidate[] {
     try {
-        return readdirSync(sessionsBaseDir, { withFileTypes: true })
-            .filter(entry => entry.isDirectory() && isE2ESessionName(entry.name))
-            .map(entry => {
+        return readdirSync(sessionsBaseDir, {withFileTypes: true})
+            .filter((entry) => entry.isDirectory() && isE2ESessionName(entry.name))
+            .map((entry) => {
                 const path = join(sessionsBaseDir, entry.name);
                 return {
                     name: entry.name,
@@ -84,7 +74,7 @@ function listE2ESessionDirCandidates(): IE2ESessionDirCandidate[] {
 export async function pruneStaleE2ESessions(options: ISelectStaleE2ESessionsOptions = {}): Promise<IStaleE2ESessionPruneResult> {
     const stale = selectStaleE2ESessionDirs(options.candidates ?? listE2ESessionDirCandidates(), options);
     const result: IStaleE2ESessionPruneResult = {
-        stale: stale.map(candidate => candidate.name),
+        stale: stale.map((candidate) => candidate.name),
         removed: [],
         refused: [],
     };
@@ -114,10 +104,12 @@ export async function pruneStaleE2ESessions(options: ISelectStaleE2ESessionsOpti
             // A changed directory or newly recreated metadata means this stale
             // candidate is no longer safe to delete.
             const beforeRemoval = statSync(sessionDir(candidate.name));
-            if (beforeRemoval.mtimeMs !== statSync(sessionDir(candidate.name)).mtimeMs
-                || getSessionInfo(candidate.name)
-                || getSessionStartingInfo(candidate.name)
-                || hasWorkspaceRecoveryEvidence(candidate.name)) {
+            if (
+                beforeRemoval.mtimeMs !== statSync(sessionDir(candidate.name)).mtimeMs ||
+                getSessionInfo(candidate.name) ||
+                getSessionStartingInfo(candidate.name) ||
+                hasWorkspaceRecoveryEvidence(candidate.name)
+            ) {
                 result.refused.push({
                     name: candidate.name,
                     reason: 'session metadata changed during cleanup; retained for recovery',

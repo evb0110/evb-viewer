@@ -1,12 +1,8 @@
-import { spawn } from 'child_process';
-import { randomUUID } from 'node:crypto';
-import {
-    createServer, type Socket,
-} from 'node:net';
-import type {
-    Readable, Writable,
-} from 'node:stream';
-import { resolveNativeProcessSupervisorPath } from '@electron/native-tools/resolveNativeToolsBase';
+import {spawn} from 'child_process';
+import {randomUUID} from 'node:crypto';
+import {createServer, type Socket} from 'node:net';
+import type {Readable, Writable} from 'node:stream';
+import {resolveNativeProcessSupervisorPath} from '@electron/native-tools/resolveNativeToolsBase';
 import type {
     ChildProcess,
     ChildProcessByStdio,
@@ -16,10 +12,9 @@ import type {
     StdioNull,
     StdioPipe,
 } from 'child_process';
-import { terminateProcessTree } from '@electron/utils/processTree';
+import {terminateProcessTree} from '@electron/utils/processTree';
 
-export interface ISpawnNativeChildProcessOptions
-    extends SpawnOptionsWithStdioTuple<'pipe' | 'ignore', 'pipe', 'pipe'> {
+export interface ISpawnNativeChildProcessOptions extends SpawnOptionsWithStdioTuple<'pipe' | 'ignore', 'pipe', 'pipe'> {
     memoryLimitBytes?: number | undefined;
     onMemoryLimitExceeded?: ((bytes: number) => void) | undefined;
 }
@@ -41,10 +36,7 @@ export function createDetachedChildProcessSpawnOptions(
     options: SpawnOptionsWithoutStdio,
     platform?: NodeJS.Platform,
 ): SpawnOptionsWithoutStdio;
-export function createDetachedChildProcessSpawnOptions(
-    options: SpawnOptions,
-    platform?: NodeJS.Platform,
-): SpawnOptions;
+export function createDetachedChildProcessSpawnOptions(options: SpawnOptions, platform?: NodeJS.Platform): SpawnOptions;
 export function createDetachedChildProcessSpawnOptions(
     options: SpawnOptions = {},
     platform: NodeJS.Platform = process.platform,
@@ -101,7 +93,7 @@ function attachSupervisorControlSocket(
     let pendingSpawnError: Error | null = null;
     const endSocketOnEmpty = handlers.endSocketOnEmpty ?? true;
     socket.setEncoding('utf8');
-    socket.on('data', chunk => {
+    socket.on('data', (chunk) => {
         message += chunk;
         for (let newline = message.indexOf('\n'); newline >= 0; newline = message.indexOf('\n')) {
             const line = message.slice(0, newline);
@@ -144,10 +136,7 @@ function formatMemoryLimitArgs(memoryLimitBytes: number | undefined) {
     if (typeof memoryLimitBytes !== 'number' || !Number.isSafeInteger(memoryLimitBytes) || memoryLimitBytes <= 0) {
         return [];
     }
-    return [
-        '--memory-limit-bytes',
-        String(memoryLimitBytes),
-    ];
+    return ['--memory-limit-bytes', String(memoryLimitBytes)];
 }
 
 export function spawnNativeChildProcess(
@@ -155,11 +144,7 @@ export function spawnNativeChildProcess(
     args: string[],
     options: ISpawnNativeChildProcessOptions,
 ): ChildProcessByStdio<Writable | null, Readable, Readable> {
-    const {
-        memoryLimitBytes,
-        onMemoryLimitExceeded,
-        ...spawnOptions
-    } = options;
+    const {memoryLimitBytes, onMemoryLimitExceeded, ...spawnOptions} = options;
     const isPackaged = import.meta.dirname.includes('app.asar');
     const launcher = resolveNativeProcessSupervisorPath(import.meta.dirname);
     const memoryLimitArgs = formatMemoryLimitArgs(memoryLimitBytes);
@@ -169,24 +154,22 @@ export function spawnNativeChildProcess(
             if (isPackaged) {
                 throw new Error('Native process supervisor is missing; rebuild native tools');
             }
-            return spawn(
-                command,
-                args,
-                createDetachedChildProcessSpawnOptions(spawnOptions),
-            ) as ChildProcessByStdio<Writable | null, Readable, Readable>;
+            return spawn(command, args, createDetachedChildProcessSpawnOptions(spawnOptions)) as ChildProcessByStdio<
+                Writable | null,
+                Readable,
+                Readable
+            >;
         }
-        const {
-            promise: proof, resolve: resolveProof,
-        } = Promise.withResolvers<boolean>();
+        const {promise: proof, resolve: resolveProof} = Promise.withResolvers<boolean>();
         let proofSettled = false;
         const settleProof = (proven: boolean) => {
-            if (proofSettled) return;
+            if (proofSettled) {
+                return;
+            }
             proofSettled = true;
             resolveProof(proven);
         };
-        const {
-            promise: pid, resolve: resolvePid,
-        } = Promise.withResolvers<number | null>();
+        const {promise: pid, resolve: resolvePid} = Promise.withResolvers<number | null>();
         let memoryLimitExceededBytes: number | null = null;
         void proof.then(() => resolvePid(null));
 
@@ -195,25 +178,10 @@ export function spawnNativeChildProcess(
         // is parent -> child only. That prevents a late `terminate` write from
         // triggering EPIPE/ECONNRESET on the event channel and discarding an
         // unread `empty\n` proof in the kernel buffer.
-        const proc = spawn(launcher, [
-            '--posix-fd',
-            '3',
-            '--posix-command-fd',
-            '4',
-            ...memoryLimitArgs,
-            '--',
-            command,
-            ...args,
-        ], {
+        const proc = spawn(launcher, ['--posix-fd', '3', '--posix-command-fd', '4', ...memoryLimitArgs, '--', command, ...args], {
             ...spawnOptions,
             detached: false,
-            stdio: [
-                spawnOptions.stdio[0],
-                spawnOptions.stdio[1],
-                spawnOptions.stdio[2],
-                'pipe',
-                'pipe',
-            ],
+            stdio: [spawnOptions.stdio[0], spawnOptions.stdio[1], spawnOptions.stdio[2], 'pipe', 'pipe'],
         });
         const eventSocket = proc.stdio[3] as Socket | null;
         const commandSocket = proc.stdio[4] as Socket | null;
@@ -271,26 +239,24 @@ export function spawnNativeChildProcess(
         return proc as ChildProcessByStdio<Writable | null, Readable, Readable>;
     }
 
-    if (!launcher) throw new Error('Windows Job Object launcher is missing; rebuild native tools');
+    if (!launcher) {
+        throw new Error('Windows Job Object launcher is missing; rebuild native tools');
+    }
     const pipe = `\\\\.\\pipe\\evb-native-job-${randomUUID()}`;
-    const {
-        promise: proof, resolve: resolveProof,
-    } = Promise.withResolvers<boolean>();
+    const {promise: proof, resolve: resolveProof} = Promise.withResolvers<boolean>();
     let proofSettled = false;
     const settleProof = (proven: boolean) => {
-        if (proofSettled) return;
+        if (proofSettled) {
+            return;
+        }
         proofSettled = true;
         resolveProof(proven);
     };
-    const {
-        promise: connection, resolve: resolveConnection,
-    } = Promise.withResolvers<Socket | null>();
-    const {
-        promise: pid, resolve: resolvePid,
-    } = Promise.withResolvers<number | null>();
+    const {promise: connection, resolve: resolveConnection} = Promise.withResolvers<Socket | null>();
+    const {promise: pid, resolve: resolvePid} = Promise.withResolvers<number | null>();
     let memoryLimitExceededBytes: number | null = null;
     void proof.then(() => resolvePid(null));
-    const server = createServer(socket => {
+    const server = createServer((socket) => {
         server.close();
         resolveConnection(socket);
         attachSupervisorControlSocket(socket, command, {
@@ -314,14 +280,11 @@ export function spawnNativeChildProcess(
     let proc: ChildProcessByStdio<Writable | null, Readable, Readable>;
     try {
         // Node's overloads omit a union stdin even though both outputs are pipes.
-        proc = spawn(launcher, [
-            pipe,
-            spawnOptions.windowsHide === false ? '0' : '1',
-            ...memoryLimitArgs,
-            '--',
-            command,
-            ...args,
-        ], spawnOptions) as ChildProcessByStdio<Writable | null, Readable, Readable>;
+        proc = spawn(
+            launcher,
+            [pipe, spawnOptions.windowsHide === false ? '0' : '1', ...memoryLimitArgs, '--', command, ...args],
+            spawnOptions,
+        ) as ChildProcessByStdio<Writable | null, Readable, Readable>;
     } catch (error) {
         server.close();
         throw error;
@@ -342,7 +305,7 @@ export function spawnNativeChildProcess(
             if (proofSettled) {
                 return proof;
             }
-            void connection.then(socket => {
+            void connection.then((socket) => {
                 if (!proofSettled && socket && !socket.destroyed && socket.writable) {
                     socket.end('terminate\n');
                 }
@@ -353,13 +316,11 @@ export function spawnNativeChildProcess(
     return proc;
 }
 
-export async function terminateDetachedChildProcess(
-    proc: ChildProcess,
-    graceMs: number,
-    platform: NodeJS.Platform = process.platform,
-) {
+export async function terminateDetachedChildProcess(proc: ChildProcess, graceMs: number, platform: NodeJS.Platform = process.platform) {
     const job = supervisedJobs.get(proc);
-    if (job) return job.terminate(graceMs);
+    if (job) {
+        return job.terminate(graceMs);
+    }
     const pid = proc.pid;
     if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
         return terminateProcessTree(pid, {

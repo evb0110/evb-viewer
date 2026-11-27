@@ -1,19 +1,13 @@
-import type { Ref } from 'vue';
-import {
-    useEventListener,
-    useTimeoutFn,
-} from '@vueuse/core';
-import { BROWSER_WORKSPACE_RECOVERY_DEBOUNCE_MS } from '@app/constants/timeouts';
-import type {
-    IEditorPaneState,
-    TEditorLayoutNode,
-} from '@contracts/editorPanes';
-import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { buildWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
-import { buildWorkspaceCheckpointChangeSignature } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
-import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import type {Ref} from 'vue';
+import {useEventListener, useTimeoutFn} from '@vueuse/core';
+import {BROWSER_WORKSPACE_RECOVERY_DEBOUNCE_MS} from '@app/constants/timeouts';
+import type {IEditorPaneState, TEditorLayoutNode} from '@contracts/editorPanes';
+import type {ITab} from '@app/types/tabs';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {buildWorkspaceCheckpoint} from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
+import {buildWorkspaceCheckpointChangeSignature} from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
+import {getWindowTabsCapability} from '@app/utils/platformWindowTabs';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 interface IUseBrowserWorkspaceRecoveryOptions {
     enabled: Ref<boolean>;
@@ -33,35 +27,41 @@ interface IUseBrowserWorkspaceRecoveryOptions {
  */
 export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecoveryOptions) => {
     const recovery = getWindowTabsCapability().browserRecovery;
-    if (!recovery) return;
+    if (!recovery) {
+        return;
+    }
     let inFlight: Promise<void> | null = null;
     let changedSinceRecord = false;
     let disposed = false;
-    const {
-        start: scheduleRecord,
-        stop: cancelScheduledRecord,
-    } = useTimeoutFn(record, BROWSER_WORKSPACE_RECOVERY_DEBOUNCE_MS, {immediate: false});
+    const {start: scheduleRecord, stop: cancelScheduledRecord} = useTimeoutFn(record, BROWSER_WORKSPACE_RECOVERY_DEBOUNCE_MS, {
+        immediate: false,
+    });
 
     // One record at a time, so an older capture never lands after a newer one.
     function record() {
         cancelScheduledRecord();
-        if (disposed || !options.enabled.value) return;
+        if (disposed || !options.enabled.value) {
+            return;
+        }
         if (inFlight) {
             changedSinceRecord = true;
             return;
         }
         changedSinceRecord = false;
-        inFlight = recovery!.save(buildWorkspaceCheckpoint(options))
+        inFlight = recovery!
+            .save(buildWorkspaceCheckpoint(options))
             .catch((error: unknown) => BrowserLogger.warn('workspace-recovery', 'Failed to record browser recovery state', error))
             .finally(() => {
                 inFlight = null;
-                if (changedSinceRecord) record();
+                if (changedSinceRecord) {
+                    record();
+                }
             });
     }
 
     const stop = watch(
         // The cheap change signature keeps this watcher from rebuilding the checkpoint on every reactive tick.
-        () => options.enabled.value ? buildWorkspaceCheckpointChangeSignature(options).workspace : null,
+        () => (options.enabled.value ? buildWorkspaceCheckpointChangeSignature(options).workspace : null),
         () => {
             scheduleRecord();
         },
@@ -70,7 +70,9 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
 
     useEventListener(typeof window === 'undefined' ? undefined : window, 'pagehide', record);
     useEventListener(typeof document === 'undefined' ? undefined : document, 'visibilitychange', () => {
-        if (document.visibilityState === 'hidden') record();
+        if (document.visibilityState === 'hidden') {
+            record();
+        }
     });
 
     onBeforeUnmount(() => {

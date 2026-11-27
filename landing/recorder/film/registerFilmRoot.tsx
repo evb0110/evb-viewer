@@ -1,17 +1,13 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource react */
 // Remotion entry for recorder/render.mjs: one composition, built from the manifest passed as input props.
-import { useMemo } from 'react';
-import {
-    Composition,
-    registerRoot,
-} from 'remotion';
-import {
-    type IFilmManifest,
-    makeRealFilm,
-} from './makeRealFilm';
+import {useMemo} from 'react';
+import {Composition, registerRoot} from 'remotion';
+import {type IFilmManifest, makeRealFilm} from './makeRealFilm';
 
-interface IFilmProps extends Record<string, unknown> {manifest: IFilmManifest;}
+interface IFilmProps extends Record<string, unknown> {
+    manifest: IFilmManifest;
+}
 
 const PLACEHOLDER: IFilmManifest = {
     film: '',
@@ -22,8 +18,8 @@ const PLACEHOLDER: IFilmManifest = {
     steps: [],
 };
 
-function RecordedFilm({ manifest }: IFilmProps) {
-    const { Film } = useMemo(() => makeRealFilm(manifest), [manifest]);
+function RecordedFilm({manifest}: IFilmProps) {
+    const {Film} = useMemo(() => makeRealFilm(manifest), [manifest]);
     return <Film />;
 }
 
@@ -32,12 +28,12 @@ function FilmRoot() {
         <Composition
             id="film"
             component={RecordedFilm}
-            defaultProps={{ manifest: PLACEHOLDER }}
+            defaultProps={{manifest: PLACEHOLDER}}
             fps={30}
             width={1280}
             height={800}
             durationInFrames={1}
-            calculateMetadata={({ props }) => ({
+            calculateMetadata={({props}) => ({
                 width: props.manifest.width,
                 height: props.manifest.height,
                 durationInFrames: props.manifest.steps.reduce((total, step) => total + step.dur, 0),

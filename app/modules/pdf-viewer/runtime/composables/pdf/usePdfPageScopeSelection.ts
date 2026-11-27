@@ -8,7 +8,7 @@ import {
     normalizeSelectedPageNumbers,
     pageSelectionCount,
 } from '@app/utils/pdfPageSelection';
-import type { TPageSelection } from '@app/utils/pdfPageSelection';
+import type {TPageSelection} from '@app/utils/pdfPageSelection';
 
 export type TPdfPageScope = 'all' | 'current' | 'selected' | 'range' | 'even' | 'odd';
 
@@ -21,7 +21,9 @@ interface IPdfPageScopeSelectionOptions {
     resolveRangeSelection?: () => TPageSelection | null;
 }
 
-interface IResolveScopedPageNumbersOptions { includeAllPages?: boolean; }
+interface IResolveScopedPageNumbersOptions {
+    includeAllPages?: boolean;
+}
 
 export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions) => {
     const chosenScope = ref<TPdfPageScope>('all');
@@ -38,10 +40,7 @@ export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions)
         },
     });
 
-    const normalizedSelectedPages = computed(() => normalizeSelectedPageNumbers(
-        options.selectedPages?.() ?? [],
-        options.totalPages(),
-    ));
+    const normalizedSelectedPages = computed(() => normalizeSelectedPageNumbers(options.selectedPages?.() ?? [], options.totalPages()));
 
     const normalizedSelectedPageSelection = computed<TPageSelection>(() => {
         const pageCount = options.totalPages();
@@ -53,20 +52,14 @@ export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions)
     });
 
     function resetScopeForOpen(defaultScope?: TPdfPageScope) {
-        scope.value = defaultScope ?? (
-            pageSelectionCount(normalizedSelectedPageSelection.value) > 0 ? 'selected' : 'all'
-        );
+        scope.value = defaultScope ?? (pageSelectionCount(normalizedSelectedPageSelection.value) > 0 ? 'selected' : 'all');
         rangeInput.value = '';
         rangeTouched.value = false;
     }
 
-    function resolveScopedPageNumbers(
-        resolveOptions: IResolveScopedPageNumbersOptions = {},
-    ): number[] | undefined | null {
+    function resolveScopedPageNumbers(resolveOptions: IResolveScopedPageNumbersOptions = {}): number[] | undefined | null {
         if (scope.value === 'all') {
-            return resolveOptions.includeAllPages
-                ? materializePageSelection(createAllPageSelection(options.totalPages()))
-                : undefined;
+            return resolveOptions.includeAllPages ? materializePageSelection(createAllPageSelection(options.totalPages())) : undefined;
         }
         if (scope.value === 'current') {
             const page = options.currentPage();
@@ -116,18 +109,14 @@ export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions)
                 return createAllPageSelection(pageCount);
             case 'current': {
                 const page = options.currentPage();
-                return page >= 1 && page <= pageCount
-                    ? createExplicitPageSelection(pageCount, [page])
-                    : null;
+                return page >= 1 && page <= pageCount ? createExplicitPageSelection(pageCount, [page]) : null;
             }
             case 'even':
                 return createPredicatePageSelection(pageCount, 'even');
             case 'odd':
                 return createPredicatePageSelection(pageCount, 'odd');
             case 'selected':
-                return pageSelectionCount(normalizedSelectedPageSelection.value) > 0
-                    ? normalizedSelectedPageSelection.value
-                    : null;
+                return pageSelectionCount(normalizedSelectedPageSelection.value) > 0 ? normalizedSelectedPageSelection.value : null;
             case 'range':
                 return resolveRangeSelection();
         }

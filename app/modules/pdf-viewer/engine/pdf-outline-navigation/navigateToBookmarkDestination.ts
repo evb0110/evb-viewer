@@ -1,6 +1,6 @@
-import type { IBookmarkItem } from '@app/types/pdfOutline';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
-import { createPdfPageNavigationRequest } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/createPdfPageNavigationRequest';
+import type {IBookmarkItem} from '@app/types/pdfOutline';
+import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
+import {createPdfPageNavigationRequest} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/createPdfPageNavigationRequest';
 
 interface INavigateToBookmarkDestinationOptions {
     item: IBookmarkItem;
@@ -13,14 +13,11 @@ interface INavigateToBookmarkDestinationOptions {
  */
 export function navigateToBookmarkDestination(options: INavigateToBookmarkDestinationOptions) {
     const pageIndex = options.item.pageIndex;
-    const hasFiniteFallback = typeof pageIndex === 'number'
-        && Number.isFinite(pageIndex);
+    const hasFiniteFallback = typeof pageIndex === 'number' && Number.isFinite(pageIndex);
     if (!options.item.dest && !hasFiniteFallback) {
         return;
     }
-    const fallbackPage = hasFiniteFallback
-        ? pageIndex + 1
-        : 1;
+    const fallbackPage = hasFiniteFallback ? pageIndex + 1 : 1;
     // A bookmark without a named destination keeps the vertical position its
     // saved or restored entry records, so its ratio still reaches the page.
     const request = createPdfPageNavigationRequest(fallbackPage, {

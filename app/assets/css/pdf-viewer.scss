@@ -50,24 +50,24 @@
     pointer-events: none;
 }
 
-.pdfViewer .page_container[data-page-mutation-preview="rotation"] .text-layer,
-.pdfViewer .page_container[data-page-mutation-preview="rotation"] .textLayer,
-.pdfViewer .page_container[data-page-mutation-preview="rotation"] .annotation-layer,
-.pdfViewer .page_container[data-page-mutation-preview="rotation"] .annotationLayer,
-.pdfViewer .page_container[data-page-mutation-preview="rotation"] .pdf-annotation-editor-layer,
-.pdfViewer .page_container[data-page-mutation-preview="rotation"] .annotation-editor-layer,
-.pdfViewer .page_container[data-page-mutation-preview="rotation"] .annotationEditorLayer {
+.pdfViewer .page_container[data-page-mutation-preview='rotation'] .text-layer,
+.pdfViewer .page_container[data-page-mutation-preview='rotation'] .textLayer,
+.pdfViewer .page_container[data-page-mutation-preview='rotation'] .annotation-layer,
+.pdfViewer .page_container[data-page-mutation-preview='rotation'] .annotationLayer,
+.pdfViewer .page_container[data-page-mutation-preview='rotation'] .pdf-annotation-editor-layer,
+.pdfViewer .page_container[data-page-mutation-preview='rotation'] .annotation-editor-layer,
+.pdfViewer .page_container[data-page-mutation-preview='rotation'] .annotationEditorLayer {
     visibility: hidden;
     pointer-events: none;
 }
 
 /* PDF.js hydration does not gate the app's canonical annotation editor. */
-.pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .text-layer,
-.pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .annotation-layer,
-.pdfViewer .page_container[data-page-layer-readiness="canvas-only"] .annotation-editor-layer,
-.pdfViewer .page_container[data-page-layer-readiness="hydrating"] .text-layer,
-.pdfViewer .page_container[data-page-layer-readiness="hydrating"] .annotation-layer,
-.pdfViewer .page_container[data-page-layer-readiness="hydrating"] .annotation-editor-layer {
+.pdfViewer .page_container[data-page-layer-readiness='canvas-only'] .text-layer,
+.pdfViewer .page_container[data-page-layer-readiness='canvas-only'] .annotation-layer,
+.pdfViewer .page_container[data-page-layer-readiness='canvas-only'] .annotation-editor-layer,
+.pdfViewer .page_container[data-page-layer-readiness='hydrating'] .text-layer,
+.pdfViewer .page_container[data-page-layer-readiness='hydrating'] .annotation-layer,
+.pdfViewer .page_container[data-page-layer-readiness='hydrating'] .annotation-editor-layer {
     pointer-events: none;
 }
 
@@ -330,14 +330,14 @@
 }
 
 .pdfViewer .pdf-annotation-editor-text-markup line[data-annotation-visual],
-.pdfViewer .pdf-annotation-editor-text-markup[data-markup-subtype="Squiggly"] path[data-annotation-visual] {
+.pdfViewer .pdf-annotation-editor-text-markup[data-markup-subtype='Squiggly'] path[data-annotation-visual] {
     fill: none;
     stroke: var(--annotation-color);
     stroke-width: var(--annotation-markup-stroke-width);
     vector-effect: non-scaling-stroke;
 }
 
-.pdfViewer .pdf-annotation-editor-text-markup.is-selected:not([data-markup-subtype="Highlight"]) [data-annotation-hit-target] {
+.pdfViewer .pdf-annotation-editor-text-markup.is-selected:not([data-markup-subtype='Highlight']) [data-annotation-hit-target] {
     stroke: var(--app-toolbar-focus-ring);
     stroke-width: 1px;
     vector-effect: non-scaling-stroke;
@@ -401,7 +401,7 @@
     padding: 0.15em 0.3em;
     border: 0;
     outline: 1px solid transparent;
-    font-family: "EVB Annotation Scripts", "EVB Annotation Sans", sans-serif;
+    font-family: 'EVB Annotation Scripts', 'EVB Annotation Sans', sans-serif;
     line-height: 1.35;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -746,7 +746,7 @@
     /* Keep both scroll extents stable across page-window replacement, including
      * the trailing gutter that flex overflow omits from the track padding. */
     &::after {
-        content: "";
+        content: '';
         position: absolute;
         top: 0;
         left: 0;
@@ -764,7 +764,6 @@
      * visible symptom was that wheel-up appeared to do nothing because the
      * snap engine pulled the position back. JS owns paging end-to-end now.
      */
-
 }
 
 .pdf-viewer-page-row {
@@ -788,7 +787,6 @@
 .pdf-viewer-page-row .page_container {
     margin: 0;
 }
-
 
 /* A hidden page parks wholly left of the scroll origin, which no scroll
  * position reaches. A fixed offset is not enough: zoom makes a page wider
@@ -970,9 +968,7 @@
 
 .pdfViewer .freeTextEditor {
     --resizer-size: var(--evb-resizer-size, clamp(6px, calc(8px / var(--total-scale-factor, 1)), 10px));
-    --resizer-shift: calc(
-        0px - (var(--outline-width, 1px) + var(--resizer-size)) / 2 - var(--outline-around-width, 0px)
-    );
+    --resizer-shift: calc(0px - (var(--outline-width, 1px) + var(--resizer-size)) / 2 - var(--outline-around-width, 0px));
 
     .overlay.enabled {
         /* stylelint-disable declaration-no-important -- css-important-allow: FreeText editor visibility overrides PDF.js editor timing states. */

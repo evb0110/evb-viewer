@@ -1,29 +1,22 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {requireDocumentRef} from '@contracts/documentRef';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 
 const resolveDocumentTextCatalogMock = vi.hoisted(() => vi.fn());
 const resolveDocumentTextCatalogWindowMock = vi.hoisted(() => vi.fn());
 const cancelOcrMock = vi.hoisted(() => vi.fn(async () => ({canceled: true})));
 
-const platformApi = createElectronPlatformApiFixture({ocr: {
-    cancel: cancelOcrMock,
-    resolveDocumentTextCatalog: resolveDocumentTextCatalogMock,
-    resolveDocumentTextCatalogWindow: resolveDocumentTextCatalogWindowMock,
-}});
+const platformApi = createElectronPlatformApiFixture({
+    ocr: {
+        cancel: cancelOcrMock,
+        resolveDocumentTextCatalog: resolveDocumentTextCatalogMock,
+        resolveDocumentTextCatalogWindow: resolveDocumentTextCatalogWindowMock,
+    },
+});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: vi.fn()}}));
 
-const {
-    loadOcrText,
-    prepareDocumentTextCatalogTextPages,
-} = await import('@app/utils/ocr/loadOcrText');
+const {loadOcrText, prepareDocumentTextCatalogTextPages} = await import('@app/utils/ocr/loadOcrText');
 const TEST_DOCUMENT_REVISION = 'revision-token';
 
 describe('loadOcrText', () => {
@@ -41,25 +34,23 @@ describe('loadOcrText', () => {
             })),
             contentDigest: 'snapshot-digest',
         });
-        resolveDocumentTextCatalogWindowMock.mockImplementation(async (
-            _path: string,
-            documentRevision: string,
-            firstPage: number,
-            lastPage: number,
-            pageCount: number,
-        ) => ({
-            documentRevision,
-            pageCount,
-            firstPage,
-            lastPage,
-            pages: [{
-                pageNumber: firstPage,
-                text: `Page ${firstPage}`,
-                source: 'evb-ocr',
-                contentDigest: `digest-${firstPage}`,
-            }],
-            contentDigest: `window-${firstPage}`,
-        }));
+        resolveDocumentTextCatalogWindowMock.mockImplementation(
+            async (_path: string, documentRevision: string, firstPage: number, lastPage: number, pageCount: number) => ({
+                documentRevision,
+                pageCount,
+                firstPage,
+                lastPage,
+                pages: [
+                    {
+                        pageNumber: firstPage,
+                        text: `Page ${firstPage}`,
+                        source: 'evb-ocr',
+                        contentDigest: `digest-${firstPage}`,
+                    },
+                ],
+                contentDigest: `window-${firstPage}`,
+            }),
+        );
     });
 
     it('reads all canonical pages through the production catalog capability', async () => {
@@ -78,11 +69,7 @@ describe('loadOcrText', () => {
     });
 
     it('opens only the first bounded window for a lazy 100,001-page DOCX stream', async () => {
-        const pageStream = await prepareDocumentTextCatalogTextPages(
-            requireDocumentRef('/tmp/work.pdf'),
-            TEST_DOCUMENT_REVISION,
-            100_001,
-        );
+        const pageStream = await prepareDocumentTextCatalogTextPages(requireDocumentRef('/tmp/work.pdf'), TEST_DOCUMENT_REVISION, 100_001);
         expect(pageStream).not.toBeNull();
         expect(resolveDocumentTextCatalogWindowMock).toHaveBeenCalledTimes(1);
         expect(resolveDocumentTextCatalogWindowMock).toHaveBeenCalledWith(
@@ -103,20 +90,22 @@ describe('loadOcrText', () => {
 
     it('stops waiting for an in-flight catalog window when DOCX export is canceled', async () => {
         const controller = new AbortController();
-        let resolveWindow: ((window: {
-            documentRevision: string;
-            pageCount: number;
-            firstPage: number;
-            lastPage: number;
-            pages: Array<{
-                pageNumber: number;
-                text: string;
-                source: 'evb-ocr';
-                contentDigest: string;
-            }>;
-            contentDigest: string;
-        }) => void) | undefined;
-        const windowPromise = new Promise<Parameters<NonNullable<typeof resolveWindow>>[0]>(resolve => {
+        let resolveWindow:
+            | ((window: {
+                  documentRevision: string;
+                  pageCount: number;
+                  firstPage: number;
+                  lastPage: number;
+                  pages: Array<{
+                      pageNumber: number;
+                      text: string;
+                      source: 'evb-ocr';
+                      contentDigest: string;
+                  }>;
+                  contentDigest: string;
+              }) => void)
+            | undefined;
+        const windowPromise = new Promise<Parameters<NonNullable<typeof resolveWindow>>[0]>((resolve) => {
             resolveWindow = resolve;
         });
         resolveDocumentTextCatalogWindowMock.mockReturnValueOnce(windowPromise);
@@ -135,12 +124,14 @@ describe('loadOcrText', () => {
             pageCount: 100_001,
             firstPage: 1,
             lastPage: 64,
-            pages: [{
-                pageNumber: 1,
-                text: 'Page 1',
-                source: 'evb-ocr',
-                contentDigest: 'digest-1',
-            }],
+            pages: [
+                {
+                    pageNumber: 1,
+                    text: 'Page 1',
+                    source: 'evb-ocr',
+                    contentDigest: 'digest-1',
+                },
+            ],
             contentDigest: 'window-1',
         });
         await windowPromise;
@@ -149,20 +140,22 @@ describe('loadOcrText', () => {
 
     it('cancels an in-flight catalog window with the request id sent to the renderer capability', async () => {
         const controller = new AbortController();
-        let resolveWindow: ((window: {
-            documentRevision: string;
-            pageCount: number;
-            firstPage: number;
-            lastPage: number;
-            pages: Array<{
-                pageNumber: number;
-                text: string;
-                source: 'evb-ocr';
-                contentDigest: string;
-            }>;
-            contentDigest: string;
-        }) => void) | undefined;
-        const windowPromise = new Promise<Parameters<NonNullable<typeof resolveWindow>>[0]>(resolve => {
+        let resolveWindow:
+            | ((window: {
+                  documentRevision: string;
+                  pageCount: number;
+                  firstPage: number;
+                  lastPage: number;
+                  pages: Array<{
+                      pageNumber: number;
+                      text: string;
+                      source: 'evb-ocr';
+                      contentDigest: string;
+                  }>;
+                  contentDigest: string;
+              }) => void)
+            | undefined;
+        const windowPromise = new Promise<Parameters<NonNullable<typeof resolveWindow>>[0]>((resolve) => {
             resolveWindow = resolve;
         });
         resolveDocumentTextCatalogWindowMock.mockReturnValueOnce(windowPromise);
@@ -196,12 +189,14 @@ describe('loadOcrText', () => {
             pageCount: 100_001,
             firstPage: 1,
             lastPage: 64,
-            pages: [{
-                pageNumber: 1,
-                text: 'Page 1',
-                source: 'evb-ocr',
-                contentDigest: 'digest-1',
-            }],
+            pages: [
+                {
+                    pageNumber: 1,
+                    text: 'Page 1',
+                    source: 'evb-ocr',
+                    contentDigest: 'digest-1',
+                },
+            ],
             contentDigest: 'window-1',
         });
         await windowPromise;
@@ -209,13 +204,9 @@ describe('loadOcrText', () => {
 
     it('cancels the main scalar catalog request by request id', async () => {
         const controller = new AbortController();
-        let resolveSnapshot: ((snapshot: {
-            documentRevision: string;
-            pageCount: number;
-            pages: [];
-            contentDigest: string;
-        }) => void) | undefined;
-        const snapshotPromise = new Promise<Parameters<NonNullable<typeof resolveSnapshot>>[0]>(resolve => {
+        let resolveSnapshot:
+            ((snapshot: {documentRevision: string; pageCount: number; pages: []; contentDigest: string}) => void) | undefined;
+        const snapshotPromise = new Promise<Parameters<NonNullable<typeof resolveSnapshot>>[0]>((resolve) => {
             resolveSnapshot = resolve;
         });
         resolveDocumentTextCatalogMock.mockReturnValueOnce(snapshotPromise);
@@ -226,12 +217,7 @@ describe('loadOcrText', () => {
 
         await expect(loading).rejects.toMatchObject({name: 'AbortError'});
         expect(cancelOcrMock).toHaveBeenCalledWith(expect.any(String));
-        expect(resolveDocumentTextCatalogMock).toHaveBeenCalledWith(
-            '/tmp/work.pdf',
-            TEST_DOCUMENT_REVISION,
-            undefined,
-            expect.any(String),
-        );
+        expect(resolveDocumentTextCatalogMock).toHaveBeenCalledWith('/tmp/work.pdf', TEST_DOCUMENT_REVISION, undefined, expect.any(String));
         resolveSnapshot?.({
             documentRevision: TEST_DOCUMENT_REVISION,
             pageCount: 0,

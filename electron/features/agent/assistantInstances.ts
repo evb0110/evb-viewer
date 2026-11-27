@@ -1,52 +1,29 @@
 import {sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
-import {
-    chmod,
-    lstat,
-    mkdir,
-    readdir,
-    readFile,
-    symlink,
-    unlink,
-    writeFile,
-} from 'node:fs/promises';
+import {chmod, lstat, mkdir, readdir, readFile, symlink, unlink, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
-import {
-    isAbsolute,
-    join,
-    resolve,
-} from 'node:path';
+import {isAbsolute, join, resolve} from 'node:path';
 import electron from 'electron';
 import * as v from 'valibot';
-import {
-    ASSISTANT_INSTANCES_SCHEMA,
-    type IAssistantInstanceConfig,
-    type IAssistantInstancesResult,
-} from '@contracts/assistant';
+import {ASSISTANT_INSTANCES_SCHEMA, type IAssistantInstanceConfig, type IAssistantInstancesResult} from '@contracts/assistant';
 import {isRecord} from '@contracts/runtimeGuards';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+import {atomicReplace, makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import {te} from '@electron/te';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {ASSISTANT_MODEL_CONFIG_DIR} from '@electron/features/agent/codexAssistantConfig';
 
-import {assistantSetupIdentity, defaultAssistantLocalSetups, discoverAssistantLocalSetups, resolveDefaultAssistantSetups} from '@electron/features/agent/assistantLocalSetups';
+import {
+    assistantSetupIdentity,
+    defaultAssistantLocalSetups,
+    discoverAssistantLocalSetups,
+    resolveDefaultAssistantSetups,
+} from '@electron/features/agent/assistantLocalSetups';
 import {getAssistantShellEnvironment} from '@electron/features/agent/assistantShellEnvironment';
 const logger = createLogger('assistant-instances');
 const STORE_VERSION = 1;
 // Entries a Codex shadow home keeps to itself: its own login, the lock that
 // guards it, the account's model cache, and process-local scratch.
-const SHADOW_PRIVATE_ENTRIES = new Set([
-    'auth.json',
-    'auth.lock',
-    'models_cache.json',
-    'log',
-    'memories',
-    'tmp',
-    '.DS_Store',
-]);
+const SHADOW_PRIVATE_ENTRIES = new Set(['auth.json', 'auth.lock', 'models_cache.json', 'log', 'memories', 'tmp', '.DS_Store']);
 // Host-session markers a Claude child must not inherit from a parent Claude.
 const CLAUDE_HOST_ENV = [
     'CLAUDECODE',
@@ -140,20 +117,21 @@ export function parseClaudeExtraArgs(tokens: readonly string[], label: string) {
     for (let index = 0; index < tokens.length; index += 1) {
         const token = tokens[index] ?? '';
         if (!token.startsWith('--') || token.length === 2) {
-            throw new Error(te('dialogs.agentAssistant.launchArgUnsupported', {
-                label,
-                argument: token,
-            }));
+            throw new Error(
+                te('dialogs.agentAssistant.launchArgUnsupported', {
+                    label,
+                    argument: token,
+                }),
+            );
         }
-        const [
-            rawName = '',
-            inlineValue,
-        ] = token.slice(2).split(/=(.*)/su, 2);
+        const [rawName = '', inlineValue] = token.slice(2).split(/=(.*)/su, 2);
         if (CLAUDE_RESERVED_FLAGS.has(rawName.toLowerCase())) {
-            throw new Error(te('dialogs.agentAssistant.launchArgUnsupported', {
-                label,
-                argument: `--${rawName}`,
-            }));
+            throw new Error(
+                te('dialogs.agentAssistant.launchArgUnsupported', {
+                    label,
+                    argument: `--${rawName}`,
+                }),
+            );
         }
         if (inlineValue !== undefined) {
             extraArgs[rawName] = inlineValue;
@@ -175,8 +153,10 @@ function storePath() {
 }
 
 function canEncrypt() {
-    return electron.safeStorage.isEncryptionAvailable()
-        && (process.platform !== 'linux' || electron.safeStorage.getSelectedStorageBackend() !== 'basic_text');
+    return (
+        electron.safeStorage.isEncryptionAvailable() &&
+        (process.platform !== 'linux' || electron.safeStorage.getSelectedStorageBackend() !== 'basic_text')
+    );
 }
 
 function encrypt(value: string) {
@@ -208,14 +188,19 @@ async function readStore(): Promise<IStoredInstances | null> {
 }
 
 function isStoredInstances(value: unknown): value is IStoredInstances {
-    return isRecord(value)
-        && value.version === STORE_VERSION
-        && Array.isArray(value.instances)
-        && value.instances.every(instance => isRecord(instance)
-            && typeof instance.id === 'string'
-            && (instance.driver === 'codex' || instance.driver === 'claude')
-            && typeof instance.displayName === 'string'
-            && typeof instance.enabled === 'boolean');
+    return (
+        isRecord(value) &&
+        value.version === STORE_VERSION &&
+        Array.isArray(value.instances) &&
+        value.instances.every(
+            (instance) =>
+                isRecord(instance) &&
+                typeof instance.id === 'string' &&
+                (instance.driver === 'codex' || instance.driver === 'claude') &&
+                typeof instance.displayName === 'string' &&
+                typeof instance.enabled === 'boolean',
+        )
+    );
 }
 
 async function writeStore(store: IStoredInstances) {
@@ -239,27 +224,24 @@ async function writeStore(store: IStoredInstances) {
 }
 
 function redact(stored: IStoredInstance): IAssistantInstanceConfig {
-    const {
-        environment,
-        launchArgsEncrypted,
-        launchArgs,
-        ...rest
-    } = stored;
+    const {environment, launchArgsEncrypted, launchArgs, ...rest} = stored;
     return {
         ...rest,
         ...(launchArgs !== undefined || launchArgsEncrypted !== undefined
             ? {
-                launchArgs: stored.launchArgsSecret ? '' : (launchArgs ?? ''),
-                launchArgsConfigured: true,
-            }
+                  launchArgs: stored.launchArgsSecret ? '' : (launchArgs ?? ''),
+                  launchArgsConfigured: true,
+              }
             : {}),
         ...(environment
-            ? {environment: environment.map(entry => ({
-                name: entry.name,
-                secret: entry.secret,
-                value: entry.secret ? '' : (entry.value ?? ''),
-                configured: entry.secret ? entry.encrypted !== undefined : undefined,
-            }))}
+            ? {
+                  environment: environment.map((entry) => ({
+                      name: entry.name,
+                      secret: entry.secret,
+                      value: entry.secret ? '' : (entry.value ?? ''),
+                      configured: entry.secret ? entry.encrypted !== undefined : undefined,
+                  })),
+              }
             : {}),
     };
 }
@@ -286,42 +268,60 @@ let discovered: Promise<IAssistantInstanceConfig[]> | null = null;
 let known: IAssistantInstanceConfig[] | undefined;
 /** Only the current discovery publishes: a superseded one neither replaces `known` nor clears its successor. */
 function localSetups() {
-    if (discovered) return discovered;
-    const pending: Promise<IAssistantInstanceConfig[]> = getAssistantShellEnvironment().then(discoverAssistantLocalSetups).then(setups => {
-        if (discovered === pending) {
-            known = setups;
-            for (const listener of listeners) listener();
-        }
-        return setups;
-    }, (error: unknown) => {
-        if (discovered === pending) discovered = null;
-        logger.warn(`Local assistant discovery failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
-        return defaultAssistantLocalSetups();
-    });
+    if (discovered) {
+        return discovered;
+    }
+    const pending: Promise<IAssistantInstanceConfig[]> = getAssistantShellEnvironment()
+        .then(discoverAssistantLocalSetups)
+        .then(
+            (setups) => {
+                if (discovered === pending) {
+                    known = setups;
+                    for (const listener of listeners) {
+                        listener();
+                    }
+                }
+                return setups;
+            },
+            (error: unknown) => {
+                if (discovered === pending) {
+                    discovered = null;
+                }
+                logger.warn(`Local assistant discovery failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
+                return defaultAssistantLocalSetups();
+            },
+        );
     discovered = pending;
     return pending;
 }
-export function refreshAssistantLocalSetups() { discovered = null; }
+export function refreshAssistantLocalSetups() {
+    discovered = null;
+}
 
 async function getStoredInstances(discover: TDiscovery = true): Promise<IStoredInstance[]> {
     const store = await loadStore();
     const explicit = store?.instances ?? [];
     const discovering = discover ? localSetups() : null;
-    const local = discover === 'known'
-        ? known ?? await resolveDefaultAssistantSetups(await getAssistantShellEnvironment())
-        : await discovering ?? defaultAssistantLocalSetups();
-    const identities = new Set(explicit.map(instance => assistantSetupIdentity({...redact(instance), launchArgs: instance.launchArgsEncrypted ?? instance.launchArgs})));
-    const ids = new Set(explicit.map(instance => instance.id));
-    return [...explicit, ...local.filter(instance => !ids.has(instance.id) && !identities.has(assistantSetupIdentity(instance))).map(instance => storeInstance(instance, undefined))];
+    const local =
+        discover === 'known'
+            ? (known ?? (await resolveDefaultAssistantSetups(await getAssistantShellEnvironment())))
+            : ((await discovering) ?? defaultAssistantLocalSetups());
+    const identities = new Set(
+        explicit.map((instance) =>
+            assistantSetupIdentity({...redact(instance), launchArgs: instance.launchArgsEncrypted ?? instance.launchArgs}),
+        ),
+    );
+    const ids = new Set(explicit.map((instance) => instance.id));
+    return [
+        ...explicit,
+        ...local
+            .filter((instance) => !ids.has(instance.id) && !identities.has(assistantSetupIdentity(instance)))
+            .map((instance) => storeInstance(instance, undefined)),
+    ];
 }
 
 function storeInstance(next: IAssistantInstanceConfig, previous: IStoredInstance | undefined): IStoredInstance {
-    const {
-        environment,
-        launchArgs,
-        launchArgsConfigured: _launchArgsConfigured,
-        ...rest
-    } = next;
+    const {environment, launchArgs, launchArgsConfigured: _launchArgsConfigured, ...rest} = next;
     const stored: IStoredInstance = {...rest};
     if (launchArgs !== undefined) {
         if (next.launchArgsSecret) {
@@ -352,7 +352,7 @@ function storeInstance(next: IAssistantInstanceConfig, previous: IStoredInstance
                     encrypted: encrypt(entry.value),
                 };
             }
-            const kept = previous?.environment?.find(candidate => candidate.name === entry.name);
+            const kept = previous?.environment?.find((candidate) => candidate.name === entry.name);
             if (kept?.encrypted) {
                 return {
                     name: entry.name,
@@ -386,13 +386,10 @@ export async function saveAssistantInstanceConfigs(input: unknown): Promise<IAss
                 throw new Error(te('dialogs.agentAssistant.shadowCodexOnly', {label: instance.displayName}));
             }
         }
-        const previous = new Map((await getStoredInstances()).map(instance => [
-            instance.id,
-            instance,
-        ]));
+        const previous = new Map((await getStoredInstances()).map((instance) => [instance.id, instance]));
         const store: IStoredInstances = {
             version: STORE_VERSION,
-            instances: next.map(instance => storeInstance(instance, previous.get(instance.id))),
+            instances: next.map((instance) => storeInstance(instance, previous.get(instance.id))),
         };
         await writeStore(store);
         cachedStore = Promise.resolve(store);
@@ -434,7 +431,7 @@ export function tokenizeLaunchArgs(input: string) {
     const tokens: string[] = [];
     let current = '';
     let inToken = false;
-    let quote: '"' | '\'' | null = null;
+    let quote: '"' | "'" | null = null;
     for (let index = 0; index < input.length; index += 1) {
         const character = input[index] ?? '';
         if (quote) {
@@ -448,7 +445,7 @@ export function tokenizeLaunchArgs(input: string) {
             }
             continue;
         }
-        if (character === '"' || character === '\'') {
+        if (character === '"' || character === "'") {
             quote = character;
             inToken = true;
             continue;
@@ -523,18 +520,22 @@ function decryptEnvironment(entries: IStoredEnvironmentEntry[] | undefined, labe
     for (const entry of entries ?? []) {
         if (entry.secret) {
             if (!entry.encrypted) {
-                throw new Error(te('dialogs.agentAssistant.secretMissing', {
-                    label,
-                    name: entry.name,
-                }));
+                throw new Error(
+                    te('dialogs.agentAssistant.secretMissing', {
+                        label,
+                        name: entry.name,
+                    }),
+                );
             }
             try {
                 env[entry.name] = decrypt(entry.encrypted);
             } catch {
-                throw new Error(te('dialogs.agentAssistant.secretUnreadable', {
-                    label,
-                    name: entry.name,
-                }));
+                throw new Error(
+                    te('dialogs.agentAssistant.secretUnreadable', {
+                        label,
+                        name: entry.name,
+                    }),
+                );
             }
             continue;
         }
@@ -582,14 +583,20 @@ export async function resolveAssistantLaunchContext(
     const instance = redact(stored);
     const label = assistantInstanceLabel(instance);
     const instanceEnv = decryptEnvironment(stored.environment, label);
-    const env = {...await getAssistantShellEnvironment()};
-    if (instance.driver === 'claude') for (const name of CLAUDE_HOST_ENV) delete env[name];
+    const env = {...(await getAssistantShellEnvironment())};
+    if (instance.driver === 'claude') {
+        for (const name of CLAUDE_HOST_ENV) {
+            delete env[name];
+        }
+    }
     // Adapted from T3 Code instanceEnvironment.ts (0b6f482dc5), MIT.
     for (const [key, value] of Object.entries(instanceEnv)) {
         const name = process.platform === 'win32' ? key.toUpperCase() : key;
         if (process.platform === 'win32') {
             for (const inherited of Object.keys(env)) {
-                if (inherited.toUpperCase() === name) delete env[inherited];
+                if (inherited.toUpperCase() === name) {
+                    delete env[inherited];
+                }
             }
         }
         env[name] = name === 'CODEX_HOME' || name === 'CLAUDE_CONFIG_DIR' ? expandHome(value) : value;
@@ -611,7 +618,9 @@ export async function resolveAssistantLaunchContext(
     } else {
         homePath = instance.homePath?.trim()
             ? expandHome(instance.homePath)
-            : (env.CLAUDE_CONFIG_DIR ? expandHome(env.CLAUDE_CONFIG_DIR) : null);
+            : env.CLAUDE_CONFIG_DIR
+              ? expandHome(env.CLAUDE_CONFIG_DIR)
+              : null;
         // Adapted from T3 Code Drivers/ClaudeHome.ts (0b6f482dc5), MIT.
         // Leave the native default environment untouched: even an explicit
         // default config directory changes Claude's macOS Keychain identity.
@@ -620,12 +629,10 @@ export async function resolveAssistantLaunchContext(
         }
     }
     const configuredBinary = instance.binaryPath?.trim() ? expandHome(instance.binaryPath) : null;
-    const binaryPath = configuredBinary
-        ?? (instance.driver === 'codex' ? await resolvers.codex(env) : await resolvers.claude(env));
+    const binaryPath = configuredBinary ?? (instance.driver === 'codex' ? await resolvers.codex(env) : await resolvers.claude(env));
     const joinedArgs = launchArgs.join(' ');
-    const customEndpoint = instance.driver === 'codex'
-        ? /model_provider\s*=|base_url\s*=/u.test(joinedArgs)
-        : Boolean(instanceEnv.ANTHROPIC_BASE_URL?.trim());
+    const customEndpoint =
+        instance.driver === 'codex' ? /model_provider\s*=|base_url\s*=/u.test(joinedArgs) : Boolean(instanceEnv.ANTHROPIC_BASE_URL?.trim());
     return {
         instance,
         binaryPath: binaryPath && !isAbsolute(binaryPath) && binaryPath.includes('/') ? resolve(binaryPath) : binaryPath,
@@ -642,12 +649,14 @@ export async function resolveAssistantLaunchContext(
  * to keep the shell, apps and similar features off, so it is refused.
  */
 function refuseCodexEnableFlags(tokens: readonly string[], label: string) {
-    const enable = tokens.find(token => token === '--enable' || token.startsWith('--enable='));
+    const enable = tokens.find((token) => token === '--enable' || token.startsWith('--enable='));
     if (enable) {
-        throw new Error(te('dialogs.agentAssistant.launchArgUnsupported', {
-            label,
-            argument: '--enable',
-        }));
+        throw new Error(
+            te('dialogs.agentAssistant.launchArgUnsupported', {
+                label,
+                argument: '--enable',
+            }),
+        );
     }
     return {};
 }
@@ -657,8 +666,5 @@ function refuseCodexEnableFlags(tokens: readonly string[], label: string) {
  * ciphertext, so a runtime restarts when anything it was started with changes.
  */
 export async function getAssistantInstanceFingerprints(discover: TDiscovery = true) {
-    return new Map((await getStoredInstances(discover)).map(instance => [
-        instance.id,
-        JSON.stringify(instance),
-    ]));
+    return new Map((await getStoredInstances(discover)).map((instance) => [instance.id, JSON.stringify(instance)]));
 }

@@ -90,25 +90,19 @@
 </template>
 
 <script setup lang="ts">
-import { until } from '@vueuse/core';
-import { isAbortError } from '@contracts/isAbortError';
-import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import { isFailurePresentation } from '@app/composables/useFailureToast';
+import {until} from '@vueuse/core';
+import {isAbortError} from '@contracts/isAbortError';
+import {getFailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {isFailurePresentation} from '@app/composables/useFailureToast';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
-import { PdfSidebar } from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
-import type { IPdfThumbnailPageGeometry } from '@app/modules/pdf-viewer/public';
-import type { TDocumentPageLabelLookup } from '@app/modules/document-viewer/public';
+import {PdfSidebar} from '@app/modules/pdf-viewer/public/component-exports/pdfSidebar';
+import type {IPdfThumbnailPageGeometry} from '@app/modules/pdf-viewer/public';
+import type {TDocumentPageLabelLookup} from '@app/modules/document-viewer/public';
 import DocumentSourceSidebar from '@app/modules/workspace-shell/components/DocumentSourceSidebar.vue';
-import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
-import { useDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
+import {useDocumentContext} from '@app/modules/workspace-shell/documentContext';
+import {useDocumentViewContext} from '@app/modules/workspace-shell/documentViewContext';
 
-const {
-    documentOpening,
-    isOpen,
-    isActive,
-    isSourceResizing,
-    pageLabels,
-} = defineProps<{
+const {documentOpening, isOpen, isActive, isSourceResizing, pageLabels} = defineProps<{
     documentOpening: boolean;
     isOpen: boolean;
     isActive: boolean;
@@ -121,22 +115,9 @@ const context = useDocumentViewContext();
 const {
     file,
     annotations,
-    metadata: {
-        pageLabelState,
-        bookmarkState,
-    },
+    metadata: {pageLabelState, bookmarkState},
 } = document;
-const {
-    view,
-    renderedSidebar,
-    sidebarTabs,
-    search,
-    navigation,
-    pageOps,
-    annotationActions,
-    annotationTool,
-    annotationToolState,
-} = context;
+const {view, renderedSidebar, sidebarTabs, search, navigation, pageOps, annotationActions, annotationTool, annotationToolState} = context;
 const pdfViewer = computed(() => view.pdfViewerRef.value);
 const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {
     const viewer = pdfViewer.value;
@@ -150,12 +131,15 @@ const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {
 });
 
 async function editTextBox(comment: IAnnotationCommentSummary) {
-    if (await annotationToolState.handleAnnotationToolChange('select') === false) return;
+    if ((await annotationToolState.handleAnnotationToolChange('select')) === false) {
+        return;
+    }
     try {
         await pdfViewer.value?.editAnnotationTextBox?.(comment);
     } catch (error) {
-        if (isAbortError(error)
-            || (isFailurePresentation(error) && getFailureReceipt(error))) return;
+        if (isAbortError(error) || (isFailurePresentation(error) && getFailureReceipt(error))) {
+            return;
+        }
         throw error;
     }
 }
@@ -166,29 +150,18 @@ function goToResult(index: number) {
     }
 }
 
-const searchDocumentReady = computed(() => Boolean(
-    file.workingCopyPath.value
-    && view.pdfDocument.value
-    && view.totalPages.value > 0
-    && !view.isLoading.value
-    && !documentOpening,
-));
+const searchDocumentReady = computed(() =>
+    Boolean(file.workingCopyPath.value && view.pdfDocument.value && view.totalPages.value > 0 && !view.isLoading.value && !documentOpening),
+);
 let latestSearchRequest = 0;
 // A search typed while the document opens runs once it is searchable.
 async function searchWhenDocumentReady() {
     const request = ++latestSearchRequest;
-    const identity = [
-        file.workingCopyPath.value,
-        file.documentRevisionToken.value,
-    ];
+    const identity = [file.workingCopyPath.value, file.documentRevisionToken.value];
     const query = search.searchQuery.value;
     const options = {...search.searchOptions.value};
     await until(searchDocumentReady).toBe(true);
-    if (
-        request !== latestSearchRequest
-        || identity[0] !== file.workingCopyPath.value
-        || identity[1] !== file.documentRevisionToken.value
-    ) {
+    if (request !== latestSearchRequest || identity[0] !== file.workingCopyPath.value || identity[1] !== file.documentRevisionToken.value) {
         return;
     }
     if (!search.searchQuery.value && query) {

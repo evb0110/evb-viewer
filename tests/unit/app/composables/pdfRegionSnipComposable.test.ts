@@ -1,14 +1,8 @@
 // @vitest-environment happy-dom
 import type * as TViMockOriginalModule from '@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob';
-import {
-    afterEach, describe, expect, it, vi,
-} from 'vitest';
-import {
-    createApp, defineComponent, h, inject, nextTick, ref, watch,
-} from 'vue';
-import {
-    usePdfRegionSnip, pdfRegionSnipKeyboardKey,
-} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, inject, nextTick, ref, watch} from 'vue';
+import {usePdfRegionSnip, pdfRegionSnipKeyboardKey} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip';
 import {capturePdfRegionAsPngBlob} from '@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob';
 import type {ISnipPointerPayload} from '@app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload';
 import type {IFailurePresentation} from '@app/composables/useFailureToast';
@@ -37,10 +31,16 @@ vi.mock('@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPng
         fragments: [],
     }),
 }));
-vi.mock('@app/modules/pdf-viewer/engine/pdf-region-clipboard/writePngBlobToClipboard', () => ({writePngBlobToClipboard: async (blob: Blob) => {output.clipboard = blob;}}));
+vi.mock('@app/modules/pdf-viewer/engine/pdf-region-clipboard/writePngBlobToClipboard', () => ({
+    writePngBlobToClipboard: async (blob: Blob) => {
+        output.clipboard = blob;
+    },
+}));
 function createDeferred<T>() {
     let resolve!: (value: T) => void;
-    const promise = new Promise<T>(done => {resolve = done;});
+    const promise = new Promise<T>((done) => {
+        resolve = done;
+    });
     return {
         promise,
         resolve,
@@ -64,42 +64,66 @@ function mountSnip() {
     document.body.append(viewerContainer);
     const host = document.createElement('div');
     document.body.append(host);
-    const view = defineComponent({setup() {
-        const controller = inject(pdfRegionSnipKeyboardKey)!;
-        return () => controller.state.value === 'idle' ? null : h('div', {
-            ref: element => {
-                if (element instanceof Element) element.getBoundingClientRect = () => new DOMRect(10, 10, 30, 30);
-                controller.setCropTarget(element instanceof Element ? element : null);
+    const view = defineComponent({
+        setup() {
+            const controller = inject(pdfRegionSnipKeyboardKey)!;
+            return () =>
+                controller.state.value === 'idle'
+                    ? null
+                    : h(
+                          'div',
+                          {
+                              ref: (element) => {
+                                  if (element instanceof Element) {
+                                      element.getBoundingClientRect = () => new DOMRect(10, 10, 30, 30);
+                                  }
+                                  controller.setCropTarget(element instanceof Element ? element : null);
+                              },
+                              role: 'status',
+                          },
+                          controller.state.value,
+                      );
+        },
+    });
+    const app = createApp(
+        defineComponent({
+            setup() {
+                snip = usePdfRegionSnip({
+                    viewerContainer: ref(viewerContainer),
+                    document: {
+                        captureFence: () => ({
+                            loadToken: 1,
+                            documentVersion: 1,
+                            documentRevision: null,
+                            openSurfaceGeneration: 1,
+                        }),
+                        isCurrent: () => true,
+                        subscribe: () => () => {},
+                        registerDisposable: () => {},
+                    },
+                    prepare: async () => {},
+                    viewState: {
+                        viewRotation: 0,
+                        isActive: true,
+                    },
+                });
+                return () => h(view);
             },
-            role: 'status',
-        }, controller.state.value);
-    }});
-    const app = createApp(defineComponent({setup() {
-        snip = usePdfRegionSnip({
-            viewerContainer: ref(viewerContainer),
-            document: {
-                captureFence: () => ({
-                    loadToken: 1,
-                    documentVersion: 1,
-                    documentRevision: null,
-                    openSurfaceGeneration: 1,
-                }),
-                isCurrent: () => true,
-                subscribe: () => () => {},
-                registerDisposable: () => {},
-            },
-            prepare: async () => {},
-            viewState: {
-                viewRotation: 0,
-                isActive: true,
-            },
-        });
-        return () => h(view);
-    }}));
+        }),
+    );
     app.mount(host);
     async function selectAndConfirm() {
-        const ready = new Promise<void>(resolve => {
-            const stop = watch(snip.state, value => {if (value === 'confirming') {stop(); resolve();}}, {flush: 'sync'});
+        const ready = new Promise<void>((resolve) => {
+            const stop = watch(
+                snip.state,
+                (value) => {
+                    if (value === 'confirming') {
+                        stop();
+                        resolve();
+                    }
+                },
+                {flush: 'sync'},
+            );
         });
         snip.onPointerStart(createPayload(10, 10));
         snip.onPointerEnd(createPayload(40, 40));
@@ -115,15 +139,18 @@ function mountSnip() {
     };
 }
 describe('usePdfRegionSnip', () => {
-    afterEach(() => {vi.clearAllMocks(); output.clipboard = null; output.failures.length = 0; document.body.replaceChildren();});
+    afterEach(() => {
+        vi.clearAllMocks();
+        output.clipboard = null;
+        output.failures.length = 0;
+        document.body.replaceChildren();
+    });
     it('keeps the previous clipboard image and settles false after pending capture is cancelled', async () => {
         const capture = createDeferred<NonNullable<Awaited<ReturnType<typeof capturePdfRegionAsPngBlob>>>>();
         vi.mocked(capturePdfRegionAsPngBlob).mockReturnValue(capture.promise);
         const previous = new Blob(['previous PNG'], {type: 'image/png'});
         output.clipboard = previous;
-        const {
-            app, snip, selectAndConfirm, host,
-        } = mountSnip();
+        const {app, snip, selectAndConfirm, host} = mountSnip();
         const session = snip.startCaptureSession();
         await selectAndConfirm();
         snip.cancelCapture();
@@ -146,15 +173,13 @@ describe('usePdfRegionSnip', () => {
     });
     it('settles false and presents the capture cause once without a success badge', async () => {
         vi.mocked(capturePdfRegionAsPngBlob).mockRejectedValue(new Error('capture failed'));
-        const {
-            app, snip, selectAndConfirm, host,
-        } = mountSnip();
+        const {app, snip, selectAndConfirm, host} = mountSnip();
         const session = snip.startCaptureSession();
         await selectAndConfirm();
         await expect(session).resolves.toBe(false);
         await nextTick();
         expect(output.clipboard).toBeNull();
-        expect(output.failures.map(failure => failure.technicalDetails)).toEqual(['capture failed']);
+        expect(output.failures.map((failure) => failure.technicalDetails)).toEqual(['capture failed']);
         expect(host.textContent).not.toContain('success');
         app.unmount();
     });

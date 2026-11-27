@@ -1,25 +1,14 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     createScanCleanupDocumentRasterPages,
     resolvePreviewProcessingDpi,
     resolvePreviewRasterPlan,
     resolveScanCleanupAnalysisDpi,
 } from '@evb/scan-cleanup/core/detection';
-import {
-    resolveScanCleanupRasterRenderLimits,
-    SCAN_CLEANUP_RASTER_MAX_PIXELS,
-} from '@evb/scan-cleanup/core/rasterValidation';
+import {resolveScanCleanupRasterRenderLimits, SCAN_CLEANUP_RASTER_MAX_PIXELS} from '@evb/scan-cleanup/core/rasterValidation';
 import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
 
-function cropPage(
-    pageNumber: number,
-    widthPoints: number,
-    heightPoints: number,
-): IPdfPageSize {
+function cropPage(pageNumber: number, widthPoints: number, heightPoints: number): IPdfPageSize {
     return {
         pageNumber,
         xPoints: 0,
@@ -38,8 +27,8 @@ function cropPage(
 function scannedPage(widthPoints: number, heightPoints: number, ppi: number): IPdfPageSize {
     return {
         ...cropPage(1, widthPoints, heightPoints),
-        dominantImageWidthPx: Math.round(widthPoints / 72 * ppi),
-        dominantImageHeightPx: Math.round(heightPoints / 72 * ppi),
+        dominantImageWidthPx: Math.round((widthPoints / 72) * ppi),
+        dominantImageHeightPx: Math.round((heightPoints / 72) * ppi),
         dominantImageWidthPoints: widthPoints,
         dominantImageHeightPoints: heightPoints,
     };
@@ -68,13 +57,7 @@ describe('scan cleanup canonical analysis plane', () => {
         const limits = resolveScanCleanupRasterRenderLimits(cover, dpi);
 
         expect(dpi).toBe(72);
-        expect([
-            limits.expectedWidthPx,
-            limits.expectedHeightPx,
-        ]).toEqual([
-            2912,
-            4368,
-        ]);
+        expect([limits.expectedWidthPx, limits.expectedHeightPx]).toEqual([2912, 4368]);
     });
 
     it('lowers the plane until an oversized page fits the shared cap', () => {
@@ -90,56 +73,61 @@ describe('scan cleanup canonical analysis plane', () => {
 
 describe('scan cleanup detection raster plan', () => {
     it('keeps source stroke samples for binary preview cleanup', () => {
-        expect(resolvePreviewProcessingDpi({
-            displayDpi: 150,
-            outputMode: 'bw',
-            sourceDpi: 300,
-        })).toBe(300);
-        expect(resolvePreviewProcessingDpi({
-            displayDpi: 150,
-            outputMode: undefined,
-            sourceDpi: 240,
-        })).toBe(240);
-        expect(resolvePreviewProcessingDpi({
-            displayDpi: 150,
-            outputMode: 'grayscale',
-            sourceDpi: 300,
-        })).toBe(150);
-        expect(resolvePreviewProcessingDpi({
-            displayDpi: 150,
-            outputMode: 'mixed',
-            sourceDpi: 600,
-        })).toBe(300);
+        expect(
+            resolvePreviewProcessingDpi({
+                displayDpi: 150,
+                outputMode: 'bw',
+                sourceDpi: 300,
+            }),
+        ).toBe(300);
+        expect(
+            resolvePreviewProcessingDpi({
+                displayDpi: 150,
+                outputMode: undefined,
+                sourceDpi: 240,
+            }),
+        ).toBe(240);
+        expect(
+            resolvePreviewProcessingDpi({
+                displayDpi: 150,
+                outputMode: 'grayscale',
+                sourceDpi: 300,
+            }),
+        ).toBe(150);
+        expect(
+            resolvePreviewProcessingDpi({
+                displayDpi: 150,
+                outputMode: 'mixed',
+                sourceDpi: 600,
+            }),
+        ).toBe(300);
     });
 
     it('uses structural raster DPI when page geometry has no dominant image metadata', () => {
-        const plan = resolvePreviewRasterPlan([
-            {
-                pageNumber: 1,
-                xPoints: 0,
-                yPoints: 0,
-                widthPoints: 439.6,
-                heightPoints: 670,
-                rotation: 0,
-            },
-            {
-                pageNumber: 2,
-                xPoints: 0,
-                yPoints: 0,
-                widthPoints: 439.6,
-                heightPoints: 670,
-                rotation: 0,
-            },
-        ], new Map([
+        const plan = resolvePreviewRasterPlan(
             [
-                1,
-                360,
+                {
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 439.6,
+                    heightPoints: 670,
+                    rotation: 0,
+                },
+                {
+                    pageNumber: 2,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 439.6,
+                    heightPoints: 670,
+                    rotation: 0,
+                },
             ],
-            [
-                2,
-                82,
-            ],
-        ]));
+            new Map([
+                [1, 360],
+                [2, 82],
+            ]),
+        );
 
         expect(plan.dpi).toBe(150);
         expect(plan.pageDpiByNumber.get(1)).toBe(360);
@@ -147,27 +135,30 @@ describe('scan cleanup detection raster plan', () => {
     });
 
     it('projects detected page raster metadata into the run-level page sets and maps', () => {
-        const rasterPages = createScanCleanupDocumentRasterPages(true, new Map([
-            [
-                1,
-                {
-                    dpi: 300,
-                    height: 1_200,
-                    hasBilevelLayer: true,
-                    hasDominantBilevelLayer: true,
-                    width: 800,
-                    backgroundDpi: 150,
-                },
-            ],
-            [
-                2,
-                {
-                    dpi: 150,
-                    height: 900,
-                    width: 600,
-                },
-            ],
-        ]));
+        const rasterPages = createScanCleanupDocumentRasterPages(
+            true,
+            new Map([
+                [
+                    1,
+                    {
+                        dpi: 300,
+                        height: 1_200,
+                        hasBilevelLayer: true,
+                        hasDominantBilevelLayer: true,
+                        width: 800,
+                        backgroundDpi: 150,
+                    },
+                ],
+                [
+                    2,
+                    {
+                        dpi: 150,
+                        height: 900,
+                        width: 600,
+                    },
+                ],
+            ]),
+        );
 
         expect(rasterPages).toMatchObject({
             detected: true,

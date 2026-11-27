@@ -1,10 +1,4 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {isAbortError} from '@contracts/isAbortError';
 import {getMainOperationErrorEnvelope} from '@contracts/mainOperationErrors';
 import {
@@ -45,12 +39,14 @@ describe('mainOperationLifecycle', () => {
 
         expect(operation.signal.aborted).toBe(true);
         expect(cancel).toHaveBeenCalledWith('app shutdown');
-        expect(snapshotMainOperations()).toEqual([expect.objectContaining({
-            id: operation.id,
-            kind: 'abortable-work',
-            ownerWebContentsId: 7,
-            aborted: true,
-        })]);
+        expect(snapshotMainOperations()).toEqual([
+            expect.objectContaining({
+                id: operation.id,
+                kind: 'abortable-work',
+                ownerWebContentsId: 7,
+                aborted: true,
+            }),
+        ]);
     });
 
     it('lets a user cancel only their own scoped operations on that working copy', () => {
@@ -87,10 +83,12 @@ describe('mainOperationLifecycle', () => {
             userCancel,
         });
 
-        expect(cancelUserCancellableMainOperations({
-            ...userCancel,
-            workingCopyPath: '/tmp/work.pdf',
-        })).toEqual({
+        expect(
+            cancelUserCancellableMainOperations({
+                ...userCancel,
+                workingCopyPath: '/tmp/work.pdf',
+            }),
+        ).toEqual({
             canceled: 1,
             committing: 1,
         });
@@ -104,9 +102,8 @@ describe('mainOperationLifecycle', () => {
     it('cancels operations created inside an IPC invoke cancellation scope', () => {
         const cancel = vi.fn();
         const controller = new AbortController();
-        const operation = runWithMainOperationCancellationSignal(
-            controller.signal,
-            () => registerMainOperation({
+        const operation = runWithMainOperationCancellationSignal(controller.signal, () =>
+            registerMainOperation({
                 kind: 'abortable-work',
                 ownerWebContentsId: 7,
                 cancel,
@@ -131,13 +128,15 @@ describe('mainOperationLifecycle', () => {
         });
         committed.markCommitStarted();
 
-        expect(cancelAllMainOperations('app shutdown')).toEqual([expect.objectContaining({
-            id: preCommit.id,
-            kind: 'critical-write',
-            workingCopyPath: '/tmp/pre-commit.pdf',
-            commitStarted: false,
-            aborted: true,
-        })]);
+        expect(cancelAllMainOperations('app shutdown')).toEqual([
+            expect.objectContaining({
+                id: preCommit.id,
+                kind: 'critical-write',
+                workingCopyPath: '/tmp/pre-commit.pdf',
+                commitStarted: false,
+                aborted: true,
+            }),
+        ]);
         expect(preCommit.signal.aborted).toBe(true);
         expect(committed.signal.aborted).toBe(false);
     });
@@ -305,18 +304,11 @@ describe('mainOperationLifecycle', () => {
         });
         committedWrite.markCommitStarted();
 
-        const canceled = cancelMainOperationsForClosingWorkingCopy(
-            '/tmp/closing.pdf',
-            'Working copy is closing',
-            OWNS_REGISTRATION,
-        );
+        const canceled = cancelMainOperationsForClosingWorkingCopy('/tmp/closing.pdf', 'Working copy is closing', OWNS_REGISTRATION);
         await Promise.resolve();
 
         expect(canceled).not.toBeNull();
-        expect(canceled!.map(operation => operation.id).sort()).toEqual([
-            cleanup.id,
-            scanCleanup.id,
-        ].sort());
+        expect(canceled!.map((operation) => operation.id).sort()).toEqual([cleanup.id, scanCleanup.id].sort());
         expect(cleanup.signal.aborted).toBe(true);
         expect(cleanupCancel).toHaveBeenCalledWith('Working copy is closing');
         expect(scanCleanup.signal.aborted).toBe(true);
@@ -332,11 +324,11 @@ describe('mainOperationLifecycle', () => {
         // retirement time, so the two can never disagree about what a close owes
         // a wait to. A cancelled dependent still holds the path until it
         // completes; only the operations the close never had to stop drop out.
-        expect(snapshotCancellableWorkingCopyDependents('/tmp/closing.pdf')
-            .map(operation => operation.id).sort()).toEqual([
-            cleanup.id,
-            scanCleanup.id,
-        ].sort());
+        expect(
+            snapshotCancellableWorkingCopyDependents('/tmp/closing.pdf')
+                .map((operation) => operation.id)
+                .sort(),
+        ).toEqual([cleanup.id, scanCleanup.id].sort());
         cleanup.complete();
         scanCleanup.complete();
         expect(snapshotCancellableWorkingCopyDependents('/tmp/closing.pdf')).toEqual([]);
@@ -352,15 +344,10 @@ describe('mainOperationLifecycle', () => {
             cancel,
         });
 
-        expect(snapshotCancellableWorkingCopyDependents(canonicalPath).map(entry => entry.id))
-            .toEqual([operation.id]);
-        const canceled = cancelMainOperationsForClosingWorkingCopy(
-            canonicalPath,
-            'Working copy is closing',
-            OWNS_REGISTRATION,
-        );
+        expect(snapshotCancellableWorkingCopyDependents(canonicalPath).map((entry) => entry.id)).toEqual([operation.id]);
+        const canceled = cancelMainOperationsForClosingWorkingCopy(canonicalPath, 'Working copy is closing', OWNS_REGISTRATION);
 
-        expect(canceled?.map(entry => entry.id)).toEqual([operation.id]);
+        expect(canceled?.map((entry) => entry.id)).toEqual([operation.id]);
         expect(operation.signal.aborted).toBe(true);
         expect(cancel).toHaveBeenCalledWith('Working copy is closing');
         operation.complete();
@@ -378,11 +365,9 @@ describe('mainOperationLifecycle', () => {
         // The document was closed and the same path reopened while the close was
         // waiting. This operation belongs to the replacement, and cancelling it
         // would stop a document nobody asked to close.
-        expect(cancelMainOperationsForClosingWorkingCopy(
-            '/tmp/closing.pdf',
-            'Working copy is closing',
-            {isRegistrationCurrent: () => false},
-        )).toBeNull();
+        expect(
+            cancelMainOperationsForClosingWorkingCopy('/tmp/closing.pdf', 'Working copy is closing', {isRegistrationCurrent: () => false}),
+        ).toBeNull();
         expect(scanCleanup.signal.aborted).toBe(false);
         expect(scanCleanupCancel).not.toHaveBeenCalled();
     });
@@ -393,11 +378,7 @@ describe('mainOperationLifecycle', () => {
             workingCopyPath: '/tmp/closing.pdf',
             cancel: vi.fn(),
         });
-        expect(cancelMainOperationsForClosingWorkingCopy(
-            '/tmp/closing.pdf',
-            'Working copy is closing',
-            OWNS_REGISTRATION,
-        )).toHaveLength(1);
+        expect(cancelMainOperationsForClosingWorkingCopy('/tmp/closing.pdf', 'Working copy is closing', OWNS_REGISTRATION)).toHaveLength(1);
         settled.complete();
         expect(snapshotCancellableWorkingCopyDependents('/tmp/closing.pdf')).toEqual([]);
 
@@ -407,10 +388,12 @@ describe('mainOperationLifecycle', () => {
             cancel: vi.fn(),
         });
 
-        expect(snapshotCancellableWorkingCopyDependents('/tmp/closing.pdf')).toEqual([expect.objectContaining({
-            id: late.id,
-            aborted: false,
-        })]);
+        expect(snapshotCancellableWorkingCopyDependents('/tmp/closing.pdf')).toEqual([
+            expect.objectContaining({
+                id: late.id,
+                aborted: false,
+            }),
+        ]);
     });
 
     it('reports settlement of closing-working-copy dependents only once they complete', async () => {
@@ -420,11 +403,7 @@ describe('mainOperationLifecycle', () => {
             cancel: vi.fn(),
             cancelOnWorkingCopyClose: true,
         });
-        const canceled = cancelMainOperationsForClosingWorkingCopy(
-            '/tmp/closing.pdf',
-            'Working copy is closing',
-            OWNS_REGISTRATION,
-        );
+        const canceled = cancelMainOperationsForClosingWorkingCopy('/tmp/closing.pdf', 'Working copy is closing', OWNS_REGISTRATION);
         expect(canceled).toHaveLength(1);
 
         vi.useFakeTimers();
@@ -432,10 +411,12 @@ describe('mainOperationLifecycle', () => {
         await vi.advanceTimersByTimeAsync(50);
         await expect(pendingSettlement).resolves.toEqual({
             settled: false,
-            pending: [expect.objectContaining({
-                id: operation.id,
-                aborted: true,
-            })],
+            pending: [
+                expect.objectContaining({
+                    id: operation.id,
+                    aborted: true,
+                }),
+            ],
         });
         vi.useRealTimers();
 
@@ -513,31 +494,11 @@ describe('mainOperationLifecycle', () => {
         });
         cancelAllMainOperations('app shutdown');
 
-        for (const [
-            op,
-            expectedMessage,
-            expectedUserCancel,
-        ] of [
-            [
-                ownerOp,
-                'Renderer destroyed',
-                false,
-            ],
-            [
-                closingOp,
-                'Working copy is closing',
-                false,
-            ],
-            [
-                userOp,
-                'Canceled by the user',
-                true,
-            ],
-            [
-                shutdownOp,
-                'app shutdown',
-                false,
-            ],
+        for (const [op, expectedMessage, expectedUserCancel] of [
+            [ownerOp, 'Renderer destroyed', false],
+            [closingOp, 'Working copy is closing', false],
+            [userOp, 'Canceled by the user', true],
+            [shutdownOp, 'app shutdown', false],
         ] as const) {
             expect(op.signal.aborted).toBe(true);
             expect(isAbortError(op.signal.reason)).toBe(true);

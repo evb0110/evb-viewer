@@ -2,7 +2,7 @@
     <UModal
         v-model:open="open"
         :title="t('optimizePdf.title')"
-        :ui="{ footer: 'justify-end gap-2' }"
+        :ui="{footer: 'justify-end gap-2'}"
     >
         <template #description>
             <span class="sr-only">
@@ -48,7 +48,11 @@
                         <div class="flex items-center justify-between gap-3 text-xs text-muted">
                             <span>
                                 {{ progressStatus }}
-                                <span v-if="phaseClock" class="tabular-nums">{{ phaseClock }}</span>
+                                <span
+                                    v-if="phaseClock"
+                                    class="tabular-nums"
+                                    >{{ phaseClock }}</span
+                                >
                             </span>
                             <span>{{ progressPercentLabel }}</span>
                         </div>
@@ -75,10 +79,7 @@
                 <span class="inline-flex items-center justify-center gap-2">
                     <UIcon
                         :name="isRunning ? 'i-ph-circle-notch' : 'i-ph-gauge'"
-                        :class="[
-                            'size-4 shrink-0',
-                            isRunning ? 'animate-spin' : '',
-                        ]"
+                        :class="['size-4 shrink-0', isRunning ? 'animate-spin' : '']"
                         aria-hidden="true"
                     />
                     <span>{{ t('optimizePdf.saveCopyAction') }}</span>
@@ -90,20 +91,12 @@
 
 <script setup lang="ts">
 import AppProgressBar from '@app/components/AppProgressBar.vue';
-import { useStageElapsedClock } from '@app/composables/useStageElapsedClock';
-import type {
-    IPdfOptimizeOptions,
-    IPdfOptimizeProgress,
-    TPdfOptimizePreset,
-} from '@contracts/electronApiDocuments';
+import {useStageElapsedClock} from '@app/composables/useStageElapsedClock';
+import type {IPdfOptimizeOptions, IPdfOptimizeProgress, TPdfOptimizePreset} from '@contracts/electronApiDocuments';
 
-const open = defineModel<boolean>('open', { required: true });
+const open = defineModel<boolean>('open', {required: true});
 
-const {
-    isRunning,
-    progress,
-    notice,
-} = defineProps<{
+const {isRunning, progress, notice} = defineProps<{
     isRunning: boolean;
     progress: IPdfOptimizeProgress | null;
     /** Why the last run with `preset` saved nothing. */
@@ -113,8 +106,8 @@ const {
     } | null;
 }>();
 
-const emit = defineEmits<{submit: [payload: IPdfOptimizeOptions];}>();
-const { t } = useTypedI18n();
+const emit = defineEmits<{submit: [payload: IPdfOptimizeOptions]}>();
+const {t} = useTypedI18n();
 
 const preset = ref<TPdfOptimizePreset>('balancedScanned');
 
@@ -126,48 +119,44 @@ const radioGroupUi = {
     description: 'text-xs',
 } as const;
 
-const presetOptions = computed(() => [
-    {
-        value: 'lossless',
-        label: t('optimizePdf.presets.lossless.label'),
-        description: t('optimizePdf.presets.lossless.description'),
-    },
-    {
-        value: 'balancedScanned',
-        label: t('optimizePdf.presets.balancedScanned.label'),
-        description: t('optimizePdf.presets.balancedScanned.description'),
-    },
-    {
-        value: 'smallScanned',
-        label: t('optimizePdf.presets.smallScanned.label'),
-        description: t('optimizePdf.presets.smallScanned.description'),
-    },
-    {
-        value: 'blackAndWhite',
-        label: t('optimizePdf.presets.blackAndWhite.label'),
-        description: t('optimizePdf.presets.blackAndWhite.description'),
-    },
-] satisfies Array<{
-    value: TPdfOptimizePreset;
-    label: string;
-    description: string;
-}>);
+const presetOptions = computed(
+    () =>
+        [
+            {
+                value: 'lossless',
+                label: t('optimizePdf.presets.lossless.label'),
+                description: t('optimizePdf.presets.lossless.description'),
+            },
+            {
+                value: 'balancedScanned',
+                label: t('optimizePdf.presets.balancedScanned.label'),
+                description: t('optimizePdf.presets.balancedScanned.description'),
+            },
+            {
+                value: 'smallScanned',
+                label: t('optimizePdf.presets.smallScanned.label'),
+                description: t('optimizePdf.presets.smallScanned.description'),
+            },
+            {
+                value: 'blackAndWhite',
+                label: t('optimizePdf.presets.blackAndWhite.label'),
+                description: t('optimizePdf.presets.blackAndWhite.description'),
+            },
+        ] satisfies Array<{
+            value: TPdfOptimizePreset;
+            label: string;
+            description: string;
+        }>,
+);
 
 const presetNotice = computed(() => (notice?.preset === preset.value ? notice.message : null));
 const showsPresetNotice = computed(() => presetNotice.value !== null && !isRunning && !progress);
-const showsRasterWarning = computed(() => (
-    preset.value !== 'lossless' && !showsPresetNotice.value && !isRunning && !progress
-));
+const showsRasterWarning = computed(() => preset.value !== 'lossless' && !showsPresetNotice.value && !isRunning && !progress);
 
 // Stages without a page count still show movement: their elapsed time.
 const phaseClock = useStageElapsedClock(
-    () => (isRunning ? progress?.phase ?? 'preparing' : null),
-    new Set<IPdfOptimizeProgress['phase']>([
-        'preparing',
-        'compressingImages',
-        'optimizing',
-        'validating',
-    ]),
+    () => (isRunning ? (progress?.phase ?? 'preparing') : null),
+    new Set<IPdfOptimizeProgress['phase']>(['preparing', 'compressingImages', 'optimizing', 'validating']),
 );
 const progressPercent = computed(() => progress?.percent ?? 0);
 const progressPercentLabel = computed(() => `${Math.max(0, Math.min(100, progressPercent.value))}%`);
@@ -199,7 +188,7 @@ function handleSubmit() {
         return;
     }
 
-    emit('submit', { preset: preset.value });
+    emit('submit', {preset: preset.value});
 }
 </script>
 

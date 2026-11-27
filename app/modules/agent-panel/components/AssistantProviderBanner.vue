@@ -1,35 +1,101 @@
 <template>
-    <section v-if="instance && instance.state !== 'ready' && statusKey !== dismissedKey" class="provider-banner" :class="{ 'is-checking': instance.state === 'checking' }" :role="instance.state === 'checking' ? 'status' : 'alert'">
+    <section
+        v-if="instance && instance.state !== 'ready' && statusKey !== dismissedKey"
+        class="provider-banner"
+        :class="{'is-checking': instance.state === 'checking'}"
+        :role="instance.state === 'checking' ? 'status' : 'alert'"
+    >
         <template v-if="instance.state === 'checking'">
             <UIcon name="i-ph-circle-notch" />
-            <span>{{ t('assistant.checkingInstance', { label: instance.label }) }}</span>
-            <span v-if="instance.message" class="provider-progress">{{ instance.message }}</span>
-            <UButton :aria-label="t('assistant.refresh')" icon="i-ph-arrows-clockwise" size="xs" color="neutral" variant="ghost" :disabled="busy" @click="emit('refresh')" />
+            <span>{{ t('assistant.checkingInstance', {label: instance.label}) }}</span>
+            <span
+                v-if="instance.message"
+                class="provider-progress"
+                >{{ instance.message }}</span
+            >
+            <UButton
+                :aria-label="t('assistant.refresh')"
+                icon="i-ph-arrows-clockwise"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                :disabled="busy"
+                @click="emit('refresh')"
+            />
         </template>
         <template v-else>
             <header class="provider-header">
                 <strong>{{ instance.label }}</strong>
-                <UButton :aria-label="t('assistant.dismissStatus')" icon="i-ph-x" size="xs" color="neutral" variant="ghost" @click="dismissedKey = statusKey" />
+                <UButton
+                    :aria-label="t('assistant.dismissStatus')"
+                    icon="i-ph-x"
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    @click="dismissedKey = statusKey"
+                />
             </header>
             <p v-if="instance.state === 'disabled'">{{ t('assistant.instanceDisabled') }}</p>
-            <p v-if="instance.message" class="provider-message">{{ instance.message }}</p>
+            <p
+                v-if="instance.message"
+                class="provider-message"
+                >{{ instance.message }}</p
+            >
             <div class="provider-actions">
-                <UButton :label="t('assistant.refresh')" icon="i-ph-arrows-clockwise" size="xs" color="neutral" variant="ghost" :disabled="busy" @click="emit('refresh')" />
+                <UButton
+                    :label="t('assistant.refresh')"
+                    icon="i-ph-arrows-clockwise"
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    :disabled="busy"
+                    @click="emit('refresh')"
+                />
                 <template v-if="instance.canSignIn && instance.auth === 'unauthenticated' && !instance.loginPending">
-                    <UButton :label="t('assistant.signIn')" size="xs" :disabled="busy" @click="emit('signIn', 'chatgpt')" />
-                    <UButton :label="t('assistant.signInDeviceCode')" color="neutral" variant="ghost" size="xs" :disabled="busy" @click="emit('signIn', 'device-code')" />
+                    <UButton
+                        :label="t('assistant.signIn')"
+                        size="xs"
+                        :disabled="busy"
+                        @click="emit('signIn', 'chatgpt')"
+                    />
+                    <UButton
+                        :label="t('assistant.signInDeviceCode')"
+                        color="neutral"
+                        variant="ghost"
+                        size="xs"
+                        :disabled="busy"
+                        @click="emit('signIn', 'device-code')"
+                    />
                 </template>
-                <UButton v-if="instance.loginPending" :label="t('assistant.cancelLogin')" size="xs" color="neutral" variant="outline" :disabled="busy" @click="emit('cancelLogin')" />
+                <UButton
+                    v-if="instance.loginPending"
+                    :label="t('assistant.cancelLogin')"
+                    size="xs"
+                    color="neutral"
+                    variant="outline"
+                    :disabled="busy"
+                    @click="emit('cancelLogin')"
+                />
             </div>
         </template>
-        <p v-if="deviceCode" class="provider-progress">{{ t('assistant.deviceCode') }} <strong>{{ deviceCode }}</strong></p>
-        <a v-if="verificationUrl" :href="verificationUrl" target="_blank" rel="noopener noreferrer">{{ verificationUrl }}</a>
+        <p
+            v-if="deviceCode"
+            class="provider-progress"
+            >{{ t('assistant.deviceCode') }} <strong>{{ deviceCode }}</strong></p
+        >
+        <a
+            v-if="verificationUrl"
+            :href="verificationUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            >{{ verificationUrl }}</a
+        >
     </section>
 </template>
 
 <script setup lang="ts">
-import type { IAssistantInstanceStatus } from '@contracts/assistant';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
+import type {IAssistantInstanceStatus} from '@contracts/assistant';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 
 const {
     instance,
@@ -40,19 +106,21 @@ const {
     instance: IAssistantInstanceStatus | null;
     busy?: boolean;
     deviceCode?: string;
-    verificationUrl?: string
+    verificationUrl?: string;
 }>();
 const emit = defineEmits<{
     refresh: [];
     signIn: [mode: 'chatgpt' | 'device-code'];
-    cancelLogin: []
+    cancelLogin: [];
 }>();
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 // A dismissed status stays hidden until the instance reports something new.
 const dismissedKey = ref<string | null>(null);
-const statusKey = computed(() => instance
-    ? `${instance.id}:${instance.state}:${instance.message ?? ''}:${instance.loginPending}:${deviceCode ?? ''}:${verificationUrl ?? ''}`
-    : null);
+const statusKey = computed(() =>
+    instance
+        ? `${instance.id}:${instance.state}:${instance.message ?? ''}:${instance.loginPending}:${deviceCode ?? ''}:${verificationUrl ?? ''}`
+        : null,
+);
 </script>
 
 <style scoped>

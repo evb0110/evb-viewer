@@ -18,9 +18,7 @@ export interface IPdfStampImageCache {
     set: (imageRef: string, dataUrl: string) => void;
 }
 
-export function createPdfStampImageCache(
-    maxBytes = MAX_PDF_STAMP_IMAGE_CACHE_BYTES,
-): IPdfStampImageCache {
+export function createPdfStampImageCache(maxBytes = MAX_PDF_STAMP_IMAGE_CACHE_BYTES): IPdfStampImageCache {
     const entries = new Map<string, string>();
     let byteLength = 0;
 
@@ -80,15 +78,13 @@ export function createPdfAnnotationStampImageResolver(documentSession: Pick<TPdf
             return null;
         }
         const imageRef = formatPdfJsAnnotationRef(sourceImage);
-        const cachedImages = stampImageCacheByDocument.get(pdfDocument)
-            ?? createPdfStampImageCache();
+        const cachedImages = stampImageCacheByDocument.get(pdfDocument) ?? createPdfStampImageCache();
         stampImageCacheByDocument.set(pdfDocument, cachedImages);
         const cachedImage = cachedImages.get(imageRef);
         if (cachedImage !== undefined) {
             return cachedImage;
         }
-        const pendingRequests = stampImageRequestsByDocument.get(pdfDocument)
-            ?? new Map<string, Promise<string | null>>();
+        const pendingRequests = stampImageRequestsByDocument.get(pdfDocument) ?? new Map<string, Promise<string | null>>();
         stampImageRequestsByDocument.set(pdfDocument, pendingRequests);
         const pendingRequest = pendingRequests.get(imageRef);
         if (pendingRequest) {
@@ -97,14 +93,17 @@ export function createPdfAnnotationStampImageResolver(documentSession: Pick<TPdf
         const request = (async () => {
             let lease: Awaited<ReturnType<TPdfDocumentView['leasePage']>> | null = null;
             const controller = new AbortController();
-            const stopWatchingDocument = watch(documentSession.pdfDocument, current => {
-                if (current !== pdfDocument) controller.abort();
-            }, {flush: 'sync'});
+            const stopWatchingDocument = watch(
+                documentSession.pdfDocument,
+                (current) => {
+                    if (current !== pdfDocument) {
+                        controller.abort();
+                    }
+                },
+                {flush: 'sync'},
+            );
             try {
-                lease = await documentSession.leasePage(
-                    pageIndexToPageNumber(entity.pageIndex),
-                    'transient-background',
-                );
+                lease = await documentSession.leasePage(pageIndexToPageNumber(entity.pageIndex), 'transient-background');
                 if (documentSession.pdfDocument.value !== pdfDocument) {
                     return null;
                 }

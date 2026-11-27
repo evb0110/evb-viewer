@@ -1,8 +1,4 @@
-import type {
-    IPageGeometry,
-    TPdfViewMode,
-    TPrintOrientation,
-} from '@contracts/shared';
+import type {IPageGeometry, TPdfViewMode, TPrintOrientation} from '@contracts/shared';
 import type {
     IBrowserPageOpsWorkerResultMap,
     IBrowserPdfCombineCatalog,
@@ -15,42 +11,30 @@ import type {
     IReplacePageImagesInstructions,
     ISplitPagesInstructions,
 } from '@contracts/browserPageOpsWriters';
-import {
-    isBrowserPageOpsWasmFailure,
-    tryRunBrowserPageOpsWithWasm,
-} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {isBrowserPageOpsWasmFailure, tryRunBrowserPageOpsWithWasm} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import {
     runBrowserPageOpsWorkerRequest,
     type IRunBrowserPageOpsWorkerRequestOptions,
 } from '@app/platform/browser-api/browserPageOpsWorkerClient';
-import { PdfPageOpsCapabilityError } from '@contracts/pageOpsErrors';
+import {PdfPageOpsCapabilityError} from '@contracts/pageOpsErrors';
 
-async function requireBrowserPageOpsWasmResult<T>(
-    operation: string,
-    run: () => Promise<unknown>,
-): Promise<T> {
+async function requireBrowserPageOpsWasmResult<T>(operation: string, run: () => Promise<unknown>): Promise<T> {
     const result = await run();
     if (!isBrowserPageOpsWasmFailure(result)) {
         return result as T;
     }
-    throw new PdfPageOpsCapabilityError(
-        result.error.code === 'too-large' ? 'too-large' : 'native-failure',
-        result.error.message,
-        {operation},
-    );
+    throw new PdfPageOpsCapabilityError(result.error.code === 'too-large' ? 'too-large' : 'native-failure', result.error.message, {
+        operation,
+    });
 }
 
 export function parsePdfAnnotations(source: Blob) {
-    return requireBrowserPageOpsWasmResult<{data: Uint8Array}>(
-        'annotation parsing',
-        () => tryRunBrowserPageOpsWithWasm('parseAnnotations', {source}),
+    return requireBrowserPageOpsWasmResult<{data: Uint8Array}>('annotation parsing', () =>
+        tryRunBrowserPageOpsWithWasm('parseAnnotations', {source}),
     );
 }
 
-export function getPageGeometryFromPdfBytes(
-    source: Uint8Array | Blob,
-    pageNumber: number,
-): Promise<IPageGeometry> {
+export function getPageGeometryFromPdfBytes(source: Uint8Array | Blob, pageNumber: number): Promise<IPageGeometry> {
     const blob = source instanceof Blob ? source : new Blob([source as BlobPart]);
     return requireBrowserPageOpsWasmResult('page geometry', () =>
         tryRunBrowserPageOpsWithWasm('getPageGeometry', {
@@ -60,20 +44,12 @@ export function getPageGeometryFromPdfBytes(
     );
 }
 
-export function readPdfCatalog(
-    source: Blob,
-): Promise<IBrowserPdfCombineCatalog> {
-    return requireBrowserPageOpsWasmResult('catalog inspection', () =>
-        tryRunBrowserPageOpsWithWasm('readCatalog', {source}),
-    );
+export function readPdfCatalog(source: Blob): Promise<IBrowserPdfCombineCatalog> {
+    return requireBrowserPageOpsWasmResult('catalog inspection', () => tryRunBrowserPageOpsWithWasm('readCatalog', {source}));
 }
 
-export function readPdfConformance(
-    source: Blob,
-): Promise<IBrowserPdfConformanceFacts> {
-    return requireBrowserPageOpsWasmResult('conformance inspection', () =>
-        tryRunBrowserPageOpsWithWasm('conformance', {source}),
-    );
+export function readPdfConformance(source: Blob): Promise<IBrowserPdfConformanceFacts> {
+    return requireBrowserPageOpsWasmResult('conformance inspection', () => tryRunBrowserPageOpsWithWasm('conformance', {source}));
 }
 
 export function layoutPdfForPrint(
@@ -85,16 +61,24 @@ export function layoutPdfForPrint(
         signal?: AbortSignal;
     },
 ): Promise<IPageMutationWorkerResult> {
-    return requireBrowserPageOpsWasmResult('print layout', () => runBrowserPageOpsWorkerRequest('printLayout', {
-        data,
-        pageNumbers: options.pageNumbers ?? [],
-        viewMode: options.viewMode,
-        orientation: options.orientation,
-    }, options.signal ? {signal: options.signal} : {}));
+    return requireBrowserPageOpsWasmResult('print layout', () =>
+        runBrowserPageOpsWorkerRequest(
+            'printLayout',
+            {
+                data,
+                pageNumbers: options.pageNumbers ?? [],
+                viewMode: options.viewMode,
+                orientation: options.orientation,
+            },
+            options.signal ? {signal: options.signal} : {},
+        ),
+    );
 }
 
-type TWriterResult<K extends 'splitPages' | 'overlayText' | 'recompressImages' | 'replacePageImages'> =
-    Exclude<IBrowserPageOpsWorkerResultMap[K], {status: 'failed'}>;
+type TWriterResult<K extends 'splitPages' | 'overlayText' | 'recompressImages' | 'replacePageImages'> = Exclude<
+    IBrowserPageOpsWorkerResultMap[K],
+    {status: 'failed'}
+>;
 
 /**
  * Desktop's `split-pages`: the source rewritten to the instructed page tree.
@@ -105,14 +89,16 @@ export function splitPdfPages(
     instructions: ISplitPagesInstructions,
     options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'requireWorker' | 'onEngineIdentity'> = {},
 ): Promise<TWriterResult<'splitPages'>> {
-    return requireBrowserPageOpsWasmResult('page split', () => runBrowserPageOpsWorkerRequest(
-        'splitPages',
-        {
-            data,
-            instructions,
-        },
-        options,
-    ));
+    return requireBrowserPageOpsWasmResult('page split', () =>
+        runBrowserPageOpsWorkerRequest(
+            'splitPages',
+            {
+                data,
+                instructions,
+            },
+            options,
+        ),
+    );
 }
 
 /**
@@ -125,15 +111,17 @@ export function overlayPdfTextLayers(
     instructions: IOverlayTextInstructions,
     options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'requireWorker' | 'onEngineIdentity'> = {},
 ): Promise<TWriterResult<'overlayText'>> {
-    return requireBrowserPageOpsWasmResult('text overlay', () => runBrowserPageOpsWorkerRequest(
-        'overlayText',
-        {
-            data,
-            sourceData,
-            instructions,
-        },
-        options,
-    ));
+    return requireBrowserPageOpsWasmResult('text overlay', () =>
+        runBrowserPageOpsWorkerRequest(
+            'overlayText',
+            {
+                data,
+                sourceData,
+                instructions,
+            },
+            options,
+        ),
+    );
 }
 
 /**
@@ -145,14 +133,16 @@ export function recompressPdfImages(
     instructions: IRecompressImagesInstructions,
     options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'timeoutMs' | 'requireWorker'> = {},
 ): Promise<TWriterResult<'recompressImages'>> {
-    return requireBrowserPageOpsWasmResult('image recompression', () => runBrowserPageOpsWorkerRequest(
-        'recompressImages',
-        {
-            data,
-            instructions,
-        },
-        options,
-    ));
+    return requireBrowserPageOpsWasmResult('image recompression', () =>
+        runBrowserPageOpsWorkerRequest(
+            'recompressImages',
+            {
+                data,
+                instructions,
+            },
+            options,
+        ),
+    );
 }
 
 /**
@@ -166,15 +156,17 @@ export function replacePdfPageImages(
     instructions: IReplacePageImagesInstructions,
     options: Pick<IRunBrowserPageOpsWorkerRequestOptions, 'signal' | 'timeoutMs' | 'requireWorker'> = {},
 ): Promise<TWriterResult<'replacePageImages'>> {
-    return requireBrowserPageOpsWasmResult('page image replacement', () => runBrowserPageOpsWorkerRequest(
-        'replacePageImages',
-        {
-            data,
-            replacementPdfs,
-            instructions,
-        },
-        options,
-    ));
+    return requireBrowserPageOpsWasmResult('page image replacement', () =>
+        runBrowserPageOpsWorkerRequest(
+            'replacePageImages',
+            {
+                data,
+                replacementPdfs,
+                instructions,
+            },
+            options,
+        ),
+    );
 }
 
 /**
@@ -191,21 +183,27 @@ export function createOrderedPdfMerge(options: {
     return {
         append: (pdf: Uint8Array) => pages.push(pdf),
         async merge() {
-            if (pages.length < 2) return pages[0] ?? null;
-            const result = await runBrowserPageOpsWorkerRequest('pageStructure', {
-                edit: {kind: 'merge'},
-                sources: pages.map(page => new Blob([page as Uint8Array<ArrayBuffer>])),
-                output: null,
-            }, {
-                signal: options.signal,
-                dedicated: true,
-                requireWorker: true,
-                ...(options.onEngineIdentity === undefined ? {} : {onEngineIdentity: options.onEngineIdentity}),
-            });
+            if (pages.length < 2) {
+                return pages[0] ?? null;
+            }
+            const result = await runBrowserPageOpsWorkerRequest(
+                'pageStructure',
+                {
+                    edit: {kind: 'merge'},
+                    sources: pages.map((page) => new Blob([page as Uint8Array<ArrayBuffer>])),
+                    output: null,
+                },
+                {
+                    signal: options.signal,
+                    dedicated: true,
+                    requireWorker: true,
+                    ...(options.onEngineIdentity === undefined ? {} : {onEngineIdentity: options.onEngineIdentity}),
+                },
+            );
             if (result.status !== 'written' || !result.data) {
                 throw result.status === 'failed'
                     ? options.createError(result.error.message, result.error.code)
-                    : options.createError('the browser\'s storage is full');
+                    : options.createError("the browser's storage is full");
             }
             return result.data;
         },

@@ -3,11 +3,7 @@
 import {createWorkerStorePort} from '@app/platform/browser/browserStorePort';
 import {opfsFileHandle} from '@app/platform/browser/opfsFileHandle';
 import {contentWitness} from '@document-store/contentWitness';
-import {
-    createDocument,
-    type IDocumentStore,
-    openDocument,
-} from '@document-store/documentDirectory';
+import {createDocument, type IDocumentStore, openDocument} from '@document-store/documentDirectory';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -24,11 +20,14 @@ function openPort() {
 }
 
 function settle<T>(promise: Promise<T>) {
-    return promise.then(value => ({ok: true as const, value}), (error: unknown) => ({
-        ok: false as const,
-        name: error instanceof Error ? error.name : 'unknown',
-        message: error instanceof Error ? error.message : String(error),
-    }));
+    return promise.then(
+        (value) => ({ok: true as const, value}),
+        (error: unknown) => ({
+            ok: false as const,
+            name: error instanceof Error ? error.name : 'unknown',
+            message: error instanceof Error ? error.message : String(error),
+        }),
+    );
 }
 
 /** Each port operation on the origin private file system, as the core uses them. */
@@ -40,7 +39,10 @@ async function portBasics() {
     const manifest = decoder.decode(await port.read('acceptance/doc/manifest.json'));
     const afterReplace = (await port.list('acceptance/doc')).sort();
     const file = await port.open('acceptance/doc/r1.bin');
-    await file.writeAt(0, Uint8Array.from({length: 10}, (_, index) => index));
+    await file.writeAt(
+        0,
+        Uint8Array.from({length: 10}, (_, index) => index),
+    );
     await file.writeAt(10, Uint8Array.of(10, 11, 12));
     const grown = await file.size();
     const middle = Array.from(await file.readAt(5, 4));
@@ -102,7 +104,7 @@ async function coreRecovery() {
     const expected = new Uint8Array(original.byteLength + tail.byteLength);
     expected.set(original);
     expected.set(tail, original.byteLength);
-    const files = (await port.list(dir)).filter(name => !name.startsWith('drafts-')).sort();
+    const files = (await port.list(dir)).filter((name) => !name.startsWith('drafts-')).sort();
     await reopened.close();
     await port.remove(dir);
     return {
@@ -126,7 +128,9 @@ async function exclusive() {
     const sameContext = await settle(first.open('acceptance-exclusive/f.bin'));
     await held.close();
     const afterRelease = await settle(second.open('acceptance-exclusive/f.bin'));
-    if (afterRelease.ok) await afterRelease.value.close();
+    if (afterRelease.ok) {
+        await afterRelease.value.close();
+    }
     await first.remove('acceptance-exclusive');
     return {
         otherContext: otherContext.ok ? 'opened' : otherContext.name,
@@ -172,7 +176,7 @@ async function largeRead(mib: number) {
         firstOfChunk,
         writeMiBPerSecond: rate(size, writeMs),
         sequentialMiBPerSecond: rate(readBytes, sequentialMs),
-        sequentialPagesPerSecond: Math.round((size / page) / (sequentialMs / 1000)),
+        sequentialPagesPerSecond: Math.round(size / page / (sequentialMs / 1000)),
         randomPagesPerSecond: Math.round(512 / (randomMs / 1000)),
     };
 }
@@ -205,8 +209,8 @@ async function witnessInWorker() {
     const read = async (offset: number, length: number) => bytes.subarray(offset, offset + length);
     const range = new Uint8Array(await handed.slice(4_000_000, 4_000_100).arrayBuffer());
     const result = {
-        whole: whole === await contentWitness(bytes.byteLength, read),
-        prefix: prefix === await contentWitness(1000, read),
+        whole: whole === (await contentWitness(bytes.byteLength, read)),
+        prefix: prefix === (await contentWitness(1000, read)),
         ofBlob: ofBlob === whole,
         crossed,
         handedRange: range.every((byte, index) => byte === bytes[4_000_000 + index]) && range.byteLength === 100,

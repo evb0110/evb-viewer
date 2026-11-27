@@ -1,4 +1,4 @@
-import { isPlainObject } from 'es-toolkit/predicate';
+import {isPlainObject} from 'es-toolkit/predicate';
 
 export function isWorkerMessageRecord(value: unknown): value is Record<string, unknown> {
     return isPlainObject(value);

@@ -1,13 +1,13 @@
-import {
-    describe, expect, it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import * as v from 'valibot';
 import {
-    browserAgentCapability, createBrowserAgentMcpStatus, createBrowserAssistantState,
+    browserAgentCapability,
+    createBrowserAgentMcpStatus,
+    createBrowserAssistantState,
 } from '@app/platform/browser-api/browserAgentCapability';
-import { ASSISTANT_STATE_SCHEMA } from '@contracts/assistant';
-import { requireRequestId } from '@contracts/shared';
-import { requireTabId } from '@contracts/windowTabs';
+import {ASSISTANT_STATE_SCHEMA} from '@contracts/assistant';
+import {requireRequestId} from '@contracts/shared';
+import {requireTabId} from '@contracts/windowTabs';
 
 describe('browserAgentCapability', () => {
     it('returns the unsupported state and empty provider instances on the new wire contract', async () => {
@@ -17,7 +17,6 @@ describe('browserAgentCapability', () => {
             instances: [],
             selection: null,
             chat: null,
-
         });
         expect(await browserAgentCapability.getAssistantInstances()).toEqual({
             ok: false,
@@ -31,17 +30,21 @@ describe('browserAgentCapability', () => {
         });
     });
     it('does not accept browser assistant commands', async () => {
-        await expect(browserAgentCapability.submitWorkspaceSnapshot({
-            requestId: requireRequestId('snapshot-1'),
-            ok: false,
-        })).resolves.toEqual({
+        await expect(
+            browserAgentCapability.submitWorkspaceSnapshot({
+                requestId: requireRequestId('snapshot-1'),
+                ok: false,
+            }),
+        ).resolves.toEqual({
             accepted: false,
             reason: 'unknown-request',
         });
-        await expect(browserAgentCapability.submitCommandResponse({
-            requestId: requireRequestId('command-1'),
-            ok: false,
-        })).resolves.toEqual({
+        await expect(
+            browserAgentCapability.submitCommandResponse({
+                requestId: requireRequestId('command-1'),
+                ok: false,
+            }),
+        ).resolves.toEqual({
             accepted: false,
             reason: 'unknown-request',
         });

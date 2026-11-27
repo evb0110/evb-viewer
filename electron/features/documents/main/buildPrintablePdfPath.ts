@@ -1,6 +1,6 @@
-import type { IPdfPathPrintOptions } from '@contracts/electronApiDocuments';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
+import type {IPdfPathPrintOptions} from '@contracts/electronApiDocuments';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 
 const PDF_PRINT_LAYOUT_TIMEOUT_MS = 10 * 60_000;
 
@@ -17,22 +17,28 @@ export async function buildPrintablePdfPath(options: {
 }) {
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
-        if (options.printOptions.viewMode === 'single' && options.printOptions.orientation === 'auto') return;
+        if (options.printOptions.viewMode === 'single' && options.printOptions.orientation === 'auto') {
+            return;
+        }
         throw new Error('Native print layout is unavailable');
     }
-    await runNativeToolCommand(binaryPath, [
-        'print-layout',
-        '--input',
-        options.inputPath,
-        '--output',
-        options.outputPath,
-        '--view-mode',
-        options.printOptions.viewMode,
-        '--orientation',
-        options.printOptions.orientation,
-    ], {
-        timeoutMs: PDF_PRINT_LAYOUT_TIMEOUT_MS,
-        commandLabel: 'evb-pdf-page-ops(print-layout)',
-        ...(options.signal ? {signal: options.signal} : {}),
-    });
+    await runNativeToolCommand(
+        binaryPath,
+        [
+            'print-layout',
+            '--input',
+            options.inputPath,
+            '--output',
+            options.outputPath,
+            '--view-mode',
+            options.printOptions.viewMode,
+            '--orientation',
+            options.printOptions.orientation,
+        ],
+        {
+            timeoutMs: PDF_PRINT_LAYOUT_TIMEOUT_MS,
+            commandLabel: 'evb-pdf-page-ops(print-layout)',
+            ...(options.signal ? {signal: options.signal} : {}),
+        },
+    );
 }

@@ -2,26 +2,9 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    reactive,
-    ref,
-} from 'vue';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationInventoryCompleteness,
-    TAnnotationCommentsStatus,
-} from '@app/types/annotations';
+import {describe, expect, it, onTestFinished, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, reactive, ref} from 'vue';
+import type {IAnnotationCommentSummary, IAnnotationInventoryCompleteness, TAnnotationCommentsStatus} from '@app/types/annotations';
 import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -32,49 +15,64 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     }),
 }));
 
-async function mountList(options: {
-    comments?: IAnnotationCommentSummary[];
-    status?: TAnnotationCommentsStatus;
-    inventory?: IAnnotationInventoryCompleteness;
-} = {}) {
+async function mountList(
+    options: {
+        comments?: IAnnotationCommentSummary[];
+        status?: TAnnotationCommentsStatus;
+        inventory?: IAnnotationInventoryCompleteness;
+    } = {},
+) {
     const state = reactive({
         comments: options.comments ?? [],
         status: options.status ?? 'ready',
     });
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp({setup: () => () => h(PdfAnnotationCommentsList, {
-        ...options,
-        ...state,
-    })});
-    app.component('UButton', defineComponent({setup: (_props, {
-        attrs,
-        slots,
-    }) => () => h('button', attrs, slots.default?.())}));
+    const app = createApp({
+        setup: () => () =>
+            h(PdfAnnotationCommentsList, {
+                ...options,
+                ...state,
+            }),
+    });
+    app.component(
+        'UButton',
+        defineComponent({
+            setup:
+                (_props, {attrs, slots}) =>
+                () =>
+                    h('button', attrs, slots.default?.()),
+        }),
+    );
     app.component('UIcon', {render: () => h('span')});
-    app.component('UInput', defineComponent({
-        props: {modelValue: {
-            type: String,
-            default: '',
-        }},
-        emits: ['update:modelValue'],
-        setup(props, {
-            attrs,
-            emit,
-            expose,
-        }) {
-            const inputRef = ref<HTMLInputElement | null>(null);
-            expose({inputRef});
-            return () => h('input', {
-                ...attrs,
-                ref: inputRef,
-                value: props.modelValue,
-                onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
-            });
-        },
-    }));
+    app.component(
+        'UInput',
+        defineComponent({
+            props: {
+                modelValue: {
+                    type: String,
+                    default: '',
+                },
+            },
+            emits: ['update:modelValue'],
+            setup(props, {attrs, emit, expose}) {
+                const inputRef = ref<HTMLInputElement | null>(null);
+                expose({inputRef});
+                return () =>
+                    h('input', {
+                        ...attrs,
+                        ref: inputRef,
+                        value: props.modelValue,
+                        onInput: (event: Event) => emit('update:modelValue', (event.target as HTMLInputElement).value),
+                    });
+            },
+        }),
+    );
     app.mount(host);
-    onTestFinished(() => {app.unmount(); host.remove();});
+    onTestFinished(() => {
+        app.unmount();
+        host.remove();
+    });
     await nextTick();
     async function search(query: string) {
         host.querySelector<HTMLButtonElement>('[aria-label="annotations.searchAnnotations"]')!.click();
@@ -111,10 +109,7 @@ const comment: IAnnotationCommentSummary = {
 
 describe('PdfAnnotationCommentsList empty state', () => {
     it('offers creation guidance only after the empty list is ready', async () => {
-        const {
-            host,
-            state,
-        } = await mountList({status: 'loading'});
+        const {host, state} = await mountList({status: 'loading'});
         expect(host.querySelector('.document-panel-empty-state')).toBeNull();
         expect(host.querySelector('.notes-loading-state')).not.toBeNull();
         state.status = 'ready';
@@ -125,10 +120,7 @@ describe('PdfAnnotationCommentsList empty state', () => {
     });
 
     it('explains unmatched search and clears it to restore existing annotations', async () => {
-        const {
-            host,
-            search,
-        } = await mountList({comments: [comment]});
+        const {host, search} = await mountList({comments: [comment]});
         const input = await search('unmatched');
         expect(host.querySelector('.document-panel-empty-state__title')?.textContent).toBe('annotations.noMatchingAnnotations');
         expect(host.querySelector('.document-panel-empty-state__description')).toBeNull();
@@ -143,10 +135,7 @@ describe('PdfAnnotationCommentsList empty state', () => {
     });
 
     it('treats whitespace as no filter and restores empty-list guidance after clearing a query', async () => {
-        const {
-            host,
-            search,
-        } = await mountList();
+        const {host, search} = await mountList();
         await search('   ');
         expect(host.querySelector('.notes-empty-clear-search')).toBeNull();
         await search('missing');
@@ -157,13 +146,15 @@ describe('PdfAnnotationCommentsList empty state', () => {
     });
 
     it('retains the incomplete-inventory notice without suggesting the document needs its first annotation', async () => {
-        const {host} = await mountList({inventory: {
-            complete: false,
-            omissions: ['page-parse-failure'],
-            scannedPageCount: 1,
-            totalPageCount: 2,
-            failedPageCount: 1,
-        }});
+        const {host} = await mountList({
+            inventory: {
+                complete: false,
+                omissions: ['page-parse-failure'],
+                scannedPageCount: 1,
+                totalPageCount: 2,
+                failedPageCount: 1,
+            },
+        });
         expect(host.querySelector('[data-testid="annotation-inventory-incomplete"]')).not.toBeNull();
         expect(host.querySelector('.document-panel-empty-state__description')).toBeNull();
     });

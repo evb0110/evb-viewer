@@ -11,7 +11,7 @@
 </template>
 
 <script setup lang="ts">
-import { clamp } from 'es-toolkit/math';
+import {clamp} from 'es-toolkit/math';
 
 /**
  * `inline` sits inside a card, dialog or panel. `edge` runs along the top
@@ -19,10 +19,7 @@ import { clamp } from 'es-toolkit/math';
  */
 type TAppProgressBarVariant = 'inline' | 'edge';
 
-const {
-    value = null,
-    variant = 'inline',
-} = defineProps<{
+const {value = null, variant = 'inline'} = defineProps<{
     value?: number | null;
     variant?: TAppProgressBarVariant;
 }>();

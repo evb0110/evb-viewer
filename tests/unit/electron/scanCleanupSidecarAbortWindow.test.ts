@@ -1,19 +1,10 @@
-import { EventEmitter } from 'node:events';
-import {
-    mkdtemp, readFile, rm, writeFile,
-} from 'node:fs/promises';
+import {EventEmitter} from 'node:events';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import { PassThrough } from 'node:stream';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { TWorkerLog } from '@electron/features/ocr/pipeline/types';
+import {PassThrough} from 'node:stream';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import type {TWorkerLog} from '@electron/features/ocr/pipeline/types';
 import {createShutdownPhaseRunners} from '@electron/bootstrap/createShutdownPhaseRunners';
 
 const mocks = vi.hoisted(() => ({
@@ -65,13 +56,16 @@ describe('scan cleanup sidecar abort window', () => {
         let childAlive = true;
         // Model a busy native stage that needs force termination. The shared
         // process-tree owner polls at 100 ms intervals after the grace period.
-        mocks.terminateDetachedChildProcess.mockImplementation((_proc, graceMs) => new Promise(resolve => {
-            setTimeout(() => {
-                childAlive = false;
-                child.emit('close', null, 'SIGKILL');
-                resolve(true);
-            }, graceMs + 100);
-        }));
+        mocks.terminateDetachedChildProcess.mockImplementation(
+            (_proc, graceMs) =>
+                new Promise((resolve) => {
+                    setTimeout(() => {
+                        childAlive = false;
+                        child.emit('close', null, 'SIGKILL');
+                        resolve(true);
+                    }, graceMs + 100);
+                }),
+        );
         const controller = new AbortController();
         const run = runScanCleanupSidecar(
             '/native/evb-scan-cleanup',
@@ -88,14 +82,18 @@ describe('scan cleanup sidecar abort window', () => {
             warn: vi.fn(),
         };
         const phases = createShutdownPhaseRunners(logger, {
-            createPreservationSteps: () => [{
-                label: 'main-operations-cancel',
-                run: () => controller.abort(new Error('app shutdown')),
-            }],
+            createPreservationSteps: () => [
+                {
+                    label: 'main-operations-cancel',
+                    run: () => controller.abort(new Error('app shutdown')),
+                },
+            ],
             createBestEffortCleanupSteps: () => [
                 {
                     label: 'feature-registration-disposal',
-                    run: async () => { await run; },
+                    run: async () => {
+                        await run;
+                    },
                 },
                 // Production gives feature disposal the first of 13 shares
                 // of its 20-second cleanup deadline, currently 1,538 ms.
@@ -124,16 +122,14 @@ describe('scan cleanup sidecar abort window', () => {
         const settledAfterMs = Date.now() - cleanupStartedAt;
         await cleanup;
 
-        expect(logger.error.mock.calls.filter(([
-            , diagnostic,
-        ]) => diagnostic?.code === 'MAIN_SHUTDOWN_FAILED')).toEqual([]);
+        expect(logger.error.mock.calls.filter(([, diagnostic]) => diagnostic?.code === 'MAIN_SHUTDOWN_FAILED')).toEqual([]);
         expect(settledAfterMs).toBeLessThanOrEqual(1_538);
     });
 
     it('settles an aborted run after bounded termination when the child never closes', async () => {
         vi.useFakeTimers();
         mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise(() => {}));
-        const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
         const controller = new AbortController();
@@ -156,10 +152,7 @@ describe('scan cleanup sidecar abort window', () => {
 
     it('does not spawn a sidecar canceled while waiting for broker admission', async () => {
         vi.resetModules();
-        const {
-            configureMainJobBroker,
-            mainJobBroker,
-        } = await import('@electron/resources/jobBroker');
+        const {configureMainJobBroker, mainJobBroker} = await import('@electron/resources/jobBroker');
         configureMainJobBroker({
             logicalCpus: 8,
             totalRamBytes: 16 * 1024 ** 3,
@@ -168,7 +161,7 @@ describe('scan cleanup sidecar abort window', () => {
             performanceMode: 'auto',
             tier: 'high',
         });
-        const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         // Another command holds the whole capacity.
         const occupant = await mainJobBroker.acquire({
             ownerId: 'occupant',
@@ -187,7 +180,7 @@ describe('scan cleanup sidecar abort window', () => {
             () => {},
         );
         for (let attempt = 0; attempt < 10; attempt += 1) {
-            await new Promise(resolve => {
+            await new Promise((resolve) => {
                 setImmediate(resolve);
             });
         }
@@ -210,8 +203,8 @@ describe('scan cleanup sidecar abort window', () => {
     it('marks an aborted run whose process tree was never proven dead', async () => {
         vi.useFakeTimers();
         mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise<boolean>(() => {}));
-        const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
-        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
         const controller = new AbortController();
@@ -236,8 +229,8 @@ describe('scan cleanup sidecar abort window', () => {
     it('leaves an aborted run whose process tree was confirmed dead unmarked', async () => {
         vi.useFakeTimers();
         mocks.terminateDetachedChildProcess.mockResolvedValue(true);
-        const { runScanCleanupSidecar } = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
-        const { getUnprovenNativeTerminationDetail } = await import('@electron/utils/nativeTerminationProof');
+        const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
         const controller = new AbortController();
@@ -277,24 +270,26 @@ describe('scan cleanup sidecar abort window', () => {
         const controller = new AbortController();
         let deferredRecovery: Promise<boolean> | undefined;
         try {
-            const run = runScanCleanupSidecar(
-                '/native/evb-scan-cleanup',
-                manifestPath,
-                controller.signal,
-                vi.fn<TWorkerLog>(),
-                () => {},
-                {onRecoveryPending: recovery => { deferredRecovery = recovery; }},
-            ).catch((error: unknown) => error);
+            const run = runScanCleanupSidecar('/native/evb-scan-cleanup', manifestPath, controller.signal, vi.fn<TWorkerLog>(), () => {}, {
+                onRecoveryPending: (recovery) => {
+                    deferredRecovery = recovery;
+                },
+            }).catch((error: unknown) => error);
             await vi.advanceTimersByTimeAsync(0);
             await writeFile(backup, 'previous destination');
-            await writeFile(journalPath, JSON.stringify({
-                version: 1,
-                manifestPath,
-                entries: [{
-                    original,
-                    backup,
-                }],
-            }));
+            await writeFile(
+                journalPath,
+                JSON.stringify({
+                    version: 1,
+                    manifestPath,
+                    entries: [
+                        {
+                            original,
+                            backup,
+                        },
+                    ],
+                }),
+            );
             controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
             await vi.advanceTimersByTimeAsync(3_000);
 
@@ -320,9 +315,12 @@ describe('scan cleanup sidecar abort window', () => {
 
     it('shares recovery between fatal settlement and a concurrent child close', async () => {
         let finishTermination!: (terminated: boolean) => void;
-        mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise<boolean>(resolve => {
-            finishTermination = resolve;
-        }));
+        mocks.terminateDetachedChildProcess.mockImplementation(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    finishTermination = resolve;
+                }),
+        );
         const {runScanCleanupSidecar} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
         const child = new MockSidecarProcess();
         mocks.spawn.mockReturnValue(child);
@@ -334,25 +332,27 @@ describe('scan cleanup sidecar abort window', () => {
         const controller = new AbortController();
         let deferredRecovery: Promise<boolean> | undefined;
         try {
-            const run = runScanCleanupSidecar(
-                '/native/evb-scan-cleanup',
-                manifestPath,
-                controller.signal,
-                vi.fn<TWorkerLog>(),
-                () => {},
-                {onRecoveryPending: recovery => { deferredRecovery = recovery; }},
-            );
+            const run = runScanCleanupSidecar('/native/evb-scan-cleanup', manifestPath, controller.signal, vi.fn<TWorkerLog>(), () => {}, {
+                onRecoveryPending: (recovery) => {
+                    deferredRecovery = recovery;
+                },
+            });
             await writeFile(backup, 'previous destination');
-            await writeFile(journalPath, JSON.stringify({
-                version: 1,
-                manifestPath,
-                entries: [{
-                    original,
-                    backup,
-                }],
-            }));
+            await writeFile(
+                journalPath,
+                JSON.stringify({
+                    version: 1,
+                    manifestPath,
+                    entries: [
+                        {
+                            original,
+                            backup,
+                        },
+                    ],
+                }),
+            );
             controller.abort(new DOMException('Canceled scan cleanup detection', 'AbortError'));
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
             expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledOnce();
             expect(deferredRecovery).toBeDefined();
 
@@ -382,16 +382,21 @@ describe('scan cleanup sidecar abort window', () => {
         try {
             await writeFile(original, 'new destination');
             await writeFile(backup, 'previous destination');
-            await writeFile(journalPath, JSON.stringify({
-                version: 1,
-                manifestPath,
-                committed: true,
-                entries: [{
-                    original,
-                    backup,
-                    remove: false,
-                }],
-            }));
+            await writeFile(
+                journalPath,
+                JSON.stringify({
+                    version: 1,
+                    manifestPath,
+                    committed: true,
+                    entries: [
+                        {
+                            original,
+                            backup,
+                            remove: false,
+                        },
+                    ],
+                }),
+            );
 
             const {replayScanCleanupPublicationJournal} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
             await expect(replayScanCleanupPublicationJournal(manifestPath)).resolves.toBe(true);
@@ -413,16 +418,21 @@ describe('scan cleanup sidecar abort window', () => {
         const output = join(directory, 'page.png');
         try {
             await writeFile(output, 'partial destination');
-            await writeFile(journalPath, JSON.stringify({
-                version: 1,
-                manifestPath,
-                committed: false,
-                entries: [{
-                    original: output,
-                    backup: null,
-                    remove: true,
-                }],
-            }));
+            await writeFile(
+                journalPath,
+                JSON.stringify({
+                    version: 1,
+                    manifestPath,
+                    committed: false,
+                    entries: [
+                        {
+                            original: output,
+                            backup: null,
+                            remove: true,
+                        },
+                    ],
+                }),
+            );
 
             const {replayScanCleanupPublicationJournal} = await import('@electron/features/scan-cleanup/worker/runScanCleanupSidecar');
             await expect(replayScanCleanupPublicationJournal(manifestPath)).resolves.toBe(true);

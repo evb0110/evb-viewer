@@ -1,32 +1,23 @@
 import type {TTranslateFn} from '@i18n-app';
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     createDocumentPageSourcePresentation,
     type IDocumentPageSourceVisualState,
 } from '@app/modules/document-viewer/page-source-renderer/documentPageSourcePresentation';
-import type {
-    IDocumentPageSource,
-    IDocumentRenderLease,
-} from '@app/modules/document-viewer/public';
+import type {IDocumentPageSource, IDocumentRenderLease} from '@app/modules/document-viewer/public';
 import type {
     IDocumentPageRenderAttempt,
     IDocumentViewerRenderSession,
 } from '@app/modules/document-viewer/runtime/createDocumentViewerRenderCoordinator';
-import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { SerializableError } from '@contracts/serializableError';
-import { requireEpochMs } from '@contracts/timestamps';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { createDocumentPageSlotRegistry } from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
-import { createDocumentPageSourceOpenJob } from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {SerializableError} from '@contracts/serializableError';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {createDocumentPageSlotRegistry} from '@app/modules/document-viewer/page-slots/createDocumentPageSlotRegistry';
+import {createDocumentPageSourceOpenJob} from '@app/modules/document-viewer/page-source-renderer/documentPageSourceFeaturePackState';
 
 function createCurrentTargetEvent(target: EventTarget): Event {
     const event = new Event('load');
@@ -103,10 +94,7 @@ function createPresentationHarness() {
         resolveMountedPages: () => [],
         dispose: vi.fn(),
         releasePage: vi.fn(),
-        runPageRender: async <T>(
-            pageNumber: number,
-            render: (attempt: IDocumentPageRenderAttempt) => Promise<T>,
-        ) => {
+        runPageRender: async <T>(pageNumber: number, render: (attempt: IDocumentPageRenderAttempt) => Promise<T>) => {
             const attempt = {
                 pageNumber,
                 requestId: ++nextRenderGeneration,
@@ -123,7 +111,7 @@ function createPresentationHarness() {
     const scheduleRender = vi.fn();
     let pageScale = 2;
     const presentation = createDocumentPageSourcePresentation({
-        t: ((key: string) => key === 'common.pageRenderFailed' ? 'Unable to render this page' : key) as TTranslateFn,
+        t: ((key: string) => (key === 'common.pageRenderFailed' ? 'Unable to render this page' : key)) as TTranslateFn,
         chassisAuthority: null,
         emit,
         ensureExactPageMetric: vi.fn(async () => ({
@@ -133,7 +121,7 @@ function createPresentationHarness() {
         })),
         flushMetricPublication: vi.fn(),
         getOpeningTarget: () => null,
-        isFenceCurrent: candidate => candidate === fence,
+        isFenceCurrent: (candidate) => candidate === fence,
         openSurfaceRenderOwner: undefined,
         readContinuousScroll: () => false,
         readCurrentPage: () => 1,
@@ -200,9 +188,12 @@ describe('document page-source presentation lifecycle', () => {
     it('retains a painted lease through restore until its replacement commits', async () => {
         const harness = createPresentationHarness();
         let resolveDecode!: () => void;
-        vi.spyOn(HTMLImageElement.prototype, 'decode').mockImplementation(() => new Promise((resolve) => {
-            resolveDecode = resolve;
-        }));
+        vi.spyOn(HTMLImageElement.prototype, 'decode').mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveDecode = resolve;
+                }),
+        );
         const transition = {
             fence: harness.fence,
             isCurrent: () => true,
@@ -226,9 +217,7 @@ describe('document page-source presentation lifecycle', () => {
         };
         harness.resolveReplacement(replacementLease);
         const replacementImage = await vi.waitFor(() => {
-            const candidate = harness.page.querySelector<HTMLImageElement>(
-                '[data-page-source-candidate]',
-            );
+            const candidate = harness.page.querySelector<HTMLImageElement>('[data-page-source-candidate]');
             expect(candidate?.isConnected).toBe(true);
             return candidate!;
         });
@@ -263,17 +252,16 @@ describe('document page-source presentation lifecycle', () => {
 
         await harness.presentation.renderPage(1);
         harness.image.dataset.pageRenderGeneration = '2';
-        await harness.presentation.handleSurfaceLoad(
-            1,
-            'old-surface',
-            createCurrentTargetEvent(harness.image),
-        );
+        await harness.presentation.handleSurfaceLoad(1, 'old-surface', createCurrentTargetEvent(harness.image));
         expect(harness.presentation.pageStates.get(1)?.ready).toBe(true);
 
         let resolveDecode!: () => void;
-        vi.spyOn(HTMLImageElement.prototype, 'decode').mockImplementation(() => new Promise((resolve) => {
-            resolveDecode = resolve;
-        }));
+        vi.spyOn(HTMLImageElement.prototype, 'decode').mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveDecode = resolve;
+                }),
+        );
         const replacementUnsubscribe = vi.fn();
         const replacementRelease = vi.fn();
         const replacementLease: IDocumentRenderLease = {
@@ -292,9 +280,7 @@ describe('document page-source presentation lifecycle', () => {
         await vi.waitFor(() => expect(renderPage).toHaveBeenCalledTimes(2));
         harness.resolveReplacement(replacementLease);
         const replacementImage = await vi.waitFor(() => {
-            const candidate = harness.page.querySelector<HTMLImageElement>(
-                '[data-page-source-candidate]',
-            );
+            const candidate = harness.page.querySelector<HTMLImageElement>('[data-page-source-candidate]');
             expect(candidate?.dataset.pageRenderGeneration).toBe('3');
             return candidate!;
         });
@@ -394,31 +380,17 @@ describe('document page-source presentation lifecycle', () => {
             });
         harness.image.dataset.openSurfaceGeneration = '';
 
-        harness.presentation.handleSurfaceError(
-            1,
-            'old-surface',
-            createCurrentTargetEvent(harness.image),
-        );
-        await vi.waitFor(() => expect(harness.presentation.pageStates.get(1)?.lease?.surface)
-            .toBe('retry-surface-1'));
+        harness.presentation.handleSurfaceError(1, 'old-surface', createCurrentTargetEvent(harness.image));
+        await vi.waitFor(() => expect(harness.presentation.pageStates.get(1)?.lease?.surface).toBe('retry-surface-1'));
         expect(harness.presentation.pageStates.get(1)?.retryCount).toBe(1);
 
         harness.image.dataset.pageRenderGeneration = '2';
-        harness.presentation.handleSurfaceError(
-            1,
-            'retry-surface-1',
-            createCurrentTargetEvent(harness.image),
-        );
-        await vi.waitFor(() => expect(harness.presentation.pageStates.get(1)?.lease?.surface)
-            .toBe('retry-surface-2'));
+        harness.presentation.handleSurfaceError(1, 'retry-surface-1', createCurrentTargetEvent(harness.image));
+        await vi.waitFor(() => expect(harness.presentation.pageStates.get(1)?.lease?.surface).toBe('retry-surface-2'));
         expect(harness.presentation.pageStates.get(1)?.retryCount).toBe(2);
 
         harness.image.dataset.pageRenderGeneration = '3';
-        harness.presentation.handleSurfaceError(
-            1,
-            'retry-surface-2',
-            createCurrentTargetEvent(harness.image),
-        );
+        harness.presentation.handleSurfaceError(1, 'retry-surface-2', createCurrentTargetEvent(harness.image));
         expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to render this page');
         expect(harness.source.renderPage).toHaveBeenCalledTimes(2);
 
@@ -431,11 +403,7 @@ describe('document page-source presentation lifecycle', () => {
         const state = harness.presentation.pageStates.get(1)!;
         state.retryCount = 2;
 
-        await harness.presentation.handleSurfaceLoad(
-            1,
-            'old-surface',
-            createCurrentTargetEvent(harness.image),
-        );
+        await harness.presentation.handleSurfaceLoad(1, 'old-surface', createCurrentTargetEvent(harness.image));
 
         expect(state.ready).toBe(true);
         expect(state.retryCount).toBe(0);
@@ -444,12 +412,12 @@ describe('document page-source presentation lifecycle', () => {
     it('keeps canceled renders pending when the transport rejects with an ordinary error', async () => {
         const harness = createPresentationHarness();
         harness.presentation.beginSourceGeneration();
-        vi.mocked(harness.source.renderPage).mockImplementation(({signal}) => new Promise((
-            _resolve,
-            reject,
-        ) => {
-            signal.addEventListener('abort', () => reject(new Error('DjVu conversion canceled')), {once: true});
-        }));
+        vi.mocked(harness.source.renderPage).mockImplementation(
+            ({signal}) =>
+                new Promise((_resolve, reject) => {
+                    signal.addEventListener('abort', () => reject(new Error('DjVu conversion canceled')), {once: true});
+                }),
+        );
 
         for (let attempt = 1; attempt <= 3; attempt += 1) {
             const render = harness.presentation.renderPage(1);
@@ -468,12 +436,12 @@ describe('document page-source presentation lifecycle', () => {
         const harness = createPresentationHarness();
         harness.presentation.beginSourceGeneration();
         let rejectRender!: (error: Error) => void;
-        vi.mocked(harness.source.renderPage).mockImplementation(() => new Promise((
-            _resolve,
-            reject,
-        ) => {
-            rejectRender = reject;
-        }));
+        vi.mocked(harness.source.renderPage).mockImplementation(
+            () =>
+                new Promise((_resolve, reject) => {
+                    rejectRender = reject;
+                }),
+        );
         const render = harness.presentation.renderPage(1);
         await vi.waitFor(() => expect(harness.source.renderPage).toHaveBeenCalledOnce());
 

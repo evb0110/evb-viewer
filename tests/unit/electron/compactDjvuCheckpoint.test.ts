@@ -1,55 +1,43 @@
-import {
-    appendFile,
-    cp,
-    mkdir,
-    mkdtemp,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    loadOrBuildCompactDjvuPage,
-    openCompactDjvuCheckpointJob,
-} from '@electron/features/djvu/main/compactDjvuCheckpoint';
-import { assertDjvuSourceIdentity } from '@electron/features/djvu/main/djvuArtifactManifest';
+import {appendFile, cp, mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {loadOrBuildCompactDjvuPage, openCompactDjvuCheckpointJob} from '@electron/features/djvu/main/compactDjvuCheckpoint';
+import {assertDjvuSourceIdentity} from '@electron/features/djvu/main/djvuArtifactManifest';
 
-const runDjvuEngine = vi.hoisted(() => vi.fn(async () => ({
-    pageCount: 2,
-    sourceDpi: 72,
-    isIndirect: true,
-    files: [
-        {
-            id: 'low-dpi.djvu',
-            name: 'low-dpi.djvu',
-            title: '',
-            pageIndex: 0,
-            type: 'page',
-        },
-        {
-            id: 'high-dpi.djvu',
-            name: 'high-dpi.djvu',
-            title: '',
-            pageIndex: 1,
-            type: 'page',
-        },
-    ],
-})));
+const runDjvuEngine = vi.hoisted(() =>
+    vi.fn(async () => ({
+        pageCount: 2,
+        sourceDpi: 72,
+        isIndirect: true,
+        files: [
+            {
+                id: 'low-dpi.djvu',
+                name: 'low-dpi.djvu',
+                title: '',
+                pageIndex: 0,
+                type: 'page',
+            },
+            {
+                id: 'high-dpi.djvu',
+                name: 'high-dpi.djvu',
+                title: '',
+                pageIndex: 1,
+                type: 'page',
+            },
+        ],
+    })),
+);
 vi.mock('@electron/features/djvu/main/djvuEnginePool', () => ({runDjvuEngine}));
 
 describe('compact DjVu checkpoints', () => {
     let tempDir = '';
-    afterEach(async () => rm(tempDir, {
-        recursive: true,
-        force: true,
-    }));
+    afterEach(async () =>
+        rm(tempDir, {
+            recursive: true,
+            force: true,
+        }),
+    );
 
     it('reuses a verified per-page artifact after reopening the job', async () => {
         tempDir = await mkdtemp(join(tmpdir(), 'compact-checkpoint-test-'));
@@ -105,11 +93,14 @@ describe('compact DjVu checkpoints', () => {
         };
 
         const first = await convertPage();
-        expect(runDjvuEngine).toHaveBeenCalledWith({
-            type: 'getDocInfo',
-            djvuPath: sourcePath,
-        }, expect.anything());
-        expect(first.sourceIdentity.components.map(component => component.path)).toEqual([
+        expect(runDjvuEngine).toHaveBeenCalledWith(
+            {
+                type: 'getDocInfo',
+                djvuPath: sourcePath,
+            },
+            expect.anything(),
+        );
+        expect(first.sourceIdentity.components.map((component) => component.path)).toEqual([
             join(tempDir, 'low-dpi.djvu'),
             join(tempDir, 'high-dpi.djvu'),
         ]);
@@ -120,7 +111,9 @@ describe('compact DjVu checkpoints', () => {
 
         // Only the page's own file changes; the index stays byte for byte.
         await appendFile(join(tempDir, 'high-dpi.djvu'), '\0');
-        await expect(assertDjvuSourceIdentity(sourcePath, resumed.sourceIdentity), 'an export in progress stops').rejects.toThrow(/changed/u);
+        await expect(assertDjvuSourceIdentity(sourcePath, resumed.sourceIdentity), 'an export in progress stops').rejects.toThrow(
+            /changed/u,
+        );
         const changed = await convertPage();
         expect(build, 'the edited page is converted again').toHaveBeenCalledTimes(2);
         expect(changed.directory).not.toBe(resumed.directory);
@@ -163,13 +156,15 @@ describe('compact DjVu checkpoints', () => {
             pageCount: 1,
             sourceDpi: 300,
             isIndirect: true,
-            files: [{
-                id: '../outside.djvu',
-                name: '../outside.djvu',
-                title: '',
-                pageIndex: 0,
-                type: 'page',
-            }],
+            files: [
+                {
+                    id: '../outside.djvu',
+                    name: '../outside.djvu',
+                    title: '',
+                    pageIndex: 0,
+                    type: 'page',
+                },
+            ],
         });
         await expect(getDjvuIndirectComponentPaths(index)).rejects.toThrow('outside its folder');
 
@@ -195,19 +190,18 @@ describe('compact DjVu checkpoints', () => {
         tempDir = await mkdtemp(join(tmpdir(), 'compact-checkpoint-path-test-'));
         const sourcePath = join(tempDir, 'source.djvu');
         const outsidePath = join(tempDir, 'outside.pbm');
-        await Promise.all([
-            writeFile(sourcePath, 'fixture'),
-            writeFile(outsidePath, 'AAAA'),
-        ]);
+        await Promise.all([writeFile(sourcePath, 'fixture'), writeFile(outsidePath, 'AAAA')]);
         const job = await openCompactDjvuCheckpointJob(sourcePath, [1], 'balanced');
 
-        await expect(loadOrBuildCompactDjvuPage(job, 0, async () => ({
-            pageNumber: 1,
-            manifestLine: `mask\t72\t72\t${outsidePath}`,
-            kind: 'bitonal',
-            reason: 'test',
-            effectivePpi: 300,
-        }))).rejects.toThrow('escapes its job directory');
+        await expect(
+            loadOrBuildCompactDjvuPage(job, 0, async () => ({
+                pageNumber: 1,
+                manifestLine: `mask\t72\t72\t${outsidePath}`,
+                kind: 'bitonal',
+                reason: 'test',
+                effectivePpi: 300,
+            })),
+        ).rejects.toThrow('escapes its job directory');
 
         expect(job.manifest.ranges[0]).toMatchObject({status: 'failed'});
         await job.cleanup?.();

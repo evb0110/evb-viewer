@@ -1,13 +1,6 @@
-import type {
-    IPdfConformanceProfile,
-    TPdfSaveMode,
-} from '@app/types/pdfContracts';
+import type {IPdfConformanceProfile, TPdfSaveMode} from '@app/types/pdfContracts';
 
-export function shouldForcePdfSaveAs(
-    mode: TPdfSaveMode,
-    profile: IPdfConformanceProfile | null,
-    requiresSaveAsOnFirstSave: boolean,
-) {
+export function shouldForcePdfSaveAs(mode: TPdfSaveMode, profile: IPdfConformanceProfile | null, requiresSaveAsOnFirstSave: boolean) {
     if (requiresSaveAsOnFirstSave) {
         return true;
     }

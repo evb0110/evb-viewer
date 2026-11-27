@@ -9,7 +9,9 @@ const PREFERRED_CLIPBOARD_IMAGE_TYPES = [
     'image/x-icon',
 ] as const;
 
-interface IClipboardLike {read: Clipboard['read'];}
+interface IClipboardLike {
+    read: Clipboard['read'];
+}
 
 /**
  * The image a user's paste event carries. Unlike `navigator.clipboard.read`,
@@ -18,13 +20,11 @@ interface IClipboardLike {read: Clipboard['read'];}
  */
 export function readPageAnnotationImageFileFromPasteData(data: {readonly files: ArrayLike<File>} | null) {
     const imageTypes: readonly string[] = PREFERRED_CLIPBOARD_IMAGE_TYPES;
-    return Array.from(data?.files ?? []).find(file => imageTypes.includes(file.type)) ?? null;
+    return Array.from(data?.files ?? []).find((file) => imageTypes.includes(file.type)) ?? null;
 }
 
 function isClipboardLike(value: unknown): value is IClipboardLike {
-    return typeof value === 'object'
-        && value !== null
-        && typeof Reflect.get(value, 'read') === 'function';
+    return typeof value === 'object' && value !== null && typeof Reflect.get(value, 'read') === 'function';
 }
 
 function extensionForMimeType(mimeType: string) {
@@ -52,16 +52,14 @@ function extensionForMimeType(mimeType: string) {
 
 export async function readPageAnnotationImageFileFromClipboard() {
     const navigatorValue: unknown = Reflect.get(globalThis, 'navigator');
-    const clipboard: unknown = navigatorValue && typeof navigatorValue === 'object'
-        ? Reflect.get(navigatorValue, 'clipboard')
-        : null;
+    const clipboard: unknown = navigatorValue && typeof navigatorValue === 'object' ? Reflect.get(navigatorValue, 'clipboard') : null;
     if (!isClipboardLike(clipboard)) {
         return null;
     }
 
     const items = await clipboard.read();
     for (const item of items) {
-        const mimeType = PREFERRED_CLIPBOARD_IMAGE_TYPES.find(type => item.types.includes(type));
+        const mimeType = PREFERRED_CLIPBOARD_IMAGE_TYPES.find((type) => item.types.includes(type));
         if (!mimeType) {
             continue;
         }

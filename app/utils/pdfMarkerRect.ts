@@ -1,5 +1,5 @@
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import { clamp } from 'es-toolkit/math';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import {clamp} from 'es-toolkit/math';
 
 export interface IMarkerRectBounds {
     left: number;
@@ -8,7 +8,9 @@ export interface IMarkerRectBounds {
     bottom: number;
 }
 
-export interface INormalizeMarkerRectBoundsOptions { clampSizeToRemaining?: boolean }
+export interface INormalizeMarkerRectBoundsOptions {
+    clampSizeToRemaining?: boolean;
+}
 
 export function orderPdfRectBounds(x1: number, y1: number, x2: number, y2: number) {
     return {

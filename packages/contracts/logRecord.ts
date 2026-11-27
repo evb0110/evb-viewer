@@ -1,7 +1,4 @@
-import {
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {isOneOf, isRecord} from '@contracts/runtimeGuards';
 
 /**
  * One structured log record shared by every EVB sink: the main-process file
@@ -9,14 +6,9 @@ import {
  * `electron:run logs`. Producers pass a short message plus a data object;
  * sinks format it. Nothing below the producer stringifies data by hand.
  */
-export const LOG_LEVELS = [
-    'debug',
-    'info',
-    'warn',
-    'error',
-] as const;
+export const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 
-export type TLogLevel = typeof LOG_LEVELS[number];
+export type TLogLevel = (typeof LOG_LEVELS)[number];
 
 /** The one NDJSON app log inside the Electron log directory. */
 export const APP_LOG_FILE_NAME = 'app.ndjson';
@@ -50,13 +42,7 @@ const LOG_LEVEL_RANK: Record<TLogLevel, number> = {
     error: 40,
 };
 
-const LOG_PROCESSES = [
-    'main',
-    'worker',
-    'renderer',
-    'launcher',
-    'electron',
-] as const satisfies readonly TLogProcess[];
+const LOG_PROCESSES = ['main', 'worker', 'renderer', 'launcher', 'electron'] as const satisfies readonly TLogProcess[];
 
 export function parseLogLevel(value: unknown): TLogLevel | null {
     if (typeof value !== 'string') {
@@ -96,18 +82,10 @@ interface INormalizeState {
 }
 
 function clampLogString(value: string, maxChars: number) {
-    return value.length <= maxChars
-        ? value
-        : `${value.slice(0, maxChars)}…(+${value.length - maxChars} chars)`;
+    return value.length <= maxChars ? value : `${value.slice(0, maxChars)}…(+${value.length - maxChars} chars)`;
 }
 
-const SERIALIZED_ERROR_KEYS = new Set([
-    'name',
-    'message',
-    'stack',
-    'code',
-    'cause',
-]);
+const SERIALIZED_ERROR_KEYS = new Set(['name', 'message', 'stack', 'code', 'cause']);
 
 function isErrorLike(value: object): value is {
     name: string;
@@ -122,11 +100,13 @@ function isErrorLike(value: object): value is {
     // A serialized error that crossed IPC is a plain {name, message, stack}.
     // Any other key (for example an errorId merged in by BrowserLogger) makes
     // it an ordinary object whose fields must all survive.
-    return isRecord(value)
-        && typeof value.name === 'string'
-        && typeof value.message === 'string'
-        && typeof value.stack === 'string'
-        && Object.keys(value).every(key => SERIALIZED_ERROR_KEYS.has(key));
+    return (
+        isRecord(value) &&
+        typeof value.name === 'string' &&
+        typeof value.message === 'string' &&
+        typeof value.stack === 'string' &&
+        Object.keys(value).every((key) => SERIALIZED_ERROR_KEYS.has(key))
+    );
 }
 
 function normalizeErrorLike(
@@ -215,9 +195,7 @@ function normalizeLogValue(value: unknown, depth: number, state: INormalizeState
     state.seen.add(objectValue);
     try {
         if (Array.isArray(objectValue)) {
-            const items = objectValue
-                .slice(0, state.limits.maxArrayItems)
-                .map(item => normalizeLogValue(item, depth + 1, state));
+            const items = objectValue.slice(0, state.limits.maxArrayItems).map((item) => normalizeLogValue(item, depth + 1, state));
             if (objectValue.length > state.limits.maxArrayItems) {
                 items.push(`[+${objectValue.length - state.limits.maxArrayItems} more]`);
             }
@@ -260,10 +238,7 @@ function normalizeLogValue(value: unknown, depth: number, state: INormalizeState
  * Converts arbitrary caller data into a bounded JSON-safe object. A non-object
  * value is wrapped as `{value}` so every record's `data` has one shape.
  */
-export function toLogData(
-    value: unknown,
-    limits: ILogDataLimits = DEFAULT_LOG_DATA_LIMITS,
-): TLogData | undefined {
+export function toLogData(value: unknown, limits: ILogDataLimits = DEFAULT_LOG_DATA_LIMITS): TLogData | undefined {
     if (value === undefined) {
         return undefined;
     }
@@ -289,22 +264,18 @@ export function decodeLogRecord(line: string): ILogRecord | null {
         return null;
     }
     if (
-        !isRecord(value)
-        || typeof value.ts !== 'string'
-        || typeof value.msg !== 'string'
-        || typeof value.scope !== 'string'
-        || !isOneOf(LOG_LEVELS, value.level)
-        || !isOneOf(LOG_PROCESSES, value.proc)
-        || (value.data !== undefined && !isRecord(value.data))
+        !isRecord(value) ||
+        typeof value.ts !== 'string' ||
+        typeof value.msg !== 'string' ||
+        typeof value.scope !== 'string' ||
+        !isOneOf(LOG_LEVELS, value.level) ||
+        !isOneOf(LOG_PROCESSES, value.proc) ||
+        (value.data !== undefined && !isRecord(value.data))
     ) {
         return null;
     }
-    const optionalString = (key: 'errorId' | 'code') => (
-        typeof value[key] === 'string' ? {[key]: value[key]} : {}
-    );
-    const optionalInteger = (key: 'pid' | 'thread' | 'window') => (
-        Number.isSafeInteger(value[key]) ? {[key]: value[key] as number} : {}
-    );
+    const optionalString = (key: 'errorId' | 'code') => (typeof value[key] === 'string' ? {[key]: value[key]} : {});
+    const optionalInteger = (key: 'pid' | 'thread' | 'window') => (Number.isSafeInteger(value[key]) ? {[key]: value[key] as number} : {});
     return {
         ts: value.ts,
         level: value.level,
@@ -342,10 +313,7 @@ export function formatLogData(data: TLogData | undefined, maxChars = Number.POSI
         return '';
     }
     const text = Object.entries(data)
-        .map(([
-            key,
-            value,
-        ]) => `${key}=${formatLogValue(value)}`)
+        .map(([key, value]) => `${key}=${formatLogValue(value)}`)
         .join(' ');
     return text.length > maxChars ? `${text.slice(0, maxChars)}…` : text;
 }
@@ -367,11 +335,12 @@ export interface IFormatLogRecordOptions {
 }
 
 export function formatLogOrigin(record: Pick<ILogRecord, 'proc' | 'scope' | 'thread' | 'window'>) {
-    const processLabel = record.proc === 'worker' && record.thread !== undefined
-        ? `worker#${record.thread}`
-        : record.proc === 'renderer' && record.window !== undefined
-            ? `renderer#${record.window}`
-            : record.proc;
+    const processLabel =
+        record.proc === 'worker' && record.thread !== undefined
+            ? `worker#${record.thread}`
+            : record.proc === 'renderer' && record.window !== undefined
+              ? `renderer#${record.window}`
+              : record.proc;
     return `${processLabel}/${record.scope}`;
 }
 
@@ -393,10 +362,13 @@ export function formatLogRecordLine(record: ILogRecord, options: IFormatLogRecor
         ...(record.code ? {code: record.code} : {}),
         ...(record.errorId ? {errorId: record.errorId} : {}),
     };
-    const dataText = formatLogData({
-        ...record.data,
-        ...trailer,
-    }, options.maxDataChars);
+    const dataText = formatLogData(
+        {
+            ...record.data,
+            ...trailer,
+        },
+        options.maxDataChars,
+    );
     if (dataText) {
         parts.push(decorate('data', dataText, record.level));
     }

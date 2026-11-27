@@ -1,4 +1,6 @@
-interface IForegroundApplication {focus(options: { steal: true; }): void;}
+interface IForegroundApplication {
+    focus(options: {steal: true}): void;
+}
 
 interface IForegroundWindow {
     focus(): void;
@@ -7,7 +9,7 @@ interface IForegroundWindow {
     isVisible(): boolean;
     restore(): void;
     show(): void;
-    webContents: {focus(): void;};
+    webContents: {focus(): void};
 }
 
 interface IFocusWindowForUserOptions {
@@ -16,10 +18,7 @@ interface IFocusWindowForUserOptions {
     platform?: NodeJS.Platform;
 }
 
-export function focusWindowForUser(
-    window: IForegroundWindow,
-    options: IFocusWindowForUserOptions,
-) {
+export function focusWindowForUser(window: IForegroundWindow, options: IFocusWindowForUserOptions) {
     if (options.noFocus || window.isDestroyed()) {
         return;
     }
@@ -32,7 +31,7 @@ export function focusWindowForUser(
     }
 
     if ((options.platform ?? process.platform) === 'darwin') {
-        options.application.focus({ steal: true });
+        options.application.focus({steal: true});
     }
     // macOS application activation can change the key window. Activate the app
     // first, then make the intended BrowserWindow key so its renderer receives

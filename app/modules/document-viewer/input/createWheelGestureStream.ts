@@ -85,7 +85,7 @@ export function createWheelGestureStream(options: IWheelGestureStreamOptions = {
     let lastPacket: IWheelGesturePacket | null = null;
     let lastDelta: {
         x: number;
-        y: number
+        y: number;
     } | null = null;
     // With no non-passive wheel listener every packet is non-cancelable and
     // the flag carries no information, so timing has to decide instead.
@@ -117,14 +117,12 @@ export function createWheelGestureStream(options: IWheelGestureStreamOptions = {
         getSequenceId: () => sequenceId,
         observe(packet: IWheelGesturePacket): IWheelGestureObservation {
             const hasDelta = packet.deltaX !== 0 || packet.deltaY !== 0;
-            const hostSequenceOpen = lastPacket !== null
-                && (packet.hostSequenceOpen === true || (options.isSequenceOpen?.(sequenceId) ?? false));
+            const hostSequenceOpen =
+                lastPacket !== null && (packet.hostSequenceOpen === true || (options.isSequenceOpen?.(sequenceId) ?? false));
             const startsSequence = !continuesSequence(packet, hostSequenceOpen);
             const joinedByTiming = !startsSequence && packet.cancelable && !hostSequenceOpen;
-            const reverses = !startsSequence
-                && hasDelta
-                && lastDelta !== null
-                && packet.deltaX * lastDelta.x + packet.deltaY * lastDelta.y < 0;
+            const reverses =
+                !startsSequence && hasDelta && lastDelta !== null && packet.deltaX * lastDelta.x + packet.deltaY * lastDelta.y < 0;
             if (startsSequence) {
                 sequenceId += 1;
                 lastDelta = null;

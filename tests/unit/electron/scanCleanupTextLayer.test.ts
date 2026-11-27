@@ -7,12 +7,7 @@ import {
 import type {IRenderedCleanupOutputPage} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import type {IPdfPageSize} from '@evb/scan-cleanup/core/types';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 
 const pageSize: IPdfPageSize = {
     pageNumber: 1,
@@ -23,9 +18,7 @@ const pageSize: IPdfPageSize = {
     rotation: 0,
 };
 
-function output(
-    overrides: Partial<IRenderedCleanupOutputPage['metadata']> = {},
-): IRenderedCleanupOutputPage {
+function output(overrides: Partial<IRenderedCleanupOutputPage['metadata']> = {}): IRenderedCleanupOutputPage {
     return {
         sourcePageNumber: 1,
         path: '/cleaned.png',
@@ -42,23 +35,13 @@ function output(
             inputHeightPx: 600,
             placementOffsetXPx: 0,
             placementOffsetYPx: 0,
-            forwardTransform: {matrix: [
-                [
-                    1,
-                    0,
-                    0,
+            forwardTransform: {
+                matrix: [
+                    [1, 0, 0],
+                    [0, 1, 0],
+                    [0, 0, 1],
                 ],
-                [
-                    0,
-                    1,
-                    0,
-                ],
-                [
-                    0,
-                    0,
-                    1,
-                ],
-            ]},
+            },
             rotationDegrees: 0,
             ...overrides,
         } as IRenderedCleanupOutputPage['metadata'],
@@ -67,37 +50,36 @@ function output(
 
 describe('scan-cleanup source text layer', () => {
     it('keeps split ownership in the source raster before padded placement', () => {
-        const instruction = resolveScanCleanupTextLayerInstruction(output({
-            half: 'right',
+        const instruction = resolveScanCleanupTextLayerInstruction(
+            output({
+                half: 'right',
+                sourceRegion: {
+                    xPx: 500,
+                    yPx: 0,
+                    widthPx: 500,
+                    heightPx: 600,
+                },
+                placementOffsetXPx: 25,
+                placementOffsetYPx: 25,
+            }),
+            1,
+            {
+                ...pageSize,
+                xPoints: 10,
+                yPoints: 20,
+            },
+        );
+        expect(instruction).toMatchObject({
             sourceRegion: {
-                xPx: 500,
-                yPx: 0,
-                widthPx: 500,
-                heightPx: 600,
+                rect: {
+                    x: 500,
+                    y: 0,
+                    width: 500,
+                    height: 600,
+                },
+                matrix: [expect.closeTo(5, 12), 0, 0, expect.closeTo(-5, 12), -50, 700],
             },
-            placementOffsetXPx: 25,
-            placementOffsetYPx: 25,
-        }), 1, {
-            ...pageSize,
-            xPoints: 10,
-            yPoints: 20,
         });
-        expect(instruction).toMatchObject({sourceRegion: {
-            rect: {
-                x: 500,
-                y: 0,
-                width: 500,
-                height: 600,
-            },
-            matrix: [
-                expect.closeTo(5, 12),
-                0,
-                0,
-                expect.closeTo(-5, 12),
-                -50,
-                700,
-            ],
-        }});
     });
 
     it('maps unchanged source user space onto the cleaned page', () => {
@@ -106,252 +88,201 @@ describe('scan-cleanup source text layer', () => {
         expect(instruction).not.toBeNull();
         expect(instruction!.sourcePageIndex).toBe(0);
         expect(instruction!.outputPageIndex).toBe(0);
-        expect(instruction!.matrix).toEqual([
-            1,
-            0,
-            0,
-            1,
-            0,
-            0,
-        ]);
+        expect(instruction!.matrix).toEqual([1, 0, 0, 1, 0, 0]);
     });
 
     it('includes native crop translation and matched-canvas placement', () => {
-        const instruction = resolveScanCleanupTextLayerInstruction(output({
-            outputWidthPx: 800,
-            outputHeightPx: 500,
-            canvasWidthPx: 500,
-            canvasHeightPx: 300,
-            matchedCanvasTargetWidthPoints: 100,
-            matchedCanvasTargetHeightPoints: 60,
-            matchedCanvasContentWidthPx: 400,
-            matchedCanvasContentHeightPx: 250,
-            placementOffsetXPx: 50,
-            placementOffsetYPx: 25,
-            forwardTransform: {matrix: [
-                [
-                    1,
-                    0,
-                    -100,
-                ],
-                [
-                    0,
-                    1,
-                    -50,
-                ],
-                [
-                    0,
-                    0,
-                    1,
-                ],
-            ]},
-        }), 3, pageSize);
+        const instruction = resolveScanCleanupTextLayerInstruction(
+            output({
+                outputWidthPx: 800,
+                outputHeightPx: 500,
+                canvasWidthPx: 500,
+                canvasHeightPx: 300,
+                matchedCanvasTargetWidthPoints: 100,
+                matchedCanvasTargetHeightPoints: 60,
+                matchedCanvasContentWidthPx: 400,
+                matchedCanvasContentHeightPx: 250,
+                placementOffsetXPx: 50,
+                placementOffsetYPx: 25,
+                forwardTransform: {
+                    matrix: [
+                        [1, 0, -100],
+                        [0, 1, -50],
+                        [0, 0, 1],
+                    ],
+                },
+            }),
+            3,
+            pageSize,
+        );
 
-        expect(instruction!.matrix).toEqual([
-            0.5,
-            0,
-            0,
-            0.5,
-            0,
-            0,
-        ]);
+        expect(instruction!.matrix).toEqual([0.5, 0, 0, 0.5, 0, 0]);
         expect(instruction!.outputPageIndex).toBe(3);
     });
 
     it('uses the intrinsic raster extent for matched grayscale geometry', () => {
-        const instruction = resolveScanCleanupTextLayerInstruction(output({
-            outputWidthPx: 845,
-            outputHeightPx: 507,
-            intrinsicRasterWidthPx: 1_000,
-            intrinsicRasterHeightPx: 600,
-            canvasWidthPx: 1_000,
-            canvasHeightPx: 600,
-            matchedCanvasContentWidthPx: 845,
-            matchedCanvasContentHeightPx: 507,
-        }), 0, pageSize);
+        const instruction = resolveScanCleanupTextLayerInstruction(
+            output({
+                outputWidthPx: 845,
+                outputHeightPx: 507,
+                intrinsicRasterWidthPx: 1_000,
+                intrinsicRasterHeightPx: 600,
+                canvasWidthPx: 1_000,
+                canvasHeightPx: 600,
+                matchedCanvasContentWidthPx: 845,
+                matchedCanvasContentHeightPx: 507,
+            }),
+            0,
+            pageSize,
+        );
 
         expect(instruction!.matrix[0]).toBeCloseTo(0.845, 12);
         expect(instruction!.matrix[3]).toBeCloseTo(0.845, 12);
     });
 
     it('keeps source text registered when a white left fold tail is clipped', () => {
-        const instruction = resolveScanCleanupTextLayerInstruction(output({
-            outputWidthPx: 1_000,
-            outputHeightPx: 600,
-            intrinsicRasterWidthPx: 1_100,
-            intrinsicRasterHeightPx: 600,
-            canvasWidthPx: 1_000,
-            canvasHeightPx: 600,
-            matchedCanvasContentWidthPx: 1_100,
-            matchedCanvasContentHeightPx: 600,
-            matchedCanvasIntrinsicOverflowLeftPx: 80,
-            placementOffsetXPx: 0,
-        }), 0, pageSize);
+        const instruction = resolveScanCleanupTextLayerInstruction(
+            output({
+                outputWidthPx: 1_000,
+                outputHeightPx: 600,
+                intrinsicRasterWidthPx: 1_100,
+                intrinsicRasterHeightPx: 600,
+                canvasWidthPx: 1_000,
+                canvasHeightPx: 600,
+                matchedCanvasContentWidthPx: 1_100,
+                matchedCanvasContentHeightPx: 600,
+                matchedCanvasIntrinsicOverflowLeftPx: 80,
+                placementOffsetXPx: 0,
+            }),
+            0,
+            pageSize,
+        );
 
-        expect(instruction!.matrix).toEqual([
-            1,
-            0,
-            0,
-            1,
-            -16,
-            0,
-        ]);
+        expect(instruction!.matrix).toEqual([1, 0, 0, 1, -16, 0]);
     });
 
     it('keeps source text vertically registered with glyphs after top headroom is trimmed', () => {
-        const instruction = resolveScanCleanupTextLayerInstruction(output({
-            outputWidthPx: 1_000,
-            outputHeightPx: 600,
-            intrinsicRasterWidthPx: 1_000,
-            intrinsicRasterHeightPx: 600,
-            canvasWidthPx: 1_000,
-            canvasHeightPx: 600,
-            matchedCanvasContentWidthPx: 1_000,
-            matchedCanvasContentHeightPx: 600,
-            matchedCanvasIntrinsicOverflowTopPx: 80,
-            placementOffsetYPx: 0,
-        }), 0, pageSize);
+        const instruction = resolveScanCleanupTextLayerInstruction(
+            output({
+                outputWidthPx: 1_000,
+                outputHeightPx: 600,
+                intrinsicRasterWidthPx: 1_000,
+                intrinsicRasterHeightPx: 600,
+                canvasWidthPx: 1_000,
+                canvasHeightPx: 600,
+                matchedCanvasContentWidthPx: 1_000,
+                matchedCanvasContentHeightPx: 600,
+                matchedCanvasIntrinsicOverflowTopPx: 80,
+                placementOffsetYPx: 0,
+            }),
+            0,
+            pageSize,
+        );
 
         // The raster materializer discards 80 source rows. The same 16-point
         // translation moves selectable text onto the glyphs in the output PDF.
-        expect(instruction!.matrix).toEqual([
-            1,
-            0,
-            0,
-            1,
-            0,
-            16,
-        ]);
+        expect(instruction!.matrix).toEqual([1, 0, 0, 1, 0, 16]);
     });
 
     it('keeps cropped source text registered when content alignment moves the raster', () => {
-        const instruction = resolveScanCleanupTextLayerInstruction(output({
-            outputWidthPx: 800,
-            outputHeightPx: 500,
-            canvasWidthPx: 500,
-            canvasHeightPx: 300,
-            matchedCanvasTargetWidthPoints: 100,
-            matchedCanvasTargetHeightPoints: 60,
-            matchedCanvasContentWidthPx: 400,
-            matchedCanvasContentHeightPx: 250,
-            placementOffsetXPx: 70,
-            placementOffsetYPx: 35,
-            forwardTransform: {matrix: [
-                [
-                    1,
-                    0,
-                    -100,
-                ],
-                [
-                    0,
-                    1,
-                    -50,
-                ],
-                [
-                    0,
-                    0,
-                    1,
-                ],
-            ]},
-        }), 0, pageSize);
+        const instruction = resolveScanCleanupTextLayerInstruction(
+            output({
+                outputWidthPx: 800,
+                outputHeightPx: 500,
+                canvasWidthPx: 500,
+                canvasHeightPx: 300,
+                matchedCanvasTargetWidthPoints: 100,
+                matchedCanvasTargetHeightPoints: 60,
+                matchedCanvasContentWidthPx: 400,
+                matchedCanvasContentHeightPx: 250,
+                placementOffsetXPx: 70,
+                placementOffsetYPx: 35,
+                forwardTransform: {
+                    matrix: [
+                        [1, 0, -100],
+                        [0, 1, -50],
+                        [0, 0, 1],
+                    ],
+                },
+            }),
+            0,
+            pageSize,
+        );
 
-        expect(instruction!.matrix).toEqual([
-            0.5,
-            0,
-            0,
-            0.5,
-            4,
-            -2,
-        ]);
+        expect(instruction!.matrix).toEqual([0.5, 0, 0, 0.5, 4, -2]);
     });
 
     it('marks split halves for semantic filtering without changing affine singles', () => {
-        const left = resolveScanCleanupTextLayerInstruction(output({
-            half: 'left',
-            layoutClassification: 'two-page-spread',
-            outputWidthPx: 500,
-            canvasWidthPx: 500,
-        }), 0, pageSize);
-        const right = resolveScanCleanupTextLayerInstruction(output({
-            half: 'right',
-            layoutClassification: 'two-page-spread',
-            outputWidthPx: 500,
-            canvasWidthPx: 500,
-            forwardTransform: {matrix: [
-                [
-                    1,
-                    0,
-                    -500,
-                ],
-                [
-                    0,
-                    1,
-                    0,
-                ],
-                [
-                    0,
-                    0,
-                    1,
-                ],
-            ]},
-        }), 1, pageSize);
+        const left = resolveScanCleanupTextLayerInstruction(
+            output({
+                half: 'left',
+                layoutClassification: 'two-page-spread',
+                outputWidthPx: 500,
+                canvasWidthPx: 500,
+            }),
+            0,
+            pageSize,
+        );
+        const right = resolveScanCleanupTextLayerInstruction(
+            output({
+                half: 'right',
+                layoutClassification: 'two-page-spread',
+                outputWidthPx: 500,
+                canvasWidthPx: 500,
+                forwardTransform: {
+                    matrix: [
+                        [1, 0, -500],
+                        [0, 1, 0],
+                        [0, 0, 1],
+                    ],
+                },
+            }),
+            1,
+            pageSize,
+        );
 
         expect(left).toMatchObject({
-            matrix: [
-                1,
-                0,
-                0,
-                1,
-                0,
-                0,
-            ],
+            matrix: [1, 0, 0, 1, 0, 0],
             filterToOutputPage: true,
         });
         expect(right).toMatchObject({
-            matrix: [
-                1,
-                0,
-                0,
-                1,
-                -100,
-                0,
-            ],
+            matrix: [1, 0, 0, 1, -100, 0],
             filterToOutputPage: true,
         });
-        expect(resolveScanCleanupTextLayerInstruction(output(), 2, pageSize))
-            .not.toHaveProperty('filterToOutputPage');
+        expect(resolveScanCleanupTextLayerInstruction(output(), 2, pageSize)).not.toHaveProperty('filterToOutputPage');
     });
 
     it('maps PDF page rotation and cleanup rotation through the same affine', () => {
-        const cleanupRotated = resolveScanCleanupTextLayerInstruction(output({
-            inputWidthPx: 1_000,
-            inputHeightPx: 600,
-            outputWidthPx: 600,
-            outputHeightPx: 1_000,
-            canvasWidthPx: 600,
-            canvasHeightPx: 1_000,
-            rotationDegrees: 90,
-        }), 0, pageSize);
-        const sourceRotated = resolveScanCleanupTextLayerInstruction(output({
-            inputWidthPx: 600,
-            inputHeightPx: 1_000,
-            outputWidthPx: 600,
-            outputHeightPx: 1_000,
-            canvasWidthPx: 600,
-            canvasHeightPx: 1_000,
-        }), 0, {
-            ...pageSize,
-            rotation: 90,
-        });
+        const cleanupRotated = resolveScanCleanupTextLayerInstruction(
+            output({
+                inputWidthPx: 1_000,
+                inputHeightPx: 600,
+                outputWidthPx: 600,
+                outputHeightPx: 1_000,
+                canvasWidthPx: 600,
+                canvasHeightPx: 1_000,
+                rotationDegrees: 90,
+            }),
+            0,
+            pageSize,
+        );
+        const sourceRotated = resolveScanCleanupTextLayerInstruction(
+            output({
+                inputWidthPx: 600,
+                inputHeightPx: 1_000,
+                outputWidthPx: 600,
+                outputHeightPx: 1_000,
+                canvasWidthPx: 600,
+                canvasHeightPx: 1_000,
+            }),
+            0,
+            {
+                ...pageSize,
+                rotation: 90,
+            },
+        );
 
-        const clockwise = [
-            0,
-            -1,
-            1,
-            0,
-            0,
-            200,
-        ];
+        const clockwise = [0, -1, 1, 0, 0, 200];
         expect(cleanupRotated!.matrix).toEqual(clockwise);
         expect(sourceRotated!.matrix).toEqual(clockwise);
     });
@@ -393,44 +324,32 @@ describe('scan-cleanup source text layer', () => {
             },
         };
 
-        expect(buildScanCleanupTextLayerPlan([
-            dewarped,
-            preserved,
-        ], [
-            pageSize,
-            {
-                ...pageSize,
-                pageNumber: 2,
-            },
-        ])).toEqual({
+        expect(
+            buildScanCleanupTextLayerPlan(
+                [dewarped, preserved],
+                [
+                    pageSize,
+                    {
+                        ...pageSize,
+                        pageNumber: 2,
+                    },
+                ],
+            ),
+        ).toEqual({
             // Every output page is a destination target. The dewarped page has no
             // geometry to map; the preserved page is its own source, so identity.
             pages: [
                 {
                     sourcePageIndex: 0,
                     outputPageIndex: 0,
-                    matrix: [
-                        1,
-                        0,
-                        0,
-                        1,
-                        0,
-                        0,
-                    ],
+                    matrix: [1, 0, 0, 1, 0, 0],
                     linkOnly: true,
                     unmappedGeometry: true,
                 },
                 {
                     sourcePageIndex: 1,
                     outputPageIndex: 1,
-                    matrix: [
-                        1,
-                        0,
-                        0,
-                        1,
-                        0,
-                        0,
-                    ],
+                    matrix: [1, 0, 0, 1, 0, 0],
                     linkOnly: true,
                 },
             ],
@@ -460,31 +379,22 @@ describe('scan-cleanup source text layer', () => {
             },
         };
 
-        expect(buildScanCleanupTextLayerPlan([preserved], [pageSize]).pages).toEqual([{
-            sourcePageIndex: 0,
-            outputPageIndex: 0,
-            matrix: [
-                0.5,
-                0,
-                0,
-                0.5,
-                10,
-                20,
-            ],
-            linkOnly: true,
-        }]);
+        expect(buildScanCleanupTextLayerPlan([preserved], [pageSize]).pages).toEqual([
+            {
+                sourcePageIndex: 0,
+                outputPageIndex: 0,
+                matrix: [0.5, 0, 0, 0.5, 10, 20],
+                linkOnly: true,
+            },
+        ]);
     });
 
     it('builds the same plan from geometry materialized by a bounded child', () => {
         const outputs = [output()];
 
-        expect(buildScanCleanupTextLayerPlanFromPageSizeMap(
-            outputs,
-            new Map([[
-                pageSize.pageNumber,
-                pageSize,
-            ]]),
-        )).toEqual(buildScanCleanupTextLayerPlan(outputs, [pageSize]));
+        expect(buildScanCleanupTextLayerPlanFromPageSizeMap(outputs, new Map([[pageSize.pageNumber, pageSize]]))).toEqual(
+            buildScanCleanupTextLayerPlan(outputs, [pageSize]),
+        );
     });
 
     it('keys materialized geometry by source page when map insertion is reversed', () => {
@@ -504,106 +414,106 @@ describe('scan-cleanup source text layer', () => {
         const plan = buildScanCleanupTextLayerPlanFromPageSizeMap(
             outputs,
             new Map([
-                [
-                    secondPageSize.pageNumber,
-                    secondPageSize,
-                ],
-                [
-                    pageSize.pageNumber,
-                    pageSize,
-                ],
+                [secondPageSize.pageNumber, secondPageSize],
+                [pageSize.pageNumber, pageSize],
             ]),
         );
 
-        expect(plan).toEqual(buildScanCleanupTextLayerPlan(outputs, [
-            pageSize,
-            secondPageSize,
-        ]));
+        expect(plan).toEqual(buildScanCleanupTextLayerPlan(outputs, [pageSize, secondPageSize]));
         expect(plan.pages[0]?.matrix).not.toEqual(plan.pages[1]?.matrix);
     });
 
     it('rejects page geometry that is not in document order', () => {
-        expect(() => buildScanCleanupTextLayerPlan([output()], [
-            {
-                ...pageSize,
-                pageNumber: 2,
-            },
-            pageSize,
-        ])).toThrow(
+        expect(() =>
+            buildScanCleanupTextLayerPlan(
+                [output()],
+                [
+                    {
+                        ...pageSize,
+                        pageNumber: 2,
+                    },
+                    pageSize,
+                ],
+            ),
+        ).toThrow(
             'Scan cleanup text layer planning received page geometry out of document order: expected page 1 at index 0, received page 2',
         );
     });
 });
 
-
 describe('scan-cleanup source text omission evidence', () => {
-    const inspect = (pages: Array<{
-        pageNumber: number;
-        hiddenText?: boolean;
-        paintedText?: boolean;
-        evbOcrLayer?: boolean;
-        uncertain?: string
-    }>) => inspectScanCleanupSourceTextOmission({
-        pdfPath: '/source.pdf',
-        pagesPath: '/refused-pages.txt',
-        pdfPageOpsBinary: '/page-ops',
-        qpdfBinary: '/qpdf',
-        signal: new AbortController().signal,
-        log: vi.fn(),
-        runCommand: async () => ({
-            exitCode: 0,
-            stderr: '',
-            stdout: JSON.stringify({
-                format: 'evb-pdf-ocr-text-visibility',
-                schemaVersion: 3,
-                pages: pages.map(page => ({
-                    evbOcrLayer: false,
-                    paintedText: false,
-                    hiddenText: false,
-                    uncertain: null,
-                    unsupported: null,
-                    evbOcrLines: null,
-                    ...page,
-                })),
+    const inspect = (
+        pages: Array<{
+            pageNumber: number;
+            hiddenText?: boolean;
+            paintedText?: boolean;
+            evbOcrLayer?: boolean;
+            uncertain?: string;
+        }>,
+    ) =>
+        inspectScanCleanupSourceTextOmission({
+            pdfPath: '/source.pdf',
+            pagesPath: '/refused-pages.txt',
+            pdfPageOpsBinary: '/page-ops',
+            qpdfBinary: '/qpdf',
+            signal: new AbortController().signal,
+            log: vi.fn(),
+            runCommand: async () => ({
+                exitCode: 0,
+                stderr: '',
+                stdout: JSON.stringify({
+                    format: 'evb-pdf-ocr-text-visibility',
+                    schemaVersion: 3,
+                    pages: pages.map((page) => ({
+                        evbOcrLayer: false,
+                        paintedText: false,
+                        hiddenText: false,
+                        uncertain: null,
+                        unsupported: null,
+                        evbOcrLines: null,
+                        ...page,
+                    })),
+                }),
             }),
-        }),
-    });
+        });
 
     it('reports observed text on refused source pages without claiming loss on raster or unknown pages', async () => {
-        await expect(inspect([
-            {
-                pageNumber: 1,
-                hiddenText: true,
-            },
-            {pageNumber: 2},
-            {
-                pageNumber: 3,
-                paintedText: true,
-            },
-            {
-                pageNumber: 4,
-                evbOcrLayer: true,
-            },
-            {
-                pageNumber: 5,
-                uncertain: 'unreadable content',
-            },
-        ])).resolves.toEqual({
+        await expect(
+            inspect([
+                {
+                    pageNumber: 1,
+                    hiddenText: true,
+                },
+                {pageNumber: 2},
+                {
+                    pageNumber: 3,
+                    paintedText: true,
+                },
+                {
+                    pageNumber: 4,
+                    evbOcrLayer: true,
+                },
+                {
+                    pageNumber: 5,
+                    uncertain: 'unreadable content',
+                },
+            ]),
+        ).resolves.toEqual({
             count: 3,
-            pages: [
-                1,
-                3,
-                4,
-            ],
+            pages: [1, 3, 4],
         });
         await expect(inspect([{pageNumber: 2}])).resolves.toBeUndefined();
     });
 
     it('retains the actual count while bounding the source-page list', async () => {
-        await expect(inspect(Array.from({length: 65}, (_, index) => ({
-            pageNumber: index + 1,
-            hiddenText: true,
-        })))).resolves.toEqual({
+        await expect(
+            inspect(
+                Array.from({length: 65}, (_, index) => ({
+                    pageNumber: index + 1,
+                    hiddenText: true,
+                })),
+            ),
+        ).resolves.toEqual({
             count: 65,
             pages: Array.from({length: 20}, (_, index) => index + 1),
         });
@@ -613,15 +523,19 @@ describe('scan-cleanup source text omission evidence', () => {
         new Error('source text command failed'),
         markUnprovenNativeTermination(new Error('source text command timed out'), 'process was not proven dead'),
     ])('propagates the same command failure to the existing job owner: %s', async (error) => {
-        await expect(inspectScanCleanupSourceTextOmission({
-            pdfPath: '/source.pdf',
-            pagesPath: '/refused-pages.txt',
-            pdfPageOpsBinary: '/page-ops',
-            qpdfBinary: '/qpdf',
-            signal: new AbortController().signal,
-            log: vi.fn(),
-            runCommand: async () => { throw error; },
-        })).rejects.toBe(error);
+        await expect(
+            inspectScanCleanupSourceTextOmission({
+                pdfPath: '/source.pdf',
+                pagesPath: '/refused-pages.txt',
+                pdfPageOpsBinary: '/page-ops',
+                qpdfBinary: '/qpdf',
+                signal: new AbortController().signal,
+                log: vi.fn(),
+                runCommand: async () => {
+                    throw error;
+                },
+            }),
+        ).rejects.toBe(error);
     });
 
     it('keeps invalid successful evidence from inventing a notice but propagates job cancellation', async () => {

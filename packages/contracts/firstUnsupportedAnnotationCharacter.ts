@@ -15,9 +15,13 @@ function within(list: ReadonlyArray<readonly number[]>, code: number) {
     while (low < high) {
         const middle = Math.floor((low + high) / 2);
         const range = list[middle]!;
-        if (code < range[0]!) high = middle;
-        else if (code > range[1]!) low = middle + 1;
-        else return true;
+        if (code < range[0]!) {
+            high = middle;
+        } else if (code > range[1]!) {
+            low = middle + 1;
+        } else {
+            return true;
+        }
     }
     return false;
 }

@@ -6,7 +6,7 @@ export async function waitForCondition(assertion: () => void) {
             return;
         } catch (error) {
             lastError = error;
-            await new Promise<void>(resolve => setImmediate(resolve));
+            await new Promise<void>((resolve) => setImmediate(resolve));
         }
     }
     throw lastError;
@@ -19,6 +19,6 @@ export async function waitForCondition(assertion: () => void) {
  */
 export async function waitUntilDone(isDone: () => boolean) {
     while (!isDone()) {
-        await new Promise<void>(resolve => setTimeout(resolve, 1));
+        await new Promise<void>((resolve) => setTimeout(resolve, 1));
     }
 }

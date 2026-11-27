@@ -1,20 +1,8 @@
-import {
-    existsSync,
-    readFileSync,
-    readdirSync,
-    rmSync,
-    unlinkSync,
-} from 'node:fs';
-import path, {
-    join,
-    resolve,
-} from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { run } from './shared.mjs';
-import {
-    RELEASE_BUILD_RECEIPT_ENV_VAR,
-    validateReleaseBuildReceipt,
-} from './build-receipt.mjs';
+import {existsSync, readFileSync, readdirSync, rmSync, unlinkSync} from 'node:fs';
+import path, {join, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {run} from './shared.mjs';
+import {RELEASE_BUILD_RECEIPT_ENV_VAR, validateReleaseBuildReceipt} from './build-receipt.mjs';
 import {
     getReleaseCiEnv,
     expectsUpdaterMetadata,
@@ -24,7 +12,7 @@ import {
     parseUpdaterMetadataPath,
     shouldVerifyPackagedStartup,
 } from './policy.mjs';
-import { notarizeMacDmgArtifacts } from './notarize-macos-dmgs.mjs';
+import {notarizeMacDmgArtifacts} from './notarize-macos-dmgs.mjs';
 
 const RELEASE_DIR = 'release';
 
@@ -33,10 +21,7 @@ const RELEASE_DIR = 'release';
 
 export function getLocalReleaseBuildCommand() {
     return {
-        args: [
-            'run',
-            'build:strict',
-        ],
+        args: ['run', 'build:strict'],
         command: 'pnpm',
     };
 }
@@ -46,25 +31,10 @@ export function getPackagingArgs(target, env = process.env) {
     if (target.platform === 'mac' && !expectsUpdaterMetadata(target, env)) {
         // Unsigned local mac verification intentionally drops updater metadata,
         // so it only needs the manual-install DMG artifact.
-        return [
-            'exec',
-            'electron-builder',
-            '--publish',
-            'never',
-            '--mac',
-            'dmg',
-            `--${target.arch}`,
-        ];
+        return ['exec', 'electron-builder', '--publish', 'never', '--mac', 'dmg', `--${target.arch}`];
     }
 
-    return [
-        'exec',
-        'electron-builder',
-        '--publish',
-        'never',
-        `--${target.platform}`,
-        `--${target.arch}`,
-    ];
+    return ['exec', 'electron-builder', '--publish', 'never', `--${target.platform}`, `--${target.arch}`];
 }
 
 /** @param {IReleaseTarget} target @param {NodeJS.ProcessEnv} [env] */
@@ -76,7 +46,7 @@ function assertReleaseArtifactsExist(target, env = process.env) {
 
     const files = readdirSync(distDir);
     for (const pattern of getRequiredArtifactPatterns(target, env)) {
-        const matched = files.some(file => pattern.test(file));
+        const matched = files.some((file) => pattern.test(file));
         if (!matched) {
             throw new Error(`Missing packaged artifact matching ${pattern} in ${RELEASE_DIR}/`);
         }
@@ -88,16 +58,15 @@ function validateUpdaterMetadata(target, env = process.env) {
     const shouldExist = expectsUpdaterMetadata(target, env);
     const distDir = resolve(process.cwd(), RELEASE_DIR);
     const ymlFiles = readdirSync(distDir)
-        .filter(name => /^latest.*\.yml$/.test(name))
-        .map(name => join(distDir, name));
-    const blockmaps = readdirSync(distDir)
-        .filter(name => name.endsWith('.blockmap'));
+        .filter((name) => /^latest.*\.yml$/.test(name))
+        .map((name) => join(distDir, name));
+    const blockmaps = readdirSync(distDir).filter((name) => name.endsWith('.blockmap'));
 
     if (!shouldExist) {
         if (ymlFiles.length > 0 || blockmaps.length > 0) {
             throw new Error(
-                `Unexpected updater metadata for ${target.platform}-${target.arch}; `
-                + 'this target should ship without latest*.yml/blockmap files.',
+                `Unexpected updater metadata for ${target.platform}-${target.arch}; ` +
+                    'this target should ship without latest*.yml/blockmap files.',
             );
         }
         return;
@@ -128,44 +97,26 @@ function verifyLocalPackageArtifacts(target) {
     if (target.platform === 'mac' && target.arch !== process.arch) {
         const appDir = resolve(
             process.cwd(),
-            target.arch === 'x64'
-                ? `${RELEASE_DIR}/mac/EVB Viewer.app`
-                : `${RELEASE_DIR}/mac-${target.arch}/EVB Viewer.app`,
+            target.arch === 'x64' ? `${RELEASE_DIR}/mac/EVB Viewer.app` : `${RELEASE_DIR}/mac-${target.arch}/EVB Viewer.app`,
         );
-        run('codesign', [
-            '--verify',
-            '--deep',
-            '--strict',
-            '--verbose=2',
-            appDir,
-        ], { stdio: 'inherit' });
-        run('node', [ 'scripts/release/assert-packaged-app-contents.mjs' ], { stdio: 'inherit' });
-        process.stdout.write(
-            `Cross-arch local verification passed for ${target.platform}-${target.arch} packaging/signature path.\n`,
-        );
+        run('codesign', ['--verify', '--deep', '--strict', '--verbose=2', appDir], {stdio: 'inherit'});
+        run('node', ['scripts/release/assert-packaged-app-contents.mjs'], {stdio: 'inherit'});
+        process.stdout.write(`Cross-arch local verification passed for ${target.platform}-${target.arch} packaging/signature path.\n`);
         return;
     }
 
-    run('bash', [
-        'scripts/verify-packaged-native-tools.sh',
-        target.platform,
-        target.arch,
-    ], {stdio: 'inherit'});
-    run('node', [ 'scripts/release/assert-packaged-app-contents.mjs' ], { stdio: 'inherit' });
+    run('bash', ['scripts/verify-packaged-native-tools.sh', target.platform, target.arch], {stdio: 'inherit'});
+    run('node', ['scripts/release/assert-packaged-app-contents.mjs'], {stdio: 'inherit'});
 
     if (shouldVerifyPackagedStartup(target)) {
-        run('bash', [
-            'scripts/verify-packaged-startup.sh',
-            target.platform,
-            target.arch,
-        ], {stdio: 'inherit'});
+        run('bash', ['scripts/verify-packaged-startup.sh', target.platform, target.arch], {stdio: 'inherit'});
         // The packaged scan-cleanup CDP proof runs once per release, in the
         // CI verify_packaged_scan_cleanup job. For scan-cleanup development
         // invoke scripts/release/verifyPackagedScanCleanup.ts directly.
     } else if (target.platform === 'mac') {
         process.stdout.write(
-            'Skipping packaged startup verification for ad-hoc local mac build; '
-            + 'LaunchServices/Developer ID semantics are only reproducible when signing credentials are present.\n',
+            'Skipping packaged startup verification for ad-hoc local mac build; ' +
+                'LaunchServices/Developer ID semantics are only reproducible when signing credentials are present.\n',
         );
     }
 }
@@ -193,18 +144,16 @@ function main() {
     const receiptResult = receiptPath
         ? validateReleaseBuildReceipt(receiptPath, {env: releaseCiEnv})
         : {
-            reason: 'not-requested',
-            valid: false,
-        };
+              reason: 'not-requested',
+              valid: false,
+          };
     // The receipt is the only reuse decision: it covers source, toolchain,
     // compiled configuration and outputs. Without one, the build always runs.
     if (receiptResult.valid) {
         process.stdout.write(`Reusing strict build proven fresh by ${receiptPath}.\n`);
     } else {
         if (receiptPath) {
-            process.stdout.write(
-                `Strict-build receipt is not reusable (${receiptResult.reason}); rebuilding.\n`,
-            );
+            process.stdout.write(`Strict-build receipt is not reusable (${receiptResult.reason}); rebuilding.\n`);
         } else {
             process.stdout.write('No strict-build receipt was requested; rebuilding.\n');
         }
@@ -220,13 +169,11 @@ function main() {
             recursive: true,
         });
 
-        const env = { ...releaseCiEnv };
+        const env = {...releaseCiEnv};
         if (target.platform === 'linux') {
             env.USE_SYSTEM_FPM = 'true';
         }
-        process.stdout.write(
-            `Packaging local release artifacts for ${target.platform}-${target.arch}...\n`,
-        );
+        process.stdout.write(`Packaging local release artifacts for ${target.platform}-${target.arch}...\n`);
 
         run('pnpm', getPackagingArgs(target, env), {
             env,
@@ -245,14 +192,11 @@ function main() {
         validateUpdaterMetadata(target, env);
         verifyLocalPackageArtifacts(target);
 
-        process.stdout.write(
-            `Local release packaging verification passed for ${target.platform}-${target.arch}.\n`,
-        );
+        process.stdout.write(`Local release packaging verification passed for ${target.platform}-${target.arch}.\n`);
     }
 }
 
-const isDirectCliRun = process.argv[1]
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
     main();

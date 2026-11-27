@@ -1,8 +1,8 @@
 {
-    "name": "@evb/document-store",
-    "private": true,
-    "type": "module",
-    "exports": {
-        "./*": "./*.ts"
-    }
+  "name": "@evb/document-store",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./*.ts"
+  }
 }

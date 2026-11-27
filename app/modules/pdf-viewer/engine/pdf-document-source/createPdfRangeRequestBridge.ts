@@ -1,13 +1,15 @@
-import { getErrorMessage } from '@app/utils/error';
-import type { PDFDataRangeTransport } from 'pdfjs-dist';
-import type { TPdfSource } from '@app/types/pdfUi';
-import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import {getErrorMessage} from '@app/utils/error';
+import type {PDFDataRangeTransport} from 'pdfjs-dist';
+import type {TPdfSource} from '@app/types/pdfUi';
+import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 
 const PDF_RANGE_SUBREAD_BYTES = 8 * 1024 * 1024;
 const PDF_RANGE_DELIVERY_BYTES = 1024 * 1024;
 
-interface IPdfChunkedRangeTransport extends PDFDataRangeTransport { onDataRange(begin: number, chunk: Uint8Array, isLast?: boolean): void; }
+interface IPdfChunkedRangeTransport extends PDFDataRangeTransport {
+    onDataRange(begin: number, chunk: Uint8Array, isLast?: boolean): void;
+}
 
 export interface IPdfPreloadedRange {
     begin: number;
@@ -26,10 +28,7 @@ interface IPdfRangeRequestBridgeOptions {
     onRangeReadFailure: (error: unknown, version: number) => void;
 }
 
-export function createPdfRangeRequestBridge({
-    getRenderVersion,
-    onRangeReadFailure,
-}: IPdfRangeRequestBridgeOptions) {
+export function createPdfRangeRequestBridge({getRenderVersion, onRangeReadFailure}: IPdfRangeRequestBridgeOptions) {
     function createRangeReadFailureHandler(): IPdfRangeReadFailureHandler {
         let rejectRangeReadFailure: ((error: Error) => void) | null = null;
         let failed = false;
@@ -68,7 +67,7 @@ export function createPdfRangeRequestBridge({
      */
     async function fulfillPdfRangeRequest(
         transport: IPdfChunkedRangeTransport,
-        src: Extract<TPdfSource, { kind: 'path' }>,
+        src: Extract<TPdfSource, {kind: 'path'}>,
         begin: number,
         end: number,
         version: number,
@@ -86,8 +85,7 @@ export function createPdfRangeRequestBridge({
         const preloadedRange = preloadedRanges.find((range) => {
             const relativeBegin = begin - range.begin;
             const relativeEnd = end - range.begin;
-            return relativeBegin >= 0
-                && relativeEnd <= range.data.byteLength;
+            return relativeBegin >= 0 && relativeEnd <= range.data.byteLength;
         });
         if (preloadedRange) {
             const relativeBegin = begin - preloadedRange.begin;
@@ -178,20 +176,15 @@ export function createPdfRangeRequestBridge({
             while (sourceOffset < chunk.byteLength) {
                 if (!deliveryBuffer && deliveryLength === 0) {
                     const remaining = chunk.byteLength - sourceOffset;
-                    const canDeliverDirectly = remaining >= PDF_RANGE_DELIVERY_BYTES
-                        && (remaining % PDF_RANGE_DELIVERY_BYTES === 0 || cursor + chunk.byteLength === end);
+                    const canDeliverDirectly =
+                        remaining >= PDF_RANGE_DELIVERY_BYTES &&
+                        (remaining % PDF_RANGE_DELIVERY_BYTES === 0 || cursor + chunk.byteLength === end);
                     if (canDeliverDirectly) {
                         let directOffset = sourceOffset;
                         while (directOffset < chunk.byteLength) {
-                            const directLength = Math.min(
-                                PDF_RANGE_DELIVERY_BYTES,
-                                chunk.byteLength - directOffset,
-                            );
+                            const directLength = Math.min(PDF_RANGE_DELIVERY_BYTES, chunk.byteLength - directOffset);
                             const directEnd = cursor + directOffset + directLength;
-                            if (!deliver(
-                                chunk.subarray(directOffset, directOffset + directLength),
-                                directEnd === end,
-                            )) {
+                            if (!deliver(chunk.subarray(directOffset, directOffset + directLength), directEnd === end)) {
                                 return;
                             }
                             directOffset += directLength;
@@ -202,17 +195,11 @@ export function createPdfRangeRequestBridge({
                     deliveryBuffer = new Uint8Array(PDF_RANGE_DELIVERY_BYTES);
                 }
 
-                const copyLength = Math.min(
-                    chunk.byteLength - sourceOffset,
-                    PDF_RANGE_DELIVERY_BYTES - deliveryLength,
-                );
+                const copyLength = Math.min(chunk.byteLength - sourceOffset, PDF_RANGE_DELIVERY_BYTES - deliveryLength);
                 if (!deliveryBuffer) {
                     throw new Error('PDF range delivery buffer was not allocated');
                 }
-                deliveryBuffer.set(
-                    chunk.subarray(sourceOffset, sourceOffset + copyLength),
-                    deliveryLength,
-                );
+                deliveryBuffer.set(chunk.subarray(sourceOffset, sourceOffset + copyLength), deliveryLength);
                 sourceOffset += copyLength;
                 deliveryLength += copyLength;
                 if (deliveryLength === PDF_RANGE_DELIVERY_BYTES) {
@@ -246,7 +233,7 @@ export function createPdfRangeRequestBridge({
 
     function attachRangeRequestHandler(
         transport: PDFDataRangeTransport,
-        src: Extract<TPdfSource, { kind: 'path' }>,
+        src: Extract<TPdfSource, {kind: 'path'}>,
         version: number,
         rangeFailure: IPdfRangeReadFailureHandler,
         preloadedRanges: readonly IPdfPreloadedRange[],
@@ -261,10 +248,7 @@ export function createPdfRangeRequestBridge({
         let rangeReadTail = Promise.resolve();
 
         // PDF.js will call this to request additional chunks.
-        transport.requestDataRange = (
-            begin,
-            end: number,
-        ) => {
+        transport.requestDataRange = (begin, end: number) => {
             void (async () => {
                 logPdfRenderTrace('pdf-document-range-request', {
                     begin,
@@ -279,15 +263,7 @@ export function createPdfRangeRequestBridge({
                 });
                 try {
                     await predecessor;
-                    await fulfillPdfRangeRequest(
-                        transport,
-                        src,
-                        begin,
-                        end,
-                        version,
-                        isAbandoned,
-                        preloadedRanges,
-                    );
+                    await fulfillPdfRangeRequest(transport, src, begin, end, version, isAbandoned, preloadedRanges);
                 } catch (error) {
                     if (isAbandoned()) {
                         return;

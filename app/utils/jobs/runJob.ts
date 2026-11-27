@@ -1,4 +1,4 @@
-import type { TRequestId } from '@contracts/shared';
+import type {TRequestId} from '@contracts/shared';
 
 export class JobCanceledError extends Error {
     constructor() {
@@ -14,7 +14,9 @@ export class JobTimeoutError extends Error {
     }
 }
 
-interface IJobEvent {readonly requestId?: TRequestId;}
+interface IJobEvent {
+    readonly requestId?: TRequestId;
+}
 
 export interface IJobChannel<TProgress extends IJobEvent, TResult extends IJobEvent, TCancelResult> {
     onProgress(listener: (progress: TProgress) => void): () => void;
@@ -102,9 +104,7 @@ export function runJob<TProgress extends IJobEvent, TResult extends IJobEvent, T
     }
 
     function cancelWith(error: Error) {
-        return stopWaiting(error)
-            ? channel.cancel(options.requestId)
-            : Promise.resolve(null);
+        return stopWaiting(error) ? channel.cancel(options.requestId) : Promise.resolve(null);
     }
 
     function armInactivityTimer() {

@@ -1,4 +1,4 @@
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
+import {DOCUMENT_PAGE_GUTTER_PX} from '@app/modules/document-viewer/layout/documentPageGutterPx';
 
 export interface IDocumentZoomPageLayout {
     left?: number;
@@ -27,18 +27,15 @@ export interface IDocumentZoomAnchor {
     viewportBox?: IDocumentZoomViewportBox;
 }
 
-type TDocumentZoomViewport = Pick<HTMLElement, 'clientHeight' | 'clientWidth' | 'scrollLeft' | 'scrollTop'>
-    & Partial<Pick<HTMLElement, 'offsetHeight' | 'offsetWidth'>>;
+type TDocumentZoomViewport = Pick<HTMLElement, 'clientHeight' | 'clientWidth' | 'scrollLeft' | 'scrollTop'> &
+    Partial<Pick<HTMLElement, 'offsetHeight' | 'offsetWidth'>>;
 
 export interface IDocumentZoomViewportPoint {
     x: number;
     y: number;
 }
 
-function resolveLayoutLeft(
-    container: Pick<HTMLElement, 'clientWidth'>,
-    layout: IDocumentZoomPageLayout,
-) {
+function resolveLayoutLeft(container: Pick<HTMLElement, 'clientWidth'>, layout: IDocumentZoomPageLayout) {
     return layout.left ?? Math.max(0, (container.clientWidth - layout.width) / 2);
 }
 
@@ -64,8 +61,11 @@ function findNearestPageIndex(layouts: readonly IDocumentZoomPageLayout[], y: nu
     let high = layouts.length;
     while (low < high) {
         const middle = (low + high) >>> 1;
-        if (layouts[middle]!.top > y) high = middle;
-        else low = middle + 1;
+        if (layouts[middle]!.top > y) {
+            high = middle;
+        } else {
+            low = middle + 1;
+        }
     }
     let nearest = Math.min(low, layouts.length - 1);
     let nearestDistance = distanceToPage(layouts[nearest]!, y);
@@ -77,7 +77,9 @@ function findNearestPageIndex(layouts: readonly IDocumentZoomPageLayout[], y: nu
         if (layout.top !== rowTop) {
             rowTop = layout.top;
             rowsLeft -= 1;
-            if (rowsLeft < 0) break;
+            if (rowsLeft < 0) {
+                break;
+            }
         }
         const distance = distanceToPage(layout, y);
         if (distance <= nearestDistance) {
@@ -101,13 +103,14 @@ export function captureDocumentZoomAnchor(
     const pointY = Math.max(0, Math.min(container.clientHeight, viewportPoint?.y ?? container.clientHeight / 2));
     const viewportX = container.scrollLeft + pointX;
     const viewportY = container.scrollTop + pointY;
-    const normalizedPreferredPageIndex = preferredPageIndex !== null
-        && preferredPageIndex !== undefined
-        && Number.isInteger(preferredPageIndex)
-        && preferredPageIndex >= 0
-        && preferredPageIndex < layouts.length
-        ? preferredPageIndex
-        : null;
+    const normalizedPreferredPageIndex =
+        preferredPageIndex !== null &&
+        preferredPageIndex !== undefined &&
+        Number.isInteger(preferredPageIndex) &&
+        preferredPageIndex >= 0 &&
+        preferredPageIndex < layouts.length
+            ? preferredPageIndex
+            : null;
     const pageIndex = normalizedPreferredPageIndex ?? findNearestPageIndex(layouts, viewportY);
     const layout = layouts[pageIndex];
     if (!layout) {
@@ -116,20 +119,26 @@ export function captureDocumentZoomAnchor(
     const left = resolveLayoutLeft(container, layout);
     return {
         pageIndex,
-        ...(viewportPoint ? {
-            viewportX: pointX,
-            viewportY: pointY,
-        } : {}),
+        ...(viewportPoint
+            ? {
+                  viewportX: pointX,
+                  viewportY: pointY,
+              }
+            : {}),
         viewportXRatio: pointX / Math.max(1, container.clientWidth),
         viewportYRatio: pointY / Math.max(1, container.clientHeight),
         xRatio: (viewportX - left) / Math.max(1, layout.width),
         yRatio: (viewportY - layout.top) / Math.max(1, layout.height),
-        ...(container.offsetWidth === undefined || container.offsetHeight === undefined ? {} : {viewportBox: {
-            clientHeight: container.clientHeight,
-            clientWidth: container.clientWidth,
-            offsetHeight: container.offsetHeight,
-            offsetWidth: container.offsetWidth,
-        }}),
+        ...(container.offsetWidth === undefined || container.offsetHeight === undefined
+            ? {}
+            : {
+                  viewportBox: {
+                      clientHeight: container.clientHeight,
+                      clientWidth: container.clientWidth,
+                      offsetHeight: container.offsetHeight,
+                      offsetWidth: container.offsetWidth,
+                  },
+              }),
     };
 }
 
@@ -150,17 +159,20 @@ export function resolveDocumentZoomAnchorScroll(
     // one, and moves nothing on screen: the anchor's point stays where it was
     // taken. A resize changes the outer box, and the point takes its place in
     // the new client box.
-    const box = anchor.viewportBox
-        && anchor.viewportBox.offsetWidth === container.offsetWidth
-        && anchor.viewportBox.offsetHeight === container.offsetHeight
-        ? anchor.viewportBox
-        : container;
-    const viewportX = anchor.viewportX === undefined
-        ? box.clientWidth * (anchor.viewportXRatio ?? 0.5)
-        : Math.min(container.clientWidth, Math.max(0, anchor.viewportX));
-    const viewportY = anchor.viewportY === undefined
-        ? box.clientHeight * (anchor.viewportYRatio ?? 0.5)
-        : Math.min(container.clientHeight, Math.max(0, anchor.viewportY));
+    const box =
+        anchor.viewportBox &&
+        anchor.viewportBox.offsetWidth === container.offsetWidth &&
+        anchor.viewportBox.offsetHeight === container.offsetHeight
+            ? anchor.viewportBox
+            : container;
+    const viewportX =
+        anchor.viewportX === undefined
+            ? box.clientWidth * (anchor.viewportXRatio ?? 0.5)
+            : Math.min(container.clientWidth, Math.max(0, anchor.viewportX));
+    const viewportY =
+        anchor.viewportY === undefined
+            ? box.clientHeight * (anchor.viewportYRatio ?? 0.5)
+            : Math.min(container.clientHeight, Math.max(0, anchor.viewportY));
     return {
         left: Math.max(0, left + layout.width * anchor.xRatio - viewportX),
         top: Math.max(0, layout.top + layout.height * anchor.yRatio - viewportY),
@@ -177,18 +189,9 @@ export function resolveRetainedDocumentZoomAnchor(
     if (retainedAnchor) {
         const projected = resolveDocumentZoomAnchorScroll(container, layouts, retainedAnchor);
         if (projected) {
-            const projectedLeft = Math.min(
-                projected.left,
-                Math.max(0, container.scrollWidth - container.clientWidth),
-            );
-            const projectedTop = Math.min(
-                projected.top,
-                Math.max(0, container.scrollHeight - container.clientHeight),
-            );
-            if (
-                Math.abs(projectedLeft - container.scrollLeft) <= tolerance
-                && Math.abs(projectedTop - container.scrollTop) <= tolerance
-            ) {
+            const projectedLeft = Math.min(projected.left, Math.max(0, container.scrollWidth - container.clientWidth));
+            const projectedTop = Math.min(projected.top, Math.max(0, container.scrollHeight - container.clientHeight));
+            if (Math.abs(projectedLeft - container.scrollLeft) <= tolerance && Math.abs(projectedTop - container.scrollTop) <= tolerance) {
                 return retainedAnchor;
             }
         }

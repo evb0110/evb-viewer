@@ -1,25 +1,11 @@
-import { randomUUID } from 'node:crypto';
-import {
-    appendFileSync,
-    mkdirSync,
-    readFileSync,
-    renameSync,
-    writeFileSync,
-} from 'node:fs';
-import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
-import type {
-    Browser,
-    Page,
-    Target,
-} from 'puppeteer-core';
-import {
-    assertRecordingTools,
-    inspectRecordingVideo,
-    startRendererVideo,
-} from '@scripts/electron-run/recordingVideo';
-import { isElectronAppPageUrl } from '@scripts/electron-run/appRendererUrl';
-import { recordingReviewHtml } from '@scripts/electron-run/recordingReviewHtml';
+import {randomUUID} from 'node:crypto';
+import {appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {execFileSync} from 'node:child_process';
+import type {Browser, Page, Target} from 'puppeteer-core';
+import {assertRecordingTools, inspectRecordingVideo, startRendererVideo} from '@scripts/electron-run/recordingVideo';
+import {isElectronAppPageUrl} from '@scripts/electron-run/appRendererUrl';
+import {recordingReviewHtml} from '@scripts/electron-run/recordingReviewHtml';
 
 interface IRecordingTrack {
     id: string;
@@ -34,90 +20,102 @@ interface IRecordingTrack {
         duration: number;
         width: number;
         height: number;
-        bytes: number
+        bytes: number;
     };
 }
 
 function sourceIdentity(cwd: string) {
     try {
         return {
-            sha: execFileSync('git', [
-                'rev-parse',
-                'HEAD',
-            ], {
+            sha: execFileSync('git', ['rev-parse', 'HEAD'], {
                 cwd,
                 encoding: 'utf8',
             }).trim(),
-            dirty: execFileSync('git', [
-                'status',
-                '--porcelain',
-            ], {
-                cwd,
-                encoding: 'utf8',
-            }).trim().length > 0,
+            dirty:
+                execFileSync('git', ['status', '--porcelain'], {
+                    cwd,
+                    encoding: 'utf8',
+                }).trim().length > 0,
         };
-    } catch { return {
-        sha: null,
-        dirty: null,
-    }; }
+    } catch {
+        return {
+            sha: null,
+            dirty: null,
+        };
+    }
 }
 
 /** Runs inside the renderer. Records input delivery without reading typed text or password values. */
 function observeInput(binding: string) {
     const installed: unknown = Reflect.get(window, binding + '_installed');
-    if (installed) { return; }
+    if (installed) {
+        return;
+    }
     Reflect.set(window, binding + '_installed', true);
     let movedAt = 0;
-    for (const type of [
-        'pointermove',
-        'pointerdown',
-        'pointerup',
-        'click',
-        'keydown',
-        'keyup',
-        'wheel',
-    ]) {
-        document.addEventListener(type, (event) => {
-            if (type === 'pointermove' && performance.now() - movedAt < 100) { return; }
-            if (type === 'pointermove') { movedAt = performance.now(); }
-            const mouse = event instanceof MouseEvent ? event : null;
-            const keyboard = event instanceof KeyboardEvent ? event : null;
-            const wheel = event instanceof WheelEvent ? event : null;
-            const emit = Reflect.get(window, binding) as (value: unknown) => Promise<void>;
-            void emit({
-                type,
-                trusted: event.isTrusted,
-                width: innerWidth,
-                height: innerHeight,
-                ...(mouse ? {
-                    x: mouse.clientX,
-                    y: mouse.clientY,
-                    button: mouse.button,
-                } : {}),
-                ...(keyboard ? {
-                    ...(/^(Enter|NumpadEnter|Tab|Escape|Backspace|Delete|Arrow(Up|Down|Left|Right)|Home|End|Page(Up|Down)|F[0-9]+|Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|Meta(Left|Right))$/.test(keyboard.code) ? {code: keyboard.code} : {}),
-                    ctrl: keyboard.ctrlKey,
-                    alt: keyboard.altKey,
-                    meta: keyboard.metaKey,
-                    shift: keyboard.shiftKey,
-                } : {}),
-                ...(wheel ? {
-                    deltaX: wheel.deltaX,
-                    deltaY: wheel.deltaY,
-                } : {}),
-            }).catch(() => {});
-        }, {
-            capture: true,
-            passive: true,
-        });
+    for (const type of ['pointermove', 'pointerdown', 'pointerup', 'click', 'keydown', 'keyup', 'wheel']) {
+        document.addEventListener(
+            type,
+            (event) => {
+                if (type === 'pointermove' && performance.now() - movedAt < 100) {
+                    return;
+                }
+                if (type === 'pointermove') {
+                    movedAt = performance.now();
+                }
+                const mouse = event instanceof MouseEvent ? event : null;
+                const keyboard = event instanceof KeyboardEvent ? event : null;
+                const wheel = event instanceof WheelEvent ? event : null;
+                const emit = Reflect.get(window, binding) as (value: unknown) => Promise<void>;
+                void emit({
+                    type,
+                    trusted: event.isTrusted,
+                    width: innerWidth,
+                    height: innerHeight,
+                    ...(mouse
+                        ? {
+                              x: mouse.clientX,
+                              y: mouse.clientY,
+                              button: mouse.button,
+                          }
+                        : {}),
+                    ...(keyboard
+                        ? {
+                              ...(/^(Enter|NumpadEnter|Tab|Escape|Backspace|Delete|Arrow(Up|Down|Left|Right)|Home|End|Page(Up|Down)|F[0-9]+|Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|Meta(Left|Right))$/.test(
+                                  keyboard.code,
+                              )
+                                  ? {code: keyboard.code}
+                                  : {}),
+                              ctrl: keyboard.ctrlKey,
+                              alt: keyboard.altKey,
+                              meta: keyboard.metaKey,
+                              shift: keyboard.shiftKey,
+                          }
+                        : {}),
+                    ...(wheel
+                        ? {
+                              deltaX: wheel.deltaX,
+                              deltaY: wheel.deltaY,
+                          }
+                        : {}),
+                }).catch(() => {});
+            },
+            {
+                capture: true,
+                passive: true,
+            },
+        );
     }
 }
 
-export async function startSessionRecording(browser: Browser, options: {
-    directory: string;
-    session: string;
-    cwd: string
-}) {
+export async function startSessionRecording(
+    browser: Browser,
+    options: {
+        directory: string;
+        session: string;
+        cwd: string;
+    },
+) {
     await assertRecordingTools();
     const directory = join(options.directory, `${Date.now()}-${randomUUID().slice(0, 8)}`);
     mkdirSync(directory, {recursive: true});
@@ -144,13 +142,19 @@ export async function startSessionRecording(browser: Browser, options: {
         writeFileSync(manifestPath + '.tmp', JSON.stringify(manifest, null, 2));
         renameSync(manifestPath + '.tmp', manifestPath);
     };
-    const event = (data: Record<string, unknown>) => appendFileSync(actionsPath, JSON.stringify({
-        ...data,
-        atMs: elapsed(),
-    }) + '\n');
+    const event = (data: Record<string, unknown>) =>
+        appendFileSync(
+            actionsPath,
+            JSON.stringify({
+                ...data,
+                atMs: elapsed(),
+            }) + '\n',
+        );
     const fail = (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        if (!manifest.errors.includes(message)) { manifest.errors.push(message); }
+        if (!manifest.errors.includes(message)) {
+            manifest.errors.push(message);
+        }
         manifest.status = 'failed';
         event({
             kind: 'capture-error',
@@ -161,8 +165,12 @@ export async function startSessionRecording(browser: Browser, options: {
     const pages = new Map<Page, Promise<() => Promise<void>>>();
     let stopping = false;
     const attach = (page: Page) => {
-        if (pages.has(page) || stopping) { return pages.get(page); }
-        if (!isElectronAppPageUrl(page.url())) { return undefined; }
+        if (pages.has(page) || stopping) {
+            return pages.get(page);
+        }
+        if (!isElectronAppPageUrl(page.url())) {
+            return undefined;
+        }
         const capture = (async () => {
             const id = `window-${manifest.tracks.length + 1}`;
             const track: IRecordingTrack = {
@@ -176,11 +184,13 @@ export async function startSessionRecording(browser: Browser, options: {
             const binding = `evbRecording_${randomUUID().replaceAll('-', '')}`;
             try {
                 await page.exposeFunction(binding, (input: Record<string, unknown>) => {
-                    if (!stopping) { event({
-                        ...input,
-                        kind: 'input',
-                        trackId: id,
-                    }); }
+                    if (!stopping) {
+                        event({
+                            ...input,
+                            kind: 'input',
+                            trackId: id,
+                        });
+                    }
                 });
                 await page.evaluateOnNewDocument(observeInput, binding);
                 await page.evaluate(observeInput, binding);
@@ -197,8 +207,13 @@ export async function startSessionRecording(browser: Browser, options: {
                 const stop = () => {
                     stopPromise ??= (async () => {
                         track.endedAtMs = elapsed();
-                        try { track.video = await video.stop(); track.status = 'complete'; }
-                        catch (error) { track.status = 'failed'; fail(error); }
+                        try {
+                            track.video = await video.stop();
+                            track.status = 'complete';
+                        } catch (error) {
+                            track.status = 'failed';
+                            fail(error);
+                        }
                         event({
                             kind: 'window-ended',
                             trackId: id,
@@ -209,8 +224,12 @@ export async function startSessionRecording(browser: Browser, options: {
                     return stopPromise;
                 };
                 // Puppeteer marks the page closed after dispatching this event.
-                page.once('close', () => { queueMicrotask(() => { void stop(); }); });
-                page.on('error', error => fail(error));
+                page.once('close', () => {
+                    queueMicrotask(() => {
+                        void stop();
+                    });
+                });
+                page.on('error', (error) => fail(error));
                 return stop;
             } catch (error) {
                 track.status = 'failed';
@@ -225,7 +244,10 @@ export async function startSessionRecording(browser: Browser, options: {
     };
     const onTarget = (target: Target) => {
         if (!stopping && target.type() === 'page') {
-            void target.page().then(page => page ? attach(page) : undefined).catch(fail);
+            void target
+                .page()
+                .then((page) => (page ? attach(page) : undefined))
+                .catch(fail);
         }
     };
     browser.on('targetcreated', onTarget);
@@ -236,18 +258,24 @@ export async function startSessionRecording(browser: Browser, options: {
     const stop = (exitCode = 0) => {
         stopPromise ??= (async () => {
             stopping = true;
-            if (pendingActions) { fail(new Error('Session stopped before pending commands completed')); }
+            if (pendingActions) {
+                fail(new Error('Session stopped before pending commands completed'));
+            }
             browser.off('targetcreated', onTarget);
             browser.off('targetchanged', onTarget);
             event({
                 kind: 'session-stop',
                 exitCode,
             });
-            await Promise.allSettled([...pages.values()].map(async capture => (await capture)()));
+            await Promise.allSettled([...pages.values()].map(async (capture) => (await capture)()));
             manifest.endedAt = new Date().toISOString();
             manifest.status = manifest.errors.length || exitCode !== 0 ? 'failed' : 'complete';
             persist();
-            const events = readFileSync(actionsPath, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as unknown);
+            const events = readFileSync(actionsPath, 'utf8')
+                .trim()
+                .split('\n')
+                .filter(Boolean)
+                .map((line) => JSON.parse(line) as unknown);
             writeFileSync(manifest.reviewPath, recordingReviewHtml(manifest, events));
             return manifest;
         })();
@@ -258,56 +286,54 @@ export async function startSessionRecording(browser: Browser, options: {
             kind: 'session-start',
             scope: manifest.scope,
         });
-        const initialPages = (await browser.pages()).filter(page => isElectronAppPageUrl(page.url()));
-        if (!initialPages.length) { throw new Error('No app renderer page is available to record'); }
-        await Promise.all(initialPages.map(async page => attach(page)));
-        if (manifest.errors.length) { throw new Error(manifest.errors.join('\n')); }
+        const initialPages = (await browser.pages()).filter((page) => isElectronAppPageUrl(page.url()));
+        if (!initialPages.length) {
+            throw new Error('No app renderer page is available to record');
+        }
+        await Promise.all(initialPages.map(async (page) => attach(page)));
+        if (manifest.errors.length) {
+            throw new Error(manifest.errors.join('\n'));
+        }
         manifest.status = 'recording';
         persist();
-    } catch (error) { fail(error); await stop(1); throw error; }
+    } catch (error) {
+        fail(error);
+        await stop(1);
+        throw error;
+    }
     return {
         manifest,
         stop,
-        mark(label: string) { event({
-            kind: 'mark',
-            label: label.slice(0, 500),
-        }); },
+        mark(label: string) {
+            event({
+                kind: 'mark',
+                label: label.slice(0, 500),
+            });
+        },
         async command<T>(command: string, args: unknown[], execute: () => Promise<T>): Promise<T> {
-            if (command === 'ping') { return execute(); }
-            const inspection = [
-                'health',
-                'console',
-                'devtools',
-                'recording',
-            ].includes(command);
+            if (command === 'ping') {
+                return execute();
+            }
+            const inspection = ['health', 'console', 'devtools', 'recording'].includes(command);
             const invoke = async () => {
-                if ((stopping || manifest.status !== 'recording') && ![
-                    'recording',
-                    'health',
-                    'console',
-                    'screenshot',
-                    'devtools',
-                ].includes(command)) {
+                if (
+                    (stopping || manifest.status !== 'recording') &&
+                    !['recording', 'health', 'console', 'screenshot', 'devtools'].includes(command)
+                ) {
                     throw new Error(`Recording is ${manifest.status}; inspect ${manifestPath}`);
                 }
                 const id = randomUUID();
                 // Code and typed strings can contain secrets. Record the command and argument sizes instead.
-                const argumentsSummary = [
-                    'eval',
-                    'run',
-                    'type',
-                ].includes(command)
-                    ? args.map(value => typeof value === 'string' ? {characters: value.length} : typeof value)
+                const argumentsSummary = ['eval', 'run', 'type'].includes(command)
+                    ? args.map((value) => (typeof value === 'string' ? {characters: value.length} : typeof value))
                     : args;
-                const method = [
-                    'click',
-                    'type',
-                ].includes(command) ? 'ui-input'
-                    : [
-                        'run',
-                        'eval',
-                    ].includes(command) ? 'direct-eval'
-                        : command === 'openPdf' ? 'app-api' : 'inspection';
+                const method = ['click', 'type'].includes(command)
+                    ? 'ui-input'
+                    : ['run', 'eval'].includes(command)
+                      ? 'direct-eval'
+                      : command === 'openPdf'
+                        ? 'app-api'
+                        : 'inspection';
                 event({
                     kind: 'command',
                     phase: 'start',
@@ -336,9 +362,20 @@ export async function startSessionRecording(browser: Browser, options: {
                     throw error;
                 }
             };
-            if (!inspection) { pendingActions++; }
-            const action = inspection ? invoke() : queue.then(invoke).finally(() => { pendingActions--; });
-            if (!inspection) { queue = action.then(() => {}, () => {}); }
+            if (!inspection) {
+                pendingActions++;
+            }
+            const action = inspection
+                ? invoke()
+                : queue.then(invoke).finally(() => {
+                      pendingActions--;
+                  });
+            if (!inspection) {
+                queue = action.then(
+                    () => {},
+                    () => {},
+                );
+            }
             return action;
         },
     };
@@ -355,21 +392,37 @@ export async function recoverSessionRecording(path: string) {
         manifest.errors.push('Controller exited before finalization; recovered partial recording');
         manifest.endedAt = new Date().toISOString();
         for (const track of manifest.tracks) {
-            try { track.video = await inspectRecordingVideo(join(directory, track.file)); }
-            catch (error) { manifest.errors.push(String(error)); }
-            if (track.status !== 'complete') { track.status = 'failed'; }
+            try {
+                track.video = await inspectRecordingVideo(join(directory, track.file));
+            } catch (error) {
+                manifest.errors.push(String(error));
+            }
+            if (track.status !== 'complete') {
+                track.status = 'failed';
+            }
         }
         writeFileSync(path, JSON.stringify(manifest, null, 2));
     }
     for (const track of manifest.tracks) {
         if (!track.video) {
-            try { track.video = await inspectRecordingVideo(join(directory, track.file)); }
-            catch { /* Failed capture may contain no decodable fragments. Keep its original failure. */ }
+            try {
+                track.video = await inspectRecordingVideo(join(directory, track.file));
+            } catch {
+                /* Failed capture may contain no decodable fragments. Keep its original failure. */
+            }
         }
     }
     writeFileSync(path, JSON.stringify(manifest, null, 2));
-    const actions = readFileSync(join(directory, 'actions.jsonl'), 'utf8').split('\n').filter(Boolean)
-        .flatMap(line => { try { return [JSON.parse(line) as unknown]; } catch { return []; } });
+    const actions = readFileSync(join(directory, 'actions.jsonl'), 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .flatMap((line) => {
+            try {
+                return [JSON.parse(line) as unknown];
+            } catch {
+                return [];
+            }
+        });
     writeFileSync(join(directory, 'index.html'), recordingReviewHtml(manifest, actions));
     return manifest;
 }

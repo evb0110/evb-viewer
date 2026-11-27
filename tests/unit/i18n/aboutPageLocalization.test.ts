@@ -1,10 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { LOCALE_CODES } from '@i18n-core/localeCodes';
-import { LOCALE_MESSAGES } from '@i18n-app';
+import {describe, expect, it} from 'vitest';
+import {LOCALE_CODES} from '@i18n-core/localeCodes';
+import {LOCALE_MESSAGES} from '@i18n-app';
 
 function asRecord(value: unknown): Record<string, unknown> {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -15,10 +11,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 }
 
 function flattenLeafPaths(tree: unknown, prefix = ''): string[] {
-    return Object.entries(asRecord(tree)).flatMap(([
-        key,
-        value,
-    ]) => {
+    return Object.entries(asRecord(tree)).flatMap(([key, value]) => {
         const path = prefix ? `${prefix}.${key}` : key;
         return typeof value === 'string' ? [path] : flattenLeafPaths(value, path);
     });
@@ -60,12 +53,10 @@ describe('About and Acknowledgements localization', () => {
                 continue;
             }
 
-            expect(
-                LOCALE_MESSAGES[locale].about.sentryAcknowledgement.message,
-                locale,
-            ).not.toBe(LOCALE_MESSAGES.en.about.sentryAcknowledgement.message);
-            expect(LOCALE_MESSAGES[locale].menu.acknowledgements, locale)
-                .not.toBe(LOCALE_MESSAGES.en.menu.acknowledgements);
+            expect(LOCALE_MESSAGES[locale].about.sentryAcknowledgement.message, locale).not.toBe(
+                LOCALE_MESSAGES.en.about.sentryAcknowledgement.message,
+            );
+            expect(LOCALE_MESSAGES[locale].menu.acknowledgements, locale).not.toBe(LOCALE_MESSAGES.en.menu.acknowledgements);
         }
     });
 });

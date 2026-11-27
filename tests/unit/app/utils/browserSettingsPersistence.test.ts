@@ -1,11 +1,5 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { DEFAULT_SETTINGS } from '@contracts/settings';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {DEFAULT_SETTINGS} from '@contracts/settings';
 import {
     BROWSER_SETTINGS_COOKIE_KEY,
     expireLegacyBrowserSettingsCookie,
@@ -14,52 +8,58 @@ import {
     readBrowserPerformanceModeSnapshot,
     serializeBrowserSettingsPayload,
 } from '@app/utils/browserSettingsPersistence';
-import { BROWSER_SETTINGS_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
+import {BROWSER_SETTINGS_STORAGE_KEY} from '@app/utils/browserRuntimePersistence';
 
 function expectedLegacySettingsCookieExpiry(secure = false) {
     return `${BROWSER_SETTINGS_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax${secure ? '; Secure' : ''}`;
 }
 
-function stubBrowserPersistence(options: {
-    cookieValue?: string;
-    protocol?: 'http:' | 'https:';
-    storageValue?: string;
-    throwOnGet?: boolean;
-    throwOnSet?: boolean;
-    localeValue?: string;
-    themeValue?: string;
-} = {}) {
+function stubBrowserPersistence(
+    options: {
+        cookieValue?: string;
+        protocol?: 'http:' | 'https:';
+        storageValue?: string;
+        throwOnGet?: boolean;
+        throwOnSet?: boolean;
+        localeValue?: string;
+        themeValue?: string;
+    } = {},
+) {
     const storage = new Map<string, string>();
     if (options.storageValue !== undefined) {
         storage.set(BROWSER_SETTINGS_STORAGE_KEY, options.storageValue);
     }
     const cookieWrites: string[] = [];
-    vi.stubGlobal('window', {localStorage: {
-        getItem: (key: string) => {
-            if (options.throwOnGet) {
-                throw new DOMException('Access is denied', 'SecurityError');
-            }
-            return storage.get(key) ?? null;
+    vi.stubGlobal('window', {
+        localStorage: {
+            getItem: (key: string) => {
+                if (options.throwOnGet) {
+                    throw new DOMException('Access is denied', 'SecurityError');
+                }
+                return storage.get(key) ?? null;
+            },
+            setItem: (key: string, value: string) => {
+                if (options.throwOnSet) {
+                    throw new Error('storage unavailable');
+                }
+                storage.set(key, value);
+            },
         },
-        setItem: (key: string, value: string) => {
-            if (options.throwOnSet) {
-                throw new Error('storage unavailable');
-            }
-            storage.set(key, value);
-        },
-    }});
+    });
     vi.stubGlobal('location', {protocol: options.protocol ?? 'http:'});
     vi.stubGlobal('document', {
         get cookie() {
             return [
-                options.cookieValue === undefined
-                    ? null
-                    : `${BROWSER_SETTINGS_COOKIE_KEY}=${encodeURIComponent(options.cookieValue)}`,
+                options.cookieValue === undefined ? null : `${BROWSER_SETTINGS_COOKIE_KEY}=${encodeURIComponent(options.cookieValue)}`,
                 options.localeValue === undefined ? null : `i18n_redirected=${options.localeValue}`,
                 options.themeValue === undefined ? null : `nuxt-color-mode=${options.themeValue}`,
-            ].filter((value): value is string => value !== null).join('; ');
+            ]
+                .filter((value): value is string => value !== null)
+                .join('; ');
         },
-        set cookie(value: string) { cookieWrites.push(value); },
+        set cookie(value: string) {
+            cookieWrites.push(value);
+        },
     });
     return {
         cookieWrites,
@@ -100,8 +100,7 @@ describe('browserSettingsPersistence performanceMode', () => {
     });
 
     it('sanitizes an invalid persisted performanceMode back to auto', () => {
-        expect(parseBrowserSettingsPayload(JSON.stringify({ performanceMode: 'turbo' })).performanceMode)
-            .toBe('auto');
+        expect(parseBrowserSettingsPayload(JSON.stringify({performanceMode: 'turbo'})).performanceMode).toBe('auto');
     });
 
     it('migrates an older payload with fields added after its schema version', () => {
@@ -235,10 +234,12 @@ describe('browserSettingsPersistence performanceMode', () => {
         ],
         [
             'legacy',
-            {cookieValue: serializeBrowserSettingsPayload({
-                ...DEFAULT_SETTINGS,
-                performanceMode: 'high',
-            })},
+            {
+                cookieValue: serializeBrowserSettingsPayload({
+                    ...DEFAULT_SETTINGS,
+                    performanceMode: 'high',
+                }),
+            },
         ],
     ] as const)('writes nothing over unreadable storage with %s cookies', (_kind, cookies) => {
         const browser = stubBrowserPersistence({

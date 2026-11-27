@@ -3,11 +3,7 @@
  * image as `pdfimages -list` reports it. Mask rows carry their parent image's
  * object number.
  */
-import {
-    isScanCleanupCompactLayeredRaster,
-    type IDetectedPageRaster,
-    type ISourceDpiDetectionResult,
-} from '@evb/scan-cleanup/core/types';
+import {isScanCleanupCompactLayeredRaster, type IDetectedPageRaster, type ISourceDpiDetectionResult} from '@evb/scan-cleanup/core/types';
 
 export interface IScanCleanupRasterRow {
     pageNumber: number;
@@ -28,33 +24,31 @@ export interface IPageRasterDetectionResult {
 export function reduceScanCleanupRasterRows(rows: Iterable<IScanCleanupRasterRow>): IPageRasterDetectionResult {
     const rasterByPage = new Map<number, IDetectedPageRaster>();
     const bilevelPages = new Set<number>();
-    const largestBilevelRasterByPage = new Map<number, {
-        dpi: number;
-        height: number;
-        width: number
-    }>();
+    const largestBilevelRasterByPage = new Map<
+        number,
+        {
+            dpi: number;
+            height: number;
+            width: number;
+        }
+    >();
     const maskObjectIdsByPage = new Map<number, Set<number>>();
-    const continuousImagesByPage = new Map<number, Array<{
-        dpi: number;
-        height: number;
-        objectId: number;
-        width: number
-    }>>();
-    for (const {
-        pageNumber, type, width, height, bitsPerComponent, objectId, xPpi, yPpi,
-    } of rows) {
-        const dpi = Math.max(
-            Number.isFinite(xPpi) ? xPpi : 0,
-            Number.isFinite(yPpi) ? yPpi : 0,
-        );
+    const continuousImagesByPage = new Map<
+        number,
+        Array<{
+            dpi: number;
+            height: number;
+            objectId: number;
+            width: number;
+        }>
+    >();
+    for (const {pageNumber, type, width, height, bitsPerComponent, objectId, xPpi, yPpi} of rows) {
+        const dpi = Math.max(Number.isFinite(xPpi) ? xPpi : 0, Number.isFinite(yPpi) ? yPpi : 0);
         const pixelArea = width * height;
         if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
             continue;
         }
-        if (
-            bitsPerComponent === 1
-            && (type === 'image' || type === 'mask' || type === 'smask' || type === 'stencil')
-        ) {
+        if (bitsPerComponent === 1 && (type === 'image' || type === 'mask' || type === 'smask' || type === 'stencil')) {
             bilevelPages.add(pageNumber);
             if (Number.isSafeInteger(pixelArea) && pixelArea > 0 && dpi > 0) {
                 const previous = largestBilevelRasterByPage.get(pageNumber);
@@ -74,13 +68,13 @@ export function reduceScanCleanupRasterRows(rows: Iterable<IScanCleanupRasterRow
             }
         }
         if (
-            type === 'image'
-            && bitsPerComponent > 1
-            && Number.isSafeInteger(objectId)
-            && objectId > 0
-            && Number.isSafeInteger(pixelArea)
-            && pixelArea > 0
-            && dpi > 0
+            type === 'image' &&
+            bitsPerComponent > 1 &&
+            Number.isSafeInteger(objectId) &&
+            objectId > 0 &&
+            Number.isSafeInteger(pixelArea) &&
+            pixelArea > 0 &&
+            dpi > 0
         ) {
             const images = continuousImagesByPage.get(pageNumber) ?? [];
             images.push({
@@ -91,13 +85,7 @@ export function reduceScanCleanupRasterRows(rows: Iterable<IScanCleanupRasterRow
             });
             continuousImagesByPage.set(pageNumber, images);
         }
-        if (
-            type !== 'image'
-            || pageNumber <= 0
-            || !Number.isSafeInteger(pixelArea)
-            || pixelArea <= 0
-            || dpi <= 0
-        ) {
+        if (type !== 'image' || pageNumber <= 0 || !Number.isSafeInteger(pixelArea) || pixelArea <= 0 || dpi <= 0) {
             continue;
         }
 
@@ -113,13 +101,13 @@ export function reduceScanCleanupRasterRows(rows: Iterable<IScanCleanupRasterRow
     }
     for (const pageNumber of bilevelPages) {
         const raster = rasterByPage.get(pageNumber);
-        if (!raster) continue;
+        if (!raster) {
+            continue;
+        }
         raster.hasBilevelLayer = true;
         const dominantArea = raster.width * raster.height;
         const largestBilevelRaster = largestBilevelRasterByPage.get(pageNumber);
-        const largestBilevelArea = largestBilevelRaster === undefined
-            ? 0
-            : largestBilevelRaster.width * largestBilevelRaster.height;
+        const largestBilevelArea = largestBilevelRaster === undefined ? 0 : largestBilevelRaster.width * largestBilevelRaster.height;
         if (largestBilevelRaster !== undefined && largestBilevelArea >= dominantArea * 0.95) {
             raster.hasDominantBilevelLayer = true;
             // A PDF mask can be finer than the lower-DPI tonal image it selects.
@@ -134,12 +122,11 @@ export function reduceScanCleanupRasterRows(rows: Iterable<IScanCleanupRasterRow
         }
         const maskedObjectIds = maskObjectIdsByPage.get(pageNumber) ?? new Set<number>();
         const background = (continuousImagesByPage.get(pageNumber) ?? [])
-            .filter(image => !maskedObjectIds.has(image.objectId))
-            .sort((left, right) =>
-                right.width * right.height - left.width * left.height
-                || right.dpi - left.dpi,
-            )[0];
-        if (background) raster.backgroundDpi = background.dpi;
+            .filter((image) => !maskedObjectIds.has(image.objectId))
+            .sort((left, right) => right.width * right.height - left.width * left.height || right.dpi - left.dpi)[0];
+        if (background) {
+            raster.backgroundDpi = background.dpi;
+        }
     }
 
     return withDerivedPageDpi({
@@ -148,13 +135,9 @@ export function reduceScanCleanupRasterRows(rows: Iterable<IScanCleanupRasterRow
     });
 }
 
-function withDerivedPageDpi(
-    result: IPageRasterDetectionResult,
-): IPageRasterDetectionResult {
+function withDerivedPageDpi(result: IPageRasterDetectionResult): IPageRasterDetectionResult {
     let documentDpi = 0;
-    for (const [
-        , raster,
-    ] of result.rasterByPage) {
+    for (const [, raster] of result.rasterByPage) {
         documentDpi = Math.max(documentDpi, raster.dpi);
     }
     return {
@@ -163,20 +146,21 @@ function withDerivedPageDpi(
     };
 }
 
-
 export function toScanCleanupPageRasterSource(
     result: IPageRasterDetectionResult,
     compactLayeredPageCountComplete: boolean,
 ): ISourceDpiDetectionResult {
     let compactLayeredPageCount = 0;
     for (const raster of result.rasterByPage.values()) {
-        if (isScanCleanupCompactLayeredRaster(raster)) compactLayeredPageCount += 1;
+        if (isScanCleanupCompactLayeredRaster(raster)) {
+            compactLayeredPageCount += 1;
+        }
     }
     return {
         detected: result.rasterByPage.size > 0,
         documentDpi: result.documentDpi,
         compactLayeredPageCount,
         compactLayeredPageCountComplete,
-        getPageRaster: pageNumber => result.rasterByPage.get(pageNumber),
+        getPageRaster: (pageNumber) => result.rasterByPage.get(pageNumber),
     };
 }

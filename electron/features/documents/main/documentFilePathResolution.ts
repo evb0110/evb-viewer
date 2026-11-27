@@ -1,10 +1,5 @@
 import {getInputFileExtension} from '@electron/utils/documentFileTypes';
-import {
-    existsSync,
-    lstatSync,
-    realpathSync,
-    statSync,
-} from 'fs';
+import {existsSync, lstatSync, realpathSync, statSync} from 'fs';
 import {resolve} from 'path';
 import {
     describeReadPathValidationForDiagnostics,
@@ -12,20 +7,12 @@ import {
     resolveAllowedReadPath,
     getManagedTempPathAccessDecision,
 } from '@electron/utils/pathValidator';
-import {
-    findWorkingCopyPathByOriginalPath,
-    getOpenDocument,
-    getWorkingCopyBackingEntry,
-} from '@electron/file-access/documentStore';
-import { isAllowedDjvuViewingPath } from '@electron/features/djvu/public';
-import { requireOpenPath } from '@electron/file-access/openPathCapabilities';
+import {findWorkingCopyPathByOriginalPath, getOpenDocument, getWorkingCopyBackingEntry} from '@electron/file-access/documentStore';
+import {isAllowedDjvuViewingPath} from '@electron/features/djvu/public';
+import {requireOpenPath} from '@electron/file-access/openPathCapabilities';
 
 const MAX_IPC_READ_BYTES = 16 * 1024 * 1024;
-const ALLOWED_DOCUMENT_BINARY_READ_EXTENSIONS = new Set([
-    '.pdf',
-    '.djvu',
-    '.djv',
-]);
+const ALLOWED_DOCUMENT_BINARY_READ_EXTENSIONS = new Set(['.pdf', '.djvu', '.djv']);
 const ALLOWED_IMAGE_BINARY_READ_EXTENSIONS = new Set([
     '.apng',
     '.avif',
@@ -39,10 +26,7 @@ const ALLOWED_IMAGE_BINARY_READ_EXTENSIONS = new Set([
     '.webp',
     '.ico',
 ]);
-const ALLOWED_DIRECT_SOURCE_READ_EXTENSIONS = new Set([
-    '.djvu',
-    '.djv',
-]);
+const ALLOWED_DIRECT_SOURCE_READ_EXTENSIONS = new Set(['.djvu', '.djv']);
 
 export function normalizeNonEmptyPath(filePath: unknown) {
     if (typeof filePath !== 'string' || !filePath.trim()) {
@@ -51,18 +35,13 @@ export function normalizeNonEmptyPath(filePath: unknown) {
     return filePath;
 }
 
-function resolveDirectSourceReadPath(
-    normalizedPath: string,
-    extension: string,
-    senderId?: number,
-) {
+function resolveDirectSourceReadPath(normalizedPath: string, extension: string, senderId?: number) {
     if (!ALLOWED_DIRECT_SOURCE_READ_EXTENSIONS.has(extension)) {
         return null;
     }
 
-    const isDirectReadAllowed = typeof senderId === 'number'
-        ? isAllowedDjvuViewingPath(normalizedPath, senderId)
-        : isAllowedDjvuViewingPath(normalizedPath);
+    const isDirectReadAllowed =
+        typeof senderId === 'number' ? isAllowedDjvuViewingPath(normalizedPath, senderId) : isAllowedDjvuViewingPath(normalizedPath);
     if (!isDirectReadAllowed) {
         return null;
     }
@@ -92,21 +71,14 @@ function isManagedRef(normalizedPath: string, senderId?: number) {
 }
 
 function isReadablePathAllowedForSender(path: string, senderId?: number) {
-    if (getManagedTempPathAccessDecision(
-        senderId === undefined ? {} : {senderId},
-        path,
-    ) === null) {
+    if (getManagedTempPathAccessDecision(senderId === undefined ? {} : {senderId}, path) === null) {
         return false;
     }
     // A file of an open document belongs to the window that owns the document.
     return getOpenDocument(path) === null || getOpenDocument(path, senderId) !== null;
 }
 
-async function resolveReadablePath(
-    normalizedPath: string,
-    extension: string,
-    senderId?: number,
-) {
+async function resolveReadablePath(normalizedPath: string, extension: string, senderId?: number) {
     if (isReservedTempPath(normalizedPath) || !isReadablePathAllowedForSender(normalizedPath, senderId)) {
         return null;
     }
@@ -124,8 +96,7 @@ async function resolveReadablePath(
         return directResolvedPath;
     }
 
-    return resolveGrantedReadablePathSync(normalizedPath, senderId)
-        ?? resolveDirectSourceReadPath(normalizedPath, extension, senderId);
+    return resolveGrantedReadablePathSync(normalizedPath, senderId) ?? resolveDirectSourceReadPath(normalizedPath, extension, senderId);
 }
 
 function resolveGrantedReadablePathSync(normalizedPath: string, senderId?: number) {
@@ -148,16 +119,15 @@ function describeRejectedReadPath(normalizedPath: string, senderId?: number) {
     const mappedWorkingCopyPath = findWorkingCopyPathByOriginalPath(normalizedPath, senderId);
     const scopedDocument = isManagedRef(normalizedPath, senderId) ? 'yes' : 'no';
     const unscopedDocument = isManagedRef(normalizedPath) ? 'yes' : 'no';
-    return 'Invalid file path: reads only allowed within temp directory '
-        + `(rejected: ${normalizedPath}; mapped working copy: ${mappedWorkingCopyPath ?? 'none'}; `
-        + `document[sender=${senderId ?? 'none'}]=${scopedDocument}; document[any]=${unscopedDocument}; `
-        + `${describeReadPathValidationForDiagnostics(normalizedPath)})`;
+    return (
+        'Invalid file path: reads only allowed within temp directory ' +
+        `(rejected: ${normalizedPath}; mapped working copy: ${mappedWorkingCopyPath ?? 'none'}; ` +
+        `document[sender=${senderId ?? 'none'}]=${scopedDocument}; document[any]=${unscopedDocument}; ` +
+        `${describeReadPathValidationForDiagnostics(normalizedPath)})`
+    );
 }
 
-export async function resolveExistingReadableBinaryPath(
-    filePath: unknown,
-    senderId?: number,
-) {
+export async function resolveExistingReadableBinaryPath(filePath: unknown, senderId?: number) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = getInputFileExtension(normalizedPath);
     if (!ALLOWED_DOCUMENT_BINARY_READ_EXTENSIONS.has(extension)) {
@@ -167,10 +137,7 @@ export async function resolveExistingReadableBinaryPath(
     return resolveExistingReadablePath(normalizedPath, extension, senderId);
 }
 
-export async function resolveExistingReadableDocumentOrImagePath(
-    filePath: unknown,
-    senderId?: number,
-) {
+export async function resolveExistingReadableDocumentOrImagePath(filePath: unknown, senderId?: number) {
     const normalizedPath = normalizeNonEmptyPath(filePath);
     const extension = getInputFileExtension(normalizedPath);
     if (!isAllowedBinaryReadExtension(extension)) {
@@ -180,16 +147,8 @@ export async function resolveExistingReadableDocumentOrImagePath(
     return resolveExistingReadablePath(normalizedPath, extension, senderId);
 }
 
-async function resolveExistingReadablePath(
-    normalizedPath: string,
-    extension: string,
-    senderId?: number,
-) {
-    const resolvedPath = await resolveReadablePath(
-        normalizedPath,
-        extension,
-        senderId,
-    );
+async function resolveExistingReadablePath(normalizedPath: string, extension: string, senderId?: number) {
+    const resolvedPath = await resolveReadablePath(normalizedPath, extension, senderId);
     if (!resolvedPath) {
         throw new Error(describeRejectedReadPath(normalizedPath, senderId));
     }
@@ -229,6 +188,5 @@ export function assertWithinIpcReadBudget(resolvedPath: string, knownSize?: numb
 
 export function isAllowedBinaryReadExtension(extension: string) {
     const normalized = extension.toLowerCase();
-    return ALLOWED_DOCUMENT_BINARY_READ_EXTENSIONS.has(normalized)
-        || ALLOWED_IMAGE_BINARY_READ_EXTENSIONS.has(normalized);
+    return ALLOWED_DOCUMENT_BINARY_READ_EXTENSIONS.has(normalized) || ALLOWED_IMAGE_BINARY_READ_EXTENSIONS.has(normalized);
 }

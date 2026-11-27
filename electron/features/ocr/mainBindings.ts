@@ -1,7 +1,6 @@
-
-import type { IpcMainInvokeEvent } from 'electron';
-import type { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
-import type { TFeatureMainBindings } from '@contracts/platformFeature';
+import type {IpcMainInvokeEvent} from 'electron';
+import type {OCR_PLATFORM_FEATURE} from '@contracts/ocrPlatformFeature';
+import type {TFeatureMainBindings} from '@contracts/platformFeature';
 import {
     handleOcrAcknowledgeResultFileValidated,
     handleOcrCancelValidated,
@@ -12,7 +11,7 @@ import {
     handleResolveDocumentTextCatalogWindow,
     handleResolveDocumentTextCatalog,
 } from '@electron/features/ocr/main/ocrOperations';
-import { subscribeManagedOcrProgress } from '@electron/features/ocr/main/jobManager';
+import {subscribeManagedOcrProgress} from '@electron/features/ocr/main/jobManager';
 
 export const ocrMainBindings = {
     cancel: handleOcrCancelValidated,

@@ -12,18 +12,8 @@ import {
     writeFileSync,
 } from 'node:fs';
 import {tmpdir} from 'node:os';
-import {
-    basename,
-    join,
-    resolve,
-} from 'node:path';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {basename, join, resolve} from 'node:path';
+import {afterAll, beforeAll, describe, expect, it} from 'vitest';
 import type {Page} from 'puppeteer-core';
 import {getDocument} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import * as UTIF from 'utif';
@@ -38,11 +28,7 @@ import {waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 import {readPdfAnnotationIndex} from '@tests/e2e/electron/helpers/readPdfAnnotationIndex';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
-import {
-    activateMenuItemAsUser,
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
+import {activateMenuItemAsUser, clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     openDjvuInApp,
     setTabMemoryPolicyForE2E,
@@ -50,10 +36,7 @@ import {
     waitForDjvuLoaded,
     waitForPdfLoaded,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    activateWorkspaceTab,
-    createNewWorkspaceTab,
-} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {activateWorkspaceTab, createNewWorkspaceTab} from '@tests/e2e/electron/helpers/workspaceTabs';
 
 // Thousands of blank pages keep the conversion running long enough to leave it midway.
 const sourcePath = resolve('tests/fixtures/electron/djvu-fixtures/djvu-open-cancellation-5010-pages.djvu');
@@ -67,12 +50,11 @@ function listExportScratch(tempRoot: string) {
     return readdirSync(tempRoot, {
         recursive: true,
         encoding: 'utf8',
-    })
-        .filter(entry => basename(entry).startsWith('djvu-export-'));
+    }).filter((entry) => basename(entry).startsWith('djvu-export-'));
 }
 
 function readActiveTabId(page: Page) {
-    return page.$eval('.editor-pane.is-active .tab.is-active[data-tab-id]', tab => (tab as HTMLElement).dataset.tabId ?? '');
+    return page.$eval('.editor-pane.is-active .tab.is-active[data-tab-id]', (tab) => (tab as HTMLElement).dataset.tabId ?? '');
 }
 
 // Returns once native page work runs and the progress overlay is painted over the DjVu.
@@ -81,21 +63,36 @@ async function startConversion(session: IElectronE2ESession, tempRoot: string) {
     await waitForDjvuLoaded(session.page, 120_000);
     expect((await readToolbarPageIndicator(session.page)).totalPagesText).toContain(String(SOURCE_PAGE_COUNT));
     await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
-    await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
-        .find(element => element.textContent?.includes('Convert DjVu to PDF'))
-        ?.querySelectorAll<HTMLButtonElement>('button') ?? [])
-        .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled), null, {
-        description: 'Convert in the DjVu conversion dialog',
-        timeoutMs: 60_000,
-    });
+    await clickFoundAsUser(
+        session.page,
+        () =>
+            Array.from(
+                Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+                    .find((element) => element.textContent?.includes('Convert DjVu to PDF'))
+                    ?.querySelectorAll<HTMLButtonElement>('button') ?? [],
+            ).find((candidate) => candidate.textContent?.trim() === 'Convert' && !candidate.disabled),
+        null,
+        {
+            description: 'Convert in the DjVu conversion dialog',
+            timeoutMs: 60_000,
+        },
+    );
     // The compact manifest marks a conversion past setup, with native page work running.
-    await expect.poll(() => listExportScratch(tempRoot)
-        .some(entry => existsSync(join(tempRoot, entry, 'compact-manifest.jsonl'))), {timeout: 120_000}).toBe(true);
-    await waitForFunctionInPage(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('.app-progress-overlay')).some((overlay) => {
-        const rect = overlay.getBoundingClientRect();
-        const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
-        return rect.height > 0 && hit !== null && overlay.contains(hit);
-    }), {timeout: 30_000});
+    await expect
+        .poll(() => listExportScratch(tempRoot).some((entry) => existsSync(join(tempRoot, entry, 'compact-manifest.jsonl'))), {
+            timeout: 120_000,
+        })
+        .toBe(true);
+    await waitForFunctionInPage(
+        session.page,
+        () =>
+            Array.from(document.querySelectorAll<HTMLElement>('.app-progress-overlay')).some((overlay) => {
+                const rect = overlay.getBoundingClientRect();
+                const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+                return rect.height > 0 && hit !== null && overlay.contains(hit);
+            }),
+        {timeout: 30_000},
+    );
 }
 
 describe('DjVu conversion lifecycle', () => {
@@ -145,12 +142,15 @@ describe('DjVu conversion lifecycle', () => {
         await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+O'});
         await waitForDjvuLoaded(session.page, 120_000);
         const tabId = await readActiveTabId(session.page);
-        const accepted = session.page.evaluate(() => new Promise<IDjvuOpenResult>((resolveOpen) => {
-            const stop = window.electronAPI!.djvu.onOpenComplete((result) => {
-                stop();
-                resolveOpen(result);
-            });
-        }));
+        const accepted = session.page.evaluate(
+            () =>
+                new Promise<IDjvuOpenResult>((resolveOpen) => {
+                    const stop = window.electronAPI!.djvu.onOpenComplete((result) => {
+                        stop();
+                        resolveOpen(result);
+                    });
+                }),
+        );
         await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+O'});
         expect(await accepted).toMatchObject({success: true});
         // The reported same-path reopen can retain the opening skeleton, a
@@ -158,27 +158,31 @@ describe('DjVu conversion lifecycle', () => {
         // defect to be fixed before checking the accepted source's lifetime.
         await waitForDjvuLoaded(session.page, 10_000).catch(() => undefined);
         expect(await readActiveTabId(session.page)).toBe(tabId);
-        expect(await session.page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.length)).toBe(1);
+        expect(await session.page.$$eval('.tab-list .tab[data-tab-id]', (tabs) => tabs.length)).toBe(1);
         await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+W'});
-        await waitForFunctionInPage(session.page, () => (
-            document.body.innerText.includes('No file open')
-            && !document.querySelector('[data-testid="document-page-source-viewer"]')
-        ), {timeout: 15_000});
+        await waitForFunctionInPage(
+            session.page,
+            () =>
+                document.body.innerText.includes('No file open') && !document.querySelector('[data-testid="document-page-source-viewer"]'),
+            {timeout: 15_000},
+        );
         // A boundary request after the real UI close must be refused, even
         // though an empty workspace no longer offers an Export menu action.
-        const request = await session.page.evaluate(async (path, pageNumber) => {
-            try {
-                await window.electronAPI!.imageExport.exportPdfToImages(
-                    path, [pageNumber], undefined, 'djvu',
-                );
-                return {refused: false};
-            } catch (error) {
-                return {
-                    refused: true,
-                    error: String(error),
-                };
-            }
-        }, requireDocumentRef(fixture), requirePageNumber(1));
+        const request = await session.page.evaluate(
+            async (path, pageNumber) => {
+                try {
+                    await window.electronAPI!.imageExport.exportPdfToImages(path, [pageNumber], undefined, 'djvu');
+                    return {refused: false};
+                } catch (error) {
+                    return {
+                        refused: true,
+                        error: String(error),
+                    };
+                }
+            },
+            requireDocumentRef(fixture),
+            requirePageNumber(1),
+        );
         expect(request).toMatchObject({refused: true});
         expect(existsSync(savePath), 'a closed source must leave no saved image').toBe(false);
     }, 180_000);
@@ -200,14 +204,19 @@ describe('DjVu conversion lifecycle', () => {
         await createNewWorkspaceTab(session);
         const newTabId = await readActiveTabId(session.page);
         expect(newTabId).not.toBe(djvuTabId);
-        await waitForFunctionInPage(session.page, (tabId: string) => (
-            document.querySelector(`.workspace-host[data-workspace-tab-id="${CSS.escape(tabId)}"]`) === null
-        ), {timeout: 30_000}, djvuTabId);
+        await waitForFunctionInPage(
+            session.page,
+            (tabId: string) => document.querySelector(`.workspace-host[data-workspace-tab-id="${CSS.escape(tabId)}"]`) === null,
+            {timeout: 30_000},
+            djvuTabId,
+        );
 
-        await expect.poll(() => listExportScratch(switchRoot), {
-            timeout: 420_000,
-            interval: 1_000,
-        }).toEqual([]);
+        await expect
+            .poll(() => listExportScratch(switchRoot), {
+                timeout: 420_000,
+                interval: 1_000,
+            })
+            .toEqual([]);
         expect(existsSync(savePath), 'the finished conversion left a PDF at the chosen path').toBe(true);
         const savedBytes = readFileSync(savePath);
         expect(savedBytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
@@ -215,21 +224,24 @@ describe('DjVu conversion lifecycle', () => {
         expect((await readPdfAnnotationIndex(savePath)).pageCount).toBe(SOURCE_PAGE_COUNT);
         expect(sha256(sourcePath)).toBe(sourceSha);
         // The cold tab adopts the saved PDF, its title naming it, while the new tab stays selected.
-        await waitForFunctionInPage(session.page, (args: {
-            tabId: string;
-            newTabId: string;
-            fileName: string
-        }) => {
-            const tab = document.querySelector<HTMLElement>(`.tab-list .tab[data-tab-id="${CSS.escape(args.tabId)}"]`);
-            const newTab = document.querySelector<HTMLElement>(`.tab-list .tab[data-tab-id="${CSS.escape(args.newTabId)}"]`);
-            return tab?.querySelector('.tab-label')?.textContent?.trim() === args.fileName
-                && tab.getAttribute('aria-selected') !== 'true'
-                && newTab?.getAttribute('aria-selected') === 'true';
-        }, {timeout: 30_000}, {
-            tabId: djvuTabId,
-            newTabId,
-            fileName: basename(savePath),
-        });
+        await waitForFunctionInPage(
+            session.page,
+            (args: {tabId: string; newTabId: string; fileName: string}) => {
+                const tab = document.querySelector<HTMLElement>(`.tab-list .tab[data-tab-id="${CSS.escape(args.tabId)}"]`);
+                const newTab = document.querySelector<HTMLElement>(`.tab-list .tab[data-tab-id="${CSS.escape(args.newTabId)}"]`);
+                return (
+                    tab?.querySelector('.tab-label')?.textContent?.trim() === args.fileName &&
+                    tab.getAttribute('aria-selected') !== 'true' &&
+                    newTab?.getAttribute('aria-selected') === 'true'
+                );
+            },
+            {timeout: 30_000},
+            {
+                tabId: djvuTabId,
+                newTabId,
+                fileName: basename(savePath),
+            },
+        );
         // Finishing in the background does not take the reader away from the new tab.
         expect(await readActiveTabId(session.page)).toBe(newTabId);
 
@@ -253,14 +265,21 @@ describe('DjVu conversion lifecycle', () => {
 
         await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
         // The last tab stays in place as an empty New Tab.
-        await waitForFunctionInPage(session.page, (id: string) => {
-            const tabs = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'));
-            return tabs.length === 1
-                && tabs[0]!.dataset.tabId === id
-                && tabs[0]!.getAttribute('aria-selected') === 'true'
-                && tabs[0]!.textContent?.trim() === 'New Tab'
-                && document.querySelector('[data-testid="document-page-source-page"], .djvu-banner') === null;
-        }, {timeout: 30_000}, tabId);
+        await waitForFunctionInPage(
+            session.page,
+            (id: string) => {
+                const tabs = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'));
+                return (
+                    tabs.length === 1 &&
+                    tabs[0]!.dataset.tabId === id &&
+                    tabs[0]!.getAttribute('aria-selected') === 'true' &&
+                    tabs[0]!.textContent?.trim() === 'New Tab' &&
+                    document.querySelector('[data-testid="document-page-source-page"], .djvu-banner') === null
+                );
+            },
+            {timeout: 30_000},
+            tabId,
+        );
 
         // Once the close shows, the closed document's conversion is over.
         expect(listExportScratch(closeRoot), 'native export scratch when the closed tab shows New Tab').toEqual([]);
@@ -271,8 +290,12 @@ describe('DjVu conversion lifecycle', () => {
 
     it('reports omitted source text on compact success, leaving empty and direct exports quiet', async () => {
         const initialSession = sessions.getSession();
-        writeFileSync(resolve('.devkit/sessions', initialSession.name, 'source-text-session.json'), JSON.stringify(getSessionInfo(initialSession.name)));
-        const notice = 'Source text was not included. This compact PDF contains page images. Run OCR to add searchable text for search and copy.';
+        writeFileSync(
+            resolve('.devkit/sessions', initialSession.name, 'source-text-session.json'),
+            JSON.stringify(getSessionInfo(initialSession.name)),
+        );
+        const notice =
+            'Source text was not included. This compact PDF contains page images. Run OCR to add searchable text for search and copy.';
         const directory = join(suiteRoot, 'text-notice');
         mkdirSync(directory, {recursive: true});
         const textSource = join(directory, 'text.djvu');
@@ -341,16 +364,9 @@ describe('DjVu conversion lifecycle', () => {
             ymax: 512,
             text: 'Page-only source text',
         });
-        const sourceHashes = [
-            sha256(textSource),
-            sha256(emptySource),
-        ];
+        const sourceHashes = [sha256(textSource), sha256(emptySource)];
 
-        for (const kind of [
-            'text',
-            'empty',
-            'direct',
-        ] as const) {
+        for (const kind of ['text', 'empty', 'direct'] as const) {
             const savePath = join(directory, `${kind}.pdf`);
             const session = await sessions.start({
                 clean: true,
@@ -368,25 +384,39 @@ describe('DjVu conversion lifecycle', () => {
             await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
             if (kind === 'direct') {
                 await clickAsUser(session.page, '.convert-advanced-toggle');
-                await waitForFunctionInPage(session.page, () => {
-                    const radio = document.querySelector<HTMLButtonElement>('[role="radio"][value="direct-1"]');
-                    return Boolean(radio && !radio.disabled);
-                }, {timeout: 30_000});
+                await waitForFunctionInPage(
+                    session.page,
+                    () => {
+                        const radio = document.querySelector<HTMLButtonElement>('[role="radio"][value="direct-1"]');
+                        return Boolean(radio && !radio.disabled);
+                    },
+                    {timeout: 30_000},
+                );
                 await clickAsUser(session.page, '[role="radio"][value="direct-1"]');
-                await waitForFunctionInPage(session.page, () => (
-                    document.querySelector('[role="radio"][value="direct-1"]')?.getAttribute('aria-checked') === 'true'
-                ), {timeout: 5_000});
+                await waitForFunctionInPage(
+                    session.page,
+                    () => document.querySelector('[role="radio"][value="direct-1"]')?.getAttribute('aria-checked') === 'true',
+                    {timeout: 5_000},
+                );
             }
-            await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
-                .find(element => element.textContent?.includes('Convert DjVu to PDF'))
-                ?.querySelectorAll<HTMLButtonElement>('button') ?? [])
-                .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled), null, {
-                description: 'Convert to PDF and read the result notice',
-                timeoutMs: 60_000,
-            });
+            await clickFoundAsUser(
+                session.page,
+                () =>
+                    Array.from(
+                        Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+                            .find((element) => element.textContent?.includes('Convert DjVu to PDF'))
+                            ?.querySelectorAll<HTMLButtonElement>('button') ?? [],
+                    ).find((candidate) => candidate.textContent?.trim() === 'Convert' && !candidate.disabled),
+                null,
+                {
+                    description: 'Convert to PDF and read the result notice',
+                    timeoutMs: 60_000,
+                },
+            );
             await waitForPdfLoaded(session.page, 120_000);
-            const visibleNotices = await session.page.$$eval('[role="status"], [role="alert"]', elements => elements
-                .map(element => (element as HTMLElement).innerText).join('\n'));
+            const visibleNotices = await session.page.$$eval('[role="status"], [role="alert"]', (elements) =>
+                elements.map((element) => (element as HTMLElement).innerText).join('\n'),
+            );
             expect(visibleNotices.includes(notice)).toBe(kind === 'text');
             await session.page.screenshot({path: join(artifactRoot, 'result-text-notice.png')});
             copyFileSync(kind === 'empty' ? emptySource : textSource, join(artifactRoot, 'source.djvu'));
@@ -402,10 +432,7 @@ describe('DjVu conversion lifecycle', () => {
             } finally {
                 await loadingTask.destroy();
             }
-            expect([
-                sha256(textSource),
-                sha256(emptySource),
-            ]).toEqual(sourceHashes);
+            expect([sha256(textSource), sha256(emptySource)]).toEqual(sourceHashes);
         }
 
         // Corrupt only the text chunk so DjVuText::decode fails with EOF while page
@@ -434,15 +461,24 @@ describe('DjVu conversion lifecycle', () => {
         await openDjvuInApp(session.page, textSource, 120_000);
         await waitForDjvuLoaded(session.page, 120_000);
         await clickAsUser(session.page, '[data-focus-restore="djvu-convert"]');
-        await clickFoundAsUser(session.page, () => Array.from(Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
-            .find(element => element.textContent?.includes('Convert DjVu to PDF'))
-            ?.querySelectorAll<HTMLButtonElement>('button') ?? [])
-            .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled), null, {
-            description: 'Convert a source with an unreadable text chunk',
-            timeoutMs: 60_000,
-        });
-        const readNotices = () => session.page.$$eval('[role="status"], [role="alert"]', elements => elements
-            .map(element => (element as HTMLElement).innerText).join('\n'));
+        await clickFoundAsUser(
+            session.page,
+            () =>
+                Array.from(
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+                        .find((element) => element.textContent?.includes('Convert DjVu to PDF'))
+                        ?.querySelectorAll<HTMLButtonElement>('button') ?? [],
+                ).find((candidate) => candidate.textContent?.trim() === 'Convert' && !candidate.disabled),
+            null,
+            {
+                description: 'Convert a source with an unreadable text chunk',
+                timeoutMs: 60_000,
+            },
+        );
+        const readNotices = () =>
+            session.page.$$eval('[role="status"], [role="alert"]', (elements) =>
+                elements.map((element) => (element as HTMLElement).innerText).join('\n'),
+            );
         await waitForPdfLoaded(session.page, 120_000);
         expect(await readNotices()).not.toContain(notice);
         const loadingTask = getDocument({data: new Uint8Array(readFileSync(savePath))});
@@ -462,77 +498,89 @@ describe('DjVu conversion lifecycle', () => {
 
     // The app's temp folder is tmpfs and the destination is on another device, as
     // with a tmpfs /tmp or a USB volume. The multi-page TIFF must still publish.
-    it.skipIf(process.platform !== 'linux')('publishes a two-page DjVu as multi-page TIFF across devices', async () => {
-        const fixture = resolve('tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu');
-        const tempRoot = mkdtempSync(join('/dev/shm', 'evb-tiff-'));
-        const destinationRoot = join(suiteRoot, 'cross-device-destination');
-        const savePath = join(destinationRoot, 'pencil-export.tif');
-        mkdirSync(destinationRoot, {recursive: true});
-        try {
-            expect(statSync(destinationRoot).dev, 'the destination must be on another device than the app temp folder')
-                .not.toBe(statSync(tempRoot).dev);
+    it.skipIf(process.platform !== 'linux')(
+        'publishes a two-page DjVu as multi-page TIFF across devices',
+        async () => {
+            const fixture = resolve('tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu');
+            const tempRoot = mkdtempSync(join('/dev/shm', 'evb-tiff-'));
+            const destinationRoot = join(suiteRoot, 'cross-device-destination');
+            const savePath = join(destinationRoot, 'pencil-export.tif');
+            mkdirSync(destinationRoot, {recursive: true});
+            try {
+                expect(statSync(destinationRoot).dev, 'the destination must be on another device than the app temp folder').not.toBe(
+                    statSync(tempRoot).dev,
+                );
+                const session = await sessions.start({
+                    clean: true,
+                    sessionName: () => `e2e-djvu-tiff-cross-device-${Date.now()}`,
+                    extraEnv: {
+                        ...conversionEnv(tempRoot),
+                        EVB_E2E_SAVE_DIALOG_PATH: savePath,
+                        EVB_TIFF_COMBINE_NATIVE_ENABLE: '1',
+                    },
+                });
+                await openDjvuInApp(session.page, fixture, 120_000);
+                await waitForDjvuLoaded(session.page, 120_000);
+                const result = await session.page.evaluate(
+                    (path, requestId) => window.electronAPI!.imageExport.exportPdfToMultiPageTiff(path, undefined, requestId, 'djvu'),
+                    requireDocumentRef(fixture),
+                    createRequestId('djvu-tiff-cross-device'),
+                );
+                expect(result).toMatchObject({
+                    success: true,
+                    outputPaths: [savePath],
+                });
+                expect(UTIF.decode(new Uint8Array(readFileSync(savePath)))).toHaveLength(2);
+                expect(readdirSync(destinationRoot)).toEqual(['pencil-export.tif']);
+            } finally {
+                rmSync(tempRoot, {
+                    recursive: true,
+                    force: true,
+                });
+            }
+        },
+        180_000,
+    );
+
+    // A read-only destination: the failure says why in the person's words,
+    // never the hidden temporary file a raw filesystem message names.
+    it.skipIf(process.platform !== 'linux' || process.getuid?.() === 0)(
+        'explains an image export refused by a read-only folder without naming hidden files',
+        async () => {
+            const fixture = resolve('tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu');
+            const destinationRoot = join(suiteRoot, 'read-only-destination');
+            const savePath = join(destinationRoot, 'pencil.png');
+            mkdirSync(destinationRoot, {recursive: true});
             const session = await sessions.start({
                 clean: true,
-                sessionName: () => `e2e-djvu-tiff-cross-device-${Date.now()}`,
+                sessionName: () => `e2e-djvu-png-read-only-${Date.now()}`,
                 extraEnv: {
-                    ...conversionEnv(tempRoot),
+                    ...conversionEnv(closeRoot),
                     EVB_E2E_SAVE_DIALOG_PATH: savePath,
-                    EVB_TIFF_COMBINE_NATIVE_ENABLE: '1',
                 },
             });
             await openDjvuInApp(session.page, fixture, 120_000);
             await waitForDjvuLoaded(session.page, 120_000);
-            const result = await session.page.evaluate(
-                (path, requestId) => window.electronAPI!.imageExport.exportPdfToMultiPageTiff(path, undefined, requestId, 'djvu'),
-                requireDocumentRef(fixture),
-                createRequestId('djvu-tiff-cross-device'),
-            );
-            expect(result).toMatchObject({
-                success: true,
-                outputPaths: [savePath],
-            });
-            expect(UTIF.decode(new Uint8Array(readFileSync(savePath)))).toHaveLength(2);
-            expect(readdirSync(destinationRoot)).toEqual(['pencil-export.tif']);
-        } finally {
-            rmSync(tempRoot, {
-                recursive: true,
-                force: true,
-            });
-        }
-    }, 180_000);
-
-    // A read-only destination: the failure says why in the person's words,
-    // never the hidden temporary file a raw filesystem message names.
-    it.skipIf(process.platform !== 'linux' || process.getuid?.() === 0)('explains an image export refused by a read-only folder without naming hidden files', async () => {
-        const fixture = resolve('tests/fixtures/djvu/sources/bitonal-faint-pencil.djvu');
-        const destinationRoot = join(suiteRoot, 'read-only-destination');
-        const savePath = join(destinationRoot, 'pencil.png');
-        mkdirSync(destinationRoot, {recursive: true});
-        const session = await sessions.start({
-            clean: true,
-            sessionName: () => `e2e-djvu-png-read-only-${Date.now()}`,
-            extraEnv: {
-                ...conversionEnv(closeRoot),
-                EVB_E2E_SAVE_DIALOG_PATH: savePath,
-            },
-        });
-        await openDjvuInApp(session.page, fixture, 120_000);
-        await waitForDjvuLoaded(session.page, 120_000);
-        chmodSync(destinationRoot, 0o555);
-        try {
-            const message = await session.page.evaluate(async (path, requestId) => {
-                try {
-                    await window.electronAPI!.imageExport.exportPdfToImages(path, undefined, requestId, 'djvu');
-                    return 'exported';
-                } catch (error) {
-                    return error instanceof Error ? error.message : String(error);
-                }
-            }, requireDocumentRef(fixture), createRequestId('djvu-png-read-only'));
-            expect(message).toContain('EVB Viewer was not allowed to write in that folder.');
-            expect(message).not.toMatch(/EACCES|copyfile|\.tmp\b/u);
-        } finally {
-            chmodSync(destinationRoot, 0o755);
-        }
-        expect(readdirSync(destinationRoot)).toEqual([]);
-    });
+            chmodSync(destinationRoot, 0o555);
+            try {
+                const message = await session.page.evaluate(
+                    async (path, requestId) => {
+                        try {
+                            await window.electronAPI!.imageExport.exportPdfToImages(path, undefined, requestId, 'djvu');
+                            return 'exported';
+                        } catch (error) {
+                            return error instanceof Error ? error.message : String(error);
+                        }
+                    },
+                    requireDocumentRef(fixture),
+                    createRequestId('djvu-png-read-only'),
+                );
+                expect(message).toContain('EVB Viewer was not allowed to write in that folder.');
+                expect(message).not.toMatch(/EACCES|copyfile|\.tmp\b/u);
+            } finally {
+                chmodSync(destinationRoot, 0o755);
+            }
+            expect(readdirSync(destinationRoot)).toEqual([]);
+        },
+    );
 });

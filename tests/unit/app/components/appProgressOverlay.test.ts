@@ -2,20 +2,8 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-} from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, ref} from 'vue';
 import DjvuConversionOverlay from '@app/modules/djvu-viewer/components/DjvuConversionOverlay.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -27,21 +15,32 @@ const ButtonStub = defineComponent({
     inheritAttrs: false,
     props: ['label'],
     emits: ['click'],
-    setup: (props, context) => () => h('button', {
-        ...context.attrs,
-        type: 'button',
-        onClick: () => context.emit('click'),
-    }, props.label),
+    setup: (props, context) => () =>
+        h(
+            'button',
+            {
+                ...context.attrs,
+                type: 'button',
+                onClick: () => context.emit('click'),
+            },
+            props.label,
+        ),
 });
 
 const ProgressStub = defineComponent({
     inheritAttrs: false,
-    setup: (_props, {attrs}) => () => h('progress', attrs),
+    setup:
+        (_props, {attrs}) =>
+        () =>
+            h('progress', attrs),
 });
 
 const IconStub = defineComponent({
     inheritAttrs: false,
-    setup: (_props, {attrs}) => () => h('span', attrs),
+    setup:
+        (_props, {attrs}) =>
+        () =>
+            h('span', attrs),
 });
 
 const activeUnmounts = new Set<() => void>();
@@ -57,21 +56,26 @@ function mountOverlay({modal = true}: {modal?: boolean} = {}) {
     document.body.append(host);
     const open = ref(false);
     let cancelCount = 0;
-    const renderRoot = () => h('div', [
-        h('button', {
-            id: 'workspace-action',
-            type: 'button',
-        }, 'Workspace action'),
-        h(DjvuConversionOverlay, {
-            isConverting: open.value,
-            modal,
-            phase: 'converting',
-            percent: 25,
-            onCancel: () => {
-                cancelCount += 1;
-            },
-        }),
-    ]);
+    const renderRoot = () =>
+        h('div', [
+            h(
+                'button',
+                {
+                    id: 'workspace-action',
+                    type: 'button',
+                },
+                'Workspace action',
+            ),
+            h(DjvuConversionOverlay, {
+                isConverting: open.value,
+                modal,
+                phase: 'converting',
+                percent: 25,
+                onCancel: () => {
+                    cancelCount += 1;
+                },
+            }),
+        ]);
     const Root = defineComponent({setup: () => renderRoot});
     const app = createApp(Root);
     app.component('UButton', ButtonStub);
@@ -94,42 +98,43 @@ function mountOverlay({modal = true}: {modal?: boolean} = {}) {
 }
 
 describe('DjvuConversionOverlay', () => {
-    it.each([
-        'cancel',
-        'completion',
-        'failure',
-    ])('presents conversion progress as a modal and restores focus after %s', async (terminalState) => {
-        const mounted = mountOverlay();
-        const workspaceAction = mounted.host.querySelector<HTMLButtonElement>('#workspace-action')!;
-        workspaceAction.focus();
+    it.each(['cancel', 'completion', 'failure'])(
+        'presents conversion progress as a modal and restores focus after %s',
+        async (terminalState) => {
+            const mounted = mountOverlay();
+            const workspaceAction = mounted.host.querySelector<HTMLButtonElement>('#workspace-action')!;
+            workspaceAction.focus();
 
-        mounted.open.value = true;
-        await nextTick();
-        await nextTick();
+            mounted.open.value = true;
+            await nextTick();
+            await nextTick();
 
-        const overlay = mounted.host.querySelector<HTMLElement>('.app-progress-overlay')!;
-        expect(overlay.getAttribute('role')).toBe('dialog');
-        expect(mounted.host.querySelector('.app-progress-overlay-percent')?.textContent).toContain('25%');
-        expect(workspaceAction.hasAttribute('inert')).toBe(true);
+            const overlay = mounted.host.querySelector<HTMLElement>('.app-progress-overlay')!;
+            expect(overlay.getAttribute('role')).toBe('dialog');
+            expect(mounted.host.querySelector('.app-progress-overlay-percent')?.textContent).toContain('25%');
+            expect(workspaceAction.hasAttribute('inert')).toBe(true);
 
-        if (terminalState === 'cancel') {
-            overlay.dispatchEvent(new KeyboardEvent('keydown', {
-                bubbles: true,
-                cancelable: true,
-                key: 'Escape',
-            }));
-            expect(mounted.cancelCount()).toBe(1);
-        }
+            if (terminalState === 'cancel') {
+                overlay.dispatchEvent(
+                    new KeyboardEvent('keydown', {
+                        bubbles: true,
+                        cancelable: true,
+                        key: 'Escape',
+                    }),
+                );
+                expect(mounted.cancelCount()).toBe(1);
+            }
 
-        mounted.open.value = false;
-        await nextTick();
-        await nextTick();
-        expect(mounted.host.querySelector('.app-progress-overlay')).toBeNull();
-        expect(workspaceAction.hasAttribute('inert')).toBe(false);
-        expect(document.activeElement).toBe(workspaceAction);
-    });
+            mounted.open.value = false;
+            await nextTick();
+            await nextTick();
+            expect(mounted.host.querySelector('.app-progress-overlay')).toBeNull();
+            expect(workspaceAction.hasAttribute('inert')).toBe(false);
+            expect(document.activeElement).toBe(workspaceAction);
+        },
+    );
 
-    it('presents a background workspace\'s conversion as a status that leaves the focus and the workspace alone', async () => {
+    it("presents a background workspace's conversion as a status that leaves the focus and the workspace alone", async () => {
         const mounted = mountOverlay({modal: false});
         const workspaceAction = mounted.host.querySelector<HTMLButtonElement>('#workspace-action')!;
         workspaceAction.focus();

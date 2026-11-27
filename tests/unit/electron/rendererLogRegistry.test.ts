@@ -1,19 +1,11 @@
-import { EventEmitter } from 'node:events';
+import {EventEmitter} from 'node:events';
 import type * as TCreateLoggerModule from '@electron/utils/createLogger';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { TRegisteredHandler } from '@tests/unit/electron/helpers/ipcRegistryHarness';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import type {TRegisteredHandler} from '@tests/unit/electron/helpers/ipcRegistryHarness';
 
 const rendererLogRegistryImportTimeoutMs = 10_000;
 type TMockSettings = Record<string, unknown>;
-type TMockSettingsUpdater = (
-    settings: TMockSettings,
-) => Partial<TMockSettings> | undefined | Promise<Partial<TMockSettings> | undefined>;
+type TMockSettingsUpdater = (settings: TMockSettings) => Partial<TMockSettings> | undefined | Promise<Partial<TMockSettings> | undefined>;
 
 const mocks = vi.hoisted(() => {
     const agentService = {shutdownAssistant: vi.fn(async () => undefined)};
@@ -64,9 +56,9 @@ vi.mock('@electron/settings', () => ({
         const patch = await updater(settings);
         return patch && typeof patch === 'object'
             ? {
-                ...settings,
-                ...patch,
-            }
+                  ...settings,
+                  ...patch,
+              }
             : settings;
     }),
 }));
@@ -118,75 +110,84 @@ describe('renderer log registry', () => {
         vi.clearAllMocks();
         mocks.handlers.clear();
         mocks.registeredWindowsById.clear();
-        mocks.browserWindowFromWebContents.mockImplementation((sender: {id?: number}) => (
-            typeof sender.id === 'number'
-                ? mocks.registeredWindowsById.get(sender.id) ?? null
-                : null
-        ));
-        mocks.getWindowByIdFromRegistry.mockImplementation((windowId: number) => (
-            mocks.registeredWindowsById.get(windowId) ?? null
-        ));
+        mocks.browserWindowFromWebContents.mockImplementation((sender: {id?: number}) =>
+            typeof sender.id === 'number' ? (mocks.registeredWindowsById.get(sender.id) ?? null) : null,
+        );
+        mocks.getWindowByIdFromRegistry.mockImplementation((windowId: number) => mocks.registeredWindowsById.get(windowId) ?? null);
     });
 
-    it('clears sender rate-limit state when the sender is destroyed', async () => {
-        vi.useFakeTimers();
-        try {
-            const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
-            registerIpcHandlers();
+    it(
+        'clears sender rate-limit state when the sender is destroyed',
+        async () => {
+            vi.useFakeTimers();
+            try {
+                const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
+                registerIpcHandlers();
 
-            const handler = mocks.handlers.get('renderer:log');
-            expect(handler).toBeTypeOf('function');
+                const handler = mocks.handlers.get('renderer:log');
+                expect(handler).toBeTypeOf('function');
 
-            const firstSender = createSender(7);
-            for (let index = 0; index < 121; index += 1) {
-                handler?.({
-                    sender: firstSender,
-                    senderFrame: null,
-                }, {
-                    level: 'info',
-                    section: 'search',
-                    message: `message-${index}`,
-                    timestamp: '2026-03-21T00:00:00.000Z',
-                });
+                const firstSender = createSender(7);
+                for (let index = 0; index < 121; index += 1) {
+                    handler?.(
+                        {
+                            sender: firstSender,
+                            senderFrame: null,
+                        },
+                        {
+                            level: 'info',
+                            section: 'search',
+                            message: `message-${index}`,
+                            timestamp: '2026-03-21T00:00:00.000Z',
+                        },
+                    );
+                }
+
+                expect(mocks.writeLogRecord).toHaveBeenCalledTimes(120);
+                firstSender.emit('destroyed');
+
+                const secondSender = createSender(7);
+                handler?.(
+                    {
+                        sender: secondSender,
+                        senderFrame: null,
+                    },
+                    {
+                        level: 'info',
+                        section: 'search',
+                        message: 'after-destroy',
+                        timestamp: '2026-03-21T00:00:00.000Z',
+                    },
+                );
+
+                expect(mocks.writeLogRecord).toHaveBeenCalledTimes(121);
+            } finally {
+                vi.useRealTimers();
             }
-
-            expect(mocks.writeLogRecord).toHaveBeenCalledTimes(120);
-            firstSender.emit('destroyed');
-
-            const secondSender = createSender(7);
-            handler?.({
-                sender: secondSender,
-                senderFrame: null,
-            }, {
-                level: 'info',
-                section: 'search',
-                message: 'after-destroy',
-                timestamp: '2026-03-21T00:00:00.000Z',
-            });
-
-            expect(mocks.writeLogRecord).toHaveBeenCalledTimes(121);
-        } finally {
-            vi.useRealTimers();
-        }
-    }, rendererLogRegistryImportTimeoutMs);
+        },
+        rendererLogRegistryImportTimeoutMs,
+    );
 
     it('releases its sender lifecycle listeners when the render process is gone', async () => {
-        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
         registerIpcHandlers();
 
         const handler = mocks.handlers.get('renderer:log');
         expect(handler).toBeTypeOf('function');
 
         const sender = createSender(9);
-        handler?.({
-            sender,
-            senderFrame: null,
-        }, {
-            level: 'info',
-            section: 'search',
-            message: 'before-destroy',
-            timestamp: '2026-03-21T00:00:00.000Z',
-        });
+        handler?.(
+            {
+                sender,
+                senderFrame: null,
+            },
+            {
+                level: 'info',
+                section: 'search',
+                message: 'before-destroy',
+                timestamp: '2026-03-21T00:00:00.000Z',
+            },
+        );
 
         expect(sender.listenerCount('destroyed')).toBe(1);
         sender.emit('render-process-gone');
@@ -196,42 +197,48 @@ describe('renderer log registry', () => {
     });
 
     it('keeps nested renderer payloads structured instead of collapsing them to [Object]', async () => {
-        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
         registerIpcHandlers();
 
         const handler = mocks.handlers.get('renderer:log');
         expect(handler).toBeTypeOf('function');
 
         const sender = createSender(8);
-        handler?.({
-            sender,
-            senderFrame: null,
-        }, {
-            level: 'info',
-            section: 'search',
-            message: 'payload',
-            timestamp: '2026-03-21T00:00:00.000Z',
-            data: {
-                nested: { value: 1 },
-                items: ['child'],
+        handler?.(
+            {
+                sender,
+                senderFrame: null,
             },
-        });
+            {
+                level: 'info',
+                section: 'search',
+                message: 'payload',
+                timestamp: '2026-03-21T00:00:00.000Z',
+                data: {
+                    nested: {value: 1},
+                    items: ['child'],
+                },
+            },
+        );
 
-        expect(mocks.writeLogRecord).toHaveBeenLastCalledWith(expect.objectContaining({
-            level: 'info',
-            proc: 'renderer',
-            scope: 'search',
-            msg: 'payload',
-            window: 8,
-            data: {
-                nested: {value: 1},
-                items: ['child'],
-            },
-        }), {stdout: false});
+        expect(mocks.writeLogRecord).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                level: 'info',
+                proc: 'renderer',
+                scope: 'search',
+                msg: 'payload',
+                window: 8,
+                data: {
+                    nested: {value: 1},
+                    items: ['child'],
+                },
+            }),
+            {stdout: false},
+        );
     });
 
     it('reuses a renderer-owned failure receipt without creating a main occurrence', async () => {
-        const { registerIpcHandlers } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {registerIpcHandlers} = await import('@electron/platform-ipc/registerIpcHandlers');
         registerIpcHandlers();
 
         const handler = mocks.handlers.get('renderer:log');
@@ -242,31 +249,37 @@ describe('renderer log registry', () => {
             occurredAt: 1,
             severity: 'error',
         };
-        handler?.({
-            sender,
-            senderFrame: null,
-        }, {
-            level: 'error',
-            section: 'renderer-guard',
-            message: 'Renderer failure',
-            timestamp: '2026-03-21T00:00:00.000Z',
-            failureRef,
-        });
+        handler?.(
+            {
+                sender,
+                senderFrame: null,
+            },
+            {
+                level: 'error',
+                section: 'renderer-guard',
+                message: 'Renderer failure',
+                timestamp: '2026-03-21T00:00:00.000Z',
+                failureRef,
+            },
+        );
 
         expect(mocks.logger.error).not.toHaveBeenCalled();
-        expect(mocks.writeLogRecord).toHaveBeenLastCalledWith(expect.objectContaining({
-            level: 'error',
-            proc: 'renderer',
-            msg: 'Renderer failure',
-            errorId: failureRef.eventId,
-            code: failureRef.code,
-        }), {stdout: false});
+        expect(mocks.writeLogRecord).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                level: 'error',
+                proc: 'renderer',
+                msg: 'Renderer failure',
+                errorId: failureRef.eventId,
+                code: failureRef.code,
+            }),
+            {stdout: false},
+        );
     });
 });
 
 describe('normalizeRendererLogEntry', () => {
     it('falls back to info level when level is an unknown string', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry({
             level: 'critical',
             section: 'search',
@@ -277,35 +290,36 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('falls back to info level when level is missing or non-string', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         expect(normalizeRendererLogEntry({message: 'm'}).level).toBe('info');
-        expect(normalizeRendererLogEntry({
-            level: 5,
-            message: 'm',
-        }).level).toBe('info');
-        expect(normalizeRendererLogEntry({
-            level: null,
-            message: 'm',
-        }).level).toBe('info');
+        expect(
+            normalizeRendererLogEntry({
+                level: 5,
+                message: 'm',
+            }).level,
+        ).toBe('info');
+        expect(
+            normalizeRendererLogEntry({
+                level: null,
+                message: 'm',
+            }).level,
+        ).toBe('info');
     });
 
     it('preserves all four known log levels', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
-        for (const level of [
-            'debug',
-            'info',
-            'warn',
-            'error',
-        ] as const) {
-            expect(normalizeRendererLogEntry({
-                level,
-                message: 'm',
-            }).level).toBe(level);
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
+        for (const level of ['debug', 'info', 'warn', 'error'] as const) {
+            expect(
+                normalizeRendererLogEntry({
+                    level,
+                    message: 'm',
+                }).level,
+            ).toBe(level);
         }
     });
 
     it('keeps only a valid closed failure receipt', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         const failureRef = {
             eventId: '0123456789abcdef0123456789abcdef',
             code: 'RENDERER_ERROR_GUARD_FAILED',
@@ -313,52 +327,66 @@ describe('normalizeRendererLogEntry', () => {
             severity: 'error',
         };
 
-        expect(normalizeRendererLogEntry({
-            level: 'error',
-            failureRef,
-        }).failureRef).toEqual(failureRef);
-        expect(normalizeRendererLogEntry({
-            level: 'error',
-            failureRef: {
-                ...failureRef,
-                rawMessage: 'private',
-            },
-        })).not.toHaveProperty('failureRef');
+        expect(
+            normalizeRendererLogEntry({
+                level: 'error',
+                failureRef,
+            }).failureRef,
+        ).toEqual(failureRef);
+        expect(
+            normalizeRendererLogEntry({
+                level: 'error',
+                failureRef: {
+                    ...failureRef,
+                    rawMessage: 'private',
+                },
+            }),
+        ).not.toHaveProperty('failureRef');
     });
 
     it('uses <empty> message default when message is missing or null', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         expect(normalizeRendererLogEntry({level: 'info'}).message).toBe('<empty>');
-        expect(normalizeRendererLogEntry({
-            level: 'info',
-            message: null,
-        }).message).toBe('<empty>');
-        expect(normalizeRendererLogEntry({
-            level: 'info',
-            message: 42,
-        }).message).toBe('<empty>');
+        expect(
+            normalizeRendererLogEntry({
+                level: 'info',
+                message: null,
+            }).message,
+        ).toBe('<empty>');
+        expect(
+            normalizeRendererLogEntry({
+                level: 'info',
+                message: 42,
+            }).message,
+        ).toBe('<empty>');
     });
 
     it('uses unknown section default when section is missing or non-string', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
-        expect(normalizeRendererLogEntry({
-            level: 'info',
-            message: 'm',
-        }).section).toBe('unknown');
-        expect(normalizeRendererLogEntry({
-            level: 'info',
-            message: 'm',
-            section: null,
-        }).section).toBe('unknown');
-        expect(normalizeRendererLogEntry({
-            level: 'info',
-            message: 'm',
-            section: 7,
-        }).section).toBe('unknown');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
+        expect(
+            normalizeRendererLogEntry({
+                level: 'info',
+                message: 'm',
+            }).section,
+        ).toBe('unknown');
+        expect(
+            normalizeRendererLogEntry({
+                level: 'info',
+                message: 'm',
+                section: null,
+            }).section,
+        ).toBe('unknown');
+        expect(
+            normalizeRendererLogEntry({
+                level: 'info',
+                message: 'm',
+                section: 7,
+            }).section,
+        ).toBe('unknown');
     });
 
     it('drops extra metadata fields not in the canonical entry shape', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry({
             level: 'info',
             section: 'search',
@@ -373,16 +401,11 @@ describe('normalizeRendererLogEntry', () => {
             message: 'm',
             timestamp: '2026-03-21T00:00:00.000Z',
         });
-        expect(Object.keys(entry).sort()).toEqual([
-            'level',
-            'message',
-            'section',
-            'timestamp',
-        ]);
+        expect(Object.keys(entry).sort()).toEqual(['level', 'message', 'section', 'timestamp']);
     });
 
     it('uses defaults for null payload', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry(null);
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
@@ -392,7 +415,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('uses defaults for undefined payload', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry(undefined);
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
@@ -401,7 +424,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('uses defaults for string payload', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry('not-a-record');
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
@@ -410,7 +433,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('uses defaults for number payload', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry(42);
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
@@ -419,11 +442,8 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('uses defaults for array payload', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
-        const entry = normalizeRendererLogEntry([
-            'debug',
-            'msg',
-        ]);
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
+        const entry = normalizeRendererLogEntry(['debug', 'msg']);
         expect(entry.level).toBe('info');
         expect(entry.section).toBe('unknown');
         expect(entry.message).toBe('<empty>');
@@ -431,7 +451,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('retains bounded redacted details of nested errors serialized by the renderer', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry({
             level: 'error',
             message: 'Failed to invalidate',
@@ -445,7 +465,7 @@ describe('normalizeRendererLogEntry', () => {
                 },
             },
         });
-        const data = entry.data as {error: unknown;};
+        const data = entry.data as {error: unknown};
         expect(data.error).toMatchObject({
             name: 'RangeError',
             message: expect.stringContaining('Invalid page'),
@@ -455,7 +475,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('keeps data as a structured object', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry({
             level: 'info',
             section: 'search',
@@ -466,7 +486,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('redacts secrets and local paths before serializing renderer log fields', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry({
             level: 'info',
             section: 'search',
@@ -489,11 +509,12 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('redacts URL secrets while preserving renderer log routing details', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry({
             level: 'error',
             section: 'updates',
-            message: 'GET https://user:pass@updates.example.test:8443/releases/latest?channel=stable&channel=beta&token=secret#private failed',
+            message:
+                'GET https://user:pass@updates.example.test:8443/releases/latest?channel=stable&channel=beta&token=secret#private failed',
         });
 
         expect(entry.message).toBe(
@@ -502,7 +523,7 @@ describe('normalizeRendererLogEntry', () => {
     });
 
     it('redacts secret-named properties in structured renderer data', async () => {
-        const { normalizeRendererLogEntry } = await import('@electron/platform-ipc/registerIpcHandlers');
+        const {normalizeRendererLogEntry} = await import('@electron/platform-ipc/registerIpcHandlers');
         const entry = normalizeRendererLogEntry({
             message: 'failed',
             data: {

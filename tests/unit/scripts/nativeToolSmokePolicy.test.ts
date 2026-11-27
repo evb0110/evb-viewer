@@ -1,11 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
-import { resolve } from 'node:path';
+import {describe, expect, it} from 'vitest';
+import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
+import {resolve} from 'node:path';
 import {PACKAGED_ENTRY_FIELD_SEPARATOR} from '@scripts/generateReleaseTargetManifest';
 import type {
     ELECTRON_BUILDER_PLATFORM_KEYS,
@@ -14,22 +10,16 @@ import type {
 } from '@scripts/nativeResourceManifest';
 
 const requireScript = createRequire(import.meta.url);
-const {
-    renderPackagedEntries,
-    validateReleaseTargetManifest,
-} = requireScript(
+const {renderPackagedEntries, validateReleaseTargetManifest} = requireScript(
     resolve(process.cwd(), 'scripts/release/generated-release-targets.cjs'),
 ) as {
     renderPackagedEntries: (tag: string) => string;
     validateReleaseTargetManifest: (value: unknown) => unknown;
 };
 
-const {
-    assertPackagedToolSmoke,
-    RELEASE_TARGET_MANIFEST,
-} = await import(
+const {assertPackagedToolSmoke, RELEASE_TARGET_MANIFEST} = (await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/release/native-tool-smoke-policy.mjs')).href
-) as {
+)) as {
     assertPackagedToolSmoke: (toolName: string, exitCode: number, output: string) => void;
     RELEASE_TARGET_MANIFEST: {
         families: ReturnType<typeof getPackagedNativeToolFamilies>;
@@ -78,240 +68,150 @@ describe('native tool smoke policy', () => {
         {
             branch: 'Electron Builder platform mapping',
             error: 'Invalid electronBuilderPlatformKeys',
-            path: [
-                'electronBuilderPlatformKeys',
-                'darwin',
-            ],
+            path: ['electronBuilderPlatformKeys', 'darwin'],
             value: 'win',
         },
         {
             branch: 'family identity',
             error: 'Invalid family',
-            path: [
-                'families',
-                0,
-                'id',
-            ],
+            path: ['families', 0, 'id'],
             value: '',
         },
         {
             branch: 'family label',
             error: 'Invalid family',
-            path: [
-                'families',
-                0,
-                'label',
-            ],
+            path: ['families', 0, 'label'],
             value: '',
         },
         {
             branch: 'family path',
             error: 'Invalid family',
-            path: [
-                'families',
-                0,
-                'sourceRootSegments',
-            ],
+            path: ['families', 0, 'sourceRootSegments'],
             value: ['..'],
         },
         {
             branch: 'family binary name',
             error: 'Invalid family binary',
-            path: [
-                'families',
-                3,
-                'binaryName',
-            ],
+            path: ['families', 3, 'binaryName'],
             value: 42,
         },
         {
             branch: 'package filters',
             error: 'Invalid package filters',
-            path: [
-                'families',
-                0,
-                'packageFiltersByPlatform',
-                'win32',
-            ],
+            path: ['families', 0, 'packageFiltersByPlatform', 'win32'],
             value: [''],
         },
         {
             branch: 'entry identity',
             error: 'Invalid packaged entry',
-            path: [
-                'families',
-                0,
-                'packagedEntries',
-                0,
-                'id',
-            ],
+            path: ['families', 0, 'packagedEntries', 0, 'id'],
             value: '',
         },
         {
             branch: 'entry label',
             error: 'Invalid packaged entry',
-            path: [
-                'families',
-                0,
-                'packagedEntries',
-                0,
-                'label',
-            ],
+            path: ['families', 0, 'packagedEntries', 0, 'label'],
             value: '',
         },
         {
             branch: 'entry type',
             error: 'Invalid packaged entry',
-            path: [
-                'families',
-                0,
-                'packagedEntries',
-                0,
-                'type',
-            ],
+            path: ['families', 0, 'packagedEntries', 0, 'type'],
             value: 'pipe',
         },
         {
             branch: 'entry path',
             error: 'Invalid packaged entry',
-            path: [
-                'families',
-                0,
-                'packagedEntries',
-                0,
-                'pathSegments',
-            ],
+            path: ['families', 0, 'packagedEntries', 0, 'pathSegments'],
             value: ['../binary'],
         },
         {
             branch: 'entry platforms',
             error: 'Invalid packaged entry platforms',
-            path: [
-                'families',
-                0,
-                'packagedEntries',
-                0,
-                'platforms',
-            ],
+            path: ['families', 0, 'packagedEntries', 0, 'platforms'],
             value: ['android'],
         },
         {
             branch: 'global identity',
             error: 'Invalid global resource',
-            path: [
-                'globalResources',
-                0,
-                'id',
-            ],
+            path: ['globalResources', 0, 'id'],
             value: '',
         },
         {
             branch: 'global label',
             error: 'Invalid global resource',
-            path: [
-                'globalResources',
-                0,
-                'label',
-            ],
+            path: ['globalResources', 0, 'label'],
             value: '',
         },
         {
             branch: 'global type',
             error: 'Invalid global resource',
-            path: [
-                'globalResources',
-                0,
-                'type',
-            ],
+            path: ['globalResources', 0, 'type'],
             value: 'pipe',
         },
         {
             branch: 'global path',
             error: 'Invalid global resource',
-            path: [
-                'globalResources',
-                0,
-                'stagedSegments',
-            ],
+            path: ['globalResources', 0, 'stagedSegments'],
             value: ['../tessdata'],
         },
         {
             branch: 'global filters',
             error: 'Invalid global resource',
-            path: [
-                'globalResources',
-                0,
-                'filters',
-            ],
+            path: ['globalResources', 0, 'filters'],
             value: [''],
         },
         {
             branch: 'signing platforms',
             error: 'Invalid signing inputs',
-            path: [
-                'signing',
-                'platforms',
-            ],
+            path: ['signing', 'platforms'],
             value: ['android'],
         },
         {
             branch: 'signing entitlement path',
             error: 'Invalid signing inputs',
-            path: [
-                'signing',
-                'entitlementsPathSegments',
-            ],
+            path: ['signing', 'entitlementsPathSegments'],
             value: ['..'],
         },
         {
             branch: 'signing executable roots',
             error: 'Invalid signing inputs',
-            path: [
-                'signing',
-                'executableRoots',
-            ],
+            path: ['signing', 'executableRoots'],
             value: [['other-root']],
         },
-    ])('rejects invalid $branch at the disk trust boundary', ({
-        error,
-        path,
-        value,
-    }) => {
-        expect(() => validateReleaseTargetManifest(
-            manifestWithMutation(path, value),
-        )).toThrow(error);
+    ])('rejects invalid $branch at the disk trust boundary', ({error, path, value}) => {
+        expect(() => validateReleaseTargetManifest(manifestWithMutation(path, value))).toThrow(error);
     });
 
     it('renders every manifest entry for each supported verifier target', () => {
         for (const tag of RELEASE_TARGET_MANIFEST.platformArches) {
             const platform = tag.split('-')[0] as 'darwin' | 'linux' | 'win32';
             const suffix = platform === 'win32' ? '.exe' : '';
-            const expectedRows = RELEASE_TARGET_MANIFEST.families.flatMap(family => (
+            const expectedRows = RELEASE_TARGET_MANIFEST.families.flatMap((family) =>
                 family.packagedEntries
-                    .filter(entry => !entry.platforms || entry.platforms.includes(platform))
-                    .map(entry => [
-                        'native',
-                        family.stagedRootSegments.join('/'),
-                        entry.pathSegments.join('/').replaceAll('{exeSuffix}', suffix),
-                        entry.type,
-                        entry.label,
-                        entry.id,
-                    ].join(PACKAGED_ENTRY_FIELD_SEPARATOR))
-            ));
-            expectedRows.push(...RELEASE_TARGET_MANIFEST.globalResources.map(resource => [
-                'global',
-                '',
-                resource.stagedSegments.join('/'),
-                resource.type,
-                resource.label,
-                resource.id,
-            ].join(PACKAGED_ENTRY_FIELD_SEPARATOR)));
+                    .filter((entry) => !entry.platforms || entry.platforms.includes(platform))
+                    .map((entry) =>
+                        [
+                            'native',
+                            family.stagedRootSegments.join('/'),
+                            entry.pathSegments.join('/').replaceAll('{exeSuffix}', suffix),
+                            entry.type,
+                            entry.label,
+                            entry.id,
+                        ].join(PACKAGED_ENTRY_FIELD_SEPARATOR),
+                    ),
+            );
+            expectedRows.push(
+                ...RELEASE_TARGET_MANIFEST.globalResources.map((resource) =>
+                    ['global', '', resource.stagedSegments.join('/'), resource.type, resource.label, resource.id].join(
+                        PACKAGED_ENTRY_FIELD_SEPARATOR,
+                    ),
+                ),
+            );
 
             expect(renderPackagedEntries(tag).split('\n')).toEqual(expectedRows);
         }
-        expect(() => renderPackagedEntries('darwin-sparc')).toThrow(
-            'Unsupported platform-arch: darwin-sparc',
-        );
+        expect(() => renderPackagedEntries('darwin-sparc')).toThrow('Unsupported platform-arch: darwin-sparc');
     });
 
     it('requires both an allowed exit code and recognizable output', () => {
@@ -319,7 +219,9 @@ describe('native tool smoke policy', () => {
         expect(() => assertPackagedToolSmoke('pdftoppm', 0, 'pdftoppm version 25.0.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('pdftotext', 0, 'pdftotext version 25.0.0')).not.toThrow();
         expect(() => assertPackagedToolSmoke('evb-scan-cleanup', 0, 'evb-scan-cleanup 0.1.0')).not.toThrow();
-        expect(() => assertPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Missing --compact-manifest value')).not.toThrow();
+        expect(() =>
+            assertPackagedToolSmoke('evb-pdf-image-combine-compact-manifest', 1, 'Missing --compact-manifest value'),
+        ).not.toThrow();
         expect(() => assertPackagedToolSmoke('pdfinfo', 2, 'pdfinfo version 25.0.0')).toThrow(
             'Packaged tool smoke test failed (pdfinfo) with exit code 2',
         );
@@ -330,5 +232,4 @@ describe('native tool smoke policy', () => {
             'Packaged tool smoke test output for evb-pdf-image-combine-compact-manifest did not match any expected signature',
         );
     });
-
 });

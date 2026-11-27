@@ -1,8 +1,5 @@
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import {
-    chainJobBrokerRunContext,
-    type IJobBrokerRunContext,
-} from '@electron/resources/jobBroker';
+import {chainJobBrokerRunContext, type IJobBrokerRunContext} from '@electron/resources/jobBroker';
 import {abortErrorFromSignal} from '@electron/utils/abort';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {
@@ -83,10 +80,7 @@ function createBrokerBoundRunCommand(
         waiters.shift()?.grant();
     };
     return async (command, args, options) => {
-        const {
-            onTerminationProof: innerProof,
-            ...restOptions
-        } = options ?? {};
+        const {onTerminationProof: innerProof, ...restOptions} = options ?? {};
         await acquireSlot(restOptions.signal);
         let slotUnproven = false;
         try {
@@ -95,8 +89,9 @@ function createBrokerBoundRunCommand(
                 brokerRun: chainJobBrokerRunContext(brokerRun, innerProof),
             });
         } catch (error) {
-            const hasUnprovenTermination = getUnprovenNativeTerminationDetail(error) !== undefined
-                || (error instanceof Error && getUnprovenNativeTerminationDetail(error.cause) !== undefined);
+            const hasUnprovenTermination =
+                getUnprovenNativeTerminationDetail(error) !== undefined ||
+                (error instanceof Error && getUnprovenNativeTerminationDetail(error.cause) !== undefined);
             if (hasUnprovenTermination) {
                 slotUnproven = true;
                 unprovenFailure ??= error;
@@ -145,13 +140,5 @@ export function detectSourceDpi(
     pages?: readonly number[],
     brokerRun?: IJobBrokerRunContext,
 ) {
-    return detectCoreSourceDpi(
-        pdfPath,
-        pdfimagesBinary,
-        log,
-        commandEnv,
-        signal,
-        pages,
-        createBrokerBoundRunCommand(brokerRun),
-    );
+    return detectCoreSourceDpi(pdfPath, pdfimagesBinary, log, commandEnv, signal, pages, createBrokerBoundRunCommand(brokerRun));
 }

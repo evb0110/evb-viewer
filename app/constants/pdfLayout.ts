@@ -60,8 +60,5 @@ export const NOTE_WINDOW = {
 
 export function resolveNoteWindowAnchorZIndex(order: number) {
     const normalizedOrder = Number.isFinite(order) ? Math.max(0, Math.trunc(order)) : 0;
-    return NOTE_WINDOW.ANCHOR_Z_INDEX_BASE + Math.min(
-        normalizedOrder,
-        NOTE_WINDOW.ANCHOR_Z_INDEX_SLOTS - 1,
-    );
+    return NOTE_WINDOW.ANCHOR_Z_INDEX_BASE + Math.min(normalizedOrder, NOTE_WINDOW.ANCHOR_Z_INDEX_SLOTS - 1);
 }

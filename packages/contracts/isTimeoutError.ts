@@ -1,7 +1,7 @@
 const ES_TOOLKIT_TIMEOUT_MESSAGE = 'The operation was timed out';
 
 interface IErrorLike {
-    constructor?: { name?: unknown };
+    constructor?: {name?: unknown};
     message?: unknown;
     name?: unknown;
 }
@@ -15,10 +15,9 @@ export function isTimeoutError(error: unknown) {
         return false;
     }
 
-    return error.name === 'TimeoutError'
-        || error.constructor?.name === 'TimeoutError'
-        || (
-            error.name === 'Error'
-            && error.message === ES_TOOLKIT_TIMEOUT_MESSAGE
-        );
+    return (
+        error.name === 'TimeoutError' ||
+        error.constructor?.name === 'TimeoutError' ||
+        (error.name === 'Error' && error.message === ES_TOOLKIT_TIMEOUT_MESSAGE)
+    );
 }

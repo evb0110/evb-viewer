@@ -747,46 +747,74 @@ fn dominant_paper_center(
 }
 
 fn feather_binary_mask(mask: &BinaryImage, radius: usize) -> GrayImage {
+    let width = mask.width();
+    let height = mask.height();
+    if width == 0 || height == 0 {
+        return GrayImage::new(width, height, 0);
+    }
     if radius == 0 {
-        let mut output = GrayImage::new(mask.width(), mask.height(), 0);
-        for y in 0..mask.height() {
-            for x in 0..mask.width() {
-                output.set(x, y, if mask.get(x, y) { 255 } else { 0 });
+        let mut output = GrayImage::new(width, height, 0);
+        let stride = output.stride();
+        let data = output.data_mut();
+        for y in 0..height {
+            let row = &mut data[y * stride..y * stride + width];
+            for (x, pixel) in row.iter_mut().enumerate() {
+                *pixel = if mask.get(x, y) { 255 } else { 0 };
             }
         }
         return output;
     }
-    let width = mask.width();
-    let height = mask.height();
     let mut horizontal = vec![0u32; width.saturating_mul(height)];
+    let mut prefix = vec![0u32; width + 1];
     for y in 0..height {
-        let mut prefix = vec![0u32; width + 1];
+        prefix[0] = 0;
         for x in 0..width {
             prefix[x + 1] = prefix[x] + u32::from(mask.get(x, y));
         }
-        for x in 0..width {
+        let target_row = &mut horizontal[y * width..(y + 1) * width];
+        for (x, target) in target_row.iter_mut().enumerate() {
             let left = x.saturating_sub(radius);
             let right = (x + radius + 1).min(width);
-            horizontal[y * width + x] = prefix[right] - prefix[left];
+            *target = prefix[right] - prefix[left];
         }
     }
     let mut output = GrayImage::new(width, height, 0);
-    for x in 0..width {
-        let mut prefix = vec![0u32; height + 1];
-        for y in 0..height {
-            prefix[y + 1] = prefix[y] + horizontal[y * width + x];
+    let stride = output.stride();
+    let out_data = output.data_mut();
+    let mut col_sum = vec![0u32; width];
+    let initial_bottom = (radius + 1).min(height);
+    for ry in 0..initial_bottom {
+        let src_row = &horizontal[ry * width..(ry + 1) * width];
+        for (sum, &val) in col_sum.iter_mut().zip(src_row.iter()) {
+            *sum += val;
         }
-        for y in 0..height {
-            let top = y.saturating_sub(radius);
-            let bottom = (y + radius + 1).min(height);
+    }
+    for y in 0..height {
+        let top = y.saturating_sub(radius);
+        let bottom = (y + radius + 1).min(height);
+        if y > 0 {
+            let prev_top = (y - 1).saturating_sub(radius);
+            let prev_bottom = (y + radius).min(height);
+            if top > prev_top {
+                let leaving = &horizontal[prev_top * width..(prev_top + 1) * width];
+                for (sum, &val) in col_sum.iter_mut().zip(leaving.iter()) {
+                    *sum -= val;
+                }
+            }
+            if bottom > prev_bottom {
+                let entering = &horizontal[prev_bottom * width..(prev_bottom + 1) * width];
+                for (sum, &val) in col_sum.iter_mut().zip(entering.iter()) {
+                    *sum += val;
+                }
+            }
+        }
+        let row_count = bottom - top;
+        let out_row = &mut out_data[y * stride..y * stride + width];
+        for (x, (target, &sum)) in out_row.iter_mut().zip(col_sum.iter()).enumerate() {
             let left = x.saturating_sub(radius);
             let right = (x + radius + 1).min(width);
-            let samples = (right - left).saturating_mul(bottom - top).max(1) as u32;
-            output.set(
-                x,
-                y,
-                (((prefix[bottom] - prefix[top]) * 255 + samples / 2) / samples) as u8,
-            );
+            let samples = (right - left).saturating_mul(row_count).max(1) as u32;
+            *target = ((sum * 255 + samples / 2) / samples) as u8;
         }
     }
     output
@@ -1123,13 +1151,17 @@ fn gutter_shadow(source: &GrayImage) -> Option<GutterShadow> {
         return None;
     }
     let window_width = source.width().div_ceil(100).max(1);
-    let column_ink = (0..source.width())
-        .map(|x| {
-            (0..source.height())
-                .filter(|&y| source.get(x, y) <= BORDER_INK_LUMINANCE_CUTOFF)
-                .count()
-        })
-        .collect::<Vec<_>>();
+    let mut column_ink = vec![0usize; source.width()];
+    let mut column_sum = vec![0usize; source.width()];
+    for y in 0..source.height() {
+        let row = source.row(y);
+        for (x, &value) in row.iter().enumerate() {
+            if value <= BORDER_INK_LUMINANCE_CUTOFF {
+                column_ink[x] += 1;
+            }
+            column_sum[x] += usize::from(value);
+        }
+    }
     let central_left = source.width() * 3 / 10;
     let central_right = source.width() * 7 / 10;
     let mut windows = (central_left..central_right.saturating_sub(window_width))
@@ -1156,12 +1188,6 @@ fn gutter_shadow(source: &GrayImage) -> Option<GutterShadow> {
     // fraction of the page height. A title or text column can lower a few
     // rows, but it cannot produce a vertically persistent gutter profile.
     let tone_window_width = source.width().div_ceil(100).max(2);
-    let mut column_sum = vec![0usize; source.width()];
-    for y in 0..source.height() {
-        for (x, sum) in column_sum.iter_mut().enumerate() {
-            *sum += usize::from(source.get(x, y));
-        }
-    }
     let column_means = column_sum
         .into_iter()
         .map(|sum| sum as f64 / source.height().max(1) as f64)
@@ -2947,5 +2973,48 @@ mod tests {
         assert!(!mask.get(80, 80), "eraser3 must win over painter");
         assert!(!mask.get(50, 50), "fill zones force the binary layer");
         assert!(!mask.get(5, 5));
+    }
+
+    #[test]
+    fn row_major_feather_binary_mask_matches_naive_box_average() {
+        let naive = |mask: &BinaryImage, radius: usize| {
+            let width = mask.width();
+            let height = mask.height();
+            let mut out = GrayImage::new(width, height, 0);
+            for y in 0..height {
+                for x in 0..width {
+                    let top = y.saturating_sub(radius);
+                    let bottom = (y + radius + 1).min(height);
+                    let left = x.saturating_sub(radius);
+                    let right = (x + radius + 1).min(width);
+                    let mut sum = 0u32;
+                    for ry in top..bottom {
+                        for rx in left..right {
+                            sum += u32::from(mask.get(rx, ry));
+                        }
+                    }
+                    let samples = (right - left).saturating_mul(bottom - top).max(1) as u32;
+                    out.set(x, y, ((sum * 255 + samples / 2) / samples) as u8);
+                }
+            }
+            out
+        };
+        for (width, height) in [(0, 0), (1, 1), (5, 4), (33, 29), (64, 17)] {
+            let mut mask = BinaryImage::new(width, height);
+            for y in 0..height {
+                for x in 0..width {
+                    if (x * 17 + y * 31) % 7 < 3 {
+                        mask.set(x, y, true);
+                    }
+                }
+            }
+            for radius in [0, 1, 3, 12, 40] {
+                assert_eq!(
+                    feather_binary_mask(&mask, radius),
+                    naive(&mask, radius),
+                    "feather_binary_mask diverged for {width}x{height} radius={radius}"
+                );
+            }
+        }
     }
 }

@@ -1,30 +1,18 @@
-import type {
-    IDocumentsMenuCapability,
-    IOpenPdfDirectBatchProgress,
-    IPdfOptimizeProgress,
-} from '@contracts/electronApiDocuments';
-import type { DOCUMENT_MENU_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
-import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
-import {
-    setBrowserMenuDocumentState,
-    subscribeBrowserMenuEvent,
-} from '@app/platform/browserMenuBar';
-import { onBrowserExternalPaths } from '@app/platform/browser-api/browserExternalOpenQueue';
+import type {IDocumentsMenuCapability, IOpenPdfDirectBatchProgress, IPdfOptimizeProgress} from '@contracts/electronApiDocuments';
+import type {DOCUMENT_MENU_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
+import type {TFeatureBrowserBindings} from '@contracts/platformFeature';
+import {setBrowserMenuDocumentState, subscribeBrowserMenuEvent} from '@app/platform/browserMenuBar';
+import {onBrowserExternalPaths} from '@app/platform/browser-api/browserExternalOpenQueue';
 
-const openDocumentDirectBatchProgressListeners =
-    new Set<(progress: IOpenPdfDirectBatchProgress) => void>();
+const openDocumentDirectBatchProgressListeners = new Set<(progress: IOpenPdfDirectBatchProgress) => void>();
 
-export function emitBrowserOpenDocumentDirectBatchProgress(
-    progress: IOpenPdfDirectBatchProgress,
-) {
+export function emitBrowserOpenDocumentDirectBatchProgress(progress: IOpenPdfDirectBatchProgress) {
     openDocumentDirectBatchProgressListeners.forEach((listener) => {
         listener(progress);
     });
 }
 
-export const onBrowserOpenDocumentDirectBatchProgress = (
-    callback: (progress: IOpenPdfDirectBatchProgress) => void,
-) => {
+export const onBrowserOpenDocumentDirectBatchProgress = (callback: (progress: IOpenPdfDirectBatchProgress) => void) => {
     openDocumentDirectBatchProgressListeners.add(callback);
     return () => {
         openDocumentDirectBatchProgressListeners.delete(callback);
@@ -87,5 +75,4 @@ export const browserDocumentsMenuCapability = {
     onMenuOpenRecentFile: subscribeBrowserMenuEvent('onMenuOpenRecentFile'),
     onMenuOpenExternalPaths: onBrowserExternalPaths,
     onMenuClearRecentFiles: subscribeBrowserMenuEvent('onMenuClearRecentFiles'),
-} satisfies IDocumentsMenuCapability
-    & TFeatureBrowserBindings<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;
+} satisfies IDocumentsMenuCapability & TFeatureBrowserBindings<typeof DOCUMENT_MENU_PLATFORM_FEATURE>;

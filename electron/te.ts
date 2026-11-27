@@ -9,19 +9,14 @@ import {
 } from '@i18n-core';
 // Main-process startup intentionally imports only the English fallback.
 import en from '@i18n-app/messages/en';
-import type {
-    TTranslateArgs,
-    TTranslationKey,
-} from '@i18n-app';
-import { loadSettings } from '@electron/settings';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import type {TTranslateArgs, TTranslationKey} from '@i18n-app';
+import {loadSettings} from '@electron/settings';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 
 type TTeArgs<TKey extends TTranslationKey> = TTranslateArgs<TKey>;
-type TMainLocaleMessages =
-    TLocaleMessagesShapeFrom<typeof en>;
-type TMainLocaleLoader =
-    () => Promise<{default: TMainLocaleMessages}>;
+type TMainLocaleMessages = TLocaleMessagesShapeFrom<typeof en>;
+type TMainLocaleLoader = () => Promise<{default: TMainLocaleMessages}>;
 
 const logger = createLogger('electron-translations');
 const localeLoaders = {
@@ -45,7 +40,7 @@ function loadLocaleMessages(locale: TLocale) {
     }
     let localePromise = localeMessagePromises.get(locale);
     if (!localePromise) {
-        localePromise = localeLoaders[locale]().then(module => module.default);
+        localePromise = localeLoaders[locale]().then((module) => module.default);
         localeMessagePromises.set(locale, localePromise);
     }
     return localePromise;
@@ -66,13 +61,10 @@ export async function setElectronLocale(locale: TLocale) {
         activeLocale = resolvedLocale;
         activeMessages = messages;
     } catch (error) {
-        logger.error(
-            `Failed to load Electron locale ${resolvedLocale}: ${getErrorMessage(error)}`,
-            {
-                code: 'MAIN_ELECTRON_LOCALE_LOAD_FAILED',
-                cause: error,
-            },
-        );
+        logger.error(`Failed to load Electron locale ${resolvedLocale}: ${getErrorMessage(error)}`, {
+            code: 'MAIN_ELECTRON_LOCALE_LOAD_FAILED',
+            cause: error,
+        });
         if (requestGeneration !== localeRequestGeneration) {
             return;
         }

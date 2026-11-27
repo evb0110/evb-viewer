@@ -1,12 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    decodeAppUpdateStatus,
-    UPDATES_PLATFORM_FEATURE,
-} from '@contracts/updatesPlatformFeature';
+import {describe, expect, it} from 'vitest';
+import {decodeAppUpdateStatus, UPDATES_PLATFORM_FEATURE} from '@contracts/updatesPlatformFeature';
 
 describe('updates platform feature schemas', () => {
     const channels = UPDATES_PLATFORM_FEATURE.invokeChannels;
@@ -20,11 +13,12 @@ describe('updates platform feature schemas', () => {
     } as const;
 
     it('owns update invokes and the decoded status event', () => {
-
         expect(UPDATES_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(7);
-        expect(UPDATES_PLATFORM_FEATURE.platformDescriptors.methods.every(
-            descriptor => descriptor.required.browser === false && descriptor.required.electron,
-        )).toBe(true);
+        expect(
+            UPDATES_PLATFORM_FEATURE.platformDescriptors.methods.every(
+                (descriptor) => descriptor.required.browser === false && descriptor.required.electron,
+            ),
+        ).toBe(true);
     });
 
     it('round-trips valid update requests and results', () => {
@@ -34,32 +28,37 @@ describe('updates platform feature schemas', () => {
         expect(codecs[channels.defer]!.decodeResult(undefined)).toBeUndefined();
         expect(codecs[channels.skipVersion]!.decodeArgs(['2.0.0'])).toEqual(['2.0.0']);
         expect(decodeAppUpdateStatus(validStatus)).toEqual(validStatus);
-        expect(decodeAppUpdateStatus({
-            ...validStatus,
-            reason: 'download-failed',
-        }))
-            .toEqual({
+        expect(
+            decodeAppUpdateStatus({
                 ...validStatus,
                 reason: 'download-failed',
-            });
+            }),
+        ).toEqual({
+            ...validStatus,
+            reason: 'download-failed',
+        });
     });
 
     it('rejects malformed update arguments, results, and events', () => {
         expect(() => codecs[channels.skipVersion]!.decodeArgs([2])).toThrow('expected a string');
-        expect(() => codecs[channels.check]!.decodeResult({started: 'yes'}))
-            .toThrow('expected a started result');
-        expect(() => codecs[channels.getState]!.decodeResult({
-            ...validStatus,
-            percent: 101,
-        }))
-            .toThrow('invalid app update status');
-        expect(decodeAppUpdateStatus({
-            ...validStatus,
-            reason: 'arbitrary English',
-        })).toBeNull();
-        expect(decodeAppUpdateStatus({
-            ...validStatus,
-            phase: 'future',
-        })).toBeNull();
+        expect(() => codecs[channels.check]!.decodeResult({started: 'yes'})).toThrow('expected a started result');
+        expect(() =>
+            codecs[channels.getState]!.decodeResult({
+                ...validStatus,
+                percent: 101,
+            }),
+        ).toThrow('invalid app update status');
+        expect(
+            decodeAppUpdateStatus({
+                ...validStatus,
+                reason: 'arbitrary English',
+            }),
+        ).toBeNull();
+        expect(
+            decodeAppUpdateStatus({
+                ...validStatus,
+                phase: 'future',
+            }),
+        ).toBeNull();
     });
 });

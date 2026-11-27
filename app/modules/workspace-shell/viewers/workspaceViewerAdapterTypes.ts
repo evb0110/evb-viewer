@@ -1,11 +1,8 @@
-import type {
-    Component,
-    Ref,
-} from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
-import type { IWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
-import type { IDocumentSourceActivation } from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
+import type {Component, Ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TDocumentOpenOutcome} from '@app/types/documentOpenOutcome';
+import type {IWorkspaceViewerCapabilities} from '@app/types/workspaceExpose';
+import type {IDocumentSourceActivation} from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
 
 export type TWorkspaceViewerAdapterId = 'pdf' | 'djvu';
 export type TWorkspaceViewerDocumentType = 'pdf' | 'image' | 'djvu';
@@ -20,7 +17,9 @@ export interface IWorkspaceViewerDriverProfile {
     sourceKind: 'pdf' | 'djvu';
 }
 
-export interface IWorkspaceViewerOpenLifecycleState { previousWorkingCopyPath: TDocumentRef | null; }
+export interface IWorkspaceViewerOpenLifecycleState {
+    previousWorkingCopyPath: TDocumentRef | null;
+}
 
 export interface IWorkspaceViewerLifecycleContext {
     captureDjvuActivation: () => IDocumentSourceActivation | null;
@@ -33,10 +32,7 @@ export interface IWorkspaceViewerLifecycleContext {
 
 export interface IWorkspaceViewerLifecycleHooks {
     beforeOpen?: () => Promise<void> | void;
-    afterOpen?: (
-        outcome: TDocumentOpenOutcome,
-        state: IWorkspaceViewerOpenLifecycleState,
-    ) => Promise<void> | void;
+    afterOpen?: (outcome: TDocumentOpenOutcome, state: IWorkspaceViewerOpenLifecycleState) => Promise<void> | void;
     beforeClose?: () => Promise<void> | void;
     /** An open's source is admitted, with its own page count, and its pages are not drawn yet. */
     beforeSourcePresented?: (source: TDocumentRef, pageCount: () => Promise<number | null>) => Promise<void> | void;

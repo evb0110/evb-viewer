@@ -1,22 +1,11 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    ref,
-    toRaw,
-} from 'vue';
-import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
-import { useWorkspaceCommandLedger } from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
+import {describe, expect, it, vi} from 'vitest';
+import {ref, toRaw} from 'vue';
+import {useWorkspaceMetadataHistory} from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
+import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
 import type {IWorkspaceCommandRegistration} from '@app/types/workspaceCommand';
 import {usePageLabelState} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import type {
-    IPdfBookmarkEntry,
-    IPdfPageLabelRange,
-} from '@app/types/pdfContracts';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import type {IPdfBookmarkEntry, IPdfPageLabelRange} from '@app/types/pdfContracts';
 
 function createHistory() {
     const ledger = useWorkspaceCommandLedger();
@@ -64,27 +53,29 @@ function createHistory() {
 
 describe('useWorkspaceMetadataHistory', () => {
     it('keeps an unresolved bookmark read clean when page labels synchronize first', () => {
-        const {
-            bookmarkItems, bookmarksDirty, pageLabelRanges, pageLabelsDirty, history,
-        } = createHistory();
-        bookmarkItems.value = [{
-            title: 'Imported',
-            pageIndex: requirePageIndex(0),
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        }];
+        const {bookmarkItems, bookmarksDirty, pageLabelRanges, pageLabelsDirty, history} = createHistory();
+        bookmarkItems.value = [
+            {
+                title: 'Imported',
+                pageIndex: requirePageIndex(0),
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            },
+        ];
         history.resetToCurrentState();
         // A working-copy reload clears the outline before its independent read completes.
         bookmarkItems.value = [];
-        pageLabelRanges.value = [{
-            startPage: 1,
-            style: 'D',
-            prefix: 'New ',
-            startNumber: 1,
-        }];
+        pageLabelRanges.value = [
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: 'New ',
+                startNumber: 1,
+            },
+        ];
         history.markCurrentStateClean('pageLabelRanges');
         expect(bookmarksDirty.value).toBe(false);
         expect(pageLabelsDirty.value).toBe(false);
@@ -101,21 +92,23 @@ describe('useWorkspaceMetadataHistory', () => {
             pageLabelRanges: ref<IPdfPageLabelRange[]>([]),
             pageLabelsDirty: ref(false),
             commandSink: {
-                register: command => registrations.push(command),
+                register: (command) => registrations.push(command),
                 reset,
                 forget: vi.fn(),
             },
         });
         history.resetToCurrentState();
-        bookmarkItems.value = [{
-            title: 'Direct command',
-            pageIndex: requirePageIndex(0),
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        }];
+        bookmarkItems.value = [
+            {
+                title: 'Direct command',
+                pageIndex: requirePageIndex(0),
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            },
+        ];
         history.recordCurrentState();
 
         expect(reset).toHaveBeenCalledWith('metadata');
@@ -128,9 +121,7 @@ describe('useWorkspaceMetadataHistory', () => {
     });
 
     it('releases discarded inverse payloads without letting an old command undo a new edit', async () => {
-        const {
-            bookmarkItems, history, registrations,
-        } = createHistory();
+        const {bookmarkItems, history, registrations} = createHistory();
         history.resetToCurrentState();
         const bookmark = (title: string): IPdfBookmarkEntry => ({
             title,
@@ -156,9 +147,7 @@ describe('useWorkspaceMetadataHistory', () => {
     });
 
     it('limits large inverse payloads to the shared byte budget and preserves retained undo/redo', async () => {
-        const {
-            bookmarkItems, history, registrations,
-        } = createHistory();
+        const {bookmarkItems, history, registrations} = createHistory();
         bookmarkItems.value = Array.from({length: 1000}, (_, index) => ({
             title: 'x'.repeat(1000),
             pageIndex: requirePageIndex(index),
@@ -180,44 +169,45 @@ describe('useWorkspaceMetadataHistory', () => {
         expect(await registrations[0]!.undo()).toBe(false);
         expect(bookmarkItems.value[0]?.title).toBe('edit-54');
         let undoCount = 0;
-        while (await history.undoMetadata()) undoCount += 1;
+        while (await history.undoMetadata()) {
+            undoCount += 1;
+        }
         expect(undoCount).toBe(14);
         expect(bookmarkItems.value[0]?.title).toBe('edit-40');
         let redoCount = 0;
-        while (await history.redoMetadata()) redoCount += 1;
+        while (await history.redoMetadata()) {
+            redoCount += 1;
+        }
         expect(redoCount).toBe(14);
         expect(bookmarkItems.value[0]?.title).toBe('edit-54');
     });
 
     it('tracks bookmark and page label snapshots with undo/redo', async () => {
-        const {
-            bookmarkItems,
-            pageLabels,
-            pageLabelRanges,
-            bookmarksDirty,
-            pageLabelsDirty,
-            history,
-        } = createHistory();
+        const {bookmarkItems, pageLabels, pageLabelRanges, bookmarksDirty, pageLabelsDirty, history} = createHistory();
 
         history.resetToCurrentState();
 
-        bookmarkItems.value = [{
-            title: 'Chapter 1',
-            pageIndex: requirePageIndex(0),
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        }];
+        bookmarkItems.value = [
+            {
+                title: 'Chapter 1',
+                pageIndex: requirePageIndex(0),
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            },
+        ];
         history.recordCurrentState();
 
-        const importedRanges: IPdfPageLabelRange[] = [{
-            startPage: 1,
-            style: 'D',
-            prefix: 'Imported ',
-            startNumber: 1,
-        }];
+        const importedRanges: IPdfPageLabelRange[] = [
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: 'Imported ',
+                startNumber: 1,
+            },
+        ];
         pageLabelRanges.value = importedRanges;
         pageLabels.value = ['Imported 1'];
         history.markCurrentStateClean('pageLabelRanges');
@@ -230,12 +220,14 @@ describe('useWorkspaceMetadataHistory', () => {
         expect(pageLabelRanges.value).toEqual(importedRanges);
 
         pageLabels.value = ['i'];
-        pageLabelRanges.value = [{
-            startPage: 1,
-            style: 'r',
-            prefix: '',
-            startNumber: 1,
-        }];
+        pageLabelRanges.value = [
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: '',
+                startNumber: 1,
+            },
+        ];
         history.recordCurrentState();
 
         expect(history.canUndoMetadata.value).toBe(true);
@@ -243,22 +235,26 @@ describe('useWorkspaceMetadataHistory', () => {
         expect(pageLabelsDirty.value).toBe(true);
 
         expect(await history.undoMetadata()).toBe(true);
-        expect(pageLabelRanges.value).toEqual([{
-            startPage: 1,
-            style: 'D',
-            prefix: 'Imported ',
-            startNumber: 1,
-        }]);
+        expect(pageLabelRanges.value).toEqual([
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: 'Imported ',
+                startNumber: 1,
+            },
+        ]);
         expect(pageLabels.value).toEqual(['Imported 1']);
-        expect(bookmarkItems.value).toEqual([{
-            title: 'Chapter 1',
-            pageIndex: 0,
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        }]);
+        expect(bookmarkItems.value).toEqual([
+            {
+                title: 'Chapter 1',
+                pageIndex: 0,
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            },
+        ]);
         expect(bookmarksDirty.value).toBe(true);
         expect(pageLabelsDirty.value).toBe(false);
 
@@ -267,32 +263,31 @@ describe('useWorkspaceMetadataHistory', () => {
         expect(bookmarksDirty.value).toBe(false);
 
         expect(await history.redoMetadata()).toBe(true);
-        expect(bookmarkItems.value).toEqual([{
-            title: 'Chapter 1',
-            pageIndex: 0,
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        }]);
+        expect(bookmarkItems.value).toEqual([
+            {
+                title: 'Chapter 1',
+                pageIndex: 0,
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            },
+        ]);
     });
 
     it('restores small page-label compatibility arrays while preserving range semantics', async () => {
-        const {
-            pageLabels,
-            pageLabelModel,
-            pageLabelRanges,
-            history,
-        } = createHistory();
+        const {pageLabels, pageLabelModel, pageLabelRanges, history} = createHistory();
 
         history.resetToCurrentState();
-        pageLabelRanges.value = [{
-            startPage: 1,
-            style: 'r',
-            prefix: 'Front ',
-            startNumber: 1,
-        }];
+        pageLabelRanges.value = [
+            {
+                startPage: 1,
+                style: 'r',
+                prefix: 'Front ',
+                startNumber: 1,
+            },
+        ];
         history.recordCurrentState();
 
         expect(await history.undoMetadata()).toBe(true);
@@ -307,12 +302,14 @@ describe('useWorkspaceMetadataHistory', () => {
     it('restores million-page history through ranges without materializing labels', async () => {
         const ledger = useWorkspaceCommandLedger();
         const totalPages = 1_000_000;
-        const initialRanges: IPdfPageLabelRange[] = [{
-            startPage: 1,
-            style: 'D',
-            prefix: '',
-            startNumber: 1,
-        }];
+        const initialRanges: IPdfPageLabelRange[] = [
+            {
+                startPage: 1,
+                style: 'D',
+                prefix: '',
+                startNumber: 1,
+            },
+        ];
         const changedRanges: IPdfPageLabelRange[] = [
             ...initialRanges,
             {
@@ -347,10 +344,12 @@ describe('useWorkspaceMetadataHistory', () => {
         expect(await ledger.undoTimeline()).toBe(true);
         expect(pageLabels.value).toBeNull();
         expect(pageLabelRanges.value).toEqual(initialRanges);
-        expect(pageLabelModel.value.segments).toEqual([expect.objectContaining({
-            startPage: 1,
-            endPage: totalPages,
-        })]);
+        expect(pageLabelModel.value.segments).toEqual([
+            expect.objectContaining({
+                startPage: 1,
+                endPage: totalPages,
+            }),
+        ]);
         expect(pageLabelModel.value.labelAt(totalPages)).toBe(String(totalPages));
 
         expect(await ledger.redoTimeline()).toBe(true);
@@ -371,24 +370,22 @@ describe('useWorkspaceMetadataHistory', () => {
     });
 
     it('keeps small metadata edits within the shared history budget without a second cap', async () => {
-        const {
-            bookmarkItems,
-            bookmarksDirty,
-            history,
-        } = createHistory();
+        const {bookmarkItems, bookmarksDirty, history} = createHistory();
 
         history.resetToCurrentState();
 
         for (let index = 0; index < 60; index += 1) {
-            bookmarkItems.value = [{
-                title: `Bookmark ${index + 1}`,
-                pageIndex: requirePageIndex(index),
-                namedDest: null,
-                bold: false,
-                italic: false,
-                color: null,
-                items: [],
-            }];
+            bookmarkItems.value = [
+                {
+                    title: `Bookmark ${index + 1}`,
+                    pageIndex: requirePageIndex(index),
+                    namedDest: null,
+                    bold: false,
+                    italic: false,
+                    color: null,
+                    items: [],
+                },
+            ];
             history.recordCurrentState();
         }
 
@@ -404,23 +401,21 @@ describe('useWorkspaceMetadataHistory', () => {
     });
 
     it('preserves undo history when the current metadata state is marked clean after save', async () => {
-        const {
-            bookmarkItems,
-            bookmarksDirty,
-            history,
-        } = createHistory();
+        const {bookmarkItems, bookmarksDirty, history} = createHistory();
 
         history.resetToCurrentState();
 
-        bookmarkItems.value = [{
-            title: 'Saved bookmark',
-            pageIndex: requirePageIndex(0),
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        }];
+        bookmarkItems.value = [
+            {
+                title: 'Saved bookmark',
+                pageIndex: requirePageIndex(0),
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            },
+        ];
         history.recordCurrentState();
         expect(bookmarksDirty.value).toBe(true);
 
@@ -434,36 +429,36 @@ describe('useWorkspaceMetadataHistory', () => {
         expect(bookmarksDirty.value).toBe(true);
 
         expect(await history.redoMetadata()).toBe(true);
-        expect(bookmarkItems.value).toEqual([{
-            title: 'Saved bookmark',
-            pageIndex: 0,
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        }]);
+        expect(bookmarkItems.value).toEqual([
+            {
+                title: 'Saved bookmark',
+                pageIndex: 0,
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            },
+        ]);
         expect(bookmarksDirty.value).toBe(false);
     });
 
     it('records edits that return metadata to the clean snapshot as undoable', async () => {
-        const {
-            bookmarkItems,
-            bookmarksDirty,
-            history,
-        } = createHistory();
+        const {bookmarkItems, bookmarksDirty, history} = createHistory();
 
         history.resetToCurrentState();
 
-        bookmarkItems.value = [{
-            title: 'Transient bookmark',
-            pageIndex: requirePageIndex(0),
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        }];
+        bookmarkItems.value = [
+            {
+                title: 'Transient bookmark',
+                pageIndex: requirePageIndex(0),
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            },
+        ];
         history.recordCurrentState();
 
         bookmarkItems.value = [];
@@ -473,15 +468,17 @@ describe('useWorkspaceMetadataHistory', () => {
         expect(history.canUndoMetadata.value).toBe(true);
 
         expect(await history.undoMetadata()).toBe(true);
-        expect(bookmarkItems.value).toEqual([{
-            title: 'Transient bookmark',
-            pageIndex: 0,
-            namedDest: null,
-            bold: false,
-            italic: false,
-            color: null,
-            items: [],
-        }]);
+        expect(bookmarkItems.value).toEqual([
+            {
+                title: 'Transient bookmark',
+                pageIndex: 0,
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            },
+        ]);
         expect(bookmarksDirty.value).toBe(true);
     });
 });

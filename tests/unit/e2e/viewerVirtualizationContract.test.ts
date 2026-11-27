@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     findMissingVisualFrames,
     findPdfVirtualizationContractViolations,
@@ -77,13 +73,9 @@ describe('viewer virtualization E2E contract', () => {
         const drifted = structuredClone(snapshot);
         drifted.trackItems[1]!.documentTop += 8;
         drifted.mountedPages[1]!.documentTop += 8;
-        expect(findPdfVirtualizationContractViolations([
-            snapshot,
-            drifted,
-        ])).toEqual(expect.arrayContaining([
-            expect.stringContaining('documentTop'),
-            expect.stringContaining('moved in document coordinates'),
-        ]));
+        expect(findPdfVirtualizationContractViolations([snapshot, drifted])).toEqual(
+            expect.arrayContaining([expect.stringContaining('documentTop'), expect.stringContaining('moved in document coordinates')]),
+        );
     });
 
     it('requires the selected page own the skeleton or committed visual', () => {
@@ -102,22 +94,24 @@ describe('viewer virtualization E2E contract', () => {
             kind: 'blank',
         };
         expect(findMissingVisualFrames([blankFrame])).toEqual([expect.stringContaining('frame 1')]);
-        expect(findMissingVisualFrames([
-            {
-                ...common,
-                frame: 2,
-                kind: 'page-shell',
-                skeletonSharesShell: true,
-            },
-            {
-                ...common,
-                canvasAuthorityReady: true,
-                canvasConnected: true,
-                canvasPixelHeight: 792,
-                canvasPixelWidth: 612,
-                frame: 3,
-                kind: 'committed-canvas',
-            },
-        ])).toEqual([]);
+        expect(
+            findMissingVisualFrames([
+                {
+                    ...common,
+                    frame: 2,
+                    kind: 'page-shell',
+                    skeletonSharesShell: true,
+                },
+                {
+                    ...common,
+                    canvasAuthorityReady: true,
+                    canvasConnected: true,
+                    canvasPixelHeight: 792,
+                    canvasPixelWidth: 612,
+                    frame: 3,
+                    kind: 'committed-canvas',
+                },
+            ]),
+        ).toEqual([]);
     });
 });

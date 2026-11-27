@@ -1,20 +1,25 @@
 <template>
-  <I18nT keypath="footer.copyright" tag="span" scope="global">
+  <I18nT
+    keypath="footer.copyright"
+    tag="span"
+    scope="global"
+  >
     <template #author>
       <a
         href="https://evb-stack.com/"
         target="_blank"
         rel="noopener noreferrer"
         class="copyright-author"
-      >{{ t('footer.author') }}</a>
+        >{{ t('footer.author') }}</a
+      >
     </template>
   </I18nT>
 </template>
 
 <script setup lang="ts">
-import { I18nT } from 'vue-i18n';
+import {I18nT} from 'vue-i18n';
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 </script>
 
 <style scoped>

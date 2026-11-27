@@ -1,6 +1,6 @@
-import type { Ref } from 'vue';
-import { useEventListener } from '@vueuse/core';
-import { getEventCurrentTarget } from '@app/utils/getEventCurrentTarget';
+import type {Ref} from 'vue';
+import {useEventListener} from '@vueuse/core';
+import {getEventCurrentTarget} from '@app/utils/getEventCurrentTarget';
 
 export interface IListDragSlot {
     top: number;
@@ -10,11 +10,7 @@ export interface IListDragSlot {
 
 const THRESHOLD = 5;
 
-export function clampListDragDeltaToDropSlots(
-    deltaY: number,
-    dragIndex: number,
-    slots: readonly IListDragSlot[],
-) {
+export function clampListDragDeltaToDropSlots(deltaY: number, dragIndex: number, slots: readonly IListDragSlot[]) {
     const dragSlot = slots[dragIndex];
     const firstSlot = slots[0];
     const lastSlot = slots[slots.length - 1];
@@ -123,7 +119,9 @@ export const useListDragReorder = (
         }
 
         for (let i = 0; i < rowElements.length; i++) {
-            if (i === dragIndex.value) continue;
+            if (i === dragIndex.value) {
+                continue;
+            }
 
             const el = rowElements[i];
             if (!el) {

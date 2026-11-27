@@ -1,27 +1,12 @@
 import type * as TViMockOriginalModule from '@electron/pdf/nativeToolPaths';
 
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    mkdtemp,
-    readFile,
-    rm,
-    stat,
-    truncate,
-    writeFile,
-} from 'fs/promises';
-import { tmpdir } from 'os';
-import {
-    dirname, join,
-} from 'path';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {mkdtemp, readFile, rm, stat, truncate, writeFile} from 'fs/promises';
+import {tmpdir} from 'os';
+import {dirname, join} from 'path';
 import type * as NodeCrypto from 'node:crypto';
-import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
-import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
+import type {TOpenPath} from '@electron/file-access/openPathCapabilities';
+import {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
 
 const randomUuidMock = vi.hoisted(() => vi.fn(() => 'fixed-output-id'));
 const runNativeToolCommandMock = vi.hoisted(() => vi.fn());
@@ -56,10 +41,7 @@ async function runTinyPdfSourceBatchInsertion(sourceCount: number) {
     try {
         await writeFile(workingCopyPath, '%PDF-1.7\noriginal');
         await writeFile(sourcePath, '%PDF-1.7\nsource');
-        createPdfFileFromInputPathsMock.mockImplementationOnce(async (
-            _sourcePaths: TOpenPath[],
-            outputPath: string,
-        ) => {
+        createPdfFileFromInputPathsMock.mockImplementationOnce(async (_sourcePaths: TOpenPath[], outputPath: string) => {
             await writeFile(outputPath, '%PDF-1.7\nnative-merged');
         });
         runNativeToolCommandMock.mockImplementationOnce(async (_binary, args: string[]) => {
@@ -72,7 +54,7 @@ async function runTinyPdfSourceBatchInsertion(sourceCount: number) {
             };
         });
 
-        const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
+        const {insertPagesFromSourcePaths} = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
 
         await insertPagesFromSourcePaths(workingCopyPath, targetPathOf(workingCopyPath), 2, sourcePaths, 1);
 
@@ -95,17 +77,21 @@ vi.mock('node:crypto', async (importOriginal) => {
     };
 });
 vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => '/mock/pdf-page-ops'}));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args)}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({
+    runNativeToolCommand: (...args: unknown[]) => runNativeToolCommandMock(...args),
+}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule>()),
-    getPdfNativeToolPaths: () => ({ qpdf: '/mock/qpdf' }),
+    getPdfNativeToolPaths: () => ({qpdf: '/mock/qpdf'}),
 }));
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-})}));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+    }),
+}));
 vi.mock('@electron/image/pdfConversion', () => ({
     createPdfFileFromInputPaths: (...args: unknown[]) => createPdfFileFromInputPathsMock(...args),
     isPdfOrImagePath: (path: string) => /\.(?:pdf|png|jpe?g|webp)$/i.test(path),
@@ -141,9 +127,17 @@ describe('page-ops insert service', () => {
                 };
             });
 
-            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
+            const {insertPagesFromSourcePaths} = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
 
-            await insertPagesFromSourcePaths(workingCopyPath, targetPathOf(workingCopyPath), 2, [sourcePath as TOpenPath], 1, undefined, options);
+            await insertPagesFromSourcePaths(
+                workingCopyPath,
+                targetPathOf(workingCopyPath),
+                2,
+                [sourcePath as TOpenPath],
+                1,
+                undefined,
+                options,
+            );
 
             expect(createPdfFileFromInputPathsMock).toHaveBeenCalledWith(
                 [sourcePath],
@@ -169,10 +163,7 @@ describe('page-ops insert service', () => {
             await writeFile(workingCopyPath, '%PDF-1.7\noriginal');
             await writeFile(sourcePath, new Uint8Array());
             await truncate(sourcePath, 16 * 1024 * 1024 + 1);
-            createPdfFileFromInputPathsMock.mockImplementationOnce(async (
-                _sourcePaths: TOpenPath[],
-                outputPath: string,
-            ) => {
+            createPdfFileFromInputPathsMock.mockImplementationOnce(async (_sourcePaths: TOpenPath[], outputPath: string) => {
                 await writeFile(outputPath, '%PDF-1.7\nnative-merged');
             });
             runNativeToolCommandMock.mockImplementationOnce(async (_binary, args: string[]) => {
@@ -185,15 +176,11 @@ describe('page-ops insert service', () => {
                 };
             });
 
-            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
+            const {insertPagesFromSourcePaths} = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
 
             await insertPagesFromSourcePaths(workingCopyPath, targetPathOf(workingCopyPath), 2, [sourcePath as TOpenPath], 1);
 
-            expect(createPdfFileFromInputPathsMock).toHaveBeenCalledWith(
-                [sourcePath],
-                tempSourcePdfPath,
-                {},
-            );
+            expect(createPdfFileFromInputPathsMock).toHaveBeenCalledWith([sourcePath], tempSourcePdfPath, {});
             await expect(readFile(targetPathOf(workingCopyPath), 'utf8')).resolves.toBe('%PDF-1.7\ninserted');
             await expect(readFile(workingCopyPath, 'utf8')).resolves.toBe('%PDF-1.7\noriginal');
             await expect(stat(tempSourcePdfPath)).rejects.toMatchObject({code: 'ENOENT'});
@@ -210,11 +197,7 @@ describe('page-ops insert service', () => {
         const workingCopyPath = join(workDir, 'work.pdf');
         const sourcePath = join(workDir, 'source.png');
         const tempSourcePdfPath = join(workDir, 'insert-source-fixed-output-id.pdf');
-        const nativeFailure = new PdfCombineCapabilityError(
-            'native-failure',
-            'Native PDF combine failed',
-            {operation: 'pdf-combine'},
-        );
+        const nativeFailure = new PdfCombineCapabilityError('native-failure', 'Native PDF combine failed', {operation: 'pdf-combine'});
 
         try {
             await writeFile(workingCopyPath, '%PDF-1.7\noriginal');
@@ -222,16 +205,13 @@ describe('page-ops insert service', () => {
             await truncate(sourcePath, 16 * 1024 * 1024 + 1);
             createPdfFileFromInputPathsMock.mockRejectedValueOnce(nativeFailure);
 
-            const { insertPagesFromSourcePaths } = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
+            const {insertPagesFromSourcePaths} = await import('@electron/features/page-ops/main/insertPagesFromSourcePaths.service');
 
-            await expect(insertPagesFromSourcePaths(workingCopyPath, targetPathOf(workingCopyPath), 2, [sourcePath as TOpenPath], 1))
-                .rejects.toBe(nativeFailure);
+            await expect(
+                insertPagesFromSourcePaths(workingCopyPath, targetPathOf(workingCopyPath), 2, [sourcePath as TOpenPath], 1),
+            ).rejects.toBe(nativeFailure);
 
-            expect(createPdfFileFromInputPathsMock).toHaveBeenCalledWith(
-                [sourcePath],
-                tempSourcePdfPath,
-                {},
-            );
+            expect(createPdfFileFromInputPathsMock).toHaveBeenCalledWith([sourcePath], tempSourcePdfPath, {});
             expect(runNativeToolCommandMock).not.toHaveBeenCalled();
             await expect(stat(tempSourcePdfPath)).rejects.toMatchObject({code: 'ENOENT'});
         } finally {

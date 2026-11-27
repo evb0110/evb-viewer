@@ -1,15 +1,7 @@
-import {
-    existsSync,
-    realpathSync,
-    writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    vi,
-} from 'vitest';
+import {existsSync, realpathSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {afterEach, beforeEach, vi} from 'vitest';
 
 // Tests that spawn git build fixture repositories under the temp directory and
 // must never reach the checkout that runs them. A git hook exports GIT_DIR and
@@ -43,7 +35,7 @@ let unexpectedErrorMessages: string[] = [];
 
 function formatConsoleArgs(args: unknown[]) {
     return args
-        .map(arg => {
+        .map((arg) => {
             if (typeof arg === 'string') {
                 return arg;
             }
@@ -54,8 +46,7 @@ function formatConsoleArgs(args: unknown[]) {
 
             try {
                 return JSON.stringify(arg);
-            }
-            catch {
+            } catch {
                 return String(arg);
             }
         })
@@ -63,9 +54,7 @@ function formatConsoleArgs(args: unknown[]) {
 }
 
 function isVueRuntimeFailure(message: string) {
-    return message.includes('[Vue warn]')
-        || message.includes('[Vue error]')
-        || message.includes('Unhandled error during execution');
+    return message.includes('[Vue warn]') || message.includes('[Vue error]') || message.includes('Unhandled error during execution');
 }
 
 // Every console.error during a test is a failure. A test that exercises an
@@ -93,9 +82,7 @@ beforeEach(() => {
 });
 
 function formatFailureList(messages: string[]) {
-    return messages
-        .map(message => `- ${message}`)
-        .join('\n');
+    return messages.map((message) => `- ${message}`).join('\n');
 }
 
 afterEach(() => {
@@ -114,9 +101,9 @@ afterEach(() => {
     }
     if (errorFailures.length > 0) {
         throw new Error(
-            'Unexpected console.error output is a test failure; '
-            + 'mock console.error in the test when the error path is intended:\n'
-            + formatFailureList(errorFailures),
+            'Unexpected console.error output is a test failure; ' +
+                'mock console.error in the test when the error path is intended:\n' +
+                formatFailureList(errorFailures),
         );
     }
 });

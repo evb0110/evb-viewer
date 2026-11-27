@@ -1,15 +1,13 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type { Ref } from 'vue';
-import { markStartupMetricOnce } from '@app/utils/startupMetrics';
-import type {
-    IDocumentViewerRuntime, IDocumentOpenSurfaceRenderOwner,
-} from '@app/modules/document-viewer/public';
-import type { IPdfCanvasDomCommit } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
-import { isPdfInitialVisualCanvasReady } from '@app/modules/pdf-viewer/runtime/lifecycle/isPdfInitialVisualCanvasReady';
-import { commitPdfPageSkeletonGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry';
-import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import type {Ref} from 'vue';
+import {markStartupMetricOnce} from '@app/utils/startupMetrics';
+import type {IDocumentViewerRuntime, IDocumentOpenSurfaceRenderOwner} from '@app/modules/document-viewer/public';
+import type {IPdfCanvasDomCommit} from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
+import {isPdfInitialVisualCanvasReady} from '@app/modules/pdf-viewer/runtime/lifecycle/isPdfInitialVisualCanvasReady';
+import {commitPdfPageSkeletonGeometry} from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry';
+import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 export interface ICreatePdfInitialVisualCommitOptions {
     chassisAuthority: IDocumentViewerRuntime | null;
     openSurfaceRenderOwner: IDocumentOpenSurfaceRenderOwner | undefined;
@@ -31,12 +29,15 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
         const snapshot = surface?.snapshot.value;
         const render = snapshot?.committedRender;
         const pageNumber = requirePageNumber(viewport.currentPage.value);
-        if (!surface || !snapshot || !render
-            || render.generation !== snapshot.generation
-            || render.documentRevision !== snapshot.identity?.documentRevision
-            || render.pageNumber !== pageNumber
-            || surface.viewportSession.value.requestedPage !== pageNumber
-            || requireViewport && snapshot.committedViewport?.pageNumber !== pageNumber
+        if (
+            !surface ||
+            !snapshot ||
+            !render ||
+            render.generation !== snapshot.generation ||
+            render.documentRevision !== snapshot.identity?.documentRevision ||
+            render.pageNumber !== pageNumber ||
+            surface.viewportSession.value.requestedPage !== pageNumber ||
+            (requireViewport && snapshot.committedViewport?.pageNumber !== pageNumber)
         ) {
             return null;
         }
@@ -50,29 +51,23 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
     function reconcileInitialVisual() {
         const current = readExactInitialCommit(true);
         if (
-            !current
-            || !isPdfInitialVisualCanvasReady(
-                options.viewerContainer.value,
-                current.pageNumber,
-                viewport.currentPage.value,
-            )
+            !current ||
+            !isPdfInitialVisualCanvasReady(options.viewerContainer.value, current.pageNumber, viewport.currentPage.value) ||
             // The surface phase reports `ready` for the whole life of an open
             // document once its first visual is committed, because the opening
             // shell stays retired across later page changes. Readiness is owned
             // by the viewport lifecycle, which every navigation returns to
             // `transitioning` until physically painted pixels are confirmed
             // here, so the mark is driven off the fence rather than the phase.
-            || !current.surface.markReady(current.render)
+            !current.surface.markReady(current.render)
         ) {
             return;
         }
         const ready = readExactInitialCommit(true);
-        if (!ready
-            || ready.snapshot.phase !== 'ready'
-            || (
-                pendingReadyToken === null
-                && lastEmittedReadyGeneration === ready.snapshot.generation
-            )
+        if (
+            !ready ||
+            ready.snapshot.phase !== 'ready' ||
+            (pendingReadyToken === null && lastEmittedReadyGeneration === ready.snapshot.generation)
         ) {
             return;
         }
@@ -139,16 +134,20 @@ export const createPdfInitialVisualCommit = (options: ICreatePdfInitialVisualCom
         if (!surface || commit.pageNumber !== surface.viewportSession.value.requestedPage) {
             return null;
         }
-        const fence = options.openSurfaceRenderOwner && surface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
-            generation: commit.openSurfaceGeneration,
-            documentRevision: commit.documentRevision,
-            requestId: commit.requestId,
-            pageNumber: commit.pageNumber,
-        });
-        return fence ? {
-            surface,
-            fence,
-        } : null;
+        const fence =
+            options.openSurfaceRenderOwner &&
+            surface.createOwnedRenderFence(options.openSurfaceRenderOwner, {
+                generation: commit.openSurfaceGeneration,
+                documentRevision: commit.documentRevision,
+                requestId: commit.requestId,
+                pageNumber: commit.pageNumber,
+            });
+        return fence
+            ? {
+                  surface,
+                  fence,
+              }
+            : null;
     }
     function handlePageCanvasMounted(commit: IPdfCanvasDomCommit) {
         options.renderedPageStateVersion.value += 1;

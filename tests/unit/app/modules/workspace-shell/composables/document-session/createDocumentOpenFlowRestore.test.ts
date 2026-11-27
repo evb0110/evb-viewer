@@ -1,22 +1,14 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import { requireDocumentRef } from '@contracts/documentRef';
-import type { TTranslateFn } from '@i18n-app';
-import {
-    createDocumentSessionState,
-} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
-import { createDocumentOpenFlow } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
-import { retainDocumentOpenWorkingCopyForRetry } from '@app/modules/workspace-shell/document-sessions/retainDocumentOpenWorkingCopyForRetry';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createPdfSourceJob } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {TTranslateFn} from '@i18n-app';
+import {createDocumentSessionState} from '@app/modules/workspace-shell/composables/document-session/documentSessionState';
+import {createDocumentOpenFlow} from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import {retainDocumentOpenWorkingCopyForRetry} from '@app/modules/workspace-shell/document-sessions/retainDocumentOpenWorkingCopyForRetry';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {createPdfSourceJob} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSessionSlot';
 
 const mocks = vi.hoisted(() => ({
     documentFiles: {
@@ -50,10 +42,12 @@ const platformApi = createElectronPlatformApiFixture({
     documentPicker: mocks.documentPicker,
     documentRecentFiles: mocks.documentRecentFiles,
 });
-vi.mock('@app/composables/useFailureToast', () => ({useFailureToast: () => ({
-    presentNoticeToast: vi.fn(),
-    presentFailureToast: vi.fn(),
-})}));
+vi.mock('@app/composables/useFailureToast', () => ({
+    useFailureToast: () => ({
+        presentNoticeToast: vi.fn(),
+        presentFailureToast: vi.fn(),
+    }),
+}));
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 vi.mock('@app/utils/performanceProfile', () => ({
     getPerformanceProfile: () => mocks.performanceProfile,
@@ -74,15 +68,17 @@ function claimEachOpen(
     };
 }
 
-interface IResetHistoryTestOptions {isCurrent?: (() => boolean) | undefined;}
+interface IResetHistoryTestOptions {
+    isCurrent?: (() => boolean) | undefined;
+}
 
 function createOpenFlowHarness() {
     const controller = createWorkspaceDocumentController({tabId: 'tab-1'});
     const state = createDocumentSessionState({
-            isDesktopRuntime: ref(true),
-            document: controller,
-            admitPdfSource: intent => createPdfSourceJob(intent, {}),
-        });
+        isDesktopRuntime: ref(true),
+        document: controller,
+        admitPdfSource: (intent) => createPdfSourceJob(intent, {}),
+    });
     const deps = {
         cleanupAbandonedWorkingCopy: vi.fn(async () => undefined),
         clearPdfConformanceProfile: vi.fn(),
@@ -105,12 +101,7 @@ function createOpenFlowHarness() {
 describe('createDocumentOpenFlow restore ownership', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.documentFiles.readFile.mockResolvedValue(Uint8Array.from([
-            37,
-            80,
-            68,
-            70,
-        ]));
+        mocks.documentFiles.readFile.mockResolvedValue(Uint8Array.from([37, 80, 68, 70]));
         mocks.documentFiles.statFile.mockResolvedValue({size: 4});
         mocks.documentFiles.readFileRange.mockResolvedValue(new Uint8Array());
         mocks.documentFiles.writeFile.mockResolvedValue(true);
@@ -126,10 +117,7 @@ describe('createDocumentOpenFlow restore ownership', () => {
     });
 
     it('retains a retryable restore snapshot through failure and releases it after retry success', async () => {
-        const {
-            deps,
-            openFlow,
-        } = createOpenFlowHarness();
+        const {deps, openFlow} = createOpenFlowHarness();
         const retryableResult: TOpenFileResult = {
             kind: 'pdf',
             originalPath: requireDocumentRef('/documents/retry.pdf'),

@@ -1,3 +1,1 @@
-export {
-    createDocumentPageSlotRegistry as createPdfPageSlotRegistry,
-} from '@app/modules/document-viewer/public';
+export {createDocumentPageSlotRegistry as createPdfPageSlotRegistry} from '@app/modules/document-viewer/public';

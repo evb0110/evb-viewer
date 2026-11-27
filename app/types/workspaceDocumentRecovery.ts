@@ -2,7 +2,9 @@ import type {ICanonicalAnnotationRecovery} from '@app/modules/pdf-viewer/public'
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {IWorkspaceMetadataRecovery} from '@contracts/workspaceCheckpoint';
 
-export interface IWorkspaceDocumentRecovery extends ICanonicalAnnotationRecovery {metadata?: IWorkspaceMetadataRecovery;}
+export interface IWorkspaceDocumentRecovery extends ICanonicalAnnotationRecovery {
+    metadata?: IWorkspaceMetadataRecovery;
+}
 /** Where the window's checkpoint finds a document: its file, its working copy, and whether its first save must ask where. */
 export interface IWorkspaceDocumentRefs {
     sourceRef: TDocumentRef | null;

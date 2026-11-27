@@ -1,7 +1,8 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Offline-Werkzeuge zum Bereinigen roher Scans und von DjVu-Dateien, für OCR, Annotationen und PDF-Export auf macOS, Windows und Linux. Kostenlos und unter der MIT-Lizenz.',
+        description:
+            'Offline-Werkzeuge zum Bereinigen roher Scans und von DjVu-Dateien, für OCR, Annotationen und PDF-Export auf macOS, Windows und Linux. Kostenlos und unter der MIT-Lizenz.',
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -30,7 +31,8 @@ export default {
         seo: {
             title: 'EVB Viewer Web-App und Desktop-Downloads',
             ogTitle: 'EVB Viewer für Dokumentarbeit im Web und auf dem Desktop',
-            ogDescription: 'Verwandle rohe Scans und DjVu-Dateien mit Offline-Bereinigung, OCR, Annotationen und Export auf macOS, Windows und Linux in durchsuchbare, annotierbare PDFs. Kostenlos und unter der MIT-Lizenz.',
+            ogDescription:
+                'Verwandle rohe Scans und DjVu-Dateien mit Offline-Bereinigung, OCR, Annotationen und Export auf macOS, Windows und Linux in durchsuchbare, annotierbare PDFs. Kostenlos und unter der MIT-Lizenz.',
         },
         hero: {
             lede: 'EVB Viewer bereinigt rohe Scans und DjVu-Dateien, erkennt ihren Text und speichert durchsuchbare, annotierbare PDFs. Es läuft offline unter macOS, Windows und Linux, ist kostenlos und MIT-lizenziert.',
@@ -40,7 +42,8 @@ export default {
             downloadInstaller: '{installerLabel} herunterladen',
             browseInstallers: 'Alle Installer anzeigen',
             openInBrowser: 'Im Browser verwenden',
-            detectionUnavailable: 'Die automatische Installer-Erkennung ist nicht verfügbar. Du kannst weiterhin die Web-App öffnen oder unten einen Desktop-Build auswählen.',
+            detectionUnavailable:
+                'Die automatische Installer-Erkennung ist nicht verfügbar. Du kannst weiterhin die Web-App öffnen oder unten einen Desktop-Build auswählen.',
             suggestedDevice: 'Empfohlener Desktop-Build: {installerLabel}',
             published: 'Veröffentlicht am {date}',
         },
@@ -53,7 +56,8 @@ export default {
         },
         installers: {
             heading: 'Desktop-Downloads',
-            description: 'Desktop-Builds ergänzen Scan-Bereinigung, native Betriebssystemintegration und umfangreichere Arbeitsabläufe wie große Zusammenführungen. Der empfohlene Installer richtet sich nach deinem aktuellen Gerät, aber jeder Build bleibt auswählbar.',
+            description:
+                'Desktop-Builds ergänzen Scan-Bereinigung, native Betriebssystemintegration und umfangreichere Arbeitsabläufe wie große Zusammenführungen. Der empfohlene Installer richtet sich nach deinem aktuellen Gerät, aber jeder Build bleibt auswählbar.',
             loading: 'Links zur neuesten Version werden geladen...',
             error: 'Release-Artefakte konnten im Moment nicht geladen werden.',
             retry: 'Erneut versuchen',
@@ -175,10 +179,12 @@ export default {
         },
         entryPoints: {
             heading: 'Wähle den passenden Einstieg',
-            description: 'Starte im Browser für schnelle lokale PDF-, DjVu- und Bildarbeit einschließlich OCR in rund 30 Sprachen oder nutze die Desktop-App für Scan-Bereinigung, native Betriebssystemintegration und größere Zusammenführungen.',
+            description:
+                'Starte im Browser für schnelle lokale PDF-, DjVu- und Bildarbeit einschließlich OCR in rund 30 Sprachen oder nutze die Desktop-App für Scan-Bereinigung, native Betriebssystemintegration und größere Zusammenführungen.',
             web: {
                 title: 'Web-App',
-                description: 'Am besten, um lokale PDFs, DjVu-Dateien und gängige Bilder sofort zu öffnen und anschließend ohne Installation zu prüfen, zu markieren und zu exportieren.',
+                description:
+                    'Am besten, um lokale PDFs, DjVu-Dateien und gängige Bilder sofort zu öffnen und anschließend ohne Installation zu prüfen, zu markieren und zu exportieren.',
                 point1: 'Arbeitsabläufe für PDF, DjVu und Bilder',
                 point2: 'Keine Installations- oder Update-Hürden',
                 point3: 'Ideal für schnelle Prüfung, Markup, Seitenbearbeitung, OCR und Export',
@@ -186,7 +192,8 @@ export default {
             },
             desktop: {
                 title: 'Desktop-App',
-                description: 'Am besten für Scan-Bereinigung, native Betriebssystemintegration, größere Zusammenführungen und Arbeitsabläufe, die mehr brauchen als Browser-Speichergrenzen.',
+                description:
+                    'Am besten für Scan-Bereinigung, native Betriebssystemintegration, größere Zusammenführungen und Arbeitsabläufe, die mehr brauchen als Browser-Speichergrenzen.',
                 point1: 'Scan-Bereinigung vor der OCR',
                 point2: 'Größere Zusammenführungs- und Exportaufgaben',
                 point3: 'Native Desktop-Dialoge und Betriebssystemintegration',
@@ -195,7 +202,8 @@ export default {
         },
         explore: {
             heading: 'Produkt im Kontext erkunden',
-            description: 'Nutze die Detailseiten für Hinweise zu Browser- gegenüber Desktop-Funktionen und eine praktische Benutzeranleitung.',
+            description:
+                'Nutze die Detailseiten für Hinweise zu Browser- gegenüber Desktop-Funktionen und eine praktische Benutzeranleitung.',
             featuresPage: 'Vollständige Funktionsseite öffnen',
             docsPage: 'Vollständige Dokumentation öffnen',
         },
@@ -204,46 +212,56 @@ export default {
         seo: {
             title: 'EVB Viewer Funktionen für Browser und Desktop',
             ogTitle: 'EVB Viewer Funktionsübersicht',
-            ogDescription: 'Sieh, was EVB Viewer heute im Browser abdeckt und was die Desktop-App für Scan-Bereinigung, native Betriebssystemintegration und größere Aufgaben ergänzt.',
+            ogDescription:
+                'Sieh, was EVB Viewer heute im Browser abdeckt und was die Desktop-App für Scan-Bereinigung, native Betriebssystemintegration und größere Aufgaben ergänzt.',
         },
         hero: {
             badge: 'Native Scan-Bereinigung und OCR',
             title: 'Rohe Scans bereinigen, dann das PDF durchsuchen und annotieren',
-            subtitle: 'EVB Viewer funktioniert offline auf macOS, Windows und Linux. Die native Rust-Engine richtet Seiten gerade aus, entfernt kleine Flecken, binarisiert, beschneidet und teilt Doppelseiten. Die Tesseract-OCR mit tessdata-best-Modellen unterstützt 30 Sprachen. Der Ablauf ist für Archivare, Bibliothekare, Historiker, Philologen und Menschen gedacht, die persönliche Scanbibliotheken pflegen.',
+            subtitle:
+                'EVB Viewer funktioniert offline auf macOS, Windows und Linux. Die native Rust-Engine richtet Seiten gerade aus, entfernt kleine Flecken, binarisiert, beschneidet und teilt Doppelseiten. Die Tesseract-OCR mit tessdata-best-Modellen unterstützt 30 Sprachen. Der Ablauf ist für Archivare, Bibliothekare, Historiker, Philologen und Menschen gedacht, die persönliche Scanbibliotheken pflegen.',
         },
         capabilities: {
             heading: 'Kernfunktionen des Arbeitsbereichs',
-            description: 'Lies, prüfe, kommentiere, ordne neu und exportiere Dokumente in einem Arbeitsbereich, und wähle dann die Laufzeit, die zur Aufgabe passt.',
+            description:
+                'Lies, prüfe, kommentiere, ordne neu und exportiere Dokumente in einem Arbeitsbereich, und wähle dann die Laufzeit, die zur Aufgabe passt.',
         },
         cards: {
             pdfDjvu: {
                 title: 'PDF, Bilder und DjVu dort, wo es passt',
-                description: 'Browser-Workflows öffnen lokale PDFs, DjVu-Dateien und gängige Bilder. Die Desktop-App ergänzt Scan-Bereinigung und vermeidet Browser-Speichergrenzen bei umfangreicheren Aufgaben.',
+                description:
+                    'Browser-Workflows öffnen lokale PDFs, DjVu-Dateien und gängige Bilder. Die Desktop-App ergänzt Scan-Bereinigung und vermeidet Browser-Speichergrenzen bei umfangreicheren Aufgaben.',
             },
             ocr: {
                 title: 'OCR mit durchsuchbarer Ausgabe',
-                description: 'OCR läuft lokal im Browser und in Desktop-Builds und hält das durchsuchbare Ergebnis im bearbeiteten Dokument. Beide lesen dieselben rund 30 Sprachen.',
+                description:
+                    'OCR läuft lokal im Browser und in Desktop-Builds und hält das durchsuchbare Ergebnis im bearbeiteten Dokument. Beide lesen dieselben rund 30 Sprachen.',
             },
             annotations: {
                 title: 'Umfangreiche Annotationswerkzeuge',
-                description: 'Markieren, unterstreichen, durchstreichen, zeichnen, Notizen platzieren und Prüfungsarbeit in der Datei behalten.',
+                description:
+                    'Markieren, unterstreichen, durchstreichen, zeichnen, Notizen platzieren und Prüfungsarbeit in der Datei behalten.',
             },
             pages: {
                 title: 'Seitenoperationen',
-                description: 'Lösche, extrahiere, sortiere, drehe, beschneide und erfasse Seiten. Browser-Zusammenführungen sind speicherbegrenzt; Desktop eignet sich besser für große Stapel.',
+                description:
+                    'Lösche, extrahiere, sortiere, drehe, beschneide und erfasse Seiten. Browser-Zusammenführungen sind speicherbegrenzt; Desktop eignet sich besser für große Stapel.',
             },
             workspace: {
                 title: 'Arbeitsbereichsverwaltung',
-                description: 'Nutze Tabs, geteilte Layouts, Lesezeichen, Suche und fokussierte Seitenbereiche, statt zwischen Werkzeugen zu springen.',
+                description:
+                    'Nutze Tabs, geteilte Layouts, Lesezeichen, Suche und fokussierte Seitenbereiche, statt zwischen Werkzeugen zu springen.',
             },
             exports: {
                 title: 'Mehrere Exportziele',
-                description: 'Exportiere nach PDF, PNG, JPG, TIFF und DOCX aus demselben Arbeitsbereich, der Prüfung und Bearbeitung erledigt hat.',
+                description:
+                    'Exportiere nach PDF, PNG, JPG, TIFF und DOCX aus demselben Arbeitsbereich, der Prüfung und Bearbeitung erledigt hat.',
             },
         },
         workflow: {
             heading: 'Wie das Produkt in echte Arbeit passt',
-            description: 'Eine typische EVB-Viewer-Sitzung beginnt mit schneller Arbeit im Browser und wechselt zum Desktop, wenn Scan-Bereinigung oder der Umfang es erfordern.',
+            description:
+                'Eine typische EVB-Viewer-Sitzung beginnt mit schneller Arbeit im Browser und wechselt zum Desktop, wenn Scan-Bereinigung oder der Umfang es erfordern.',
             load: {
                 title: 'Im Browser starten',
                 body: 'Öffne ein lokales PDF, eine DjVu-Datei oder ein Bild sofort, wenn eine Installation die Aufgabe bremsen würde.',
@@ -285,11 +303,13 @@ export default {
         seo: {
             title: 'EVB Viewer-Dokumentation für Browser- und Desktop-Arbeitsabläufe',
             ogTitle: 'EVB Viewer Benutzerhandbuch',
-            ogDescription: 'Starte mit der Browser-App für lokale Dateien und OCR und installiere dann die Desktop-App, wenn du Scan-Bereinigung, native Betriebssystemintegration oder größere Zusammenführungs- oder Exportaufgaben brauchst.',
+            ogDescription:
+                'Starte mit der Browser-App für lokale Dateien und OCR und installiere dann die Desktop-App, wenn du Scan-Bereinigung, native Betriebssystemintegration oder größere Zusammenführungs- oder Exportaufgaben brauchst.',
         },
         hero: {
             title: 'Anleitungen für Browser- und Desktop-App',
-            subtitle: 'Starte mit der Web-App für schnelle lokale PDF-, DjVu- und Bildarbeit einschließlich OCR und wechsle dann zur Desktop-App für Scan-Bereinigung, native Betriebssystemintegration oder größere Zusammenführungs- oder Exportaufgaben.',
+            subtitle:
+                'Starte mit der Web-App für schnelle lokale PDF-, DjVu- und Bildarbeit einschließlich OCR und wechsle dann zur Desktop-App für Scan-Bereinigung, native Betriebssystemintegration oder größere Zusammenführungs- oder Exportaufgaben.',
         },
         guideCardAction: 'Zum Abschnitt springen',
         browserQuickstart: {
@@ -352,7 +372,8 @@ export default {
             li3: 'Die Benennung erzeugter Dateien folgt der ersten ausgewählten Datei, zum Beispiel {example}.',
             li4: 'Wenn bereits ein Dokument geöffnet ist, wird die kombinierte Ausgabe in einem neuen Tab geöffnet, damit die aktuelle Arbeit erhalten bleibt.',
             li5: '{openRecent} speichert den Verlauf und enthält einen Befehl zum Löschen zuletzt verwendeter Dateien.',
-            convertIntro: '{menuPath} hat zwei Verhaltensweisen: Im DjVu-Modus öffnet es DjVu-Konvertierungsoptionen; andernfalls öffnet es die Dateiauswahl und erstellt aus den gewählten Quellen ein PDF.',
+            convertIntro:
+                '{menuPath} hat zwei Verhaltensweisen: Im DjVu-Modus öffnet es DjVu-Konvertierungsoptionen; andernfalls öffnet es die Dateiauswahl und erstellt aus den gewählten Quellen ein PDF.',
         },
         tabsSplits: {
             heading: 'Tabs und geteilter Editor',
@@ -424,7 +445,8 @@ export default {
             actionCol: 'Aktion',
             shortcutCol: 'Tastenkürzel',
             menuFile: 'Datei',
-            menuFileActions: 'Datei öffnen, Zuletzt geöffnet, Speichern, Speichern unter, DOCX/Bilder/TIFF exportieren, In PDF konvertieren, Neuer Tab, Tab schließen',
+            menuFileActions:
+                'Datei öffnen, Zuletzt geöffnet, Speichern, Speichern unter, DOCX/Bilder/TIFF exportieren, In PDF konvertieren, Neuer Tab, Tab schließen',
             menuActions: 'Aktionen',
             menuActionsActions: 'Rückgängig, Wiederholen, Kopieren',
             menuPages: 'Seiten',
@@ -432,7 +454,8 @@ export default {
             menuView: 'Ansicht',
             menuViewActions: 'Zoom-Steuerung, Anpassungsmodi, Seitenlayoutmodi, Editorbereiche teilen/fokussieren/verschieben/kopieren',
             menuWindow: 'Fenster',
-            menuWindowActions: 'Aktiven Tab in neues Fenster verschieben, aktiven Tab in anderes Fenster verschieben, dieses Fenster zusammenführen in',
+            menuWindowActions:
+                'Aktiven Tab in neues Fenster verschieben, aktiven Tab in anderes Fenster verschieben, dieses Fenster zusammenführen in',
             menuHelp: 'Hilfe',
             menuHelpActions: 'Über EVB Viewer',
             shortcutOpenFile: 'Datei öffnen',
@@ -451,7 +474,8 @@ export default {
             shortcutSplitEditor: 'Editor nach rechts teilen',
             shortcutFind: 'Im Dokument suchen',
             shortcutCycleTabs: 'Tabs durchlaufen',
-            contextMenuNote: 'Die meisten Bearbeitungs- und Layoutsteuerungen sind sowohl über Menüs als auch über Tab-/Seiten-Kontextmenüs verfügbar.',
+            contextMenuNote:
+                'Die meisten Bearbeitungs- und Layoutsteuerungen sind sowohl über Menüs als auch über Tab-/Seiten-Kontextmenüs verfügbar.',
             repoNote: 'Fehler und Funktionswünsche findest du im Projekt-Repository.',
         },
         license: {

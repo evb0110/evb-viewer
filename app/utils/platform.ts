@@ -1,8 +1,5 @@
-import type { IPlatformApi } from '@contracts/platformApi';
-import {
-    getRawElectronPlatformApi,
-    hasElectronPlatformBridge,
-} from '@app/utils/electronPlatformBridge';
+import type {IPlatformApi} from '@contracts/platformApi';
+import {getRawElectronPlatformApi, hasElectronPlatformBridge} from '@app/utils/electronPlatformBridge';
 
 let browserPlatformApi: IPlatformApi | null = null;
 

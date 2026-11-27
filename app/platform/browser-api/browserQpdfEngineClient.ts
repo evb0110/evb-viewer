@@ -10,19 +10,9 @@ import {
 } from '@contracts/browserQpdfEngine';
 import {isBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 import {SerializableError} from '@contracts/serializableError';
-import {
-    BrowserPageOpsWorkerUnavailableError,
-    runBrowserPageOpsWorkerRequest,
-} from '@app/platform/browser-api/browserPageOpsWorkerClient';
-import {
-    BrowserWorkerClient,
-    BrowserWorkerRequestOwner,
-    canUseBrowserWorker,
-} from '@app/platform/browser-api/browserWorkerClient';
-import {
-    settleBrowserWorkerResult,
-    type ITypedPendingBrowserWorkerRequest,
-} from '@app/platform/browser-api/settleBrowserWorkerResult';
+import {BrowserPageOpsWorkerUnavailableError, runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {BrowserWorkerClient, BrowserWorkerRequestOwner, canUseBrowserWorker} from '@app/platform/browser-api/browserWorkerClient';
+import {settleBrowserWorkerResult, type ITypedPendingBrowserWorkerRequest} from '@app/platform/browser-api/settleBrowserWorkerResult';
 import {toTransferableUint8Array} from '@app/platform/browser-api/toTransferableUint8Array';
 import {getErrorMessage} from '@app/utils/error';
 import * as v from 'valibot';
@@ -60,21 +50,21 @@ export class BrowserQpdfEngineUnavailableError extends Error {
 
 /** The engine could not be downloaded or started, so nothing judged the PDF. */
 export function isBrowserQpdfEngineUnavailableError(error: unknown) {
-    return error instanceof BrowserQpdfEngineUnavailableError
-        || (error instanceof SerializableError && error.code === BROWSER_QPDF_ENGINE_ERROR_CODES.unavailable);
+    return (
+        error instanceof BrowserQpdfEngineUnavailableError ||
+        (error instanceof SerializableError && error.code === BROWSER_QPDF_ENGINE_ERROR_CODES.unavailable)
+    );
 }
 
 function createEngineClient() {
     return new BrowserWorkerClient<TPendingEngineRequest>({
         idleTtlMs: ENGINE_IDLE_TTL_MS,
         preloadWasmPaths: () => [`/wasm/evb-qpdf.wasm?revision=${BROWSER_QPDF_ENGINE_REVISION}`],
-        createWorker: () => new Worker(
-            new URL('./browserQpdfEngine.worker.ts', import.meta.url),
-            {type: 'module'},
-        ),
-        createError: event => new BrowserQpdfEngineUnavailableError(
-            event.error instanceof Error ? event.error.message : event.message || 'The qpdf engine stopped',
-        ),
+        createWorker: () => new Worker(new URL('./browserQpdfEngine.worker.ts', import.meta.url), {type: 'module'}),
+        createError: (event) =>
+            new BrowserQpdfEngineUnavailableError(
+                event.error instanceof Error ? event.error.message : event.message || 'The qpdf engine stopped',
+            ),
         handleMessage: settleBrowserWorkerResult,
     });
 }
@@ -103,36 +93,50 @@ function requestEngine<TSchema extends v.GenericSchema>(
     const input = payload.input instanceof Blob ? payload.input : toTransferableUint8Array(payload.input);
     const engines = getOwner();
     const requestId = engines.createRequestId();
-    const createAbortError = () => signal?.reason instanceof Error
-        ? signal.reason
-        : new DOMException('qpdf was canceled', 'AbortError');
+    const createAbortError = () => (signal?.reason instanceof Error ? signal.reason : new DOMException('qpdf was canceled', 'AbortError'));
     const onAbort = () => engines.cancel(requestId, createAbortError());
     signal?.addEventListener('abort', onAbort, {once: true});
-    return engines.run(requestId, (client, isAdmitted) => new Promise<TResult>((resolve, reject) => {
-        if (!isAdmitted()) {
-            reject(createAbortError());
-            return;
-        }
-        const worker = client.getWorker();
-        client.registerPendingRequest(requestId, {
-            requestType: type,
-            reject,
-            resolveData: (data) => {
-                const parsed = v.safeParse(schema, data, {abortEarly: true});
-                if (!parsed.success) return false;
-                resolve(parsed.output);
-                return true;
-            },
-        }, () => new BrowserQpdfEngineTimeoutError(options.timeoutMs ?? DEFAULT_TIMEOUT_MS), options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-        worker.postMessage({
-            id: requestId,
-            type,
-            payload: {
-                ...payload,
-                input,
-            },
-        }, input instanceof Blob ? [] : [input.buffer]);
-    })).finally(() => signal?.removeEventListener('abort', onAbort));
+    return engines
+        .run(
+            requestId,
+            (client, isAdmitted) =>
+                new Promise<TResult>((resolve, reject) => {
+                    if (!isAdmitted()) {
+                        reject(createAbortError());
+                        return;
+                    }
+                    const worker = client.getWorker();
+                    client.registerPendingRequest(
+                        requestId,
+                        {
+                            requestType: type,
+                            reject,
+                            resolveData: (data) => {
+                                const parsed = v.safeParse(schema, data, {abortEarly: true});
+                                if (!parsed.success) {
+                                    return false;
+                                }
+                                resolve(parsed.output);
+                                return true;
+                            },
+                        },
+                        () => new BrowserQpdfEngineTimeoutError(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+                        options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+                    );
+                    worker.postMessage(
+                        {
+                            id: requestId,
+                            type,
+                            payload: {
+                                ...payload,
+                                input,
+                            },
+                        },
+                        input instanceof Blob ? [] : [input.buffer],
+                    );
+                }),
+        )
+        .finally(() => signal?.removeEventListener('abort', onAbort));
 }
 
 /**
@@ -147,16 +151,18 @@ export function runBrowserQpdfCommand(
     input: Uint8Array | Blob,
     options: IBrowserQpdfRequestOptions = {},
 ): Promise<IBrowserQpdfRunResult> {
-    return requestEngine('run', {
-        command,
-        input,
-    }, BROWSER_QPDF_RUN_RESULT_SCHEMA, options);
+    return requestEngine(
+        'run',
+        {
+            command,
+            input,
+        },
+        BROWSER_QPDF_RUN_RESULT_SCHEMA,
+        options,
+    );
 }
 
-async function readAppendAdmissionVerdict(
-    input: Uint8Array | Blob,
-    options: IBrowserQpdfRequestOptions,
-) {
+async function readAppendAdmissionVerdict(input: Uint8Array | Blob, options: IBrowserQpdfRequestOptions) {
     const source = input instanceof Blob ? input : new Blob([input as Uint8Array<ArrayBuffer>]);
     if (source.size === 0 || source.size > BROWSER_QPDF_MAX_INPUT_BYTES) {
         throw new SerializableError({
@@ -166,13 +172,19 @@ async function readAppendAdmissionVerdict(
     }
     let result;
     try {
-        result = await runBrowserPageOpsWorkerRequest('appendAdmission', {source}, {
-            requireWorker: true,
-            ...(options.signal ? {signal: options.signal} : {}),
-            ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
-        });
+        result = await runBrowserPageOpsWorkerRequest(
+            'appendAdmission',
+            {source},
+            {
+                requireWorker: true,
+                ...(options.signal ? {signal: options.signal} : {}),
+                ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
+            },
+        );
     } catch (error) {
-        if (options.signal?.aborted) throw error;
+        if (options.signal?.aborted) {
+            throw error;
+        }
         if (error instanceof BrowserPageOpsWorkerUnavailableError) {
             throw new BrowserQpdfEngineUnavailableError(error.message);
         }
@@ -218,7 +230,7 @@ export async function normalizeBrowserPdfAppendBase(
             message: `qpdf exited with code ${rewrite.exitCode}: ${rewrite.stderr.trim()}`,
         });
     }
-    if (await readAppendAdmissionVerdict(rewrite.output, options) === 'repairable') {
+    if ((await readAppendAdmissionVerdict(rewrite.output, options)) === 'repairable') {
         throw new SerializableError({
             code: BROWSER_QPDF_ENGINE_ERROR_CODES.rewriteFailed,
             message: 'The rewritten PDF still cannot take an edit',

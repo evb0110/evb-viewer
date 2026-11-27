@@ -1,24 +1,93 @@
 <template>
-    <AppTooltip :text="triggerDetail" :content="{ side: 'top' }" :disabled="open">
-        <UPopover v-model:open="open" :content="{ side: 'top', align: 'start', sideOffset: 6, collisionPadding: 12 }">
-            <button type="button" class="picker-trigger" data-model-picker-trigger :aria-label="triggerDetail">
-                <AssistantProviderIcon v-if="selectedInstance" class="trigger-icon" :provider="selectedInstance.driver" :badge="instanceBadge(selectedInstance, instances)" />
-                <span class="trigger-model">{{ selectedModel?.shortLabel ?? selectedModel?.label ?? selection?.model ?? t('assistant.selectInstance') }}</span>
-                <span v-if="effortLabel || isFast" class="trigger-traits">
-                    <span v-if="effortLabel" class="trigger-effort">{{ effortLabel }}</span>
-                    <UIcon v-if="isFast" name="i-ph-lightning-fill" class="trigger-fast" />
+    <AppTooltip
+        :text="triggerDetail"
+        :content="{side: 'top'}"
+        :disabled="open"
+    >
+        <UPopover
+            v-model:open="open"
+            :content="{side: 'top', align: 'start', sideOffset: 6, collisionPadding: 12}"
+        >
+            <button
+                type="button"
+                class="picker-trigger"
+                data-model-picker-trigger
+                :aria-label="triggerDetail"
+            >
+                <AssistantProviderIcon
+                    v-if="selectedInstance"
+                    class="trigger-icon"
+                    :provider="selectedInstance.driver"
+                    :badge="instanceBadge(selectedInstance, instances)"
+                />
+                <span class="trigger-model">{{
+                    selectedModel?.shortLabel ?? selectedModel?.label ?? selection?.model ?? t('assistant.selectInstance')
+                }}</span>
+                <span
+                    v-if="effortLabel || isFast"
+                    class="trigger-traits"
+                >
+                    <span
+                        v-if="effortLabel"
+                        class="trigger-effort"
+                        >{{ effortLabel }}</span
+                    >
+                    <UIcon
+                        v-if="isFast"
+                        name="i-ph-lightning-fill"
+                        class="trigger-fast"
+                    />
                 </span>
             </button>
             <template #content>
-                <div class="model-picker" data-model-picker>
+                <div
+                    class="model-picker"
+                    data-model-picker
+                >
                     <div class="picker-body">
-                        <AssistantModelPickerContent ref="content" :instances="instances" :selection="selection" @pick="pickModel" @focus-effort="effortColumn?.focusLevel()" @close="open = false" />
-                        <AssistantModelEffortColumn ref="effortColumn" :model="selectedModel" :model-label="selectedModel?.shortLabel ?? selectedModel?.label ?? ''" :effort="selection?.effort ?? ''" @pick="pickEffort" @back="content?.focusSearch()" />
+                        <AssistantModelPickerContent
+                            ref="content"
+                            :instances="instances"
+                            :selection="selection"
+                            @pick="pickModel"
+                            @focus-effort="effortColumn?.focusLevel()"
+                            @close="open = false"
+                        />
+                        <AssistantModelEffortColumn
+                            ref="effortColumn"
+                            :model="selectedModel"
+                            :model-label="selectedModel?.shortLabel ?? selectedModel?.label ?? ''"
+                            :effort="selection?.effort ?? ''"
+                            @pick="pickEffort"
+                            @back="content?.focusSearch()"
+                        />
                     </div>
-                    <div v-if="supportsFast" class="picker-footer">
-                        <div ref="speedControl" class="speed-control" role="radiogroup" :aria-label="t('assistant.speedMode')" @keydown="handleSpeedKeydown">
-                            <button v-for="speed in speeds" :key="speed.id" type="button" role="radio" class="speed-segment" :aria-checked="currentSpeed === speed.id" :tabindex="currentSpeed === speed.id ? 0 : -1" @click="pickSpeed(speed.id)">
-                                <UIcon v-if="speed.id === 'fast'" name="i-ph-lightning-fill" class="speed-icon" />
+                    <div
+                        v-if="supportsFast"
+                        class="picker-footer"
+                    >
+                        <div
+                            ref="speedControl"
+                            class="speed-control"
+                            role="radiogroup"
+                            :aria-label="t('assistant.speedMode')"
+                            @keydown="handleSpeedKeydown"
+                        >
+                            <button
+                                v-for="speed in speeds"
+                                :key="speed.id"
+                                type="button"
+                                role="radio"
+                                class="speed-segment"
+                                :aria-checked="currentSpeed === speed.id"
+                                :tabindex="currentSpeed === speed.id ? 0 : -1"
+                                @click="pickSpeed(speed.id)"
+                            >
+                                <UIcon
+                                    v-if="speed.id === 'fast'"
+                                    name="i-ph-lightning-fill"
+                                    class="speed-icon"
+                                />
                                 {{ t(speed.key) }}
                             </button>
                         </div>
@@ -30,33 +99,30 @@
 </template>
 
 <script setup lang="ts">
-import type {
-    IAssistantInstanceStatus, IAssistantSelection,
-} from '@contracts/assistant';
-import { resolveAssistantSelection } from '@app/modules/agent-panel/utils/assistantSelectionPreference';
-import { instanceBadge } from '@app/modules/agent-panel/utils/assistantModelPicker';
+import type {IAssistantInstanceStatus, IAssistantSelection} from '@contracts/assistant';
+import {resolveAssistantSelection} from '@app/modules/agent-panel/utils/assistantSelectionPreference';
+import {instanceBadge} from '@app/modules/agent-panel/utils/assistantModelPicker';
 import AssistantProviderIcon from '@app/modules/agent-panel/components/AssistantProviderIcon.vue';
 import AssistantModelPickerContent from '@app/modules/agent-panel/components/AssistantModelPickerContent.vue';
 import AssistantModelEffortColumn from '@app/modules/agent-panel/components/AssistantModelEffortColumn.vue';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
 
-const {
-    instances,
-    selection,
-} = defineProps<{
+const {instances, selection} = defineProps<{
     instances: IAssistantInstanceStatus[];
     selection: IAssistantSelection | null;
 }>();
-const emit = defineEmits<{ select: [selection: IAssistantSelection] }>();
-const { t } = useTypedI18n();
+const emit = defineEmits<{select: [selection: IAssistantSelection]}>();
+const {t} = useTypedI18n();
 const open = ref(false);
 const content = ref<InstanceType<typeof AssistantModelPickerContent> | null>(null);
 const effortColumn = ref<InstanceType<typeof AssistantModelEffortColumn> | null>(null);
-const selectedInstance = computed(() => instances.find(instance => instance.id === selection?.instanceId));
-const selectedModel = computed(() => selectedInstance.value?.models.find(model => model.id === selection?.model));
-const supportsFast = computed(() => selectedModel.value?.serviceTiers?.some(tier => tier.id === 'fast' || tier.id === 'priority') === true);
+const selectedInstance = computed(() => instances.find((instance) => instance.id === selection?.instanceId));
+const selectedModel = computed(() => selectedInstance.value?.models.find((model) => model.id === selection?.model));
+const supportsFast = computed(
+    () => selectedModel.value?.serviceTiers?.some((tier) => tier.id === 'fast' || tier.id === 'priority') === true,
+);
 const isFast = computed(() => supportsFast.value && selection?.speedMode === 'fast');
-const effortLabel = computed(() => selectedModel.value?.reasoningEfforts?.find(option => option.id === selection?.effort)?.label ?? '');
+const effortLabel = computed(() => selectedModel.value?.reasoningEfforts?.find((option) => option.id === selection?.effort)?.label ?? '');
 const speeds = [
     {
         id: 'standard',
@@ -68,31 +134,43 @@ const speeds = [
     },
 ] as const;
 // The tooltip and screen readers name what the trigger abbreviates: instance, full model, effort and speed.
-const triggerDetail = computed(() => [
-    selectedInstance.value?.label ?? t('assistant.selectInstance'),
-    selectedModel.value?.label ?? selection?.model,
-    effortLabel.value,
-    supportsFast.value ? t(isFast.value ? 'assistant.speedFast' : 'assistant.speedStandard') : '',
-].filter(Boolean).join(' · '));
+const triggerDetail = computed(() =>
+    [
+        selectedInstance.value?.label ?? t('assistant.selectInstance'),
+        selectedModel.value?.label ?? selection?.model,
+        effortLabel.value,
+        supportsFast.value ? t(isFast.value ? 'assistant.speedFast' : 'assistant.speedStandard') : '',
+    ]
+        .filter(Boolean)
+        .join(' · '),
+);
 
 // Picking a model keeps the picker open and moves to its levels, as in T3 Code's docked picker.
 function pickModel(instanceId: string, model: string) {
-    const nextSelection = resolveAssistantSelection({
-        instanceId,
-        model,
-        effort: selection?.effort ?? '',
-        speedMode: selection?.speedMode ?? 'standard',
-    }, instances, null);
-    if (!nextSelection) return;
+    const nextSelection = resolveAssistantSelection(
+        {
+            instanceId,
+            model,
+            effort: selection?.effort ?? '',
+            speedMode: selection?.speedMode ?? 'standard',
+        },
+        instances,
+        null,
+    );
+    if (!nextSelection) {
+        return;
+    }
     emit('select', nextSelection);
     requestAnimationFrame(() => effortColumn.value?.focusLevel());
 }
 
 function pickEffort(effort: string) {
-    if (selection) emit('select', {
-        ...selection,
-        effort,
-    });
+    if (selection) {
+        emit('select', {
+            ...selection,
+            effort,
+        });
+    }
 }
 
 const speedControl = ref<HTMLElement | null>(null);
@@ -100,23 +178,34 @@ const currentSpeed = computed(() => selection?.speedMode ?? 'standard');
 
 // One tab stop; the arrow keys move between and select the speeds.
 function handleSpeedKeydown(event: KeyboardEvent) {
-    const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
-    if (!step || event.altKey || event.ctrlKey || event.metaKey) return;
+    const step =
+        event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
+    if (!step || event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+    }
     event.preventDefault();
-    const index = speeds.findIndex(speed => speed.id === currentSpeed.value);
+    const index = speeds.findIndex((speed) => speed.id === currentSpeed.value);
     const next = speeds[(index + step + speeds.length) % speeds.length];
-    if (!next) return;
+    if (!next) {
+        return;
+    }
     pickSpeed(next.id);
     nextTick(() => speedControl.value?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus());
 }
 
 function pickSpeed(speedMode: IAssistantSelection['speedMode']) {
-    if (selection) emit('select', {
-        ...selection,
-        speedMode,
-    });
+    if (selection) {
+        emit('select', {
+            ...selection,
+            speedMode,
+        });
+    }
 }
-defineExpose({ open: () => { open.value = true; } });
+defineExpose({
+    open: () => {
+        open.value = true;
+    },
+});
 </script>
 
 <style lang="scss" scoped>

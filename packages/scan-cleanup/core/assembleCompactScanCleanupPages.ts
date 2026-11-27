@@ -4,10 +4,7 @@ import {decodeScanCleanupPageOpsResult} from '@contracts/scan-cleanup/nativeArti
 import {createReadStream} from 'node:fs';
 import {isRecord} from '@contracts/runtimeGuards';
 import {createScanCleanupSidecarProtocolHandler} from '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler';
-import {
-    rename,
-    writeFile,
-} from 'fs/promises';
+import {rename, writeFile} from 'fs/promises';
 import {join} from 'path';
 import type {
     TScanCleanupLog,
@@ -24,23 +21,14 @@ import {
     isScanCleanupCliFallbackSentinel,
 } from '@evb/scan-cleanup/core/compactManifest';
 import type {IScanCleanupTextLayerPlan} from '@evb/scan-cleanup/core/sourceTextLayer';
-import {
-    ScanCleanupContractError, ScanCleanupNativeToolUnavailableError,
-} from '@evb/scan-cleanup/core/errors';
+import {ScanCleanupContractError, ScanCleanupNativeToolUnavailableError} from '@evb/scan-cleanup/core/errors';
 
 export const SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS = 10 * 60 * 1000;
 
 export type IRenderedCleanupOutputPage = IScanCleanupRenderedOutput<string>;
 
-function appendQpdfPageSelection(
-    args: string[],
-    path: string,
-    firstPage: number,
-    lastPage: number,
-) {
-    args.push(path, firstPage === lastPage
-        ? String(firstPage)
-        : `${String(firstPage)}-${String(lastPage)}`);
+function appendQpdfPageSelection(args: string[], path: string, firstPage: number, lastPage: number) {
+    args.push(path, firstPage === lastPage ? String(firstPage) : `${String(firstPage)}-${String(lastPage)}`);
 }
 
 /** Non-affine pixels cannot inherit positioned annotations without data loss. */
@@ -54,19 +42,14 @@ async function assertSourceAnnotationsHaveGeometry(
     dependencies: IRunScanCleanupPipelineDependencies,
     onTerminationProof?: IScanCleanupRunCommandOptions['onTerminationProof'],
 ) {
-    if (pages.length === 0) return;
+    if (pages.length === 0) {
+        return;
+    }
     if (!paths.pdfPageOpsBinary || isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }
     const sourcePagesPath = join(scratch, 'source-annotation-pages.pdf');
-    await dependencies.runCommand(paths.qpdfBinary, [
-        '--empty',
-        '--pages',
-        preparedPdfPath,
-        pages.join(','),
-        '--',
-        sourcePagesPath,
-    ], {
+    await dependencies.runCommand(paths.qpdfBinary, ['--empty', '--pages', preparedPdfPath, pages.join(','), '--', sourcePagesPath], {
         signal,
         log,
         ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
@@ -76,13 +59,7 @@ async function assertSourceAnnotationsHaveGeometry(
     // Every annotation the pages carry, links and form fields included: the
     // editor's parser leaves those out, and none survives non-affine geometry.
     const sidecarPath = join(scratch, 'source-annotations.jsonl');
-    await dependencies.runCommand(paths.pdfPageOpsBinary, [
-        'annotation-index',
-        '--input',
-        sourcePagesPath,
-        '--output',
-        sidecarPath,
-    ], {
+    await dependencies.runCommand(paths.pdfPageOpsBinary, ['annotation-index', '--input', sourcePagesPath, '--output', sidecarPath], {
         signal,
         commandLabel: 'evb-pdf-page-ops(annotation-index:scan-cleanup)',
         timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
@@ -94,10 +71,12 @@ async function assertSourceAnnotationsHaveGeometry(
     const protocol = createScanCleanupSidecarProtocolHandler({
         stdout: source,
         stderr: undefined,
-        onProtocolError: error => { protocolError = error; },
+        onProtocolError: (error) => {
+            protocolError = error;
+        },
         log,
     });
-    source.on('error', error => protocol.failProtocol(error, '[annotation sidecar read failed]'));
+    source.on('error', (error) => protocol.failProtocol(error, '[annotation sidecar read failed]'));
     let headerRead = false;
     let expectedChunkIndex = 0;
     try {
@@ -111,23 +90,32 @@ async function assertSourceAnnotationsHaveGeometry(
                 headerRead = true;
                 continue;
             }
-            if (!isRecord(value) || !Array.isArray(value.entries)
-                || value.chunkIndex !== expectedChunkIndex
-                || Object.keys(value).some(key => key !== 'chunkIndex' && key !== 'entries')) {
+            if (
+                !isRecord(value) ||
+                !Array.isArray(value.entries) ||
+                value.chunkIndex !== expectedChunkIndex ||
+                Object.keys(value).some((key) => key !== 'chunkIndex' && key !== 'entries')
+            ) {
                 throw new ScanCleanupContractError('Invalid source annotation chunk');
             }
             expectedChunkIndex += 1;
             for (const entry of value.entries) {
                 const pageNumber = isRecord(entry) && typeof entry.pageIndex === 'number' ? pages[entry.pageIndex] : undefined;
-                if (pageNumber === undefined) throw new ScanCleanupContractError('Invalid source annotation page index');
+                if (pageNumber === undefined) {
+                    throw new ScanCleanupContractError('Invalid source annotation page index');
+                }
                 throw new ScanCleanupContractError(
-                    `Cannot preserve annotations on source page ${String(pageNumber)} `
-                    + 'without affine cleanup geometry. Disable dewarping or preserve original quality.',
+                    `Cannot preserve annotations on source page ${String(pageNumber)} ` +
+                        'without affine cleanup geometry. Disable dewarping or preserve original quality.',
                 );
             }
         }
-        if (protocolError) throw protocolError;
-        if (!headerRead) throw new ScanCleanupContractError('Missing source annotation header');
+        if (protocolError) {
+            throw protocolError;
+        }
+        if (!headerRead) {
+            throw new ScanCleanupContractError('Missing source annotation header');
+        }
     } finally {
         protocol.lines.close();
         source.destroy();
@@ -151,7 +139,9 @@ export async function overlayScanCleanupTextLayer(
     provenanceStampHex?: string,
 ) {
     // Every output participates in the final catalog map, including non-affine rasters.
-    if (pages.length === 0) return null;
+    if (pages.length === 0) {
+        return null;
+    }
     if (paths.pdfPageOpsBinary === undefined || isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }
@@ -161,28 +151,29 @@ export async function overlayScanCleanupTextLayer(
         textLayerInstructionsPath,
         serializeScanCleanupTextLayerInstructions(pages, paths.provenanceStampSupport === false ? undefined : provenanceStampHex),
     );
-    const pageOps = await dependencies.runCommand(paths.pdfPageOpsBinary, [
-        'overlay-text',
-        '--input',
-        stagedPdfPath,
-        '--source',
-        preparedPdfPath,
-        '--output',
-        textLayerPdfPath,
-        '--instructions-file',
-        textLayerInstructionsPath,
-    ], {
-        signal,
-        commandLabel: 'evb-pdf-page-ops(overlay-text:scan-cleanup)',
-        timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
-        log,
-        ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
-    });
-    await rename(textLayerPdfPath, stagedPdfPath);
-    log(
-        'debug',
-        `Scan cleanup retained source text and annotations on ${String(pages.length)} output page(s)`,
+    const pageOps = await dependencies.runCommand(
+        paths.pdfPageOpsBinary,
+        [
+            'overlay-text',
+            '--input',
+            stagedPdfPath,
+            '--source',
+            preparedPdfPath,
+            '--output',
+            textLayerPdfPath,
+            '--instructions-file',
+            textLayerInstructionsPath,
+        ],
+        {
+            signal,
+            commandLabel: 'evb-pdf-page-ops(overlay-text:scan-cleanup)',
+            timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
+            log,
+            ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
+        },
     );
+    await rename(textLayerPdfPath, stagedPdfPath);
+    log('debug', `Scan cleanup retained source text and annotations on ${String(pages.length)} output page(s)`);
     return decodeScanCleanupPageOpsResult(pageOps.stdout);
 }
 
@@ -201,11 +192,16 @@ export async function assembleWithCompactSourcePages(
     onTerminationProof?: IScanCleanupRunCommandOptions['onTerminationProof'],
 ) {
     await assertSourceAnnotationsHaveGeometry(
-        textLayerPlan.skippedNonAffine, paths, preparedPdfPath, scratch, signal, log, dependencies, onTerminationProof,
+        textLayerPlan.skippedNonAffine,
+        paths,
+        preparedPdfPath,
+        scratch,
+        signal,
+        log,
+        dependencies,
+        onTerminationProof,
     );
-    const preservedPages = outputPages.flatMap(output => (
-        output.preservedSource === undefined ? [] : [output.preservedSource]
-    ));
+    const preservedPages = outputPages.flatMap((output) => (output.preservedSource === undefined ? [] : [output.preservedSource]));
     if (preservedPages.length === 0) {
         if (rasterizedPdfPath !== stagedPdfPath) {
             await rename(rasterizedPdfPath, stagedPdfPath);
@@ -216,35 +212,37 @@ export async function assembleWithCompactSourcePages(
         }
         const instructionsPath = join(scratch, 'preserved-source-pages.json');
         const preservedPdfPath = join(scratch, 'preserved-source-pages.pdf');
-        const instructions = buildScanCleanupPageOpsInstructions(preservedPages.map(page => ({
-            sourcePageIndex: page.sourcePageIndex,
-            rotationQuarterTurns: page.rotationQuarterTurns,
-            outputs: [{
-                cropRect: page.cropRect,
-                contentTransform: page.contentTransform,
-            }],
-        })), provenanceStampHex, 'assembly');
+        const instructions = buildScanCleanupPageOpsInstructions(
+            preservedPages.map((page) => ({
+                sourcePageIndex: page.sourcePageIndex,
+                rotationQuarterTurns: page.rotationQuarterTurns,
+                outputs: [
+                    {
+                        cropRect: page.cropRect,
+                        contentTransform: page.contentTransform,
+                    },
+                ],
+            })),
+            provenanceStampHex,
+            'assembly',
+        );
         await writeFile(
             instructionsPath,
             paths.provenanceStampSupport === false
                 ? serializeLegacyScanCleanupPageOpsInstructions(instructions)
                 : serializeScanCleanupPageOpsInstructions(instructions),
         );
-        await dependencies.runCommand(paths.pdfPageOpsBinary, [
-            'split-pages',
-            '--input',
-            preparedPdfPath,
-            '--output',
-            preservedPdfPath,
-            '--instructions-file',
-            instructionsPath,
-        ], {
-            signal,
-            commandLabel: 'evb-pdf-page-ops(split-pages:compact-scan-cleanup-pages)',
-            timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
-            log,
-            ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
-        });
+        await dependencies.runCommand(
+            paths.pdfPageOpsBinary,
+            ['split-pages', '--input', preparedPdfPath, '--output', preservedPdfPath, '--instructions-file', instructionsPath],
+            {
+                signal,
+                commandLabel: 'evb-pdf-page-ops(split-pages:compact-scan-cleanup-pages)',
+                timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
+                log,
+                ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
+            },
+        );
 
         const qpdfArgs = [
             // The preserved split is the primary input: it carries the output's
@@ -268,13 +266,9 @@ export async function assembleWithCompactSourcePages(
             }
         };
         outputPages.forEach((output, index) => {
-            const pageNumber = output.preservedSource === undefined
-                ? index + 1
-                : ++preservedPageNumber;
+            const pageNumber = output.preservedSource === undefined ? index + 1 : ++preservedPageNumber;
             // qpdf's name for the primary input, which is the preserved split.
-            const path = output.preservedSource === undefined
-                ? rasterizedPdfPath
-                : '.';
+            const path = output.preservedSource === undefined ? rasterizedPdfPath : '.';
             if (path === runPath && pageNumber === runLast + 1) {
                 runLast = pageNumber;
                 return;

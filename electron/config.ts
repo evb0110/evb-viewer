@@ -1,15 +1,9 @@
 import {isIP} from 'node:net';
-import {
-    dirname,
-    join,
-} from 'path';
-import { fileURLToPath } from 'url';
-import { app } from 'electron';
+import {dirname, join} from 'path';
+import {fileURLToPath} from 'url';
+import {app} from 'electron';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import {
-    DEFAULT_UPDATES_MIRROR_METADATA_URL,
-    DEFAULT_UPDATES_MIRROR_RELEASE_BASE_URL,
-} from '@contracts/updateMirrorDefaults.mjs';
+import {DEFAULT_UPDATES_MIRROR_METADATA_URL, DEFAULT_UPDATES_MIRROR_RELEASE_BASE_URL} from '@contracts/updateMirrorDefaults.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 type TElectronAppPackagingState = Pick<typeof app, 'isPackaged'>;
@@ -57,9 +51,7 @@ function normalizeServerPath(raw: string | undefined, fallback: string) {
         return trimmed;
     }
 
-    return trimmed.startsWith('/')
-        ? trimmed
-        : `/${trimmed}`;
+    return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 }
 
 function normalizeServerHost(raw: string | undefined, fallback: string) {
@@ -83,8 +75,7 @@ function isLoopbackHost(host: string) {
 
     const unbracketedHost = normalized.replace(/^\[|\]$/gu, '');
     const ipVersion = isIP(unbracketedHost);
-    return (ipVersion === 4 && unbracketedHost.startsWith('127.'))
-        || (ipVersion === 6 && unbracketedHost === '::1');
+    return (ipVersion === 4 && unbracketedHost.startsWith('127.')) || (ipVersion === 6 && unbracketedHost === '::1');
 }
 
 export const config = {
@@ -120,14 +111,10 @@ export const config = {
     renderer: {
         protocolOrigin: APP_PROTOCOL_ORIGIN,
         get url() {
-            return usesBuiltRenderer
-                ? `${APP_PROTOCOL_ORIGIN}/electron`
-                : config.server.url;
+            return usesBuiltRenderer ? `${APP_PROTOCOL_ORIGIN}/electron` : config.server.url;
         },
         get trustedOrigin() {
-            return usesBuiltRenderer
-                ? APP_PROTOCOL_ORIGIN
-                : new URL(config.server.url).origin;
+            return usesBuiltRenderer ? APP_PROTOCOL_ORIGIN : new URL(config.server.url).origin;
         },
         get trustedUrl() {
             return this.url;

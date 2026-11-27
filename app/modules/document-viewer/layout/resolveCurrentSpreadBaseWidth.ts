@@ -1,9 +1,9 @@
 import {isFinitePositive} from '@contracts/runtimeGuards';
-import type { TPageNumber } from '@contracts/pageNumbers';
-import type { TPdfViewMode } from '@app/types/pdfContracts';
-import type { IPdfPageMetric } from '@app/types/pdfUi';
-import { sumBy } from 'es-toolkit/math';
-import { getPageNumbersForViewMode } from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import type {TPdfViewMode} from '@app/types/pdfContracts';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
+import {sumBy} from 'es-toolkit/math';
+import {getPageNumbersForViewMode} from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
 
 export function resolveCurrentSpreadBaseWidth(
     pageMetrics: IPdfPageMetric[],

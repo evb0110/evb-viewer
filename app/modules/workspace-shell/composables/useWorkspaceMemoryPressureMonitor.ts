@@ -1,18 +1,12 @@
-import {
-    getCurrentScope,
-    onScopeDispose,
-} from 'vue';
-import { useIntervalFn } from '@vueuse/core';
-import type { IHostRasterBudgetSnapshot } from '@contracts/hostPlatformFeature';
-import { guardAsync } from '@app/utils/asyncGuard';
-import { getHostCapability } from '@app/utils/getHostCapability';
-import { getSystemCapability } from '@app/utils/getSystemCapability';
-import {
-    resolveWorkspaceMemoryBudget,
-    workspaceSurfaceBudgetController,
-} from '@app/modules/document-viewer/public';
-import { resolveWorkspaceResourcePressureLevel } from '@app/modules/workspace-shell/memory/resolveWorkspaceResourcePressureLevel';
-import { resolvePerformanceProfile } from '@app/utils/performanceProfile';
+import {getCurrentScope, onScopeDispose} from 'vue';
+import {useIntervalFn} from '@vueuse/core';
+import type {IHostRasterBudgetSnapshot} from '@contracts/hostPlatformFeature';
+import {guardAsync} from '@app/utils/asyncGuard';
+import {getHostCapability} from '@app/utils/getHostCapability';
+import {getSystemCapability} from '@app/utils/getSystemCapability';
+import {resolveWorkspaceMemoryBudget, workspaceSurfaceBudgetController} from '@app/modules/document-viewer/public';
+import {resolveWorkspaceResourcePressureLevel} from '@app/modules/workspace-shell/memory/resolveWorkspaceResourcePressureLevel';
+import {resolvePerformanceProfile} from '@app/utils/performanceProfile';
 
 const MEMORY_SAMPLE_INTERVAL_MS = 2_000;
 
@@ -26,7 +20,7 @@ export const useWorkspaceMemoryPressureMonitor = () => {
 
     const sample = () => {
         const memoryInfo = getSystemCapability().getMemoryInfo();
-        const environment = memoryInfo ? { totalMemoryBytes: memoryInfo.totalBytes } : undefined;
+        const environment = memoryInfo ? {totalMemoryBytes: memoryInfo.totalBytes} : undefined;
         const baseBudget = resolveWorkspaceMemoryBudget({
             environment,
             performanceProfile,

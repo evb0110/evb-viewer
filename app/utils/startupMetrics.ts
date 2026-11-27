@@ -1,7 +1,4 @@
-export type TStartupMetric =
-    | 'evb:shell-interactive'
-    | 'evb:document-open-started'
-    | 'evb:first-page-painted';
+export type TStartupMetric = 'evb:shell-interactive' | 'evb:document-open-started' | 'evb:first-page-painted';
 
 const marked = new Set<TStartupMetric>();
 

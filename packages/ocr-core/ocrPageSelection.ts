@@ -1,9 +1,5 @@
 import {requirePageNumber} from '@contracts/pageNumbers';
-import type {
-    IOcrSearchablePdfPage,
-    IOcrSearchablePdfPageRange,
-    TOcrSearchablePdfPages,
-} from '@contracts/electronApiOcr';
+import type {IOcrSearchablePdfPage, IOcrSearchablePdfPageRange, TOcrSearchablePdfPages} from '@contracts/electronApiOcr';
 
 const MAX_BATCH_PAGES = 5_000;
 const OCR_PAGE_REQUEST_BATCH_SIZE = MAX_BATCH_PAGES;
@@ -23,10 +19,7 @@ export function getOcrPageSelectionCount(selection: TOcrSearchablePdfPages) {
         case 'range':
             return selection.lastPage - selection.firstPage + 1;
         case 'ranges':
-            return selection.ranges.reduce(
-                (count, pageRange) => count + pageRange.lastPage - pageRange.firstPage + 1,
-                0,
-            );
+            return selection.ranges.reduce((count, pageRange) => count + pageRange.lastPage - pageRange.firstPage + 1, 0);
         case 'pages':
             return selection.pages.length;
     }
@@ -58,17 +51,22 @@ export function* iterateOcrPageRequestBatches(
         return;
     }
 
-    const ranges = selection.kind === 'all'
-        ? [{
-            firstPage: 1,
-            lastPage: selection.pageCount,
-        }]
-        : selection.kind === 'range'
-            ? [{
-                firstPage: selection.firstPage,
-                lastPage: selection.lastPage,
-            }]
-            : selection.ranges;
+    const ranges =
+        selection.kind === 'all'
+            ? [
+                  {
+                      firstPage: 1,
+                      lastPage: selection.pageCount,
+                  },
+              ]
+            : selection.kind === 'range'
+              ? [
+                    {
+                        firstPage: selection.firstPage,
+                        lastPage: selection.lastPage,
+                    },
+                ]
+              : selection.ranges;
     const languages = [...selection.languages];
     let batch: IOcrSearchablePdfPage[] = [];
     for (const pageRange of ranges) {
@@ -100,10 +98,7 @@ function assertPositiveSafeInteger(value: number, fieldName: string) {
  * Keep this independent of request-window budgets. It plans a document span,
  * while individual page numbers only need to remain safely representable.
  */
-export function* iterateOcrPageRanges(
-    pageCount: number,
-    chunkPages = OCR_PAGE_REQUEST_BATCH_SIZE,
-): Generator<IOcrPageRange> {
+export function* iterateOcrPageRanges(pageCount: number, chunkPages = OCR_PAGE_REQUEST_BATCH_SIZE): Generator<IOcrPageRange> {
     assertPositiveSafeInteger(pageCount, 'pageCount');
     assertPositiveSafeInteger(chunkPages, 'chunkPages');
     if (chunkPages > MAX_BATCH_PAGES) {

@@ -8,7 +8,10 @@
         }"
         :data-pane-presentation="panePresentation"
     >
-        <div class="tab-strip" data-tab-list>
+        <div
+            class="tab-strip"
+            data-tab-list
+        >
             <div
                 class="tab-list"
                 role="tablist"
@@ -49,7 +52,7 @@
                     <button
                         type="button"
                         class="tab-close"
-                        :class="{ 'is-visible': tab.isActive }"
+                        :class="{'is-visible': tab.isActive}"
                         :aria-label="t('tabs.closeTab')"
                         :disabled="!canCloseTabs"
                         :tabindex="tab.closeTabindex"
@@ -58,7 +61,10 @@
                         @keydown.enter.stop
                         @keydown.space.stop
                     >
-                        <Icon name="ph:x" size="14" />
+                        <Icon
+                            name="ph:x"
+                            size="14"
+                        />
                     </button>
                 </div>
             </div>
@@ -68,7 +74,10 @@
                 :aria-label="t('tabs.newTab')"
                 @click="handleNewTab"
             >
-                <Icon name="ph:plus" size="14" />
+                <Icon
+                    name="ph:plus"
+                    size="14"
+                />
             </button>
         </div>
     </div>
@@ -89,34 +98,21 @@
 </template>
 
 <script setup lang="ts">
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { captureFailureForPresentation } from '@app/utils/failureReporter';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type { TTabView } from '@app/types/tabs';
-import { useTabDragReorder } from '@app/modules/workspace-shell/composables/useTabDragReorder';
-import { hasFocusLeftMenu } from '@app/utils/menuFocus';
-import type { TPaneDirection } from '@contracts/editorPanes';
-import {
-    getDocumentRefBaseName,
-    isBrowserDocumentRef,
-} from '@app/utils/documentRef';
-import type {
-    ITabContextAvailability,
-    TDirectionalTabContextCommand,
-    TTabContextCommand,
-} from '@app/types/tabContextMenu';
-import type { IWindowTabTargetWindow } from '@contracts/windowTabs';
-import {
-    canUseNativeWindowTabTransfers,
-    getWindowTabsCapability,
-} from '@app/utils/platformWindowTabs';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {captureFailureForPresentation} from '@app/utils/failureReporter';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {TTabView} from '@app/types/tabs';
+import {useTabDragReorder} from '@app/modules/workspace-shell/composables/useTabDragReorder';
+import {hasFocusLeftMenu} from '@app/utils/menuFocus';
+import type {TPaneDirection} from '@contracts/editorPanes';
+import {getDocumentRefBaseName, isBrowserDocumentRef} from '@app/utils/documentRef';
+import type {ITabContextAvailability, TDirectionalTabContextCommand, TTabContextCommand} from '@app/types/tabContextMenu';
+import type {IWindowTabTargetWindow} from '@contracts/windowTabs';
+import {canUseNativeWindowTabTransfers, getWindowTabsCapability} from '@app/utils/platformWindowTabs';
 
-const { t } = useTypedI18n();
-const { presentFailureToast } = useFailureToast();
-const SPLIT_DIRECTION_ORDER = [
-    'right',
-    'down',
-] as const satisfies readonly TPaneDirection[];
+const {t} = useTypedI18n();
+const {presentFailureToast} = useFailureToast();
+const SPLIT_DIRECTION_ORDER = ['right', 'down'] as const satisfies readonly TPaneDirection[];
 type TDirectionalAvailabilityKind = 'split' | 'splitEmpty' | 'move';
 type TStaticCommandKind = Exclude<TTabContextCommand['kind'], 'split' | 'split-empty'>;
 
@@ -127,16 +123,18 @@ interface IContextMenuAction {
     command: TTabContextCommand;
 }
 
-interface IContextMenuSection {actions: IContextMenuAction[];}
+interface IContextMenuSection {
+    actions: IContextMenuAction[];
+}
 
 type TTabContextMenuItem =
-    | { type: 'separator' }
+    | {type: 'separator'}
     | {
-        'data-tab-command': string;
-        label: string;
-        icon: string;
-        onSelect: () => void;
-    };
+          'data-tab-command': string;
+          label: string;
+          icon: string;
+          onSelect: () => void;
+      };
 
 const {
     activeTabId,
@@ -155,11 +153,7 @@ const emit = defineEmits<{
     close: [id: string];
     'new-tab': [];
     reorder: [fromIndex: number, toIndex: number];
-    'move-direction': [
-        tabId: string,
-        direction: 'left' | 'right',
-        targetIndex?: number | null,
-    ];
+    'move-direction': [tabId: string, direction: 'left' | 'right', targetIndex?: number | null];
     'tab-context-command': [tabId: string, command: TTabContextCommand];
 }>();
 
@@ -171,7 +165,7 @@ const tabBarRef = useTemplateRef<HTMLElement>('tabBarRef');
 const focusedTabId = ref<string | null>(null);
 
 watch(
-    () => tabs.map(tab => tab.id),
+    () => tabs.map((tab) => tab.id),
     (tabIds) => {
         if (focusedTabId.value !== null && !tabIds.includes(focusedTabId.value)) {
             focusedTabId.value = null;
@@ -218,16 +212,13 @@ const contextMenuUi = {
     itemLabel: 'toolbar-menu-label',
 };
 const canCloseTabs = computed(() => contextAvailability?.canClose ?? true);
-const clickedTab = computed(() => tabs.find(tab => tab.id === contextMenu.value.tabId) ?? null);
-const clickedTabIndex = computed(() => tabs.findIndex(tab => tab.id === contextMenu.value.tabId));
+const clickedTab = computed(() => tabs.find((tab) => tab.id === contextMenu.value.tabId) ?? null);
+const clickedTabIndex = computed(() => tabs.findIndex((tab) => tab.id === contextMenu.value.tabId));
 const canCloseOthers = computed(() => canCloseTabs.value && tabs.length > 1);
-const canCloseToRight = computed(() =>
-    canCloseTabs.value && clickedTabIndex.value >= 0 && clickedTabIndex.value < tabs.length - 1);
+const canCloseToRight = computed(() => canCloseTabs.value && clickedTabIndex.value >= 0 && clickedTabIndex.value < tabs.length - 1);
 const clickedTabFilePath = computed(() => {
     const path = clickedTab.value?.originalPath ?? null;
-    return typeof path === 'string' && path.trim().length > 0 && !isBrowserDocumentRef(path)
-        ? path
-        : null;
+    return typeof path === 'string' && path.trim().length > 0 && !isBrowserDocumentRef(path) ? path : null;
 });
 const canRevealClickedPath = computed(() => Boolean(clickedTabFilePath.value));
 
@@ -267,9 +258,7 @@ function isStaticCommandEnabled(command: Exclude<TTabContextCommand, TDirectiona
 }
 
 function isCommandEnabled(command: TTabContextCommand) {
-    return isDirectionalCommand(command)
-        ? isDirectionalCommandEnabled(command)
-        : isStaticCommandEnabled(command);
+    return isDirectionalCommand(command) ? isDirectionalCommandEnabled(command) : isStaticCommandEnabled(command);
 }
 
 function buildDirectionalActions(
@@ -286,12 +275,14 @@ function buildDirectionalActions(
             return [];
         }
 
-        return [{
-            key: `${kind}-${direction}`,
-            label: labels[direction],
-            icon: icons[direction],
-            command,
-        } satisfies IContextMenuAction];
+        return [
+            {
+                key: `${kind}-${direction}`,
+                label: labels[direction],
+                icon: icons[direction],
+                command,
+            } satisfies IContextMenuAction,
+        ];
     });
 }
 
@@ -364,37 +355,47 @@ const windowActions = computed(() => {
         });
     }
 
-    actions.push(...windowTransferTargets.value.flatMap((targetWindow) => {
-        const command = {
-            kind: 'move-to-window',
-            targetWindowId: targetWindow.windowId,
-        } as const;
-        if (!isCommandEnabled(command)) {
-            return [];
-        }
+    actions.push(
+        ...windowTransferTargets.value.flatMap((targetWindow) => {
+            const command = {
+                kind: 'move-to-window',
+                targetWindowId: targetWindow.windowId,
+            } as const;
+            if (!isCommandEnabled(command)) {
+                return [];
+            }
 
-        return [{
-            key: `move-to-window-${targetWindow.windowId}`,
-            label: `${t('menu.moveTabToWindow')}: ${targetWindow.label}`,
-            icon: 'i-ph-arrow-square-out',
-            command,
-        }];
-    }));
+            return [
+                {
+                    key: `move-to-window-${targetWindow.windowId}`,
+                    label: `${t('menu.moveTabToWindow')}: ${targetWindow.label}`,
+                    icon: 'i-ph-arrow-square-out',
+                    command,
+                },
+            ];
+        }),
+    );
 
     return actions;
 });
 
-const splitActions = computed(() => buildDirectionalActions('split', {
-    right: t('menu.splitEditorRight'),
-    left: t('menu.splitEditorLeft'),
-    up: t('menu.splitEditorUp'),
-    down: t('menu.splitEditorDown'),
-}, {
-    right: 'i-ph-square-split-horizontal',
-    left: 'i-ph-square-split-horizontal',
-    up: 'i-ph-square-split-vertical',
-    down: 'i-ph-square-split-vertical',
-}));
+const splitActions = computed(() =>
+    buildDirectionalActions(
+        'split',
+        {
+            right: t('menu.splitEditorRight'),
+            left: t('menu.splitEditorLeft'),
+            up: t('menu.splitEditorUp'),
+            down: t('menu.splitEditorDown'),
+        },
+        {
+            right: 'i-ph-square-split-horizontal',
+            left: 'i-ph-square-split-horizontal',
+            up: 'i-ph-square-split-vertical',
+            down: 'i-ph-square-split-vertical',
+        },
+    ),
+);
 
 const menuSections = computed(() => {
     const sections: IContextMenuSection[] = [];
@@ -417,30 +418,29 @@ const contextMenuItems = computed(() => {
     const items: TTabContextMenuItem[] = [];
     for (const section of menuSections.value) {
         if (items.length > 0) {
-            items.push({ type: 'separator' });
+            items.push({type: 'separator'});
         }
 
-        items.push(...section.actions.map(action => ({
-            'data-tab-command': action.key,
-            label: action.label,
-            icon: action.icon,
-            onSelect: () => runContextCommand(action.command),
-        })));
+        items.push(
+            ...section.actions.map((action) => ({
+                'data-tab-command': action.key,
+                label: action.label,
+                icon: action.icon,
+                onSelect: () => runContextCommand(action.command),
+            })),
+        );
     }
     return items;
 });
 
-const {
-    isDragging,
-    dragIndex,
-    onPointerDown,
-    shouldSuppressClick,
-} = useTabDragReorder(
+const {isDragging, dragIndex, onPointerDown, shouldSuppressClick} = useTabDragReorder(
     tabBarRef,
     (from, to) => emit('reorder', from, to),
     (index) => {
         const tab = tabs[index];
-        if (tab) emit('activate', tab.id);
+        if (tab) {
+            emit('activate', tab.id);
+        }
     },
     (index, direction, targetIndex) => {
         if (!isDirectionEnabled('move', direction)) {
@@ -491,8 +491,7 @@ function handleTabFocus(tabId: string) {
 }
 
 function focusTab(tabId: string) {
-    tabBarRef.value?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(tabId)}"]`)
-        ?.focus({preventScroll: true});
+    tabBarRef.value?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(tabId)}"]`)?.focus({preventScroll: true});
 }
 
 // The closed menu hands focus to its tab, or to the tab that replaced it when
@@ -507,21 +506,19 @@ function returnFocusToTab(event: Event) {
 }
 
 function handleTabKeydown(event: KeyboardEvent, tabId: string) {
-    const tabIndex = tabs.findIndex(tab => tab.id === tabId);
+    const tabIndex = tabs.findIndex((tab) => tab.id === tabId);
     if (tabIndex < 0) {
         return;
     }
 
-    const direction = event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-        ? -1
-        : event.key === 'ArrowRight' || event.key === 'ArrowDown'
-            ? 1
-            : 0;
-    const targetIndex = direction !== 0
-        ? (tabIndex + direction + tabs.length) % tabs.length
-        : event.key === 'Home'
-            ? 0
-            : event.key === 'End'
+    const direction =
+        event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : 0;
+    const targetIndex =
+        direction !== 0
+            ? (tabIndex + direction + tabs.length) % tabs.length
+            : event.key === 'Home'
+              ? 0
+              : event.key === 'End'
                 ? tabs.length - 1
                 : null;
     if (targetIndex !== null && targetIndex !== tabIndex) {
@@ -569,7 +566,10 @@ async function loadWindowTransferTargets() {
         windowTransferTargets.value = [];
         BrowserLogger.warn('toolbar-transition', 'Failed to list target windows', error);
         presentFailureToast({
-            ...captureFailureForPresentation({code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED', local: {source: 'toolbar-transition', message: 'Failed to list target windows', cause: error}}),
+            ...captureFailureForPresentation({
+                code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
+                local: {source: 'toolbar-transition', message: 'Failed to list target windows', cause: error},
+            }),
             title: t('tabs.transferErrors.targetWindowsUnavailable'),
         });
     }

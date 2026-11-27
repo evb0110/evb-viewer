@@ -1,15 +1,5 @@
-import {
-    lstatSync,
-    readFileSync,
-    readdirSync,
-    rmSync,
-    statSync,
-} from 'node:fs';
-import {
-    isAbsolute,
-    join,
-    resolve,
-} from 'node:path';
+import {lstatSync, readFileSync, readdirSync, rmSync, statSync} from 'node:fs';
+import {isAbsolute, join, resolve} from 'node:path';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -36,7 +26,7 @@ interface IDevServerOutputRun {
 function parseJsonFile(filePath: string) {
     try {
         const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8'));
-        return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+        return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
     } catch {
         return null;
     }
@@ -45,8 +35,8 @@ function parseJsonFile(filePath: string) {
 function listDirectories(parentDir: string) {
     try {
         return readdirSync(parentDir, {withFileTypes: true})
-            .filter(entry => entry.isDirectory())
-            .map(entry => join(parentDir, entry.name));
+            .filter((entry) => entry.isDirectory())
+            .map((entry) => join(parentDir, entry.name));
     } catch {
         return [];
     }
@@ -55,8 +45,8 @@ function listDirectories(parentDir: string) {
 function listFiles(parentDir: string) {
     try {
         return readdirSync(parentDir, {withFileTypes: true})
-            .filter(entry => entry.isFile())
-            .map(entry => join(parentDir, entry.name));
+            .filter((entry) => entry.isFile())
+            .map((entry) => join(parentDir, entry.name));
     } catch {
         return [];
     }
@@ -107,12 +97,15 @@ function getRunCreatedAtMs(runDir: string) {
 }
 
 function listRuns(baseDir: string) {
-    return listDirectories(baseDir).flatMap(sessionDir =>
-        listDirectories(sessionDir).map(runDir => ({
-            createdAtMs: getRunCreatedAtMs(runDir),
-            path: resolve(runDir),
-            sizeBytes: getDirectorySizeBytes(runDir),
-        } satisfies IDevServerOutputRun)),
+    return listDirectories(baseDir).flatMap((sessionDir) =>
+        listDirectories(sessionDir).map(
+            (runDir) =>
+                ({
+                    createdAtMs: getRunCreatedAtMs(runDir),
+                    path: resolve(runDir),
+                    sizeBytes: getDirectorySizeBytes(runDir),
+                }) satisfies IDevServerOutputRun,
+        ),
     );
 }
 
@@ -121,9 +114,7 @@ function isProcessAlive(pid: number) {
         process.kill(pid, 0);
         return true;
     } catch (error) {
-        return error instanceof Error
-            && 'code' in error
-            && error.code !== 'ESRCH';
+        return error instanceof Error && 'code' in error && error.code !== 'ESRCH';
     }
 }
 
@@ -138,7 +129,7 @@ function normalizeReferencedRunDir(baseDir: string, value: unknown, knownRunDirs
 function collectLatestPointerTargets(baseDir: string, knownRunDirs: Set<string>) {
     const pointerPaths = [
         join(baseDir, 'latest-run.json'),
-        ...listDirectories(baseDir).map(sessionDir => join(sessionDir, 'latest-run.json')),
+        ...listDirectories(baseDir).map((sessionDir) => join(sessionDir, 'latest-run.json')),
     ];
     const protectedRunDirs = new Set<string>();
     for (const pointerPath of pointerPaths) {
@@ -150,11 +141,7 @@ function collectLatestPointerTargets(baseDir: string, knownRunDirs: Set<string>)
     return protectedRunDirs;
 }
 
-function collectActiveDescriptorTargets(
-    baseDir: string,
-    runs: IDevServerOutputRun[],
-    knownRunDirs: Set<string>,
-) {
+function collectActiveDescriptorTargets(baseDir: string, runs: IDevServerOutputRun[], knownRunDirs: Set<string>) {
     const protectedRunDirs = new Set<string>();
     for (const run of runs) {
         for (const filePath of listFiles(run.path)) {
@@ -164,10 +151,10 @@ function collectActiveDescriptorTargets(
             const descriptor = parseJsonFile(filePath);
             const pid = descriptor?.pid;
             if (
-                typeof descriptor?.closedAt === 'string'
-                || !Number.isSafeInteger(pid)
-                || (pid as number) < 1
-                || !isProcessAlive(pid as number)
+                typeof descriptor?.closedAt === 'string' ||
+                !Number.isSafeInteger(pid) ||
+                (pid as number) < 1 ||
+                !isProcessAlive(pid as number)
             ) {
                 continue;
             }
@@ -216,11 +203,9 @@ export function pruneDevServerOutputRuns(options: {
     const baseDir = resolve(options.baseDir);
     const policy = resolveDevServerOutputRetentionPolicy(options.policy);
     const runs = listRuns(baseDir).sort((left, right) => left.createdAtMs - right.createdAtMs);
-    const knownRunDirs = new Set(runs.map(run => run.path));
+    const knownRunDirs = new Set(runs.map((run) => run.path));
     const protectedRunDirs = new Set(
-        [...options.protectedRunDirs ?? []]
-            .map(runDir => resolve(runDir))
-            .filter(runDir => knownRunDirs.has(runDir)),
+        [...(options.protectedRunDirs ?? [])].map((runDir) => resolve(runDir)).filter((runDir) => knownRunDirs.has(runDir)),
     );
     for (const runDir of collectLatestPointerTargets(baseDir, knownRunDirs)) {
         protectedRunDirs.add(runDir);

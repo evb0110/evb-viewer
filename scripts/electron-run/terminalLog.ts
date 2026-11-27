@@ -1,4 +1,4 @@
-import { stripVTControlCharacters } from 'node:util';
+import {stripVTControlCharacters} from 'node:util';
 import {
     decodeLogRecord,
     formatLogRecordLine,
@@ -58,7 +58,7 @@ function colorize(part: 'time' | 'level' | 'origin' | 'data', text: string, leve
     return level === 'debug' ? `${ANSI.dim}${text}${ANSI.reset}` : text;
 }
 
-export function formatTerminalLogRecord(record: ILogRecord, options: {color?: boolean;} = {}) {
+export function formatTerminalLogRecord(record: ILogRecord, options: {color?: boolean} = {}) {
     return formatLogRecordLine(record, {
         time: 'clock',
         maxDataChars: TERMINAL_MAX_DATA_CHARS,
@@ -74,13 +74,7 @@ export function printTerminalLogRecord(record: ILogRecord, minimumLevel = resolv
     stream.write(`${formatTerminalLogRecord(record, {color: shouldUseColor(stream)})}\n`);
 }
 
-export function createLogRecord(
-    level: TLogLevel,
-    proc: TLogProcess,
-    scope: string,
-    msg: string,
-    data?: unknown,
-): ILogRecord {
+export function createLogRecord(level: TLogLevel, proc: TLogProcess, scope: string, msg: string, data?: unknown): ILogRecord {
     const normalized = toLogData(data);
     return {
         ts: new Date().toISOString(),
@@ -130,16 +124,9 @@ function isPlainObject(value: unknown): value is TLogData {
  * could not be evaluated. The old launcher printed `msg.text()` (which renders
  * objects as `[object Object]`) and then every argument again.
  */
-export function consoleMessageToLogRecord(
-    type: string,
-    args: readonly unknown[],
-    fallbackText: string,
-): ILogRecord {
+export function consoleMessageToLogRecord(type: string, args: readonly unknown[], fallbackText: string): ILogRecord {
     let level = CONSOLE_TYPE_LEVELS[type] ?? 'info';
-    const [
-        first,
-        ...rest
-    ] = args.length > 0 ? args : [fallbackText];
+    const [first, ...rest] = args.length > 0 ? args : [fallbackText];
     const head = typeof first === 'string' ? first : fallbackText;
     const extra = typeof first === 'string' ? rest : args;
     let data: unknown;
@@ -168,15 +155,17 @@ export function consoleMessageToLogRecord(
         scope = 'vue';
         msg = head.slice('[Vue warn]: '.length);
     }
-    if (RENDERER_CONSOLE_NOISE.some(pattern => pattern.test(msg))) {
+    if (RENDERER_CONSOLE_NOISE.some((pattern) => pattern.test(msg))) {
         level = 'debug';
     }
 
     const record = createLogRecord(level, 'renderer', scope, msg.trim(), data);
-    return ts && Number.isFinite(Date.parse(ts)) ? {
-        ...record,
-        ts,
-    } : record;
+    return ts && Number.isFinite(Date.parse(ts))
+        ? {
+              ...record,
+              ts,
+          }
+        : record;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,17 +178,16 @@ const APPKIT_LINE_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ Electron\
 const CHROMIUM_CONSOLE_END_PATTERN = /", source: \S.* \(\d+\)$/u;
 
 // Chromium ERROR lines that are routine on macOS and say nothing about EVB.
-const CHROMIUM_NOISE: readonly RegExp[] = [
-    /SharedImageManager::ProduceMemory/u,
-    /task_policy_set TASK_SUPPRESSION_POLICY/u,
-];
+const CHROMIUM_NOISE: readonly RegExp[] = [/SharedImageManager::ProduceMemory/u, /task_policy_set TASK_SUPPRESSION_POLICY/u];
 const STDERR_NOISE: readonly RegExp[] = [
     /^DevTools listening on /u,
     /^sandbox_extension_issue_file_to_process failed/u,
     /^\(Use `Electron --trace-warnings \.\.\.` to show where the warning was created\)$/u,
 ];
 
-interface IStderrBlock {readonly lines: string[];}
+interface IStderrBlock {
+    readonly lines: string[];
+}
 
 function isContinuationLine(line: string) {
     return /^\s/u.test(line) || /^[}\])]/u.test(line);
@@ -207,16 +195,13 @@ function isContinuationLine(line: string) {
 
 function firstAppFrame(detailLines: readonly string[]) {
     return detailLines
-        .map(line => line.trim())
-        .find(line => line.startsWith('at ') && !line.includes('node:electron/') && !line.includes('node:internal/'));
+        .map((line) => line.trim())
+        .find((line) => line.startsWith('at ') && !line.includes('node:electron/') && !line.includes('node:internal/'));
 }
 
 export function classifyElectronStderrBlock(block: IStderrBlock): ILogRecord | null {
-    const [
-        header = '',
-        ...detailLines
-    ] = block.lines;
-    const detail = detailLines.filter(line => line.trim().length > 0);
+    const [header = '', ...detailLines] = block.lines;
+    const detail = detailLines.filter((line) => line.trim().length > 0);
 
     const chromium = CHROMIUM_LINE_PATTERN.exec(header);
     if (chromium) {
@@ -227,10 +212,8 @@ export function classifyElectronStderrBlock(block: IStderrBlock): ILogRecord | n
             // Duplicate of the renderer console that CDP already delivered.
             return null;
         }
-        const noisy = CHROMIUM_NOISE.some(pattern => pattern.test(message));
-        const level: TLogLevel = noisy || severity === 'INFO' || severity.startsWith('VERBOSE')
-            ? 'debug'
-            : 'warn';
+        const noisy = CHROMIUM_NOISE.some((pattern) => pattern.test(message));
+        const level: TLogLevel = noisy || severity === 'INFO' || severity.startsWith('VERBOSE') ? 'debug' : 'warn';
         return createLogRecord(level, 'electron', 'chromium', message, {source: source.replace(/\(\d+\)$/u, '')});
     }
 
@@ -240,19 +223,13 @@ export function classifyElectronStderrBlock(block: IStderrBlock): ILogRecord | n
         // structured `main/ipc` record; keep Electron's copy as detail only.
         const error = ipc[2] ?? '';
         const frame = firstAppFrame(detail);
-        const properties = detail.filter(line => !line.trim().startsWith('at '));
-        return createLogRecord(
-            'debug',
-            'electron',
-            'ipc',
-            'Electron reported IPC handler rejection',
-            {
-                channel: ipc[1],
-                error,
-                ...(frame ? {at: frame.slice(3)} : {}),
-                ...(properties.length > 0 ? {detail: properties.map(line => line.trim()).join(' ')} : {}),
-            },
-        );
+        const properties = detail.filter((line) => !line.trim().startsWith('at '));
+        return createLogRecord('debug', 'electron', 'ipc', 'Electron reported IPC handler rejection', {
+            channel: ipc[1],
+            error,
+            ...(frame ? {at: frame.slice(3)} : {}),
+            ...(properties.length > 0 ? {detail: properties.map((line) => line.trim()).join(' ')} : {}),
+        });
     }
 
     const nodeWarning = NODE_WARNING_PATTERN.exec(header);
@@ -272,17 +249,30 @@ export function classifyElectronStderrBlock(block: IStderrBlock): ILogRecord | n
         return createLogRecord('debug', 'electron', 'appkit', appKit[1] ?? '');
     }
 
-    if (STDERR_NOISE.some(pattern => pattern.test(header))) {
+    if (STDERR_NOISE.some((pattern) => pattern.test(header))) {
         return createLogRecord('debug', 'electron', 'stderr', header);
     }
 
     if (header.startsWith('Error sending from webFrameMain:')) {
-        return createLogRecord('warn', 'main', 'electron', header, {...(firstAppFrame(detail) ? {at: firstAppFrame(detail)!.slice(3)} : {})});
+        return createLogRecord('warn', 'main', 'electron', header, {
+            ...(firstAppFrame(detail) ? {at: firstAppFrame(detail)!.slice(3)} : {}),
+        });
     }
 
-    return createLogRecord('info', 'electron', 'stderr', header, detail.length > 0
-        ? {detail: detail.slice(0, 12).map(line => line.trim()).join(' ⏎ ')}
-        : undefined);
+    return createLogRecord(
+        'info',
+        'electron',
+        'stderr',
+        header,
+        detail.length > 0
+            ? {
+                  detail: detail
+                      .slice(0, 12)
+                      .map((line) => line.trim())
+                      .join(' ⏎ '),
+              }
+            : undefined,
+    );
 }
 
 /**
@@ -365,10 +355,7 @@ export function createElectronOutputRecordStream(onRecord: (record: ILogRecord) 
             }
         },
         end() {
-            for (const stream of [
-                'stdout',
-                'stderr',
-            ] as const) {
+            for (const stream of ['stdout', 'stderr'] as const) {
                 if (partial[stream]) {
                     const line = partial[stream];
                     partial[stream] = '';
@@ -404,39 +391,34 @@ const NUXT_DEBUG_PATTERNS: readonly RegExp[] = [
     /Failed to parse static properties from plugin node_modules\//u,
     /ELIFECYCLE\s+Command failed/u,
 ];
-const NUXT_BUILD_NOISE_PATTERNS: readonly RegExp[] = [
-    /^[✔ℹ●│]/u,
-    /^\[nitro\] ✔/u,
-    /^➜/u,
-    /^> /u,
-];
+const NUXT_BUILD_NOISE_PATTERNS: readonly RegExp[] = [/^[✔ℹ●│]/u, /^\[nitro\] ✔/u, /^➜/u, /^> /u];
 
 function classifyNuxtOutputBlock(lines: readonly string[]): ILogRecord | null {
-    const [
-        rawHeader = '',
-        ...detailLines
-    ] = lines;
+    const [rawHeader = '', ...detailLines] = lines;
     const header = rawHeader.trim();
     if (header.length === 0) {
         return null;
     }
-    const detail = detailLines.map(line => line.trim()).filter(line => line.length > 0);
+    const detail = detailLines.map((line) => line.trim()).filter((line) => line.length > 0);
     const data = detail.length > 0 ? {detail: detail.slice(0, 8).join(' ⏎ ')} : undefined;
     const levelMatch = NUXT_LEVEL_PATTERN.exec(header);
     if (/^ℹ page reload /u.test(header)) {
         return createLogRecord('info', 'launcher', 'nuxt', header.replace(/^ℹ /u, ''));
     }
-    if (NUXT_DEBUG_PATTERNS.some(pattern => pattern.test(header))) {
+    if (NUXT_DEBUG_PATTERNS.some((pattern) => pattern.test(header))) {
         return createLogRecord('debug', 'launcher', 'nuxt', header, data);
     }
     if (levelMatch) {
-        const msg = header.replace(/^\[nitro\]\s*/u, 'nitro: ').replace(/\s*(ERROR|WARN)\s+/u, ' ').trim();
+        const msg = header
+            .replace(/^\[nitro\]\s*/u, 'nitro: ')
+            .replace(/\s*(ERROR|WARN)\s+/u, ' ')
+            .trim();
         return createLogRecord(levelMatch[1] === 'ERROR' ? 'error' : 'warn', 'launcher', 'nuxt', msg, data);
     }
     if (/\[vite\].*(?:error|Error)|Pre-transform error|Internal server error|error TS\d+/u.test(header)) {
         return createLogRecord('error', 'launcher', 'nuxt', header, data);
     }
-    if (NUXT_BUILD_NOISE_PATTERNS.some(pattern => pattern.test(header))) {
+    if (NUXT_BUILD_NOISE_PATTERNS.some((pattern) => pattern.test(header))) {
         return createLogRecord('debug', 'launcher', 'nuxt', header, data);
     }
     return createLogRecord('debug', 'launcher', 'nuxt', header, data);
@@ -488,10 +470,7 @@ export function createNuxtOutputRecordStream(onRecord: (record: ILogRecord) => v
             lines.forEach(handleLine);
         },
         end() {
-            for (const stream of [
-                'stdout',
-                'stderr',
-            ] as const) {
+            for (const stream of ['stdout', 'stderr'] as const) {
                 if (partial[stream]) {
                     handleLine(partial[stream]);
                     partial[stream] = '';

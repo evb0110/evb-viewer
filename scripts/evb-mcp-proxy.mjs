@@ -11,10 +11,7 @@ const EVB_MCP_TOKEN = process.env.EVB_MCP_TOKEN?.trim() || '';
 let inputBuffer = Buffer.alloc(0);
 
 process.stdin.on('data', (chunk) => {
-    inputBuffer = Buffer.concat([
-        inputBuffer,
-        chunk,
-    ]);
+    inputBuffer = Buffer.concat([inputBuffer, chunk]);
     void processInputBuffer();
 });
 process.stdin.on('error', (error) => {
@@ -27,14 +24,16 @@ async function processInputBuffer() {
         try {
             message = readNextMessage();
         } catch (error) {
-            writeMessage(JSON.stringify({
-                jsonrpc: '2.0',
-                id: null,
-                error: {
-                    code: -32700,
-                    message: getErrorMessage(error),
-                },
-            }));
+            writeMessage(
+                JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: null,
+                    error: {
+                        code: -32700,
+                        message: getErrorMessage(error),
+                    },
+                }),
+            );
             continue;
         }
         if (message === null) {
@@ -52,14 +51,16 @@ async function processInputBuffer() {
         } catch (error) {
             const messageText = `EVB Viewer MCP endpoint is unavailable at ${EVB_MCP_URL}: ${getErrorMessage(error)}`;
             for (const id of getRequestIds(message)) {
-                writeMessage(JSON.stringify({
-                    jsonrpc: '2.0',
-                    id,
-                    error: {
-                        code: -32603,
-                        message: messageText,
-                    },
-                }));
+                writeMessage(
+                    JSON.stringify({
+                        jsonrpc: '2.0',
+                        id,
+                        error: {
+                            code: -32603,
+                            message: messageText,
+                        },
+                    }),
+                );
             }
         }
     }
@@ -95,9 +96,7 @@ function getRequestIds(message) {
             return [];
         }
         const {id} = request;
-        return id === null || typeof id === 'string' || typeof id === 'number'
-            ? [id]
-            : [null];
+        return id === null || typeof id === 'string' || typeof id === 'number' ? [id] : [null];
     });
 }
 

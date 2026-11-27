@@ -5,9 +5,7 @@ interface IStorageLike {
 
 function getBrowserCrypto() {
     const cryptoProvider: unknown = Reflect.get(globalThis, 'crypto');
-    return typeof cryptoProvider === 'object' && cryptoProvider !== null
-        ? cryptoProvider as Crypto
-        : null;
+    return typeof cryptoProvider === 'object' && cryptoProvider !== null ? (cryptoProvider as Crypto) : null;
 }
 
 function createRandomHexFromCrypto(byteCount: number) {
@@ -19,7 +17,7 @@ function createRandomHexFromCrypto(byteCount: number) {
     try {
         const bytes = new Uint8Array(byteCount);
         cryptoProvider.getRandomValues(bytes);
-        return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+        return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
     } catch {
         return null;
     }
@@ -38,9 +36,7 @@ function getSessionStorageSafe(): IStorageLike | null {
 
     try {
         const storage: unknown = Reflect.get(window, 'sessionStorage');
-        return typeof storage === 'object' && storage !== null
-            ? storage
-            : null;
+        return typeof storage === 'object' && storage !== null ? storage : null;
     } catch {
         return null;
     }

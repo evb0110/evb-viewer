@@ -1,30 +1,19 @@
-import {
-    contextBridge,
-    ipcRenderer,
-    webUtils,
-} from 'electron';
+import {contextBridge, ipcRenderer, webUtils} from 'electron';
 // Exposes the IPC bridge the renderer Sentry SDK uses. It only forwards to
 // main, which drops everything unless diagnostics consent is granted.
 import '@sentry/electron/preload';
-import { createElectronApi } from '@electron/preload/createElectronApi';
-import { markPreloadInstalled } from '@electron/preload/markPreloadInstalled';
-import { installDebugLogListener } from '@electron/preload/installDebugLogListener';
-import {
-    createPreloadMainLogger,
-    exposeStartupTraceFlag,
-    tracePreload,
-} from '@electron/preload/preloadLog';
-import { installStartupOverlayLifecycle } from '@electron/preload/installStartupOverlayLifecycle';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import {
-    UPDATES_PLATFORM_FEATURE,
-    decodeAppUpdateStatus,
-} from '@contracts/updatesPlatformFeature';
-import { readHostResourceProfileArgument } from '@electron/preload/readHostResourceProfileArgument';
-import { readHostEnvironmentArgument } from '@electron/preload/readHostEnvironmentArgument';
-import { readUiScalePreferenceArgument } from '@electron/preload/readUiScalePreferenceArgument';
-import { readDiagnosticsPolicyArgument } from '@electron/preload/readDiagnosticsPolicyArgument';
-import { CORE_IPC_CHANNELS } from '@electron/platform-ipc/coreContract';
+import {createElectronApi} from '@electron/preload/createElectronApi';
+import {markPreloadInstalled} from '@electron/preload/markPreloadInstalled';
+import {installDebugLogListener} from '@electron/preload/installDebugLogListener';
+import {createPreloadMainLogger, exposeStartupTraceFlag, tracePreload} from '@electron/preload/preloadLog';
+import {installStartupOverlayLifecycle} from '@electron/preload/installStartupOverlayLifecycle';
+import {DOCUMENTS_CHANNELS} from '@electron/features/documents/contract';
+import {UPDATES_PLATFORM_FEATURE, decodeAppUpdateStatus} from '@contracts/updatesPlatformFeature';
+import {readHostResourceProfileArgument} from '@electron/preload/readHostResourceProfileArgument';
+import {readHostEnvironmentArgument} from '@electron/preload/readHostEnvironmentArgument';
+import {readUiScalePreferenceArgument} from '@electron/preload/readUiScalePreferenceArgument';
+import {readDiagnosticsPolicyArgument} from '@electron/preload/readDiagnosticsPolicyArgument';
+import {CORE_IPC_CHANNELS} from '@electron/platform-ipc/coreContract';
 const preloadAlreadyInstalled = markPreloadInstalled();
 if (preloadAlreadyInstalled) {
     console.debug('[Preload] Re-exposing bridge for duplicate installation (fast reload detected)');
@@ -40,17 +29,19 @@ function isRendererAutomationFileOpenHelperEnabled() {
     return process.argv.includes('--evb-renderer-file-open-helper');
 }
 
-const deferredAutomationDocumentOpens = new Map<string, {
-    promise: Promise<void>;
-    release: () => void;
-}>();
+const deferredAutomationDocumentOpens = new Map<
+    string,
+    {
+        promise: Promise<void>;
+        release: () => void;
+    }
+>();
 const electronApi = createElectronApi(ipcRenderer, webUtils, {
     diagnosticsPolicy: readDiagnosticsPolicyArgument(),
     hostEnvironment: readHostEnvironmentArgument(),
     uiScalePreference: readUiScalePreferenceArgument(),
     resourceProfile: readHostResourceProfileArgument(),
-    waitForDocumentOpenDirect: path =>
-        deferredAutomationDocumentOpens.get(path)?.promise ?? Promise.resolve(),
+    waitForDocumentOpenDirect: (path) => deferredAutomationDocumentOpens.get(path)?.promise ?? Promise.resolve(),
 });
 contextBridge.exposeInMainWorld('electronAPI', electronApi);
 tracePreload('electronAPI exposed to renderer');
@@ -59,13 +50,12 @@ if (isRendererAutomationFileOpenHelperEnabled()) {
     contextBridge.exposeInMainWorld('__allowRendererFileOpenForAutomation', (filePath: string) => {
         const path = typeof filePath === 'string' ? filePath : '';
         const automationFileOpenToken = globalThis.crypto.randomUUID();
-        return ipcRenderer.invoke(
-            DOCUMENTS_CHANNELS.registerRendererFileOpenToken,
-            automationFileOpenToken,
-        ).then(() => ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
-            filePath: path,
-            token: automationFileOpenToken,
-        }));
+        return ipcRenderer.invoke(DOCUMENTS_CHANNELS.registerRendererFileOpenToken, automationFileOpenToken).then(() =>
+            ipcRenderer.invoke(DOCUMENTS_CHANNELS.allowRendererFileOpen, {
+                filePath: path,
+                token: automationFileOpenToken,
+            }),
+        );
     });
     contextBridge.exposeInMainWorld('__deferDocumentOpenForAutomation', (filePath: string) => {
         const path = typeof filePath === 'string' ? filePath : '';
@@ -105,10 +95,10 @@ if (isRendererAutomationFileOpenHelperEnabled()) {
     // Runs an application-menu item as its accelerator would; synthesized
     // key events never reach the native menu on macOS.
     contextBridge.exposeInMainWorld('__activateMenuItemForAutomation', (query: unknown) =>
-        ipcRenderer.invoke(CORE_IPC_CHANNELS.activateMenuItemForAutomation, query));
+        ipcRenderer.invoke(CORE_IPC_CHANNELS.activateMenuItemForAutomation, query),
+    );
     // Quits as a session owner's stop does, without a window's close decision.
-    contextBridge.exposeInMainWorld('__quitForAutomation', () =>
-        ipcRenderer.invoke(CORE_IPC_CHANNELS.quitForAutomation));
+    contextBridge.exposeInMainWorld('__quitForAutomation', () => ipcRenderer.invoke(CORE_IPC_CHANNELS.quitForAutomation));
     tracePreload('automation file-open capability helper exposed');
 }
 

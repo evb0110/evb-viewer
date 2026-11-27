@@ -5,19 +5,12 @@ import type {
     IAgentWorkspaceSnapshot,
     TAgentCapabilityDomain,
 } from '@contracts/agent';
-import type { TTabId } from '@contracts/windowTabs';
+import type {TTabId} from '@contracts/windowTabs';
 import {toJsonSchema} from '@valibot/to-json-schema';
-import { AGENT_CAPABILITY_DOMAINS } from '@contracts/agent';
-import { isOneOf } from '@contracts/runtimeGuards';
-import {
-    AGENT_CAPABILITY_TEMPLATES,
-    type IAgentCapabilityTemplate,
-} from '@electron/features/agent/mcp/mcpDefinitions';
-import {
-    getOptionalTabId,
-    getOptionalWindowId,
-    getParamsObject,
-} from '@electron/features/agent/mcp/mcpRequestParams';
+import {AGENT_CAPABILITY_DOMAINS} from '@contracts/agent';
+import {isOneOf} from '@contracts/runtimeGuards';
+import {AGENT_CAPABILITY_TEMPLATES, type IAgentCapabilityTemplate} from '@electron/features/agent/mcp/mcpDefinitions';
+import {getOptionalTabId, getOptionalWindowId, getParamsObject} from '@electron/features/agent/mcp/mcpRequestParams';
 
 const AGENT_CAPABILITY_ALIASES: Record<string, string> = {
     'document.screenshot_page': 'document.capture_page_image',
@@ -44,13 +37,13 @@ const AGENT_CAPABILITY_ALIASES: Record<string, string> = {
     'annotation.draw_shape': 'annotation.create_shape',
 };
 
-interface ICapabilitySnapshotOptions { getWorkspaceSnapshot(windowId?: number): Promise<IAgentWorkspaceSnapshot>; }
+interface ICapabilitySnapshotOptions {
+    getWorkspaceSnapshot(windowId?: number): Promise<IAgentWorkspaceSnapshot>;
+}
 
 function getOptionalCapabilityDomain(params: unknown): TAgentCapabilityDomain | undefined {
     const value = getParamsObject(params).domain;
-    return isOneOf(AGENT_CAPABILITY_DOMAINS, value)
-        ? value
-        : undefined;
+    return isOneOf(AGENT_CAPABILITY_DOMAINS, value) ? value : undefined;
 }
 
 export function getRequiredCapabilityId(params: unknown) {
@@ -64,23 +57,15 @@ export function getRequiredCapabilityId(params: unknown) {
 
 export function getRequestedCapabilityId(params: unknown) {
     const value = getParamsObject(params).id;
-    return typeof value === 'string' && value.trim().length > 0
-        ? value.trim()
-        : null;
+    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 export function getCapabilityTemplate(id: string) {
-    return AGENT_CAPABILITY_TEMPLATES.find(template => template.id === id) ?? null;
+    return AGENT_CAPABILITY_TEMPLATES.find((template) => template.id === id) ?? null;
 }
 
 export function isAgentDocumentTab(tab: IAgentTabSnapshot) {
-    return tab.kind !== 'empty'
-        && (
-            Boolean(tab.fileName)
-            || Boolean(tab.originalPath)
-            || tab.hasPdf === true
-            || tab.isDjvu === true
-        );
+    return tab.kind !== 'empty' && (Boolean(tab.fileName) || Boolean(tab.originalPath) || tab.hasPdf === true || tab.isDjvu === true);
 }
 
 function findCapabilityTargetTab(snapshot: IAgentWorkspaceSnapshot, tabId?: TTabId) {
@@ -88,13 +73,10 @@ function findCapabilityTargetTab(snapshot: IAgentWorkspaceSnapshot, tabId?: TTab
     if (!targetTabId) {
         return null;
     }
-    return snapshot.tabs.find(tab => tab.tabId === targetTabId) ?? null;
+    return snapshot.tabs.find((tab) => tab.tabId === targetTabId) ?? null;
 }
 
-function createCapabilityAvailability(
-    template: IAgentCapabilityTemplate,
-    tab: IAgentTabSnapshot | null,
-) {
+function createCapabilityAvailability(template: IAgentCapabilityTemplate, tab: IAgentTabSnapshot | null) {
     if (template.availabilityKind === 'always') {
         return {available: true};
     }
@@ -152,10 +134,7 @@ function createCapabilityAvailability(
     return {available: true};
 }
 
-function createCapabilityDescriptor(
-    template: IAgentCapabilityTemplate,
-    tab: IAgentTabSnapshot | null,
-): IAgentCapabilityDescriptor {
+function createCapabilityDescriptor(template: IAgentCapabilityTemplate, tab: IAgentTabSnapshot | null): IAgentCapabilityDescriptor {
     const inputSchema = toJsonSchema(template.inputSchema);
     delete inputSchema.$schema;
     return {
@@ -200,11 +179,9 @@ export async function listAgentCapabilities(params: unknown, options: ICapabilit
     const targetTab = findCapabilityTargetTab(snapshot, getOptionalTabId(params));
     const domain = getOptionalCapabilityDomain(params);
     const full = shouldListFullCapabilities(params);
-    const capabilities = AGENT_CAPABILITY_TEMPLATES
-        .filter(template => domain === undefined || template.domain === domain)
-        .map(template => full
-            ? createCapabilityDescriptor(template, targetTab)
-            : createCompactCapabilityDescriptor(template, targetTab));
+    const capabilities = AGENT_CAPABILITY_TEMPLATES.filter((template) => domain === undefined || template.domain === domain).map(
+        (template) => (full ? createCapabilityDescriptor(template, targetTab) : createCompactCapabilityDescriptor(template, targetTab)),
+    );
     return {
         activeTabId: snapshot.activeTabId,
         targetTabId: targetTab?.tabId ?? null,

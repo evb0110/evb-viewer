@@ -13,7 +13,7 @@ export const RAW_IPC_HANDLER_DESCRIPTORS = [
     },
 ] as const;
 
-type TRawIpcHandlerName = typeof RAW_IPC_HANDLER_DESCRIPTORS[number]['name'];
+type TRawIpcHandlerName = (typeof RAW_IPC_HANDLER_DESCRIPTORS)[number]['name'];
 
 export interface IRawIpcRegistrationAudit {
     register(name: TRawIpcHandlerName, register: () => void, scope?: string): void;
@@ -23,7 +23,7 @@ export interface IRawIpcRegistrationAudit {
 
 export function createRawIpcRegistrationAudit(): IRawIpcRegistrationAudit {
     const registeredNames = new Map<string, TRawIpcHandlerName>();
-    const knownNames = new Set(RAW_IPC_HANDLER_DESCRIPTORS.map(descriptor => descriptor.name));
+    const knownNames = new Set(RAW_IPC_HANDLER_DESCRIPTORS.map((descriptor) => descriptor.name));
     const keyFor = (name: TRawIpcHandlerName, scope: string) => `${name}:${scope}`;
 
     return {

@@ -12,8 +12,7 @@ export function isSuppressedErrorLike(value: unknown): value is ISuppressedError
         return false;
     }
     const SuppressedErrorCtor = (globalThis as {SuppressedError?: unknown}).SuppressedError;
-    return (typeof SuppressedErrorCtor === 'function' && value instanceof SuppressedErrorCtor)
-        || value.name === 'SuppressedError';
+    return (typeof SuppressedErrorCtor === 'function' && value instanceof SuppressedErrorCtor) || value.name === 'SuppressedError';
 }
 
 export function isFiniteNumber(value: unknown): value is number {
@@ -25,17 +24,15 @@ export function isFinitePositive(value: unknown): value is number {
 }
 
 export function isStringArray(value: unknown): value is string[] {
-    return Array.isArray(value) && value.every(item => typeof item === 'string');
+    return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
 export function isOneOf<T extends string>(values: readonly T[], value: unknown): value is T {
-    return typeof value === 'string' && values.some(candidate => candidate === value);
+    return typeof value === 'string' && values.some((candidate) => candidate === value);
 }
 
 export function isSafeWorkerRequestId(value: unknown): value is number {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 0;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 export interface IErrnoLikeException {
@@ -46,9 +43,11 @@ export interface IErrnoLikeException {
 }
 
 export function isErrnoException(value: unknown): value is IErrnoLikeException {
-    return isRecord(value)
-        && (typeof value.code === 'string' || typeof value.code === 'number')
-        && (value.errno === undefined || typeof value.errno === 'number')
-        && (value.path === undefined || typeof value.path === 'string')
-        && (value.syscall === undefined || typeof value.syscall === 'string');
+    return (
+        isRecord(value) &&
+        (typeof value.code === 'string' || typeof value.code === 'number') &&
+        (value.errno === undefined || typeof value.errno === 'number') &&
+        (value.path === undefined || typeof value.path === 'string') &&
+        (value.syscall === undefined || typeof value.syscall === 'string')
+    );
 }

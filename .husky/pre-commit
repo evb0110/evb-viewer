@@ -1,2 +1,2 @@
 node scripts/check-publication-policy.mjs --staged
-pnpm exec lint-staged
+pnpm exec lint-staged --concurrent false

@@ -1,15 +1,8 @@
 import {sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
 import {shell} from 'electron';
-import type {
-    IAgentAssistantAccount,
-    IAgentAssistantImageAttachment,
-    IAgentAssistantModelOption,
-} from '@contracts/agent';
+import type {IAgentAssistantAccount, IAgentAssistantImageAttachment, IAgentAssistantModelOption} from '@contracts/agent';
 import {isRecord} from '@contracts/runtimeGuards';
-import {
-    CodexAppServerClient,
-    type ICodexAppServerNotification,
-} from '@electron/features/agent/codexAppServerClient';
+import {CodexAppServerClient, type ICodexAppServerNotification} from '@electron/features/agent/codexAppServerClient';
 import {
     ASSISTANT_IMAGE_ONLY_PROMPT,
     ASSISTANT_MCP_TOKEN_ENV,
@@ -19,7 +12,7 @@ import {
     readCodexUserToolConfig,
     type ICodexUserToolConfig,
 } from '@electron/features/agent/codexAssistantConfig';
-import { normalizeCodexModelListResponse } from '@electron/features/agent/assistantModelCatalog';
+import {normalizeCodexModelListResponse} from '@electron/features/agent/assistantModelCatalog';
 import {normalizeCodexAssistantAccount} from '@electron/features/agent/normalizeCodexAssistantAccount';
 import type {IAssistantLaunchContext} from '@electron/features/agent/assistantInstances';
 import {te} from '@electron/te';
@@ -68,7 +61,7 @@ function readAuth(response: Record<string, unknown>) {
     }
     return {
         // A provider that needs no OpenAI login (a proxy, an API key route) is usable without an account.
-        auth: response.requiresOpenaiAuth === false ? 'authenticated' as const : 'unauthenticated' as const,
+        auth: response.requiresOpenaiAuth === false ? ('authenticated' as const) : ('unauthenticated' as const),
         account: null,
     };
 }
@@ -100,25 +93,28 @@ export class CodexInstanceRuntime {
             cwd: () => Promise<string>;
             embeddedMcp: () => Promise<{
                 url: string;
-                token: string
+                token: string;
             }>;
             onLoginFinished: (error: string | null) => void;
         },
     ) {}
 
-    private spawn(context: IAssistantLaunchContext, extraArgs: readonly string[], env: NodeJS.ProcessEnv, cwd: string, listener?: {
-        notification: (notification: ICodexAppServerNotification) => void;
-        exit: (message: string) => void;
-    }) {
+    private spawn(
+        context: IAssistantLaunchContext,
+        extraArgs: readonly string[],
+        env: NodeJS.ProcessEnv,
+        cwd: string,
+        listener?: {
+            notification: (notification: ICodexAppServerNotification) => void;
+            exit: (message: string) => void;
+        },
+    ) {
         if (!context.binaryPath) {
             throw new Error(te('dialogs.agentAssistant.codexMissing'));
         }
         const client = new CodexAppServerClient(
             context.binaryPath,
-            [
-                ...context.launchArgs,
-                ...extraArgs,
-            ],
+            [...context.launchArgs, ...extraArgs],
             env,
             cwd,
             listener?.notification ?? (() => undefined),
@@ -134,12 +130,15 @@ export class CodexInstanceRuntime {
         if (pending) {
             return pending;
         }
-        const stopped = client.shutdown().catch((error: unknown) => {
-            logger.warn(`Codex process did not stop cleanly: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
-        }).finally(() => {
-            this.clients.delete(client);
-            this.stopping.delete(client);
-        });
+        const stopped = client
+            .shutdown()
+            .catch((error: unknown) => {
+                logger.warn(`Codex process did not stop cleanly: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
+            })
+            .finally(() => {
+                this.clients.delete(client);
+                this.stopping.delete(client);
+            });
         this.stopping.set(client, stopped);
         return stopped;
     }
@@ -172,19 +171,33 @@ export class CodexInstanceRuntime {
                 let cursor: string | null = null;
                 const cursors = new Set<string>();
                 do {
-                    const page: Record<string, unknown> = await client.requestDecoded('model/list', {includeHidden: false, ...(cursor ? {cursor} : {})}, decodeRecord, CODEX_CONTROL_TIMEOUT_MS);
+                    const page: Record<string, unknown> = await client.requestDecoded(
+                        'model/list',
+                        {includeHidden: false, ...(cursor ? {cursor} : {})},
+                        decodeRecord,
+                        CODEX_CONTROL_TIMEOUT_MS,
+                    );
                     const models = normalizeCodexModelListResponse(page);
-                    if (!models) throw new Error('Codex returned an invalid model catalog.');
+                    if (!models) {
+                        throw new Error('Codex returned an invalid model catalog.');
+                    }
                     for (const model of models) {
-                        if (!result.models.some(existing => existing.id === model.id)) result.models.push(model);
+                        if (!result.models.some((existing) => existing.id === model.id)) {
+                            result.models.push(model);
+                        }
                     }
                     cursor = typeof page.nextCursor === 'string' && page.nextCursor ? page.nextCursor : null;
-                    if (cursor && cursors.has(cursor)) throw new Error('Codex repeated a model catalog page.');
-                    if (cursor) cursors.add(cursor);
+                    if (cursor && cursors.has(cursor)) {
+                        throw new Error('Codex repeated a model catalog page.');
+                    }
+                    if (cursor) {
+                        cursors.add(cursor);
+                    }
                 } while (cursor);
-
             } catch (error) {
-                result.warning = te('dialogs.agentAssistant.modelListUnavailable', {reason: sanitizeAssistantProviderText(getErrorMessage(error))});
+                result.warning = te('dialogs.agentAssistant.modelListUnavailable', {
+                    reason: sanitizeAssistantProviderText(getErrorMessage(error)),
+                });
             }
             try {
                 const config = await client.requestDecoded('config/read', {}, decodeRecord, CODEX_CONTROL_TIMEOUT_MS);
@@ -197,10 +210,13 @@ export class CodexInstanceRuntime {
         try {
             return await waitForBoundedOperation(work, {
                 timeoutMs: budgetMs,
-                timeoutError: () => new Error(te('dialogs.agentAssistant.statusTimeout', {
-                    provider: 'Codex',
-                    seconds: CODEX_PROBE_BUDGET_MS / 1000,
-                })),
+                timeoutError: () =>
+                    new Error(
+                        te('dialogs.agentAssistant.statusTimeout', {
+                            provider: 'Codex',
+                            seconds: CODEX_PROBE_BUDGET_MS / 1000,
+                        }),
+                    ),
                 onTimeout: () => void this.stop(client),
             });
         } finally {
@@ -232,8 +248,8 @@ export class CodexInstanceRuntime {
             },
             cwd,
             {
-                notification: notification => this.route(notification),
-                exit: message => this.handleExit(client, message),
+                notification: (notification) => this.route(notification),
+                exit: (message) => this.handleExit(client, message),
             },
         );
         try {
@@ -241,10 +257,16 @@ export class CodexInstanceRuntime {
             const leaks: string[] = [];
             let cursor: string | null = null;
             do {
-                const page = readCodexMcpStatusPage(await client.request('mcpServerStatus/list', {
-                    detail: 'toolsAndAuthOnly',
-                    ...(cursor ? {cursor} : {}),
-                }, CODEX_CONTROL_TIMEOUT_MS));
+                const page = readCodexMcpStatusPage(
+                    await client.request(
+                        'mcpServerStatus/list',
+                        {
+                            detail: 'toolsAndAuthOnly',
+                            ...(cursor ? {cursor} : {}),
+                        },
+                        CODEX_CONTROL_TIMEOUT_MS,
+                    ),
+                );
                 leaks.push(...page.leaks);
                 cursor = page.nextCursor;
             } while (cursor);
@@ -277,7 +299,13 @@ export class CodexInstanceRuntime {
         const method = typeof notification.method === 'string' ? notification.method : '';
         const params = isRecord(notification.params) ? notification.params : {};
         if (method === 'account/login/completed') {
-            this.finishLogin(params.success === false ? (typeof params.error === 'string' ? params.error : te('dialogs.agentAssistant.signInCanceled')) : null);
+            this.finishLogin(
+                params.success === false
+                    ? typeof params.error === 'string'
+                        ? params.error
+                        : te('dialogs.agentAssistant.signInCanceled')
+                    : null,
+            );
             return;
         }
         const threadId = typeof params.threadId === 'string' ? params.threadId : null;
@@ -312,26 +340,38 @@ export class CodexInstanceRuntime {
         };
         if (threadId) {
             try {
-                await client.requestDecoded('thread/resume', {
-                    threadId,
-                    ...common,
-                }, decodeRecord, CODEX_CONTROL_TIMEOUT_MS);
+                await client.requestDecoded(
+                    'thread/resume',
+                    {
+                        threadId,
+                        ...common,
+                    },
+                    decodeRecord,
+                    CODEX_CONTROL_TIMEOUT_MS,
+                );
                 this.threads.set(threadId, listener);
                 return {
                     threadId,
                     resumed: true,
                 };
             } catch (error) {
-                logger.info(`Starting a new Codex thread because ${threadId} could not be resumed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
+                logger.info(
+                    `Starting a new Codex thread because ${threadId} could not be resumed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`,
+                );
             }
         }
-        const response = await client.requestDecoded('thread/start', {
-            ...(model ? {model} : {}),
-            ...common,
-            serviceName: 'EVB Assistant',
-            ephemeral: false,
-            threadSource: 'user',
-        }, decodeRecord, CODEX_CONTROL_TIMEOUT_MS);
+        const response = await client.requestDecoded(
+            'thread/start',
+            {
+                ...(model ? {model} : {}),
+                ...common,
+                serviceName: 'EVB Assistant',
+                ephemeral: false,
+                threadSource: 'user',
+            },
+            decodeRecord,
+            CODEX_CONTROL_TIMEOUT_MS,
+        );
         const id = isRecord(response.thread) && typeof response.thread.id === 'string' ? response.thread.id : null;
         if (!id) {
             throw new Error(te('dialogs.agentAssistant.noThread'));
@@ -349,30 +389,35 @@ export class CodexInstanceRuntime {
 
     async startTurn(input: ICodexTurnInput) {
         const client = await this.ensureChat();
-        const response = await client.requestDecoded('turn/start', {
-            threadId: input.threadId,
-            input: [
-                {
-                    type: 'text',
-                    text: input.text || ASSISTANT_IMAGE_ONLY_PROMPT,
-                    text_elements: [],
+        const response = await client.requestDecoded(
+            'turn/start',
+            {
+                threadId: input.threadId,
+                input: [
+                    {
+                        type: 'text',
+                        text: input.text || ASSISTANT_IMAGE_ONLY_PROMPT,
+                        text_elements: [],
+                    },
+                    ...input.attachments.map((attachment) => ({
+                        type: 'image',
+                        url: attachment.dataUrl,
+                    })),
+                ],
+                ...(input.model ? {model: input.model} : {}),
+                ...(input.effort ? {effort: input.effort} : {}),
+                ...(input.serviceTier ? {serviceTier: input.serviceTier} : {}),
+                cwd: await this.options.cwd(),
+                approvalPolicy: 'never',
+                sandboxPolicy: {
+                    type: 'readOnly',
+                    networkAccess: false,
                 },
-                ...input.attachments.map(attachment => ({
-                    type: 'image',
-                    url: attachment.dataUrl,
-                })),
-            ],
-            ...(input.model ? {model: input.model} : {}),
-            ...(input.effort ? {effort: input.effort} : {}),
-            ...(input.serviceTier ? {serviceTier: input.serviceTier} : {}),
-            cwd: await this.options.cwd(),
-            approvalPolicy: 'never',
-            sandboxPolicy: {
-                type: 'readOnly',
-                networkAccess: false,
+                personality: 'friendly',
             },
-            personality: 'friendly',
-        }, decodeRecord, CODEX_CONTROL_TIMEOUT_MS);
+            decodeRecord,
+            CODEX_CONTROL_TIMEOUT_MS,
+        );
         const turnId = isRecord(response.turn) && typeof response.turn.id === 'string' ? response.turn.id : null;
         if (!turnId) {
             throw new Error(te('dialogs.agentAssistant.notAccepted'));
@@ -385,10 +430,14 @@ export class CodexInstanceRuntime {
         if (!client) {
             return;
         }
-        await client.request('turn/interrupt', {
-            threadId,
-            turnId,
-        }, CODEX_CONTROL_TIMEOUT_MS);
+        await client.request(
+            'turn/interrupt',
+            {
+                threadId,
+                turnId,
+            },
+            CODEX_CONTROL_TIMEOUT_MS,
+        );
     }
 
     async startLogin(mode: 'chatgpt' | 'device-code') {
@@ -398,7 +447,7 @@ export class CodexInstanceRuntime {
         const cwd = await this.options.cwd();
         this.assertNotStopped(generation);
         const client = this.spawn(context, [], context.env, cwd, {
-            notification: notification => this.route(notification),
+            notification: (notification) => this.route(notification),
             exit: () => undefined,
         });
         try {
@@ -486,7 +535,7 @@ export class CodexInstanceRuntime {
         this.chatClient = null;
         this.chat = null;
         await this.cancelLogin(false);
-        await Promise.all(owned.map(process => this.stop(process)));
+        await Promise.all(owned.map((process) => this.stop(process)));
         // Threads hear of the exit only once their process is gone, because
         // ending a turn releases the document grant.
         for (const listener of listeners) {

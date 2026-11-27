@@ -1,24 +1,16 @@
 import {parsePageNumber} from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import { useResizeObserver } from '@vueuse/core';
-import { getCurrentSpreadRenderedBoundsFromMetrics } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics';
-import { resolveHorizontalScrollClampForActiveSpread as resolveActiveSpreadHorizontalScrollClamp } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolveHorizontalScrollClampForActiveSpread';
-import { HORIZONTAL_SCROLL_CLAMP_EPSILON_PX } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
-import { usePdfViewerVirtualization } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
-import type {
-    TFitMode,
-    TPdfViewRotation,
-    TPdfViewMode,
-    TZoomMode,
-} from '@app/types/pdfContracts';
-import type { IPdfPageMetric } from '@app/types/pdfUi';
-import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
-import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+import type {ComputedRef, Ref} from 'vue';
+import {useResizeObserver} from '@vueuse/core';
+import {getCurrentSpreadRenderedBoundsFromMetrics} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics';
+import {resolveHorizontalScrollClampForActiveSpread as resolveActiveSpreadHorizontalScrollClamp} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolveHorizontalScrollClampForActiveSpread';
+import {HORIZONTAL_SCROLL_CLAMP_EPSILON_PX} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
+import {usePdfViewerVirtualization} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
+import type {TFitMode, TPdfViewRotation, TPdfViewMode, TZoomMode} from '@app/types/pdfContracts';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
+import type {IPdfViewportWritePort} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import type {IPdfRenderPerformancePolicy} from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 
 interface IUsePdfViewportViewModelOptions {
     performancePolicy: IPdfRenderPerformancePolicy;
@@ -104,18 +96,20 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         void viewportDimensionVersion.value;
         const container = options.viewerContainer.value;
         const currentPage = parsePageNumber(options.currentPage.value, options.numPages.value);
-        return container && currentPage !== null ? getCurrentSpreadRenderedBoundsFromMetrics({
-            container,
-            basePageWidth: options.basePageWidth.value,
-            basePageHeight: options.basePageHeight.value,
-            numPages: options.numPages.value,
-            pageWidths: virtualization.pageLayout.value?.base.pageWidths ?? [],
-            currentPage,
-            viewMode: options.viewMode.value,
-            effectiveScale: options.effectiveScale.value,
-            getScaleForPage: virtualization.getPageLayoutScale,
-            scaledMargin: options.scaledMargin.value,
-        }) : null;
+        return container && currentPage !== null
+            ? getCurrentSpreadRenderedBoundsFromMetrics({
+                  container,
+                  basePageWidth: options.basePageWidth.value,
+                  basePageHeight: options.basePageHeight.value,
+                  numPages: options.numPages.value,
+                  pageWidths: virtualization.pageLayout.value?.base.pageWidths ?? [],
+                  currentPage,
+                  viewMode: options.viewMode.value,
+                  effectiveScale: options.effectiveScale.value,
+                  getScaleForPage: virtualization.getPageLayoutScale,
+                  scaledMargin: options.scaledMargin.value,
+              })
+            : null;
     });
 
     const containerStyle = computed(() => ({
@@ -136,13 +130,12 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
             return options.doesFitHeightSpreadFitWidth(container, currentPage);
         }
         return renderedSpreadBounds.value
-            ? renderedSpreadBounds.value.width + options.scaledMargin.value * 2 <= container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX
+            ? renderedSpreadBounds.value.width + options.scaledMargin.value * 2 <=
+                  container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX
             : container.scrollWidth <= container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX;
     });
 
-    const isHorizontalScrollLocked = computed(() => (
-        fitWidthHorizontalScrollLocked.value || isActiveSpreadHorizontalScrollLocked.value
-    ));
+    const isHorizontalScrollLocked = computed(() => fitWidthHorizontalScrollLocked.value || isActiveSpreadHorizontalScrollLocked.value);
 
     const viewerClass = computed(() => ({
         'pdfViewer--saving': options.classState.isAnySaving.value,
@@ -157,8 +150,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         'pdfViewer--fit-width': options.classState.zoomMode.value === 'fit-width',
         'pdfViewer--fit-width-page-fits': fitWidthHorizontalScrollLocked.value,
         'pdfViewer--fit-height': options.classState.fitMode.value === 'height',
-        'pdfViewer--fit-height-overflow': options.classState.zoomMode.value === 'fit-height'
-            && !isActiveSpreadHorizontalScrollLocked.value,
+        'pdfViewer--fit-height-overflow': options.classState.zoomMode.value === 'fit-height' && !isActiveSpreadHorizontalScrollLocked.value,
         'pdfViewer--active-spread-fits-width': isActiveSpreadHorizontalScrollLocked.value,
     }));
 
@@ -178,18 +170,12 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
 
     function resolveHorizontalScrollClampForActiveSpread() {
         const container = options.viewerContainer.value;
-        if (
-            !container
-            || options.classState.fitMode.value !== 'width'
-        ) {
+        if (!container || options.classState.fitMode.value !== 'width') {
             fitWidthHorizontalScrollLocked.value = false;
             return null;
         }
 
-        const currentPage = parsePageNumber(
-            options.currentPage.value,
-            options.numPages.value,
-        );
+        const currentPage = parsePageNumber(options.currentPage.value, options.numPages.value);
         if (currentPage === null) {
             fitWidthHorizontalScrollLocked.value = false;
             return null;
@@ -234,9 +220,9 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         }
 
         if (
-            (options.classState.zoomMode.value === 'fit-width' || options.classState.zoomMode.value === 'fit-height')
-            && container.scrollWidth <= container.clientWidth
-            && container.scrollLeft !== 0
+            (options.classState.zoomMode.value === 'fit-width' || options.classState.zoomMode.value === 'fit-height') &&
+            container.scrollWidth <= container.clientWidth &&
+            container.scrollLeft !== 0
         ) {
             writeLeft(container, 0, 'fit-mode-center');
         }

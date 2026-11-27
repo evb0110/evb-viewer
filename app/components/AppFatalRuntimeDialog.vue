@@ -53,7 +53,10 @@
                 <p class="font-medium text-default">
                     {{ detailLabel }}
                 </p>
-                <p id="fatal-runtime-detail" class="mt-2 break-words">
+                <p
+                    id="fatal-runtime-detail"
+                    class="mt-2 break-words"
+                >
                     {{ detail }}
                 </p>
             </div>
@@ -82,10 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    formatFailurePresentationCopy,
-    getFailureErrorId,
-} from '@app/composables/useFailureToast';
+import {formatFailurePresentationCopy, getFailureErrorId} from '@app/composables/useFailureToast';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 const {
@@ -120,40 +120,33 @@ const emit = defineEmits<{
 const dialogElement = ref<HTMLDialogElement | null>(null);
 const headingElement = ref<HTMLHeadingElement | null>(null);
 const alertTitleSlot = 'title';
-const shortFailureId = computed(() => failure
-    ? getFailureErrorId(failure)
-    : null);
-const dialogDescriptionIds = computed(() => [
-    'fatal-runtime-description',
-    shortFailureId.value ? 'fatal-runtime-error-id' : null,
-    detail ? 'fatal-runtime-detail' : null,
-].filter((id): id is string => Boolean(id)).join(' '));
+const shortFailureId = computed(() => (failure ? getFailureErrorId(failure) : null));
+const dialogDescriptionIds = computed(() =>
+    ['fatal-runtime-description', shortFailureId.value ? 'fatal-runtime-error-id' : null, detail ? 'fatal-runtime-detail' : null]
+        .filter((id): id is string => Boolean(id))
+        .join(' '),
+);
 
 function getLocalDetails() {
-    return [
-        description,
-        detail,
-    ]
-        .filter((value): value is string => Boolean(value?.trim()))
-        .join('\n') || undefined;
+    return [description, detail].filter((value): value is string => Boolean(value?.trim())).join('\n') || undefined;
 }
 
 function handleCopy() {
     const localDetails = getLocalDetails();
     const text = failure
         ? formatFailurePresentationCopy({
-            failure,
-            title,
-            ...(localDetails ? {description: localDetails} : {}),
-        })
-        : detail ?? undefined;
+              failure,
+              title,
+              ...(localDetails ? {description: localDetails} : {}),
+          })
+        : (detail ?? undefined);
     emit('copy', text);
 }
 
 function getRecoveryControls() {
-    return Array.from(
-        dialogElement.value?.querySelectorAll<HTMLElement>('[data-fatal-runtime-action]') ?? [],
-    ).filter(element => !element.hasAttribute('disabled'));
+    return Array.from(dialogElement.value?.querySelectorAll<HTMLElement>('[data-fatal-runtime-action]') ?? []).filter(
+        (element) => !element.hasAttribute('disabled'),
+    );
 }
 
 function handleDialogKeydown(event: KeyboardEvent) {
@@ -175,21 +168,18 @@ function handleDialogKeydown(event: KeyboardEvent) {
 
     event.preventDefault();
     const activeIndex = controls.indexOf(document.activeElement as HTMLElement);
-    const nextIndex = activeIndex < 0
-        ? event.shiftKey
-            ? controls.length - 1
-            : 0
-        : (activeIndex + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+    const nextIndex =
+        activeIndex < 0
+            ? event.shiftKey
+                ? controls.length - 1
+                : 0
+            : (activeIndex + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
     controls[nextIndex]?.focus();
 }
 
 function containDocumentFocus(event: FocusEvent) {
     const target = event.target;
-    if (
-        open
-        && target instanceof Node
-        && !dialogElement.value?.contains(target)
-    ) {
+    if (open && target instanceof Node && !dialogElement.value?.contains(target)) {
         headingElement.value?.focus();
     }
 }

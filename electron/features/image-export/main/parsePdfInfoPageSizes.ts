@@ -1,4 +1,4 @@
-import type { IExportPageSize } from '@electron/features/image-export/main/imageExportResourceLimits';
+import type {IExportPageSize} from '@electron/features/image-export/main/imageExportResourceLimits';
 
 const PDFINFO_PAGE_SIZE_LINE_RE = /^Page(?:\s+\d+)?\s+size:\s+([\d.]+)\s*x\s*([\d.]+)\s*pts/u;
 const PDFINFO_PAGE_SIZE_STREAM_LINE_MAX_LENGTH = 1024 * 1024;
@@ -26,9 +26,7 @@ export function parsePdfInfoPageSizeLine(line: string): IExportPageSize | null {
  * record to `onPageSize`. The full output is consumed this way, and only one
  * line is buffered.
  */
-export function createPdfInfoPageSizeStreamScanner(
-    onPageSize: (pageSize: IExportPageSize) => void,
-) {
+export function createPdfInfoPageSizeStreamScanner(onPageSize: (pageSize: IExportPageSize) => void) {
     let pendingLine = '';
     return (chunk: string) => {
         pendingLine += chunk;

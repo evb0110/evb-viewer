@@ -1,15 +1,8 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { installStartupOverlayLifecycle } from '@electron/preload/installStartupOverlayLifecycle';
-import { cast } from '@tests/helpers/cast';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {installStartupOverlayLifecycle} from '@electron/preload/installStartupOverlayLifecycle';
+import {cast} from '@tests/helpers/cast';
 
 const OVERLAY_ID = 'evb-startup-overlay';
 
@@ -106,15 +99,18 @@ describe('installStartupOverlayLifecycle', () => {
         expect(document.getElementById(OVERLAY_ID)).toBeNull();
     });
 
-    it.each(['first-view-presented', 'password-prompt', 'timed-out'] as const)('retains a positive claim until the %s visual receipt', (reason) => {
-        install();
-        dispatchAppReady();
-        dispatchClaim(1);
-        expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
+    it.each(['first-view-presented', 'password-prompt', 'timed-out'] as const)(
+        'retains a positive claim until the %s visual receipt',
+        (reason) => {
+            install();
+            dispatchAppReady();
+            dispatchClaim(1);
+            expect(document.getElementById(OVERLAY_ID)).not.toBeNull();
 
-        dispatchVisualReady(reason);
-        expect(document.getElementById(OVERLAY_ID)).toBeNull();
-    });
+            dispatchVisualReady(reason);
+            expect(document.getElementById(OVERLAY_ID)).toBeNull();
+        },
+    );
 
     it('handles an empty claim before app-ready', () => {
         install();

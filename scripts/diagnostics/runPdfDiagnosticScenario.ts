@@ -1,24 +1,11 @@
-import {
-    existsSync,
-    mkdirSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    dirname,
-    resolve,
-} from 'node:path';
-import type { Page } from 'puppeteer-core';
-import { delay } from 'es-toolkit/promise';
-import { startDiagnosticFrameCapture } from '@scripts/diagnostics/diagnosticFrameCapture';
-import {
-    type IElectronE2ESession,
-    startPdfDiagnosticsElectronSession,
-} from '@scripts/diagnostics/startPdfDiagnosticsElectronSession';
-import {
-    evaluateInPage,
-    waitForFunctionInPage,
-} from '@tests/e2e/electron/helpers/pageRuntime';
-import { openPdfInApp } from '@tests/e2e/electron/helpers/viewerCore';
+import {existsSync, mkdirSync, writeFileSync} from 'node:fs';
+import {dirname, resolve} from 'node:path';
+import type {Page} from 'puppeteer-core';
+import {delay} from 'es-toolkit/promise';
+import {startDiagnosticFrameCapture} from '@scripts/diagnostics/diagnosticFrameCapture';
+import {type IElectronE2ESession, startPdfDiagnosticsElectronSession} from '@scripts/diagnostics/startPdfDiagnosticsElectronSession';
+import {evaluateInPage, waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {openPdfInApp} from '@tests/e2e/electron/helpers/viewerCore';
 import {
     disablePdfDiagnosticSession,
     enablePdfDiagnosticSession,
@@ -30,9 +17,7 @@ export interface IPdfDiagnosticsContext {
         writeJson: (path: string, payload: unknown) => void;
         writeText: (path: string, text: string) => void;
     };
-    capture: {start: (
-        options: Parameters<typeof startDiagnosticFrameCapture>[1],
-    ) => ReturnType<typeof startDiagnosticFrameCapture>;};
+    capture: {start: (options: Parameters<typeof startDiagnosticFrameCapture>[1]) => ReturnType<typeof startDiagnosticFrameCapture>};
     navigation: {
         clickToolbarButton: (
             label: string,
@@ -98,31 +83,28 @@ function writeText(path: string, text: string) {
 }
 
 async function collectWindowEntries(page: Page, readerName: '__getPdfNavLog' | '__getPdfRenderTrace') {
-    return evaluateInPage(page, (name) => {
-        const diagnosticWindow = window as Window & {
-            __getPdfNavLog?: () => unknown;
-            __getPdfRenderTrace?: () => unknown;
-        };
-        const reader = diagnosticWindow[name];
-        const entries = typeof reader === 'function'
-            ? (reader)()
-            : [];
-        return Array.isArray(entries)
-            ? entries.map((entry: unknown) => entry)
-            : [];
-    }, readerName);
+    return evaluateInPage(
+        page,
+        (name) => {
+            const diagnosticWindow = window as Window & {
+                __getPdfNavLog?: () => unknown;
+                __getPdfRenderTrace?: () => unknown;
+            };
+            const reader = diagnosticWindow[name];
+            const entries = typeof reader === 'function' ? reader() : [];
+            return Array.isArray(entries) ? entries.map((entry: unknown) => entry) : [];
+        },
+        readerName,
+    );
 }
 
-function createContext(
-    session: IElectronE2ESession,
-    diagnostics: IPdfDiagnosticSessionOptions,
-): IPdfDiagnosticsContext {
+function createContext(session: IElectronE2ESession, diagnostics: IPdfDiagnosticSessionOptions): IPdfDiagnosticsContext {
     return {
         artifacts: {
             writeJson,
             writeText,
         },
-        capture: {start: options => startDiagnosticFrameCapture(session.page, options)},
+        capture: {start: (options) => startDiagnosticFrameCapture(session.page, options)},
         navigation: {
             clickToolbarButton: async (label, options = {}) => {
                 const selector = '.page-controls button[aria-label]';
@@ -132,68 +114,79 @@ function createContext(
                     nextButtonFallback: options.nextButtonFallback ?? false,
                     selector,
                 };
-                await waitForFunctionInPage(session.page, (target: typeof targetOptions) => (
-                    Array.from(document.querySelectorAll<HTMLButtonElement>(target.selector))
-                        .some((button) => {
+                await waitForFunctionInPage(
+                    session.page,
+                    (target: typeof targetOptions) =>
+                        Array.from(document.querySelectorAll<HTMLButtonElement>(target.selector)).some((button) => {
                             const ariaLabel = button.getAttribute('aria-label') ?? '';
                             const rect = button.getBoundingClientRect();
                             const style = window.getComputedStyle(button);
-                            return (ariaLabel === target.label || ariaLabel.startsWith(`${target.label} (`))
-                            && !button.disabled
-                            && button.getAttribute('aria-disabled') !== 'true'
-                            && rect.width > 8
-                            && rect.height > 8
-                            && style.display !== 'none'
-                            && style.visibility !== 'hidden';
-                        })
-                ), {timeout: 30_000}, targetOptions);
-                const target = await evaluateInPage(session.page, (options: typeof targetOptions) => {
-                    const buttons = Array.from(
-                        document.querySelectorAll<HTMLButtonElement>(options.selector),
-                    );
-                    const isEnabled = (button: HTMLButtonElement) => {
-                        const rect = button.getBoundingClientRect();
-                        const style = window.getComputedStyle(button);
-                        return !button.disabled
-                            && button.getAttribute('aria-disabled') !== 'true'
-                            && rect.width > 8
-                            && rect.height > 8
-                            && style.display !== 'none'
-                            && style.visibility !== 'hidden';
-                    };
-                    const button = buttons.find((candidate) => {
-                        const ariaLabel = candidate.getAttribute('aria-label') ?? '';
-                        return (
-                            ariaLabel === options.label
-                            || ariaLabel.startsWith(`${options.label} (`)
-                        ) && isEnabled(candidate);
-                    }) ?? (options.nextButtonFallback
-                        ? buttons.find(candidate => (
-                            Boolean(candidate.querySelector('.i-ph-caret-right, .iconify.i-ph-caret-right'))
-                            && isEnabled(candidate)
-                        )) ?? buttons.find(isEnabled)
-                        : null);
-                    const rect = button?.getBoundingClientRect() ?? null;
-                    if (options.dispatch === 'dom') {
-                        button?.click();
-                    }
-                    return {
-                        clicked: Boolean(button),
-                        label: button?.getAttribute('aria-label') ?? null,
-                        pageText: Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-                            .filter((element) => {
-                                const elementRect = element.getBoundingClientRect();
-                                const elementStyle = window.getComputedStyle(element);
-                                return elementRect.width > 0
-                                    && elementRect.height > 0
-                                    && elementStyle.display !== 'none'
-                                    && elementStyle.visibility !== 'hidden';
-                            })
-                            .map(element => element.textContent.trim()),
-                        x: rect ? Math.round(rect.left + rect.width / 2) : null,
-                        y: rect ? Math.round(rect.top + rect.height / 2) : null,
-                    };
-                }, targetOptions);
+                            return (
+                                (ariaLabel === target.label || ariaLabel.startsWith(`${target.label} (`)) &&
+                                !button.disabled &&
+                                button.getAttribute('aria-disabled') !== 'true' &&
+                                rect.width > 8 &&
+                                rect.height > 8 &&
+                                style.display !== 'none' &&
+                                style.visibility !== 'hidden'
+                            );
+                        }),
+                    {timeout: 30_000},
+                    targetOptions,
+                );
+                const target = await evaluateInPage(
+                    session.page,
+                    (options: typeof targetOptions) => {
+                        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(options.selector));
+                        const isEnabled = (button: HTMLButtonElement) => {
+                            const rect = button.getBoundingClientRect();
+                            const style = window.getComputedStyle(button);
+                            return (
+                                !button.disabled &&
+                                button.getAttribute('aria-disabled') !== 'true' &&
+                                rect.width > 8 &&
+                                rect.height > 8 &&
+                                style.display !== 'none' &&
+                                style.visibility !== 'hidden'
+                            );
+                        };
+                        const button =
+                            buttons.find((candidate) => {
+                                const ariaLabel = candidate.getAttribute('aria-label') ?? '';
+                                return (ariaLabel === options.label || ariaLabel.startsWith(`${options.label} (`)) && isEnabled(candidate);
+                            }) ??
+                            (options.nextButtonFallback
+                                ? (buttons.find(
+                                      (candidate) =>
+                                          Boolean(candidate.querySelector('.i-ph-caret-right, .iconify.i-ph-caret-right')) &&
+                                          isEnabled(candidate),
+                                  ) ?? buttons.find(isEnabled))
+                                : null);
+                        const rect = button?.getBoundingClientRect() ?? null;
+                        if (options.dispatch === 'dom') {
+                            button?.click();
+                        }
+                        return {
+                            clicked: Boolean(button),
+                            label: button?.getAttribute('aria-label') ?? null,
+                            pageText: Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
+                                .filter((element) => {
+                                    const elementRect = element.getBoundingClientRect();
+                                    const elementStyle = window.getComputedStyle(element);
+                                    return (
+                                        elementRect.width > 0 &&
+                                        elementRect.height > 0 &&
+                                        elementStyle.display !== 'none' &&
+                                        elementStyle.visibility !== 'hidden'
+                                    );
+                                })
+                                .map((element) => element.textContent.trim()),
+                            x: rect ? Math.round(rect.left + rect.width / 2) : null,
+                            y: rect ? Math.round(rect.top + rect.height / 2) : null,
+                        };
+                    },
+                    targetOptions,
+                );
                 if (!target.clicked || target.x === null || target.y === null) {
                     throw new Error(`Unable to click the ${label} toolbar button`);
                 }
@@ -203,13 +196,17 @@ function createContext(
                 return target;
             },
             waitForPageCanvas: async (pageNumber, timeoutMs = 30_000) => {
-                await waitForFunctionInPage(session.page, (targetPage: number) => {
-                    const container = document.querySelector<HTMLElement>(`.page_container[data-page="${targetPage}"]`);
-                    return Boolean(
-                        container?.classList.contains('page_container--rendered')
-                        && container.querySelector('.page_canvas canvas'),
-                    );
-                }, {timeout: timeoutMs}, pageNumber);
+                await waitForFunctionInPage(
+                    session.page,
+                    (targetPage: number) => {
+                        const container = document.querySelector<HTMLElement>(`.page_container[data-page="${targetPage}"]`);
+                        return Boolean(
+                            container?.classList.contains('page_container--rendered') && container.querySelector('.page_canvas canvas'),
+                        );
+                    },
+                    {timeout: timeoutMs},
+                    pageNumber,
+                );
             },
         },
         page: session.page,
@@ -244,9 +241,7 @@ function createContext(
     };
 }
 
-export async function runPdfDiagnosticScenario<TState = undefined>(
-    scenario: IPdfDiagnosticScenario<TState>,
-) {
+export async function runPdfDiagnosticScenario<TState = undefined>(scenario: IPdfDiagnosticScenario<TState>) {
     if (!existsSync(scenario.pdfPath)) {
         throw new Error(scenario.fixtureError);
     }
@@ -255,17 +250,11 @@ export async function runPdfDiagnosticScenario<TState = undefined>(
     const context = createContext(session, scenario.diagnostics);
     let state: TState | undefined;
     try {
-        state = scenario.prepare
-            ? await scenario.prepare(context)
-            : undefined;
+        state = scenario.prepare ? await scenario.prepare(context) : undefined;
         await enablePdfDiagnosticSession(session.page, scenario.diagnostics);
         await scenario.afterDiagnosticsEnabled?.(context, state as TState);
         if (!scenario.skipDefaultOpen) {
-            await openPdfInApp(
-                session.page,
-                scenario.pdfPath,
-                scenario.openTimeoutMs ?? 60_000,
-            );
+            await openPdfInApp(session.page, scenario.pdfPath, scenario.openTimeoutMs ?? 60_000);
         }
         await scenario.run(context, state as TState);
     } finally {

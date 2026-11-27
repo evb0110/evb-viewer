@@ -1,16 +1,7 @@
-import {
-    computed,
-    effectScope,
-    ref,
-} from 'vue';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { useWorkspaceSidebarOpenGeneration } from '@app/modules/workspace-shell/composables/useWorkspaceSidebarOpenGeneration';
-import { useDocumentOpenVisualSettle } from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
+import {computed, effectScope, ref} from 'vue';
+import {afterEach, describe, expect, it} from 'vitest';
+import {useWorkspaceSidebarOpenGeneration} from '@app/modules/workspace-shell/composables/useWorkspaceSidebarOpenGeneration';
+import {useDocumentOpenVisualSettle} from '@app/modules/workspace-shell/composables/useDocumentOpenVisualSettle';
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
@@ -48,12 +39,14 @@ function createSurfaceSnapshot(phase: TSurfacePhase, generation = 1) {
     } satisfies IDocumentOpenSurfaceSnapshot;
 }
 
-function createHarness(overrides: {
-    initialDocumentVisualReady?: boolean;
-    isOpeningDocumentForToolbar?: boolean;
-    sidebarPresentationEnabled?: boolean;
-    surfacePhase?: TSurfacePhase;
-} = {}) {
+function createHarness(
+    overrides: {
+        initialDocumentVisualReady?: boolean;
+        isOpeningDocumentForToolbar?: boolean;
+        sidebarPresentationEnabled?: boolean;
+        surfacePhase?: TSurfacePhase;
+    } = {},
+) {
     const sidebarPresentationEnabled = ref(overrides.sidebarPresentationEnabled ?? true);
     const isOpeningDocumentForToolbar = ref(overrides.isOpeningDocumentForToolbar ?? false);
     const initialDocumentVisualReady = ref(overrides.initialDocumentVisualReady ?? true);
@@ -61,16 +54,15 @@ function createHarness(overrides: {
     const surfacePhase = ref<TSurfacePhase>(overrides.surfacePhase ?? 'ready');
     const surfaceGeneration = ref(1);
     const scope = createTrackedScope();
-    const session = scope.run(() => useWorkspaceSidebarOpenGeneration({
-        sidebarPresentationEnabled,
-        isOpeningDocumentForToolbar,
-        initialDocumentVisualReady,
-        hasDocumentOpenError,
-        openSurfaceSnapshot: computed(() => createSurfaceSnapshot(
-            surfacePhase.value,
-            surfaceGeneration.value,
-        )),
-    }))!;
+    const session = scope.run(() =>
+        useWorkspaceSidebarOpenGeneration({
+            sidebarPresentationEnabled,
+            isOpeningDocumentForToolbar,
+            initialDocumentVisualReady,
+            hasDocumentOpenError,
+            openSurfaceSnapshot: computed(() => createSurfaceSnapshot(surfacePhase.value, surfaceGeneration.value)),
+        }),
+    )!;
 
     return {
         hasDocumentOpenError,
@@ -105,16 +97,18 @@ function stageSurfaceRender(surface: IDocumentOpenSurfaceSession, generation: nu
     });
     expect(fence).not.toBeNull();
     expect(surface.commitCanvas(fence!)).toBe(true);
-    expect(surface.commitViewport({
-        generation,
-        documentRevision: DOCUMENT_IDENTITY.documentRevision,
-        viewportIntentId: fence!.viewportIntentId,
-        documentGeometryRevision: 1,
-        interactionEpoch: 0,
-        pageNumber: 1,
-        left: 0,
-        top: 0,
-    })).toBe(true);
+    expect(
+        surface.commitViewport({
+            generation,
+            documentRevision: DOCUMENT_IDENTITY.documentRevision,
+            viewportIntentId: fence!.viewportIntentId,
+            documentGeometryRevision: 1,
+            interactionEpoch: 0,
+            pageNumber: 1,
+            left: 0,
+            top: 0,
+        }),
+    ).toBe(true);
     return fence!;
 }
 

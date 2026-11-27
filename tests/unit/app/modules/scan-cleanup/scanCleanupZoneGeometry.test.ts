@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {IScanCleanupNormalizedZonePolygon} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     createScanCleanupRectangleZone,
@@ -57,13 +53,19 @@ describe('scan cleanup manual zone geometry', () => {
     });
 
     it('creates a clockwise four-point rectangle under the active page rotation', () => {
-        expect(createScanCleanupRectangleZone({
-            xNormalized: 0.8,
-            yNormalized: 0.7,
-        }, {
-            xNormalized: 0.2,
-            yNormalized: 0.1,
-        }, 270)).toEqual({
+        expect(
+            createScanCleanupRectangleZone(
+                {
+                    xNormalized: 0.8,
+                    yNormalized: 0.7,
+                },
+                {
+                    xNormalized: 0.2,
+                    yNormalized: 0.1,
+                },
+                270,
+            ),
+        ).toEqual({
             points: [
                 {
                     xNormalized: 0.2,
@@ -114,9 +116,10 @@ describe('scan cleanup manual zone geometry', () => {
             width: 0.6,
             height: 0.7,
         });
-        expect(resized.points.every(point => point.xNormalized >= 0
-            && point.xNormalized <= 1
-            && point.yNormalized >= 0
-            && point.yNormalized <= 1)).toBe(true);
+        expect(
+            resized.points.every(
+                (point) => point.xNormalized >= 0 && point.xNormalized <= 1 && point.yNormalized >= 0 && point.yNormalized <= 1,
+            ),
+        ).toBe(true);
     });
 });

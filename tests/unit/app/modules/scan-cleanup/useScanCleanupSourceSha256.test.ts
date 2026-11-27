@@ -2,22 +2,8 @@
 
 import type * as TViMockOriginalModule from '@app/utils/platformDocuments';
 
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    inject,
-    nextTick,
-    provide,
-    ref,
-} from 'vue';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, inject, nextTick, provide, ref} from 'vue';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {
     scanCleanupSourceIdentityKey,
@@ -55,15 +41,19 @@ describe('scan cleanup source SHA-256 bridge', () => {
         const documentRevision = ref('revision-1');
         let sourceSha256: ReturnType<typeof useScanCleanupSourceSha256> | null = null;
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            sourceSha256 = useScanCleanupSourceSha256({
-                enabled,
-                sourcePath,
-                documentRevision,
-                sha256: ref(null),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    sourceSha256 = useScanCleanupSourceSha256({
+                        enabled,
+                        sourcePath,
+                        documentRevision,
+                        sha256: ref(null),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.mount(host);
 
         await vi.waitFor(() => expect(sourceSha256?.sha256.value).toBe('a'.repeat(64)));
@@ -80,19 +70,21 @@ describe('scan cleanup source SHA-256 bridge', () => {
         const documentRevision = ref('revision-1');
         let sourceSha256: ReturnType<typeof useScanCleanupSourceSha256> | null = null;
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            sourceSha256 = useScanCleanupSourceSha256({
-                enabled,
-                sourcePath,
-                documentRevision,
-                sha256: ref(null),
-            });
-            return () => h('div');
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    sourceSha256 = useScanCleanupSourceSha256({
+                        enabled,
+                        sourcePath,
+                        documentRevision,
+                        sha256: ref(null),
+                    });
+                    return () => h('div');
+                },
+            }),
+        );
         app.mount(host);
-        const readSourceSha256 = () => (
-            sourceSha256 as ReturnType<typeof useScanCleanupSourceSha256> | null
-        )?.sha256.value;
+        const readSourceSha256 = () => (sourceSha256 as ReturnType<typeof useScanCleanupSourceSha256> | null)?.sha256.value;
 
         await vi.waitFor(() => expect(readSourceSha256()).toBe('a'.repeat(64)));
         enabled.value = false;
@@ -112,28 +104,34 @@ describe('scan cleanup source SHA-256 bridge', () => {
     // still being read is not a missing one, and a failed read can be retried.
     it('tells the Scan cleanup surface whether the hash is pending, ready or failed', async () => {
         let resolveHandle!: (handle: unknown) => void;
-        files.createManagedTempFileHandle
-            .mockRejectedValueOnce(new Error('document is not readable'))
-            .mockReturnValueOnce(new Promise(resolve => {
+        files.createManagedTempFileHandle.mockRejectedValueOnce(new Error('document is not readable')).mockReturnValueOnce(
+            new Promise((resolve) => {
                 resolveHandle = resolve;
-            }));
+            }),
+        );
         let identity: IScanCleanupSourceIdentity | null = null;
-        const Surface = defineComponent({setup() {
-            identity = inject(scanCleanupSourceIdentityKey, null);
-            return () => h('div');
-        }});
+        const Surface = defineComponent({
+            setup() {
+                identity = inject(scanCleanupSourceIdentityKey, null);
+                return () => h('div');
+            },
+        });
         const host = document.createElement('div');
-        const app = createApp(defineComponent({setup() {
-            const source = useScanCleanupSourceSha256({
-                enabled: ref(true),
-                sourcePath: ref(requireDocumentRef('/working/book.pdf')),
-                documentRevision: ref('revision-1'),
-                sha256: ref(null),
-            });
-            // The document holds the acquisition; its view provides the state.
-            provide(scanCleanupSourceIdentityKey, source.identity);
-            return () => h(Surface);
-        }}));
+        const app = createApp(
+            defineComponent({
+                setup() {
+                    const source = useScanCleanupSourceSha256({
+                        enabled: ref(true),
+                        sourcePath: ref(requireDocumentRef('/working/book.pdf')),
+                        documentRevision: ref('revision-1'),
+                        sha256: ref(null),
+                    });
+                    // The document holds the acquisition; its view provides the state.
+                    provide(scanCleanupSourceIdentityKey, source.identity);
+                    return () => h(Surface);
+                },
+            }),
+        );
         app.mount(host);
         const readState = () => (identity as IScanCleanupSourceIdentity | null)?.state.value;
 

@@ -1,23 +1,15 @@
-import {
-    clampPageNumber,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
+import {clampPageNumber, requirePageNumber} from '@contracts/pageNumbers';
 
 import type {TPdfViewMode} from '@contracts/shared';
 import type {IPageRange} from '@app/types/pdfUi';
 import {getPageRowBoundsForViewMode} from '@app/modules/document-viewer/public';
 
 function isFinitePageRange(range: IPageRange) {
-    return Number.isFinite(range.start)
-        && Number.isFinite(range.end)
-        && range.start <= range.end;
+    return Number.isFinite(range.start) && Number.isFinite(range.end) && range.start <= range.end;
 }
 
 function pageRangesIntersect(left: IPageRange, right: IPageRange) {
-    return isFinitePageRange(left)
-        && isFinitePageRange(right)
-        && left.start <= right.end
-        && right.start <= left.end;
+    return isFinitePageRange(left) && isFinitePageRange(right) && left.start <= right.end && right.start <= left.end;
 }
 
 function expandRangeToCompleteRows(options: IResolvePdfProtectedVisibleRangeOptions) {
@@ -47,9 +39,7 @@ interface IResolvePdfProtectedVisibleRangeOptions {
     totalPages: number;
 }
 
-export function resolvePdfProtectedVisibleRange(
-    options: IResolvePdfProtectedVisibleRangeOptions,
-) {
+export function resolvePdfProtectedVisibleRange(options: IResolvePdfProtectedVisibleRangeOptions) {
     const visibleRows = expandRangeToCompleteRows(options);
     if (options.navigationTargetPage !== null && options.totalPages > 0) {
         const targetRow = getPageRowBoundsForViewMode({
@@ -60,10 +50,12 @@ export function resolvePdfProtectedVisibleRange(
         // A disjoint committed range is stale while navigation owns the viewport.
         // Once measured geometry reaches the target row, however, every row that
         // intersects the viewport is authoritative raster demand too.
-        return pageRangesIntersect(visibleRows, targetRow) ? {
-            start: requirePageNumber(Math.min(visibleRows.start, targetRow.start), options.totalPages),
-            end: requirePageNumber(Math.max(visibleRows.end, targetRow.end), options.totalPages),
-        } : targetRow;
+        return pageRangesIntersect(visibleRows, targetRow)
+            ? {
+                  start: requirePageNumber(Math.min(visibleRows.start, targetRow.start), options.totalPages),
+                  end: requirePageNumber(Math.max(visibleRows.end, targetRow.end), options.totalPages),
+              }
+            : targetRow;
     }
     return visibleRows;
 }

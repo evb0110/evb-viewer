@@ -1,5 +1,5 @@
-import { usePositionedMenu } from '@app/composables/usePositionedMenu';
-import type { IPageContextMenuState } from '@app/types/pdfContextMenu';
+import {usePositionedMenu} from '@app/composables/usePositionedMenu';
+import type {IPageContextMenuState} from '@app/types/pdfContextMenu';
 
 export const usePageContextMenu = () => {
     function createInitialPageContextMenuState(): IPageContextMenuState {
@@ -17,11 +17,9 @@ export const usePageContextMenu = () => {
         menuStyle: pageContextMenuStyle,
         showPositionedMenu,
         resetMenu,
-    } = usePositionedMenu<IPageContextMenuState>(
-        '.page-context-menu',
-        createInitialPageContextMenuState,
-        { autoDismiss: { onOutsideClick: true } },
-    );
+    } = usePositionedMenu<IPageContextMenuState>('.page-context-menu', createInitialPageContextMenuState, {
+        autoDismiss: {onOutsideClick: true},
+    });
 
     function showPageContextMenu(payload: {
         clientX: number;
@@ -37,7 +35,7 @@ export const usePageContextMenu = () => {
             y: payload.clientY,
             fallbackWidth,
             fallbackHeight: estimatedHeight,
-            buildState: position => ({
+            buildState: (position) => ({
                 visible: true,
                 x: position.x,
                 y: position.y,

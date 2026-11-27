@@ -1,54 +1,31 @@
-import { dialog } from 'electron';
+import {dialog} from 'electron';
 import * as v from 'valibot';
-import { stat } from 'fs/promises';
-import {
-    basename,
-    isAbsolute,
-} from 'path';
-import type { ICreatePdfFromInputPathsProgress } from '@electron/image/pdfConversion';
-import { PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS } from '@electron/image/pdfCombineShared';
-import {
-    allowOpenPath,
-    logRejectedOpenPath,
-    requireOpenPath,
-    type TOpenPath,
-} from '@electron/file-access/openPathCapabilities';
-import { getRecentFiles } from '@electron/recentFiles';
-import { te } from '@electron/te';
-import { createLogger } from '@electron/utils/createLogger';
-import type {
-    TOpenBatchProgressOperation,
-    TOpenDocumentDirectBatchProgress, TOpenFileResult, 
-} from '@contracts/electronApiDocuments';
-import type { TRequestId } from '@contracts/shared';
-import {
-    createAbortError,
-    isAbortError,
-} from '@contracts/isAbortError';
-import { parseRequestId } from '@contracts/shared';
-import { DOCUMENT_OPEN_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
-import { DOCUMENT_DIRECT_OPEN_REQUEST_SCHEMA } from '@contracts/documentsPlatformFeatureSchemas';
-import { getErrorMessage } from '@electron/utils/error';
-import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
-import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
-import { getDocumentsDialogDefaultPath } from '@electron/utils/dialogDefaultPaths';
-import { isReservedTempPath } from '@electron/utils/pathValidator';
-import { openInputPaths } from '@electron/features/documents/main/openInputPaths.service';
-import {
-    errorWithDetails,
-    showOpenDocumentDialogForContext,
-} from '@electron/features/documents/main/documentDialogCommon';
+import {stat} from 'fs/promises';
+import {basename, isAbsolute} from 'path';
+import type {ICreatePdfFromInputPathsProgress} from '@electron/image/pdfConversion';
+import {PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS} from '@electron/image/pdfCombineShared';
+import {allowOpenPath, logRejectedOpenPath, requireOpenPath, type TOpenPath} from '@electron/file-access/openPathCapabilities';
+import {getRecentFiles} from '@electron/recentFiles';
+import {te} from '@electron/te';
+import {createLogger} from '@electron/utils/createLogger';
+import type {TOpenBatchProgressOperation, TOpenDocumentDirectBatchProgress, TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {TRequestId} from '@contracts/shared';
+import {createAbortError, isAbortError} from '@contracts/isAbortError';
+import {parseRequestId} from '@contracts/shared';
+import {DOCUMENT_OPEN_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
+import {DOCUMENT_DIRECT_OPEN_REQUEST_SCHEMA} from '@contracts/documentsPlatformFeatureSchemas';
+import {getErrorMessage} from '@electron/utils/error';
+import {normalizeOptionalIpcRequestId} from '@electron/utils/ipcLimits';
+import {createIpcProgressPump} from '@electron/utils/createIpcProgressPump';
+import {getDocumentsDialogDefaultPath} from '@electron/utils/dialogDefaultPaths';
+import {isReservedTempPath} from '@electron/utils/pathValidator';
+import {openInputPaths} from '@electron/features/documents/main/openInputPaths.service';
+import {errorWithDetails, showOpenDocumentDialogForContext} from '@electron/features/documents/main/documentDialogCommon';
 import {PdfDecryptTooLargeError} from '@electron/file-access/workingCopyDecryption';
 import {DocumentOpenRefusalError} from '@contracts/documentOpenErrors';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
-import type {
-    IDocumentsDialogContext,
-    IDocumentsWebContentsContext,
-} from '@electron/features/documents/documentsContexts';
-import {
-    MAX_COMBINE_INPUT_PATHS,
-    MAX_OPEN_INPUT_PATHS,
-} from '@electron/features/documents/public/assertOpenInputPathCount';
+import type {IDocumentsDialogContext, IDocumentsWebContentsContext} from '@electron/features/documents/documentsContexts';
+import {MAX_COMBINE_INPUT_PATHS, MAX_OPEN_INPUT_PATHS} from '@electron/features/documents/public/assertOpenInputPathCount';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('documents-dialogs');
@@ -79,20 +56,24 @@ function createDocumentOpenError(error: unknown, failureMessage: string) {
         });
     }
     if (error instanceof PdfDecryptTooLargeError) {
-        return new Error(encodeSerializableErrorEnvelope({
-            code: 'too-large',
-            message: getErrorMessage(error),
-        }));
+        return new Error(
+            encodeSerializableErrorEnvelope({
+                code: 'too-large',
+                message: getErrorMessage(error),
+            }),
+        );
     }
     if (error instanceof DocumentOpenRefusalError) {
         // The renderer localizes the code and names the chosen file. The
         // refusal's own message can hold tool output and working-copy paths,
         // so it stays in the main log.
-        return new Error(encodeSerializableErrorEnvelope({
-            code: error.code,
-            message: error.code,
-            ...(error.fileName === undefined ? {} : {fileName: error.fileName}),
-        }));
+        return new Error(
+            encodeSerializableErrorEnvelope({
+                code: error.code,
+                message: error.code,
+                ...(error.fileName === undefined ? {} : {fileName: error.fileName}),
+            }),
+        );
     }
     return errorWithDetails(te('errors.file.open'), error);
 }
@@ -101,17 +82,12 @@ function getDirectBatchRequestKey(senderId: number, requestId: string) {
     return `${senderId}:${requestId}`;
 }
 
-export function handleCancelOpenDocumentDirectBatch(
-    context: IDocumentsWebContentsContext,
-    requestId: string,
-) {
+export function handleCancelOpenDocumentDirectBatch(context: IDocumentsWebContentsContext, requestId: string) {
     const normalizedRequestId = normalizeOptionalIpcRequestId(requestId);
     if (!normalizedRequestId) {
         return false;
     }
-    const controller = activeDirectBatchRequests.get(
-        getDirectBatchRequestKey(context.sender.id, normalizedRequestId),
-    );
+    const controller = activeDirectBatchRequests.get(getDirectBatchRequestKey(context.sender.id, normalizedRequestId));
     if (!controller) {
         return false;
     }
@@ -119,17 +95,13 @@ export function handleCancelOpenDocumentDirectBatch(
     return true;
 }
 
-function createOpenBatchProgressReporter(
-    sender: Electron.WebContents,
-    requestId: TRequestId,
-    operation: TOpenBatchProgressOperation,
-) {
+function createOpenBatchProgressReporter(sender: Electron.WebContents, requestId: TRequestId, operation: TOpenBatchProgressOperation) {
     const pump = createIpcProgressPump<TOpenDocumentDirectBatchProgress>({
         channel: DOCUMENT_OPEN_PLATFORM_FEATURE.eventChannels.onOpenDocumentDirectBatchProgress,
         getTarget: () => sender,
-        getKey: payload => payload.requestId,
-        isTerminal: payload => payload.processed >= payload.total,
-        onError: error => {
+        getKey: (payload) => payload.requestId,
+        isTerminal: (payload) => payload.processed >= payload.total,
+        onError: (error) => {
             logger.debug(`Failed to send open-batch progress update: ${String(error)}`);
         },
     });
@@ -143,11 +115,19 @@ function createOpenBatchProgressReporter(
 }
 
 async function allowRecentFileOpenPath(filePath: string, owner: Electron.WebContents) {
-    if (!(await getRecentFiles()).some(file => file.originalPath === filePath)) {
+    if (!(await getRecentFiles()).some((file) => file.originalPath === filePath)) {
         return null;
     }
     // A Recent file that no longer resolves is gone, which the renderer names; it is not a refusal.
-    return allowOpenPath(filePath, owner) ?? Promise.reject(createDocumentOpenError(new DocumentOpenRefusalError('not-found', 'not-found', {fileName: basename(filePath)}), 'Recent file is gone'));
+    return (
+        allowOpenPath(filePath, owner) ??
+        Promise.reject(
+            createDocumentOpenError(
+                new DocumentOpenRefusalError('not-found', 'not-found', {fileName: basename(filePath)}),
+                'Recent file is gone',
+            ),
+        )
+    );
 }
 
 async function openDocumentsFromDialog(
@@ -158,10 +138,7 @@ async function openDocumentsFromDialog(
         failureMessage: string;
     },
 ): Promise<TOpenFileResult | null> {
-    const {
-        failureMessage,
-        ...dialogOptions
-    } = options;
+    const {failureMessage, ...dialogOptions} = options;
     const result = await showOpenDocumentDialogForContext(context, dialogOptions);
     if (result.canceled || result.filePaths.length === 0) {
         return null;
@@ -187,10 +164,7 @@ export async function handleOpenPdfDirect(
     if (parsedRequest && !parsedRequest.success) {
         throw new Error(te('errors.file.invalid'));
     }
-    const {
-        password,
-        recordRecent,
-    } = parsedRequest?.output ?? {};
+    const {password, recordRecent} = parsedRequest?.output ?? {};
 
     let normalizedPath: TOpenPath;
     try {
@@ -230,22 +204,19 @@ export async function handleOpenPdfDirectBatch(
     if (!Array.isArray(filePaths) || filePaths.length === 0) {
         return null;
     }
-    const maxBatchPaths = batchOptions?.forceCombine === true
-        ? MAX_COMBINE_INPUT_PATHS
-        : MAX_OPEN_INPUT_PATHS;
+    const maxBatchPaths = batchOptions?.forceCombine === true ? MAX_COMBINE_INPUT_PATHS : MAX_OPEN_INPUT_PATHS;
     if (filePaths.length > maxBatchPaths) {
         throw new Error(`Open batch exceeds maximum size (${maxBatchPaths})`);
     }
 
     try {
-        const normalizedPaths = filePaths.filter((path): path is string => typeof path === 'string' && path.length > 0)
-            .map(path => requireOpenPath(path, context.sender));
+        const normalizedPaths = filePaths
+            .filter((path): path is string => typeof path === 'string' && path.length > 0)
+            .map((path) => requireOpenPath(path, context.sender));
 
         const normalizedRequestId = parseRequestId(normalizeOptionalIpcRequestId(requestId));
         const abortController = normalizedRequestId === null ? null : new AbortController();
-        const requestKey = normalizedRequestId === null
-            ? null
-            : getDirectBatchRequestKey(context.sender.id, normalizedRequestId);
+        const requestKey = normalizedRequestId === null ? null : getDirectBatchRequestKey(context.sender.id, normalizedRequestId);
         if (requestKey && abortController) {
             activeDirectBatchRequests.get(requestKey)?.abort(createAbortError('Superseded document open request'));
             activeDirectBatchRequests.set(requestKey, abortController);
@@ -254,11 +225,15 @@ export async function handleOpenPdfDirectBatch(
             ? {onCombineProgress: createOpenBatchProgressReporter(context.sender, normalizedRequestId, 'document-open')}
             : {};
         try {
-            return await openInputPaths(normalizedPaths, {
-                ...options,
-                forceCombine: batchOptions?.forceCombine === true,
-                ...(abortController ? {signal: abortController.signal} : {}),
-            }, context.sender);
+            return await openInputPaths(
+                normalizedPaths,
+                {
+                    ...options,
+                    forceCombine: batchOptions?.forceCombine === true,
+                    ...(abortController ? {signal: abortController.signal} : {}),
+                },
+                context.sender,
+            );
         } finally {
             if (requestKey && activeDirectBatchRequests.get(requestKey) === abortController) {
                 activeDirectBatchRequests.delete(requestKey);
@@ -272,12 +247,7 @@ export async function handleOpenPdfDirectBatch(
 export async function handleOpenPdfDialog(context: IDocumentsDialogContext): Promise<TOpenFileResult | null> {
     return openDocumentsFromDialog(context, {
         title: te('dialogs.openDocument'),
-        extensions: [
-            'pdf',
-            'djvu',
-            'djv',
-            ...PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
-        ],
+        extensions: ['pdf', 'djvu', 'djv', ...PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS.map((ext) => ext.slice(1))],
         failureMessage: 'Failed to create working copy',
     });
 }
@@ -285,10 +255,7 @@ export async function handleOpenPdfDialog(context: IDocumentsDialogContext): Pro
 export async function handleOpenCombineDialog(context: IDocumentsDialogContext): Promise<TOpenFileResult | null> {
     return openDocumentsFromDialog(context, {
         title: te('dialogs.combineFiles'),
-        extensions: [
-            'pdf',
-            ...PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS.map(ext => ext.slice(1)),
-        ],
+        extensions: ['pdf', ...PDF_COMBINE_SUPPORTED_IMAGE_EXTENSIONS.map((ext) => ext.slice(1))],
         failureMessage: 'Failed to combine files',
     });
 }
@@ -310,22 +277,12 @@ export async function handleOpenImageDialog(context: IDocumentsDialogContext) {
     const dialogOptions = {
         title: te('dialogs.openImage'),
         defaultPath: getDocumentsDialogDefaultPath(),
-        filters: [{
-            name: te('dialogs.imagesFilter'),
-            extensions: [
-                'apng',
-                'avif',
-                'bmp',
-                'gif',
-                'jpeg',
-                'jpg',
-                'png',
-                'svg',
-                'svgz',
-                'webp',
-                'ico',
-            ],
-        }],
+        filters: [
+            {
+                name: te('dialogs.imagesFilter'),
+                extensions: ['apng', 'avif', 'bmp', 'gif', 'jpeg', 'jpg', 'png', 'svg', 'svgz', 'webp', 'ico'],
+            },
+        ],
         properties: ['openFile'],
     } satisfies Electron.OpenDialogOptions;
     const result = context.parentWindow

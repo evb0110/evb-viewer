@@ -1,22 +1,8 @@
 import type * as PdfCore from '@pdf-core';
-import {
-    findPdfSearchMatches, normalizeSearchText,
-} from '@pdf-core';
-import type {
-    IPdfTextContent,
-    IPdfTextItem,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    extractBrowserSearchPageData,
-    extractBrowserSearchPageText,
-} from '@app/platform/browser-api/extractBrowserSearchPageText';
+import {findPdfSearchMatches, normalizeSearchText} from '@pdf-core';
+import type {IPdfTextContent, IPdfTextItem} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {extractBrowserSearchPageData, extractBrowserSearchPageText} from '@app/platform/browser-api/extractBrowserSearchPageText';
 
 const mocks = vi.hoisted(() => ({
     extractPdfjsWordBoxesFromOperatorList: vi.fn(),
@@ -53,10 +39,7 @@ describe('extractBrowserSearchPageText', () => {
             fontName: 'f1',
         });
         const textContent: IPdfTextContent = {
-            items: [
-                makeTextItem('alpha', true),
-                makeTextItem('beta  gamma', false),
-            ],
+            items: [makeTextItem('alpha', true), makeTextItem('beta  gamma', false)],
             styles: {},
             lang: null,
         };
@@ -84,15 +67,13 @@ describe('extractBrowserSearchPageText', () => {
             height: 0,
             fontName: 'f1',
         });
-        const page = {getTextContent: vi.fn(async (): Promise<IPdfTextContent> => ({
-            items: [
-                makeTextItem('Cafe\u0301'),
-                makeTextItem('ex-', true),
-                makeTextItem('\uFB01le'),
-            ],
-            styles: {},
-            lang: null,
-        }))};
+        const page = {
+            getTextContent: vi.fn(async (): Promise<IPdfTextContent> => ({
+                items: [makeTextItem('Cafe\u0301'), makeTextItem('ex-', true), makeTextItem('\uFB01le')],
+                styles: {},
+                lang: null,
+            })),
+        };
 
         await expect(extractBrowserSearchPageText(page)).resolves.toBe('Cafe\u0301 ex\uFB01le');
     });
@@ -152,33 +133,23 @@ describe('extractBrowserSearchPageText', () => {
             eol: false,
             expected: 'הַ קְ',
         },
-    ])('retains RTL metadata boundaries: $label', async ({
-        mirrored, x, font, separator, eol, expected,
-    }) => {
+    ])('retains RTL metadata boundaries: $label', async ({mirrored, x, font, separator, eol, expected}) => {
         const item = (str: string, origin: number, fontName: string, hasEOL: boolean): IPdfTextItem => ({
             str,
             dir: 'rtl',
-            transform: [
-                mirrored ? -10 : 10,
-                0,
-                0,
-                10,
-                origin,
-                100,
-            ],
+            transform: [mirrored ? -10 : 10, 0, 0, 10, origin, 100],
             width: 10,
             height: 10,
             fontName,
             hasEOL,
         });
-        const page = {getTextContent: async (): Promise<IPdfTextContent> => ({
-            items: [
-                item('ַה', 100, 'f1', eol),
-                item(`ְק${separator}`, x, font, false),
-            ],
-            styles: {},
-            lang: null,
-        })};
+        const page = {
+            getTextContent: async (): Promise<IPdfTextContent> => ({
+                items: [item('ַה', 100, 'f1', eol), item(`ְק${separator}`, x, font, false)],
+                styles: {},
+                lang: null,
+            }),
+        };
         await expect(extractBrowserSearchPageText(page)).resolves.toBe(expected);
     });
 
@@ -194,106 +165,54 @@ describe('extractBrowserSearchPageText', () => {
             fontName: 'f1',
         });
         const textContent: IPdfTextContent = {
-            items: [
-                makeTextItem(repeatedText),
-                makeTextItem(repeatedText),
-                makeTextItem(repeatedText),
-            ],
+            items: [makeTextItem(repeatedText), makeTextItem(repeatedText), makeTextItem(repeatedText)],
             styles: {},
             lang: null,
         };
-        const page = { getTextContent: vi.fn(async () => textContent) };
+        const page = {getTextContent: vi.fn(async () => textContent)};
 
         await expect(extractBrowserSearchPageText(page)).resolves.toBe(repeatedText);
     });
 
     it.each([
-        [
-            'שלום',
-            'םולש',
-        ],
-        [
-            'السلام',
-            'مالسلا',
-        ],
-        [
-            'ܫܠܡܐ',
-            'ܐܡܠܫ',
-        ],
-        [
-            'שָׁל֑וֹם',
-            'םֹו֑לָׁש',
-        ],
-        [
-            'السَّلَام',
-            'ماَلَّسلا',
-        ],
-        [
-            'ܫܠܵܡܵܐ',
-            'ܐܵܡܵܠܫ',
-        ],
-        [
-            'abc עולם 123',
-            'abc םלוע 123',
-        ],
-        [
-            'עולם123עולם',
-            'םלוע123םלוע',
-        ],
+        ['שלום', 'םולש'],
+        ['السلام', 'مالسلا'],
+        ['ܫܠܡܐ', 'ܐܡܠܫ'],
+        ['שָׁל֑וֹם', 'םֹו֑לָׁש'],
+        ['السَّلَام', 'ماَلَّسلا'],
+        ['ܫܠܵܡܵܐ', 'ܐܵܡܵܠܫ'],
+        ['abc עולם 123', 'abc םלוע 123'],
+        ['עולם123עולם', 'םלוע123םלוע'],
     ])('indexes logical %s with rendered-text offsets', async (logical, painted) => {
         const page = {
-            view: [
-                0,
-                0,
-                612,
-                792,
-            ],
+            view: [0, 0, 612, 792],
             getOperatorList: async () => ({
-                fnArray: [
-                    1,
-                    2,
-                    3,
-                    4,
-                    5,
-                ],
+                fnArray: [1, 2, 3, 4, 5],
                 argsArray: [
                     [],
+                    ['f1', 24],
+                    [1, 0, 0, 1, 72, 700],
                     [
-                        'f1',
-                        24,
+                        [...painted].map((unicode) => ({
+                            unicode,
+                            width: 600,
+                        })),
                     ],
-                    [
-                        1,
-                        0,
-                        0,
-                        1,
-                        72,
-                        700,
-                    ],
-                    [[...painted].map(unicode => ({
-                        unicode,
-                        width: 600,
-                    }))],
                     [],
                 ],
             }),
             getTextContent: async (): Promise<IPdfTextContent> => ({
-                items: [{
-                    str: logical,
-                    dir: 'rtl',
-                    transform: [
-                        24,
-                        0,
-                        0,
-                        24,
-                        72,
-                        700,
-                    ],
-                    width: 200,
-                    height: 24,
-                    fontName: 'f1',
-                    hasEOL: false,
-                }],
+                items: [
+                    {
+                        str: logical,
+                        dir: 'rtl',
+                        transform: [24, 0, 0, 24, 72, 700],
+                        width: 200,
+                        height: 24,
+                        fontName: 'f1',
+                        hasEOL: false,
+                    },
+                ],
                 styles: {},
                 lang: null,
             }),
@@ -311,27 +230,12 @@ describe('extractBrowserSearchPageText', () => {
     });
 
     it('keeps accents, vowel points and cantillation in search normalization', () => {
-        for (const [
-            pointed,
-            unpointed,
-        ] of [
-                [
-                    'Cafe\u0301',
-                    'Cafe',
-                ],
-                [
-                    'שָׁל֑וֹם',
-                    'שלום',
-                ],
-                [
-                    'السَّلَام',
-                    'السلام',
-                ],
-                [
-                    'ܫܠܵܡܵܐ',
-                    'ܫܠܡܐ',
-                ],
-            ]) {
+        for (const [pointed, unpointed] of [
+            ['Cafe\u0301', 'Cafe'],
+            ['שָׁל֑וֹם', 'שלום'],
+            ['السَّلَام', 'السلام'],
+            ['ܫܠܵܡܵܐ', 'ܫܠܡܐ'],
+        ]) {
             expect(normalizeSearchText(pointed!)).toBe(pointed!.normalize('NFC'));
             expect(findPdfSearchMatches(pointed!, unpointed!)).toEqual([]);
             expect(findPdfSearchMatches(pointed!, pointed!)).toHaveLength(1);
@@ -354,9 +258,7 @@ describe('extractBrowserSearchPageText', () => {
         };
         const shouldContinue = vi.fn(() => false);
 
-        await expect(extractBrowserSearchPageData(page, {}, {shouldContinue}))
-            .rejects
-            .toThrow('ERR_BROWSER_SEARCH_CANCELED');
+        await expect(extractBrowserSearchPageData(page, {}, {shouldContinue})).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
 
         expect(page.getOperatorList).toHaveBeenCalledOnce();
         expect(page.getTextContent).not.toHaveBeenCalled();
@@ -374,9 +276,7 @@ describe('extractBrowserSearchPageText', () => {
         };
         const shouldContinue = vi.fn(() => false);
 
-        await expect(extractBrowserSearchPageText(page, {shouldContinue}))
-            .rejects
-            .toThrow('ERR_BROWSER_SEARCH_CANCELED');
+        await expect(extractBrowserSearchPageText(page, {shouldContinue})).rejects.toThrow('ERR_BROWSER_SEARCH_CANCELED');
 
         expect(page.getTextContent).toHaveBeenCalledOnce();
         expect(page.cleanup).toHaveBeenCalledOnce();
@@ -394,9 +294,7 @@ describe('word boxes from real PDF operators', () => {
     async function readFixture(name: string, pageNumber = 1) {
         const {readFileSync} = await import('node:fs');
         const {resolve} = await import('node:path');
-        const {
-            extractTextWithPdfjs, createPdfjsNodeDocumentOptions,
-        } = await import('@electron/features/search/pdfjsPageTexts');
+        const {extractTextWithPdfjs, createPdfjsNodeDocumentOptions} = await import('@electron/features/search/pdfjsPageTexts');
         const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
         const path = resolve('tests/fixtures/browser/search', `${name}.pdf`);
         const desktop = await extractTextWithPdfjs(path);
@@ -417,38 +315,42 @@ describe('word boxes from real PDF operators', () => {
 
     it('retains a zero-advance accent without inventing a word box', async () => {
         const {collectSearchMatchWords} = await import('@pdf-core');
-        const {
-            data, desktop,
-        } = await readFixture('zero-mark');
+        const {data, desktop} = await readFixture('zero-mark');
         expect(data.text).toBe(desktop);
         expect(data.text).toBe('Cafe\u0301');
-        expect(findPdfSearchMatches(data.text, 'café')).toEqual([{
-            startOffset: 0,
-            endOffset: 5,
-        }]);
+        expect(findPdfSearchMatches(data.text, 'café')).toEqual([
+            {
+                startOffset: 0,
+                endOffset: 5,
+            },
+        ]);
         expect(findPdfSearchMatches(data.text, 'Cafe')).toEqual([]);
         expect(data.words).toBeUndefined();
         expect(collectSearchMatchWords(data, 0, 5)).toBeUndefined();
     });
 
     it('retains middle and leading zero-advance marks and following source offsets', async () => {
-        const {
-            data, desktop,
-        } = await readFixture('middle-mark');
+        const {data, desktop} = await readFixture('middle-mark');
         expect(data.text).toBe(desktop);
         expect(data.text).toBe('Cafe\u0301C\nCafe');
-        expect(findPdfSearchMatches(data.text, 'caféC')).toEqual([{
-            startOffset: 0,
-            endOffset: 6,
-        }]);
-        expect(findPdfSearchMatches(data.text, 'Cafe')).toEqual([{
-            startOffset: 7,
-            endOffset: 11,
-        }]);
-        expect(findPdfSearchMatches(data.text, 'éC')).toEqual([{
-            startOffset: 3,
-            endOffset: 6,
-        }]);
+        expect(findPdfSearchMatches(data.text, 'caféC')).toEqual([
+            {
+                startOffset: 0,
+                endOffset: 6,
+            },
+        ]);
+        expect(findPdfSearchMatches(data.text, 'Cafe')).toEqual([
+            {
+                startOffset: 7,
+                endOffset: 11,
+            },
+        ]);
+        expect(findPdfSearchMatches(data.text, 'éC')).toEqual([
+            {
+                startOffset: 3,
+                endOffset: 6,
+            },
+        ]);
         expect(data.words).toBeUndefined();
         const leading = await readFixture('leading-mark');
         expect(leading.data.text).toBe(leading.desktop);
@@ -467,36 +369,33 @@ describe('word boxes from real PDF operators', () => {
             page: 2,
             query: 'הַקְדְשָה',
         },
-    ])('repairs painted foreign RTL page $page', async ({
-        page, query,
-    }) => {
-        const {
-            data, desktop,
-        } = await readFixture('foreign-rtl', page);
+    ])('repairs painted foreign RTL page $page', async ({page, query}) => {
+        const {data, desktop} = await readFixture('foreign-rtl', page);
         expect(data.text).toBe(desktop);
         const expected = findPdfSearchMatches(desktop, query);
         expect(expected).toHaveLength(1);
-        if (page === 1) expect(expected).toEqual([{
-            startOffset: 0,
-            endOffset: 6,
-        }]);
+        if (page === 1) {
+            expect(expected).toEqual([
+                {
+                    startOffset: 0,
+                    endOffset: 6,
+                },
+            ]);
+        }
         expect(findPdfSearchMatches(data.text, query)).toEqual(expected);
         expect(data.words).toBeUndefined();
     });
 
-    it.each([
-        'vertical',
-        'mixed-vertical',
-    ])('uses text-layer geometry for $0 writing', async name => {
+    it.each(['vertical', 'mixed-vertical'])('uses text-layer geometry for $0 writing', async (name) => {
         const {collectSearchMatchWords} = await import('@pdf-core');
-        const {
-            data, desktop,
-        } = await readFixture(name);
+        const {data, desktop} = await readFixture(name);
         expect(data.text).toBe(desktop);
-        expect(findPdfSearchMatches(data.text, '本語')).toEqual([{
-            startOffset: 1,
-            endOffset: 3,
-        }]);
+        expect(findPdfSearchMatches(data.text, '本語')).toEqual([
+            {
+                startOffset: 1,
+                endOffset: 3,
+            },
+        ]);
         expect(data.words).toBeUndefined();
         expect(data.pageWidth).toBeUndefined();
         expect(data.pageHeight).toBeUndefined();
@@ -507,7 +406,9 @@ describe('word boxes from real PDF operators', () => {
         const {data} = await readFixture('rotated-horizontal');
         expect(data.text).toContain('horizontal');
         expect(data.words?.length).toBeGreaterThan(0);
-        expect(data.words?.every(word => Number.isFinite(word.x) && Number.isFinite(word.y) && word.width > 0 && word.height > 0)).toBe(true);
+        expect(data.words?.every((word) => Number.isFinite(word.x) && Number.isFinite(word.y) && word.width > 0 && word.height > 0)).toBe(
+            true,
+        );
     });
     function onePagePdf(stream: string, form?: string, cropBox = '[0 0 300 200]') {
         const objects = [
@@ -527,7 +428,9 @@ describe('word boxes from real PDF operators', () => {
         });
         const xref = text.length;
         text += `xref\n0 ${String(objects.length + 1)}\n0000000000 65535 f \n`;
-        for (const offset of offsets) text += `${String(offset).padStart(10, '0')} 00000 n \n`;
+        for (const offset of offsets) {
+            text += `${String(offset).padStart(10, '0')} 00000 n \n`;
+        }
         text += `trailer\n<< /Size ${String(objects.length + 1)} /Root 1 0 R >>\nstartxref\n${String(xref)}\n%%EOF\n`;
         return new TextEncoder().encode(text);
     }
@@ -551,44 +454,37 @@ describe('word boxes from real PDF operators', () => {
     it('keeps a word together when TJ moves back over a letter, as for an overstruck accent', async () => {
         const words = await wordBoxes('BT /F1 10 Tf 1 0 0 1 10 170 Tm [(cafe) 556 (\\047s) -600 (menu)] TJ ET');
 
-        expect(words.map(word => word.text)).toEqual([
-            'cafe’s',
-            'menu',
-        ]);
+        expect(words.map((word) => word.text)).toEqual(['cafe’s', 'menu']);
     });
 
     it('separates words relocated far backward on the same baseline', async () => {
         const words = await wordBoxes('BT /F1 10 Tf 1 0 0 1 150 170 Tm (RIGHT) Tj 1 0 0 1 20 170 Tm (LEFT) Tj ET');
-        expect(words.map(word => word.text)).toEqual([
-            'RIGHT',
-            'LEFT',
-        ]);
+        expect(words.map((word) => word.text)).toEqual(['RIGHT', 'LEFT']);
     });
 
     it('splits words a wide TJ gap separates and keeps kerned letters together', async () => {
         const words = await wordBoxes('BT /F1 10 Tf 1 0 0 1 10 170 Tm [(he) -40 (llo) -600 (world)] TJ ET');
 
-        expect(words.map(word => word.text)).toEqual([
-            'hello',
-            'world',
-        ]);
+        expect(words.map((word) => word.text)).toEqual(['hello', 'world']);
     });
 
     it('restores the font size a graphics-state restore brings back', async () => {
-        const words = await wordBoxes('BT /F1 10 Tf 1 0 0 1 10 170 Tm (A) Tj ET\nq\nBT /F1 20 Tf 1 0 0 1 10 130 Tm (B) Tj ET\nQ\nBT 1 0 0 1 10 90 Tm (C) Tj ET');
-        const a = words.find(word => word.text === 'A')!;
-        const c = words.find(word => word.text === 'C')!;
+        const words = await wordBoxes(
+            'BT /F1 10 Tf 1 0 0 1 10 170 Tm (A) Tj ET\nq\nBT /F1 20 Tf 1 0 0 1 10 130 Tm (B) Tj ET\nQ\nBT 1 0 0 1 10 90 Tm (C) Tj ET',
+        );
+        const a = words.find((word) => word.text === 'A')!;
+        const c = words.find((word) => word.text === 'C')!;
 
         expect(c.height).toBeCloseTo(a.height, 5);
     });
 
-    it('places text a Form draws under the Form\'s matrix', async () => {
+    it("places text a Form draws under the Form's matrix", async () => {
         const words = await wordBoxes(
             'q /Fm1 Do Q BT /F1 10 Tf 1 0 0 1 10 170 Tm (outside) Tj ET',
             'BT /F1 10 Tf 1 0 0 1 10 20 Tm (inside) Tj ET',
         );
-        const inside = words.find(word => word.text === 'inside')!;
-        const outside = words.find(word => word.text === 'outside')!;
+        const inside = words.find((word) => word.text === 'inside')!;
+        const outside = words.find((word) => word.text === 'outside')!;
 
         expect(inside.height).toBeCloseTo(outside.height * 2, 5);
         expect(inside.x).toBeGreaterThan(outside.x);
@@ -612,8 +508,6 @@ describe('word boxes from real PDF operators', () => {
     });
 });
 
-
-
 describe('fallback search CropBox intersections', () => {
     const style = {
         fontFamily: 'sans-serif',
@@ -631,219 +525,110 @@ describe('fallback search CropBox intersections', () => {
         fontName: 'f1',
     });
     function extract(items: IPdfTextItem[], fontStyle = style) {
-        return extractBrowserSearchPageData({
-            view: [
-                0,
-                0,
-                100,
-                100,
-            ],
-            getTextContent: async () => ({
-                items,
-                styles: {f1: fontStyle},
-                lang: null,
-            }),
-        }, {});
+        return extractBrowserSearchPageData(
+            {
+                view: [0, 0, 100, 100],
+                getTextContent: async () => ({
+                    items,
+                    styles: {f1: fontStyle},
+                    lang: null,
+                }),
+            },
+            {},
+        );
     }
     it.each([
         {
             name: 'horizontal',
-            transform: [
-                10,
-                0,
-                0,
-                10,
-                -5,
-                50,
-            ],
+            transform: [10, 0, 0, 10, -5, 50],
             vertical: false,
             width: 50,
             height: 10,
         },
         {
             name: 'rotated',
-            transform: [
-                0,
-                10,
-                -10,
-                0,
-                50,
-                -5,
-            ],
+            transform: [0, 10, -10, 0, 50, -5],
             vertical: false,
             width: 50,
             height: 10,
         },
         {
             name: 'reflected',
-            transform: [
-                -10,
-                0,
-                0,
-                10,
-                105,
-                50,
-            ],
+            transform: [-10, 0, 0, 10, 105, 50],
             vertical: false,
             width: 50,
             height: 10,
         },
         {
             name: 'vertical',
-            transform: [
-                10,
-                0,
-                0,
-                10,
-                50,
-                105,
-            ],
+            transform: [10, 0, 0, 10, 50, 105],
             vertical: true,
             width: 10,
             height: 50,
         },
         {
             name: 'rotated vertical',
-            transform: [
-                0,
-                10,
-                -10,
-                0,
-                -5,
-                50,
-            ],
+            transform: [0, 10, -10, 0, -5, 50],
             vertical: true,
             width: 10,
             height: 50,
         },
         {
             name: 'above-baseline ink',
-            transform: [
-                10,
-                0,
-                0,
-                10,
-                50,
-                -5,
-            ],
+            transform: [10, 0, 0, 10, 50, -5],
             vertical: false,
             width: 20,
             height: 10,
         },
         {
             name: 'below-baseline ink',
-            transform: [
-                10,
-                0,
-                0,
-                10,
-                50,
-                101,
-            ],
+            transform: [10, 0, 0, 10, 50, 101],
             vertical: false,
             width: 20,
             height: 10,
         },
-    ])('keeps visible $name text whose baseline origin is outside', async ({
-        transform, vertical, width, height,
-    }) => {
-        await expect(extract([item('VISIBLE', transform, width, height)], {
-            ...style,
-            vertical,
-        }))
-            .resolves.toEqual({text: 'VISIBLE'});
+    ])('keeps visible $name text whose baseline origin is outside', async ({transform, vertical, width, height}) => {
+        await expect(
+            extract([item('VISIBLE', transform, width, height)], {
+                ...style,
+                vertical,
+            }),
+        ).resolves.toEqual({text: 'VISIBLE'});
     });
     it('omits disjoint text and keeps its line break for the visible prefix', async () => {
-        await expect(extract([
-            item('alpha', [
-                10,
-                0,
-                0,
-                10,
-                10,
-                70,
-            ], 20),
-            item('hidden', [
-                10,
-                0,
-                0,
-                10,
-                150,
-                70,
-            ], 20, 10, true),
-            item('beta', [
-                10,
-                0,
-                0,
-                10,
-                10,
-                50,
-            ], 20),
-        ])).resolves.toEqual({
+        await expect(
+            extract([
+                item('alpha', [10, 0, 0, 10, 10, 70], 20),
+                item('hidden', [10, 0, 0, 10, 150, 70], 20, 10, true),
+                item('beta', [10, 0, 0, 10, 10, 50], 20),
+            ]),
+        ).resolves.toEqual({
             text: 'alpha\nbeta',
             croppedText: true,
         });
     });
-    it.each([
-        [],
-        [
-            0,
-            0,
-            0,
-            10,
-            150,
-            50,
-        ],
-        [
-            10,
-            0,
-            0,
-            0,
-            150,
-            50,
-        ],
-        [
-            10,
-            0,
-            0,
-            10,
-            Number.NaN,
-            50,
-        ],
-    ])('keeps text with unusable geometry (%j)', async (...transform) => {
-        await expect(extract([item('UNKNOWN', transform)])).resolves.toEqual({text: 'UNKNOWN'});
-    });
+    it.each([[], [0, 0, 0, 10, 150, 50], [10, 0, 0, 0, 150, 50], [10, 0, 0, 10, Number.NaN, 50]])(
+        'keeps text with unusable geometry (%j)',
+        async (...transform) => {
+            await expect(extract([item('UNKNOWN', transform)])).resolves.toEqual({text: 'UNKNOWN'});
+        },
+    );
     it('keeps a single glyph whose rendered width need not match its advance', async () => {
-        await expect(extract([item('W', [
-            10,
-            0,
-            0,
-            10,
-            -2,
-            50,
-        ], 0.1)]))
-            .resolves.toEqual({text: 'W'});
+        await expect(extract([item('W', [10, 0, 0, 10, -2, 50], 0.1)])).resolves.toEqual({text: 'W'});
     });
     it('keeps text whose font geometry is unavailable', async () => {
-        await expect(extractBrowserSearchPageData({
-            view: [
-                0,
-                0,
-                100,
-                100,
-            ],
-            getTextContent: async () => ({
-                items: [item('UNKNOWN', [
-                    10,
-                    0,
-                    0,
-                    10,
-                    150,
-                    50,
-                ])],
-                styles: {},
-                lang: null,
-            }),
-        }, {})).resolves.toEqual({text: 'UNKNOWN'});
+        await expect(
+            extractBrowserSearchPageData(
+                {
+                    view: [0, 0, 100, 100],
+                    getTextContent: async () => ({
+                        items: [item('UNKNOWN', [10, 0, 0, 10, 150, 50])],
+                        styles: {},
+                        lang: null,
+                    }),
+                },
+                {},
+            ),
+        ).resolves.toEqual({text: 'UNKNOWN'});
     });
 });

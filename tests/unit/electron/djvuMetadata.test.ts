@@ -1,10 +1,4 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({runDjvuEngine: vi.fn()}));
 
@@ -12,12 +6,8 @@ vi.mock('@electron/features/djvu/main/djvuEnginePool', () => ({runDjvuEngine: mo
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
 vi.mock('@electron/features/djvu/main/getCachedDjvuHasText', () => ({getCachedDjvuHasText: vi.fn()}));
 
-const {
-    getDjvuPageCount,
-    getDjvuResolution,
-    getDjvuOutlineBookmarks,
-    getDjvuPageComponentMap,
-} = await import('@electron/features/djvu/main/metadata');
+const {getDjvuPageCount, getDjvuResolution, getDjvuOutlineBookmarks, getDjvuPageComponentMap} =
+    await import('@electron/features/djvu/main/metadata');
 
 describe('DjVu metadata', () => {
     beforeEach(() => {
@@ -61,8 +51,7 @@ describe('DjVu metadata', () => {
             files: [],
         });
 
-        await expect(getDjvuPageCount('/tmp/unsafe.djvu'))
-            .rejects.toThrow('Invalid DjVu page count');
+        await expect(getDjvuPageCount('/tmp/unsafe.djvu')).rejects.toThrow('Invalid DjVu page count');
     });
 
     it('reads the resolution from the document info', async () => {
@@ -77,18 +66,9 @@ describe('DjVu metadata', () => {
     });
 
     it.each([
-        [
-            'a zero resolution',
-            0,
-        ],
-        [
-            'a negative resolution',
-            -10,
-        ],
-        [
-            'an unsafe resolution',
-            Number.MAX_SAFE_INTEGER + 1,
-        ],
+        ['a zero resolution', 0],
+        ['a negative resolution', -10],
+        ['an unsafe resolution', Number.MAX_SAFE_INTEGER + 1],
     ])('falls back to 300 DPI when document info has %s', async (_case, sourceDpi) => {
         mocks.runDjvuEngine.mockResolvedValue({
             pageCount: 2,

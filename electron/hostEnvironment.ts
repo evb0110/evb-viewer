@@ -1,12 +1,5 @@
-import {
-    BrowserWindow,
-    screen,
-} from 'electron';
-import type {
-    Event,
-    Input,
-    Rectangle,
-} from 'electron';
+import {BrowserWindow, screen} from 'electron';
+import type {Event, Input, Rectangle} from 'electron';
 import {
     HOST_ENVIRONMENT_ARGUMENT_PREFIX,
     HOST_PLATFORM_FEATURE,
@@ -17,23 +10,13 @@ import {
     type IHostZenModeState,
     type THostPlatform,
 } from '@contracts/hostPlatformFeature';
-import {
-    HOST_RASTER_POOL_MAX_BYTES,
-    resolveHostWindowRasterShare,
-    type THostResourceTier,
-} from '@contracts/hostResourceProfile';
-import { writeHostBugReportBundle } from '@electron/writeHostBugReportBundle';
-import type {
-    TFeatureEventMap,
-    TFeatureMainBindings,
-} from '@contracts/platformFeature';
-import { tryGetHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
-import {
-    getAllRegisteredAppWindows,
-    onAppWindowRegistryChange,
-} from '@electron/window/registry';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import {HOST_RASTER_POOL_MAX_BYTES, resolveHostWindowRasterShare, type THostResourceTier} from '@contracts/hostResourceProfile';
+import {writeHostBugReportBundle} from '@electron/writeHostBugReportBundle';
+import type {TFeatureEventMap, TFeatureMainBindings} from '@contracts/platformFeature';
+import {tryGetHostResourceProfileSnapshot} from '@electron/resources/hostResourceProfile';
+import {getAllRegisteredAppWindows, onAppWindowRegistryChange} from '@electron/window/registry';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 
 const logger = createLogger('host-env');
 
@@ -70,13 +53,12 @@ interface IHostEnvironmentBroadcastState {
 const hostEnvironmentBroadcastStateByWindow = new WeakMap<BrowserWindow, IHostEnvironmentBroadcastState>();
 const lastSentRasterBudgetByWindow = new WeakMap<BrowserWindow, IHostRasterBudgetSnapshot>();
 
-function areHostRasterBudgetSnapshotsEqual(
-    left: IHostRasterBudgetSnapshot,
-    right: IHostRasterBudgetSnapshot,
-) {
-    return left.maxRasterSurfaceBytes === right.maxRasterSurfaceBytes
-        && left.hostPoolBytes === right.hostPoolBytes
-        && left.windowCount === right.windowCount;
+function areHostRasterBudgetSnapshotsEqual(left: IHostRasterBudgetSnapshot, right: IHostRasterBudgetSnapshot) {
+    return (
+        left.maxRasterSurfaceBytes === right.maxRasterSurfaceBytes &&
+        left.hostPoolBytes === right.hostPoolBytes &&
+        left.windowCount === right.windowCount
+    );
 }
 
 function resolveCurrentHostRasterBudgetSnapshot(): IHostRasterBudgetSnapshot | null {
@@ -92,11 +74,7 @@ function resolveCurrentHostRasterBudgetSnapshot(): IHostRasterBudgetSnapshot | n
     });
 }
 
-function sendHostRasterBudgetToWindow(
-    window: BrowserWindow,
-    snapshot: IHostRasterBudgetSnapshot,
-    options: {force?: boolean} = {},
-) {
+function sendHostRasterBudgetToWindow(window: BrowserWindow, snapshot: IHostRasterBudgetSnapshot, options: {force?: boolean} = {}) {
     if (window.isDestroyed()) {
         return;
     }
@@ -181,16 +159,12 @@ export function encodeHostEnvironmentArgument(windowBounds: Rectangle) {
         platform: resolvePlatform(),
         osScaleFactor: screen.getDisplayMatching(windowBounds).scaleFactor,
     };
-    const encodedSnapshot = Buffer
-        .from(JSON.stringify(snapshot), 'utf8')
-        .toString('base64url');
+    const encodedSnapshot = Buffer.from(JSON.stringify(snapshot), 'utf8').toString('base64url');
     return `${HOST_ENVIRONMENT_ARGUMENT_PREFIX}${encodedSnapshot}`;
 }
 
 function isWindowInHostZenMode(window: BrowserWindow) {
-    return process.platform === 'darwin'
-        ? window.isSimpleFullScreen() || window.isFullScreen()
-        : window.isFullScreen();
+    return process.platform === 'darwin' ? window.isSimpleFullScreen() || window.isFullScreen() : window.isFullScreen();
 }
 
 function delay(ms: number) {
@@ -241,10 +215,7 @@ function resolveZenRestoreBounds(placement: IZenWindowPlacement) {
     }
 }
 
-function restoreZenWindowPlacement(
-    window: BrowserWindow,
-    options: { preservePlacement?: boolean } = {},
-) {
+function restoreZenWindowPlacement(window: BrowserWindow, options: {preservePlacement?: boolean} = {}) {
     if (window.isDestroyed() || isWindowInHostZenMode(window)) {
         return;
     }
@@ -313,10 +284,7 @@ function snapshotHostZenModeForWindow(window: BrowserWindow | null): IHostZenMod
     };
 }
 
-export async function setHostZenModeForWindow(
-    window: BrowserWindow | null,
-    active: boolean,
-): Promise<IHostZenModeState> {
+export async function setHostZenModeForWindow(window: BrowserWindow | null, active: boolean): Promise<IHostZenModeState> {
     if (!window || window.isDestroyed()) {
         return {
             active: false,
@@ -376,20 +344,19 @@ export async function setHostZenModeForWindow(
 }
 
 function snapshotHostWindowStateForWindow(window: BrowserWindow): IHostWindowState {
-    const [
-        contentWidth,
-        contentHeight,
-    ] = window.getContentSize();
+    const [contentWidth, contentHeight] = window.getContentSize();
     const workArea = screen.getDisplayMatching(window.getBounds()).workAreaSize;
     return {
         fullScreen: isWindowInHostZenMode(window),
         maximized: window.isMaximized(),
         supported: true,
         ...(contentWidth && contentHeight
-            ? {contentSize: {
-                width: contentWidth,
-                height: contentHeight,
-            }}
+            ? {
+                  contentSize: {
+                      width: contentWidth,
+                      height: contentHeight,
+                  },
+              }
             : {}),
         workAreaSize: {
             width: workArea.width,
@@ -436,24 +403,20 @@ export async function restoreHostNormalWindowForWindow(
     }
     // The content area itself, not the window: its frame differs by
     // platform and by whether the window has been shown.
-    if (contentSize !== undefined) window.setContentSize(contentSize.width, contentSize.height, false);
+    if (contentSize !== undefined) {
+        window.setContentSize(contentSize.width, contentSize.height, false);
+    }
     return snapshotHostWindowStateForWindow(window);
 }
 
 export const hostMainBindings = {
-    snapshotHostRasterBudgetForWindow: context => snapshotHostRasterBudgetForWindow(
-        BrowserWindow.fromWebContents(context.sender),
-    ),
-    snapshotHostEnvironmentForWindow: context => snapshotHostEnvironmentForWindow(
-        BrowserWindow.fromWebContents(context.sender),
-    ),
-    snapshotHostZenModeForWindow: context => snapshotHostZenModeForWindow(BrowserWindow.fromWebContents(context.sender)),
-    setHostZenModeForWindow: (context, active) =>
-        setHostZenModeForWindow(BrowserWindow.fromWebContents(context.sender), active),
+    snapshotHostRasterBudgetForWindow: (context) => snapshotHostRasterBudgetForWindow(BrowserWindow.fromWebContents(context.sender)),
+    snapshotHostEnvironmentForWindow: (context) => snapshotHostEnvironmentForWindow(BrowserWindow.fromWebContents(context.sender)),
+    snapshotHostZenModeForWindow: (context) => snapshotHostZenModeForWindow(BrowserWindow.fromWebContents(context.sender)),
+    setHostZenModeForWindow: (context, active) => setHostZenModeForWindow(BrowserWindow.fromWebContents(context.sender), active),
     restoreHostNormalWindowForWindow: (context, contentSize?: IHostWindowSize) =>
         restoreHostNormalWindowForWindow(BrowserWindow.fromWebContents(context.sender), contentSize),
-    writeHostBugReportBundleForWindow: (context, bundle) =>
-        writeHostBugReportBundle(BrowserWindow.fromWebContents(context.sender), bundle),
+    writeHostBugReportBundleForWindow: (context, bundle) => writeHostBugReportBundle(BrowserWindow.fromWebContents(context.sender), bundle),
 } satisfies TFeatureMainBindings<typeof HOST_PLATFORM_FEATURE, Electron.IpcMainInvokeEvent>;
 
 function broadcastHostEnvironmentForWindow(window: BrowserWindow) {
@@ -473,12 +436,8 @@ function broadcastHostEnvironmentForWindow(window: BrowserWindow) {
     }
 }
 
-function areHostEnvironmentSnapshotsEqual(
-    left: IHostEnvironmentSnapshot,
-    right: IHostEnvironmentSnapshot,
-) {
-    return left.platform === right.platform
-        && left.osScaleFactor === right.osScaleFactor;
+function areHostEnvironmentSnapshotsEqual(left: IHostEnvironmentSnapshot, right: IHostEnvironmentSnapshot) {
+    return left.platform === right.platform && left.osScaleFactor === right.osScaleFactor;
 }
 
 function getHostEnvironmentBroadcastState(window: BrowserWindow) {
@@ -508,10 +467,7 @@ function scheduleHostEnvironmentBroadcastForWindow(window: BrowserWindow) {
     state.timeout.unref();
 }
 
-function broadcastHostZenModeForWindow(
-    window: BrowserWindow,
-    snapshot = snapshotHostZenModeForWindow(window),
-) {
+function broadcastHostZenModeForWindow(window: BrowserWindow, snapshot = snapshotHostZenModeForWindow(window)) {
     if (window.isDestroyed()) {
         return;
     }
@@ -585,12 +541,7 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
         }
     };
     const handleBeforeInputEvent = (event: Event, input: Input) => {
-        if (
-            input.type !== 'keyDown'
-            || input.key !== 'Escape'
-            || !window.isFocused()
-            || !isWindowInHostZenMode(window)
-        ) {
+        if (input.type !== 'keyDown' || input.key !== 'Escape' || !window.isFocused() || !isWindowInHostZenMode(window)) {
             return;
         }
 
@@ -604,12 +555,8 @@ export function attachHostEnvironmentToWindow(window: BrowserWindow) {
     window.on('moved', handleMove);
     window.on('enter-full-screen', handleZenModeChange);
     window.on('leave-full-screen', handleZenModeChange);
-    const handleInputEvent = (_event: Event, input: { type: string }) => {
-        const boundary = input.type === 'gestureScrollBegin'
-            ? 'begin'
-            : input.type === 'gestureScrollEnd'
-                ? 'end'
-                : null;
+    const handleInputEvent = (_event: Event, input: {type: string}) => {
+        const boundary = input.type === 'gestureScrollBegin' ? 'begin' : input.type === 'gestureScrollEnd' ? 'end' : null;
         if (boundary !== null && !webContents.isDestroyed()) {
             sendHostEvent(webContents, HOST_PLATFORM_FEATURE.eventChannels.onWheelScrollSequenceChange, boundary);
         }

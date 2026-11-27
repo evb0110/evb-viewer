@@ -1,17 +1,9 @@
-import { getCliErrorMessage } from '../lib/cli-error.mjs';
-import { createHash } from 'node:crypto';
-import {
-    open,
-    readdir,
-    readFile,
-    stat,
-} from 'node:fs/promises';
-import {
-    basename,
-    join,
-} from 'node:path';
+import {getCliErrorMessage} from '../lib/cli-error.mjs';
+import {createHash} from 'node:crypto';
+import {open, readdir, readFile, stat} from 'node:fs/promises';
+import {basename, join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import { pathToFileURL } from 'node:url';
+import {pathToFileURL} from 'node:url';
 import {
     AbortMultipartUploadCommand,
     CompleteMultipartUploadCommand,
@@ -26,10 +18,7 @@ import {
     UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import {hashFile} from './release-hash.mjs';
-import {
-    DRILL_TAG_PATTERN,
-    RELEASE_TAG_PATTERN,
-} from './releaseTag.mjs';
+import {DRILL_TAG_PATTERN, RELEASE_TAG_PATTERN} from './releaseTag.mjs';
 
 const RELEASE_PREFIX = 'evb-viewer/releases/';
 const CHANNEL_KEY = 'evb-viewer/channels/stable.json';
@@ -51,14 +40,7 @@ export const MULTIPART_PART_BYTES = 8 * 1024 * 1024;
 const MULTIPART_CONCURRENCY = 4;
 const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 const UPLOAD_ATTEMPTS = 3;
-const TRANSIENT_TRANSFER_ERROR_CODES = new Set([
-    'ECONNRESET',
-    'ETIMEDOUT',
-    'EPIPE',
-    'ECONNREFUSED',
-    'EAI_AGAIN',
-    'EHOSTUNREACH',
-]);
+const TRANSIENT_TRANSFER_ERROR_CODES = new Set(['ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ECONNREFUSED', 'EAI_AGAIN', 'EHOSTUNREACH']);
 
 /** @typedef {Pick<import('@aws-sdk/client-s3').S3Client, 'send'>} TMirrorClient */
 /** @typedef {{name: string, size: number, sha256: string}} IMirrorAsset */
@@ -101,13 +83,10 @@ export async function publishReleaseMirror({
         throw new Error(`Invalid release tag: ${releaseTag}`);
     }
 
-    const {
-        bucket,
-        client,
-    } = createMirrorClient(environment, providedClient);
+    const {bucket, client} = createMirrorClient(environment, providedClient);
 
     const artifactNames = (await readdir(artifactDirectory))
-        .filter(name => !name.startsWith('.'))
+        .filter((name) => !name.startsWith('.'))
         .sort((left, right) => left.localeCompare(right));
 
     if (artifactNames.length === 0) {
@@ -122,25 +101,37 @@ export async function publishReleaseMirror({
             continue;
         }
 
-        assets.push(await mirrorImmutableAsset(client, bucket, `${mirrorPaths.releasePrefix}${releaseTag}/${name}`, {
-            filePath,
-            name,
-            size: fileStat.size,
-        }, {
-            partBytes,
-            retryDelayMs: uploadRetryDelayMs,
-        }));
+        assets.push(
+            await mirrorImmutableAsset(
+                client,
+                bucket,
+                `${mirrorPaths.releasePrefix}${releaseTag}/${name}`,
+                {
+                    filePath,
+                    name,
+                    size: fileStat.size,
+                },
+                {
+                    partBytes,
+                    retryDelayMs: uploadRetryDelayMs,
+                },
+            ),
+        );
     }
 
     if (assets.length === 0) {
         throw new Error(`No regular release artifact files found in ${artifactDirectory}`);
     }
 
-    const manifest = JSON.stringify({
-        schemaVersion: 1,
-        release: { tag: releaseTag },
-        assets,
-    }, null, 2);
+    const manifest = JSON.stringify(
+        {
+            schemaVersion: 1,
+            release: {tag: releaseTag},
+            assets,
+        },
+        null,
+        2,
+    );
     await putImmutableJson(
         client,
         bucket,
@@ -154,21 +145,9 @@ export async function publishReleaseMirror({
     if (publishChannel) {
         // Publish the mutable channel pointer last, after every immutable object
         // has been uploaded and verified. Clients cannot discover a partial release.
-        const previousChannel = await readStableChannel(
-            client,
-            bucket,
-            mirrorPaths.channelKey,
-            releaseTagPattern,
-        );
+        const previousChannel = await readStableChannel(client, bucket, mirrorPaths.channelKey, releaseTagPattern);
         const transaction = durableTransaction
-            ? await prepareReleaseTransaction(
-                client,
-                bucket,
-                mirrorPaths.releasePrefix,
-                releaseTag,
-                manifest,
-                previousChannel,
-            )
+            ? await prepareReleaseTransaction(client, bucket, mirrorPaths.releasePrefix, releaseTag, manifest, previousChannel)
             : null;
         let stableChannelMutationAttempted = false;
         try {
@@ -183,34 +162,24 @@ export async function publishReleaseMirror({
                 uploadRetryDelayMs,
             );
             if (transaction) {
-                await updateReleaseTransaction(
-                    client,
-                    bucket,
-                    transaction,
-                    {
-                        body: manifest,
-                        etag: undefined,
-                        sha256: createHash('sha256').update(manifest).digest('hex'),
-                        size: Buffer.byteLength(manifest),
-                        tag: releaseTag,
-                    },
-                );
+                await updateReleaseTransaction(client, bucket, transaction, {
+                    body: manifest,
+                    etag: undefined,
+                    sha256: createHash('sha256').update(manifest).digest('hex'),
+                    size: Buffer.byteLength(manifest),
+                    tag: releaseTag,
+                });
             }
-            prunedTags = await pruneOldReleases(
-                client,
-                bucket,
-                releaseTag,
-                mirrorPaths.releasePrefix,
-                releaseTagPattern,
-            );
+            prunedTags = await pruneOldReleases(client, bucket, releaseTag, mirrorPaths.releasePrefix, releaseTagPattern);
         } catch (error) {
-            if (previousChannel && (
-                stableChannelMutationAttempted
-                || (typeof error === 'object'
-                    && error !== null
-                    && 'stableChannelMutationAttempted' in error
-                    && error.stableChannelMutationAttempted === true)
-            )) {
+            if (
+                previousChannel &&
+                (stableChannelMutationAttempted ||
+                    (typeof error === 'object' &&
+                        error !== null &&
+                        'stableChannelMutationAttempted' in error &&
+                        error.stableChannelMutationAttempted === true))
+            ) {
                 try {
                     await restoreStableChannel(
                         client,
@@ -221,18 +190,19 @@ export async function publishReleaseMirror({
                         uploadRetryDelayMs,
                     );
                 } catch (rollbackError) {
-                    throw new Error(
-                        `Mirror publication failed and stable-channel rollback failed: ${getCliErrorMessage(rollbackError)}`,
-                        {cause: error},
-                    );
+                    throw new Error(`Mirror publication failed and stable-channel rollback failed: ${getCliErrorMessage(rollbackError)}`, {
+                        cause: error,
+                    });
                 }
                 console.error(`Mirror publication failed; stable channel rolled back to ${previousChannel.tag}.`);
             }
             throw error;
         }
-        console.log(`Mirror published ${releaseTag}; retained ${RETAINED_RELEASE_COUNT} releases${
-            prunedTags.length ? ` and pruned ${prunedTags.join(', ')}` : ''
-        }`);
+        console.log(
+            `Mirror published ${releaseTag}; retained ${RETAINED_RELEASE_COUNT} releases${
+                prunedTags.length ? ` and pruned ${prunedTags.join(', ')}` : ''
+            }`,
+        );
     } else {
         console.log(`Mirror staged ${releaseTag}; stable channel remains unchanged.`);
     }
@@ -285,25 +255,14 @@ export function resolveMirrorPaths(environment = process.env, {drill = false} = 
 }
 
 /** @param {ICleanupMirrorOptions} options @returns {Promise<{deletedKeys: string[]}>} */
-export async function cleanupMirrorPrefix({
-    environment = process.env,
-    prefix,
-    client: providedClient,
-}) {
+export async function cleanupMirrorPrefix({environment = process.env, prefix, client: providedClient}) {
     if (!prefix) {
         throw new Error('A mirror cleanup prefix is required');
     }
     const cleanupPrefix = validateDrillCleanupPrefix(prefix);
-    const {
-        bucket,
-        client,
-    } = createMirrorClient(environment, providedClient);
+    const {bucket, client} = createMirrorClient(environment, providedClient);
     const objects = await listAllReleaseObjects(client, bucket, cleanupPrefix);
-    const keys = objects.flatMap(object => (
-        typeof object.Key === 'string' && object.Key.startsWith(cleanupPrefix)
-            ? [object.Key]
-            : []
-    ));
+    const keys = objects.flatMap((object) => (typeof object.Key === 'string' && object.Key.startsWith(cleanupPrefix) ? [object.Key] : []));
 
     await deleteMirrorObjects(client, bucket, keys, 'Mirror cleanup');
 
@@ -319,25 +278,27 @@ export function createMirrorClient(environment, providedClient) {
     const bucket = requireEnvironment(environment, 'MIRROR_S3_BUCKET');
     return {
         bucket,
-        client: providedClient ?? new S3Client({
-            endpoint,
-            region: environment.MIRROR_S3_REGION || 'ru-central1',
-            // Yandex implements the S3 API but not every optional AWS checksum mode.
-            requestChecksumCalculation: 'WHEN_REQUIRED',
-            responseChecksumValidation: 'WHEN_REQUIRED',
-            // A single installer upload from a GitHub runner has stalled
-            // silently for the whole job. Without these limits nothing aborts
-            // it before GitHub's six-hour job cap, and the global release
-            // concurrency group stays blocked for that long.
-            requestHandler: {
-                ...MIRROR_TRANSFER_TIMEOUTS,
-                throwOnRequestTimeout: true,
-            },
-            credentials: {
-                accessKeyId: requireEnvironment(environment, 'MIRROR_S3_ACCESS_KEY_ID'),
-                secretAccessKey: requireEnvironment(environment, 'MIRROR_S3_SECRET_KEY'),
-            },
-        }),
+        client:
+            providedClient ??
+            new S3Client({
+                endpoint,
+                region: environment.MIRROR_S3_REGION || 'ru-central1',
+                // Yandex implements the S3 API but not every optional AWS checksum mode.
+                requestChecksumCalculation: 'WHEN_REQUIRED',
+                responseChecksumValidation: 'WHEN_REQUIRED',
+                // A single installer upload from a GitHub runner has stalled
+                // silently for the whole job. Without these limits nothing aborts
+                // it before GitHub's six-hour job cap, and the global release
+                // concurrency group stays blocked for that long.
+                requestHandler: {
+                    ...MIRROR_TRANSFER_TIMEOUTS,
+                    throwOnRequestTimeout: true,
+                },
+                credentials: {
+                    accessKeyId: requireEnvironment(environment, 'MIRROR_S3_ACCESS_KEY_ID'),
+                    secretAccessKey: requireEnvironment(environment, 'MIRROR_S3_SECRET_KEY'),
+                },
+            }),
     };
 }
 
@@ -351,23 +312,28 @@ function validateDrillCleanupPrefix(prefix) {
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @param {number} retryDelayMs @returns {Promise<boolean>} */
 async function objectMatches(client, bucket, key, expectedSize, expectedSha256, retryDelayMs) {
-    const actual = await retryTransient(async () => {
-        const result = await client.send(new GetObjectCommand({
-            Bucket: bucket,
-            Key: key,
-        }));
-        return hashObjectBody(result.Body);
-    }, {
-        label: `Verification read of ${key}`,
-        retryDelayMs,
-        verb: 're-reading it',
-    });
+    const actual = await retryTransient(
+        async () => {
+            const result = await client.send(
+                new GetObjectCommand({
+                    Bucket: bucket,
+                    Key: key,
+                }),
+            );
+            return hashObjectBody(result.Body);
+        },
+        {
+            label: `Verification read of ${key}`,
+            retryDelayMs,
+            verb: 're-reading it',
+        },
+    );
     return actual.size === expectedSize && actual.sha256 === expectedSha256;
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @param {number} retryDelayMs @returns {Promise<void>} */
 async function verifyUpload(client, bucket, key, expectedSize, expectedSha256, retryDelayMs) {
-    if (!await objectMatches(client, bucket, key, expectedSize, expectedSha256, retryDelayMs)) {
+    if (!(await objectMatches(client, bucket, key, expectedSize, expectedSha256, retryDelayMs))) {
         throw new Error(`Mirror verification failed for ${key}`);
     }
 }
@@ -379,14 +345,11 @@ async function hashObjectBody(body) {
     }
     const hash = createHash('sha256');
     let size = 0;
-    const objectBody = typeof body === 'object' && body !== null
-        ? /** @type {IMirrorBody} */ (body)
-        : null;
+    const objectBody = typeof body === 'object' && body !== null ? /** @type {IMirrorBody} */ (body) : null;
     if (objectBody && typeof objectBody[Symbol.asyncIterator] === 'function') {
         for await (const chunk of /** @type {IAsyncMirrorBody} */ (objectBody)) {
-            const bytes = Buffer.isBuffer(chunk) || typeof chunk === 'string'
-                ? Buffer.from(chunk)
-                : Buffer.from(/** @type {Uint8Array} */ (chunk));
+            const bytes =
+                Buffer.isBuffer(chunk) || typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(/** @type {Uint8Array} */ (chunk));
             hash.update(bytes);
             size += bytes.byteLength;
         }
@@ -395,9 +358,7 @@ async function hashObjectBody(body) {
         hash.update(bytes);
         size = bytes.byteLength;
     } else if (typeof body === 'string' || Buffer.isBuffer(body) || ArrayBuffer.isView(body)) {
-        const bytes = typeof body === 'string' || Buffer.isBuffer(body)
-            ? Buffer.from(body)
-            : Buffer.from(/** @type {Uint8Array} */ (body));
+        const bytes = typeof body === 'string' || Buffer.isBuffer(body) ? Buffer.from(body) : Buffer.from(/** @type {Uint8Array} */ (body));
         hash.update(bytes);
         size = bytes.byteLength;
     } else {
@@ -412,14 +373,15 @@ async function hashObjectBody(body) {
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @returns {Promise<boolean>} */
 async function objectExists(client, bucket, key) {
     try {
-        const result = await client.send(new HeadObjectCommand({
-            Bucket: bucket,
-            Key: key,
-        }));
+        const result = await client.send(
+            new HeadObjectCommand({
+                Bucket: bucket,
+                Key: key,
+            }),
+        );
         return result.$metadata?.httpStatusCode !== 404 && result.ContentLength !== undefined;
     } catch (error) {
-        if (isMirrorError(error)
-            && (error.$metadata?.httpStatusCode === 404 || error.name === 'NotFound')) {
+        if (isMirrorError(error) && (error.$metadata?.httpStatusCode === 404 || error.name === 'NotFound')) {
             return false;
         }
         throw error;
@@ -428,20 +390,14 @@ async function objectExists(client, bucket, key) {
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @param {number} retryDelayMs @returns {Promise<'match' | 'mismatch' | 'missing'>} */
 async function immutableUploadState(client, bucket, key, expectedSize, expectedSha256, retryDelayMs) {
-    if (!await objectExists(client, bucket, key)) {
+    if (!(await objectExists(client, bucket, key))) {
         return 'missing';
     }
-    return await objectMatches(client, bucket, key, expectedSize, expectedSha256, retryDelayMs)
-        ? 'match'
-        : 'mismatch';
+    return (await objectMatches(client, bucket, key, expectedSize, expectedSha256, retryDelayMs)) ? 'match' : 'mismatch';
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, size: number}} file @param {{partBytes: number, retryDelayMs: number}} upload @returns {Promise<IMirrorAsset>} */
-async function mirrorImmutableAsset(client, bucket, key, {
-    filePath,
-    name,
-    size,
-}, upload) {
+async function mirrorImmutableAsset(client, bucket, key, {filePath, name, size}, upload) {
     const sha256 = await hashFile(filePath);
     const existingState = await immutableUploadState(client, bucket, key, size, sha256, upload.retryDelayMs);
     if (existingState === 'match') {
@@ -450,12 +406,18 @@ async function mirrorImmutableAsset(client, bucket, key, {
         throw new Error(`Immutable mirror object mismatch for ${key}`);
     } else {
         console.log(`Uploading ${name} (${size} bytes)`);
-        await putImmutableFile(client, bucket, key, {
-            filePath,
-            name,
-            sha256,
-            size,
-        }, upload);
+        await putImmutableFile(
+            client,
+            bucket,
+            key,
+            {
+                filePath,
+                name,
+                sha256,
+                size,
+            },
+            upload,
+        );
     }
     return {
         name,
@@ -481,38 +443,37 @@ async function putImmutableObject(client, bucket, key, upload, expectedSize, exp
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, sha256: string, size: number}} file @param {{partBytes: number, retryDelayMs: number}} upload @returns {Promise<void>} */
-async function putImmutableFile(client, bucket, key, {
-    filePath,
-    name,
-    sha256,
-    size,
-}, {
-    partBytes,
-    retryDelayMs,
-}) {
+async function putImmutableFile(client, bucket, key, {filePath, name, sha256, size}, {partBytes, retryDelayMs}) {
     const partCount = Math.ceil(size / partBytes);
     for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt += 1) {
         const startedAt = Date.now();
         try {
-            await putImmutableObject(client, bucket, key, () => (partCount > 1
-                ? uploadMultipart(client, bucket, key, {
-                    filePath,
-                    name,
-                    partBytes,
-                    partCount,
-                    retryDelayMs,
-                    sha256,
-                    size,
-                })
-                : uploadWhole(client, bucket, key, {
-                    filePath,
-                    name,
-                    sha256,
-                    size,
-                })), size, sha256, retryDelayMs);
-            console.log(`Uploaded ${name} in ${elapsedSeconds(startedAt)}s${
-                partCount > 1 ? ` (${partCount} parts)` : ''
-            }`);
+            await putImmutableObject(
+                client,
+                bucket,
+                key,
+                () =>
+                    partCount > 1
+                        ? uploadMultipart(client, bucket, key, {
+                              filePath,
+                              name,
+                              partBytes,
+                              partCount,
+                              retryDelayMs,
+                              sha256,
+                              size,
+                          })
+                        : uploadWhole(client, bucket, key, {
+                              filePath,
+                              name,
+                              sha256,
+                              size,
+                          }),
+                size,
+                sha256,
+                retryDelayMs,
+            );
+            console.log(`Uploaded ${name} in ${elapsedSeconds(startedAt)}s${partCount > 1 ? ` (${partCount} parts)` : ''}`);
             return;
         } catch (error) {
             if (attempt === UPLOAD_ATTEMPTS || !isTransientTransferError(error)) {
@@ -520,8 +481,8 @@ async function putImmutableFile(client, bucket, key, {
             }
             const reason = getCliErrorMessage(error);
             console.warn(
-                `Upload of ${name} failed after ${elapsedSeconds(startedAt)}s (${reason}); `
-                + `retrying (${attempt + 1}/${UPLOAD_ATTEMPTS}).`,
+                `Upload of ${name} failed after ${elapsedSeconds(startedAt)}s (${reason}); ` +
+                    `retrying (${attempt + 1}/${UPLOAD_ATTEMPTS}).`,
             );
             await delay(retryDelayMs * attempt);
         }
@@ -529,44 +490,35 @@ async function putImmutableFile(client, bucket, key, {
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, sha256: string, size: number}} parameters @returns {Promise<void>} */
-async function uploadWhole(client, bucket, key, {
-    filePath,
-    name,
-    sha256,
-    size,
-}) {
-    await client.send(new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: await readFile(filePath),
-        ContentLength: size,
-        ContentType: contentTypeFor(name),
-        CacheControl: IMMUTABLE_CACHE_CONTROL,
-        Metadata: { sha256 },
-        IfNoneMatch: '*',
-    }));
+async function uploadWhole(client, bucket, key, {filePath, name, sha256, size}) {
+    await client.send(
+        new PutObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Body: await readFile(filePath),
+            ContentLength: size,
+            ContentType: contentTypeFor(name),
+            CacheControl: IMMUTABLE_CACHE_CONTROL,
+            Metadata: {sha256},
+            IfNoneMatch: '*',
+        }),
+    );
 }
 
 // One HTTP request per part keeps a stalled connection from costing more
 // than one part's timeout, and the conditional completion keeps the object
 // immutable exactly like the single-request path.
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, partBytes: number, partCount: number, retryDelayMs: number, sha256: string, size: number}} parameters @returns {Promise<void>} */
-async function uploadMultipart(client, bucket, key, {
-    filePath,
-    name,
-    partBytes,
-    partCount,
-    retryDelayMs,
-    sha256,
-    size,
-}) {
-    const {UploadId: uploadId} = await client.send(new CreateMultipartUploadCommand({
-        Bucket: bucket,
-        Key: key,
-        ContentType: contentTypeFor(name),
-        CacheControl: IMMUTABLE_CACHE_CONTROL,
-        Metadata: { sha256 },
-    }));
+async function uploadMultipart(client, bucket, key, {filePath, name, partBytes, partCount, retryDelayMs, sha256, size}) {
+    const {UploadId: uploadId} = await client.send(
+        new CreateMultipartUploadCommand({
+            Bucket: bucket,
+            Key: key,
+            ContentType: contentTypeFor(name),
+            CacheControl: IMMUTABLE_CACHE_CONTROL,
+            Metadata: {sha256},
+        }),
+    );
     if (!uploadId) {
         throw new Error(`Mirror returned no multipart upload id for ${key}`);
     }
@@ -580,17 +532,23 @@ async function uploadMultipart(client, bucket, key, {
             retryDelayMs,
             size,
         });
-        await retryTransient(() => client.send(new CompleteMultipartUploadCommand({
-            Bucket: bucket,
-            Key: key,
-            UploadId: uploadId,
-            MultipartUpload: {Parts: parts},
-            IfNoneMatch: '*',
-        })), {
-            label: `Completion of ${name}`,
-            retryDelayMs,
-            verb: 'repeating it',
-        });
+        await retryTransient(
+            () =>
+                client.send(
+                    new CompleteMultipartUploadCommand({
+                        Bucket: bucket,
+                        Key: key,
+                        UploadId: uploadId,
+                        MultipartUpload: {Parts: parts},
+                        IfNoneMatch: '*',
+                    }),
+                ),
+            {
+                label: `Completion of ${name}`,
+                retryDelayMs,
+                verb: 'repeating it',
+            },
+        );
     } catch (error) {
         await abortMultipartUpload(client, bucket, key, uploadId);
         throw error;
@@ -600,14 +558,7 @@ async function uploadMultipart(client, bucket, key, {
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} uploadId @param {{file: import('node:fs/promises').FileHandle, name: string, partBytes: number, partCount: number, retryDelayMs: number, size: number}} parameters @returns {Promise<{ETag: string, PartNumber: number}[]>} */
-async function uploadParts(client, bucket, key, uploadId, {
-    file,
-    name,
-    partBytes,
-    partCount,
-    retryDelayMs,
-    size,
-}) {
+async function uploadParts(client, bucket, key, uploadId, {file, name, partBytes, partCount, retryDelayMs, size}) {
     /** @type {{ETag: string, PartNumber: number}[]} */
     const parts = new Array(partCount);
     let nextIndex = 0;
@@ -623,18 +574,23 @@ async function uploadParts(client, bucket, key, uploadId, {
             if (bytesRead !== length) {
                 throw new Error(`Short read of ${key} at byte ${offset}: expected ${length}, got ${bytesRead}`);
             }
-            const {ETag} = await sendPart(client, () => new UploadPartCommand({
-                Bucket: bucket,
-                Key: key,
-                UploadId: uploadId,
-                PartNumber: index + 1,
-                Body: body,
-                ContentLength: length,
-            }), {
-                name,
-                partNumber: index + 1,
-                retryDelayMs,
-            });
+            const {ETag} = await sendPart(
+                client,
+                () =>
+                    new UploadPartCommand({
+                        Bucket: bucket,
+                        Key: key,
+                        UploadId: uploadId,
+                        PartNumber: index + 1,
+                        Body: body,
+                        ContentLength: length,
+                    }),
+                {
+                    name,
+                    partNumber: index + 1,
+                    retryDelayMs,
+                },
+            );
             if (!ETag) {
                 throw new Error(`Mirror returned no ETag for part ${index + 1} of ${key}`);
             }
@@ -645,12 +601,14 @@ async function uploadParts(client, bucket, key, uploadId, {
         }
     };
     const outcomes = await Promise.allSettled(
-        Array.from({length: Math.min(MULTIPART_CONCURRENCY, partCount)}, () => worker().catch((error) => {
-            failed = true;
-            throw error;
-        })),
+        Array.from({length: Math.min(MULTIPART_CONCURRENCY, partCount)}, () =>
+            worker().catch((error) => {
+                failed = true;
+                throw error;
+            }),
+        ),
     );
-    const failure = outcomes.find(outcome => outcome.status === 'rejected');
+    const failure = outcomes.find((outcome) => outcome.status === 'rejected');
     if (failure) {
         throw failure.reason;
     }
@@ -658,11 +616,7 @@ async function uploadParts(client, bucket, key, uploadId, {
 }
 
 /** @param {TMirrorClient} client @param {() => UploadPartCommand} createCommand @param {{name: string, partNumber: number, retryDelayMs: number}} parameters @returns {Promise<{ETag?: string | undefined}>} */
-async function sendPart(client, createCommand, {
-    name,
-    partNumber,
-    retryDelayMs,
-}) {
+async function sendPart(client, createCommand, {name, partNumber, retryDelayMs}) {
     return retryTransient(() => client.send(createCommand()), {
         label: `Part ${partNumber} of ${name}`,
         retryDelayMs,
@@ -678,11 +632,7 @@ async function sendPart(client, createCommand, {
 // alone were covered, a 184 MB asset still restarted twice from
 // its completion and verification calls.
 /** @template T @param {() => Promise<T>} action @param {{label: string, retryDelayMs: number, verb: string}} parameters @returns {Promise<T>} */
-async function retryTransient(action, {
-    label,
-    retryDelayMs,
-    verb,
-}) {
+async function retryTransient(action, {label, retryDelayMs, verb}) {
     for (let attempt = 1; ; attempt += 1) {
         const startedAt = Date.now();
         try {
@@ -693,8 +643,7 @@ async function retryTransient(action, {
             }
             const reason = getCliErrorMessage(error);
             console.warn(
-                `${label} failed after ${elapsedSeconds(startedAt)}s (${reason}); `
-                + `${verb} (${attempt + 1}/${UPLOAD_ATTEMPTS}).`,
+                `${label} failed after ${elapsedSeconds(startedAt)}s (${reason}); ` + `${verb} (${attempt + 1}/${UPLOAD_ATTEMPTS}).`,
             );
             await delay(retryDelayMs * attempt);
         }
@@ -704,11 +653,13 @@ async function retryTransient(action, {
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} uploadId @returns {Promise<void>} */
 async function abortMultipartUpload(client, bucket, key, uploadId) {
     try {
-        await client.send(new AbortMultipartUploadCommand({
-            Bucket: bucket,
-            Key: key,
-            UploadId: uploadId,
-        }));
+        await client.send(
+            new AbortMultipartUploadCommand({
+                Bucket: bucket,
+                Key: key,
+                UploadId: uploadId,
+            }),
+        );
     } catch (error) {
         const reason = getCliErrorMessage(error);
         console.warn(`Could not abort multipart upload ${uploadId} for ${key} (${reason}); the bucket lifecycle rule reclaims it.`);
@@ -723,18 +674,22 @@ function elapsedSeconds(startedAt) {
 /** @param {unknown} error @returns {boolean} */
 function isTransientTransferError(error) {
     const status = isMirrorError(error) ? error.$metadata?.httpStatusCode : undefined;
-    return isMirrorError(error) && (error.name === 'TimeoutError'
-        || TRANSIENT_TRANSFER_ERROR_CODES.has(String(error.code))
-        || (typeof status === 'number' && status >= 500));
+    return (
+        isMirrorError(error) &&
+        (error.name === 'TimeoutError' ||
+            TRANSIENT_TRANSFER_ERROR_CODES.has(String(error.code)) ||
+            (typeof status === 'number' && status >= 500))
+    );
 }
 
 /** @param {unknown} error @returns {boolean} */
 function isConditionalWriteConflict(error) {
-    return isMirrorError(error) && (
-        error.$metadata?.httpStatusCode === 409
-        || error.$metadata?.httpStatusCode === 412
-        || error.name === 'ConditionalRequestConflict'
-        || error.name === 'PreconditionFailed'
+    return (
+        isMirrorError(error) &&
+        (error.$metadata?.httpStatusCode === 409 ||
+            error.$metadata?.httpStatusCode === 412 ||
+            error.name === 'ConditionalRequestConflict' ||
+            error.name === 'PreconditionFailed')
     );
 }
 
@@ -749,16 +704,27 @@ async function putImmutableJson(client, bucket, key, body, cacheControl, retryDe
     if (existingState === 'mismatch') {
         throw new Error(`Immutable mirror object mismatch for ${key}`);
     }
-    await putImmutableObject(client, bucket, key, () => client.send(new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: body,
-        ContentLength: size,
-        ContentType: 'application/json; charset=utf-8',
-        CacheControl: cacheControl,
-        Metadata: { sha256 },
-        IfNoneMatch: '*',
-    })), size, sha256, retryDelayMs);
+    await putImmutableObject(
+        client,
+        bucket,
+        key,
+        () =>
+            client.send(
+                new PutObjectCommand({
+                    Bucket: bucket,
+                    Key: key,
+                    Body: body,
+                    ContentLength: size,
+                    ContentType: 'application/json; charset=utf-8',
+                    CacheControl: cacheControl,
+                    Metadata: {sha256},
+                    IfNoneMatch: '*',
+                }),
+            ),
+        size,
+        sha256,
+        retryDelayMs,
+    );
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} releasePrefix @param {string} releaseTag @param {string} manifest @param {IStableChannel | null} previousChannel @returns {Promise<{key: string, releasePrefix: string, etag: string, transaction: IReleaseTransaction}>} */
@@ -781,23 +747,27 @@ async function prepareReleaseTransaction(client, bucket, releasePrefix, releaseT
         activatedChannel: null,
         promotion: 'pending',
     };
-    const response = await client.send(new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: JSON.stringify(transaction),
-        ContentType: 'application/json; charset=utf-8',
-        CacheControl: 'no-cache, no-store, must-revalidate',
-        IfNoneMatch: '*',
-    })).catch(async error => {
-        if (!isConditionalWriteConflict(error)) {
-            throw error;
-        }
-        const concurrent = await readReleaseTransaction(client, bucket, releasePrefix, releaseTag);
-        if (!concurrent || concurrent.transaction.artifactIdentity !== artifactIdentity) {
-            throw new Error(`Release transaction changed while publishing ${releaseTag}`, {cause: error});
-        }
-        return {ETag: concurrent.etag};
-    });
+    const response = await client
+        .send(
+            new PutObjectCommand({
+                Bucket: bucket,
+                Key: key,
+                Body: JSON.stringify(transaction),
+                ContentType: 'application/json; charset=utf-8',
+                CacheControl: 'no-cache, no-store, must-revalidate',
+                IfNoneMatch: '*',
+            }),
+        )
+        .catch(async (error) => {
+            if (!isConditionalWriteConflict(error)) {
+                throw error;
+            }
+            const concurrent = await readReleaseTransaction(client, bucket, releasePrefix, releaseTag);
+            if (!concurrent || concurrent.transaction.artifactIdentity !== artifactIdentity) {
+                throw new Error(`Release transaction changed while publishing ${releaseTag}`, {cause: error});
+            }
+            return {ETag: concurrent.etag};
+        });
     if (!response.ETag) {
         throw new Error('Release transaction object response has no ETag');
     }
@@ -813,10 +783,12 @@ async function prepareReleaseTransaction(client, bucket, releasePrefix, releaseT
 async function readReleaseTransaction(client, bucket, releasePrefix, releaseTag) {
     const key = transactionKey(releasePrefix, releaseTag);
     try {
-        const response = await client.send(new GetObjectCommand({
-            Bucket: bucket,
-            Key: key,
-        }));
+        const response = await client.send(
+            new GetObjectCommand({
+                Bucket: bucket,
+                Key: key,
+            }),
+        );
         const raw = await response.Body?.transformToString();
         if (typeof raw !== 'string' || !response.ETag) {
             throw new Error('Release transaction object is incomplete');
@@ -843,27 +815,24 @@ async function readReleaseTransaction(client, bucket, releasePrefix, releaseTag)
 async function updateReleaseTransaction(client, bucket, current, activatedChannel) {
     let response;
     try {
-        response = await client.send(new PutObjectCommand({
-            Bucket: bucket,
-            Key: current.key,
-            Body: JSON.stringify({
-                ...current.transaction,
-                activatedChannel,
+        response = await client.send(
+            new PutObjectCommand({
+                Bucket: bucket,
+                Key: current.key,
+                Body: JSON.stringify({
+                    ...current.transaction,
+                    activatedChannel,
+                }),
+                ContentType: 'application/json; charset=utf-8',
+                CacheControl: 'no-cache, no-store, must-revalidate',
+                IfMatch: current.etag,
             }),
-            ContentType: 'application/json; charset=utf-8',
-            CacheControl: 'no-cache, no-store, must-revalidate',
-            IfMatch: current.etag,
-        }));
+        );
     } catch (error) {
         if (!isConditionalWriteConflict(error)) {
             throw error;
         }
-        const concurrent = await readReleaseTransaction(
-            client,
-            bucket,
-            current.releasePrefix,
-            current.transaction.releaseTag,
-        );
+        const concurrent = await readReleaseTransaction(client, bucket, current.releasePrefix, current.transaction.releaseTag);
         if (concurrent?.transaction.activatedChannel?.sha256 !== activatedChannel.sha256) {
             throw error;
         }
@@ -878,27 +847,24 @@ async function updateReleaseTransaction(client, bucket, current, activatedChanne
 async function markReleaseTransactionPublic(client, bucket, current) {
     let response;
     try {
-        response = await client.send(new PutObjectCommand({
-            Bucket: bucket,
-            Key: current.key,
-            Body: JSON.stringify({
-                ...current.transaction,
-                promotion: 'public',
+        response = await client.send(
+            new PutObjectCommand({
+                Bucket: bucket,
+                Key: current.key,
+                Body: JSON.stringify({
+                    ...current.transaction,
+                    promotion: 'public',
+                }),
+                ContentType: 'application/json; charset=utf-8',
+                CacheControl: 'no-cache, no-store, must-revalidate',
+                IfMatch: current.etag,
             }),
-            ContentType: 'application/json; charset=utf-8',
-            CacheControl: 'no-cache, no-store, must-revalidate',
-            IfMatch: current.etag,
-        }));
+        );
     } catch (error) {
         if (!isConditionalWriteConflict(error)) {
             throw error;
         }
-        const concurrent = await readReleaseTransaction(
-            client,
-            bucket,
-            current.releasePrefix,
-            current.transaction.releaseTag,
-        );
+        const concurrent = await readReleaseTransaction(client, bucket, current.releasePrefix, current.transaction.releaseTag);
         if (concurrent?.transaction.promotion === 'public') {
             return;
         }
@@ -918,7 +884,7 @@ function parseGithubReleaseState(value, releaseTag) {
     if (state.tagName !== releaseTag || typeof state.isDraft !== 'boolean' || !Array.isArray(state.assets)) {
         return 'unresolved';
     }
-    if (!state.assets.some(asset => typeof asset === 'object' && asset !== null && asset.name === 'SHA256SUMS')) {
+    if (!state.assets.some((asset) => typeof asset === 'object' && asset !== null && asset.name === 'SHA256SUMS')) {
         return 'unresolved';
     }
     return state.isDraft ? 'draft' : 'public';
@@ -935,9 +901,7 @@ export async function reconcileReleasePromotion({
 }) {
     const mirrorPaths = resolveMirrorPaths(environment, {drill});
     const releaseTagPattern = drill ? DRILL_TAG_PATTERN : RELEASE_TAG_PATTERN;
-    const {
-        bucket, client,
-    } = createMirrorClient(environment, providedClient);
+    const {bucket, client} = createMirrorClient(environment, providedClient);
     const current = await readReleaseTransaction(client, bucket, mirrorPaths.releasePrefix, releaseTag);
     if (!current) {
         return 'missing';
@@ -952,9 +916,13 @@ export async function reconcileReleasePromotion({
     }
     const channel = await readStableChannel(client, bucket, mirrorPaths.channelKey, releaseTagPattern);
     const activated = current.transaction.activatedChannel ?? channel;
-    if (!channel || !activated || activated.tag !== releaseTag
-        || channel.sha256 !== activated.sha256
-        || channel.sha256 !== current.transaction.artifactIdentity) {
+    if (
+        !channel ||
+        !activated ||
+        activated.tag !== releaseTag ||
+        channel.sha256 !== activated.sha256 ||
+        channel.sha256 !== current.transaction.artifactIdentity
+    ) {
         return 'unresolved';
     }
     if (current.transaction.previousChannel) {
@@ -967,11 +935,13 @@ export async function reconcileReleasePromotion({
             uploadRetryDelayMs,
         );
     } else {
-        await client.send(new DeleteObjectCommand({
-            Bucket: bucket,
-            Key: mirrorPaths.channelKey,
-            IfMatch: channel.etag,
-        }));
+        await client.send(
+            new DeleteObjectCommand({
+                Bucket: bucket,
+                Key: mirrorPaths.channelKey,
+                IfMatch: channel.etag,
+            }),
+        );
     }
     return 'draft-restored';
 }
@@ -982,16 +952,7 @@ function transactionKey(releasePrefix, releaseTag) {
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} body @param {string} releaseTag @param {NodeJS.ProcessEnv} environment @param {string} channelKey @param {RegExp} releaseTagPattern @param {number} retryDelayMs @returns {Promise<boolean>} */
-async function publishStableChannel(
-    client,
-    bucket,
-    body,
-    releaseTag,
-    environment,
-    channelKey,
-    releaseTagPattern,
-    retryDelayMs,
-) {
+async function publishStableChannel(client, bucket, body, releaseTag, environment, channelKey, releaseTagPattern, retryDelayMs) {
     const sha256 = createHash('sha256').update(body).digest('hex');
     const size = Buffer.byteLength(body);
     let stableChannelMutationAttempted = false;
@@ -1008,20 +969,9 @@ async function publishStableChannel(
         return Object.assign(wrapped, {stableChannelMutationAttempted: true});
     };
     for (let attempt = 1; attempt <= 5; attempt += 1) {
-        const current = await readStableChannel(
-            client,
-            bucket,
-            channelKey,
-            releaseTagPattern,
-        );
-        if (
-            current
-            && compareReleaseTags(releaseTag, current.tag) < 0
-            && environment.EVB_ALLOW_RELEASE_ROLLBACK !== '1'
-        ) {
-            throw new Error(
-                `Refusing to move stable mirror backward from ${current.tag} to ${releaseTag}`,
-            );
+        const current = await readStableChannel(client, bucket, channelKey, releaseTagPattern);
+        if (current && compareReleaseTags(releaseTag, current.tag) < 0 && environment.EVB_ALLOW_RELEASE_ROLLBACK !== '1') {
+            throw new Error(`Refusing to move stable mirror backward from ${current.tag} to ${releaseTag}`);
         }
         if (current?.size === size && current.sha256 === sha256) {
             return false;
@@ -1030,18 +980,18 @@ async function publishStableChannel(
             throw new Error('Stable mirror object response has no ETag; refusing an unguarded update');
         }
         try {
-            await client.send(new PutObjectCommand({
-                Bucket: bucket,
-                Key: channelKey,
-                Body: body,
-                ContentLength: size,
-                ContentType: 'application/json; charset=utf-8',
-                CacheControl: 'no-cache, no-store, must-revalidate',
-                Metadata: { sha256 },
-                ...(current
-                    ? {IfMatch: current.etag}
-                    : {IfNoneMatch: '*'}),
-            }));
+            await client.send(
+                new PutObjectCommand({
+                    Bucket: bucket,
+                    Key: channelKey,
+                    Body: body,
+                    ContentLength: size,
+                    ContentType: 'application/json; charset=utf-8',
+                    CacheControl: 'no-cache, no-store, must-revalidate',
+                    Metadata: {sha256},
+                    ...(current ? {IfMatch: current.etag} : {IfNoneMatch: '*'}),
+                }),
+            );
             // The pointer may have changed even if verification fails. Keep
             // the outer transaction informed so it can restore the old value.
             stableChannelMutationAttempted = true;
@@ -1052,10 +1002,7 @@ async function publishStableChannel(
                 throw markStableChannelMutation(error);
             }
             if (attempt === 5) {
-                throw markStableChannelMutation(new Error(
-                    'Stable mirror channel changed repeatedly during publication',
-                    {cause: error},
-                ));
+                throw markStableChannelMutation(new Error('Stable mirror channel changed repeatedly during publication', {cause: error}));
             }
             await delay(25 * attempt);
         }
@@ -1067,13 +1014,14 @@ async function publishStableChannel(
 async function readStableChannel(client, bucket, channelKey, releaseTagPattern) {
     let response;
     try {
-        response = await client.send(new GetObjectCommand({
-            Bucket: bucket,
-            Key: channelKey,
-        }));
+        response = await client.send(
+            new GetObjectCommand({
+                Bucket: bucket,
+                Key: channelKey,
+            }),
+        );
     } catch (error) {
-        if (isMirrorError(error)
-            && (error.$metadata?.httpStatusCode === 404 || error.name === 'NoSuchKey')) {
+        if (isMirrorError(error) && (error.$metadata?.httpStatusCode === 404 || error.name === 'NoSuchKey')) {
             return null;
         }
         throw error;
@@ -1103,12 +1051,7 @@ async function readStableChannel(client, bucket, channelKey, releaseTagPattern) 
 
 /** @param {TMirrorClient} client @param {string} bucket @param {IStableChannel} previousChannel @param {string} channelKey @param {RegExp} releaseTagPattern @param {number} retryDelayMs @returns {Promise<void>} */
 async function restoreStableChannel(client, bucket, previousChannel, channelKey, releaseTagPattern, retryDelayMs) {
-    const current = await readStableChannel(
-        client,
-        bucket,
-        channelKey,
-        releaseTagPattern,
-    );
+    const current = await readStableChannel(client, bucket, channelKey, releaseTagPattern);
     if (current?.sha256 === previousChannel.sha256) {
         return;
     }
@@ -1116,37 +1059,41 @@ async function restoreStableChannel(client, bucket, previousChannel, channelKey,
         throw new Error('Stable mirror rollback found no guarded current channel object');
     }
 
-    await client.send(new PutObjectCommand({
-        Bucket: bucket,
-        Key: channelKey,
-        Body: previousChannel.body,
-        ContentLength: previousChannel.size,
-        ContentType: 'application/json; charset=utf-8',
-        CacheControl: 'no-cache, no-store, must-revalidate',
-        Metadata: {sha256: previousChannel.sha256},
-        IfMatch: current.etag,
-    }));
+    await client.send(
+        new PutObjectCommand({
+            Bucket: bucket,
+            Key: channelKey,
+            Body: previousChannel.body,
+            ContentLength: previousChannel.size,
+            ContentType: 'application/json; charset=utf-8',
+            CacheControl: 'no-cache, no-store, must-revalidate',
+            Metadata: {sha256: previousChannel.sha256},
+            IfMatch: current.etag,
+        }),
+    );
     await verifyUpload(client, bucket, channelKey, previousChannel.size, previousChannel.sha256, retryDelayMs);
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} protectedTag @param {string} releasePrefix @param {RegExp} releaseTagPattern @returns {Promise<string[]>} */
 async function pruneOldReleases(client, bucket, protectedTag, releasePrefix, releaseTagPattern) {
     const objects = await listAllReleaseObjects(client, bucket, releasePrefix);
-    const tags = [...new Set(objects.flatMap(object => {
-        const tag = object.Key?.slice(releasePrefix.length).split('/')[0];
-        return tag ? [tag] : [];
-    }))]
-        .filter(tag => releaseTagPattern.test(tag))
+    const tags = [
+        ...new Set(
+            objects.flatMap((object) => {
+                const tag = object.Key?.slice(releasePrefix.length).split('/')[0];
+                return tag ? [tag] : [];
+            }),
+        ),
+    ]
+        .filter((tag) => releaseTagPattern.test(tag))
         .sort(compareReleaseTags)
         .reverse();
     const retainedTags = new Set(tags.slice(0, RETAINED_RELEASE_COUNT));
     retainedTags.add(protectedTag);
-    const staleTags = tags.filter(tag => !retainedTags.has(tag));
-    const staleKeys = objects.flatMap(object => {
+    const staleTags = tags.filter((tag) => !retainedTags.has(tag));
+    const staleKeys = objects.flatMap((object) => {
         const key = object.Key;
-        return key && staleTags.some(tag => key.startsWith(`${releasePrefix}${tag}/`))
-            ? [key]
-            : [];
+        return key && staleTags.some((tag) => key.startsWith(`${releasePrefix}${tag}/`)) ? [key] : [];
     });
 
     await deleteMirrorObjects(client, bucket, staleKeys, 'Mirror pruning');
@@ -1157,16 +1104,18 @@ async function pruneOldReleases(client, bucket, protectedTag, releasePrefix, rel
 async function deleteMirrorObjects(client, bucket, keys, label) {
     for (let index = 0; index < keys.length; index += 1_000) {
         const batch = keys.slice(index, index + 1_000);
-        const result = await client.send(new DeleteObjectsCommand({
-            Bucket: bucket,
-            Delete: {
-                Objects: batch.map(Key => ({Key})),
-                Quiet: true,
-            },
-        }));
+        const result = await client.send(
+            new DeleteObjectsCommand({
+                Bucket: bucket,
+                Delete: {
+                    Objects: batch.map((Key) => ({Key})),
+                    Quiet: true,
+                },
+            }),
+        );
         const errors = result.Errors ?? [];
         if (errors.length > 0) {
-            throw new Error(`${label} failed for ${errors.map(error => error.Key ?? 'unknown').join(', ')}`);
+            throw new Error(`${label} failed for ${errors.map((error) => error.Key ?? 'unknown').join(', ')}`);
         }
     }
 }
@@ -1177,11 +1126,13 @@ async function listAllReleaseObjects(client, bucket, releasePrefix) {
     let continuationToken;
     do {
         /** @type {import('@aws-sdk/client-s3').ListObjectsV2CommandOutput} */
-        const page = await client.send(new ListObjectsV2Command({
-            Bucket: bucket,
-            Prefix: releasePrefix,
-            ContinuationToken: continuationToken,
-        }));
+        const page = await client.send(
+            new ListObjectsV2Command({
+                Bucket: bucket,
+                Prefix: releasePrefix,
+                ContinuationToken: continuationToken,
+            }),
+        );
         objects.push(...(page.Contents ?? []));
         continuationToken = page.NextContinuationToken;
     } while (continuationToken);
@@ -1199,9 +1150,7 @@ export function compareReleaseTags(left, right) {
         }
     }
     if (leftVersion.prerelease.length === 0 || rightVersion.prerelease.length === 0) {
-        return leftVersion.prerelease.length === rightVersion.prerelease.length
-            ? 0
-            : leftVersion.prerelease.length === 0 ? 1 : -1;
+        return leftVersion.prerelease.length === rightVersion.prerelease.length ? 0 : leftVersion.prerelease.length === 0 ? 1 : -1;
     }
     const identifierCount = Math.max(leftVersion.prerelease.length, rightVersion.prerelease.length);
     for (let index = 0; index < identifierCount; index++) {
@@ -1240,11 +1189,7 @@ function parseReleaseVersion(tag) {
         throw new Error(`Invalid release tag: ${tag}`);
     }
     return {
-        core: [
-            Number(match[1]),
-            Number(match[2]),
-            Number(match[3]),
-        ],
+        core: [Number(match[1]), Number(match[2]), Number(match[3])],
         prerelease: match[4]?.split('.') ?? [],
     };
 }
@@ -1252,15 +1197,17 @@ function parseReleaseVersion(tag) {
 /** @param {string} filename @returns {string} */
 export function contentTypeFor(filename) {
     const extension = basename(filename).toLowerCase().split('.').at(-1);
-    return ({
-        blockmap: 'application/octet-stream',
-        deb: 'application/vnd.debian.binary-package',
-        dmg: 'application/x-apple-diskimage',
-        exe: 'application/vnd.microsoft.portable-executable',
-        json: 'application/json',
-        yml: 'text/yaml; charset=utf-8',
-        zip: 'application/zip',
-    })[extension ?? ''] ?? 'application/octet-stream';
+    return (
+        {
+            blockmap: 'application/octet-stream',
+            deb: 'application/vnd.debian.binary-package',
+            dmg: 'application/x-apple-diskimage',
+            exe: 'application/vnd.microsoft.portable-executable',
+            json: 'application/json',
+            yml: 'text/yaml; charset=utf-8',
+            zip: 'application/zip',
+        }[extension ?? ''] ?? 'application/octet-stream'
+    );
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -1271,12 +1218,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         }
         await cleanupMirrorPrefix({prefix: args[1]});
     } else if (args[0] === 'reconcile') {
-        const [
-            , releaseTag,
-            statePath,
-            ...modes
-        ] = args;
-        if (!releaseTag || !statePath || modes.some(mode => mode !== '--drill')) {
+        const [, releaseTag, statePath, ...modes] = args;
+        if (!releaseTag || !statePath || modes.some((mode) => mode !== '--drill')) {
             throw new Error('Usage: publish-release-mirror.mjs reconcile <release-tag> <github-state.json> [--drill]');
         }
         const result = await reconcileReleasePromotion({
@@ -1293,18 +1236,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
             process.exitCode = 4;
         }
     } else {
-        const [
-            artifactDirectory,
-            releaseTag,
-            ...modes
-        ] = args;
-        const allowedModes = new Set([
-            '--drill',
-            '--stage',
-            '--transaction',
-        ]);
-        if (modes.some(mode => !allowedModes.has(mode))) {
-            throw new Error(`Unknown mirror publish mode: ${modes.find(mode => !allowedModes.has(mode))}`);
+        const [artifactDirectory, releaseTag, ...modes] = args;
+        const allowedModes = new Set(['--drill', '--stage', '--transaction']);
+        if (modes.some((mode) => !allowedModes.has(mode))) {
+            throw new Error(`Unknown mirror publish mode: ${modes.find((mode) => !allowedModes.has(mode))}`);
         }
         await publishReleaseMirror({
             artifactDirectory,

@@ -1,8 +1,4 @@
-export type TElectronE2EInfrastructureFailureKind =
-    | 'process-launch'
-    | 'transport'
-    | 'cdp-connection'
-    | 'session-runner';
+export type TElectronE2EInfrastructureFailureKind = 'process-launch' | 'transport' | 'cdp-connection' | 'session-runner';
 
 function toError(error: unknown) {
     return error instanceof Error ? error : new Error(String(error));
@@ -24,19 +20,10 @@ function formatContainedErrors(error: Error) {
 export class ElectronE2EInfrastructureError extends Error {
     readonly kind: TElectronE2EInfrastructureFailureKind;
 
-    constructor(
-        kind: TElectronE2EInfrastructureFailureKind,
-        message: string,
-        cause?: unknown,
-    ) {
+    constructor(kind: TElectronE2EInfrastructureFailureKind, message: string, cause?: unknown) {
         const source = cause === undefined ? null : toError(cause);
-        const sourceDetails = source
-            ? `${source.message}${formatContainedErrors(source)}`
-            : '';
-        super(
-            `[INFRA] ${message}${source ? `\n${escapeInfrastructureMarkers(sourceDetails)}` : ''}`,
-            source ? {cause: source} : undefined,
-        );
+        const sourceDetails = source ? `${source.message}${formatContainedErrors(source)}` : '';
+        super(`[INFRA] ${message}${source ? `\n${escapeInfrastructureMarkers(sourceDetails)}` : ''}`, source ? {cause: source} : undefined);
         this.name = 'ElectronE2EInfrastructureError';
         this.kind = kind;
     }
@@ -56,9 +43,7 @@ export function createElectronE2EHealthReadinessFailure(
         );
     }
     const label = `Electron E2E session '${sessionName}' reported application health but did not become ready`;
-    return lastApplicationError === undefined
-        ? new Error(label)
-        : formatElectronE2ESessionFailure(label, lastApplicationError);
+    return lastApplicationError === undefined ? new Error(label) : formatElectronE2ESessionFailure(label, lastApplicationError);
 }
 
 export async function runElectronE2EInfrastructureStage<T>(
@@ -84,16 +69,15 @@ function isNodeSystemFailure(error: unknown): error is NodeJS.ErrnoException & {
         return false;
     }
     const candidate = error as NodeJS.ErrnoException;
-    return typeof candidate.code === 'string'
-        && typeof candidate.errno === 'number'
-        && typeof candidate.syscall === 'string'
-        && candidate.syscall.length > 0;
+    return (
+        typeof candidate.code === 'string' &&
+        typeof candidate.errno === 'number' &&
+        typeof candidate.syscall === 'string' &&
+        candidate.syscall.length > 0
+    );
 }
 
-export async function runElectronE2EProcessLaunchStage<T>(
-    label: string,
-    operation: () => Promise<T>,
-) {
+export async function runElectronE2EProcessLaunchStage<T>(label: string, operation: () => Promise<T>) {
     try {
         return await operation();
     } catch (error) {
@@ -123,20 +107,16 @@ export function formatElectronE2ESessionFailure(label: string, error: unknown) {
 export class ElectronE2ETimeoutError extends Error {
     readonly timeoutMs: number;
 
-    constructor(
-        label: string,
-        timeoutMs: number,
-        diagnostics: string | null,
-        cleanupFailure?: unknown,
-    ) {
+    constructor(label: string, timeoutMs: number, diagnostics: string | null, cleanupFailure?: unknown) {
         const cleanup = cleanupFailure === undefined ? null : toError(cleanupFailure);
-        super([
-            `${label} timed out after ${String(Math.round(timeoutMs / 1000))}s.`,
-            ...(cleanup
-                ? [`Cleanup after the timeout failed: ${cleanup.message}${formatContainedErrors(cleanup)}`]
-                : []),
-            ...(diagnostics ? [diagnostics] : []),
-        ].join('\n'), cleanup ? {cause: cleanup} : undefined);
+        super(
+            [
+                `${label} timed out after ${String(Math.round(timeoutMs / 1000))}s.`,
+                ...(cleanup ? [`Cleanup after the timeout failed: ${cleanup.message}${formatContainedErrors(cleanup)}`] : []),
+                ...(diagnostics ? [diagnostics] : []),
+            ].join('\n'),
+            cleanup ? {cause: cleanup} : undefined,
+        );
         this.name = 'ElectronE2ETimeoutError';
         this.timeoutMs = timeoutMs;
     }
@@ -164,7 +144,7 @@ export async function runWithElectronE2EDeadline<T>(
         timer = setTimeout(() => resolve('timeout'), timeoutMs);
     });
     const settled = task(controller.signal).then(
-        value => ({
+        (value) => ({
             kind: 'value' as const,
             value,
         }),
@@ -175,10 +155,7 @@ export async function runWithElectronE2EDeadline<T>(
     );
 
     try {
-        const outcome = await Promise.race([
-            settled,
-            deadline,
-        ]);
+        const outcome = await Promise.race([settled, deadline]);
         if (outcome !== 'timeout') {
             if (outcome.kind === 'error') {
                 throw outcome.error;
@@ -214,13 +191,10 @@ export class ElectronE2ETeardownError extends AggregateError {
         }>,
     ) {
         super(
-            [
-                ...(primary ? [primary] : []),
-                ...failures.map(failure => failure.error),
-            ],
+            [...(primary ? [primary] : []), ...failures.map((failure) => failure.error)],
             [
                 primary ? `Test failed: ${primary.message}` : 'Test body passed but teardown failed.',
-                ...failures.map(failure => `Teardown step ${failure.label}: ${failure.error.message}`),
+                ...failures.map((failure) => `Teardown step ${failure.label}: ${failure.error.message}`),
             ].join('\n'),
         );
         this.name = 'ElectronE2ETeardownError';
@@ -230,10 +204,7 @@ export class ElectronE2ETeardownError extends AggregateError {
 // Every step runs even after an earlier one fails, so a stop is attempted for
 // each session. The primary error is rethrown as-is when teardown is clean;
 // otherwise the primary error and every step failure are reported together.
-export async function runElectronE2ETeardown(
-    primary: unknown,
-    steps: readonly IElectronE2ETeardownStep[],
-) {
+export async function runElectronE2ETeardown(primary: unknown, steps: readonly IElectronE2ETeardownStep[]) {
     const failures: Array<{
         label: string;
         error: Error;

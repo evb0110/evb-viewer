@@ -1,5 +1,3 @@
-
-
 export interface IShapeBounds {
     minX: number;
     minY: number;

@@ -1,8 +1,5 @@
-import { getHostCapability } from '@app/utils/getHostCapability';
-import {
-    buildViewerBugReport,
-    readDocumentSourcePath,
-} from '@app/modules/viewer-invariants/buildViewerBugReport';
+import {getHostCapability} from '@app/utils/getHostCapability';
+import {buildViewerBugReport, readDocumentSourcePath} from '@app/modules/viewer-invariants/buildViewerBugReport';
 
 /**
  * Writes the bundle through the host capability. The main process owns the

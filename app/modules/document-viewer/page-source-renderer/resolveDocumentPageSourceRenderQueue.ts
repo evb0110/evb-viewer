@@ -16,29 +16,28 @@ export interface IDocumentPageSourceRenderQueue {
     pagesToRender: number[];
 }
 
-export function resolveDocumentPageSourceRenderQueue(
-    input: IDocumentPageSourceRenderQueueInput,
-): IDocumentPageSourceRenderQueue {
+export function resolveDocumentPageSourceRenderQueue(input: IDocumentPageSourceRenderQueueInput): IDocumentPageSourceRenderQueue {
     const mountedPageSet = new Set(input.mountedPages);
     const inFlightPageSet = new Set(input.inFlightPages);
     const visiblePageSet = new Set(input.visiblePages);
     const bufferPageSet = new Set(input.bufferPages);
-    const nonCurrentVisiblePages = input.visiblePages.filter(pageNumber => pageNumber !== input.currentPage);
-    const currentPageIsOutsideVisibleBand = input.preferredDirection > 0
-        ? (nonCurrentVisiblePages.at(0) ?? input.currentPage) > input.currentPage + 1
-        : input.preferredDirection < 0
-            ? (nonCurrentVisiblePages.at(-1) ?? input.currentPage) < input.currentPage - 1
-            : false;
-    const leadingEdge = input.preferredDirection < 0
-        ? input.visiblePages.at(0) ?? input.currentPage
-        : input.visiblePages.at(-1) ?? input.currentPage;
+    const nonCurrentVisiblePages = input.visiblePages.filter((pageNumber) => pageNumber !== input.currentPage);
+    const currentPageIsOutsideVisibleBand =
+        input.preferredDirection > 0
+            ? (nonCurrentVisiblePages.at(0) ?? input.currentPage) > input.currentPage + 1
+            : input.preferredDirection < 0
+              ? (nonCurrentVisiblePages.at(-1) ?? input.currentPage) < input.currentPage - 1
+              : false;
+    const leadingEdge =
+        input.preferredDirection < 0 ? (input.visiblePages.at(0) ?? input.currentPage) : (input.visiblePages.at(-1) ?? input.currentPage);
     const rankPage = (pageNumber: number) => {
         if (pageNumber === input.currentPage && !currentPageIsOutsideVisibleBand) {
             return 0;
         }
-        const isLeadingBuffer = input.preferredDirection !== 0
-            && bufferPageSet.has(pageNumber)
-            && Math.sign(pageNumber - leadingEdge) === input.preferredDirection;
+        const isLeadingBuffer =
+            input.preferredDirection !== 0 &&
+            bufferPageSet.has(pageNumber) &&
+            Math.sign(pageNumber - leadingEdge) === input.preferredDirection;
         if (isLeadingBuffer) {
             return 1 + input.guardRadius - Math.abs(pageNumber - leadingEdge);
         }
@@ -52,15 +51,14 @@ export function resolveDocumentPageSourceRenderQueue(
     };
     const availableRenderSlots = Math.max(0, input.concurrency - inFlightPageSet.size);
     const pagesToRender = input.residentPages
-        .filter(pageNumber => mountedPageSet.has(pageNumber))
+        .filter((pageNumber) => mountedPageSet.has(pageNumber))
         .sort((left, right) => rankPage(left) - rankPage(right))
-        .filter(pageNumber => !inFlightPageSet.has(pageNumber) && input.needsRender(pageNumber))
+        .filter((pageNumber) => !inFlightPageSet.has(pageNumber) && input.needsRender(pageNumber))
         .slice(0, availableRenderSlots);
-    const pagesToAbort = input.preferredDirection === 0
-        ? []
-        : input.inFlightPages.filter(pageNumber => (
-            (pageNumber - input.currentPage) * input.preferredDirection < 0
-        ));
+    const pagesToAbort =
+        input.preferredDirection === 0
+            ? []
+            : input.inFlightPages.filter((pageNumber) => (pageNumber - input.currentPage) * input.preferredDirection < 0);
     return {
         pagesToAbort,
         pagesToRender,

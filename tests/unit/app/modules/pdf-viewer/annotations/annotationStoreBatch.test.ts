@@ -1,15 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import {
-    asAnnotationId,
-    type INoteEntity,
-    type AnnotationEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { requirePageIndex } from '@contracts/pageNumbers';
+import {describe, expect, it} from 'vitest';
+import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import {asAnnotationId, type INoteEntity, type AnnotationEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 function note(id: string): INoteEntity {
     return {
@@ -38,7 +30,9 @@ describe('AnnotationStore batched notifications', () => {
     it('publishes nested mutations together while preserving individual undo commands', () => {
         const store = new AnnotationStore();
         const snapshots: string[][] = [];
-        store.subscribe(allEntities => snapshots.push(allEntities.filter(entity => !entity.deleted).map(entity => entity.identity.id)));
+        store.subscribe((allEntities) =>
+            snapshots.push(allEntities.filter((entity) => !entity.deleted).map((entity) => entity.identity.id)),
+        );
 
         store.batch(() => {
             store.createNote(note('first'));
@@ -46,13 +40,7 @@ describe('AnnotationStore batched notifications', () => {
             expect(snapshots).toEqual([[]]);
         });
 
-        expect(snapshots).toEqual([
-            [],
-            [
-                'first',
-                'second',
-            ],
-        ]);
+        expect(snapshots).toEqual([[], ['first', 'second']]);
         expect(store.hasChangesSinceSavedBaseline()).toBe(true);
         expect(store.undo()).toBe(true);
         expect(snapshots.at(-1)).toEqual(['first']);
@@ -66,44 +54,42 @@ describe('AnnotationStore batched notifications', () => {
     it('publishes completed mutations after a callback throws and resumes normal notifications', () => {
         const store = new AnnotationStore();
         const snapshots: string[][] = [];
-        store.subscribe(allEntities => snapshots.push(allEntities.filter(entity => !entity.deleted).map(entity => entity.identity.id)));
+        store.subscribe((allEntities) =>
+            snapshots.push(allEntities.filter((entity) => !entity.deleted).map((entity) => entity.identity.id)),
+        );
 
-        expect(() => store.batch(() => {
-            store.createNote(note('before-error'));
-            throw new Error('import interrupted');
-        })).toThrow('import interrupted');
+        expect(() =>
+            store.batch(() => {
+                store.createNote(note('before-error'));
+                throw new Error('import interrupted');
+            }),
+        ).toThrow('import interrupted');
 
-        expect(snapshots).toEqual([
-            [],
-            ['before-error'],
-        ]);
+        expect(snapshots).toEqual([[], ['before-error']]);
         store.createNote(note('after-error'));
-        expect(snapshots).toEqual([
-            [],
-            ['before-error'],
-            [
-                'before-error',
-                'after-error',
-            ],
-        ]);
+        expect(snapshots).toEqual([[], ['before-error'], ['before-error', 'after-error']]);
     });
     it('publishes isolated complete snapshots, including deletions, to current and later readers', () => {
         const store = new AnnotationStore();
         const created = store.createNote(note('persisted'));
-        store.markPersisted(store.beginSave(), [{
-            annotationId: created.identity.id,
-            pdfRef: '12R',
-        }]);
+        store.markPersisted(store.beginSave(), [
+            {
+                annotationId: created.identity.id,
+                pdfRef: '12R',
+            },
+        ]);
         let snapshotIncludingDeleted: readonly AnnotationEntity[] = [];
-        store.subscribe(allEntities => snapshotIncludingDeleted = allEntities);
+        store.subscribe((allEntities) => (snapshotIncludingDeleted = allEntities));
         store.delete(created.identity.id);
-        expect(snapshotIncludingDeleted).toEqual([expect.objectContaining({
-            deleted: true,
-            contents: 'persisted',
-        })]);
+        expect(snapshotIncludingDeleted).toEqual([
+            expect.objectContaining({
+                deleted: true,
+                contents: 'persisted',
+            }),
+        ]);
         const originalDeletion = snapshotIncludingDeleted;
         let laterSnapshotIncludingDeleted: readonly AnnotationEntity[] = [];
-        store.subscribe(allEntities => laterSnapshotIncludingDeleted = allEntities);
+        store.subscribe((allEntities) => (laterSnapshotIncludingDeleted = allEntities));
         expect(laterSnapshotIncludingDeleted).toEqual(originalDeletion);
 
         const published = laterSnapshotIncludingDeleted[0]!;
@@ -111,7 +97,9 @@ describe('AnnotationStore batched notifications', () => {
         if (published.kind !== 'note') {
             throw new Error('Expected a note');
         }
-        expect(() => { published.position.left = 0.9; }).toThrow(TypeError);
+        expect(() => {
+            published.position.left = 0.9;
+        }).toThrow(TypeError);
         expect(() => Object.assign(published, {contents: 'reader-only change'})).toThrow(TypeError);
         expect(() => (laterSnapshotIncludingDeleted as AnnotationEntity[]).pop()).toThrow(TypeError);
         expect(store.get(created.identity.id)).toMatchObject({
@@ -127,5 +115,4 @@ describe('AnnotationStore batched notifications', () => {
         });
         expect(originalDeletion[0]).toMatchObject({deleted: true});
     });
-
 });

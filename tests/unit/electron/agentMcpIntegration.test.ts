@@ -1,10 +1,4 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const state = vi.hoisted(() => ({
     settings: {agentMcpEnabled: false},
@@ -104,20 +98,27 @@ vi.mock('@electron/features/agent/mcpServer', () => ({
     shutdownLocalMcpServer: mocks.shutdownLocalMcpServer,
 }));
 
-const runtimeStatuses = vi.hoisted(() => [] as Array<{
-    enabled: boolean;
-    serverRunning: boolean;
-    codexConfigured: boolean
-}>);
+const runtimeStatuses = vi.hoisted(
+    () =>
+        [] as Array<{
+            enabled: boolean;
+            serverRunning: boolean;
+            codexConfigured: boolean;
+        }>,
+);
 vi.mock('@electron/config', () => ({config: {renderer: {trustedUrl: 'evb-viewer://app/electron'}}}));
-vi.mock('@electron/window/registry', () => ({getAllRegisteredAppWindows: () => [{
-    isDestroyed: () => false,
-    webContents: {
-        isDestroyed: () => false,
-        getURL: () => 'evb-viewer://app/electron',
-        send: (_channel: string, status: typeof runtimeStatuses[number]) => runtimeStatuses.push(status),
-    },
-}]}));
+vi.mock('@electron/window/registry', () => ({
+    getAllRegisteredAppWindows: () => [
+        {
+            isDestroyed: () => false,
+            webContents: {
+                isDestroyed: () => false,
+                getURL: () => 'evb-viewer://app/electron',
+                send: (_channel: string, status: (typeof runtimeStatuses)[number]) => runtimeStatuses.push(status),
+            },
+        },
+    ],
+}));
 vi.mock('@electron/features/agent/lazyAgentAssistant', () => ({}));
 vi.mock('@electron/features/agent/workspaceBridge', () => ({}));
 
@@ -147,22 +148,31 @@ describe('codexMcpIntegration', () => {
     it('publishes an earlier read before a later completed MCP lifecycle', async () => {
         let release!: () => void;
         let captured!: () => void;
-        const started = new Promise<void>(done => { captured = done; });
-        const gate = new Promise<void>(done => { release = done; });
+        const started = new Promise<void>((done) => {
+            captured = done;
+        });
+        const gate = new Promise<void>((done) => {
+            release = done;
+        });
         let configured = false;
         mocks.runCodexCli.mockImplementation(async (_path: string, args: string[]) => {
             if (args[1] === 'get') {
                 const wasConfigured = configured;
-                if (!wasConfigured) { captured(); await gate; }
+                if (!wasConfigured) {
+                    captured();
+                    await gate;
+                }
                 return {
                     ok: wasConfigured,
-                    stdout: wasConfigured ? JSON.stringify({
-                        enabled: true,
-                        transport: {
-                            type: 'stdio',
-                            ...launchConfig,
-                        },
-                    }) : '',
+                    stdout: wasConfigured
+                        ? JSON.stringify({
+                              enabled: true,
+                              transport: {
+                                  type: 'stdio',
+                                  ...launchConfig,
+                              },
+                          })
+                        : '',
                     stderr: '',
                 };
             }
@@ -177,20 +187,23 @@ describe('codexMcpIntegration', () => {
         const service = createAgentService();
         const read = service.getMcpIntegrationStatus();
         await started;
-        const update = service.setMcpIntegrationEnabled({
-            sender: {} as never,
-            senderId: 1,
-        }, true);
+        const update = service.setMcpIntegrationEnabled(
+            {
+                sender: {} as never,
+                senderId: 1,
+            },
+            true,
+        );
         release();
         await read;
         await update;
-        expect(runtimeStatuses.map(({
-            enabled, serverRunning, codexConfigured,
-        }) => ({
-            enabled,
-            serverRunning,
-            codexConfigured,
-        }))).toEqual([
+        expect(
+            runtimeStatuses.map(({enabled, serverRunning, codexConfigured}) => ({
+                enabled,
+                serverRunning,
+                codexConfigured,
+            })),
+        ).toEqual([
             {
                 enabled: false,
                 serverRunning: false,
@@ -223,16 +236,12 @@ describe('codexMcpIntegration', () => {
             throw new Error(`Unexpected Codex args: ${args.join(' ')}`);
         });
 
-        const { setAgentMcpIntegrationEnabled } = await import('@electron/features/agent/codexMcpIntegration');
+        const {setAgentMcpIntegrationEnabled} = await import('@electron/features/agent/codexMcpIntegration');
         const result = await setAgentMcpIntegrationEnabled(true);
 
         expect(result.ok).toBe(true);
         expect(mocks.startLocalMcpServer).toHaveBeenCalledOnce();
-        expect(mocks.runCodexCli).toHaveBeenNthCalledWith(1, '/usr/bin/codex', [
-            'mcp',
-            'remove',
-            descriptor.name,
-        ]);
+        expect(mocks.runCodexCli).toHaveBeenNthCalledWith(1, '/usr/bin/codex', ['mcp', 'remove', descriptor.name]);
         expect(mocks.runCodexCli).toHaveBeenNthCalledWith(2, '/usr/bin/codex', [
             'mcp',
             'add',
@@ -262,9 +271,7 @@ describe('codexMcpIntegration', () => {
             expect.stringMatching(/[\\/]\.codex[\\/]config\.toml$/u),
         );
         expect(state.settings.agentMcpEnabled).toBe(true);
-        expect(mocks.updateSettings.mock.invocationCallOrder[0]).toBeLessThan(
-            mocks.startLocalMcpServer.mock.invocationCallOrder[0]!,
-        );
+        expect(mocks.updateSettings.mock.invocationCallOrder[0]).toBeLessThan(mocks.startLocalMcpServer.mock.invocationCallOrder[0]!);
     });
 
     it('keeps the setting enabled when Codex refuses to remove its registration', async () => {
@@ -331,9 +338,7 @@ describe('codexMcpIntegration', () => {
         expect(state.settings.agentMcpEnabled).toBe(false);
         expect(state.serverRunning).toBe(false);
         expect(mocks.shutdownLocalMcpServer).toHaveBeenCalledOnce();
-        expect(mocks.updateSettings.mock.invocationCallOrder[0]).toBeLessThan(
-            mocks.startLocalMcpServer.mock.invocationCallOrder[0]!,
-        );
+        expect(mocks.updateSettings.mock.invocationCallOrder[0]).toBeLessThan(mocks.startLocalMcpServer.mock.invocationCallOrder[0]!);
     });
 
     it('does not start or register when saving the enable intent fails', async () => {
@@ -346,12 +351,7 @@ describe('codexMcpIntegration', () => {
         expect(result.error).toBe('settings database unavailable');
         expect(state.settings.agentMcpEnabled).toBe(false);
         expect(mocks.startLocalMcpServer).not.toHaveBeenCalled();
-        expect(mocks.runCodexCli).toHaveBeenCalledWith('/usr/bin/codex', [
-            'mcp',
-            'get',
-            descriptor.name,
-            '--json',
-        ]);
+        expect(mocks.runCodexCli).toHaveBeenCalledWith('/usr/bin/codex', ['mcp', 'get', descriptor.name, '--json']);
     });
 
     it('classifies a failed integration action with its bounded action context', async () => {
@@ -367,13 +367,10 @@ describe('codexMcpIntegration', () => {
         expect(result.ok).toBe(false);
         expect(result.error).toContain('Codex registration refused');
         expect(result.error).not.toContain('persisted-token');
-        expect(mocks.logger.error).toHaveBeenCalledWith(
-            expect.stringContaining('Failed to enable Codex MCP integration'),
-            {
-                code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
-                cause: expect.any(Error),
-            },
-        );
+        expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining('Failed to enable Codex MCP integration'), {
+            code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+            cause: expect.any(Error),
+        });
         expect(mocks.logger.error.mock.calls[0]?.[0]).not.toContain('persisted-token');
     });
 
@@ -392,7 +389,7 @@ describe('codexMcpIntegration', () => {
             stderr: '',
         });
 
-        const { getAgentMcpIntegrationStatus } = await import('@electron/features/agent/codexMcpIntegration');
+        const {getAgentMcpIntegrationStatus} = await import('@electron/features/agent/codexMcpIntegration');
         const status = await getAgentMcpIntegrationStatus();
 
         expect(status.enabled).toBe(true);
@@ -411,10 +408,7 @@ describe('codexMcpIntegration', () => {
             'a conflicting listener',
             Object.assign(new Error('listen EADDRINUSE: address already in use 127.0.0.1:38672'), {code: 'EADDRINUSE'}),
         ],
-        [
-            'a token-store failure',
-            new Error('Unable to create a stable local MCP token file.'),
-        ],
+        ['a token-store failure', new Error('Unable to create a stable local MCP token file.')],
     ])('keeps bootstrap alive and preserves opt-in after %s', async (_label, startupError) => {
         state.settings = {agentMcpEnabled: true};
         mocks.startLocalMcpServer.mockRejectedValueOnce(startupError);
@@ -424,10 +418,7 @@ describe('codexMcpIntegration', () => {
             stderr: '',
         });
 
-        const {
-            getAgentMcpIntegrationStatus,
-            syncAgentMcpServerWithSettings,
-        } = await import('@electron/features/agent/codexMcpIntegration');
+        const {getAgentMcpIntegrationStatus, syncAgentMcpServerWithSettings} = await import('@electron/features/agent/codexMcpIntegration');
 
         await expect(syncAgentMcpServerWithSettings()).resolves.toBeUndefined();
         expect(state.settings.agentMcpEnabled).toBe(true);
@@ -454,9 +445,7 @@ describe('codexMcpIntegration', () => {
 
         expect(mocks.startLocalMcpServer).not.toHaveBeenCalled();
         expect(mocks.shutdownLocalMcpServer).not.toHaveBeenCalled();
-        expect(mocks.logger.warn).toHaveBeenCalledWith(
-            expect.stringContaining('Failed to load external MCP setting'),
-        );
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Failed to load external MCP setting'));
     });
 
     it('returns a disable-capable status when token-backed setup snippets fail', async () => {

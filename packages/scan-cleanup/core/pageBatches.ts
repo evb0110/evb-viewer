@@ -1,17 +1,11 @@
-import {
-    SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES,
-    SCAN_CLEANUP_STREAMING_BATCH_PAGES,
-} from '@contracts/scan-cleanup/inputLimits';
+import {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES, SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import type {TScanCleanupPageScope} from '@evb/scan-cleanup/core/pageScope';
 
 /**
  * The native protocol admits one bounded manifest at a time. This is a
  * transport and residency budget, not a source-document page limit.
  */
-export {
-    SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES,
-    SCAN_CLEANUP_STREAMING_BATCH_PAGES,
-};
+export {SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES, SCAN_CLEANUP_STREAMING_BATCH_PAGES};
 
 export interface IScanCleanupPageBatch {
     batchIndex: number;
@@ -20,7 +14,7 @@ export interface IScanCleanupPageBatch {
 }
 
 /** Iterate bounded ranges without materializing a document page list. */
-export function *iterateScanCleanupPageBatches(
+export function* iterateScanCleanupPageBatches(
     totalItems: number,
     batchSize = SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES,
 ): Generator<IScanCleanupPageBatch> {
@@ -31,9 +25,7 @@ export function *iterateScanCleanupPageBatches(
         throw new Error('Scan cleanup batch size must be a positive safe integer');
     }
     if (batchSize > SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES) {
-        throw new Error(
-            `Scan cleanup batch size must not exceed ${String(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES)} pages`,
-        );
+        throw new Error(`Scan cleanup batch size must not exceed ${String(SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES)} pages`);
     }
     let batchIndex = 0;
     for (let startOffset = 0; startOffset < totalItems; startOffset += batchSize) {
@@ -46,25 +38,16 @@ export function *iterateScanCleanupPageBatches(
     }
 }
 
-export function collectScanCleanupPageBatch<T>(
-    values: readonly T[],
-    batch: IScanCleanupPageBatch,
-) {
+export function collectScanCleanupPageBatch<T>(values: readonly T[], batch: IScanCleanupPageBatch) {
     return values.slice(batch.startOffset, batch.endOffsetExclusive);
 }
 
-export function collectScanCleanupPageScopeBatch(
-    pageScope: TScanCleanupPageScope,
-    batch: IScanCleanupPageBatch,
-) {
+export function collectScanCleanupPageScopeBatch(pageScope: TScanCleanupPageScope, batch: IScanCleanupPageBatch) {
     if (!('startPageNumber' in pageScope)) {
         return pageScope.slice(batch.startOffset, batch.endOffsetExclusive);
     }
     const startPageNumber = pageScope.startPageNumber + batch.startOffset;
-    return Array.from(
-        {length: batch.endOffsetExclusive - batch.startOffset},
-        (_, index) => startPageNumber + index,
-    );
+    return Array.from({length: batch.endOffsetExclusive - batch.startOffset}, (_, index) => startPageNumber + index);
 }
 
 export async function runScanCleanupPageBatches(
@@ -73,7 +56,7 @@ export async function runScanCleanupPageBatches(
     options: {
         batchSize?: number;
         signal?: AbortSignal;
-        onBatchComplete?: (batch: IScanCleanupPageBatch) => void
+        onBatchComplete?: (batch: IScanCleanupPageBatch) => void;
     } = {},
 ) {
     for (const batch of iterateScanCleanupPageBatches(totalItems, options.batchSize)) {

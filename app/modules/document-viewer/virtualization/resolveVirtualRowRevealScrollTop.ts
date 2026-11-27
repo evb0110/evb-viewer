@@ -19,15 +19,8 @@ export function resolveVirtualRowRevealScrollTop(options: IVirtualRowRevealOptio
     if (options.rowHeights.length === 0) {
         return null;
     }
-    const startIndex = Math.max(0, Math.min(
-        options.startIndex,
-        options.endIndex,
-        options.rowHeights.length - 1,
-    ));
-    const endIndex = Math.max(startIndex, Math.min(
-        Math.max(options.startIndex, options.endIndex),
-        options.rowHeights.length - 1,
-    ));
+    const startIndex = Math.max(0, Math.min(options.startIndex, options.endIndex, options.rowHeights.length - 1));
+    const endIndex = Math.max(startIndex, Math.min(Math.max(options.startIndex, options.endIndex), options.rowHeights.length - 1));
     const spanTop = sumRowHeights(options.rowHeights, startIndex);
     const spanBottom = sumRowHeights(options.rowHeights, endIndex + 1);
     const scrollTop = Math.max(0, options.scrollTop);

@@ -1,7 +1,8 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Offline tools to clean raw scans and DjVu files, run OCR, add annotations, and export PDFs on macOS, Windows, and Linux. Free and MIT licensed.',
+        description:
+            'Offline tools to clean raw scans and DjVu files, run OCR, add annotations, and export PDFs on macOS, Windows, and Linux. Free and MIT licensed.',
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -30,7 +31,8 @@ export default {
         seo: {
             title: 'EVB Viewer web app and desktop downloads',
             ogTitle: 'EVB Viewer for web and desktop document work',
-            ogDescription: 'Turn raw scans and DjVu files into searchable, annotatable PDFs with offline cleanup, OCR, annotation, and export on macOS, Windows, and Linux. Free and MIT licensed.',
+            ogDescription:
+                'Turn raw scans and DjVu files into searchable, annotatable PDFs with offline cleanup, OCR, annotation, and export on macOS, Windows, and Linux. Free and MIT licensed.',
         },
         hero: {
             lede: 'EVB Viewer cleans up raw scans and DjVu files, recognizes their text, and saves searchable, annotatable PDFs. It works offline on macOS, Windows, and Linux, and it is free and MIT licensed.',
@@ -40,7 +42,8 @@ export default {
             downloadInstaller: 'Download {installerLabel}',
             browseInstallers: 'Browse all installers',
             openInBrowser: 'Use in browser',
-            detectionUnavailable: 'Automatic installer detection is unavailable. You can still open the web app or choose a desktop build below.',
+            detectionUnavailable:
+                'Automatic installer detection is unavailable. You can still open the web app or choose a desktop build below.',
             suggestedDevice: 'Suggested desktop build: {installerLabel}',
             published: 'Published {date}',
         },
@@ -53,7 +56,8 @@ export default {
         },
         installers: {
             heading: 'Desktop downloads',
-            description: 'Desktop builds add scan cleanup, native OS integration, and heavier workflows such as large merges. The recommended installer is based on your current device, but every build stays selectable.',
+            description:
+                'Desktop builds add scan cleanup, native OS integration, and heavier workflows such as large merges. The recommended installer is based on your current device, but every build stays selectable.',
             loading: 'Loading latest release links...',
             error: 'Could not load release artifacts right now.',
             retry: 'Retry',
@@ -124,7 +128,7 @@ export default {
             },
         },
         audience: {
-            title: 'Who it\'s for',
+            title: "Who it's for",
             items: {
                 archives: {
                     title: 'Archives and libraries',
@@ -175,10 +179,12 @@ export default {
         },
         entryPoints: {
             heading: 'Choose the right entry point',
-            description: 'Start in the browser for quick local PDF, DjVu, and image work, including OCR in about 30 languages, or choose the desktop app for scan cleanup, native OS integration, and larger merges.',
+            description:
+                'Start in the browser for quick local PDF, DjVu, and image work, including OCR in about 30 languages, or choose the desktop app for scan cleanup, native OS integration, and larger merges.',
             web: {
                 title: 'Web app',
-                description: 'Best for opening local PDFs, DjVu files, and common images immediately, then reviewing, marking up, and exporting without installing anything.',
+                description:
+                    'Best for opening local PDFs, DjVu files, and common images immediately, then reviewing, marking up, and exporting without installing anything.',
                 point1: 'PDF, DjVu, and image workflows',
                 point2: 'No install or updater friction',
                 point3: 'Great for quick review, markup, page edits, OCR, and export',
@@ -186,7 +192,8 @@ export default {
             },
             desktop: {
                 title: 'Desktop app',
-                description: 'Best for scan cleanup, native OS integration, larger merge jobs, and workflows that need more than browser memory limits.',
+                description:
+                    'Best for scan cleanup, native OS integration, larger merge jobs, and workflows that need more than browser memory limits.',
                 point1: 'Scan cleanup before OCR',
                 point2: 'Larger merge and export jobs',
                 point3: 'Native desktop dialogs and OS integration',
@@ -204,25 +211,30 @@ export default {
         seo: {
             title: 'EVB Viewer features for browser and desktop',
             ogTitle: 'EVB Viewer feature overview',
-            ogDescription: 'See what EVB Viewer covers in the browser today and what the desktop app adds for scan cleanup, native OS integration, and larger jobs.',
+            ogDescription:
+                'See what EVB Viewer covers in the browser today and what the desktop app adds for scan cleanup, native OS integration, and larger jobs.',
         },
         hero: {
             badge: 'Native scan cleanup and OCR',
             title: 'Clean raw scans, then search and annotate the PDF',
-            subtitle: 'EVB Viewer works offline on macOS, Windows, and Linux. Its native Rust engine deskews, despeckles, binarizes, crops, and splits two-page spreads. Tesseract OCR with tessdata-best models supports 30 languages. It is for archivists, librarians, historians, philologists, and people maintaining personal scan libraries.',
+            subtitle:
+                'EVB Viewer works offline on macOS, Windows, and Linux. Its native Rust engine deskews, despeckles, binarizes, crops, and splits two-page spreads. Tesseract OCR with tessdata-best models supports 30 languages. It is for archivists, librarians, historians, philologists, and people maintaining personal scan libraries.',
         },
         capabilities: {
             heading: 'Core workspace capabilities',
-            description: 'Read, review, annotate, reorganize, and export documents in one workspace, then choose the runtime that fits the job.',
+            description:
+                'Read, review, annotate, reorganize, and export documents in one workspace, then choose the runtime that fits the job.',
         },
         cards: {
             pdfDjvu: {
                 title: 'PDF, images, and DjVu where it fits',
-                description: 'Browser workflows open local PDFs, DjVu files, and common images. The desktop app adds scan cleanup and avoids browser memory caps on heavier jobs.',
+                description:
+                    'Browser workflows open local PDFs, DjVu files, and common images. The desktop app adds scan cleanup and avoids browser memory caps on heavier jobs.',
             },
             ocr: {
                 title: 'OCR with searchable output',
-                description: 'OCR runs locally in the browser and in desktop builds and keeps the searchable result inside the edited document. Both read the same 30 or so languages.',
+                description:
+                    'OCR runs locally in the browser and in desktop builds and keeps the searchable result inside the edited document. Both read the same 30 or so languages.',
             },
             annotations: {
                 title: 'Deep annotation tools',
@@ -230,7 +242,8 @@ export default {
             },
             pages: {
                 title: 'Page operations',
-                description: 'Delete, extract, reorder, rotate, crop, and capture pages. Browser merges are capped for memory; desktop is better for large batches.',
+                description:
+                    'Delete, extract, reorder, rotate, crop, and capture pages. Browser merges are capped for memory; desktop is better for large batches.',
             },
             workspace: {
                 title: 'Workspace management',
@@ -243,7 +256,8 @@ export default {
         },
         workflow: {
             heading: 'How the product fits real work',
-            description: 'A typical EVB Viewer session starts with quick browser work and moves to desktop when scan cleanup or scale requires it.',
+            description:
+                'A typical EVB Viewer session starts with quick browser work and moves to desktop when scan cleanup or scale requires it.',
             load: {
                 title: 'Start in the browser',
                 body: 'Open a local PDF, DjVu file, or image immediately when installation would slow the task down.',
@@ -285,11 +299,13 @@ export default {
         seo: {
             title: 'EVB Viewer docs for browser and desktop workflows',
             ogTitle: 'EVB Viewer user guide',
-            ogDescription: 'Start with the browser app for local files and OCR, then install the desktop app when you need scan cleanup, native OS integration, or larger merge/export jobs.',
+            ogDescription:
+                'Start with the browser app for local files and OCR, then install the desktop app when you need scan cleanup, native OS integration, or larger merge/export jobs.',
         },
         hero: {
             title: 'Guides for the browser and desktop apps',
-            subtitle: 'Start with the web app for quick local PDF, DjVu, and image work, including OCR, then move to the desktop app for scan cleanup, native OS integration, or larger merge/export jobs.',
+            subtitle:
+                'Start with the web app for quick local PDF, DjVu, and image work, including OCR, then move to the desktop app for scan cleanup, native OS integration, or larger merge/export jobs.',
         },
         guideCardAction: 'Jump to section',
         browserQuickstart: {
@@ -352,7 +368,8 @@ export default {
             li3: 'Generated file naming follows the first selected file, for example {example}.',
             li4: 'If a document is already open, combined output opens in a new tab so current work stays intact.',
             li5: '{openRecent} keeps history and includes a command to clear recent files.',
-            convertIntro: '{menuPath} has two behaviors: in DjVu mode it opens DjVu conversion options; otherwise it opens file selection and creates a PDF from selected sources.',
+            convertIntro:
+                '{menuPath} has two behaviors: in DjVu mode it opens DjVu conversion options; otherwise it opens file selection and creates a PDF from selected sources.',
         },
         tabsSplits: {
             heading: 'Tabs and split editor',

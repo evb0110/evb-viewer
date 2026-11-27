@@ -1,10 +1,4 @@
-import {
-    beforeAll,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeAll, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     close: vi.fn(),
@@ -28,10 +22,7 @@ vi.mock('worker_threads', () => ({
     workerData: mocks.workerData,
 }));
 const entrypoints = [
-    [
-        () => import('@electron/features/image-export/main/tiffCombineWorker'),
-        'Invalid TIFF combine worker payload',
-    ],
+    [() => import('@electron/features/image-export/main/tiffCombineWorker'), 'Invalid TIFF combine worker payload'],
 ] as const;
 
 const startupMessages: unknown[][] = [];
@@ -44,25 +35,22 @@ beforeAll(async () => {
         mocks.postMessage.mockClear();
         mocks.on.mockClear();
         await load();
-        startupMessages.push(mocks.postMessage.mock.calls.map(call => call[0]));
-        cancellationListeners.push(mocks.on.mock.calls.some(([
-            event,
-            listener,
-        ]) => (
-            event === 'message' && typeof listener === 'function'
-        )));
+        startupMessages.push(mocks.postMessage.mock.calls.map((call) => call[0]));
+        cancellationListeners.push(mocks.on.mock.calls.some(([event, listener]) => event === 'message' && typeof listener === 'function'));
     }
 });
 
 describe('Node worker entrypoints', () => {
     it('boots every entrypoint and reports malformed startup payloads without escaping', () => {
-        expect(startupMessages).toEqual(entrypoints.map(([
-            , error,
-        ]) => [expect.objectContaining({
-            type: 'result',
-            ok: false,
-            error,
-        })]));
+        expect(startupMessages).toEqual(
+            entrypoints.map(([, error]) => [
+                expect.objectContaining({
+                    type: 'result',
+                    ok: false,
+                    error,
+                }),
+            ]),
+        );
         expect(cancellationListeners).toEqual([true]);
     });
 });

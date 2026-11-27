@@ -1,11 +1,7 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import type {
-    ConsoleMessage,
-    JSHandle,
-    Page,
-} from 'puppeteer-core';
-import type { ISessionState } from '@scripts/electron-run/electronRunSessionTypes';
-import { formatLogRecordLine } from '@contracts/logRecord';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import type {ConsoleMessage, JSHandle, Page} from 'puppeteer-core';
+import type {ISessionState} from '@scripts/electron-run/electronRunSessionTypes';
+import {formatLogRecordLine} from '@contracts/logRecord';
 import {
     consoleMessageToLogRecord,
     createLogRecord,
@@ -39,7 +35,7 @@ async function toConsoleRecord(msg: ConsoleMessage) {
     const fallbackText = msg.text();
     try {
         const args = await Promise.all(msg.args().map(evaluateConsoleArg));
-        const evaluated = args.every(value => value !== undefined) ? args : [];
+        const evaluated = args.every((value) => value !== undefined) ? args : [];
         return consoleMessageToLogRecord(msg.type(), evaluated, fallbackText);
     } catch {
         return consoleMessageToLogRecord(msg.type(), [], fallbackText);
@@ -51,12 +47,16 @@ export function attachPageDiagnostics(page: Page) {
     const devtoolsEvents: ISessionState['devtoolsEvents'] = [];
     const pushConsoleMessage = (entry: ISessionState['consoleMessages'][number]) => {
         pushBounded(consoleMessages, entry, MAX_CONSOLE_MESSAGES);
-        pushBounded(devtoolsEvents, {
-            kind: 'console',
-            timestamp: entry.timestamp,
-            level: entry.type,
-            text: entry.text,
-        }, MAX_DEVTOOLS_EVENTS);
+        pushBounded(
+            devtoolsEvents,
+            {
+                kind: 'console',
+                timestamp: entry.timestamp,
+                level: entry.type,
+                text: entry.text,
+            },
+            MAX_DEVTOOLS_EVENTS,
+        );
     };
     const pushDevtoolsEvent = (entry: ISessionState['devtoolsEvents'][number]) => {
         pushBounded(devtoolsEvents, entry, MAX_DEVTOOLS_EVENTS);

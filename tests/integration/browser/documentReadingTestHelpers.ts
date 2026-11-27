@@ -7,10 +7,7 @@ import {settleActiveOpen} from './documentLifecycleTestHelpers';
 export async function createReadingBook(label: string, name: string) {
     const pdf = await PDFDocument.create();
     for (let pageNumber = 1; pageNumber <= 6; pageNumber += 1) {
-        pdf.addPage([
-            400,
-            600,
-        ]).drawText(`${label} page ${String(pageNumber)}`, {
+        pdf.addPage([400, 600]).drawText(`${label} page ${String(pageNumber)}`, {
             x: 40,
             y: 500,
             size: 24,
@@ -23,7 +20,6 @@ export async function createReadingBook(label: string, name: string) {
     };
 }
 
-
 // What the reader sees of the active view: the toolbar's page and zoom, and
 // the page in the middle of the viewport with its painted orientation.
 export function readReadingView(page: Page) {
@@ -31,7 +27,9 @@ export function readReadingView(page: Page) {
         const host = document.querySelector('.workspace-host[data-workspace-active="true"]');
         const viewport = host?.querySelector('[data-document-viewer-chassis-viewport]')?.getBoundingClientRect();
         const visible = Array.from(host?.querySelectorAll<HTMLElement>('.page_container--rendered') ?? []).find((container) => {
-            if (!viewport) return false;
+            if (!viewport) {
+                return false;
+            }
             const rect = container.getBoundingClientRect();
             const centerX = viewport.left + viewport.width / 2;
             const centerY = viewport.top + viewport.height / 2;
@@ -47,14 +45,16 @@ export function readReadingView(page: Page) {
     });
 }
 
-
 // Opens a reading book through Start's Open File button and the file chooser.
 export async function openReadingBook(page: Page, label: string, name: string) {
     const chooser = page.waitForEvent('filechooser');
-    await page.getByRole('button', {
-        name: 'Open File',
-        exact: true,
-    }).first().click();
+    await page
+        .getByRole('button', {
+            name: 'Open File',
+            exact: true,
+        })
+        .first()
+        .click();
     await (await chooser).setFiles(await createReadingBook(label, name));
     await expect.poll(async () => (await readReadingView(page)).visibleText, {timeout: 30_000}).toBe(`${label} page 1`);
     await settleActiveOpen(page);

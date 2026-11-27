@@ -1,9 +1,6 @@
-import type {
-    IBookmarkItem,
-    TBookmarkDisplayMode,
-} from '@app/types/pdfOutline';
-import { useMultiSelection } from '@app/composables/useMultiSelection';
-import { isDocumentBookmarkExpanded } from '@app/modules/document-viewer/public';
+import type {IBookmarkItem, TBookmarkDisplayMode} from '@app/types/pdfOutline';
+import {useMultiSelection} from '@app/composables/useMultiSelection';
+import {isDocumentBookmarkExpanded} from '@app/modules/document-viewer/public';
 
 export const usePdfOutlineSelection = (
     bookmarks: Ref<IBookmarkItem[]>,
@@ -44,7 +41,7 @@ export const usePdfOutlineSelection = (
     }
 
     function applyRangeSelection(id: string) {
-        multiSelection.toggle(id, visibleBookmarkIds.value, { shift: true });
+        multiSelection.toggle(id, visibleBookmarkIds.value, {shift: true});
     }
 
     function clearSelection() {

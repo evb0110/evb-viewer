@@ -1,5 +1,5 @@
-import { getScanCleanupCapability } from '@app/utils/getScanCleanupCapability';
-import { resolveScanCleanupSupport } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
+import {resolveScanCleanupSupport} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 
 /**
  * Whether the workspace offers Scan Cleanup: wherever the platform can preview

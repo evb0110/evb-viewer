@@ -18,7 +18,7 @@
                 :class="{'is-mixed': state === 'mixed'}"
                 :data-auto-value-state="state"
             >
-                <span>{{ state === 'mixed' ? mixedLabel : valueText ?? t('scanCleanup.settings.manual') }}</span>
+                <span>{{ state === 'mixed' ? mixedLabel : (valueText ?? t('scanCleanup.settings.manual')) }}</span>
                 <AppTooltip
                     v-if="state === 'manual'"
                     :text="t('scanCleanup.settings.returnToAutomatic')"
@@ -31,15 +31,25 @@
                         :disabled="disabled"
                         @click="emit('reset')"
                     >
-                        <UIcon name="i-ph-x" aria-hidden="true" />
+                        <UIcon
+                            name="i-ph-x"
+                            aria-hidden="true"
+                        />
                     </button>
                 </AppTooltip>
             </span>
         </div>
-        <div v-if="slots.entry" class="scan-cleanup-auto-value-entry">
+        <div
+            v-if="slots.entry"
+            class="scan-cleanup-auto-value-entry"
+        >
             <slot name="entry" />
         </div>
-        <p v-if="reserveHint || hint" class="scan-cleanup-auto-value-hint">{{ hint }}&nbsp;</p>
+        <p
+            v-if="reserveHint || hint"
+            class="scan-cleanup-auto-value-hint"
+            >{{ hint }}&nbsp;</p
+        >
     </div>
 </template>
 

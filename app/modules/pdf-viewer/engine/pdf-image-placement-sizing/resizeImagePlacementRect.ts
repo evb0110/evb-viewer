@@ -1,4 +1,4 @@
-import type { IPoint2D } from '@app/types/point2D';
+import type {IPoint2D} from '@app/types/point2D';
 import type {
     IImagePlacementContainerRect,
     IImagePlacementRectPx,
@@ -17,7 +17,6 @@ interface IImagePlacementPointerResizeOptions {
     shiftKey?: boolean;
     minSizePx?: number;
 }
-
 
 const DEFAULT_MIN_IMAGE_PLACEMENT_SIZE_PX = 32;
 
@@ -68,30 +67,26 @@ function rotateLocalVector(point: IPoint2D, rotationDegrees: number): IPoint2D {
     const sin = Math.sin(radians);
 
     return {
-        x: (point.x * cos) - (point.y * sin),
-        y: (point.x * sin) + (point.y * cos),
+        x: point.x * cos - point.y * sin,
+        y: point.x * sin + point.y * cos,
     };
 }
 
 function dot(a: IPoint2D, b: IPoint2D) {
-    return (a.x * b.x) + (a.y * b.y);
+    return a.x * b.x + a.y * b.y;
 }
 
 function getRectCenter(rect: IImagePlacementRectPx): IPoint2D {
     return {
-        x: rect.left + (rect.width / 2),
-        y: rect.top + (rect.height / 2),
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
     };
 }
 
-function toRectFromCenter(
-    center: IPoint2D,
-    width: number,
-    height: number,
-): IImagePlacementRectPx {
+function toRectFromCenter(center: IPoint2D, width: number, height: number): IImagePlacementRectPx {
     return {
-        left: center.x - (width / 2),
-        top: center.y - (height / 2),
+        left: center.x - width / 2,
+        top: center.y - height / 2,
         width,
         height,
     };
@@ -126,11 +121,7 @@ function getOppositeHandle(handle: TImagePlacementResizeHandle): TImagePlacement
     }
 }
 
-function getHandleWorldPoint(
-    rectPx: IImagePlacementRectPx,
-    handle: TImagePlacementResizeHandle,
-    rotationDegrees: number,
-) {
+function getHandleWorldPoint(rectPx: IImagePlacementRectPx, handle: TImagePlacementResizeHandle, rotationDegrees: number) {
     const center = getRectCenter(rectPx);
     const handleVector = getHandleVector(handle);
     const localOffset = {
@@ -145,10 +136,7 @@ function getHandleWorldPoint(
     };
 }
 
-function getRotatedRectCorners(
-    rectPx: IImagePlacementRectPx,
-    rotationDegrees: number,
-) {
+function getRotatedRectCorners(rectPx: IImagePlacementRectPx, rotationDegrees: number) {
     const center = getRectCenter(rectPx);
     const halfWidth = rectPx.width / 2;
     const halfHeight = rectPx.height / 2;
@@ -180,17 +168,10 @@ function getRotatedRectCorners(
     });
 }
 
-function isRotatedRectInsideContainer(
-    rectPx: IImagePlacementRectPx,
-    containerRect: IImagePlacementContainerRect,
-    rotationDegrees: number,
-) {
-    return getRotatedRectCorners(rectPx, rotationDegrees).every((corner) => (
-        corner.x >= 0
-        && corner.x <= containerRect.width
-        && corner.y >= 0
-        && corner.y <= containerRect.height
-    ));
+function isRotatedRectInsideContainer(rectPx: IImagePlacementRectPx, containerRect: IImagePlacementContainerRect, rotationDegrees: number) {
+    return getRotatedRectCorners(rectPx, rotationDegrees).every(
+        (corner) => corner.x >= 0 && corner.x <= containerRect.width && corner.y >= 0 && corner.y <= containerRect.height,
+    );
 }
 
 function getRectFromFixedAnchor(
@@ -201,15 +182,22 @@ function getRectFromFixedAnchor(
     rotationDegrees: number,
 ) {
     const handleVector = getHandleVector(handle);
-    const centerOffset = rotateLocalVector({
-        x: (handleVector.x * width) / 2,
-        y: (handleVector.y * height) / 2,
-    }, rotationDegrees);
+    const centerOffset = rotateLocalVector(
+        {
+            x: (handleVector.x * width) / 2,
+            y: (handleVector.y * height) / 2,
+        },
+        rotationDegrees,
+    );
 
-    return toRectFromCenter({
-        x: anchorWorld.x + centerOffset.x,
-        y: anchorWorld.y + centerOffset.y,
-    }, width, height);
+    return toRectFromCenter(
+        {
+            x: anchorWorld.x + centerOffset.x,
+            y: anchorWorld.y + centerOffset.y,
+        },
+        width,
+        height,
+    );
 }
 
 function constrainResizeRectToContainer(
@@ -221,13 +209,7 @@ function constrainResizeRectToContainer(
     containerRect: IImagePlacementContainerRect,
     rotationDegrees: number,
 ) {
-    const desiredRect = getRectFromFixedAnchor(
-        anchorWorld,
-        handle,
-        desiredWidth,
-        desiredHeight,
-        rotationDegrees,
-    );
+    const desiredRect = getRectFromFixedAnchor(anchorWorld, handle, desiredWidth, desiredHeight, rotationDegrees);
     if (isRotatedRectInsideContainer(desiredRect, containerRect, rotationDegrees)) {
         return desiredRect;
     }
@@ -241,8 +223,8 @@ function constrainResizeRectToContainer(
         const rect = getRectFromFixedAnchor(
             anchorWorld,
             handle,
-            originRectPx.width + ((desiredWidth - originRectPx.width) * ratio),
-            originRectPx.height + ((desiredHeight - originRectPx.height) * ratio),
+            originRectPx.width + (desiredWidth - originRectPx.width) * ratio,
+            originRectPx.height + (desiredHeight - originRectPx.height) * ratio,
             rotationDegrees,
         );
 
@@ -258,28 +240,25 @@ function constrainResizeRectToContainer(
     return bestRect;
 }
 
-function resolveLockedAspectSize(
-    width: number,
-    height: number,
-    aspectRatio: number,
-    minSizePx: number,
-) {
+function resolveLockedAspectSize(width: number, height: number, aspectRatio: number, minSizePx: number) {
     const direction = {
         x: aspectRatio,
         y: 1,
     };
-    const t = Math.max(EPSILON, dot({
-        x: width,
-        y: height,
-    }, direction) / dot(direction, direction));
+    const t = Math.max(
+        EPSILON,
+        dot(
+            {
+                x: width,
+                y: height,
+            },
+            direction,
+        ) / dot(direction, direction),
+    );
 
     let resolvedWidth = t * direction.x;
     let resolvedHeight = t * direction.y;
-    const minScale = Math.max(
-        minSizePx / Math.max(EPSILON, resolvedWidth),
-        minSizePx / Math.max(EPSILON, resolvedHeight),
-        1,
-    );
+    const minScale = Math.max(minSizePx / Math.max(EPSILON, resolvedWidth), minSizePx / Math.max(EPSILON, resolvedHeight), 1);
 
     resolvedWidth *= minScale;
     resolvedHeight *= minScale;
@@ -290,9 +269,7 @@ function resolveLockedAspectSize(
     };
 }
 
-export function resizeImagePlacementRect(
-    options: IImagePlacementPointerResizeOptions,
-): IImagePlacementRectPx {
+export function resizeImagePlacementRect(options: IImagePlacementPointerResizeOptions): IImagePlacementRectPx {
     const {
         originRectPx,
         containerRect,
@@ -314,10 +291,13 @@ export function resizeImagePlacementRect(
         x: clientX - (startClientX - originHandleWorld.x),
         y: clientY - (startClientY - originHandleWorld.y),
     };
-    const handleLocalFromAnchor = toLocalVector({
-        x: targetHandleWorld.x - anchorWorld.x,
-        y: targetHandleWorld.y - anchorWorld.y,
-    }, rotationDegrees);
+    const handleLocalFromAnchor = toLocalVector(
+        {
+            x: targetHandleWorld.x - anchorWorld.x,
+            y: targetHandleWorld.y - anchorWorld.y,
+        },
+        rotationDegrees,
+    );
     let desiredWidth = originRectPx.width;
     let desiredHeight = originRectPx.height;
 
@@ -334,21 +314,13 @@ export function resizeImagePlacementRect(
         const locked = shiftKey
             ? resolveLockedAspectSize(rawWidth, rawHeight, aspectRatio, minSizePx)
             : {
-                width: Math.max(minSizePx, rawWidth),
-                height: Math.max(minSizePx, rawHeight),
-            };
+                  width: Math.max(minSizePx, rawWidth),
+                  height: Math.max(minSizePx, rawHeight),
+              };
 
         desiredWidth = locked.width;
         desiredHeight = locked.height;
     }
 
-    return constrainResizeRectToContainer(
-        originRectPx,
-        desiredWidth,
-        desiredHeight,
-        anchorWorld,
-        handle,
-        containerRect,
-        rotationDegrees,
-    );
+    return constrainResizeRectToContainer(originRectPx, desiredWidth, desiredHeight, anchorWorld, handle, containerRect, rotationDegrees);
 }

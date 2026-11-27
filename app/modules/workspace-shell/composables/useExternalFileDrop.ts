@@ -1,20 +1,14 @@
-import { useEventListener } from '@vueuse/core';
-import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {useEventListener} from '@vueuse/core';
+import type {Ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
 import {classifyDocumentOpenError} from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
-import {
-    getDocumentPickerCapability,
-    getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
-import { isSupportedWorkspaceDocumentPath } from '@app/utils/supportedDocumentPaths';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import {
-    getFailureReceipt,
-    type ExpectedOutcome,
-} from '@contracts/diagnostics/failureReceipt';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { isBrowserPlatformActive } from '@app/utils/platform';
-import { browserDocumentStore } from '@app/platform/browserDocumentStore';
+import {getDocumentPickerCapability, getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
+import {isSupportedWorkspaceDocumentPath} from '@app/utils/supportedDocumentPaths';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getFailureReceipt, type ExpectedOutcome} from '@contracts/diagnostics/failureReceipt';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {isBrowserPlatformActive} from '@app/utils/platform';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 
 interface IUseExternalFileDropOptions {
     openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
@@ -67,30 +61,29 @@ async function getDroppedDocumentPaths(
 
         let droppedPaths: Array<{
             path: TDocumentRef;
-            owned: boolean
+            owned: boolean;
         }>;
         try {
             if (isBrowserPlatformActive()) {
                 const registered = await browserDocumentStore.registerFileWithOwnership(file);
-                droppedPaths = [{
-                    path: registered.ref,
-                    owned: registered.created,
-                }];
+                droppedPaths = [
+                    {
+                        path: registered.ref,
+                        owned: registered.created,
+                    },
+                ];
             } else {
-                droppedPaths = (await documentPicker.registerFilesForOpen([file]))
-                    .map(path => ({
-                        path,
-                        owned: false,
-                    }));
+                droppedPaths = (await documentPicker.registerFilesForOpen([file])).map((path) => ({
+                    path,
+                    owned: false,
+                }));
             }
         } catch (error) {
             notifyRegistrationFailure(error);
             continue;
         }
 
-        for (const {
-            path, owned,
-        } of droppedPaths) {
+        for (const {path, owned} of droppedPaths) {
             if (!path || seen.has(path)) {
                 continue;
             }
@@ -106,7 +99,8 @@ async function getDroppedDocumentPaths(
                     kind: 'expected',
                     code: 'unsupported-input',
                 } satisfies ExpectedOutcome);
-                await getDocumentWorkingCopyCapability().cleanupFile(path)
+                await getDocumentWorkingCopyCapability()
+                    .cleanupFile(path)
                     .catch(() => undefined);
             }
         }
@@ -119,12 +113,9 @@ async function getDroppedDocumentPaths(
 }
 
 export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
-    const {
-        openPathsInAppropriateTab,
-        isEnabled,
-    } = options;
-    const { t } = useTypedI18n();
-    const { presentFailureToast } = useFailureToast();
+    const {openPathsInAppropriateTab, isEnabled} = options;
+    const {t} = useTypedI18n();
+    const {presentFailureToast} = useFailureToast();
     let queue: Promise<void> = Promise.resolve();
     let lifecycleToken = 0;
     let disposed = false;
@@ -143,11 +134,7 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
         });
     }
 
-    async function processDroppedPaths(
-        paths: TDocumentRef[],
-        ownedPaths: Set<TDocumentRef>,
-        tokenAtSchedule: number,
-    ) {
+    async function processDroppedPaths(paths: TDocumentRef[], ownedPaths: Set<TDocumentRef>, tokenAtSchedule: number) {
         if (disposed || tokenAtSchedule !== lifecycleToken) {
             return;
         }
@@ -155,9 +142,7 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
         try {
             await openPathsInAppropriateTab(paths);
         } catch (error) {
-            await Promise.allSettled(Array.from(ownedPaths, path => (
-                getDocumentWorkingCopyCapability().cleanupFile(path)
-            )));
+            await Promise.allSettled(Array.from(ownedPaths, (path) => getDocumentWorkingCopyCapability().cleanupFile(path)));
             throw error;
         }
     }
@@ -195,9 +180,9 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
                     () => !disposed && tokenAtSchedule === lifecycleToken,
                 );
                 if (disposed || tokenAtSchedule !== lifecycleToken) {
-                    await Promise.allSettled(Array.from(registration.ownedPaths, path => (
-                        getDocumentWorkingCopyCapability().cleanupFile(path)
-                    )));
+                    await Promise.allSettled(
+                        Array.from(registration.ownedPaths, (path) => getDocumentWorkingCopyCapability().cleanupFile(path)),
+                    );
                     return;
                 }
                 if (registration.paths.length === 0) {
@@ -205,7 +190,7 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
                 }
                 await processDroppedPaths(registration.paths, registration.ownedPaths, tokenAtSchedule);
             })
-            .catch(error => {
+            .catch((error) => {
                 const failure = BrowserLogger.error(
                     'external-file-drop',
                     'Failed to process dropped files',
@@ -220,25 +205,35 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
             });
     }
 
-    const stopDragOver = useEventListener(typeof window !== 'undefined' ? window : undefined, 'dragover', (event: DragEvent) => {
-        if (!shouldHandleDropEvent(event)) {
-            return;
-        }
+    const stopDragOver = useEventListener(
+        typeof window !== 'undefined' ? window : undefined,
+        'dragover',
+        (event: DragEvent) => {
+            if (!shouldHandleDropEvent(event)) {
+                return;
+            }
 
-        event.preventDefault();
-        if (event.dataTransfer) {
-            event.dataTransfer.dropEffect = 'copy';
-        }
-    }, { capture: true });
+            event.preventDefault();
+            if (event.dataTransfer) {
+                event.dataTransfer.dropEffect = 'copy';
+            }
+        },
+        {capture: true},
+    );
 
-    const stopDrop = useEventListener(typeof window !== 'undefined' ? window : undefined, 'drop', (event: DragEvent) => {
-        if (!shouldHandleDropEvent(event)) {
-            return;
-        }
+    const stopDrop = useEventListener(
+        typeof window !== 'undefined' ? window : undefined,
+        'drop',
+        (event: DragEvent) => {
+            if (!shouldHandleDropEvent(event)) {
+                return;
+            }
 
-        event.preventDefault();
-        enqueueDroppedFiles(Array.from(event.dataTransfer?.files ?? []));
-    }, { capture: true });
+            event.preventDefault();
+            enqueueDroppedFiles(Array.from(event.dataTransfer?.files ?? []));
+        },
+        {capture: true},
+    );
 
     function cleanup() {
         if (disposed) {
@@ -251,5 +246,5 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
         stopDrop();
     }
 
-    return { cleanup };
+    return {cleanup};
 };

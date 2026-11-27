@@ -1,7 +1,4 @@
-import {
-    DJVU_COMPACT_FOREGROUND_DOMINANT_NON_WHITE_MAX,
-    type IDjvuCompactForegroundColor,
-} from '@contracts/djvuConversionPolicy';
+import {DJVU_COMPACT_FOREGROUND_DOMINANT_NON_WHITE_MAX, type IDjvuCompactForegroundColor} from '@contracts/djvuConversionPolicy';
 
 const asciiEncoder = new TextEncoder();
 
@@ -66,17 +63,8 @@ export function analyzeForegroundColorRaster(
         }
     }
 
-    const dominantColor: [number, number, number] = weightSum > 0
-        ? [
-            Math.round(redSum / weightSum),
-            Math.round(greenSum / weightSum),
-            Math.round(blueSum / weightSum),
-        ]
-        : [
-            0,
-            0,
-            0,
-        ];
+    const dominantColor: [number, number, number] =
+        weightSum > 0 ? [Math.round(redSum / weightSum), Math.round(greenSum / weightSum), Math.round(blueSum / weightSum)] : [0, 0, 0];
 
     return {
         dominantColor,

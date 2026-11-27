@@ -1,10 +1,6 @@
 import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
 import type {TTerminationProofSink} from '@electron/resources/jobBroker';
-import {
-    getQpdfPageCountArgs,
-    parseQpdfPageCount,
-    QPDF_SUCCESS_EXIT_CODES,
-} from '@pdf-core/qpdfCommands';
+import {getQpdfPageCountArgs, parseQpdfPageCount, QPDF_SUCCESS_EXIT_CODES} from '@pdf-core/qpdfCommands';
 
 export const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
 export const QPDF_OUTPUT_SUCCESS_EXIT_CODES = QPDF_SUCCESS_EXIT_CODES;

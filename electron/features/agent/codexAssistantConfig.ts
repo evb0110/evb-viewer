@@ -1,4 +1,4 @@
-import { ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW } from '@electron/features/agent/assistantPresetWorkflows';
+import {ASSISTANT_DOCUMENT_EDIT_SAFETY_WORKFLOW} from '@electron/features/agent/assistantPresetWorkflows';
 
 export const ASSISTANT_IMAGE_ONLY_PROMPT = 'Please answer using the attached image.';
 // Bump when embedded assistant MCP tool names, annotations, or policy semantics change.
@@ -40,15 +40,7 @@ function tomlString(value: string) {
     return JSON.stringify(value);
 }
 
-const DISABLED_CODEX_FEATURES = [
-    'apps',
-    'memories',
-    'multi_agent',
-    'shell_tool',
-    'unified_exec',
-    'shell_snapshot',
-    'hooks',
-] as const;
+const DISABLED_CODEX_FEATURES = ['apps', 'memories', 'multi_agent', 'shell_tool', 'unified_exec', 'shell_snapshot', 'hooks'] as const;
 
 /** What an instance's own Codex configuration would add to EVB's tool surface. */
 export interface ICodexUserToolConfig {
@@ -59,13 +51,14 @@ export interface ICodexUserToolConfig {
 const DOTTED_KEY_SEGMENT = /^[A-Za-z0-9_@-]+$/u;
 
 export function readCodexUserToolConfig(configReadResponse: unknown): ICodexUserToolConfig {
-    const config = typeof configReadResponse === 'object' && configReadResponse !== null
-        ? (configReadResponse as {config?: unknown}).config
-        : undefined;
-    const record = typeof config === 'object' && config !== null ? config as Record<string, unknown> : {};
-    const keys = (value: unknown) => typeof value === 'object' && value !== null ? Object.keys(value) : [];
+    const config =
+        typeof configReadResponse === 'object' && configReadResponse !== null
+            ? (configReadResponse as {config?: unknown}).config
+            : undefined;
+    const record = typeof config === 'object' && config !== null ? (config as Record<string, unknown>) : {};
+    const keys = (value: unknown) => (typeof value === 'object' && value !== null ? Object.keys(value) : []);
     return {
-        mcpServers: keys(record.mcp_servers).filter(name => name !== ASSISTANT_MCP_SERVER_NAME),
+        mcpServers: keys(record.mcp_servers).filter((name) => name !== ASSISTANT_MCP_SERVER_NAME),
         plugins: keys(record.plugins),
     };
 }
@@ -76,20 +69,12 @@ export function readCodexUserToolConfig(configReadResponse: unknown): ICodexUser
  * plugin of the user's own configuration is disabled by name before EVB's
  * server is added. The runtime still verifies the result after startup.
  */
-export function createCodexIsolationArgs(
-    serverUrl: string,
-    reasoningEffort: string | undefined,
-    userTools: ICodexUserToolConfig,
-) {
+export function createCodexIsolationArgs(serverUrl: string, reasoningEffort: string | undefined, userTools: ICodexUserToolConfig) {
     const enabledTools = ASSISTANT_MCP_TOOLS.map(tomlString).join(', ');
     const overrides = [
-        ...userTools.mcpServers
-            .filter(name => DOTTED_KEY_SEGMENT.test(name))
-            .map(name => `mcp_servers.${name}.enabled=false`),
-        ...userTools.plugins
-            .filter(name => DOTTED_KEY_SEGMENT.test(name))
-            .map(name => `plugins.${name}.enabled=false`),
-        ...DISABLED_CODEX_FEATURES.map(feature => `features.${feature}=false`),
+        ...userTools.mcpServers.filter((name) => DOTTED_KEY_SEGMENT.test(name)).map((name) => `mcp_servers.${name}.enabled=false`),
+        ...userTools.plugins.filter((name) => DOTTED_KEY_SEGMENT.test(name)).map((name) => `plugins.${name}.enabled=false`),
+        ...DISABLED_CODEX_FEATURES.map((feature) => `features.${feature}=false`),
         ...(reasoningEffort ? [`model_reasoning_effort=${tomlString(reasoningEffort)}`] : []),
         'web_search="disabled"',
         'sandbox_mode="read-only"',
@@ -100,10 +85,7 @@ export function createCodexIsolationArgs(
         'permissions.evb-mcp-only.network={enabled=false}',
         `mcp_servers.${ASSISTANT_MCP_SERVER_NAME}={url=${tomlString(serverUrl)},bearer_token_env_var=${tomlString(ASSISTANT_MCP_TOKEN_ENV)},tool_timeout_sec=${ASSISTANT_MCP_TOOL_TIMEOUT_SECONDS},enabled_tools=[${enabledTools}]}`,
     ];
-    return overrides.flatMap(override => [
-        '-c',
-        override,
-    ]);
+    return overrides.flatMap((override) => ['-c', override]);
 }
 
 /**
@@ -112,20 +94,36 @@ export function createCodexIsolationArgs(
  * in the documented shape throws, so isolation fails closed.
  */
 export function readCodexMcpStatusPage(response: unknown) {
-    const record = typeof response === 'object' && response !== null ? response as {
-        data?: unknown;
-        nextCursor?: unknown
-    } : null;
-    if (!record || !Array.isArray(record.data) || (record.nextCursor !== undefined && record.nextCursor !== null && typeof record.nextCursor !== 'string')) {
+    const record =
+        typeof response === 'object' && response !== null
+            ? (response as {
+                  data?: unknown;
+                  nextCursor?: unknown;
+              })
+            : null;
+    if (
+        !record ||
+        !Array.isArray(record.data) ||
+        (record.nextCursor !== undefined && record.nextCursor !== null && typeof record.nextCursor !== 'string')
+    ) {
         throw new Error('Codex returned an unreadable MCP server status, so EVB Assistant cannot confirm which tools are available.');
     }
     const leaks: string[] = [];
     for (const server of record.data as unknown[]) {
-        const entry = typeof server === 'object' && server !== null ? server as {
-            name?: unknown;
-            tools?: unknown
-        } : null;
-        if (!entry || typeof entry.name !== 'string' || typeof entry.tools !== 'object' || entry.tools === null || Array.isArray(entry.tools)) {
+        const entry =
+            typeof server === 'object' && server !== null
+                ? (server as {
+                      name?: unknown;
+                      tools?: unknown;
+                  })
+                : null;
+        if (
+            !entry ||
+            typeof entry.name !== 'string' ||
+            typeof entry.tools !== 'object' ||
+            entry.tools === null ||
+            Array.isArray(entry.tools)
+        ) {
             throw new Error('Codex returned an unreadable MCP server status, so EVB Assistant cannot confirm which tools are available.');
         }
         const toolCount = Object.keys(entry.tools).length;

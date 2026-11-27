@@ -1,5 +1,3 @@
-
-
 export interface IClientRect {
     left: number;
     top: number;

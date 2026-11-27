@@ -1,9 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { pruneStartSectionByTabId } from '@app/modules/workspace-shell/tabs/pruneStartSectionByTabId';
+import {describe, expect, it} from 'vitest';
+import {pruneStartSectionByTabId} from '@app/modules/workspace-shell/tabs/pruneStartSectionByTabId';
 
 describe('pruneStartSectionByTabId', () => {
     it('removes entries for tabs that no longer exist', () => {
@@ -13,10 +9,7 @@ describe('pruneStartSectionByTabId', () => {
             'tab-closed': 'combine',
         } as const;
 
-        expect(pruneStartSectionByTabId(current, [
-            { id: 'tab-1' },
-            { id: 'tab-2' },
-        ])).toEqual({
+        expect(pruneStartSectionByTabId(current, [{id: 'tab-1'}, {id: 'tab-2'}])).toEqual({
             'tab-1': 'recent',
             'tab-2': 'settings',
         });
@@ -28,9 +21,6 @@ describe('pruneStartSectionByTabId', () => {
             'tab-2': 'settings',
         } as const;
 
-        expect(pruneStartSectionByTabId(current, [
-            { id: 'tab-1' },
-            { id: 'tab-2' },
-        ])).toBe(current);
+        expect(pruneStartSectionByTabId(current, [{id: 'tab-1'}, {id: 'tab-2'}])).toBe(current);
     });
 });

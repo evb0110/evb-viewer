@@ -1,18 +1,9 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationInventoryCompleteness,
-    TAnnotationCommentsStatus,
-} from '@app/types/annotations';
-import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
-import type { TDocumentRef } from '@contracts/documentRef';
-import { createDocumentAgentResources } from '@app/modules/workspace-shell/agent/createDocumentAgentResources';
+import {describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import type {IAnnotationCommentSummary, IAnnotationInventoryCompleteness, TAnnotationCommentsStatus} from '@app/types/annotations';
+import type {IAnnotationNoteWindowViewModel} from '@app/types/annotationNoteWindow';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {createDocumentAgentResources} from '@app/modules/workspace-shell/agent/createDocumentAgentResources';
 
 function createResources(inventory: IAnnotationInventoryCompleteness | null, bookmarks: unknown[] = []) {
     return createDocumentAgentResources({
@@ -43,14 +34,13 @@ function createResources(inventory: IAnnotationInventoryCompleteness | null, boo
 }
 
 describe('createDocumentAgentResources annotation inventory completeness', () => {
-    it.each([
-        'bookmarks',
-        'toc',
-    ])('returns the advertised %s tree without a second serialized alias', async (kind) => {
-        const bookmarks = [{
-            title: 'Chapter α',
-            items: [{title: 'Child'}],
-        }];
+    it.each(['bookmarks', 'toc'])('returns the advertised %s tree without a second serialized alias', async (kind) => {
+        const bookmarks = [
+            {
+                title: 'Chapter α',
+                items: [{title: 'Child'}],
+            },
+        ];
         const {readAgentResource} = createResources(null, bookmarks);
         const uri = `evb://document/tab-1/${kind}`;
         const resource = JSON.parse(JSON.stringify(await readAgentResource(uri)));
@@ -70,7 +60,7 @@ describe('createDocumentAgentResources annotation inventory completeness', () =>
     });
 
     it('marks status, annotation, and note resources as incomplete when the scan omitted pages', async () => {
-        const { readAgentResource } = createResources({
+        const {readAgentResource} = createResources({
             complete: false,
             omissions: ['page-parse-failure'],
             scannedPageCount: 2,
@@ -78,11 +68,7 @@ describe('createDocumentAgentResources annotation inventory completeness', () =>
             failedPageCount: 1,
         });
 
-        for (const kind of [
-            'status',
-            'annotations',
-            'notes',
-        ]) {
+        for (const kind of ['status', 'annotations', 'notes']) {
             // An automation client must not read a truncated listing as the
             // whole document.
             await expect(readAgentResource(`evb://document/tab-1/${kind}`)).resolves.toMatchObject({
@@ -103,11 +89,9 @@ describe('createDocumentAgentResources annotation inventory completeness', () =>
             totalPageCount: 3,
             failedPageCount: 0,
         });
-        await expect(complete.readAgentResource('evb://document/tab-1/annotations'))
-            .resolves.toMatchObject({ inventoryComplete: true });
+        await expect(complete.readAgentResource('evb://document/tab-1/annotations')).resolves.toMatchObject({inventoryComplete: true});
 
         const unreported = createResources(null);
-        await expect(unreported.readAgentResource('evb://document/tab-1/annotations'))
-            .resolves.toMatchObject({ inventoryComplete: null });
+        await expect(unreported.readAgentResource('evb://document/tab-1/annotations')).resolves.toMatchObject({inventoryComplete: null});
     });
 });

@@ -1,40 +1,22 @@
-import {
-    realpathSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
+import {realpathSync, rmSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-    onTestFinished,
-} from 'vitest';
-import {
-    createCanonicalAnnotationSurfaceFixturePdf,
-    readPdfAnnotationSummary,
-} from '@tests/e2e/electron/helpers/fixtures';
+import {describe, expect, it, onTestFinished} from 'vitest';
+import {createCanonicalAnnotationSurfaceFixturePdf, readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {
-    openPdfInApp,
-    saveViaVisibleToolbar,
-    waitForPdfLoaded,
-    waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {openPdfInApp, saveViaVisibleToolbar, waitForPdfLoaded, waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
 import {requireWorkspaceCommand} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 
 const ACTIVE_IMAGE_PLACEMENT_SELECTOR = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement';
 const CANONICAL_STAMP_SELECTOR = '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-stamp';
-const STAMP_FIXTURE_PATH = join(
-    process.cwd(),
-    '.devkit',
-    'stamp-picker-fixture-' + process.pid + '-' + Date.now() + '.jpg',
+const STAMP_FIXTURE_PATH = join(process.cwd(), '.devkit', 'stamp-picker-fixture-' + process.pid + '-' + Date.now() + '.jpg');
+writeFileSync(
+    STAMP_FIXTURE_PATH,
+    Buffer.from(
+        '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Al7UCSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//Z',
+        'base64',
+    ),
 );
-writeFileSync(STAMP_FIXTURE_PATH, Buffer.from(
-    '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Al7UCSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//Z',
-    'base64',
-));
 
 const sessionFixture = createElectronE2ESessionFixture({
     restartBeforeEach: true,
@@ -46,9 +28,7 @@ describe('stamp placement through the native picker', () => {
     it('places a stamp through the picker and reopens it in a fresh process', async () => {
         onTestFinished(() => rmSync(STAMP_FIXTURE_PATH, {force: true}));
         const session = sessionFixture.getSession();
-        const fixturePath = await createCanonicalAnnotationSurfaceFixturePdf(
-            'stamp-picker-' + Date.now() + '.pdf',
-        );
+        const fixturePath = await createCanonicalAnnotationSurfaceFixturePdf('stamp-picker-' + Date.now() + '.pdf');
         onTestFinished(() => rmSync(fixturePath, {force: true}));
         const initialStampCount = (await readPdfAnnotationSummary(fixturePath)).bySubtype.Stamp ?? 0;
         const {page} = session;
@@ -62,10 +42,7 @@ describe('stamp placement through the native picker', () => {
             timeout: 30_000,
             visible: true,
         });
-        await clickAsUser(
-            page,
-            ACTIVE_IMAGE_PLACEMENT_SELECTOR + ' .pdf-image-placement__action--primary',
-        );
+        await clickAsUser(page, ACTIVE_IMAGE_PLACEMENT_SELECTOR + ' .pdf-image-placement__action--primary');
         await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
             hidden: true,
             timeout: 30_000,
@@ -90,13 +67,21 @@ describe('stamp placement through the native picker', () => {
             timeout: 30_000,
             visible: true,
         });
-        await reopenedSession.page.waitForFunction((selector, count) => {
-            const stamps = [...document.querySelectorAll(selector)];
-            return stamps.length === count && stamps.every(stamp => {
-                const image = stamp.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
-                return image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
-            });
-        }, {timeout: 30_000}, CANONICAL_STAMP_SELECTOR, initialStampCount + 1);
+        await reopenedSession.page.waitForFunction(
+            (selector, count) => {
+                const stamps = [...document.querySelectorAll(selector)];
+                return (
+                    stamps.length === count &&
+                    stamps.every((stamp) => {
+                        const image = stamp.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
+                        return image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+                    })
+                );
+            },
+            {timeout: 30_000},
+            CANONICAL_STAMP_SELECTOR,
+            initialStampCount + 1,
+        );
         expect((await readPdfAnnotationSummary(fixturePath)).bySubtype.Stamp).toBe(initialStampCount + 1);
     }, 120_000);
 });

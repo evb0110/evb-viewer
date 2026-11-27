@@ -1,6 +1,4 @@
-import type {
-    IAssistantInstanceStatus, IAssistantState,
-} from '@contracts/assistant';
+import type {IAssistantInstanceStatus, IAssistantState} from '@contracts/assistant';
 
 export function createAssistantInstance(overrides: Partial<IAssistantInstanceStatus> = {}): IAssistantInstanceStatus {
     return {
@@ -15,25 +13,29 @@ export function createAssistantInstance(overrides: Partial<IAssistantInstanceSta
         homePath: '/home/reader/.codex',
         customEndpoint: false,
         account: null,
-        models: [{
-            id: 'gpt',
-            label: 'GPT',
-            reasoningEfforts: [
-                {
-                    id: 'low',
-                    label: 'Low',
-                },
-                {
-                    id: 'high',
-                    label: 'High',
-                },
-            ],
-            defaultReasoningEffort: 'high',
-            serviceTiers: [{
-                id: 'priority',
-                label: 'Fast',
-            }],
-        }],
+        models: [
+            {
+                id: 'gpt',
+                label: 'GPT',
+                reasoningEfforts: [
+                    {
+                        id: 'low',
+                        label: 'Low',
+                    },
+                    {
+                        id: 'high',
+                        label: 'High',
+                    },
+                ],
+                defaultReasoningEffort: 'high',
+                serviceTiers: [
+                    {
+                        id: 'priority',
+                        label: 'Fast',
+                    },
+                ],
+            },
+        ],
         defaultModel: 'gpt',
         checkedAt: null,
 

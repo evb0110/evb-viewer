@@ -1,17 +1,10 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
-import { commitPdfPageSkeletonGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry';
-import { observePdfOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/observePdfOpeningPageGeometry';
-import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import {commitPdfPageSkeletonGeometry} from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry';
+import {observePdfOpeningPageGeometry} from '@app/modules/pdf-viewer/runtime/lifecycle/observePdfOpeningPageGeometry';
+import type {IDocumentViewerRuntime} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
 function createElementShim(shape: Record<string, unknown>): HTMLElement {
     // The lifecycle reads only connectivity, scroll extent, selectors, and
@@ -43,7 +36,7 @@ function createOpeningSurface(documentId: string) {
 describe('commitPdfPageSkeletonGeometry', () => {
     it('keeps the previous surface until the expected virtual extent is mounted', () => {
         const opening = createOpeningSurface('/tmp/scan.pdf');
-        const pageSkeleton = createElementShim({ isConnected: true });
+        const pageSkeleton = createElementShim({isConnected: true});
         const pageContainer = createElementShim({
             isConnected: true,
             querySelector: vi.fn(() => pageSkeleton),
@@ -57,48 +50,35 @@ describe('commitPdfPageSkeletonGeometry', () => {
             querySelector: vi.fn(() => pageContainer),
         });
         const {chassisAuthority} = opening;
-        vi.stubGlobal('window', { getComputedStyle: vi.fn(() => ({
-            display: 'block',
-            visibility: 'visible',
-        })) });
+        vi.stubGlobal('window', {
+            getComputedStyle: vi.fn(() => ({
+                display: 'block',
+                visibility: 'visible',
+            })),
+        });
 
         const unresolvedOptions = {
             expectedGeneration: opening.generation,
             minimumScrollHeight: null,
         };
-        expect(commitPdfPageSkeletonGeometry(
-            chassisAuthority,
-            ref(viewerContainer),
-            ref(1),
-            ref(20),
-            requirePageNumber(1),
-            unresolvedOptions,
-        )).toBe(false);
+        expect(
+            commitPdfPageSkeletonGeometry(chassisAuthority, ref(viewerContainer), ref(1), ref(20), requirePageNumber(1), unresolvedOptions),
+        ).toBe(false);
         expect(opening.committedGeometry()).toBeNull();
 
         const options = {
             expectedGeneration: opening.generation,
             minimumScrollHeight: 534900,
         };
-        expect(commitPdfPageSkeletonGeometry(
-            chassisAuthority,
-            ref(viewerContainer),
-            ref(1),
-            ref(20),
-            requirePageNumber(1),
-            options,
-        )).toBe(false);
+        expect(commitPdfPageSkeletonGeometry(chassisAuthority, ref(viewerContainer), ref(1), ref(20), requirePageNumber(1), options)).toBe(
+            false,
+        );
         expect(opening.committedGeometry()).toBeNull();
 
-        Object.defineProperty(viewerContainer, 'scrollHeight', { value: 536245 });
-        expect(commitPdfPageSkeletonGeometry(
-            chassisAuthority,
-            ref(viewerContainer),
-            ref(1),
-            ref(20),
-            requirePageNumber(1),
-            options,
-        )).toBe(true);
+        Object.defineProperty(viewerContainer, 'scrollHeight', {value: 536245});
+        expect(commitPdfPageSkeletonGeometry(chassisAuthority, ref(viewerContainer), ref(1), ref(20), requirePageNumber(1), options)).toBe(
+            true,
+        );
         expect(opening.committedGeometry()).toEqual({
             width: 760,
             height: 1224,
@@ -119,7 +99,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
         });
         const pageContainer = createElementShim({
             isConnected: true,
-            querySelector: vi.fn((selector: string) => selector === '.page_canvas canvas' ? canvas : null),
+            querySelector: vi.fn((selector: string) => (selector === '.page_canvas canvas' ? canvas : null)),
             getBoundingClientRect: vi.fn(() => ({
                 width: 860,
                 height: 1112.94,
@@ -131,20 +111,22 @@ describe('commitPdfPageSkeletonGeometry', () => {
         });
         const {chassisAuthority} = opening;
 
-        expect(commitPdfPageSkeletonGeometry(
-            chassisAuthority,
-            ref(viewerContainer),
-            // The local page projection may still lag an early navigation.
-            ref(1),
-            ref(20),
-            requirePageNumber(6),
-            {
-                authoritativePageNumber: 6,
-                expectedGeneration: opening.generation,
-                minimumScrollHeight: null,
-                requireVisibleSkeleton: false,
-            },
-        )).toBe(true);
+        expect(
+            commitPdfPageSkeletonGeometry(
+                chassisAuthority,
+                ref(viewerContainer),
+                // The local page projection may still lag an early navigation.
+                ref(1),
+                ref(20),
+                requirePageNumber(6),
+                {
+                    authoritativePageNumber: 6,
+                    expectedGeneration: opening.generation,
+                    minimumScrollHeight: null,
+                    requireVisibleSkeleton: false,
+                },
+            ),
+        ).toBe(true);
         expect(opening.committedGeometry()).toEqual({
             width: 860,
             height: 1112.94,
@@ -165,7 +147,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
         });
         const pageContainer = createElementShim({
             isConnected: true,
-            querySelector: vi.fn((selector: string) => selector === '.page_canvas canvas' ? canvas : null),
+            querySelector: vi.fn((selector: string) => (selector === '.page_canvas canvas' ? canvas : null)),
             getBoundingClientRect: vi.fn(() => ({
                 width: 860,
                 height: 1112.94,
@@ -177,18 +159,13 @@ describe('commitPdfPageSkeletonGeometry', () => {
         });
         const {chassisAuthority} = opening;
 
-        expect(commitPdfPageSkeletonGeometry(
-            chassisAuthority,
-            ref(viewerContainer),
-            ref(1),
-            ref(20),
-            requirePageNumber(1),
-            {
+        expect(
+            commitPdfPageSkeletonGeometry(chassisAuthority, ref(viewerContainer), ref(1), ref(20), requirePageNumber(1), {
                 expectedGeneration: opening.generation - 1,
                 minimumScrollHeight: 478000,
                 requireVisibleSkeleton: false,
-            },
-        )).toBe(false);
+            }),
+        ).toBe(false);
         expect(opening.committedGeometry()).toBeNull();
     });
 });
@@ -218,9 +195,9 @@ function installResizeObservers() {
         }
     } as unknown as typeof ResizeObserver;
     return {
-        isObserved: (element: Element) => [...live].some(record => record.elements.has(element)),
+        isObserved: (element: Element) => [...live].some((record) => record.elements.has(element)),
         resize(element: Element) {
-            [...live].filter(record => record.elements.has(element)).forEach(record => record.callback());
+            [...live].filter((record) => record.elements.has(element)).forEach((record) => record.callback());
         },
         restore: () => {
             globalThis.ResizeObserver = original;

@@ -1,5 +1,5 @@
-import type { Ref } from 'vue';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {Ref} from 'vue';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 /**
  * Runs `change`, which calls `fence` before it changes the panes' layout, and
@@ -31,14 +31,19 @@ export function createWorkspaceLayoutChange(options: {
     // Each view settles at once unless its box changed or it is opening.
     async function whenViewsPlaced() {
         const controllers = new Set(Object.values(options.documentSessionsByTabId.value));
-        await Promise.all([...controllers].flatMap(controller => [...controller.views.value.values()])
-            .map(view => view.mountedWorkspace.value?.whenLayoutPlaced?.()));
+        await Promise.all(
+            [...controllers]
+                .flatMap((controller) => [...controller.views.value.values()])
+                .map((view) => view.mountedWorkspace.value?.whenLayoutPlaced?.()),
+        );
     }
 
     return async (change) => {
         let fenced = false;
         const fence = async () => {
-            if (fenced) return;
+            if (fenced) {
+                return;
+            }
             fenced = true;
             fences += 1;
             options.setWorkspaceLayoutResizing(true);

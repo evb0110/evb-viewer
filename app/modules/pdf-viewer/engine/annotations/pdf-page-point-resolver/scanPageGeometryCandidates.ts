@@ -1,12 +1,10 @@
-import { parsePageNumber } from '@contracts/pageNumbers';
+import {parsePageNumber} from '@contracts/pageNumbers';
 import type {
     IGeometryResolution,
     IPageCandidateLogEntry,
 } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/pdfPagePointResolverTypes';
 
-
 const MAX_PAGE_CANDIDATE_LOG_ENTRIES = 14;
-
 
 interface IPageGeometryCandidate {
     element: HTMLElement;
@@ -14,7 +12,6 @@ interface IPageGeometryCandidate {
     inside: boolean;
     distanceSquared: number;
 }
-
 
 function roundForLog(value: number, digits = 3) {
     if (!Number.isFinite(value)) {
@@ -24,14 +21,18 @@ function roundForLog(value: number, digits = 3) {
     return Math.round(value * factor) / factor;
 }
 
-function toRectLog(rect: DOMRect | {
-    left: number;
-    top: number;
-    right: number;
-    bottom: number;
-    width: number;
-    height: number;
-}) {
+function toRectLog(
+    rect:
+        | DOMRect
+        | {
+              left: number;
+              top: number;
+              right: number;
+              bottom: number;
+              width: number;
+              height: number;
+          },
+) {
     return {
         left: roundForLog(rect.left),
         top: roundForLog(rect.top),
@@ -43,29 +44,16 @@ function toRectLog(rect: DOMRect | {
 }
 
 function isPointInsideRect(clientX: number, clientY: number, rect: DOMRect) {
-    return (
-        clientX >= rect.left
-        && clientX <= rect.right
-        && clientY >= rect.top
-        && clientY <= rect.bottom
-    );
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
 }
 
 function squaredDistanceToRect(clientX: number, clientY: number, rect: DOMRect) {
-    const dx = clientX < rect.left
-        ? rect.left - clientX
-        : (clientX > rect.right ? clientX - rect.right : 0);
-    const dy = clientY < rect.top
-        ? rect.top - clientY
-        : (clientY > rect.bottom ? clientY - rect.bottom : 0);
+    const dx = clientX < rect.left ? rect.left - clientX : clientX > rect.right ? clientX - rect.right : 0;
+    const dy = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
     return dx * dx + dy * dy;
 }
 
-function measurePageGeometryCandidate(
-    element: HTMLElement,
-    clientX: number,
-    clientY: number,
-): IPageGeometryCandidate | null {
+function measurePageGeometryCandidate(element: HTMLElement, clientX: number, clientY: number): IPageGeometryCandidate | null {
     const rect = element.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) {
         return null;
@@ -115,11 +103,7 @@ function createGeometryResolution(
     };
 }
 
-function addGeometryCandidateLogEntry(
-    candidate: IPageGeometryCandidate,
-    candidates: IPageCandidateLogEntry[],
-    collectCandidates: boolean,
-) {
+function addGeometryCandidateLogEntry(candidate: IPageGeometryCandidate, candidates: IPageCandidateLogEntry[], collectCandidates: boolean) {
     if (collectCandidates && candidates.length < MAX_PAGE_CANDIDATE_LOG_ENTRIES) {
         candidates.push(toPageCandidateLogEntry(candidate));
     }

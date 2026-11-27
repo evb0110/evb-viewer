@@ -1,13 +1,6 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    getPageRowGeometry,
-    getPageScrollBounds,
-} from '@app/modules/pdf-viewer/runtime/navigation/singlePageScrollGeometry';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {describe, expect, it} from 'vitest';
+import {getPageRowGeometry, getPageScrollBounds} from '@app/modules/pdf-viewer/runtime/navigation/singlePageScrollGeometry';
 
 function createElementShim(shape: Record<string, unknown>): HTMLElement {
     // The geometry functions read only these layout properties and selectors.
@@ -29,15 +22,17 @@ function createGeometryContainer(options: {
     scrollWidth?: number;
 }) {
     const clientWidth = options.clientWidth ?? 100;
-    const pageElements = options.pages.map((page, index) => createElementShim({
-        clientHeight: page.offsetHeight,
-        clientWidth: page.offsetWidth ?? clientWidth,
-        dataset: { page: String(index + 1) },
-        offsetHeight: page.offsetHeight,
-        offsetLeft: page.offsetLeft ?? 0,
-        offsetTop: page.offsetTop,
-        offsetWidth: page.offsetWidth ?? clientWidth,
-    }));
+    const pageElements = options.pages.map((page, index) =>
+        createElementShim({
+            clientHeight: page.offsetHeight,
+            clientWidth: page.offsetWidth ?? clientWidth,
+            dataset: {page: String(index + 1)},
+            offsetHeight: page.offsetHeight,
+            offsetLeft: page.offsetLeft ?? 0,
+            offsetTop: page.offsetTop,
+            offsetWidth: page.offsetWidth ?? clientWidth,
+        }),
+    );
 
     const container = createElementShim({
         clientHeight: options.clientHeight,
@@ -62,7 +57,7 @@ function createGeometryContainer(options: {
 
 describe('singlePageScrollGeometry', () => {
     it('uses the mounted spread row for page scroll bounds', () => {
-        const { container } = createGeometryContainer({
+        const {container} = createGeometryContainer({
             clientHeight: 100,
             pages: [
                 {
@@ -81,22 +76,26 @@ describe('singlePageScrollGeometry', () => {
             scrollHeight: 500,
         });
 
-        expect(getPageRowGeometry({
-            container,
-            pageNumber: requirePageNumber(2),
-            totalPages: 3,
-            viewMode: 'facing',
-        })).toEqual({
+        expect(
+            getPageRowGeometry({
+                container,
+                pageNumber: requirePageNumber(2),
+                totalPages: 3,
+                viewMode: 'facing',
+            }),
+        ).toEqual({
             top: 10,
             height: 290,
         });
-        expect(getPageScrollBounds({
-            container,
-            pageNumber: requirePageNumber(2),
-            scaledMargin: 20,
-            totalPages: 3,
-            viewMode: 'facing',
-        })).toEqual({
+        expect(
+            getPageScrollBounds({
+                container,
+                pageNumber: requirePageNumber(2),
+                scaledMargin: 20,
+                totalPages: 3,
+                viewMode: 'facing',
+            }),
+        ).toEqual({
             min: 0,
             max: 190,
         });

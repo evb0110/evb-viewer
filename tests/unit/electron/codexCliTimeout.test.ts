@@ -1,31 +1,11 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type * as NodeFs from 'fs';
-import {
-    chmod,
-    mkdir,
-    mkdtemp,
-    readFile,
-    rename,
-    rm,
-    stat,
-    utimes,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    delimiter,
-    join,
-} from 'node:path';
+import {chmod, mkdir, mkdtemp, readFile, rename, rm, stat, utimes, writeFile} from 'node:fs/promises';
+import {delimiter, join} from 'node:path';
 import {tmpdir} from 'node:os';
 import type * as NodeFsPromises from 'fs/promises';
 import type * as NativeCommand from '@electron/native-tools/runNativeCommand';
-import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
     runNativeCommand: vi.fn<typeof NativeCommand.runNativeCommand>(),
@@ -44,11 +24,11 @@ vi.mock('@electron/features/agent/assistantShellEnvironment', () => ({
     }),
 }));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
-vi.mock('fs', async importOriginal => ({
+vi.mock('fs', async (importOriginal) => ({
     ...(await importOriginal<typeof NodeFs>()),
     existsSync: mocks.existsSync,
 }));
-vi.mock('fs/promises', async importOriginal => ({
+vi.mock('fs/promises', async (importOriginal) => ({
     ...(await importOriginal<typeof NodeFsPromises>()),
     access: mocks.access,
     stat: mocks.stat,
@@ -74,10 +54,9 @@ describe('Codex CLI command results', () => {
     });
 
     it('returns both streams and exit status for a successful command', async () => {
-        await expect(runCodexCli(process.execPath, [
-            '--eval',
-            'console.log("codex-cli 0.157.1"); console.error("fixture warning");',
-        ])).resolves.toEqual({
+        await expect(
+            runCodexCli(process.execPath, ['--eval', 'console.log("codex-cli 0.157.1"); console.error("fixture warning");']),
+        ).resolves.toEqual({
             ok: true,
             stdout: 'codex-cli 0.157.1\n',
             stderr: 'fixture warning\n',
@@ -89,10 +68,12 @@ describe('Codex CLI command results', () => {
         const stdout = 'fixture stdout detail\n';
         const stderr = `${'fixture diagnostic. '.repeat(70)}\nRemediation: run fixture repair.\n`;
         expect(stderr.length).toBeGreaterThan(1_200);
-        await expect(runCodexCli(process.execPath, [
-            '--eval',
-            `process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exitCode = 7;`,
-        ])).resolves.toEqual({
+        await expect(
+            runCodexCli(process.execPath, [
+                '--eval',
+                `process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exitCode = 7;`,
+            ]),
+        ).resolves.toEqual({
             ok: false,
             stdout,
             stderr,
@@ -128,13 +109,15 @@ describe('Codex CLI command results', () => {
     it('returns what a hung command printed before its timeout with the timeout text', async () => {
         // The real runner with a shortened deadline, so the hang does not take 15 s.
         const nativeCommand = await vi.importActual<typeof NativeCommand>('@electron/native-tools/runNativeCommand');
-        mocks.runNativeCommand.mockImplementationOnce((command, args, options) => (
-            nativeCommand.runNativeCommand(command, args, {...options, timeoutMs: 1_000})
-        ));
-        await expect(runCodexCli(process.execPath, [
-            '--eval',
-            'process.stdout.write("partial stdout\\n"); process.stderr.write("partial stderr\\n"); setInterval(() => {}, 1_000);',
-        ])).resolves.toEqual({
+        mocks.runNativeCommand.mockImplementationOnce((command, args, options) =>
+            nativeCommand.runNativeCommand(command, args, {...options, timeoutMs: 1_000}),
+        );
+        await expect(
+            runCodexCli(process.execPath, [
+                '--eval',
+                'process.stdout.write("partial stdout\\n"); process.stderr.write("partial stderr\\n"); setInterval(() => {}, 1_000);',
+            ]),
+        ).resolves.toEqual({
             ok: false,
             stdout: 'partial stdout\n',
             stderr: 'partial stderr\nCodex timed out after 1000ms',
@@ -164,7 +147,10 @@ describe('Codex installation metadata freshness', () => {
 
     async function writeVersion(path: string, version: string, exitCode = 0) {
         await mkdir(join(path, '..'), {recursive: true});
-        await writeFile(path, `#!${process.execPath}\nimport('node:fs').then(({appendFileSync}) => {appendFileSync(${JSON.stringify(counter)}, 'version\\n'); console.log('codex-cli ${version}'); process.exitCode = ${exitCode};});`);
+        await writeFile(
+            path,
+            `#!${process.execPath}\nimport('node:fs').then(({appendFileSync}) => {appendFileSync(${JSON.stringify(counter)}, 'version\\n'); console.log('codex-cli ${version}'); process.exitCode = ${exitCode};});`,
+        );
         await chmod(path, 0o700);
     }
 
@@ -183,18 +169,14 @@ describe('Codex installation metadata freshness', () => {
         mocks.userData = fixtureDir;
         const fs = await vi.importActual<typeof NodeFs>('fs');
         const fsPromises = await vi.importActual<typeof NodeFsPromises>('fs/promises');
-        mocks.existsSync.mockImplementation(path => typeof path === 'string' && path.startsWith(fixtureDir) && fs.existsSync(path));
+        mocks.existsSync.mockImplementation((path) => typeof path === 'string' && path.startsWith(fixtureDir) && fs.existsSync(path));
         mocks.access.mockImplementation(fsPromises.access);
         mocks.stat.mockImplementation(fsPromises.stat);
         // Run the version-only Node fixture portably, including on Windows.
         const nativeCommand = await vi.importActual<typeof NativeCommand>('@electron/native-tools/runNativeCommand');
         mocks.runNativeCommand.mockReset().mockImplementation(async (command, args, options) => {
             const script = /powershell\.exe$/iu.test(command) ? args[args.indexOf('-File') + 1]! : command;
-            return nativeCommand.runNativeCommand(process.execPath, [
-                '--eval',
-                await fsPromises.readFile(script, 'utf8'),
-                '--',
-            ], options);
+            return nativeCommand.runNativeCommand(process.execPath, ['--eval', await fsPromises.readFile(script, 'utf8'), '--'], options);
         });
         vi.stubEnv('HOME', fixtureDir);
         vi.stubEnv('USERPROFILE', fixtureDir);
@@ -321,7 +303,7 @@ describe('Codex installation metadata freshness', () => {
     it('coalesces cold simultaneous metadata and retries failed version probes', async () => {
         const {getCodexCliInfo} = await import('@electron/features/agent/codexCli');
         const results = await Promise.all(Array.from({length: 10}, () => getCodexCliInfo()));
-        expect(results.every(info => info.version === '0.157.1')).toBe(true);
+        expect(results.every((info) => info.version === '0.157.1')).toBe(true);
         expect(await versionInvocations()).toBe(1);
         await writeVersion(executable, '0.158.1', 1);
         expect(await getCodexCliInfo()).toMatchObject({
@@ -376,9 +358,9 @@ describe('Codex CLI discovery', () => {
         vi.clearAllMocks();
         installedFiles.clear();
         mocks.userData = join(sandbox, 'user-data');
-        mocks.existsSync.mockImplementation(path => typeof path === 'string' && installedFiles.has(path));
+        mocks.existsSync.mockImplementation((path) => typeof path === 'string' && installedFiles.has(path));
         mocks.stat.mockImplementation(async () => ({isFile: () => true}) as Awaited<ReturnType<typeof NodeFsPromises.stat>>);
-        mocks.access.mockImplementation(async path => {
+        mocks.access.mockImplementation(async (path) => {
             if (!installedFiles.has(String(path))) {
                 throw Object.assign(new Error(`ENOENT: ${String(path)}`), {code: 'ENOENT'});
             }
@@ -411,10 +393,7 @@ describe('Codex CLI discovery', () => {
     it('finds the CLI on a PATH entry, where Homebrew and npm global installs appear', async () => {
         const homebrewBin = join('/opt/homebrew', 'bin');
         const npmGlobalBin = join(sandbox, 'npm-global', 'bin');
-        vi.stubEnv('PATH', [
-            homebrewBin,
-            npmGlobalBin,
-        ].join(delimiter));
+        vi.stubEnv('PATH', [homebrewBin, npmGlobalBin].join(delimiter));
         installedFiles.add(join(npmGlobalBin, codexName));
         const {resolveCodexCliPath} = await import('@electron/features/agent/codexCli');
         await expect(resolveCodexCliPath()).resolves.toBe(join(npmGlobalBin, codexName));

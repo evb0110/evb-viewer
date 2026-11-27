@@ -71,7 +71,10 @@
             />
         </section>
 
-        <section v-if="isDesktopRuntime" class="settings-card settings-card--span">
+        <section
+            v-if="isDesktopRuntime"
+            class="settings-card settings-card--span"
+        >
             <SettingsAgentPanel
                 :assistant-panel-enabled="settings.assistantPanelEnabled"
                 :status="agentMcpStatus"
@@ -90,7 +93,10 @@
             />
         </section>
 
-        <section v-if="isUpdateSupported" class="settings-card">
+        <section
+            v-if="isUpdateSupported"
+            class="settings-card"
+        >
             <SettingsUpdatesPanel
                 :is-check-in-progress="isCheckInProgress"
                 @check="handleCheckForUpdates"
@@ -102,41 +108,36 @@
                 <h2 class="settings-about-title">{{ t('settings.aboutTitle') }}</h2>
                 <p class="settings-about-description">{{ t('settings.aboutDescription') }}</p>
             </div>
-            <NuxtLink class="settings-about-link" to="/about">
+            <NuxtLink
+                class="settings-about-link"
+                to="/about"
+            >
                 <span>{{ t('settings.openAbout') }}</span>
-                <UIcon name="i-ph-arrow-right" aria-hidden="true" />
+                <UIcon
+                    name="i-ph-arrow-right"
+                    aria-hidden="true"
+                />
             </NuxtLink>
         </section>
     </div>
-
 </template>
 
 <script setup lang="ts">
-import type {
-    ISettingsData,
-    TAppLocale,
-    TAppTheme,
-    TDefaultZoomPreset,
-    TTabMemoryPolicy,
-    TPdfViewMode,
-} from '@contracts/shared';
-import type { TPerformanceMode } from '@contracts/hostResourceProfile';
+import type {ISettingsData, TAppLocale, TAppTheme, TDefaultZoomPreset, TTabMemoryPolicy, TPdfViewMode} from '@contracts/shared';
+import type {TPerformanceMode} from '@contracts/hostResourceProfile';
 import type {IAgentMcpIntegrationStatus} from '@contracts/agent';
-import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
-import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
-import type { IFailurePresentation } from '@app/composables/useFailureToast';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { LOCALE_DEFINITIONS } from '@i18n-core';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { createDisposalFlag } from '@app/utils/createDisposalFlag';
-import { getErrorMessage } from '@app/utils/error';
-import { getAgentCapability } from '@app/utils/getAgentCapability';
-import { getShellCapability } from '@app/utils/getShellCapability';
-import {
-    captureAssistantFailure,
-    getAssistantExpectedOutcome,
-} from '@app/modules/agent-panel/public/assistantFailure';
-import type { TAssistantFailureAction } from '@app/modules/agent-panel/public/assistantFailure';
+import type {ExpectedOutcome} from '@contracts/diagnostics/failureReceipt';
+import {ANNOTATION_COLOR_SWATCHES} from '@app/constants/pdfColors';
+import type {IFailurePresentation} from '@app/composables/useFailureToast';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {LOCALE_DEFINITIONS} from '@i18n-core';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {createDisposalFlag} from '@app/utils/createDisposalFlag';
+import {getErrorMessage} from '@app/utils/error';
+import {getAgentCapability} from '@app/utils/getAgentCapability';
+import {getShellCapability} from '@app/utils/getShellCapability';
+import {captureAssistantFailure, getAssistantExpectedOutcome} from '@app/modules/agent-panel/public/assistantFailure';
+import type {TAssistantFailureAction} from '@app/modules/agent-panel/public/assistantFailure';
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsPerformancePanel from '@app/components/settings/SettingsPerformancePanel.vue';
@@ -144,10 +145,10 @@ import SettingsPrivacyPanel from '@app/components/settings/SettingsPrivacyPanel.
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
 import SettingsUpdatesPanel from '@app/components/settings/SettingsUpdatesPanel.vue';
 import SettingsViewerDefaultsPanel from '@app/components/settings/SettingsViewerDefaultsPanel.vue';
-import { useShortcutHelpItems } from '@app/constants/shortcuts';
-import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
+import {useShortcutHelpItems} from '@app/constants/shortcuts';
+import {setRendererDiagnosticsPreference} from '@app/utils/failureReporter';
 
-const { isDesktopRuntime } = useRuntimeEnvironment();
+const {isDesktopRuntime} = useRuntimeEnvironment();
 const LOCALE_FLAGS = {
     en: 'i-circle-flags-gb',
     ru: 'i-circle-flags-ru',
@@ -159,7 +160,7 @@ const LOCALE_FLAGS = {
     'pt-BR': 'i-circle-flags-br',
     nl: 'i-circle-flags-nl',
 } as const satisfies Record<TAppLocale, string>;
-const LOCALE_OPTION_DEFINITIONS = LOCALE_DEFINITIONS.map(localeDefinition => ({
+const LOCALE_OPTION_DEFINITIONS = LOCALE_DEFINITIONS.map((localeDefinition) => ({
     value: localeDefinition.code,
     label: localeDefinition.name,
     icon: LOCALE_FLAGS[localeDefinition.code],
@@ -229,51 +230,32 @@ const TAB_MEMORY_POLICY_OPTION_DEFINITIONS = [
     value: TTabMemoryPolicy;
     labelKey: string;
 }>;
-const SUPPORTED_LOCALES: ReadonlySet<string> = new Set<TAppLocale>(LOCALE_OPTION_DEFINITIONS.map(option => option.value));
-const DEFAULT_ZOOM_PRESETS: ReadonlySet<string> = new Set<TDefaultZoomPreset>(ZOOM_PRESET_OPTION_DEFINITIONS.map(option => option.value));
-const DEFAULT_VIEW_MODES: ReadonlySet<string> = new Set<TPdfViewMode>(VIEW_MODE_OPTION_DEFINITIONS.map(option => option.value));
-const TAB_MEMORY_POLICIES: ReadonlySet<string> = new Set<TTabMemoryPolicy>(TAB_MEMORY_POLICY_OPTION_DEFINITIONS.map(option => option.value));
-const PERFORMANCE_MODES: ReadonlySet<string> = new Set<TPerformanceMode>([
-    'auto',
-    'low',
-    'medium',
-    'high',
-]);
+const SUPPORTED_LOCALES: ReadonlySet<string> = new Set<TAppLocale>(LOCALE_OPTION_DEFINITIONS.map((option) => option.value));
+const DEFAULT_ZOOM_PRESETS: ReadonlySet<string> = new Set<TDefaultZoomPreset>(ZOOM_PRESET_OPTION_DEFINITIONS.map((option) => option.value));
+const DEFAULT_VIEW_MODES: ReadonlySet<string> = new Set<TPdfViewMode>(VIEW_MODE_OPTION_DEFINITIONS.map((option) => option.value));
+const TAB_MEMORY_POLICIES: ReadonlySet<string> = new Set<TTabMemoryPolicy>(
+    TAB_MEMORY_POLICY_OPTION_DEFINITIONS.map((option) => option.value),
+);
+const PERFORMANCE_MODES: ReadonlySet<string> = new Set<TPerformanceMode>(['auto', 'low', 'medium', 'high']);
 
-const {
-    t,
-    setLocale,
-} = useTypedI18n();
+const {t, setLocale} = useTypedI18n();
 const colorMode = useColorMode();
 const toast = useToast();
-const { presentFailureToast } = useFailureToast();
-const {
-    settings,
-    isLoaded,
-    loadOrThrow,
-    settingsLoadError,
-    settingsLoadFailure,
-    save,
-    updateSetting,
-} = useSettings();
-const {
-    discardPendingDiagnostics,
-    resendPendingDiagnosticOnce,
-} = useRuntimeErrorReports();
-const {
-    checkForUpdates,
-    ensureInitialized: ensureUpdatesInitialized,
-    isCheckInProgress,
-    isUpdateSupported,
-} = useAppUpdates();
+const {presentFailureToast} = useFailureToast();
+const {settings, isLoaded, loadOrThrow, settingsLoadError, settingsLoadFailure, save, updateSetting} = useSettings();
+const {discardPendingDiagnostics, resendPendingDiagnosticOnce} = useRuntimeErrorReports();
+const {checkForUpdates, ensureInitialized: ensureUpdatesInitialized, isCheckInProgress, isUpdateSupported} = useAppUpdates();
 
 const selectedFlagIcon = computed(() => LOCALE_FLAGS[settings.value.locale]);
 const annotationColorSwatches = ANNOTATION_COLOR_SWATCHES;
 const agentMcpRuntime = ref<Omit<IAgentMcpIntegrationStatus, 'enabled'> | null>(null);
-const agentMcpStatus = computed(() => agentMcpRuntime.value && ({
-    ...agentMcpRuntime.value,
-    enabled: settings.value.agentMcpEnabled,
-}));
+const agentMcpStatus = computed(
+    () =>
+        agentMcpRuntime.value && {
+            ...agentMcpRuntime.value,
+            enabled: settings.value.agentMcpEnabled,
+        },
+);
 const isAgentMcpBusy = ref(false);
 const settingsLoadPending = ref(false);
 const settingsLoadFailed = computed(() => !isLoaded.value && !settingsLoadPending.value && settingsLoadFailure.value !== null);
@@ -300,25 +282,31 @@ watch(settingsLoadFailurePresentation, (presentation) => {
     }
 });
 const lifecycle = createDisposalFlag();
-const shortcutsDescription = computed(() => isDesktopRuntime.value
-    ? t('settings.shortcutsDescription')
-    : t('settings.browserShortcutsDescription'));
+const shortcutsDescription = computed(() =>
+    isDesktopRuntime.value ? t('settings.shortcutsDescription') : t('settings.browserShortcutsDescription'),
+);
 
-const localeItems = computed(() => LOCALE_OPTION_DEFINITIONS.map(option => ({
-    label: option.label,
-    value: option.value,
-    icon: option.icon,
-})));
+const localeItems = computed(() =>
+    LOCALE_OPTION_DEFINITIONS.map((option) => ({
+        label: option.label,
+        value: option.value,
+        icon: option.icon,
+    })),
+);
 
-const zoomPresetItems = computed(() => ZOOM_PRESET_OPTION_DEFINITIONS.map(option => ({
-    value: option.value,
-    label: option.labelKey ? t(option.labelKey) : option.label,
-})));
+const zoomPresetItems = computed(() =>
+    ZOOM_PRESET_OPTION_DEFINITIONS.map((option) => ({
+        value: option.value,
+        label: option.labelKey ? t(option.labelKey) : option.label,
+    })),
+);
 
-const viewModeItems = computed(() => VIEW_MODE_OPTION_DEFINITIONS.map(option => ({
-    value: option.value,
-    label: t(option.labelKey),
-})));
+const viewModeItems = computed(() =>
+    VIEW_MODE_OPTION_DEFINITIONS.map((option) => ({
+        value: option.value,
+        label: t(option.labelKey),
+    })),
+);
 
 const scrollModeItems = computed(() => [
     {
@@ -331,16 +319,20 @@ const scrollModeItems = computed(() => [
     },
 ]);
 
-const tabMemoryPolicyItems = computed(() => TAB_MEMORY_POLICY_OPTION_DEFINITIONS.map(option => ({
-    value: option.value,
-    label: t(option.labelKey),
-})));
+const tabMemoryPolicyItems = computed(() =>
+    TAB_MEMORY_POLICY_OPTION_DEFINITIONS.map((option) => ({
+        value: option.value,
+        label: t(option.labelKey),
+    })),
+);
 
 const shortcutHelpItems = useShortcutHelpItems();
-const shortcutItems = computed(() => shortcutHelpItems.value.map(item => ({
-    label: t(item.labelKey),
-    keys: item.keys,
-})));
+const shortcutItems = computed(() =>
+    shortcutHelpItems.value.map((item) => ({
+        label: t(item.labelKey),
+        keys: item.keys,
+    })),
+);
 
 async function retrySettingsLoad() {
     if (settingsLoadPending.value) {
@@ -371,9 +363,7 @@ function restoreDiagnosticsPreference(preference: ISettingsData['clientDiagnosti
     setRendererDiagnosticsPreference(preference);
 }
 
-async function applyClientDiagnosticsPreference(
-    preference: ISettingsData['clientDiagnosticsPreference'],
-) {
+async function applyClientDiagnosticsPreference(preference: ISettingsData['clientDiagnosticsPreference']) {
     if (!isLoaded.value || diagnosticsPreferenceSave) {
         return;
     }
@@ -416,7 +406,7 @@ function applyTheme(theme: TAppTheme) {
     updateSetting('theme', theme);
 }
 
-function readSelectValue(payload: string | { value: string }) {
+function readSelectValue(payload: string | {value: string}) {
     return typeof payload === 'string' ? payload : payload.value;
 }
 
@@ -440,7 +430,7 @@ function isPerformanceMode(value: string): value is TPerformanceMode {
     return PERFORMANCE_MODES.has(value);
 }
 
-function applyZoomPreset(preset: string | { value: string }) {
+function applyZoomPreset(preset: string | {value: string}) {
     if (!isLoaded.value) {
         return;
     }
@@ -450,7 +440,7 @@ function applyZoomPreset(preset: string | { value: string }) {
     }
 }
 
-function applyViewMode(mode: string | { value: string }) {
+function applyViewMode(mode: string | {value: string}) {
     if (!isLoaded.value) {
         return;
     }
@@ -460,11 +450,11 @@ function applyViewMode(mode: string | { value: string }) {
     }
 }
 
-function applyScrollMode(mode: boolean | { value: boolean }) {
+function applyScrollMode(mode: boolean | {value: boolean}) {
     updateSettingSafely('defaultContinuousScroll', typeof mode === 'boolean' ? mode : mode.value);
 }
 
-function applyTabMemoryPolicy(policy: string | { value: string }) {
+function applyTabMemoryPolicy(policy: string | {value: string}) {
     if (!isLoaded.value) {
         return;
     }
@@ -474,7 +464,7 @@ function applyTabMemoryPolicy(policy: string | { value: string }) {
     }
 }
 
-function applyPerformanceMode(mode: string | { value: string }) {
+function applyPerformanceMode(mode: string | {value: string}) {
     if (!isLoaded.value) {
         return;
     }
@@ -484,7 +474,7 @@ function applyPerformanceMode(mode: string | { value: string }) {
     }
 }
 
-async function applyLocale(locale: string | { value: string }) {
+async function applyLocale(locale: string | {value: string}) {
     if (!isLoaded.value) {
         return;
     }
@@ -510,11 +500,7 @@ async function updateAssistantPanelEnabled(enabled: boolean) {
     await assistantPanelPreferenceSave;
 }
 
-function showExpectedAssistantOutcome(
-    action: TAssistantFailureAction,
-    expected: ExpectedOutcome,
-    description: string,
-) {
+function showExpectedAssistantOutcome(action: TAssistantFailureAction, expected: ExpectedOutcome, description: string) {
     BrowserLogger.warn('settings', 'Assistant settings operation was not completed', {
         action,
         expected,
@@ -526,27 +512,21 @@ function showExpectedAssistantOutcome(
     });
 }
 
-function presentAssistantFailure(
-    error: unknown,
-    action: TAssistantFailureAction,
-    logMessage: string,
-) {
+function presentAssistantFailure(error: unknown, action: TAssistantFailureAction, logMessage: string) {
     const expected = getAssistantExpectedOutcome(error);
     if (expected) {
-        showExpectedAssistantOutcome(
-            action,
-            expected,
-            getErrorMessage(error) || t('settings.agentMcpUnavailable'),
-        );
+        showExpectedAssistantOutcome(action, expected, getErrorMessage(error) || t('settings.agentMcpUnavailable'));
         return;
     }
 
-    presentFailureToast(captureAssistantFailure(error, {
-        action,
-        section: 'settings',
-        logMessage,
-        title: t('settings.agentMcpStatusError'),
-    }));
+    presentFailureToast(
+        captureAssistantFailure(error, {
+            action,
+            section: 'settings',
+            logMessage,
+            title: t('settings.agentMcpStatusError'),
+        }),
+    );
 }
 
 async function refreshAgentMcpStatus() {
@@ -561,11 +541,7 @@ async function refreshAgentMcpStatus() {
         if (lifecycle.isDisposed()) {
             return;
         }
-        presentAssistantFailure(
-            error,
-            'mcp-refresh',
-            'Failed to refresh agent MCP integration status',
-        );
+        presentAssistantFailure(error, 'mcp-refresh', 'Failed to refresh agent MCP integration status');
     } finally {
         if (!lifecycle.isDisposed()) {
             isAgentMcpBusy.value = false;
@@ -598,15 +574,11 @@ async function setAgentMcpEnabled(enabled: boolean) {
         if (lifecycle.isDisposed()) {
             return;
         }
-        presentAssistantFailure(
-            error,
-            'mcp-update',
-            'Failed to update agent MCP integration status',
-        );
+        presentAssistantFailure(error, 'mcp-update', 'Failed to update agent MCP integration status');
         try {
             await getAgentCapability().getMcpIntegrationStatus();
         } catch (statusError) {
-            BrowserLogger.warn('settings', 'Failed to refresh agent MCP status after update failure', { statusError });
+            BrowserLogger.warn('settings', 'Failed to refresh agent MCP status after update failure', {statusError});
         }
     } finally {
         if (!lifecycle.isDisposed()) {
@@ -617,12 +589,14 @@ async function setAgentMcpEnabled(enabled: boolean) {
 
 function openAgentMcpInstall() {
     const installUrl = agentMcpStatus.value?.installUrl ?? 'https://developers.openai.com/codex/app';
-    void getShellCapability().openExternal(installUrl).catch((error: unknown) => {
-        if (lifecycle.isDisposed()) {
-            return;
-        }
-        presentAssistantFailure(error, 'mcp-install', 'Failed to open agent MCP install URL');
-    });
+    void getShellCapability()
+        .openExternal(installUrl)
+        .catch((error: unknown) => {
+            if (lifecycle.isDisposed()) {
+                return;
+            }
+            presentAssistantFailure(error, 'mcp-install', 'Failed to open agent MCP install URL');
+        });
 }
 
 if (isDesktopRuntime.value) {

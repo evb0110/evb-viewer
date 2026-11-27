@@ -1,12 +1,8 @@
-import { existsSync } from 'fs';
-import {
-    basename,
-    dirname,
-    join,
-} from 'path';
-import { rm } from 'fs/promises';
-import { moveFileToMissingPath } from '@electron/utils/atomicReplace';
-import { isSameFile } from '@electron/utils/fileIdentity';
+import {existsSync} from 'fs';
+import {basename, dirname, join} from 'path';
+import {rm} from 'fs/promises';
+import {moveFileToMissingPath} from '@electron/utils/atomicReplace';
+import {isSameFile} from '@electron/utils/fileIdentity';
 import {buildOutputFileNameWithSuffix} from '@pdf-core/imageExportFileName';
 
 export function buildOutputPathWithSuffix(targetPath: string, suffix: string) {
@@ -23,7 +19,7 @@ export async function keepOriginalBeside(sourcePath: string, targetPath: string,
     for (let copy = 1; ; copy += 1) {
         const keptPath = buildOutputPathWithSuffix(targetPath, copy === 1 ? ' (original)' : ` (original ${copy})`);
         const taken = existsSync(keptPath);
-        if (!taken || await isSameFile(keptPath, sourcePath)) {
+        if (!taken || (await isSameFile(keptPath, sourcePath))) {
             await beforeMove?.(keptPath);
             await (taken ? rm(sourcePath, {force: true}) : moveFileToMissingPath(sourcePath, keptPath));
             return keptPath;

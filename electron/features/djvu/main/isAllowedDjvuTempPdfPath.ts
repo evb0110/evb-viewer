@@ -1,10 +1,4 @@
-import {
-    basename,
-    isAbsolute,
-    relative,
-    resolve,
-    sep,
-} from 'path';
+import {basename, isAbsolute, relative, resolve, sep} from 'path';
 
 /**
  * Validates that a DjVu temporary PDF path stays inside the OS temp directory
@@ -21,11 +15,11 @@ export function isAllowedDjvuTempPdfPath(tempPdfPath: string, tempDirPath: strin
         const relativePath = relative(tempDir, absolutePath);
 
         if (
-            relativePath === ''
-            || relativePath === '.'
-            || relativePath === '..'
-            || relativePath.startsWith(`..${sep}`)
-            || isAbsolute(relativePath)
+            relativePath === '' ||
+            relativePath === '.' ||
+            relativePath === '..' ||
+            relativePath.startsWith(`..${sep}`) ||
+            isAbsolute(relativePath)
         ) {
             return false;
         }

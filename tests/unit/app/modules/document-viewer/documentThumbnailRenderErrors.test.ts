@@ -2,14 +2,7 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {LOCALE_MESSAGES} from '@i18n-app/locales';
 import englishMessages from '@i18n-app/messages/en';
 import {
@@ -28,28 +21,22 @@ import {
 
 /** Widths the rail asked the provider for on behalf of one page, in order. */
 function requestedWidths(harness: IDocumentThumbnailSourceHarness, pageNumber: number) {
-    return harness.renderRequests
-        .filter(request => request.pageNumber === pageNumber)
-        .map(request => request.widthPx);
+    return harness.renderRequests.filter((request) => request.pageNumber === pageNumber).map((request) => request.widthPx);
 }
 
 function resolveMessage(messages: unknown, key: string): string {
-    const value = key.split('.').reduce<unknown>(
-        (node, segment) => (node && typeof node === 'object' ? (node as Record<string, unknown>)[segment] : undefined),
-        messages,
-    );
+    const value = key
+        .split('.')
+        .reduce<unknown>(
+            (node, segment) => (node && typeof node === 'object' ? (node as Record<string, unknown>)[segment] : undefined),
+            messages,
+        );
     return typeof value === 'string' ? value : key;
 }
 
 function translate(key: string, parameters?: Record<string, string | number>) {
     return Object.entries(parameters ?? {}).reduce(
-        (
-            value,
-            [
-                parameter,
-                replacement,
-            ],
-        ) => value.replace(`{${parameter}}`, String(replacement)),
+        (value, [parameter, replacement]) => value.replace(`{${parameter}}`, String(replacement)),
         resolveMessage(englishMessages, key),
     );
 }
@@ -89,7 +76,7 @@ describe('DocumentThumbnailList render errors', () => {
 
     it('names each row by the document page it shows when rows are reordered', async () => {
         const harness = createDocumentThumbnailSourceHarness();
-        const {host} = mountDocumentThumbnailList(harness.source, true, undefined, row => 10 + row);
+        const {host} = mountDocumentThumbnailList(harness.source, true, undefined, (row) => 10 + row);
         await settleDocumentThumbnailList();
 
         expect(documentThumbnailRow(host, 3)?.getAttribute('aria-label')).toBe('Go to page 13');
@@ -119,8 +106,7 @@ describe('DocumentThumbnailList render errors', () => {
         const failedRow = documentThumbnailRow(host, 3);
         expect(failedRow?.hasAttribute('data-thumbnail-render-error')).toBe(true);
         expect(failedRow?.getAttribute('aria-label')).toBe('Go to page 3. Page preview unavailable.');
-        expect(failedRow?.querySelector('.document-thumbnail-list__error-text')?.textContent)
-            .toBe(englishMessages.common.pageRenderFailed);
+        expect(failedRow?.querySelector('.document-thumbnail-list__error-text')?.textContent).toBe(englishMessages.common.pageRenderFailed);
         expect(failedRow?.querySelector('.document-thumbnail-list__placeholder')).not.toBeNull();
 
         const attempts = countDocumentThumbnailCalls(harness.renderCalls, 3);
@@ -136,17 +122,13 @@ describe('DocumentThumbnailList render errors', () => {
         const {host} = mountDocumentThumbnailList(harness.source);
         await settleDocumentThumbnailList();
 
-        const decoration = documentThumbnailRow(host, 3)
-            ?.querySelector<HTMLElement>('.document-thumbnail-list__error');
+        const decoration = documentThumbnailRow(host, 3)?.querySelector<HTMLElement>('.document-thumbnail-list__error');
         expect(decoration?.getAttribute('aria-hidden')).toBe('true');
         expect(decoration?.querySelector('[data-icon]')?.getAttribute('data-icon')).toBe('i-ph-warning-circle');
     });
 
     it('translates the failed row name in every shipped locale', () => {
-        for (const [
-            code,
-            messages,
-        ] of Object.entries(LOCALE_MESSAGES)) {
+        for (const [code, messages] of Object.entries(LOCALE_MESSAGES)) {
             const failed = resolveMessage(messages, 'documentSourceSidebar.goToPageRenderFailed');
             const succeeded = resolveMessage(messages, 'documentSourceSidebar.goToPage');
 
@@ -163,10 +145,7 @@ describe('DocumentThumbnailList render errors', () => {
         await settleDocumentThumbnailList();
 
         expect(host.querySelectorAll('[data-thumbnail-render-error]')).toHaveLength(1);
-        for (const pageNumber of [
-            1,
-            2,
-        ]) {
+        for (const pageNumber of [1, 2]) {
             const neighbour = documentThumbnailRow(host, pageNumber);
             expect(neighbour?.hasAttribute('data-thumbnail-render-error'), String(pageNumber)).toBe(false);
             expect(neighbour?.getAttribute('aria-label')).toBe(`Go to page ${String(pageNumber)}`);
@@ -177,10 +156,7 @@ describe('DocumentThumbnailList render errors', () => {
     it('retries and clears the error when the failed row is activated', async () => {
         const harness = createDocumentThumbnailSourceHarness();
         harness.behaviors.set(3, 'fail');
-        const {
-            host,
-            navigations,
-        } = mountDocumentThumbnailList(harness.source);
+        const {host, navigations} = mountDocumentThumbnailList(harness.source);
         await settleDocumentThumbnailList();
         expect(documentThumbnailRow(host, 3)?.hasAttribute('data-thumbnail-render-error')).toBe(true);
         const attemptsBeforeRetry = countDocumentThumbnailCalls(harness.renderCalls, 3);
@@ -199,10 +175,7 @@ describe('DocumentThumbnailList render errors', () => {
     it('clears errors when the source is replaced', async () => {
         const harness = createDocumentThumbnailSourceHarness();
         harness.behaviors.set(3, 'fail');
-        const {
-            host,
-            setSource,
-        } = mountDocumentThumbnailList(harness.source);
+        const {host, setSource} = mountDocumentThumbnailList(harness.source);
         await settleDocumentThumbnailList();
         expect(host.querySelectorAll('[data-thumbnail-render-error]')).toHaveLength(1);
 
@@ -242,7 +215,11 @@ describe('DocumentThumbnailList render errors', () => {
         await scrollDocumentThumbnailRail(host, 40);
         await scrollDocumentThumbnailRail(host, 0);
         expect(requestedWidths(harness, 2).slice(1)).toHaveLength(3);
-        expect(requestedWidths(harness, 2).slice(1).every(width => width > committedWidth!)).toBe(true);
+        expect(
+            requestedWidths(harness, 2)
+                .slice(1)
+                .every((width) => width > committedWidth!),
+        ).toBe(true);
         expect(documentThumbnailRow(host, 2)?.querySelector('.document-thumbnail-list__canvas-host')).toBeNull();
         expect(documentThumbnailRow(host, 2)?.querySelector('.document-thumbnail-list__placeholder')).not.toBeNull();
         expect(documentThumbnailRow(host, 2)?.hasAttribute('data-thumbnail-render-error')).toBe(true);
@@ -257,7 +234,7 @@ describe('DocumentThumbnailList render errors', () => {
         expect(documentThumbnailRow(host, 2)?.hasAttribute('data-thumbnail-render-error')).toBe(false);
     });
 
-    it('renders retries without loading page geometry beyond the document\'s slot shape', async () => {
+    it("renders retries without loading page geometry beyond the document's slot shape", async () => {
         const harness = createDocumentThumbnailSourceHarness();
         harness.behaviors.set(3, 'fail');
         const {host} = mountDocumentThumbnailList(harness.source);
@@ -268,12 +245,6 @@ describe('DocumentThumbnailList render errors', () => {
         await settleDocumentThumbnailList();
 
         expect(countDocumentThumbnailCalls(harness.renderCalls, 3)).toBeGreaterThan(1);
-        expect([...harness.metricsCalls].sort((left, right) => left - right)).toEqual([
-            1,
-            2,
-            6,
-            11,
-            12,
-        ]);
+        expect([...harness.metricsCalls].sort((left, right) => left - right)).toEqual([1, 2, 6, 11, 12]);
     });
 });

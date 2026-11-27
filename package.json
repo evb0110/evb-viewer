@@ -46,9 +46,11 @@
     "verify:pdfjs-provenance": "node scripts/verify-pdfjs-provenance.mjs",
     "typecheck": "node scripts/run-nuxt-typecheck.mjs && node scripts/run-workspace-package-typecheck.mjs --all",
     "typecheck:clean": "node scripts/run-nuxt-typecheck.mjs --cold && node scripts/run-workspace-package-typecheck.mjs --cold --all",
+    "format": "prettier --write \"**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,vue,css,scss,json,jsonc}\"",
+    "format:check": "prettier --check \"**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,vue,css,scss,json,jsonc}\"",
     "lint": "oxlint app electron packages scripts server tests landing vitest.config.ts vitest.shared.config.ts oxlint-plugin-invariants.mjs .dependency-cruiser.cjs nuxt.config.ts --deny-warnings --report-unused-disable-directives && pnpm run check:architecture && stylelint 'app/**/*.{vue,scss,css}' --cache --cache-location .devkit/cache/stylelint",
     "lint:clean": "oxlint app electron packages scripts server tests landing vitest.config.ts vitest.shared.config.ts oxlint-plugin-invariants.mjs .dependency-cruiser.cjs nuxt.config.ts --deny-warnings --report-unused-disable-directives && pnpm run check:architecture && stylelint 'app/**/*.{vue,scss,css}' --no-cache",
-    "lint:fix": "oxlint app electron packages scripts server tests landing vitest.config.ts vitest.shared.config.ts oxlint-plugin-invariants.mjs .dependency-cruiser.cjs nuxt.config.ts --deny-warnings --report-unused-disable-directives --fix && pnpm run check:architecture && stylelint 'app/**/*.{vue,scss,css}' --fix",
+    "lint:fix": "oxlint app electron packages scripts server tests landing vitest.config.ts vitest.shared.config.ts oxlint-plugin-invariants.mjs .dependency-cruiser.cjs nuxt.config.ts --deny-warnings --report-unused-disable-directives --fix && pnpm run check:architecture && stylelint 'app/**/*.{vue,scss,css}' --fix && pnpm run format",
     "lint:all": "pnpm run lint",
     "fallow": "fallow dead-code",
     "fallow:all": "pnpm run fallow && pnpm run fallow:dupes",
@@ -101,8 +103,9 @@
     "prepare": "pnpm run fetch:runtime-binaries --if-published && pnpm run generate:build-artifacts && husky"
   },
   "lint-staged": {
-    "*.{ts,mts,cts,js,mjs,cjs,vue}": "oxlint --fix --deny-warnings --report-unused-disable-directives",
-    "app/**/*.{vue,scss,css}": "stylelint --fix"
+    "*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}": "oxlint --fix --deny-warnings --report-unused-disable-directives",
+    "app/**/*.{vue,scss,css}": "stylelint --fix",
+    "*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,vue,css,scss,json,jsonc}": "prettier --write"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.321",
@@ -165,6 +168,7 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist-codex-preview": "npm:pdfjs-dist@5.4.296",
     "playwright": "^1.63.0",
+    "prettier": "3.10.1",
     "puppeteer-core": "^25.14.0",
     "sass-embedded": "1.105.0",
     "stylelint": "^17.15.0",

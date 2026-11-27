@@ -1,10 +1,6 @@
-import type { ShallowRef } from 'vue';
+import type {ShallowRef} from 'vue';
 
-function getSelectionRange<T extends string | number>(
-    id: T,
-    allIds: T[],
-    anchorId: T | null,
-) {
+function getSelectionRange<T extends string | number>(id: T, allIds: T[], anchorId: T | null) {
     if (anchorId === null) {
         return null;
     }
@@ -40,16 +36,10 @@ export const useMultiSelection = <T extends string | number>() => {
     const selected = shallowRef<Set<T>>(new Set<T>());
     const anchor = shallowRef<T | null>(null) as ShallowRef<T | null>;
 
-    function toggle(
-        id: T,
-        allIds: T[],
-        opts: IMultiSelectionToggleOptions<T> = {},
-    ) {
+    function toggle(id: T, allIds: T[], opts: IMultiSelectionToggleOptions<T> = {}) {
         const fallbackAnchor = opts.fallbackAnchor ?? null;
         const anchorId = anchor.value ?? fallbackAnchor;
-        const selectionRange = opts.shift
-            ? getSelectionRange(id, allIds, anchorId)
-            : null;
+        const selectionRange = opts.shift ? getSelectionRange(id, allIds, anchorId) : null;
         if (selectionRange) {
             selected.value = new Set<T>(selectionRange);
             anchor.value = anchorId;

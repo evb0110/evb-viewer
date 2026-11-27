@@ -1,11 +1,5 @@
 // @vitest-environment happy-dom
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {createFileSystemFileHandle} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 
 function setUserActivation(isActive: boolean) {
@@ -30,10 +24,12 @@ describe('browser file picker adapter', () => {
         setUserActivation(false);
         const {pickFiles} = await import('@app/platform/browser-api/browserFilePickerAdapter');
 
-        await expect(pickFiles({
-            accept: '.pdf',
-            preferFileSystemAccess: false,
-        })).resolves.toEqual([]);
+        await expect(
+            pickFiles({
+                accept: '.pdf',
+                preferFileSystemAccess: false,
+            }),
+        ).resolves.toEqual([]);
         expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0);
     });
 
@@ -53,10 +49,12 @@ describe('browser file picker adapter', () => {
         Object.defineProperty(input, 'files', {value: [chosen]});
         input.dispatchEvent(new Event('change'));
 
-        await expect(pick).resolves.toEqual([{
-            file: chosen,
-            handle: null,
-        }]);
+        await expect(pick).resolves.toEqual([
+            {
+                file: chosen,
+                handle: null,
+            },
+        ]);
         expect(document.querySelectorAll('input[type="file"]')).toHaveLength(0);
     });
 
@@ -69,8 +67,9 @@ describe('browser file picker adapter', () => {
         const canceled = new AbortController();
         canceled.abort(new DOMException('Optimize canceled', 'AbortError'));
 
-        expect(() => downloadBrowserBytes(Uint8Array.of(1), 'canceled.pdf', 'application/pdf', canceled.signal))
-            .toThrow('Optimize canceled');
+        expect(() => downloadBrowserBytes(Uint8Array.of(1), 'canceled.pdf', 'application/pdf', canceled.signal)).toThrow(
+            'Optimize canceled',
+        );
         downloadBrowserBytes(Uint8Array.of(1), 'kept.pdf', 'application/pdf', new AbortController().signal);
 
         expect(clicks).toEqual(['kept.pdf']);
@@ -83,14 +82,17 @@ describe('browser file picker adapter', () => {
         let aborted = false;
         let committed = false;
         let releaseClose!: () => void;
-        const close = vi.fn(() => new Promise<void>(resolve => {
-            releaseClose = () => {
-                if (!aborted) {
-                    committed = true;
-                }
-                resolve();
-            };
-        }));
+        const close = vi.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    releaseClose = () => {
+                        if (!aborted) {
+                            committed = true;
+                        }
+                        resolve();
+                    };
+                }),
+        );
         const abort = vi.fn(async () => {
             aborted = true;
         });
@@ -132,13 +134,20 @@ describe('browser file picker adapter', () => {
         vi.useFakeTimers();
         const saved: number[] = [];
         // A slow disk: 30 seconds per MiB, six minutes for the whole file.
-        const write = vi.fn((data: FileSystemWriteChunkType) => new Promise<void>((resolve) => {
-            const byteLength = data instanceof Blob ? data.size : ArrayBuffer.isView(data) || data instanceof ArrayBuffer ? data.byteLength : 0;
-            setTimeout(() => {
-                saved.push(byteLength);
-                resolve();
-            }, byteLength / (1024 * 1024) * 30_000);
-        }));
+        const write = vi.fn(
+            (data: FileSystemWriteChunkType) =>
+                new Promise<void>((resolve) => {
+                    const byteLength =
+                        data instanceof Blob ? data.size : ArrayBuffer.isView(data) || data instanceof ArrayBuffer ? data.byteLength : 0;
+                    setTimeout(
+                        () => {
+                            saved.push(byteLength);
+                            resolve();
+                        },
+                        (byteLength / (1024 * 1024)) * 30_000,
+                    );
+                }),
+        );
         const writable = Object.assign(new WritableStream(), {
             abort: vi.fn(async () => {}),
             close: vi.fn(async () => {}),
@@ -149,7 +158,10 @@ describe('browser file picker adapter', () => {
         const handle = Object.assign(createFileSystemFileHandle({name: 'large.pdf'}), {createWritable: async () => writable});
         const {writeBytesToHandle} = await import('@app/platform/browser-api/browserFilePickerAdapter');
 
-        const save = writeBytesToHandle(handle, new Uint8Array(12 * 1024 * 1024)).then(() => 'saved', (error: unknown) => error);
+        const save = writeBytesToHandle(handle, new Uint8Array(12 * 1024 * 1024)).then(
+            () => 'saved',
+            (error: unknown) => error,
+        );
         await vi.advanceTimersByTimeAsync(400_000);
 
         await expect(save).resolves.toBe('saved');
@@ -158,13 +170,17 @@ describe('browser file picker adapter', () => {
 
     it('waits for a write permission answer given after minutes, and stops waiting when the save is cancelled', async () => {
         vi.useFakeTimers();
-        const createHandle = (answerAfterMs: number) => Object.assign(createFileSystemFileHandle({name: 'prompted.pdf'}), {
-            queryPermission: async () => 'prompt' as const,
-            requestPermission: () => new Promise<'granted'>(resolve => setTimeout(() => resolve('granted'), answerAfterMs)),
-        });
+        const createHandle = (answerAfterMs: number) =>
+            Object.assign(createFileSystemFileHandle({name: 'prompted.pdf'}), {
+                queryPermission: async () => 'prompt' as const,
+                requestPermission: () => new Promise<'granted'>((resolve) => setTimeout(() => resolve('granted'), answerAfterMs)),
+            });
         const {ensureFileHandleWritePermission} = await import('@app/platform/browser-api/browserFilePickerAdapter');
 
-        const answered = ensureFileHandleWritePermission(createHandle(10 * 60_000)).then(() => 'granted', (error: unknown) => error);
+        const answered = ensureFileHandleWritePermission(createHandle(10 * 60_000)).then(
+            () => 'granted',
+            (error: unknown) => error,
+        );
         await vi.advanceTimersByTimeAsync(10 * 60_000);
         await expect(answered).resolves.toBe('granted');
 
@@ -175,79 +191,58 @@ describe('browser file picker adapter', () => {
         await expect(cancelled).resolves.toMatchObject({name: 'AbortError'});
     });
 
-    it.each([
-        'pick',
-        'bytes',
-    ])('refuses an incompatible TIFF destination through the %s save path without changing its bytes', async (path) => {
-        let saved = 'existing PNG bytes';
-        const writable = Object.assign(new WritableStream(), {
-            write: async (data: FileSystemWriteChunkType) => {saved = String(data);},
-            close: async () => {},
-            abort: async () => {},
-            seek: async () => {},
-            truncate: async () => {},
-        }) satisfies FileSystemWritableFileStream;
-        const handle = {
-            kind: 'file',
-            name: 'doc.png',
-            isSameEntry: async () => false,
-            getFile: async () => new File([saved], 'doc.png'),
-            createSyncAccessHandle: async () => {throw new Error('not used');},
-            createWritable: async () => writable,
-        } satisfies FileSystemFileHandle;
-        Reflect.set(window, 'showSaveFilePicker', async () => handle);
-        const {
-            pickSaveTarget, saveBytesToPickerOrDownload,
-        } = await import('@app/platform/browser-api/browserFilePickerAdapter');
-        const options = {
-            suggestedName: 'doc.tif',
-            pickerTypes: [{accept: {'image/tiff': [
-                '.tif',
-                '.tiff',
-            ]}}],
-        };
-        const save = path === 'pick' ? pickSaveTarget(options) : saveBytesToPickerOrDownload(Uint8Array.of(77, 77, 0, 42), {
-            ...options,
-            mimeType: 'image/tiff',
-        });
-        await expect(save).rejects.toThrow('Choose a file name ending in .tif, .tiff');
-        expect(await (await handle.getFile()).text()).toBe('existing PNG bytes');
-    });
+    it.each(['pick', 'bytes'])(
+        'refuses an incompatible TIFF destination through the %s save path without changing its bytes',
+        async (path) => {
+            let saved = 'existing PNG bytes';
+            const writable = Object.assign(new WritableStream(), {
+                write: async (data: FileSystemWriteChunkType) => {
+                    saved = String(data);
+                },
+                close: async () => {},
+                abort: async () => {},
+                seek: async () => {},
+                truncate: async () => {},
+            }) satisfies FileSystemWritableFileStream;
+            const handle = {
+                kind: 'file',
+                name: 'doc.png',
+                isSameEntry: async () => false,
+                getFile: async () => new File([saved], 'doc.png'),
+                createSyncAccessHandle: async () => {
+                    throw new Error('not used');
+                },
+                createWritable: async () => writable,
+            } satisfies FileSystemFileHandle;
+            Reflect.set(window, 'showSaveFilePicker', async () => handle);
+            const {pickSaveTarget, saveBytesToPickerOrDownload} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+            const options = {
+                suggestedName: 'doc.tif',
+                pickerTypes: [{accept: {'image/tiff': ['.tif', '.tiff']}}],
+            };
+            const save =
+                path === 'pick'
+                    ? pickSaveTarget(options)
+                    : saveBytesToPickerOrDownload(Uint8Array.of(77, 77, 0, 42), {
+                          ...options,
+                          mimeType: 'image/tiff',
+                      });
+            await expect(save).rejects.toThrow('Choose a file name ending in .tif, .tiff');
+            expect(await (await handle.getFile()).text()).toBe('existing PNG bytes');
+        },
+    );
 
-    it.each([
-        'pick',
-        'bytes',
-    ] as const)('refuses incompatible typed handles with the configured translation through %s', async path => {
-        const {
-            pickSaveTarget, saveBytesToPickerOrDownload, configureBrowserFilePickerMessages,
-        } = await import('@app/platform/browser-api/browserFilePickerAdapter');
-        configureBrowserFilePickerMessages({saveExtensionMismatch: extensions => `Nicht gespeichert: ${extensions}`});
+    it.each(['pick', 'bytes'] as const)('refuses incompatible typed handles with the configured translation through %s', async (path) => {
+        const {pickSaveTarget, saveBytesToPickerOrDownload, configureBrowserFilePickerMessages} =
+            await import('@app/platform/browser-api/browserFilePickerAdapter');
+        configureBrowserFilePickerMessages({saveExtensionMismatch: (extensions) => `Nicht gespeichert: ${extensions}`});
         try {
-            for (const [
-                mimeType,
-                extensions,
-            ] of [
-                    [
-                        'application/pdf',
-                        ['.pdf'],
-                    ],
-                    [
-                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                        ['.docx'],
-                    ],
-                    [
-                        'image/tiff',
-                        [
-                            '.tif',
-                            '.tiff',
-                        ],
-                    ],
-                ] as const) {
-                for (const name of [
-                    'report.txt',
-                    `report${extensions[0]}.txt`,
-                    `report${extensions[0]} `,
-                ]) {
+            for (const [mimeType, extensions] of [
+                ['application/pdf', ['.pdf']],
+                ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', ['.docx']],
+                ['image/tiff', ['.tif', '.tiff']],
+            ] as const) {
+                for (const name of ['report.txt', `report${extensions[0]}.txt`, `report${extensions[0]} `]) {
                     const handle = createFileSystemFileHandle({name});
                     Reflect.set(handle, 'getFile', async () => new File(['sentinel bytes'], name));
                     const writer = vi.spyOn(handle, 'createWritable');
@@ -260,10 +255,13 @@ describe('browser file picker adapter', () => {
                         suggestedName: `report${extensions[0]}`,
                         pickerTypes: [{accept: {[mimeType]: [...extensions]}}],
                     };
-                    const saving = path === 'pick' ? pickSaveTarget(options) : saveBytesToPickerOrDownload(Uint8Array.of(1), {
-                        ...options,
-                        mimeType,
-                    });
+                    const saving =
+                        path === 'pick'
+                            ? pickSaveTarget(options)
+                            : saveBytesToPickerOrDownload(Uint8Array.of(1), {
+                                  ...options,
+                                  mimeType,
+                              });
                     await expect(saving).rejects.toThrow(`Nicht gespeichert: ${extensions.join(', ')}`);
                     expect(excludesAll).toBe(true);
                     expect(await (await handle.getFile()).text()).toBe('sentinel bytes');
@@ -271,74 +269,54 @@ describe('browser file picker adapter', () => {
                 }
             }
         } finally {
-            configureBrowserFilePickerMessages({saveExtensionMismatch: extensions => `File was not saved. Choose a file name ending in ${extensions}.`});
+            configureBrowserFilePickerMessages({
+                saveExtensionMismatch: (extensions) => `File was not saved. Choose a file name ending in ${extensions}.`,
+            });
         }
     });
 
-    it.each([
-        'report.pdf',
-        'REPORT.PDF',
-        ' report.PDF',
-        'report.docx',
-        'REPORT.DOCX',
-        ' report.DOCX',
-        'report.tif',
-        'report.tiff',
-    ])('keeps the physical typed handle name exactly: %s', async name => {
-        const {pickSaveTarget} = await import('@app/platform/browser-api/browserFilePickerAdapter');
-        const extension = name.toLowerCase().endsWith('.pdf') ? '.pdf' : name.toLowerCase().endsWith('.docx') ? '.docx' : '.tif';
-        const extensions = extension === '.tif' ? [
-            '.tif',
-            '.tiff',
-        ] : [extension];
-        const handle = createFileSystemFileHandle({name});
-        Reflect.set(window, 'showSaveFilePicker', async () => handle);
-        await expect(pickSaveTarget({
-            suggestedName: 'report',
-            pickerTypes: [{accept: {'application/octet-stream': extensions}}],
-        })).resolves.toMatchObject({
-            canceled: false,
-            fileName: name,
-            handle,
-        });
-    });
+    it.each(['report.pdf', 'REPORT.PDF', ' report.PDF', 'report.docx', 'REPORT.DOCX', ' report.DOCX', 'report.tif', 'report.tiff'])(
+        'keeps the physical typed handle name exactly: %s',
+        async (name) => {
+            const {pickSaveTarget} = await import('@app/platform/browser-api/browserFilePickerAdapter');
+            const extension = name.toLowerCase().endsWith('.pdf') ? '.pdf' : name.toLowerCase().endsWith('.docx') ? '.docx' : '.tif';
+            const extensions = extension === '.tif' ? ['.tif', '.tiff'] : [extension];
+            const handle = createFileSystemFileHandle({name});
+            Reflect.set(window, 'showSaveFilePicker', async () => handle);
+            await expect(
+                pickSaveTarget({
+                    suggestedName: 'report',
+                    pickerTypes: [{accept: {'application/octet-stream': extensions}}],
+                }),
+            ).resolves.toMatchObject({
+                canceled: false,
+                fileName: name,
+                handle,
+            });
+        },
+    );
 
-    it.each([
-        'de',
-        'en',
-        'es',
-        'fr',
-        'it',
-        'nl',
-        'pt',
-        'ptBr',
-        'ru',
-    ])('provides the typed-save error in %s with its extensions placeholder', async locale => {
-        const {default: messages} = await import(`../../../../packages/i18n-app/messages/${locale}.ts`);
-        const message: string = messages.errors.browser.saveExtensionMismatch;
-        expect(message).toContain('{extensions}');
-        expect(message.replace('{extensions}', '.pdf')).toContain('.pdf');
-        expect(message.replace('{extensions}', '.pdf')).not.toMatch(/\{[^}]+\}/u);
-    });
+    it.each(['de', 'en', 'es', 'fr', 'it', 'nl', 'pt', 'ptBr', 'ru'])(
+        'provides the typed-save error in %s with its extensions placeholder',
+        async (locale) => {
+            const {default: messages} = await import(`../../../../packages/i18n-app/messages/${locale}.ts`);
+            const message: string = messages.errors.browser.saveExtensionMismatch;
+            expect(message).toContain('{extensions}');
+            expect(message.replace('{extensions}', '.pdf')).toContain('.pdf');
+            expect(message.replace('{extensions}', '.pdf')).not.toMatch(/\{[^}]+\}/u);
+        },
+    );
 
-    it.each([
-        'jpeg',
-        'png',
-        'tiff',
-    ] as const)('restricts an encoded %s save to that format', async (format) => {
+    it.each(['jpeg', 'png', 'tiff'] as const)('restricts an encoded %s save to that format', async (format) => {
         const {buildImageExportPickerTypes} = await import('@app/platform/browser-api/browserFileAccepts');
         const {IMAGE_EXPORT_FORMATS} = await import('@pdf-core/imageExportFileName');
-        expect(buildImageExportPickerTypes(format).flatMap(type => Object.keys(type.accept)))
-            .toEqual([IMAGE_EXPORT_FORMATS[format].mimeType]);
+        expect(buildImageExportPickerTypes(format).flatMap((type) => Object.keys(type.accept))).toEqual([
+            IMAGE_EXPORT_FORMATS[format].mimeType,
+        ]);
     });
-
 });
 
-
-function createSinkProbeHandle(
-    name: string,
-    operations: Pick<FileSystemWritableFileStream, 'write' | 'close' | 'abort'>,
-) {
+function createSinkProbeHandle(name: string, operations: Pick<FileSystemWritableFileStream, 'write' | 'close' | 'abort'>) {
     const handle = createFileSystemFileHandle({name});
     const writable = Object.assign(new WritableStream(), {
         seek: async (_position: number) => {},
@@ -356,14 +334,21 @@ describe('CAP-EXPORT sink outcome probes', () => {
         const {openBrowserOutputSink} = await import('@app/platform/browser-api/browserFilePickerAdapter');
         const failure = new DOMException('disk full', 'QuotaExceededError');
         let published = false;
-        const sink = await openBrowserOutputSink({
-            fileName: 'output.tiff',
-            handle: createSinkProbeHandle('output.tiff', {
-                write: async () => {},
-                close: async () => {throw failure;},
-                abort: async () => {published = false;},
-            }),
-        }, {mimeType: 'image/tiff'});
+        const sink = await openBrowserOutputSink(
+            {
+                fileName: 'output.tiff',
+                handle: createSinkProbeHandle('output.tiff', {
+                    write: async () => {},
+                    close: async () => {
+                        throw failure;
+                    },
+                    abort: async () => {
+                        published = false;
+                    },
+                }),
+            },
+            {mimeType: 'image/tiff'},
+        );
         await sink.write(Uint8Array.of(1));
         await expect(sink.close()).rejects.toBe(failure);
         await expect(sink.abort()).resolves.toBe(true);
@@ -375,14 +360,23 @@ describe('CAP-EXPORT sink outcome probes', () => {
         const entered = Promise.withResolvers<undefined>();
         const release = Promise.withResolvers<undefined>();
         let published = false;
-        const sink = await openBrowserOutputSink({
-            fileName: 'output.docx',
-            handle: createSinkProbeHandle('output.docx', {
-                write: async () => {},
-                close: async () => {entered.resolve(undefined); await release.promise; published = true;},
-                abort: async () => {throw new Error('already closing');},
-            }),
-        }, {mimeType: 'application/octet-stream'});
+        const sink = await openBrowserOutputSink(
+            {
+                fileName: 'output.docx',
+                handle: createSinkProbeHandle('output.docx', {
+                    write: async () => {},
+                    close: async () => {
+                        entered.resolve(undefined);
+                        await release.promise;
+                        published = true;
+                    },
+                    abort: async () => {
+                        throw new Error('already closing');
+                    },
+                }),
+            },
+            {mimeType: 'application/octet-stream'},
+        );
         const close = sink.close();
         await entered.promise;
         const canceled = sink.abort();
@@ -396,20 +390,23 @@ describe('CAP-EXPORT sink outcome probes', () => {
         const {openBrowserOutputSink} = await import('@app/platform/browser-api/browserFilePickerAdapter');
         const entered = Promise.withResolvers<undefined>();
         const release = Promise.withResolvers<undefined>();
-        const sink = await openBrowserOutputSink({
-            fileName: 'late.docx',
-            handle: createSinkProbeHandle('late.docx', {
-                write: async () => {},
-                close: async () => {
-                    entered.resolve(undefined);
-                    await release.promise;
-                    throw new DOMException('close failed', 'InvalidStateError');
-                },
-                abort: async () => {
-                    throw new DOMException('still closing', 'InvalidStateError');
-                },
-            }),
-        }, {mimeType: 'application/octet-stream'});
+        const sink = await openBrowserOutputSink(
+            {
+                fileName: 'late.docx',
+                handle: createSinkProbeHandle('late.docx', {
+                    write: async () => {},
+                    close: async () => {
+                        entered.resolve(undefined);
+                        await release.promise;
+                        throw new DOMException('close failed', 'InvalidStateError');
+                    },
+                    abort: async () => {
+                        throw new DOMException('still closing', 'InvalidStateError');
+                    },
+                }),
+            },
+            {mimeType: 'application/octet-stream'},
+        );
         await sink.write(Uint8Array.of(1));
         const closeResult = sink.close().catch((error: unknown) => error);
         await entered.promise;

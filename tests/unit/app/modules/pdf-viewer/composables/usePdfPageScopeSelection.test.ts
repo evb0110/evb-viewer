@@ -1,11 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { effectScope } from 'vue';
-import { usePdfPageScopeSelection } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
-import { createAllPageSelection } from '@app/utils/pdfPageSelection';
+import {describe, expect, it} from 'vitest';
+import {effectScope} from 'vue';
+import {usePdfPageScopeSelection} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfPageScopeSelection';
+import {createAllPageSelection} from '@app/utils/pdfPageSelection';
 
 describe('usePdfPageScopeSelection', () => {
     it('reserves undefined for all pages and null for invalid scoped selections', () => {
@@ -39,32 +35,18 @@ describe('usePdfPageScopeSelection', () => {
             const selection = usePdfPageScopeSelection({
                 totalPages: () => 5,
                 currentPage: () => 3,
-                selectedPages: () => [
-                    5,
-                    2,
-                    2,
-                    9,
-                ],
-                resolveRangePages: () => [
-                    1,
-                    2,
-                ],
+                selectedPages: () => [5, 2, 2, 9],
+                resolveRangePages: () => [1, 2],
             });
 
             selection.scope.value = 'current';
             expect(selection.resolveScopedPageNumbers()).toEqual([3]);
 
             selection.scope.value = 'selected';
-            expect(selection.resolveScopedPageNumbers()).toEqual([
-                2,
-                5,
-            ]);
+            expect(selection.resolveScopedPageNumbers()).toEqual([2, 5]);
 
             selection.scope.value = 'range';
-            expect(selection.resolveScopedPageNumbers()).toEqual([
-                1,
-                2,
-            ]);
+            expect(selection.resolveScopedPageNumbers()).toEqual([1, 2]);
         });
 
         scope.stop();
@@ -83,26 +65,13 @@ describe('usePdfPageScopeSelection', () => {
 
             selection.scope.value = 'all';
             expect(selection.resolveScopedPageNumbers()).toBeUndefined();
-            expect(selection.resolveScopedPageNumbers({ includeAllPages: true })).toEqual([
-                1,
-                2,
-                3,
-                4,
-                5,
-            ]);
+            expect(selection.resolveScopedPageNumbers({includeAllPages: true})).toEqual([1, 2, 3, 4, 5]);
 
             selection.scope.value = 'even';
-            expect(selection.resolveScopedPageNumbers()).toEqual([
-                2,
-                4,
-            ]);
+            expect(selection.resolveScopedPageNumbers()).toEqual([2, 4]);
 
             selection.scope.value = 'odd';
-            expect(selection.resolveScopedPageNumbers()).toEqual([
-                1,
-                3,
-                5,
-            ]);
+            expect(selection.resolveScopedPageNumbers()).toEqual([1, 3, 5]);
 
             selection.scope.value = 'range';
             selection.rangeInput.value = '1-2';

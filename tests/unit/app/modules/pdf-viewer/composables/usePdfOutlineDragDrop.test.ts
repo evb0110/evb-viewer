@@ -1,15 +1,7 @@
-import {
-    computed,
-    ref,
-} from 'vue';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { IBookmarkItem } from '@app/types/pdfOutline';
-import { usePdfOutlineDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineDragDrop';
+import {computed, ref} from 'vue';
+import {describe, expect, it, vi} from 'vitest';
+import type {IBookmarkItem} from '@app/types/pdfOutline';
+import {usePdfOutlineDragDrop} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfOutlineDragDrop';
 
 function createBookmark(id: string): IBookmarkItem {
     return {
@@ -59,10 +51,7 @@ describe('usePdfOutlineDragDrop', () => {
             ...createBookmark('parent'),
             items: [child],
         };
-        const bookmarks = ref([
-            parent,
-            createBookmark('other'),
-        ]);
+        const bookmarks = ref([parent, createBookmark('other')]);
         const dragDrop = usePdfOutlineDragDrop(
             bookmarks,
             ref(new Set()),
@@ -75,11 +64,7 @@ describe('usePdfOutlineDragDrop', () => {
         );
         dragDrop.handleBookmarkDragStart({id: 'parent'});
 
-        for (const targetId of [
-            'parent',
-            'child',
-            'grandchild',
-        ]) {
+        for (const targetId of ['parent', 'child', 'grandchild']) {
             dragDrop.handleBookmarkDragHover({
                 targetId,
                 position: 'child',
@@ -97,10 +82,7 @@ describe('usePdfOutlineDragDrop', () => {
     });
 
     it('does not emit bookmark changes for no-op root-end drops', () => {
-        const bookmarks = ref([
-            createBookmark('first'),
-            createBookmark('last'),
-        ]);
+        const bookmarks = ref([createBookmark('first'), createBookmark('last')]);
         const selectedBookmarkIds = ref(new Set(['last']));
         const activeItemId = ref<string | null>('last');
         const emitBookmarksChange = vi.fn();
@@ -116,23 +98,17 @@ describe('usePdfOutlineDragDrop', () => {
             vi.fn(),
         );
 
-        dragDrop.handleBookmarkDragStart({ id: 'last' });
+        dragDrop.handleBookmarkDragStart({id: 'last'});
         dragDrop.handleTreeEndDrop(activeItemId, emitBookmarksChange);
 
-        expect(bookmarks.value.map(item => item.id)).toEqual([
-            'first',
-            'last',
-        ]);
+        expect(bookmarks.value.map((item) => item.id)).toEqual(['first', 'last']);
         expect(activeItemId.value).toBe('last');
         expect(emitBookmarksChange).not.toHaveBeenCalled();
         expect(dragDrop.draggingBookmarkIds.value.size).toBe(0);
     });
 
     it('does not emit bookmark changes for target drops that keep the same order', () => {
-        const bookmarks = ref([
-            createBookmark('first'),
-            createBookmark('last'),
-        ]);
+        const bookmarks = ref([createBookmark('first'), createBookmark('last')]);
         const selectedBookmarkIds = ref(new Set(['first']));
         const activeItemId = ref<string | null>('last');
         const emitBookmarksChange = vi.fn();
@@ -148,16 +124,17 @@ describe('usePdfOutlineDragDrop', () => {
             vi.fn(),
         );
 
-        dragDrop.handleBookmarkDragStart({ id: 'first' });
-        dragDrop.handleBookmarkDrop({
-            targetId: 'last',
-            position: 'before',
-        }, activeItemId, emitBookmarksChange);
+        dragDrop.handleBookmarkDragStart({id: 'first'});
+        dragDrop.handleBookmarkDrop(
+            {
+                targetId: 'last',
+                position: 'before',
+            },
+            activeItemId,
+            emitBookmarksChange,
+        );
 
-        expect(bookmarks.value.map(item => item.id)).toEqual([
-            'first',
-            'last',
-        ]);
+        expect(bookmarks.value.map((item) => item.id)).toEqual(['first', 'last']);
         expect(activeItemId.value).toBe('last');
         expect(emitBookmarksChange).not.toHaveBeenCalled();
         expect(dragDrop.draggingBookmarkIds.value.size).toBe(0);

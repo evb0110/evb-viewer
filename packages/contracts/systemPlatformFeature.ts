@@ -1,15 +1,14 @@
-import {
-    definePlatformFeature,
-    type TFeatureCapability,
-} from '@contracts/platformFeature';
+import {definePlatformFeature, type TFeatureCapability} from '@contracts/platformFeature';
 import type {TRequestId} from '@contracts/shared';
 import * as v from 'valibot';
 
-const memoryInfo = v.nullable(v.object({
-    availableBytes: v.pipe(v.number(), v.finite()),
-    totalBytes: v.pipe(v.number(), v.finite()),
-    freeBytes: v.pipe(v.number(), v.finite()),
-}));
+const memoryInfo = v.nullable(
+    v.object({
+        availableBytes: v.pipe(v.number(), v.finite()),
+        totalBytes: v.pipe(v.number(), v.finite()),
+        freeBytes: v.pipe(v.number(), v.finite()),
+    }),
+);
 export type ISystemMemoryInfo = Exclude<v.InferOutput<typeof memoryInfo>, null>;
 
 export const SYSTEM_PLATFORM_FEATURE = definePlatformFeature({
@@ -18,13 +17,15 @@ export const SYSTEM_PLATFORM_FEATURE = definePlatformFeature({
         browser: true,
         electron: true,
     },
-    methods: {getMemoryInfo: {
-        kind: 'sync',
-        args: v.strictTuple([]),
-        result: memoryInfo,
-        browser: {method: 'getMemoryInfo'},
-        lazy: 'direct',
-    }},
+    methods: {
+        getMemoryInfo: {
+            kind: 'sync',
+            args: v.strictTuple([]),
+            result: memoryInfo,
+            browser: {method: 'getMemoryInfo'},
+            lazy: 'direct',
+        },
+    },
     events: {},
 });
 
@@ -35,36 +36,33 @@ export interface IShutdownSaveFlushResponse {
 
 export type TWindowCloseDecision = 'save' | 'discard' | 'cancel';
 
-export type TWindowCloseUnavailableReason =
-    | 'no-handler'
-    | 'multiple-handlers'
-    | 'handler-error'
-    | 'invalid-decision';
+export type TWindowCloseUnavailableReason = 'no-handler' | 'multiple-handlers' | 'handler-error' | 'invalid-decision';
 
-export interface IWindowCloseRequest {requestId: TRequestId;}
+export interface IWindowCloseRequest {
+    requestId: TRequestId;
+}
 
 // `acknowledged` means the renderer has taken the request to its sole
 // handler. It is not a decision; a decision or `unavailable` follows.
-export type IWindowCloseResponse = {
-    decision: TWindowCloseDecision;
-    requestId: TRequestId;
-} | {
-    requestId: TRequestId;
-    status: 'acknowledged';
-} | {
-    requestId: TRequestId;
-    status: 'unavailable';
-    reason: TWindowCloseUnavailableReason;
-};
+export type IWindowCloseResponse =
+    | {
+          decision: TWindowCloseDecision;
+          requestId: TRequestId;
+      }
+    | {
+          requestId: TRequestId;
+          status: 'acknowledged';
+      }
+    | {
+          requestId: TRequestId;
+          status: 'unavailable';
+          reason: TWindowCloseUnavailableReason;
+      };
 
-export type TWindowCloseRequestHandler = (
-    request: IWindowCloseRequest,
-) => Promise<TWindowCloseDecision> | TWindowCloseDecision;
+export type TWindowCloseRequestHandler = (request: IWindowCloseRequest) => Promise<TWindowCloseDecision> | TWindowCloseDecision;
 
 interface ISystemLifecycleCapability {
-    onShutdownSaveFlushRequest: (
-        callback: () => Promise<IShutdownSaveFlushResponse> | IShutdownSaveFlushResponse,
-    ) => () => void;
+    onShutdownSaveFlushRequest: (callback: () => Promise<IShutdownSaveFlushResponse> | IShutdownSaveFlushResponse) => () => void;
     onWindowCloseRequest?: (callback: TWindowCloseRequestHandler) => () => void;
 }
 

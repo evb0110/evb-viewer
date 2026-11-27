@@ -1,9 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { createPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
+import {describe, expect, it} from 'vitest';
+import {createPdfPageSlotRegistry} from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 
 describe('createPdfPageSlotRegistry', () => {
     it('isolates an incoming feature owner from stale outgoing cleanup', () => {

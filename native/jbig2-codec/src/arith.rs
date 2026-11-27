@@ -1,4 +1,8 @@
-const STATE_TABLE: [State; 47] = [
+/// Padded to 64 entries so masking `index & STATE_MASK` proves every lookup
+/// in-bounds without runtime panic branches or `unsafe`. Valid T.88 MQ states
+/// occupy `0..=46`; padding entries mirror state 46.
+const STATE_MASK: u8 = 0x3f;
+const STATE_TABLE: [State; 64] = [
     State::new(0x5601, 1, 1, true),
     State::new(0x3401, 2, 6, false),
     State::new(0x1801, 3, 9, false),
@@ -45,6 +49,23 @@ const STATE_TABLE: [State; 47] = [
     State::new(0x0009, 44, 41, false),
     State::new(0x0005, 45, 42, false),
     State::new(0x0001, 45, 43, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
+    State::new(0x5601, 46, 46, false),
     State::new(0x5601, 46, 46, false),
 ];
 
@@ -97,7 +118,7 @@ impl Encoder {
         let packed = contexts[context];
         let mut index = packed >> 1;
         let mut mps = packed & 1;
-        let state = STATE_TABLE[usize::from(index)];
+        let state = STATE_TABLE[usize::from(index & STATE_MASK)];
 
         if bit == mps {
             self.a -= state.qe;
@@ -137,7 +158,7 @@ impl Encoder {
         while count > 0 {
             let packed = contexts[0];
             if packed & 1 == 0 {
-                let qe = STATE_TABLE[usize::from(packed >> 1)].qe;
+                let qe = STATE_TABLE[usize::from((packed >> 1) & STATE_MASK)].qe;
                 let max_fast = ((self.a - 0x8000) / qe) as usize;
                 if max_fast > 0 {
                     let step = count.min(max_fast);
@@ -264,7 +285,7 @@ impl<'a> Decoder<'a> {
         let packed = contexts[context];
         let mut index = packed >> 1;
         let mut mps = packed & 1;
-        let state = STATE_TABLE[usize::from(index)];
+        let state = STATE_TABLE[usize::from(index & STATE_MASK)];
         let mut a = self.a - state.qe;
         let bit;
 
@@ -314,6 +335,40 @@ impl<'a> Decoder<'a> {
         self.a = a;
         contexts[context] = (index << 1) | mps;
         bit
+    }
+
+    /// Decodes up to `max_bits` consecutive zero bits in context 0, collapsing
+    /// runs that stay above both `0x8000` (in `a`) and `qe` (in `chigh`) into a
+    /// single subtraction. Returns `(zero_bits, hit_one)`: when `hit_one` is
+    /// `true`, `zero_bits` leading zeros followed by one `1` bit have been
+    /// consumed; when `false`, all `max_bits` bits were zero.
+    #[inline]
+    pub(crate) fn decode_zero_run_ctx0(
+        &mut self,
+        contexts: &mut [u8],
+        max_bits: usize,
+    ) -> (usize, bool) {
+        let mut decoded = 0usize;
+        while decoded < max_bits {
+            let packed = contexts[0];
+            if packed & 1 == 0 {
+                let qe = STATE_TABLE[usize::from((packed >> 1) & STATE_MASK)].qe;
+                let max_fast = ((self.a - 0x8000).min(self.chigh) / qe) as usize;
+                if max_fast > 0 {
+                    let step = (max_bits - decoded).min(max_fast);
+                    let delta = (step as u32) * qe;
+                    self.a -= delta;
+                    self.chigh -= delta;
+                    decoded += step;
+                    continue;
+                }
+            }
+            if self.decode(contexts, 0) != 0 {
+                return (decoded, true);
+            }
+            decoded += 1;
+        }
+        (decoded, false)
     }
 
     pub(crate) fn stuffed(&self) -> u32 {
@@ -428,5 +483,43 @@ mod tests {
         }
         assert!(encoder.carried_fe);
         assert_eq!(encoder.finish(), [0x29, 0xff, 0x05, 0x3f, 0x13, 0xff, 0xac]);
+    }
+
+    #[test]
+    fn decode_zero_run_ctx0_matches_bit_by_bit_decode() {
+        for run_len in [0usize, 1, 7, 8, 9, 31, 64, 513, 4096] {
+            for trailing_one in [false, true] {
+                let mut encoder = Encoder::new();
+                let mut enc_ctx = [0u8; 4];
+                encoder.encode_zero_run_ctx0(&mut enc_ctx, run_len);
+                if trailing_one {
+                    encoder.encode(&mut enc_ctx, 0, 1);
+                }
+                let stream = encoder.finish();
+
+                let mut fast_dec = Decoder::new(&stream).unwrap();
+                let mut ref_dec = Decoder::new(&stream).unwrap();
+                let mut fast_ctx = [0u8; 4];
+                let mut ref_ctx = [0u8; 4];
+
+                let query_len = run_len + usize::from(trailing_one);
+                let (zero_bits, hit_one) = fast_dec.decode_zero_run_ctx0(&mut fast_ctx, query_len);
+
+                let mut ref_zeros = 0usize;
+                let mut ref_hit_one = false;
+                for _ in 0..query_len {
+                    if ref_dec.decode(&mut ref_ctx, 0) != 0 {
+                        ref_hit_one = true;
+                        break;
+                    }
+                    ref_zeros += 1;
+                }
+
+                assert_eq!((zero_bits, hit_one), (ref_zeros, ref_hit_one));
+                assert_eq!((zero_bits, hit_one), (run_len, trailing_one));
+                assert_eq!(fast_ctx, ref_ctx);
+                assert_eq!(fast_dec.stuffed(), ref_dec.stuffed());
+            }
+        }
     }
 }

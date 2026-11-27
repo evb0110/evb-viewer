@@ -3,10 +3,7 @@ interface IRafHost {
     cancelAnimationFrame(handle: number): void;
 }
 
-export function createRafBurstScheduler(
-    callback: () => void,
-    rafHost?: IRafHost,
-) {
+export function createRafBurstScheduler(callback: () => void, rafHost?: IRafHost) {
     const host = rafHost ?? (typeof window !== 'undefined' ? window : undefined);
     let frameId: number | null = null;
 

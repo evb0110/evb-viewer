@@ -1,8 +1,8 @@
-import type { Ref } from 'vue';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type { TWorkspaceSaveAbort } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult';
-import { notSavedBeforeWrite } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult';
-import type { TWorkspaceSavePlan } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
+import type {Ref} from 'vue';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {TWorkspaceSaveAbort} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult';
+import {notSavedBeforeWrite} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult';
+import type {TWorkspaceSavePlan} from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionSupport';
 
 export interface IUnencryptedSaveNoticeResult {
     confirmed: boolean;
@@ -34,32 +34,19 @@ export async function unencryptedSaveNoticeGate(
         return null;
     }
     const sessionKey = plan.target.expectedDocumentSessionKey;
-    if (
-        !sessionKey
-        || acknowledgedSessions.has(sessionKey)
-        || deps.unencryptedSaveNotice?.suppress.value === true
-    ) {
+    if (!sessionKey || acknowledgedSessions.has(sessionKey) || deps.unencryptedSaveNotice?.suppress.value === true) {
         return null;
     }
     const notice = deps.unencryptedSaveNotice;
     if (!notice) {
-        BrowserLogger.error(
-            'workspace',
-            'Encrypted document save warning is unavailable; save was blocked',
-            undefined,
-            {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'},
-        );
-        return notSavedBeforeWrite(
-            'capability-unavailable',
-            plan.target.expectedRevisionToken,
-        );
+        BrowserLogger.error('workspace', 'Encrypted document save warning is unavailable; save was blocked', undefined, {
+            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+        });
+        return notSavedBeforeWrite('capability-unavailable', plan.target.expectedRevisionToken);
     }
     const choice = await notice.request();
     if (!choice.confirmed) {
-        return notSavedBeforeWrite(
-            'cancelled',
-            plan.target.expectedRevisionToken,
-        );
+        return notSavedBeforeWrite('cancelled', plan.target.expectedRevisionToken);
     }
 
     // The acknowledgement belongs to the open session, not the path. A later
@@ -70,10 +57,7 @@ export async function unencryptedSaveNoticeGate(
         const persisted = await notice.flushSettings();
         if (!persisted) {
             notice.resetSuppress();
-            BrowserLogger.warn(
-                'workspace',
-                'The unencrypted-save warning preference could not be saved; it remains enabled',
-            );
+            BrowserLogger.warn('workspace', 'The unencrypted-save warning preference could not be saved; it remains enabled');
         }
     }
     return null;

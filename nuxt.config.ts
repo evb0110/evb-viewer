@@ -11,10 +11,12 @@ const requireFromConfig = createRequire(import.meta.url);
 type TIconifyCollection = Parameters<typeof getIcons>[0];
 
 function isIconifyCollection(value: unknown): value is TIconifyCollection {
-    return typeof value === 'object'
-        && value !== null
-        && typeof Reflect.get(value, 'prefix') === 'string'
-        && typeof Reflect.get(value, 'icons') === 'object';
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        typeof Reflect.get(value, 'prefix') === 'string' &&
+        typeof Reflect.get(value, 'icons') === 'object'
+    );
 }
 
 const EVB_CUSTOM_ICON_NAMES = [
@@ -61,16 +63,15 @@ function buildIconBundles(iconNames: string[]) {
     });
 
     return {
-        customCollections: [{
-            prefix: 'evb',
-            dir: './app/assets/icons',
-        }],
+        customCollections: [
+            {
+                prefix: 'evb',
+                dir: './app/assets/icons',
+            },
+        ],
         serverBundle: {collections},
         clientBundle: {
-            icons: [
-                ...iconNames,
-                ...EVB_CUSTOM_ICON_NAMES,
-            ],
+            icons: [...iconNames, ...EVB_CUSTOM_ICON_NAMES],
             includeCustomCollections: true,
         },
     };
@@ -83,10 +84,12 @@ function isInvalidNuxtUiResizableImport(entry: unknown) {
 
     const from = Reflect.get(entry, 'from');
     const name = Reflect.get(entry, 'name');
-    return typeof name === 'string'
-        && typeof from === 'string'
-        && name === 'options'
-        && from.includes('@nuxt/ui/dist/runtime/composables/useResizable');
+    return (
+        typeof name === 'string' &&
+        typeof from === 'string' &&
+        name === 'options' &&
+        from.includes('@nuxt/ui/dist/runtime/composables/useResizable')
+    );
 }
 
 const buildEnv = readBuildEnvironment(process.env);
@@ -106,13 +109,13 @@ const sentryBrowserIngestOrigin = sentryBrowserDsn ? new URL(sentryBrowserDsn).o
 const emitSourceMaps = Boolean(buildEnv.SENTRY_AUTH_TOKEN);
 const nitroOutputDir = nuxtOutputDirectory(buildEnv);
 const nitroOutput = isVercelBuildOutput(buildEnv)
-    // Let Nitro's Vercel preset keep Build Output API directories as static/ and functions/.
-    ? {dir: nitroOutputDir}
+    ? // Let Nitro's Vercel preset keep Build Output API directories as static/ and functions/.
+      {dir: nitroOutputDir}
     : {
-        dir: nitroOutputDir,
-        publicDir: `${nitroOutputDir}/public`,
-        serverDir: `${nitroOutputDir}/server`,
-    };
+          dir: nitroOutputDir,
+          publicDir: `${nitroOutputDir}/public`,
+          serverDir: `${nitroOutputDir}/server`,
+      };
 
 const isDev = buildEnv.NODE_ENV !== 'production';
 const isolatedNuxtBuildDir = buildEnv.EVB_NUXT_BUILD_DIR?.trim();
@@ -127,8 +130,8 @@ const appShellCacheHeaders = {
     // workspace must be restorable offline; revalidation still keeps a new
     // navigation current without disabling in-memory history restoration.
     'cache-control': 'no-cache, max-age=0, must-revalidate',
-    'pragma': 'no-cache',
-    'expires': '0',
+    pragma: 'no-cache',
+    expires: '0',
 } as const;
 const appContentSecurityPolicy = [
     "default-src 'self'",
@@ -202,11 +205,11 @@ export default defineNuxtConfig({
         ...(isBrowserExtensionBuild ? {buildAssetsDir: '/assets/'} : {}),
         head: {
             meta: [
-                { charset: 'utf-8' },
-                { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-                { name: 'theme-color', content: '#ffffff', media: '(prefers-color-scheme: light)' },
-                { name: 'theme-color', content: '#1a1a1a', media: '(prefers-color-scheme: dark)' },
-                { name: 'format-detection', content: 'telephone=no' },
+                {charset: 'utf-8'},
+                {name: 'viewport', content: 'width=device-width, initial-scale=1'},
+                {name: 'theme-color', content: '#ffffff', media: '(prefers-color-scheme: light)'},
+                {name: 'theme-color', content: '#1a1a1a', media: '(prefers-color-scheme: dark)'},
+                {name: 'format-detection', content: 'telephone=no'},
             ],
             link: [
                 {
@@ -248,19 +251,17 @@ export default defineNuxtConfig({
             ],
             // An extension page always has sessionStorage, and the client
             // head would add this script again as an inline one it may not run.
-            script: isBrowserExtensionBuild ? [] : [
-                {
-                    innerHTML: `(()=>{try{void window.sessionStorage}catch{Object.defineProperty(window,'sessionStorage',{configurable:true,value:{getItem(){return null},setItem(){},removeItem(){}}})}})();`,
-                },
-            ],
+            script: isBrowserExtensionBuild
+                ? []
+                : [
+                      {
+                          innerHTML: `(()=>{try{void window.sessionStorage}catch{Object.defineProperty(window,'sessionStorage',{configurable:true,value:{getItem(){return null},setItem(){},removeItem(){}}})}})();`,
+                      },
+                  ],
         },
     },
 
-    modules: [
-        '@nuxt/ui',
-        '@nuxt/icon',
-        '@nuxtjs/i18n',
-    ],
+    modules: ['@nuxt/ui', '@nuxt/icon', '@nuxtjs/i18n'],
 
     // Every font this app renders is bundled and declared with an explicit
     // @font-face in app/assets/css. @nuxt/ui pulls in @nuxt/fonts, whose
@@ -288,20 +289,18 @@ export default defineNuxtConfig({
         },
     ],
 
-    css: [
-        '~/assets/css/app-shell-critical.scss',
-        '~/assets/css/main.css',
-        '~/assets/css/annotation-fonts.scss',
-    ],
+    css: ['~/assets/css/app-shell-critical.scss', '~/assets/css/main.css', '~/assets/css/annotation-fonts.scss'],
 
     // Keep Nuxt's server renderer available for prerender/build-time output and
     // Nitro endpoints. Personalized browser state is client-seeded, not
     // request-time SSR-rendered.
     ssr: !isBrowserExtensionBuild,
     // An extension page runs no inline script, and an inline import map counts as one.
-    ...(isBrowserExtensionBuild ? {
-        experimental: {entryImportMap: false},
-    } : {}),
+    ...(isBrowserExtensionBuild
+        ? {
+              experimental: {entryImportMap: false},
+          }
+        : {}),
 
     // Disable SPA loading template - causes jerky size changes due to scrollbar appearance
     spaLoadingTemplate: false,
@@ -371,8 +370,8 @@ export default defineNuxtConfig({
     },
 
     routeRules: {
-        '/robots.txt': { prerender: true, headers: withAppSecurityHeaders() },
-        '/sitemap.xml': { prerender: true, headers: withAppSecurityHeaders() },
+        '/robots.txt': {prerender: true, headers: withAppSecurityHeaders()},
+        '/sitemap.xml': {prerender: true, headers: withAppSecurityHeaders()},
         '/electron': {
             prerender: true,
             ssr: false,
@@ -399,7 +398,7 @@ export default defineNuxtConfig({
         '/workspace': {
             // Compatibility entry only. Keep the browser workspace SSR/SSG surface
             // canonical at `/` so refresh does not hit a SPA-only shell.
-            redirect: { to: '/', statusCode: 302 },
+            redirect: {to: '/', statusCode: 302},
             headers: withAppSecurityHeaders({
                 ...appShellCacheHeaders,
                 'X-Robots-Tag': 'noindex, nofollow',
@@ -432,7 +431,7 @@ export default defineNuxtConfig({
 
     i18n: {
         restructureDir: 'app',
-        locales: LOCALE_DEFINITIONS.map(locale => ({
+        locales: LOCALE_DEFINITIONS.map((locale) => ({
             ...locale,
             file: 'loadLocale.ts',
         })),
@@ -588,31 +587,34 @@ export default defineNuxtConfig({
 
     vite: {
         ...(isolatedNuxtViteCacheDir ? {cacheDir: isolatedNuxtViteCacheDir} : {}),
-        plugins: [{
-            // In development Vite serves /_nuxt/, worker scripts included,
-            // before Nitro's route rules apply, and an isolated page starts
-            // only workers whose script carries COEP. Set ahead of Vite's own
-            // handlers so its 304 revalidations carry it too: WebKit reads the
-            // policy from the 304, and `server.headers` leaves it off.
-            // The desktop app serves its renderer without these headers
-            // (electron/protocol.ts); in development the Electron renderer
-            // loads from this server, so no response it gets carries COEP,
-            // Nitro's route rules and static files included.
-            name: 'evb:dev-cross-origin-embedder-policy',
-            apply: 'serve',
-            configureServer(server) {
-                server.middlewares.use((request, response, next) => {
-                    if (request.headers['user-agent']?.includes(' Electron/')) {
-                        const setHeader = response.setHeader.bind(response);
-                        response.setHeader = (name, value) => name.toLowerCase() === 'cross-origin-embedder-policy' ? response : setHeader(name, value);
-                    } else if (request.url?.startsWith('/_nuxt/')) {
-                        // Nitro's route rules answer everything else.
-                        response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
-                    }
-                    next();
-                });
+        plugins: [
+            {
+                // In development Vite serves /_nuxt/, worker scripts included,
+                // before Nitro's route rules apply, and an isolated page starts
+                // only workers whose script carries COEP. Set ahead of Vite's own
+                // handlers so its 304 revalidations carry it too: WebKit reads the
+                // policy from the 304, and `server.headers` leaves it off.
+                // The desktop app serves its renderer without these headers
+                // (electron/protocol.ts); in development the Electron renderer
+                // loads from this server, so no response it gets carries COEP,
+                // Nitro's route rules and static files included.
+                name: 'evb:dev-cross-origin-embedder-policy',
+                apply: 'serve',
+                configureServer(server) {
+                    server.middlewares.use((request, response, next) => {
+                        if (request.headers['user-agent']?.includes(' Electron/')) {
+                            const setHeader = response.setHeader.bind(response);
+                            response.setHeader = (name, value) =>
+                                name.toLowerCase() === 'cross-origin-embedder-policy' ? response : setHeader(name, value);
+                        } else if (request.url?.startsWith('/_nuxt/')) {
+                            // Nitro's route rules answer everything else.
+                            response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+                        }
+                        next();
+                    });
+                },
             },
-        }],
+        ],
         // Scan Cleanup provenance names the source revision, as desktop does.
         define: {__EVB_BUILD_GIT_SHA__: JSON.stringify(resolveBuildGitSha(buildEnv))},
         $client: {
@@ -632,10 +634,12 @@ export default defineNuxtConfig({
             format: 'es',
             // Salt worker chunk hashes once after enabling COOP/COEP headers so
             // returning browsers never reuse immutable-cached pre-COEP worker scripts.
-            plugins: () => [{
-                name: 'evb:worker-coep-hash-salt',
-                augmentChunkHash: () => 'evb-coep-worker-v1',
-            }],
+            plugins: () => [
+                {
+                    name: 'evb:worker-coep-hash-salt',
+                    augmentChunkHash: () => 'evb-coep-worker-v1',
+                },
+            ],
             rolldownOptions: {
                 output: {sourcemapExcludeSources: emitSourceMaps},
             },
@@ -661,21 +665,23 @@ export default defineNuxtConfig({
                 },
                 output: {
                     sourcemapExcludeSources: emitSourceMaps,
-                    codeSplitting: {groups: [
-                        {
-                            name: 'vendor-pdfjs',
-                            test: isPdfjsPackageId,
-                            includeDependenciesRecursively: false,
-                        },
-                        {
-                            name: 'vendor-pdf-lib',
-                            test: /node_modules[\\/]pdf-lib[\\/]/,
-                        },
-                        {
-                            name: 'vendor-vueuse',
-                            test: /node_modules[\\/]@vueuse[\\/](?:core|math)[\\/]/,
-                        },
-                    ]},
+                    codeSplitting: {
+                        groups: [
+                            {
+                                name: 'vendor-pdfjs',
+                                test: isPdfjsPackageId,
+                                includeDependenciesRecursively: false,
+                            },
+                            {
+                                name: 'vendor-pdf-lib',
+                                test: /node_modules[\\/]pdf-lib[\\/]/,
+                            },
+                            {
+                                name: 'vendor-vueuse',
+                                test: /node_modules[\\/]@vueuse[\\/](?:core|math)[\\/]/,
+                            },
+                        ],
+                    },
                 },
             },
         },
@@ -731,20 +737,15 @@ export default defineNuxtConfig({
         // Vercel's Nuxt builder only recognizes Build Output API artifacts from
         // `.vercel/output`; local desktop flows still consume `nuxt-output`.
         output: nitroOutput,
-        ...(isVercelBuildOutput(buildEnv) ? {
-            // Vercel's file tracer can omit modules re-exported only by this
-            // package's barrel, which leaves the server function unable to boot.
-            externals: {inline: ['@iconify/utils']},
-        } : {}),
+        ...(isVercelBuildOutput(buildEnv)
+            ? {
+                  // Vercel's file tracer can omit modules re-exported only by this
+                  // package's barrel, which leaves the server function unable to boot.
+                  externals: {inline: ['@iconify/utils']},
+              }
+            : {}),
         prerender: {
-            routes: [
-                '/',
-                '/electron',
-                '/workspace',
-                '/privacy',
-                '/robots.txt',
-                '/sitemap.xml',
-            ],
+            routes: ['/', '/electron', '/workspace', '/privacy', '/robots.txt', '/sitemap.xml'],
         },
     },
 

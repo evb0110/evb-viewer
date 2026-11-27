@@ -1,15 +1,8 @@
-import { BUNDLED_OCR_LANGUAGE_CODES } from '@contracts/ocrLanguages';
+import {BUNDLED_OCR_LANGUAGE_CODES} from '@contracts/ocrLanguages';
 
-const NATIVE_RESOURCE_PLATFORMS = [
-    'darwin',
-    'linux',
-    'win32',
-] as const;
+const NATIVE_RESOURCE_PLATFORMS = ['darwin', 'linux', 'win32'] as const;
 
-const NATIVE_RESOURCE_ARCHES = [
-    'x64',
-    'arm64',
-] as const;
+const NATIVE_RESOURCE_ARCHES = ['x64', 'arm64'] as const;
 
 export const ELECTRON_BUILDER_PLATFORM_KEYS = {
     darwin: 'mac',
@@ -17,8 +10,8 @@ export const ELECTRON_BUILDER_PLATFORM_KEYS = {
     win32: 'win',
 } as const satisfies Record<TNativeResourcePlatform, string>;
 
-export type TNativeResourcePlatform = typeof NATIVE_RESOURCE_PLATFORMS[number];
-export type TNativeResourceArch = typeof NATIVE_RESOURCE_ARCHES[number];
+export type TNativeResourcePlatform = (typeof NATIVE_RESOURCE_PLATFORMS)[number];
+export type TNativeResourceArch = (typeof NATIVE_RESOURCE_ARCHES)[number];
 export type TNativeResourcePlatformArch = `${TNativeResourcePlatform}-${TNativeResourceArch}`;
 type TNativeResourcePathType = 'directory' | 'file';
 
@@ -30,7 +23,7 @@ export const NATIVE_TOOL_RESOURCE_FAMILY_IDS = [
     'windows-job-launcher',
 ] as const;
 
-export type TNativeToolResourceFamilyId = typeof NATIVE_TOOL_RESOURCE_FAMILY_IDS[number];
+export type TNativeToolResourceFamilyId = (typeof NATIVE_TOOL_RESOURCE_FAMILY_IDS)[number];
 type TGeneratedNativeToolResourceFamilyId = Extract<
     TNativeToolResourceFamilyId,
     'pdf-image-combine' | 'scan-cleanup' | 'windows-job-launcher'
@@ -101,20 +94,14 @@ const NATIVE_TOOLS = [
     },
 ] as const satisfies ReadonlyArray<{
     crateName: TGeneratedNativeToolResourceFamilyId;
-    label: string
+    label: string;
 }>;
 
-function packagedBinary(
-    id: string,
-    platforms?: readonly TNativeResourcePlatform[],
-): IPackagedNativeResourceEntry {
+function packagedBinary(id: string, platforms?: readonly TNativeResourcePlatform[]): IPackagedNativeResourceEntry {
     return {
         id,
         label: `${id} binary`,
-        pathSegments: [
-            'bin',
-            `${id}{exeSuffix}`,
-        ],
+        pathSegments: ['bin', `${id}{exeSuffix}`],
         ...(platforms ? {platforms} : {}),
         type: 'file',
     };
@@ -141,116 +128,67 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES: readonly INativeToolResourceFamily[]
         id: 'poppler',
         label: 'Poppler native tools',
         packagedEntries: [
-            ...[
-                'pdfinfo',
-                'pdftoppm',
-                'pdftotext',
-            ].map(binary => packagedBinary(binary)),
+            ...['pdfinfo', 'pdftoppm', 'pdftotext'].map((binary) => packagedBinary(binary)),
             packagedBinary('pdftocairo', ['win32']),
-            packagedPath(
-                'poppler-data',
-                'poppler data directory',
-                'directory',
-                [
-                    'linux',
-                    'win32',
-                ],
-                'share',
-                'poppler',
-            ),
-            packagedPath(
-                'fontconfig-directory',
-                'fontconfig directory',
-                'directory',
-                ['linux'],
-                'etc',
-                'fonts',
-            ),
-            packagedPath(
-                'fontconfig-configuration',
-                'fontconfig configuration',
-                'file',
-                ['linux'],
-                'etc',
-                'fonts',
-                'fonts.conf',
-            ),
+            packagedPath('poppler-data', 'poppler data directory', 'directory', ['linux', 'win32'], 'share', 'poppler'),
+            packagedPath('fontconfig-directory', 'fontconfig directory', 'directory', ['linux'], 'etc', 'fonts'),
+            packagedPath('fontconfig-configuration', 'fontconfig configuration', 'file', ['linux'], 'etc', 'fonts', 'fonts.conf'),
         ],
-        packageFiltersByPlatform: {win32: [
-            '**/*',
-            '!share/poppler/CMakeLists.txt',
-            '!share/poppler/Makefile',
-            '!share/poppler/README',
-            '!share/poppler/poppler-data.pc',
-            '!share/poppler/poppler-data.pc.in',
-        ]},
-        sourceRootSegments: [
-            'resources',
-            'poppler',
-        ],
+        packageFiltersByPlatform: {
+            win32: [
+                '**/*',
+                '!share/poppler/CMakeLists.txt',
+                '!share/poppler/Makefile',
+                '!share/poppler/README',
+                '!share/poppler/poppler-data.pc',
+                '!share/poppler/poppler-data.pc.in',
+            ],
+        },
+        sourceRootSegments: ['resources', 'poppler'],
         stagedRootSegments: ['poppler'],
     },
     {
         id: 'pdf-print-dialog',
         label: 'macOS PDF print dialog helper',
         packagedEntries: [packagedBinary('pdf-print-dialog', ['darwin'])],
-        sourceRootSegments: [
-            '.tmp',
-            'pdf-print-dialog',
-        ],
+        sourceRootSegments: ['.tmp', 'pdf-print-dialog'],
         stagedRootSegments: ['pdf-print-dialog'],
     },
-    ...NATIVE_TOOLS.map(tool => ({
+    ...NATIVE_TOOLS.map((tool) => ({
         id: tool.crateName,
         label: tool.label,
         packagedEntries: [packagedBinary(`evb-${tool.crateName}`)],
-        sourceRootSegments: [
-            '.tmp',
-            tool.crateName,
-        ],
+        sourceRootSegments: ['.tmp', tool.crateName],
         stagedRootSegments: [tool.crateName],
     })),
 ] as const;
 
 export const GLOBAL_PACKAGED_RESOURCES: readonly IGlobalPackagedResource[] = [
     {
-        filters: BUNDLED_OCR_LANGUAGE_CODES.map(code => `${code}.traineddata`),
+        filters: BUNDLED_OCR_LANGUAGE_CODES.map((code) => `${code}.traineddata`),
         id: 'tessdata',
         label: 'tessdata directory',
-        sourceSegments: [
-            'resources',
-            'tesseract',
-            'tessdata',
-        ],
-        stagedSegments: [
-            'tesseract',
-            'tessdata',
-        ],
+        sourceSegments: ['resources', 'tesseract', 'tessdata'],
+        stagedSegments: ['tesseract', 'tessdata'],
         type: 'directory',
     },
     {
         id: 'application-resource-icon',
         label: 'application resource icon',
-        sourceSegments: [
-            'resources',
-            'icon.png',
-        ],
+        sourceSegments: ['resources', 'icon.png'],
         stagedSegments: ['icon.png'],
         type: 'file',
     },
     {
         id: 'third-party-notices',
         label: 'third-party license notices',
-        sourceSegments: [
-            'resources',
-            'third-party-notices',
-        ],
+        sourceSegments: ['resources', 'third-party-notices'],
         stagedSegments: ['third-party-notices'],
         type: 'directory',
     },
 ] as const;
 
-export const GENERATED_NATIVE_TOOL_RESOURCES = NATIVE_TOOLS.map(tool => ({
+export const GENERATED_NATIVE_TOOL_RESOURCES = NATIVE_TOOLS.map((tool) => ({
     binaryName: `evb-${tool.crateName}`,
     crateName: tool.crateName,
     familyId: tool.crateName,
@@ -258,7 +196,7 @@ export const GENERATED_NATIVE_TOOL_RESOURCES = NATIVE_TOOLS.map(tool => ({
 })) satisfies readonly IGeneratedNativeToolResource[];
 
 export function getGeneratedNativeToolResource(toolId: string) {
-    const resource = GENERATED_NATIVE_TOOL_RESOURCES.find(tool => tool.familyId === toolId);
+    const resource = GENERATED_NATIVE_TOOL_RESOURCES.find((tool) => tool.familyId === toolId);
     if (!resource) {
         throw new Error(`Unknown generated native tool: ${toolId}`);
     }
@@ -267,15 +205,13 @@ export function getGeneratedNativeToolResource(toolId: string) {
 
 export function getPackagedNativeToolFamilies() {
     return NATIVE_TOOL_RESOURCE_FAMILIES.map((family) => {
-        const generated = GENERATED_NATIVE_TOOL_RESOURCES.find(tool => tool.familyId === family.id);
+        const generated = GENERATED_NATIVE_TOOL_RESOURCES.find((tool) => tool.familyId === family.id);
         return {
             binaryName: generated?.binaryName ?? null,
             id: family.id,
             label: family.label,
             packagedEntries: family.packagedEntries,
-            ...('packageFiltersByPlatform' in family
-                ? {packageFiltersByPlatform: family.packageFiltersByPlatform}
-                : {}),
+            ...('packageFiltersByPlatform' in family ? {packageFiltersByPlatform: family.packageFiltersByPlatform} : {}),
             sourceRootSegments: family.sourceRootSegments,
             stagedRootSegments: family.stagedRootSegments,
         };

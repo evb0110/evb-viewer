@@ -1,12 +1,5 @@
-import {
-    crc32 as zlibCrc32,
-    inflateRawSync,
-} from 'node:zlib';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {crc32 as zlibCrc32, inflateRawSync} from 'node:zlib';
+import {describe, expect, it} from 'vitest';
 import {
     createDocxFromTextChunks,
     DOCUMENT_XML_PREFIX,
@@ -24,7 +17,7 @@ async function collectDocxBytes(pages: Parameters<typeof createDocxFromTextChunk
     for await (const chunk of createDocxFromTextChunks(pages)) {
         chunks.push(chunk);
     }
-    return Buffer.concat(chunks.map(chunk => Buffer.from(chunk)));
+    return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
 }
 
 interface IZipEntry {
@@ -45,35 +38,24 @@ interface IZipEntry {
  */
 function readZipEntries(zip: Buffer) {
     const entries = new Map<string, IZipEntry>();
-    const endOfCentralDirectory = zip.lastIndexOf(Buffer.from([
-        0x50,
-        0x4B,
-        0x05,
-        0x06,
-    ]));
+    const endOfCentralDirectory = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
     const locator = endOfCentralDirectory - 20;
-    const zip64End = zip.readUInt32LE(locator) === 0x07064B50
-        ? Number(zip.readBigUInt64LE(locator + 8))
-        : null;
+    const zip64End = zip.readUInt32LE(locator) === 0x07064b50 ? Number(zip.readBigUInt64LE(locator + 8)) : null;
     if (zip64End !== null) {
-        expect(zip.readUInt32LE(zip64End)).toBe(0x06064B50);
+        expect(zip.readUInt32LE(zip64End)).toBe(0x06064b50);
         const recordSize = Number(zip.readBigUInt64LE(zip64End + 4));
         expect(zip64End + 12 + recordSize).toBe(locator);
     }
-    const entryCount = zip64End === null
-        ? zip.readUInt16LE(endOfCentralDirectory + 10)
-        : Number(zip.readBigUInt64LE(zip64End + 32));
-    let central = zip64End === null
-        ? zip.readUInt32LE(endOfCentralDirectory + 16)
-        : Number(zip.readBigUInt64LE(zip64End + 48));
+    const entryCount = zip64End === null ? zip.readUInt16LE(endOfCentralDirectory + 10) : Number(zip.readBigUInt64LE(zip64End + 32));
+    let central = zip64End === null ? zip.readUInt32LE(endOfCentralDirectory + 16) : Number(zip.readBigUInt64LE(zip64End + 48));
     for (let index = 0; index < entryCount; index += 1) {
-        expect(zip.readUInt32LE(central)).toBe(0x02014B50);
+        expect(zip.readUInt32LE(central)).toBe(0x02014b50);
         const nameLength = zip.readUInt16LE(central + 28);
         const extraLength = zip.readUInt16LE(central + 30);
         const commentLength = zip.readUInt16LE(central + 32);
         const name = zip.toString('utf8', central + 46, central + 46 + nameLength);
         const local = zip.readUInt32LE(central + 42);
-        expect(zip.readUInt32LE(local)).toBe(0x04034B50);
+        expect(zip.readUInt32LE(local)).toBe(0x04034b50);
         const compressedSize = zip.readUInt32LE(central + 20);
         const dataStart = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28);
         const dataEnd = dataStart + compressedSize;
@@ -106,48 +88,36 @@ async function collectDocumentXml(pages: Parameters<typeof createDocxFromTextChu
 
 describe('createDocxFromTextChunks', () => {
     it('gives every central directory entry the general-purpose flags of its local header', async () => {
-        const entries = readZipEntries(await collectDocxBytes([
-            'preface',
-            'appendix',
-        ]));
+        const entries = readZipEntries(await collectDocxBytes(['preface', 'appendix']));
 
-        expect([...entries.keys()]).toEqual([
-            '[Content_Types].xml',
-            '_rels/.rels',
-            'word/document.xml',
-            'word/_rels/document.xml.rels',
-        ]);
+        expect([...entries.keys()]).toEqual(['[Content_Types].xml', '_rels/.rels', 'word/document.xml', 'word/_rels/document.xml.rels']);
         // The streamed document entry sets the data-descriptor bit locally.
         expect(entries.get('word/document.xml')?.localFlags).toBe(0x0008);
-        for (const [
-            name,
-            entry,
-        ] of entries) {
+        for (const [name, entry] of entries) {
             expect(entry.centralFlags, name).toBe(entry.localFlags);
         }
     });
 
     it('DEFLATEs the streamed document entry, which inflates to the exact XML', async () => {
-        const zip = await collectDocxBytes([
-            'preface',
-            'appendix',
-        ]);
+        const zip = await collectDocxBytes(['preface', 'appendix']);
         const entry = documentEntry(zip);
         const xml = inflateRawSync(entry.compressed).toString('utf8');
 
         expect(entry.method).toBe(8);
-        expect(xml).toBe(DOCUMENT_XML_PREFIX
-            + '<w:p><w:r><w:t xml:space="preserve">preface</w:t></w:r></w:p>'
-            + '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
-            + '<w:p><w:r><w:t xml:space="preserve">appendix</w:t></w:r></w:p>'
-            + '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/>'
-            + '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>'
-            + '</w:sectPr></w:body></w:document>');
+        expect(xml).toBe(
+            DOCUMENT_XML_PREFIX +
+                '<w:p><w:r><w:t xml:space="preserve">preface</w:t></w:r></w:p>' +
+                '<w:p><w:r><w:br w:type="page"/></w:r></w:p>' +
+                '<w:p><w:r><w:t xml:space="preserve">appendix</w:t></w:r></w:p>' +
+                '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/>' +
+                '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>' +
+                '</w:sectPr></w:body></w:document>',
+        );
         expect(entry.size).toBe(Buffer.byteLength(xml));
         expect(entry.crc).toBe(zlibCrc32(Buffer.from(xml)));
         // The data descriptor follows the compressed bytes and repeats the CRC and sizes.
         const descriptor = zip.subarray(entry.dataEnd, entry.dataEnd + 16);
-        expect(descriptor.readUInt32LE(0)).toBe(0x08074B50);
+        expect(descriptor.readUInt32LE(0)).toBe(0x08074b50);
         expect(descriptor.readUInt32LE(4)).toBe(entry.crc);
         expect(descriptor.readUInt32LE(8)).toBe(entry.compressedSize);
         expect(descriptor.readUInt32LE(12)).toBe(entry.size);
@@ -180,21 +150,16 @@ describe('createDocxFromTextChunks', () => {
         const xml = await collectDocumentXml(['form\u000Cfeed bell\u0007 lone\uD800 \uFFFE\uFFFF & <kept> \u{1F600}']);
 
         expect(xml).toContain('<w:t xml:space="preserve">formfeed bell lone  &amp; &lt;kept&gt; \u{1F600}</w:t>');
-        expect([...xml].filter(character => {
-            const code = character.codePointAt(0)!;
-            return (code < 0x20 && ![
-                0x9,
-                0xA,
-                0xD,
-            ].includes(code)) || code === 0xFFFE || code === 0xFFFF;
-        })).toEqual([]);
+        expect(
+            [...xml].filter((character) => {
+                const code = character.codePointAt(0)!;
+                return (code < 0x20 && ![0x9, 0xa, 0xd].includes(code)) || code === 0xfffe || code === 0xffff;
+            }),
+        ).toEqual([]);
     });
 
     it('preserves a page break between streamed text pages', async () => {
-        const xml = await collectDocumentXml([
-            'cover page',
-            'inner title page',
-        ]);
+        const xml = await collectDocumentXml(['cover page', 'inner title page']);
 
         expect(xml.match(/<w:br w:type="page"\/>/g)).toHaveLength(1);
         expect(xml.indexOf('cover page')).toBeLessThan(xml.indexOf('<w:br w:type="page"/>'));
@@ -206,29 +171,20 @@ describe('createDocxFromTextChunks', () => {
             'preface',
             {
                 text: 'Title\nleft one\nright one',
-                layout: {regions: [
-                    {columns: [['Title']]},
-                    {columns: [
-                        [
-                            'left one',
-                            'left two',
-                        ],
-                        ['right one'],
-                    ]},
-                ]},
+                layout: {regions: [{columns: [['Title']]}, {columns: [['left one', 'left two'], ['right one']]}]},
             },
             'appendix',
         ]);
         // The body in order: paragraph text, page breaks, and table cells.
-        const body = [...xml.matchAll(/<w:t xml:space="preserve">([^<]*)<\/w:t>|<w:br w:type="page"\/>|<w:tc>|<\/w:tbl>/gu)]
-            .map(([
-                match,
-                text,
-            ]) => text ?? {
-                '<w:br w:type="page"/>': 'page break',
-                '<w:tc>': 'cell',
-                '</w:tbl>': 'end of columns',
-            }[match]);
+        const body = [...xml.matchAll(/<w:t xml:space="preserve">([^<]*)<\/w:t>|<w:br w:type="page"\/>|<w:tc>|<\/w:tbl>/gu)].map(
+            ([match, text]) =>
+                text ??
+                {
+                    '<w:br w:type="page"/>': 'page break',
+                    '<w:tc>': 'cell',
+                    '</w:tbl>': 'end of columns',
+                }[match],
+        );
         expect(body).toEqual([
             'preface',
             'page break',
@@ -246,14 +202,13 @@ describe('createDocxFromTextChunks', () => {
         expect(xml).toContain('<w:tblBorders><w:top w:val="nil"/>');
     });
 
-    it('puts a right-to-left page\'s right column first and shows it on the right', async () => {
-        const xml = await collectDocumentXml([{
-            text: 'שמאל\nימין',
-            layout: {regions: [{columns: [
-                ['שמאל'],
-                ['ימין'],
-            ]}]},
-        }]);
+    it("puts a right-to-left page's right column first and shows it on the right", async () => {
+        const xml = await collectDocumentXml([
+            {
+                text: 'שמאל\nימין',
+                layout: {regions: [{columns: [['שמאל'], ['ימין']]}]},
+            },
+        ]);
         expect(xml).toContain('<w:tblPr><w:bidiVisual/>');
         expect(xml.indexOf('ימין')).toBeLessThan(xml.indexOf('שמאל'));
     });
@@ -266,7 +221,7 @@ describe('createDocxFromTextChunks', () => {
 
     it('coalesces generated bytes into bounded transport chunks', async () => {
         // Pseudo-random letters that DEFLATE cannot shrink much, so the compressed output fills whole chunks.
-        let state = 0x9E3779B9;
+        let state = 0x9e3779b9;
         const letters = Array.from({length: DOCX_STREAM_CHUNK_BYTES * 2}, () => {
             state ^= state << 13;
             state ^= state >>> 17;
@@ -279,8 +234,8 @@ describe('createDocxFromTextChunks', () => {
         }
 
         expect(chunks.length).toBeLessThan(20);
-        expect(chunks.every(chunk => chunk.byteLength <= DOCX_STREAM_CHUNK_BYTES)).toBe(true);
-        expect(chunks.some(chunk => chunk.byteLength === DOCX_STREAM_CHUNK_BYTES)).toBe(true);
+        expect(chunks.every((chunk) => chunk.byteLength <= DOCX_STREAM_CHUNK_BYTES)).toBe(true);
+        expect(chunks.some((chunk) => chunk.byteLength === DOCX_STREAM_CHUNK_BYTES)).toBe(true);
     });
 
     it('rejects before producing output when its signal is already canceled', async () => {
@@ -319,11 +274,7 @@ describe('stored image ZIP', () => {
             offset += local.byteLength + data.byteLength;
         }
         const centralSize = centralHeaders.reduce((size, header) => size + header.byteLength, 0);
-        const zip = Buffer.concat([
-            ...locals,
-            ...centralHeaders,
-            makeEndOfCentralDirectory(count, centralSize, offset),
-        ]);
+        const zip = Buffer.concat([...locals, ...centralHeaders, makeEndOfCentralDirectory(count, centralSize, offset)]);
         const entries = readZipEntries(zip);
 
         expect(entries.size).toBe(count);

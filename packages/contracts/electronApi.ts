@@ -1,8 +1,8 @@
-import type { IPlatformApi } from '@contracts/platformApi';
-import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
-import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsPreference';
-import type { IHostEnvironmentSnapshot } from '@contracts/hostPlatformFeature';
-import type { TUiScalePreference } from '@contracts/shared';
+import type {IPlatformApi} from '@contracts/platformApi';
+import type {IUpdatesCapability} from '@contracts/updatesPlatformFeature';
+import type {IDiagnosticsRendererCapability} from '@contracts/diagnostics/diagnosticsPreference';
+import type {IHostEnvironmentSnapshot} from '@contracts/hostPlatformFeature';
+import type {TUiScalePreference} from '@contracts/shared';
 
 export type * from '@contracts/agent';
 export type * from '@contracts/pdfConformance';

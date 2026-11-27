@@ -1,7 +1,5 @@
-import {
-    IMAGE_EXPORT_FORMATS, type TImageExportFormat,
-} from '@pdf-core/imageExportFileName';
-import type { IFilePickerAcceptType } from '@app/platform/browser/browserCapabilityTier';
+import {IMAGE_EXPORT_FORMATS, type TImageExportFormat} from '@pdf-core/imageExportFileName';
+import type {IFilePickerAcceptType} from '@app/platform/browser/browserCapabilityTier';
 
 const SUPPORTED_IMAGE_EXTENSIONS = [
     '.apng',
@@ -21,15 +19,8 @@ const SUPPORTED_IMAGE_EXTENSIONS = [
 const OPEN_IMAGE_ACCEPT = 'image/*';
 const OPEN_PDF_ACCEPT = '.pdf,application/pdf';
 const OPEN_DJVU_ACCEPT = '.djvu,.djv';
-const OPEN_PDF_IMAGE_ACCEPT = [
-    OPEN_PDF_ACCEPT,
-    ...SUPPORTED_IMAGE_EXTENSIONS,
-    '.jp2',
-].join(',');
-const OPEN_INPUT_ACCEPT = [
-    OPEN_PDF_IMAGE_ACCEPT,
-    OPEN_DJVU_ACCEPT,
-].join(',');
+const OPEN_PDF_IMAGE_ACCEPT = [OPEN_PDF_ACCEPT, ...SUPPORTED_IMAGE_EXTENSIONS, '.jp2'].join(',');
+const OPEN_INPUT_ACCEPT = [OPEN_PDF_IMAGE_ACCEPT, OPEN_DJVU_ACCEPT].join(',');
 
 const DEFAULT_FILE_PICKER_DESCRIPTIONS = {
     documents: 'Documents',
@@ -42,102 +33,95 @@ const DEFAULT_FILE_PICKER_DESCRIPTIONS = {
 } as const;
 
 type TBrowserFilePickerDescriptionKey = keyof typeof DEFAULT_FILE_PICKER_DESCRIPTIONS;
-type TBrowserFilePickerDescriptionProvider = (
-    key: TBrowserFilePickerDescriptionKey,
-) => string;
+type TBrowserFilePickerDescriptionProvider = (key: TBrowserFilePickerDescriptionKey) => string;
 
-let filePickerDescriptionProvider: TBrowserFilePickerDescriptionProvider = (
-    key,
-) => DEFAULT_FILE_PICKER_DESCRIPTIONS[key];
+let filePickerDescriptionProvider: TBrowserFilePickerDescriptionProvider = (key) => DEFAULT_FILE_PICKER_DESCRIPTIONS[key];
 
-function configureBrowserFilePickerDescriptions(
-    provider?: TBrowserFilePickerDescriptionProvider,
-) {
-    filePickerDescriptionProvider = provider ?? (
-        (key) => DEFAULT_FILE_PICKER_DESCRIPTIONS[key]
-    );
+function configureBrowserFilePickerDescriptions(provider?: TBrowserFilePickerDescriptionProvider) {
+    filePickerDescriptionProvider = provider ?? ((key) => DEFAULT_FILE_PICKER_DESCRIPTIONS[key]);
 }
 
 function getFilePickerDescription(key: TBrowserFilePickerDescriptionKey) {
     const description = filePickerDescriptionProvider(key).trim();
-    return description.length > 0
-        ? description
-        : DEFAULT_FILE_PICKER_DESCRIPTIONS[key];
+    return description.length > 0 ? description : DEFAULT_FILE_PICKER_DESCRIPTIONS[key];
 }
 
 function buildOpenPdfPickerTypes(): IFilePickerAcceptType[] {
-    return [{
-        description: getFilePickerDescription('documents'),
-        accept: {
-            'application/pdf': ['.pdf'],
-            'application/octet-stream': [
-                '.djvu',
-                '.djv',
-            ],
-            'image/*': [...SUPPORTED_IMAGE_EXTENSIONS],
-            'image/jp2': ['.jp2'],
+    return [
+        {
+            description: getFilePickerDescription('documents'),
+            accept: {
+                'application/pdf': ['.pdf'],
+                'application/octet-stream': ['.djvu', '.djv'],
+                'image/*': [...SUPPORTED_IMAGE_EXTENSIONS],
+                'image/jp2': ['.jp2'],
+            },
         },
-    }];
+    ];
 }
 
 function buildOpenPdfImagePickerTypes(): IFilePickerAcceptType[] {
-    return [{
-        description: getFilePickerDescription('documents'),
-        accept: {
-            'application/pdf': ['.pdf'],
-            'image/*': [...SUPPORTED_IMAGE_EXTENSIONS],
-            'image/jp2': ['.jp2'],
+    return [
+        {
+            description: getFilePickerDescription('documents'),
+            accept: {
+                'application/pdf': ['.pdf'],
+                'image/*': [...SUPPORTED_IMAGE_EXTENSIONS],
+                'image/jp2': ['.jp2'],
+            },
         },
-    }];
+    ];
 }
 
 function buildImagePickerTypes(): IFilePickerAcceptType[] {
-    return [{
-        description: getFilePickerDescription('images'),
-        accept: { 'image/*': [...SUPPORTED_IMAGE_EXTENSIONS] },
-    }];
+    return [
+        {
+            description: getFilePickerDescription('images'),
+            accept: {'image/*': [...SUPPORTED_IMAGE_EXTENSIONS]},
+        },
+    ];
 }
 
 function buildPdfSaveTypes(): IFilePickerAcceptType[] {
-    return [{
-        description: getFilePickerDescription('pdfDocuments'),
-        accept: { 'application/pdf': ['.pdf'] },
-    }];
+    return [
+        {
+            description: getFilePickerDescription('pdfDocuments'),
+            accept: {'application/pdf': ['.pdf']},
+        },
+    ];
 }
 
 function buildDocxSaveTypes(): IFilePickerAcceptType[] {
-    return [{
-        description: getFilePickerDescription('wordDocuments'),
-        accept: {'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx']},
-    }];
+    return [
+        {
+            description: getFilePickerDescription('wordDocuments'),
+            accept: {'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx']},
+        },
+    ];
 }
 
 function buildImageExportPickerTypes(format?: TImageExportFormat): IFilePickerAcceptType[] {
     const types: IFilePickerAcceptType[] = [
         {
             description: getFilePickerDescription('jpegImages'),
-            accept: { 'image/jpeg': [
-                '.jpg',
-                '.jpeg',
-            ] },
+            accept: {'image/jpeg': ['.jpg', '.jpeg']},
         },
         {
             description: getFilePickerDescription('pngImages'),
-            accept: { 'image/png': ['.png'] },
+            accept: {'image/png': ['.png']},
         },
         ...buildTiffSaveTypes(),
     ];
-    return format ? types.filter(type => IMAGE_EXPORT_FORMATS[format].mimeType in type.accept) : types;
+    return format ? types.filter((type) => IMAGE_EXPORT_FORMATS[format].mimeType in type.accept) : types;
 }
 
 function buildTiffSaveTypes(): IFilePickerAcceptType[] {
-    return [{
-        description: getFilePickerDescription('tiffImages'),
-        accept: { 'image/tiff': [
-            '.tif',
-            '.tiff',
-        ] },
-    }];
+    return [
+        {
+            description: getFilePickerDescription('tiffImages'),
+            accept: {'image/tiff': ['.tif', '.tiff']},
+        },
+    ];
 }
 
 export {
@@ -153,5 +137,5 @@ export {
     buildTiffSaveTypes,
     configureBrowserFilePickerDescriptions,
 };
-export type { TBrowserFilePickerDescriptionKey };
-export type { IFilePickerAcceptType } from '@app/platform/browser/browserCapabilityTier';
+export type {TBrowserFilePickerDescriptionKey};
+export type {IFilePickerAcceptType} from '@app/platform/browser/browserCapabilityTier';

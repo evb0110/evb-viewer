@@ -3,10 +3,7 @@ import type {
     IWorkspaceDocumentIdentity,
     IWorkspaceDocumentView,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type {
-    IScanCleanupTabSessionState,
-    TDocumentSurfaceMode,
-} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type {IScanCleanupTabSessionState, TDocumentSurfaceMode} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
 /** Scan Cleanup rasterizes the working copy, so only a real source counts. */
 function hasScanCleanupSourceDocument(identity: IWorkspaceDocumentIdentity) {
@@ -20,19 +17,15 @@ interface IDocumentWorkspaceScanCleanupSurfaceOptions {
 }
 
 /** Which surface the tab shows, reader or Scan Cleanup; the tab's view state owns it. */
-export const useDocumentWorkspaceScanCleanupSurface = (
-    options: IDocumentWorkspaceScanCleanupSurfaceOptions,
-) => {
-    const {
-        documentSession,
-        documentView,
-    } = options;
+export const useDocumentWorkspaceScanCleanupSurface = (options: IDocumentWorkspaceScanCleanupSurfaceOptions) => {
+    const {documentSession, documentView} = options;
     const surfaceMode = computed<TDocumentSurfaceMode>({
         get: () => documentView.viewState.value.surfaceMode ?? 'reader',
-        set: surfaceMode => documentView.applyViewState({
-            ...documentView.viewState.value,
-            surfaceMode,
-        }),
+        set: (surfaceMode) =>
+            documentView.applyViewState({
+                ...documentView.viewState.value,
+                surfaceMode,
+            }),
     });
     const scanCleanupSessionState = computed(() => documentView.viewState.value.scanCleanup ?? null);
     // Set once the lazily loaded cleanup surface has painted, so the reader
@@ -51,10 +44,7 @@ export const useDocumentWorkspaceScanCleanupSurface = (
 
     /** Forgets the saved scan-cleanup view state so the next entry starts fresh. */
     function discardScanCleanupSessionState() {
-        const {
-            scanCleanup: _scanCleanup,
-            ...viewState
-        } = documentView.viewState.value;
+        const {scanCleanup: _scanCleanup, ...viewState} = documentView.viewState.value;
         documentView.applyViewState(viewState);
     }
 

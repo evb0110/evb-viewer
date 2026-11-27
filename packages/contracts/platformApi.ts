@@ -1,6 +1,6 @@
-import type { IAgentCapability } from '@contracts/agentPlatformFeature';
-import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
-import type { IDocxExportFileCapability } from '@contracts/docxExport';
+import type {IAgentCapability} from '@contracts/agentPlatformFeature';
+import type {IDjvuCapability} from '@contracts/djvuPlatformFeature';
+import type {IDocxExportFileCapability} from '@contracts/docxExport';
 import type {
     IDocumentsFileIoCapability,
     IDocumentsMenuCapability,
@@ -11,28 +11,25 @@ import type {
     IDocumentsWindowCapability,
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
-import type { IHostCapability } from '@contracts/hostPlatformFeature';
-import type { IOcrCapability } from '@contracts/ocrPlatformFeature';
-import type { IScanCleanupCapability } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
-import type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
-import type { IPageOpsCapability } from '@contracts/pageOpsPlatformFeature';
-import type { ISearchCapability } from '@contracts/searchPlatformFeature';
-import type { ISettingsCapability } from '@contracts/settingsPlatformFeature';
-import type { IShellCapability } from '@contracts/shellPlatformFeature';
-import type { ISystemCapability } from '@contracts/systemPlatformFeature';
-import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
-import type { IWindowTabsCapability } from '@contracts/windowTabsPlatformFeature';
-export type { IImageExportCapability } from '@contracts/imageExportPlatformFeature';
-export type { IAgentCapability } from '@contracts/agentPlatformFeature';
-export type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
-export type { IOcrCapability } from '@contracts/ocrPlatformFeature';
-export type { IScanCleanupCapability } from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
-export type { IPageOpsCapability } from '@contracts/pageOpsPlatformFeature';
+import type {IHostCapability} from '@contracts/hostPlatformFeature';
+import type {IOcrCapability} from '@contracts/ocrPlatformFeature';
+import type {IScanCleanupCapability} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+import type {IImageExportCapability} from '@contracts/imageExportPlatformFeature';
+import type {IPageOpsCapability} from '@contracts/pageOpsPlatformFeature';
+import type {ISearchCapability} from '@contracts/searchPlatformFeature';
+import type {ISettingsCapability} from '@contracts/settingsPlatformFeature';
+import type {IShellCapability} from '@contracts/shellPlatformFeature';
+import type {ISystemCapability} from '@contracts/systemPlatformFeature';
+import type {IUpdatesCapability} from '@contracts/updatesPlatformFeature';
+import type {IWindowTabsCapability} from '@contracts/windowTabsPlatformFeature';
+export type {IImageExportCapability} from '@contracts/imageExportPlatformFeature';
+export type {IAgentCapability} from '@contracts/agentPlatformFeature';
+export type {IDjvuCapability} from '@contracts/djvuPlatformFeature';
+export type {IOcrCapability} from '@contracts/ocrPlatformFeature';
+export type {IScanCleanupCapability} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
+export type {IPageOpsCapability} from '@contracts/pageOpsPlatformFeature';
 export type * from '@contracts/platformApiDescriptor';
-export {
-    getPlatformMethodDescriptor,
-    PLATFORM_API_DESCRIPTOR,
-} from '@contracts/platformApiDescriptor';
+export {getPlatformMethodDescriptor, PLATFORM_API_DESCRIPTOR} from '@contracts/platformApiDescriptor';
 
 export interface IPlatformApi {
     documentPicker: IDocumentsPickerCapability;
@@ -58,7 +55,7 @@ export interface IPlatformApi {
     agent: IAgentCapability;
 }
 
-export type { TDocumentRef } from '@contracts/documentRef';
+export type {TDocumentRef} from '@contracts/documentRef';
 export type * from '@contracts/platformUnsupported';
 export type * from '@contracts/documentRevision';
 export type * from '@contracts/shared';

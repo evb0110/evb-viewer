@@ -1,5 +1,8 @@
 <template>
-    <div class="document-viewer-fling-backdrop" aria-hidden="true">
+    <div
+        class="document-viewer-fling-backdrop"
+        aria-hidden="true"
+    >
         <div
             v-if="strip"
             class="document-viewer-fling-backdrop__client"
@@ -35,23 +38,19 @@
 </template>
 
 <script setup lang="ts">
-import { useTimeoutFn } from '@vueuse/core';
-import {
-    FLING_BACKDROP_HOLD_MS,
-    FLING_BACKDROP_USER_WHEEL_WINDOW_MS,
-} from '@app/constants/timeouts';
+import {useTimeoutFn} from '@vueuse/core';
+import {FLING_BACKDROP_HOLD_MS, FLING_BACKDROP_USER_WHEEL_WINDOW_MS} from '@app/constants/timeouts';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
-import {
-    injectDocumentViewerRuntime,
-    resolveDocumentWheelInteraction,
-} from '@app/modules/document-viewer/public';
+import {injectDocumentViewerRuntime, resolveDocumentWheelInteraction} from '@app/modules/document-viewer/public';
 
 interface IScrollTimelineOptions {
     source: Element;
     axis: 'block';
 }
 
-interface IScrollTimelineConstructor {new (options: IScrollTimelineOptions): AnimationTimeline}
+interface IScrollTimelineConstructor {
+    new (options: IScrollTimelineOptions): AnimationTimeline;
+}
 
 // The backdrop and the viewport are read from the chassis runtime that owns
 // them, so the chassis does not re-render when the row geometry changes.
@@ -75,9 +74,13 @@ let binding: {
     rowPitch: number;
     scrollRange: number;
 } | null = null;
-const { start: startHold } = useTimeoutFn(() => {
-    active.value = false;
-}, FLING_BACKDROP_HOLD_MS, {immediate: false});
+const {start: startHold} = useTimeoutFn(
+    () => {
+        active.value = false;
+    },
+    FLING_BACKDROP_HOLD_MS,
+    {immediate: false},
+);
 // Rebinds the scroll animation when no binding exists yet, for example while
 // the scroll range was still empty.
 const bindRevision = ref(0);
@@ -86,14 +89,8 @@ const bindRevision = ref(0);
 // page changes, and an unchanged row must not restart the scroll animation.
 const pitch = computed(() => backdrop.value?.pitch ?? 0);
 const columnGap = computed(() => backdrop.value?.columnGap ?? 0);
-const phase = computed(() => (pitch.value > 0
-    ? (((backdrop.value?.rowTop ?? 0) % pitch.value) + pitch.value) % pitch.value
-    : 0));
-const rowCount = computed(() => (
-    viewportHeight.value > 0 && pitch.value > 0
-        ? Math.ceil(viewportHeight.value / pitch.value) + 2
-        : 0
-));
+const phase = computed(() => (pitch.value > 0 ? (((backdrop.value?.rowTop ?? 0) % pitch.value) + pitch.value) % pitch.value : 0));
+const rowCount = computed(() => (viewportHeight.value > 0 && pitch.value > 0 ? Math.ceil(viewportHeight.value / pitch.value) + 2 : 0));
 
 // The strip stays mounted, transparent while idle, so that showing it does not
 // wait for raster.
@@ -124,7 +121,7 @@ const strip = computed(() => {
 
 function getScrollTimelineConstructor() {
     const candidate: unknown = Reflect.get(window, 'ScrollTimeline');
-    return typeof candidate === 'function' ? candidate as IScrollTimelineConstructor : null;
+    return typeof candidate === 'function' ? (candidate as IScrollTimelineConstructor) : null;
 }
 
 function syncScrollRange() {
@@ -168,67 +165,68 @@ function handleScroll(event: Event) {
     showStrip();
 }
 
-watch(viewport, (element, _previous, onCleanup) => {
-    lastScrollTop = null;
-    if (!element) {
-        return;
-    }
-    const handleWheel = (event: WheelEvent) => {
-        const interaction = resolveDocumentWheelInteraction(event, element);
-        if (interaction.intent === 'zoom') {
+watch(
+    viewport,
+    (element, _previous, onCleanup) => {
+        lastScrollTop = null;
+        if (!element) {
             return;
         }
-        lastUserWheelAt = performance.now();
-        // A packet that alone scrolls past the viewport shows the strip before
-        // the compositor applies it.
-        if (viewportHeight.value > 0 && Math.abs(interaction.deltaPx) > viewportHeight.value) {
-            showStrip();
+        const handleWheel = (event: WheelEvent) => {
+            const interaction = resolveDocumentWheelInteraction(event, element);
+            if (interaction.intent === 'zoom') {
+                return;
+            }
+            lastUserWheelAt = performance.now();
+            // A packet that alone scrolls past the viewport shows the strip before
+            // the compositor applies it.
+            if (viewportHeight.value > 0 && Math.abs(interaction.deltaPx) > viewportHeight.value) {
+                showStrip();
+            }
+        };
+        element.addEventListener('scroll', handleScroll, {passive: true});
+        element.addEventListener('wheel', handleWheel, {passive: true});
+        // The content resizes without the viewport when pages are added or
+        // removed. Resize callbacks run before paint, so the iterations never lag
+        // the scroll range by a visible frame.
+        const observer = new ResizeObserver(() => {
+            viewportWidth.value = element.clientWidth;
+            viewportHeight.value = element.clientHeight;
+            viewportClientLeft.value = element.clientLeft;
+            viewportClientTop.value = element.clientTop;
+            syncScrollRange();
+        });
+        observer.observe(element);
+        for (const child of element.children) {
+            observer.observe(child);
         }
-    };
-    element.addEventListener('scroll', handleScroll, {passive: true});
-    element.addEventListener('wheel', handleWheel, {passive: true});
-    // The content resizes without the viewport when pages are added or
-    // removed. Resize callbacks run before paint, so the iterations never lag
-    // the scroll range by a visible frame.
-    const observer = new ResizeObserver(() => {
-        viewportWidth.value = element.clientWidth;
-        viewportHeight.value = element.clientHeight;
-        viewportClientLeft.value = element.clientLeft;
-        viewportClientTop.value = element.clientTop;
-        syncScrollRange();
-    });
-    observer.observe(element);
-    for (const child of element.children) {
-        observer.observe(child);
-    }
-    const contentObserver = new MutationObserver((records) => {
-        for (const record of records) {
-            for (const node of record.removedNodes) {
-                if (node instanceof Element) {
-                    observer.unobserve(node);
+        const contentObserver = new MutationObserver((records) => {
+            for (const record of records) {
+                for (const node of record.removedNodes) {
+                    if (node instanceof Element) {
+                        observer.unobserve(node);
+                    }
+                }
+                for (const node of record.addedNodes) {
+                    if (node instanceof Element && node.parentElement === element) {
+                        observer.observe(node);
+                    }
                 }
             }
-            for (const node of record.addedNodes) {
-                if (node instanceof Element && node.parentElement === element) {
-                    observer.observe(node);
-                }
-            }
-        }
-    });
-    contentObserver.observe(element, {childList: true});
-    onCleanup(() => {
-        element.removeEventListener('scroll', handleScroll);
-        element.removeEventListener('wheel', handleWheel);
-        observer.disconnect();
-        contentObserver.disconnect();
-    });
-}, {immediate: true});
+        });
+        contentObserver.observe(element, {childList: true});
+        onCleanup(() => {
+            element.removeEventListener('scroll', handleScroll);
+            element.removeEventListener('wheel', handleWheel);
+            observer.disconnect();
+            contentObserver.disconnect();
+        });
+    },
+    {immediate: true},
+);
 
 function rowKeyframes(rowPitch: number) {
-    return [
-        {transform: 'translateY(0)'},
-        {transform: `translateY(${-rowPitch}px)`},
-    ];
+    return [{transform: 'translateY(0)'}, {transform: `translateY(${-rowPitch}px)`}];
 }
 
 // The compositor drives the strip from the viewport's scroll offset: each
@@ -237,42 +235,39 @@ function rowKeyframes(rowPitch: number) {
 // bound while the strip is transparent: a fling can outrun raster in its first
 // frame, before the main thread shows the strip, and binding it then would
 // cost more frames. The iterations follow the scroll range as it changes.
-watch([
-    stripElement,
-    viewport,
-    bindRevision,
-], ([
-    element,
-    source,
-], _previous, onCleanup) => {
-    const rowPitch = pitch.value;
-    if (!element || !source || !(rowPitch > 0)) {
-        return;
-    }
-    const ScrollTimelineConstructor = getScrollTimelineConstructor();
-    const scrollRange = source.scrollHeight - source.clientHeight;
-    if (!ScrollTimelineConstructor || scrollRange <= 0) {
-        return;
-    }
-    const animation = element.animate(rowKeyframes(rowPitch), {
-        timeline: new ScrollTimelineConstructor({
-            source,
-            axis: 'block',
-        }),
-        iterations: scrollRange / rowPitch,
-        easing: 'linear',
-        fill: 'both',
-    });
-    binding = {
-        animation,
-        rowPitch,
-        scrollRange,
-    };
-    onCleanup(() => {
-        animation.cancel();
-        binding = null;
-    });
-}, {immediate: true});
+watch(
+    [stripElement, viewport, bindRevision],
+    ([element, source], _previous, onCleanup) => {
+        const rowPitch = pitch.value;
+        if (!element || !source || !(rowPitch > 0)) {
+            return;
+        }
+        const ScrollTimelineConstructor = getScrollTimelineConstructor();
+        const scrollRange = source.scrollHeight - source.clientHeight;
+        if (!ScrollTimelineConstructor || scrollRange <= 0) {
+            return;
+        }
+        const animation = element.animate(rowKeyframes(rowPitch), {
+            timeline: new ScrollTimelineConstructor({
+                source,
+                axis: 'block',
+            }),
+            iterations: scrollRange / rowPitch,
+            easing: 'linear',
+            fill: 'both',
+        });
+        binding = {
+            animation,
+            rowPitch,
+            scrollRange,
+        };
+        onCleanup(() => {
+            animation.cancel();
+            binding = null;
+        });
+    },
+    {immediate: true},
+);
 
 // A zoom or a pane resize changes the row pitch, during a divider drag on
 // every frame. The bound animation takes the new pitch in place: rebinding

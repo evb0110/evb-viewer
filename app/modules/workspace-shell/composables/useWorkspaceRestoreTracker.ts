@@ -1,4 +1,4 @@
-import { omit } from 'es-toolkit/object';
+import {omit} from 'es-toolkit/object';
 
 export interface IWorkspaceRestoreTrackerLike {
     has: (tabId: string) => boolean;
@@ -6,10 +6,7 @@ export interface IWorkspaceRestoreTrackerLike {
     finish: (tabId: string) => void;
 }
 
-const useRestoringTabCounts = () => useState<Record<string, number>>(
-    'workspace-restore:counts',
-    () => ({}),
-);
+const useRestoringTabCounts = () => useState<Record<string, number>>('workspace-restore:counts', () => ({}));
 
 export const useWorkspaceRestoreTracker = () => {
     const restoringTabCounts = useRestoringTabCounts();

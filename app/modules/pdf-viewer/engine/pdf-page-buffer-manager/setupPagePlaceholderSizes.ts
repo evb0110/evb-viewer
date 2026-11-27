@@ -1,22 +1,18 @@
-import { parsePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {parsePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type { IPdfPageMetric } from '@app/types/pdfUi';
-import {
-    buildPdfPageScaleStyle,
-    createPdfPageScale,
-} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+import type {IPdfPageMetric} from '@app/types/pdfUi';
+import {buildPdfPageScaleStyle, createPdfPageScale} from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 
-const placeholderSizeCache = new WeakMap<HTMLElement, {
-    width: number;
-    height: number;
-}>();
+const placeholderSizeCache = new WeakMap<
+    HTMLElement,
+    {
+        width: number;
+        height: number;
+    }
+>();
 
-function setStyleProperty(
-    style: CSSStyleDeclaration,
-    property: string,
-    value: string,
-) {
+function setStyleProperty(style: CSSStyleDeclaration, property: string, value: string) {
     if (typeof style.setProperty === 'function') {
         style.setProperty(property, value);
         return;
@@ -50,18 +46,11 @@ export function setupPagePlaceholderSizes(
         const width = metric.width * pageScale;
         const height = metric.height * pageScale;
         const scaleStyle = buildPdfPageScaleStyle(createPdfPageScale(pageScale, metric.userUnit));
-        Object.entries(scaleStyle).forEach(([
-            property,
-            value,
-        ]) => {
+        Object.entries(scaleStyle).forEach(([property, value]) => {
             setStyleProperty(container.style, property, value);
         });
         const cached = placeholderSizeCache.get(container);
-        if (
-            cached
-            && Math.abs(cached.width - width) < 0.25
-            && Math.abs(cached.height - height) < 0.25
-        ) {
+        if (cached && Math.abs(cached.width - width) < 0.25 && Math.abs(cached.height - height) < 0.25) {
             return;
         }
         container.style.width = `${width}px`;

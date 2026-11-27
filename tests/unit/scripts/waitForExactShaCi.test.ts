@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     defaultCommandRunner,
     EXACT_SHA_CI_APPEARANCE_TIMEOUT_MS,
@@ -56,16 +52,20 @@ function createHarness(timeline: (elapsedMs: number) => IScriptedMinute) {
             if (frame.status === 'absent') {
                 return JSON.stringify({workflow_runs: []});
             }
-            return JSON.stringify({workflow_runs: [{
-                conclusion: frame.status === 'completed' ? frame.conclusion ?? 'success' : null,
-                event: frame.event ?? 'push',
-                head_branch: 'main',
-                head_sha: TARGET_SHA,
-                html_url: RUN_URL,
-                id: 424242,
-                run_number: 7,
-                status: frame.status,
-            }]});
+            return JSON.stringify({
+                workflow_runs: [
+                    {
+                        conclusion: frame.status === 'completed' ? (frame.conclusion ?? 'success') : null,
+                        event: frame.event ?? 'push',
+                        head_branch: 'main',
+                        head_sha: TARGET_SHA,
+                        html_url: RUN_URL,
+                        id: 424242,
+                        run_number: 7,
+                        status: frame.status,
+                    },
+                ],
+            });
         }
         if (spec.includes('/jobs?per_page=100')) {
             return frame.gatesOk ?? '';
@@ -109,16 +109,20 @@ function createParentVerificationHarness({
                 return JSON.stringify({workflow_runs: []});
             }
             if (spec.includes(`head_sha=${PARENT_SHA}`)) {
-                return JSON.stringify({workflow_runs: [{
-                    conclusion: parentConclusion,
-                    event: parentEvent,
-                    head_branch: 'main',
-                    head_sha: PARENT_SHA,
-                    html_url: PARENT_RUN_URL,
-                    id: 313131,
-                    run_number: 6,
-                    status: parentStatus,
-                }].filter(() => !parentRunMissing)});
+                return JSON.stringify({
+                    workflow_runs: [
+                        {
+                            conclusion: parentConclusion,
+                            event: parentEvent,
+                            head_branch: 'main',
+                            head_sha: PARENT_SHA,
+                            html_url: PARENT_RUN_URL,
+                            id: 313131,
+                            run_number: 6,
+                            status: parentStatus,
+                        },
+                    ].filter(() => !parentRunMissing),
+                });
             }
         }
         if (command === 'gh' && spec.includes('/jobs?per_page=100')) {
@@ -162,13 +166,15 @@ describe('waitForExactShaCiGates', () => {
     it('waits past the old stale budget for a run that finishes late and green', async () => {
         const lateSuccessAtMs = OLD_STALE_BUDGET_MS + 60_000;
         expect(EXACT_SHA_CI_COMPLETION_TIMEOUT_MS).toBeGreaterThan(lateSuccessAtMs);
-        const harness = createHarness(elapsedMs => (elapsedMs < lateSuccessAtMs
-            ? {status: 'in_progress'}
-            : {
-                conclusion: 'success',
-                gatesOk: 'success',
-                status: 'completed',
-            }));
+        const harness = createHarness((elapsedMs) =>
+            elapsedMs < lateSuccessAtMs
+                ? {status: 'in_progress'}
+                : {
+                      conclusion: 'success',
+                      gatesOk: 'success',
+                      status: 'completed',
+                  },
+        );
 
         await expect(waitForExactShaCiGates(TARGET_SHA, harness)).resolves.toEqual({
             id: 424242,
@@ -180,41 +186,47 @@ describe('waitForExactShaCiGates', () => {
     it('fails immediately on exact-SHA API errors when dry-run lookup is strict', async () => {
         const harness = createHarness(() => ({status: 'absent'}));
         const runCommand = (command: string, args: string[]) => {
-            if (args.some(argument => argument.includes('/runs?head_sha='))) {
+            if (args.some((argument) => argument.includes('/runs?head_sha='))) {
                 throw new Error('HTTP 403: resource not accessible');
             }
             return harness.runCommand(command, args);
         };
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...harness,
-            failOnLookupError: true,
-            runCommand,
-        })).rejects.toThrow('HTTP 403: resource not accessible');
+        await expect(
+            waitForExactShaCiGates(TARGET_SHA, {
+                ...harness,
+                failOnLookupError: true,
+                runCommand,
+            }),
+        ).rejects.toThrow('HTTP 403: resource not accessible');
         expect(harness.nowFn()).toBe(0);
     });
 
     it('accepts a skipped-CI release commit after its version-only parent is green', async () => {
         const harness = createParentVerificationHarness();
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...harness,
-            appearanceTimeoutMs: 0,
-        })).resolves.toEqual({
+        await expect(
+            waitForExactShaCiGates(TARGET_SHA, {
+                ...harness,
+                appearanceTimeoutMs: 0,
+            }),
+        ).resolves.toEqual({
             id: 313131,
             parentSha: PARENT_SHA,
             url: PARENT_RUN_URL,
             verifiedByParent: true,
         });
-        expect(harness.commands.some(command => command.includes(`head_sha=${PARENT_SHA}`))).toBe(true);
+        expect(harness.commands.some((command) => command.includes(`head_sha=${PARENT_SHA}`))).toBe(true);
     });
 
     it('fetches the parent when the checkout is shallow', async () => {
         const harness = createParentVerificationHarness({parentObjectMissing: true});
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...harness,
-            appearanceTimeoutMs: 0,
-        })).resolves.toMatchObject({
+        await expect(
+            waitForExactShaCiGates(TARGET_SHA, {
+                ...harness,
+                appearanceTimeoutMs: 0,
+            }),
+        ).resolves.toMatchObject({
             parentSha: PARENT_SHA,
             verifiedByParent: true,
         });
@@ -223,46 +235,56 @@ describe('waitForExactShaCiGates', () => {
 
     it('fails closed and names the parent when the parent has no CI run', async () => {
         const harness = createParentVerificationHarness({parentRunMissing: true});
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...harness,
-            appearanceTimeoutMs: 0,
-        })).rejects.toThrow(new RegExp(`No ci\\.yml run appeared for release parent ${PARENT_SHA}`, 'u'));
+        await expect(
+            waitForExactShaCiGates(TARGET_SHA, {
+                ...harness,
+                appearanceTimeoutMs: 0,
+            }),
+        ).rejects.toThrow(new RegExp(`No ci\\.yml run appeared for release parent ${PARENT_SHA}`, 'u'));
     });
 
     it('rejects a target whose diff is not exactly one package.json version line', async () => {
         const harness = createParentVerificationHarness({numstat: '2\t1\tpackage.json\n'});
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...harness,
-            appearanceTimeoutMs: 0,
-        })).rejects.toThrow(/not a version-only package\.json commit/u);
+        await expect(
+            waitForExactShaCiGates(TARGET_SHA, {
+                ...harness,
+                appearanceTimeoutMs: 0,
+            }),
+        ).rejects.toThrow(/not a version-only package\.json commit/u);
     });
 
     it('rejects a red parent run', async () => {
         const harness = createParentVerificationHarness({parentConclusion: 'failure'});
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...harness,
-            appearanceTimeoutMs: 0,
-        })).rejects.toThrow(/parent.*concluded 'failure'/u);
+        await expect(
+            waitForExactShaCiGates(TARGET_SHA, {
+                ...harness,
+                appearanceTimeoutMs: 0,
+            }),
+        ).rejects.toThrow(/parent.*concluded 'failure'/u);
     });
 
     it('rejects a parent without a successful gates_ok aggregate', async () => {
         const harness = createParentVerificationHarness({parentGates: 'failure'});
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...harness,
-            appearanceTimeoutMs: 0,
-        })).rejects.toThrow(/parent.*did not contain a successful gates_ok/u);
+        await expect(
+            waitForExactShaCiGates(TARGET_SHA, {
+                ...harness,
+                appearanceTimeoutMs: 0,
+            }),
+        ).rejects.toThrow(/parent.*did not contain a successful gates_ok/u);
     });
 
     it('rejects a cancelled parent and names the rerun that would give it a verdict', async () => {
         const harness = createParentVerificationHarness({parentConclusion: 'cancelled'});
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...harness,
-            appearanceTimeoutMs: 0,
-        })).rejects.toThrow(/concluded 'cancelled'.*gh run rerun 313131/u);
+        await expect(
+            waitForExactShaCiGates(TARGET_SHA, {
+                ...harness,
+                appearanceTimeoutMs: 0,
+            }),
+        ).rejects.toThrow(/concluded 'cancelled'.*gh run rerun 313131/u);
     });
 
     it('judges a version-only release commit by its parent at once, without polling for its own run', async () => {
@@ -272,61 +294,60 @@ describe('waitForExactShaCiGates', () => {
             id: 313131,
             verifiedByParent: true,
         });
-        expect(harness.commands.some(command => command.includes(`head_sha=${TARGET_SHA}`))).toBe(false);
+        expect(harness.commands.some((command) => command.includes(`head_sha=${TARGET_SHA}`))).toBe(false);
         expect(harness.nowFn()).toBe(0);
     });
 
     it('lists successful main push runs newest first, filtering the conclusion itself', () => {
         const runs = listSuccessfulMainPushRuns((_command: string, args: string[]) => {
             expect(args.join(' ')).toContain('runs?branch=main&event=push&per_page=30');
-            return JSON.stringify({workflow_runs: [
-                {
-                    conclusion: 'failure',
-                    event: 'push',
-                    head_branch: 'main',
-                    head_sha: TARGET_SHA,
-                    id: 4,
-                    run_number: 9,
-                },
-                {
-                    conclusion: null,
-                    event: 'push',
-                    head_branch: 'main',
-                    head_sha: TARGET_SHA,
-                    id: 5,
-                    run_number: 10,
-                },
-                {
-                    conclusion: 'success',
-                    event: 'push',
-                    head_branch: 'main',
-                    head_sha: PARENT_SHA,
-                    id: 1,
-                    run_number: 5,
-                },
-                {
-                    conclusion: 'success',
-                    event: 'workflow_dispatch',
-                    head_branch: 'main',
-                    head_sha: TARGET_SHA,
-                    id: 2,
-                    run_number: 7,
-                },
-                {
-                    conclusion: 'success',
-                    event: 'push',
-                    head_branch: 'main',
-                    head_sha: TARGET_SHA,
-                    id: 3,
-                    run_number: 6,
-                },
-            ]});
+            return JSON.stringify({
+                workflow_runs: [
+                    {
+                        conclusion: 'failure',
+                        event: 'push',
+                        head_branch: 'main',
+                        head_sha: TARGET_SHA,
+                        id: 4,
+                        run_number: 9,
+                    },
+                    {
+                        conclusion: null,
+                        event: 'push',
+                        head_branch: 'main',
+                        head_sha: TARGET_SHA,
+                        id: 5,
+                        run_number: 10,
+                    },
+                    {
+                        conclusion: 'success',
+                        event: 'push',
+                        head_branch: 'main',
+                        head_sha: PARENT_SHA,
+                        id: 1,
+                        run_number: 5,
+                    },
+                    {
+                        conclusion: 'success',
+                        event: 'workflow_dispatch',
+                        head_branch: 'main',
+                        head_sha: TARGET_SHA,
+                        id: 2,
+                        run_number: 7,
+                    },
+                    {
+                        conclusion: 'success',
+                        event: 'push',
+                        head_branch: 'main',
+                        head_sha: TARGET_SHA,
+                        id: 3,
+                        run_number: 6,
+                    },
+                ],
+            });
         });
 
-        expect(runs.map(runInfo => runInfo.id)).toEqual([
-            3,
-            1,
-        ]);
+        expect(runs.map((runInfo) => runInfo.id)).toEqual([3, 1]);
     });
 
     it('stops when the exact target run was cancelled', async () => {
@@ -335,28 +356,29 @@ describe('waitForExactShaCiGates', () => {
             status: 'completed',
         }));
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, harness))
-            .rejects.toThrow(/run 424242 .*was cancelled, so it has no verdict/u);
+        await expect(waitForExactShaCiGates(TARGET_SHA, harness)).rejects.toThrow(/run 424242 .*was cancelled, so it has no verdict/u);
     });
 
     it('fails promptly with the actual conclusion when the run turns terminal red', async () => {
-        const harness = createHarness(elapsedMs => (elapsedMs < 5 * 60_000
-            ? {status: 'in_progress'}
-            : {
-                conclusion: 'failure',
-                status: 'completed',
-            }));
+        const harness = createHarness((elapsedMs) =>
+            elapsedMs < 5 * 60_000
+                ? {status: 'in_progress'}
+                : {
+                      conclusion: 'failure',
+                      status: 'completed',
+                  },
+        );
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, harness))
-            .rejects.toThrow(/run 424242 .*concluded 'failure'/u);
+        await expect(waitForExactShaCiGates(TARGET_SHA, harness)).rejects.toThrow(/run 424242 .*concluded 'failure'/u);
         expect(Math.max(...harness.pollTimes)).toBeLessThan(7 * 60_000);
     });
 
     it('reports a known run that exceeded the deadline, polling at the boundary', async () => {
         const harness = createHarness(() => ({status: 'in_progress'}));
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, harness))
-            .rejects.toThrow(/run 424242 .*did not reach a terminal state within 60 minutes/u);
+        await expect(waitForExactShaCiGates(TARGET_SHA, harness)).rejects.toThrow(
+            /run 424242 .*did not reach a terminal state within 60 minutes/u,
+        );
         expect(Math.max(...harness.pollTimes)).toBeGreaterThanOrEqual(EXACT_SHA_CI_COMPLETION_TIMEOUT_MS);
     });
 
@@ -367,19 +389,22 @@ describe('waitForExactShaCiGates', () => {
             status: 'completed',
         }));
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, harness))
-            .rejects.toThrow(/did not contain a successful gates_ok aggregate \(saw 'failure'\)/u);
+        await expect(waitForExactShaCiGates(TARGET_SHA, harness)).rejects.toThrow(
+            /did not contain a successful gates_ok aggregate \(saw 'failure'\)/u,
+        );
     });
 
     it('keeps waiting through transient CI lookup failures', async () => {
         let calls = 0;
-        const base = createHarness(elapsedMs => (elapsedMs < 2 * 60_000
-            ? {status: 'in_progress'}
-            : {
-                conclusion: 'success',
-                gatesOk: 'success',
-                status: 'completed',
-            }));
+        const base = createHarness((elapsedMs) =>
+            elapsedMs < 2 * 60_000
+                ? {status: 'in_progress'}
+                : {
+                      conclusion: 'success',
+                      gatesOk: 'success',
+                      status: 'completed',
+                  },
+        );
         const flakyRunCommand = (command: string, args: string[]) => {
             calls += 1;
             if (calls === 1) {
@@ -388,10 +413,12 @@ describe('waitForExactShaCiGates', () => {
             return base.runCommand(command, args);
         };
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...base,
-            runCommand: flakyRunCommand,
-        })).resolves.toMatchObject({id: 424242});
+        await expect(
+            waitForExactShaCiGates(TARGET_SHA, {
+                ...base,
+                runCommand: flakyRunCommand,
+            }),
+        ).resolves.toMatchObject({id: 424242});
     });
 
     it('reads gates_ok again after a transient lookup failure on a finished run', async () => {
@@ -411,10 +438,12 @@ describe('waitForExactShaCiGates', () => {
             return base.runCommand(command, args);
         };
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...base,
-            runCommand: flakyRunCommand,
-        })).resolves.toMatchObject({id: 424242});
+        await expect(
+            waitForExactShaCiGates(TARGET_SHA, {
+                ...base,
+                runCommand: flakyRunCommand,
+            }),
+        ).resolves.toMatchObject({id: 424242});
         expect(jobLookups).toBe(2);
     });
 
@@ -431,36 +460,40 @@ describe('waitForExactShaCiGates', () => {
             return base.runCommand(command, args);
         };
 
-        await expect(waitForExactShaCiGates(TARGET_SHA, {
-            ...base,
-            runCommand: brokenRunCommand,
-        })).rejects.toThrow(/succeeded but the gates_ok lookup kept failing: .*TLS handshake timeout/u);
+        await expect(
+            waitForExactShaCiGates(TARGET_SHA, {
+                ...base,
+                runCommand: brokenRunCommand,
+            }),
+        ).rejects.toThrow(/succeeded but the gates_ok lookup kept failing: .*TLS handshake timeout/u);
     });
 
     it('filters CI runs to main push events', () => {
-        const runs = JSON.stringify({workflow_runs: [
-            {
-                event: 'schedule',
-                head_branch: 'main',
-                head_sha: TARGET_SHA,
-                id: 1,
-                run_number: 99,
-            },
-            {
-                event: 'workflow_dispatch',
-                head_branch: 'main',
-                head_sha: TARGET_SHA,
-                id: 2,
-                run_number: 2,
-            },
-            {
-                event: 'push',
-                head_branch: 'main',
-                head_sha: TARGET_SHA,
-                id: 3,
-                run_number: 1,
-            },
-        ]});
+        const runs = JSON.stringify({
+            workflow_runs: [
+                {
+                    event: 'schedule',
+                    head_branch: 'main',
+                    head_sha: TARGET_SHA,
+                    id: 1,
+                    run_number: 99,
+                },
+                {
+                    event: 'workflow_dispatch',
+                    head_branch: 'main',
+                    head_sha: TARGET_SHA,
+                    id: 2,
+                    run_number: 2,
+                },
+                {
+                    event: 'push',
+                    head_branch: 'main',
+                    head_sha: TARGET_SHA,
+                    id: 3,
+                    run_number: 1,
+                },
+            ],
+        });
 
         expect(findLatestMatchingRun(TARGET_SHA, () => runs)?.id).toBe(3);
     });
@@ -479,24 +512,26 @@ describe('waitForExactShaCiGates', () => {
     });
 
     it('passes a full sha through without asking a possibly shallow checkout', () => {
-        expect(resolveTargetSha(TARGET_SHA, () => {
-            throw new Error('git must not be consulted for a full sha');
-        })).toBe(TARGET_SHA);
+        expect(
+            resolveTargetSha(TARGET_SHA, () => {
+                throw new Error('git must not be consulted for a full sha');
+            }),
+        ).toBe(TARGET_SHA);
     });
 
     it('says what did not resolve instead of rejecting the spelling', () => {
-        expect(() => resolveTargetSha('not-a-ref', () => {
-            throw new Error('fatal: Needed a single revision');
-        })).toThrow(/Could not resolve 'not-a-ref' to a commit.*Needed a single revision/su);
+        expect(() =>
+            resolveTargetSha('not-a-ref', () => {
+                throw new Error('fatal: Needed a single revision');
+            }),
+        ).toThrow(/Could not resolve 'not-a-ref' to a commit.*Needed a single revision/su);
 
-        expect(() => resolveTargetSha('weird-tag', () => 'refs/tags/weird-tag'))
-            .toThrow(/produced 'refs\/tags\/weird-tag', which is not a commit SHA/u);
+        expect(() => resolveTargetSha('weird-tag', () => 'refs/tags/weird-tag')).toThrow(
+            /produced 'refs\/tags\/weird-tag', which is not a commit SHA/u,
+        );
     });
 
     it('binds the default command runner to the same (command, args) contract as the harness', () => {
-        expect(defaultCommandRunner('node', [
-            '-e',
-            'process.stdout.write("runner-contract-ok")',
-        ])).toBe('runner-contract-ok');
+        expect(defaultCommandRunner('node', ['-e', 'process.stdout.write("runner-contract-ok")'])).toBe('runner-contract-ok');
     });
 });

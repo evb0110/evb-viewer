@@ -1,17 +1,10 @@
 import {constants} from 'fs';
-import {
-    copyFile,
-    open as openFileHandle,
-    rename,
-    unlink,
-} from 'fs/promises';
+import {copyFile, open as openFileHandle, rename, unlink} from 'fs/promises';
 import {dirname} from 'path';
 import {fsyncFile} from '@electron/utils/fsyncPath';
 import {syncFileHandleForDurability} from '@electron/utils/syncFileHandleForDurability';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
-import {
-    atomicReplace, makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+import {atomicReplace, makeSiblingTempPath} from '@electron/utils/atomicReplace';
 
 const MAX_IPC_WRITE_BYTES = 16 * 1024 * 1024;
 function assertWithinIpcWriteBudget(byteLength: number) {

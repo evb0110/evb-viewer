@@ -80,13 +80,7 @@ export type TScanCleanupEncodedRaster = Uint8Array;
 
 /** What a plane is: the files a desktop manifest output can publish. */
 export type TScanCleanupWasmPlaneRole =
-    | 'composite'
-    | 'bilevel'
-    | 'background'
-    | 'foreground-mask'
-    | 'foreground-alpha'
-    | 'picture-mask'
-    | 'tone-preservation-alpha';
+    'composite' | 'bilevel' | 'background' | 'foreground-mask' | 'foreground-alpha' | 'picture-mask' | 'tone-preservation-alpha';
 export type TScanCleanupWasmPlaneKind = 'gray8' | 'rgb8' | 'bilevel1';
 export type TScanCleanupWasmPlaneEncoding = 'raw' | 'png' | 'pbm' | 'ppm' | 'pgm';
 /** How a preview's composite comes back: pixels, or the CLI's PNG bytes. */
@@ -132,9 +126,13 @@ export interface IScanCleanupWasmPageResult {
     pageMetadata: INativeScanCleanupPageArtifactMetadataV3;
 }
 
-export interface IScanCleanupWasmRenderPreviewResult extends IScanCleanupWasmPageResult {outputs: IScanCleanupWasmOutput[];}
+export interface IScanCleanupWasmRenderPreviewResult extends IScanCleanupWasmPageResult {
+    outputs: IScanCleanupWasmOutput[];
+}
 
-export interface IScanCleanupWasmRenderPageResult extends IScanCleanupWasmPageResult {outputs: IScanCleanupWasmRenderedOutput[];}
+export interface IScanCleanupWasmRenderPageResult extends IScanCleanupWasmPageResult {
+    outputs: IScanCleanupWasmRenderedOutput[];
+}
 
 /**
  * The fixed analysis plane that owns a render's decisions: the input itself,
@@ -142,14 +140,14 @@ export interface IScanCleanupWasmRenderPageResult extends IScanCleanupWasmPageRe
  */
 export type TScanCleanupWasmAnalysisPlane =
     | {
-        source: 'input';
-        dpi: number;
-    }
+          source: 'input';
+          dpi: number;
+      }
     | {
-        source: 'raster';
-        raster: TScanCleanupEncodedRaster;
-        dpi: number;
-    };
+          source: 'raster';
+          raster: TScanCleanupEncodedRaster;
+          dpi: number;
+      };
 
 /**
  * A compact MRC page's extracted layers. The selection is a raster, or the PDF
@@ -206,7 +204,9 @@ export interface IScanCleanupWasmAnalyzeRequest {
 }
 
 /** An analysis, and what document reconciliation reads from its page. */
-export interface IScanCleanupWasmAnalyzeResult extends IScanCleanupWasmPageResult {reconciliation: ReconciliationCandidate;}
+export interface IScanCleanupWasmAnalyzeResult extends IScanCleanupWasmPageResult {
+    reconciliation: ReconciliationCandidate;
+}
 
 /**
  * One analyze manifest's pages and the analyses its plan asked for so far. A
@@ -217,109 +217,46 @@ export type TScanCleanupWasmPlanAnalysisRequest = WasmPlanAnalysisRequestV3;
 /** The analyses the engine needs next, or every page's finished metadata. */
 export type TScanCleanupWasmPlanAnalysisResult =
     | {
-        kind: 'analyze';
-        jobs: AnalysisJob[];
-    }
+          kind: 'analyze';
+          jobs: AnalysisJob[];
+      }
     | {
-        kind: 'finished';
-        pages: IScanCleanupWasmPageResult[];
-    };
+          kind: 'finished';
+          pages: IScanCleanupWasmPageResult[];
+      };
 
 const PLANE_ROLES = new Map<number, TScanCleanupWasmPlaneRole>([
-    [
-        SCAN_CLEANUP_WASM_PLANE_ROLE_COMPOSITE,
-        'composite',
-    ],
-    [
-        SCAN_CLEANUP_WASM_PLANE_ROLE_BILEVEL,
-        'bilevel',
-    ],
-    [
-        SCAN_CLEANUP_WASM_PLANE_ROLE_BACKGROUND,
-        'background',
-    ],
-    [
-        SCAN_CLEANUP_WASM_PLANE_ROLE_FOREGROUND_MASK,
-        'foreground-mask',
-    ],
-    [
-        SCAN_CLEANUP_WASM_PLANE_ROLE_FOREGROUND_ALPHA,
-        'foreground-alpha',
-    ],
-    [
-        SCAN_CLEANUP_WASM_PLANE_ROLE_PICTURE_MASK,
-        'picture-mask',
-    ],
-    [
-        SCAN_CLEANUP_WASM_PLANE_ROLE_TONE_PRESERVATION_ALPHA,
-        'tone-preservation-alpha',
-    ],
+    [SCAN_CLEANUP_WASM_PLANE_ROLE_COMPOSITE, 'composite'],
+    [SCAN_CLEANUP_WASM_PLANE_ROLE_BILEVEL, 'bilevel'],
+    [SCAN_CLEANUP_WASM_PLANE_ROLE_BACKGROUND, 'background'],
+    [SCAN_CLEANUP_WASM_PLANE_ROLE_FOREGROUND_MASK, 'foreground-mask'],
+    [SCAN_CLEANUP_WASM_PLANE_ROLE_FOREGROUND_ALPHA, 'foreground-alpha'],
+    [SCAN_CLEANUP_WASM_PLANE_ROLE_PICTURE_MASK, 'picture-mask'],
+    [SCAN_CLEANUP_WASM_PLANE_ROLE_TONE_PRESERVATION_ALPHA, 'tone-preservation-alpha'],
 ]);
 const PLANE_KINDS = new Map<number, TScanCleanupWasmPlaneKind>([
-    [
-        SCAN_CLEANUP_WASM_PLANE_KIND_GRAY8,
-        'gray8',
-    ],
-    [
-        SCAN_CLEANUP_WASM_PLANE_KIND_RGB8,
-        'rgb8',
-    ],
-    [
-        SCAN_CLEANUP_WASM_PLANE_KIND_BILEVEL1,
-        'bilevel1',
-    ],
+    [SCAN_CLEANUP_WASM_PLANE_KIND_GRAY8, 'gray8'],
+    [SCAN_CLEANUP_WASM_PLANE_KIND_RGB8, 'rgb8'],
+    [SCAN_CLEANUP_WASM_PLANE_KIND_BILEVEL1, 'bilevel1'],
 ]);
 const PLANE_ENCODINGS = new Map<number, TScanCleanupWasmPlaneEncoding>([
-    [
-        SCAN_CLEANUP_WASM_PLANE_ENCODING_RAW,
-        'raw',
-    ],
-    [
-        SCAN_CLEANUP_WASM_PLANE_ENCODING_PNG,
-        'png',
-    ],
-    [
-        SCAN_CLEANUP_WASM_PLANE_ENCODING_PBM,
-        'pbm',
-    ],
-    [
-        SCAN_CLEANUP_WASM_PLANE_ENCODING_PPM,
-        'ppm',
-    ],
-    [
-        SCAN_CLEANUP_WASM_PLANE_ENCODING_PGM,
-        'pgm',
-    ],
+    [SCAN_CLEANUP_WASM_PLANE_ENCODING_RAW, 'raw'],
+    [SCAN_CLEANUP_WASM_PLANE_ENCODING_PNG, 'png'],
+    [SCAN_CLEANUP_WASM_PLANE_ENCODING_PBM, 'pbm'],
+    [SCAN_CLEANUP_WASM_PLANE_ENCODING_PPM, 'ppm'],
+    [SCAN_CLEANUP_WASM_PLANE_ENCODING_PGM, 'pgm'],
 ]);
 const REQUESTED_PLANES: Record<TScanCleanupWasmRequestedPlanes, number> = {
     raw: SCAN_CLEANUP_WASM_PLANES_RAW,
     encoded: SCAN_CLEANUP_WASM_PLANES_ENCODED,
 };
 const SUB_PAGE_STAGES = new Map<number, SubPageStage>([
-    [
-        SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_DECODE,
-        'decode',
-    ],
-    [
-        SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_BACKGROUND,
-        'background',
-    ],
-    [
-        SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_ANALYZE,
-        'analyze',
-    ],
-    [
-        SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_DESKEW,
-        'deskew',
-    ],
-    [
-        SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_RENDER,
-        'render',
-    ],
-    [
-        SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_ENCODE,
-        'encode',
-    ],
+    [SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_DECODE, 'decode'],
+    [SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_BACKGROUND, 'background'],
+    [SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_ANALYZE, 'analyze'],
+    [SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_DESKEW, 'deskew'],
+    [SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_RENDER, 'render'],
+    [SCAN_CLEANUP_WASM_SUB_PAGE_STAGE_ENCODE, 'encode'],
 ]);
 
 export interface IScanCleanupWasmSubPageProgress {
@@ -353,15 +290,11 @@ function encodeFrame(
         throw new RangeError('Scan-cleanup request JSON exceeds its admission ceiling');
     }
     const present = attachments.filter((entry): entry is readonly [number, Uint8Array] => entry[1] !== undefined);
-    if (present.some(([
-        , bytes,
-    ]) => bytes.byteLength > U32_MAX)) {
+    if (present.some(([, bytes]) => bytes.byteLength > U32_MAX)) {
         throw new RangeError('Scan-cleanup attachment exceeds the 32-bit frame field');
     }
     const headerBytes = SCAN_CLEANUP_WASM_REQUEST_HEADER_BYTES + present.length * SCAN_CLEANUP_WASM_ATTACHMENT_HEADER_BYTES;
-    const frame = new Uint8Array(headerBytes + json.byteLength + present.reduce((total, [
-        , bytes,
-    ]) => total + bytes.byteLength, 0));
+    const frame = new Uint8Array(headerBytes + json.byteLength + present.reduce((total, [, bytes]) => total + bytes.byteLength, 0));
     frame.set(new TextEncoder().encode(SCAN_CLEANUP_WASM_REQUEST_MAGIC), 0);
     const view = new DataView(frame.buffer);
     let offset = SCAN_CLEANUP_WASM_REQUEST_MAGIC.length;
@@ -369,26 +302,14 @@ function encodeFrame(
         view.setUint32(offset, value, true);
         offset += 4;
     };
-    for (const value of [
-        SCAN_CLEANUP_WASM_REQUEST_VERSION,
-        operation,
-        planes,
-        json.byteLength,
-        present.length,
-    ]) write(value);
-    for (const [
-        role,
-        bytes,
-    ] of present) {
+    for (const value of [SCAN_CLEANUP_WASM_REQUEST_VERSION, operation, planes, json.byteLength, present.length]) {
+        write(value);
+    }
+    for (const [role, bytes] of present) {
         write(role);
         write(bytes.byteLength);
     }
-    for (const bytes of [
-        json,
-        ...present.map(([
-            , bytes,
-        ]) => bytes),
-    ]) {
+    for (const bytes of [json, ...present.map(([, bytes]) => bytes)]) {
         frame.set(bytes, offset);
         offset += bytes.byteLength;
     }
@@ -403,34 +324,16 @@ function renderAttachments(request: {
 }): TAttachment[] {
     const plane = request.analysisPlane;
     return [
-        [
-            SCAN_CLEANUP_WASM_ATTACHMENT_INPUT,
-            request.input,
-        ],
-        [
-            SCAN_CLEANUP_WASM_ATTACHMENT_ANALYSIS,
-            plane?.source === 'raster' ? plane.raster : undefined,
-        ],
-        [
-            SCAN_CLEANUP_WASM_ATTACHMENT_TRUSTED_FOREGROUND_SELECTION,
-            request.trustedMrc?.selection,
-        ],
-        [
-            SCAN_CLEANUP_WASM_ATTACHMENT_TRUSTED_MRC_BACKGROUND,
-            request.trustedMrc?.background,
-        ],
+        [SCAN_CLEANUP_WASM_ATTACHMENT_INPUT, request.input],
+        [SCAN_CLEANUP_WASM_ATTACHMENT_ANALYSIS, plane?.source === 'raster' ? plane.raster : undefined],
+        [SCAN_CLEANUP_WASM_ATTACHMENT_TRUSTED_FOREGROUND_SELECTION, request.trustedMrc?.selection],
+        [SCAN_CLEANUP_WASM_ATTACHMENT_TRUSTED_MRC_BACKGROUND, request.trustedMrc?.background],
         [
             SCAN_CLEANUP_WASM_ATTACHMENT_DETAIL_BASE_METADATA,
             request.detail === undefined ? undefined : new TextEncoder().encode(request.detail.baseMetadataJson),
         ],
-        [
-            SCAN_CLEANUP_WASM_ATTACHMENT_DETAIL_BASE_SOURCE,
-            request.detail?.baseSource,
-        ],
-        [
-            SCAN_CLEANUP_WASM_ATTACHMENT_DETAIL_BASE_CLEANED,
-            request.detail?.baseCleaned,
-        ],
+        [SCAN_CLEANUP_WASM_ATTACHMENT_DETAIL_BASE_SOURCE, request.detail?.baseSource],
+        [SCAN_CLEANUP_WASM_ATTACHMENT_DETAIL_BASE_CLEANED, request.detail?.baseCleaned],
     ];
 }
 
@@ -446,12 +349,7 @@ function renderPage(request: Omit<IScanCleanupWasmRenderPageRequest, 'planes'>):
 }
 
 export function encodeScanCleanupWasmRenderPageRequest(request: IScanCleanupWasmRenderPageRequest) {
-    return encodeFrame(
-        SCAN_CLEANUP_WASM_OP_RENDER_PAGE,
-        REQUESTED_PLANES[request.planes],
-        renderPage(request),
-        renderAttachments(request),
-    );
+    return encodeFrame(SCAN_CLEANUP_WASM_OP_RENDER_PAGE, REQUESTED_PLANES[request.planes], renderPage(request), renderAttachments(request));
 }
 
 export function encodeScanCleanupWasmRenderPreviewRequest(request: IScanCleanupWasmRenderPreviewRequest) {
@@ -470,10 +368,9 @@ export function encodeScanCleanupWasmRenderPreviewRequest(request: IScanCleanupW
 }
 
 export function encodeScanCleanupWasmAnalyzeRequest(request: IScanCleanupWasmAnalyzeRequest) {
-    return encodeFrame(SCAN_CLEANUP_WASM_OP_ANALYZE_PAGE, SCAN_CLEANUP_WASM_PLANES_RAW, request.page, [[
-        SCAN_CLEANUP_WASM_ATTACHMENT_INPUT,
-        request.input,
-    ]]);
+    return encodeFrame(SCAN_CLEANUP_WASM_OP_ANALYZE_PAGE, SCAN_CLEANUP_WASM_PLANES_RAW, request.page, [
+        [SCAN_CLEANUP_WASM_ATTACHMENT_INPUT, request.input],
+    ]);
 }
 
 export function encodeScanCleanupWasmPlanAnalysisRequest(request: TScanCleanupWasmPlanAnalysisRequest) {
@@ -494,14 +391,18 @@ class FrameReader {
     }
 
     u32() {
-        if (this.offset + 4 > this.bytes.byteLength) throw new InvalidScanCleanupWasmResultError('truncated header');
+        if (this.offset + 4 > this.bytes.byteLength) {
+            throw new InvalidScanCleanupWasmResultError('truncated header');
+        }
         const value = this.view.getUint32(this.offset, true);
         this.offset += 4;
         return value;
     }
 
     take(length: number) {
-        if (this.offset + length > this.bytes.byteLength) throw new InvalidScanCleanupWasmResultError('truncated data');
+        if (this.offset + length > this.bytes.byteLength) {
+            throw new InvalidScanCleanupWasmResultError('truncated data');
+        }
         const slice = this.bytes.slice(this.offset, this.offset + length);
         this.offset += length;
         return slice;
@@ -512,7 +413,9 @@ class FrameReader {
     }
 
     end() {
-        if (this.offset !== this.bytes.byteLength) throw new InvalidScanCleanupWasmResultError('trailing bytes');
+        if (this.offset !== this.bytes.byteLength) {
+            throw new InvalidScanCleanupWasmResultError('trailing bytes');
+        }
     }
 }
 
@@ -595,17 +498,16 @@ function decodeDetails(detailsJson: string, field: string, accepts: (value: unkn
         throw new InvalidScanCleanupWasmResultError('details are not JSON');
     }
     const value = typeof details === 'object' && details !== null ? (details as Record<string, unknown>)[field] : undefined;
-    if (!accepts(value)) throw new InvalidScanCleanupWasmResultError(`details carry no valid ${field}`);
+    if (!accepts(value)) {
+        throw new InvalidScanCleanupWasmResultError(`details carry no valid ${field}`);
+    }
     return value;
 }
 
 const isObject = (value: unknown) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 export function decodeScanCleanupWasmRenderPageResult(output: Uint8Array): IScanCleanupWasmRenderPageResult {
-    const {
-        pageMetadataJson,
-        outputs,
-    } = decodeFrame(output);
+    const {pageMetadataJson, outputs} = decodeFrame(output);
     return {
         ...decodePage(pageMetadataJson),
         outputs,
@@ -613,14 +515,10 @@ export function decodeScanCleanupWasmRenderPageResult(output: Uint8Array): IScan
 }
 
 export function decodeScanCleanupWasmRenderPreviewResult(output: Uint8Array): IScanCleanupWasmRenderPreviewResult {
-    const {
-        outputs, ...page
-    } = decodeScanCleanupWasmRenderPageResult(output);
+    const {outputs, ...page} = decodeScanCleanupWasmRenderPageResult(output);
     return {
         ...page,
-        outputs: outputs.map(({
-            planes, ...rendered
-        }) => {
+        outputs: outputs.map(({planes, ...rendered}) => {
             const [plane] = planes;
             if (planes.length !== 1 || plane?.role !== 'composite') {
                 throw new InvalidScanCleanupWasmResultError('a preview output carries its composite only');
@@ -634,12 +532,10 @@ export function decodeScanCleanupWasmRenderPreviewResult(output: Uint8Array): IS
 }
 
 export function decodeScanCleanupWasmAnalyzeResult(output: Uint8Array): IScanCleanupWasmAnalyzeResult {
-    const {
-        pageMetadataJson,
-        detailsJson,
-        outputs,
-    } = decodeFrame(output);
-    if (outputs.length !== 0) throw new InvalidScanCleanupWasmResultError('an analysis carries no outputs');
+    const {pageMetadataJson, detailsJson, outputs} = decodeFrame(output);
+    if (outputs.length !== 0) {
+        throw new InvalidScanCleanupWasmResultError('an analysis carries no outputs');
+    }
     return {
         ...decodePage(pageMetadataJson),
         reconciliation: decodeDetails(detailsJson, 'reconciliation', isObject) as ReconciliationCandidate,
@@ -647,22 +543,26 @@ export function decodeScanCleanupWasmAnalyzeResult(output: Uint8Array): IScanCle
 }
 
 export function decodeScanCleanupWasmPlanAnalysisResult(output: Uint8Array): TScanCleanupWasmPlanAnalysisResult {
-    const {
-        pageMetadataJson,
-        detailsJson,
-        outputs,
-    } = decodeFrame(output);
+    const {pageMetadataJson, detailsJson, outputs} = decodeFrame(output);
     if (pageMetadataJson !== '' || outputs.length !== 0) {
         throw new InvalidScanCleanupWasmResultError('an analysis plan carries no page');
     }
-    const kind = decodeDetails(detailsJson, 'kind', value => value === 'analyze' || value === 'finished');
+    const kind = decodeDetails(detailsJson, 'kind', (value) => value === 'analyze' || value === 'finished');
     if (kind === 'analyze') {
         return {
             kind,
-            jobs: decodeDetails(detailsJson, 'jobs', value => Array.isArray(value) && value.length > 0 && value.every(isObject)) as AnalysisJob[],
+            jobs: decodeDetails(
+                detailsJson,
+                'jobs',
+                (value) => Array.isArray(value) && value.length > 0 && value.every(isObject),
+            ) as AnalysisJob[],
         };
     }
-    const pages = decodeDetails(detailsJson, 'pages', value => Array.isArray(value) && value.every(page => typeof page === 'string')) as string[];
+    const pages = decodeDetails(
+        detailsJson,
+        'pages',
+        (value) => Array.isArray(value) && value.every((page) => typeof page === 'string'),
+    ) as string[];
     return {
         kind: 'finished',
         pages: pages.map(decodePage),

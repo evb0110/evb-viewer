@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {createPdfjsDocumentTeardownCoordinator} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator';
 
 describe('pdfjsDocumentTeardownCoordinator', () => {
@@ -53,10 +48,7 @@ describe('pdfjsDocumentTeardownCoordinator', () => {
             message: 'destroy shared source',
             run: () => teardown.promise,
         });
-        const waiting = coordinator.waitForIdle(
-            '/documents/shared.pdf',
-            abortController.signal,
-        );
+        const waiting = coordinator.waitForIdle('/documents/shared.pdf', abortController.signal);
         abortController.abort();
 
         await expect(waiting).rejects.toMatchObject({name: 'AbortError'});

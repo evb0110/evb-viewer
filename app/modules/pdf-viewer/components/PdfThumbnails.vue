@@ -1,86 +1,87 @@
 <template>
-  <DocumentThumbnailList
-    ref="list"
-    :source="source"
-    :current-page="currentPage"
-    :focus-page="rovingFocusPage"
-    :is-active="isActive"
-    :is-resizing="isResizing"
-    :selected-pages="selectedPageLookup"
-    :page-revision="pageRevision"
-    item-tag="div"
-    tabindex="-1"
-    role="listbox"
-    aria-multiselectable="true"
-    :aria-label="t('sidebar.pages')"
-    class="pdf-thumbnails"
-    :class="{
-      'is-reorder-dragging': isDragging,
-      'is-external-drag': isExternalDragOver,
-    }"
-    @go-to-page="(page, event) => handleThumbnailClick(event, page)"
-    @mousedown="handleRowMouseDown"
-    @contextmenu="handleRowContextMenu"
-    @pointercancel="handleDragPointerCancel"
-    @lostpointercapture="handleDragPointerCancel"
-    @dragenter="handleExternalDragEnter"
-    @dragover="handleExternalDragOver"
-    @dragleave="handleExternalDragLeave"
-    @drop="handleExternalDrop"
-    @focusin="handleContainerFocusIn"
-    @keydown="handleContainerKeyDown"
-  >
-    <template #overlay="{pageNumber}">
-      <span
-        v-if="dropInsertIndex === pageNumber - 1"
-        class="pdf-thumbnail-drop pdf-thumbnail-drop--before"
-      />
-      <span
-        v-if="pageNumber === totalPages && dropInsertIndex === totalPages"
-        class="pdf-thumbnail-drop pdf-thumbnail-drop--after"
-      />
-      <span v-if="isDragging && draggedPages.includes(pageNumber)" class="pdf-thumbnail-dragged" hidden />
-      <AppTooltip :text="getThumbnailSelectionLabel(pageNumber)" :delay-duration="400">
-        <button
-          type="button"
-          :aria-pressed="isSelected(pageNumber)"
-          :aria-label="getThumbnailSelectionLabel(pageNumber)"
-          class="pdf-thumbnail-selection-toggle"
-          :class="{ 'is-selected': isSelected(pageNumber) }"
-          @mousedown.stop
-          @click.stop="toggleSinglePageSelection(pageNumber)"
-        >
-          <UIcon
-            v-if="isSelected(pageNumber)"
-            name="i-ph-check"
-            class="pdf-thumbnail-selection-icon"
-          />
-        </button>
-      </AppTooltip>
-    </template>
-    <template #label="{pageNumber}">{{ formatPageIndicatorWithOptions(pageNumber, pageLabels ?? null) }}</template>
-  </DocumentThumbnailList>
+    <DocumentThumbnailList
+        ref="list"
+        :source="source"
+        :current-page="currentPage"
+        :focus-page="rovingFocusPage"
+        :is-active="isActive"
+        :is-resizing="isResizing"
+        :selected-pages="selectedPageLookup"
+        :page-revision="pageRevision"
+        item-tag="div"
+        tabindex="-1"
+        role="listbox"
+        aria-multiselectable="true"
+        :aria-label="t('sidebar.pages')"
+        class="pdf-thumbnails"
+        :class="{
+            'is-reorder-dragging': isDragging,
+            'is-external-drag': isExternalDragOver,
+        }"
+        @go-to-page="(page, event) => handleThumbnailClick(event, page)"
+        @mousedown="handleRowMouseDown"
+        @contextmenu="handleRowContextMenu"
+        @pointercancel="handleDragPointerCancel"
+        @lostpointercapture="handleDragPointerCancel"
+        @dragenter="handleExternalDragEnter"
+        @dragover="handleExternalDragOver"
+        @dragleave="handleExternalDragLeave"
+        @drop="handleExternalDrop"
+        @focusin="handleContainerFocusIn"
+        @keydown="handleContainerKeyDown"
+    >
+        <template #overlay="{pageNumber}">
+            <span
+                v-if="dropInsertIndex === pageNumber - 1"
+                class="pdf-thumbnail-drop pdf-thumbnail-drop--before"
+            />
+            <span
+                v-if="pageNumber === totalPages && dropInsertIndex === totalPages"
+                class="pdf-thumbnail-drop pdf-thumbnail-drop--after"
+            />
+            <span
+                v-if="isDragging && draggedPages.includes(pageNumber)"
+                class="pdf-thumbnail-dragged"
+                hidden
+            />
+            <AppTooltip
+                :text="getThumbnailSelectionLabel(pageNumber)"
+                :delay-duration="400"
+            >
+                <button
+                    type="button"
+                    :aria-pressed="isSelected(pageNumber)"
+                    :aria-label="getThumbnailSelectionLabel(pageNumber)"
+                    class="pdf-thumbnail-selection-toggle"
+                    :class="{'is-selected': isSelected(pageNumber)}"
+                    @mousedown.stop
+                    @click.stop="toggleSinglePageSelection(pageNumber)"
+                >
+                    <UIcon
+                        v-if="isSelected(pageNumber)"
+                        name="i-ph-check"
+                        class="pdf-thumbnail-selection-icon"
+                    />
+                </button>
+            </AppTooltip>
+        </template>
+        <template #label="{pageNumber}">{{ formatPageIndicatorWithOptions(pageNumber, pageLabels ?? null) }}</template>
+    </DocumentThumbnailList>
 </template>
 
 <script setup lang="ts">
-import { groupBy } from 'es-toolkit/array';
+import {groupBy} from 'es-toolkit/array';
 import {formatPageIndicatorWithOptions} from '@app/modules/document-viewer/public';
 import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
-import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
-import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
+import {usePageDragDrop} from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
+import {usePdfThumbnailSelection} from '@app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection';
 import {
     createEditedTextMarkupThumbnailVisualSignature,
     createHiddenAnnotationIdsSignature,
     getEditedTextMarkupThumbnailComments,
 } from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailTextMarkupVisuals';
-import type {
-    IPdfThumbnailsEmits,
-    IPdfThumbnailsProps,
-} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
-import type {
-    TPageMoveOperation,
-    TPageSelection,
-} from '@contracts/pageNumbers';
+import type {IPdfThumbnailsEmits, IPdfThumbnailsProps} from '@app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract';
+import type {TPageMoveOperation, TPageSelection} from '@contracts/pageNumbers';
 
 const {
     annotationComments = undefined,
@@ -98,7 +99,7 @@ const {
     totalPages,
 } = defineProps<IPdfThumbnailsProps>();
 const emit = defineEmits<IPdfThumbnailsEmits>();
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const hasPageSelectionModel = selectedPageSelection !== undefined;
 const list = useTemplateRef<InstanceType<typeof DocumentThumbnailList>>('list');
 const containerRef = computed<HTMLElement | null>(() => list.value?.scrollRoot ?? null);
@@ -110,10 +111,9 @@ const pageEpochs = new Map<number, number>();
 const pageEpochVersion = ref(0);
 let pendingRewrittenPages: number[] = [];
 const hiddenAnnotationSignature = computed(() => createHiddenAnnotationIdsSignature(new Set(hiddenAnnotationIds ?? [])));
-const editedMarkupsByPage = computed(() => groupBy(
-    getEditedTextMarkupThumbnailComments(annotationComments ?? []),
-    comment => Math.floor(comment.pageNumber),
-));
+const editedMarkupsByPage = computed(() =>
+    groupBy(getEditedTextMarkupThumbnailComments(annotationComments ?? []), (comment) => Math.floor(comment.pageNumber)),
+);
 const pageRevision = computed(() => {
     void pageEpochVersion.value;
     void pageGeometry?.version;
@@ -121,12 +121,13 @@ const pageRevision = computed(() => {
     const markups = editedMarkupsByPage.value;
     const settings = annotationSettings;
     const metrics = pageGeometry?.metrics;
-    return (page: number) => [
-        pageEpochs.get(page) ?? 0,
-        metrics?.[page - 1]?.rotation ?? 0,
-        hidden,
-        createEditedTextMarkupThumbnailVisualSignature(markups[page] ?? [], settings),
-    ].join('\u0002');
+    return (page: number) =>
+        [
+            pageEpochs.get(page) ?? 0,
+            metrics?.[page - 1]?.rotation ?? 0,
+            hidden,
+            createEditedTextMarkupThumbnailVisualSignature(markups[page] ?? [], settings),
+        ].join('\u0002');
 });
 
 function bumpPages(pages: readonly number[]) {
@@ -138,23 +139,30 @@ function bumpPages(pages: readonly number[]) {
 
 // Rotation is part of the key already. Rewritten pages wait for the source
 // of the revision that carries them; until then they keep their thumbnail.
-watch(() => invalidationRequest?.id, () => {
-    const request = invalidationRequest;
-    if (!request?.pages.length || request.rotationOnly) {
-        return;
-    }
-    if (request.expectedDocumentRevision) {
-        pendingRewrittenPages.push(...request.pages);
-    } else {
-        bumpPages(request.pages);
-    }
-}, {flush: 'sync'});
-watch(() => source, () => {
-    if (pendingRewrittenPages.length > 0) {
-        bumpPages(pendingRewrittenPages);
-        pendingRewrittenPages = [];
-    }
-});
+watch(
+    () => invalidationRequest?.id,
+    () => {
+        const request = invalidationRequest;
+        if (!request?.pages.length || request.rotationOnly) {
+            return;
+        }
+        if (request.expectedDocumentRevision) {
+            pendingRewrittenPages.push(...request.pages);
+        } else {
+            bumpPages(request.pages);
+        }
+    },
+    {flush: 'sync'},
+);
+watch(
+    () => source,
+    () => {
+        if (pendingRewrittenPages.length > 0) {
+            bumpPages(pendingRewrittenPages);
+            pendingRewrittenPages = [];
+        }
+    },
+);
 
 function resolveRowPage(target: EventTarget | null) {
     const page = Number((target as Element | null)?.closest?.<HTMLElement>('[data-thumbnail-page]')?.dataset.thumbnailPage);
@@ -179,13 +187,14 @@ const {
     totalPages: computed(() => totalPages),
     selectedPages: computed(() => selectedPages ?? []),
     selectedPageSelection: computed(() => selectedPageSelection ?? null),
-    onReorder: newOrder => emit('reorder', newOrder),
+    onReorder: (newOrder) => emit('reorder', newOrder),
     onMove: hasPageSelectionModel ? (move: TPageMoveOperation) => emit('move', move) : undefined,
-    scrollRailTo: top => list.value?.scrollToRequestedOffset(top),
-    onExternalFileDrop: (afterPage, filePaths) => emit('file-drop', {
-        afterPage,
-        filePaths,
-    }),
+    scrollRailTo: (top) => list.value?.scrollToRequestedOffset(top),
+    onExternalFileDrop: (afterPage, filePaths) =>
+        emit('file-drop', {
+            afterPage,
+            filePaths,
+        }),
 });
 
 async function revealPage(page: number) {
@@ -204,18 +213,19 @@ const {
 } = usePdfThumbnailSelection({
     consumeClickSkip,
     currentPage: computed(() => currentPage),
-    focusPageElement: page => containerRef.value
-        ?.querySelector<HTMLElement>(`[data-thumbnail-page="${String(page)}"]`)
-        ?.focus({preventScroll: true}),
+    focusPageElement: (page) =>
+        containerRef.value?.querySelector<HTMLElement>(`[data-thumbnail-page="${String(page)}"]`)?.focus({preventScroll: true}),
     isDragging,
     isExternalDragOver,
     markUserInteraction: () => {},
-    onContextMenu: payload => emit('page-context-menu', payload),
-    onGoToPage: page => emit('go-to-page', page, {navigationSource: 'thumbnail'}),
+    onContextMenu: (payload) => emit('page-context-menu', payload),
+    onGoToPage: (page) => emit('go-to-page', page, {navigationSource: 'thumbnail'}),
     onMove: hasPageSelectionModel ? (move: TPageMoveOperation) => emit('move', move) : undefined,
-    onReorder: newOrder => emit('reorder', newOrder),
-    onSelectedPagesChange: pages => emit('update:selected-pages', pages),
-    onPageSelectionChange: hasPageSelectionModel ? (selection: TPageSelection) => emit('update:selected-page-selection', selection) : undefined,
+    onReorder: (newOrder) => emit('reorder', newOrder),
+    onSelectedPagesChange: (pages) => emit('update:selected-pages', pages),
+    onPageSelectionChange: hasPageSelectionModel
+        ? (selection: TPageSelection) => emit('update:selected-page-selection', selection)
+        : undefined,
     scrollPageIntoKeyboardView: revealPage,
     selectedPages: computed(() => selectedPages ?? []),
     selectedPageSelection: hasPageSelectionModel ? computed<TPageSelection | null>(() => selectedPageSelection ?? null) : undefined,
@@ -240,9 +250,7 @@ function handleRowContextMenu(event: MouseEvent) {
 
 function getThumbnailSelectionLabel(page: number) {
     const label = formatPageIndicatorWithOptions(page, pageLabels ?? null);
-    return isSelected(page)
-        ? t('pageOps.deselectPage', {page: label})
-        : t('pageOps.selectPage', {page: label});
+    return isSelected(page) ? t('pageOps.deselectPage', {page: label}) : t('pageOps.selectPage', {page: label});
 }
 </script>
 <style src="./PdfThumbnails.css"></style>

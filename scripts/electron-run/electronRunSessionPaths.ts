@@ -1,12 +1,6 @@
-import {
-    isAbsolute,
-    join,
-} from 'node:path';
-import {
-    getAppTempNamespacePath,
-    getAppTempUserId,
-} from '@node-runtime/appTempNamespace';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
+import {isAbsolute, join} from 'node:path';
+import {getAppTempNamespacePath, getAppTempUserId} from '@node-runtime/appTempNamespace';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
 
 let currentSessionName = 'default';
 
@@ -94,14 +88,9 @@ export function electronFileLogDir(name = getCurrentSessionName()) {
     return join(sessionDir(name), 'electron-logs');
 }
 
-export function resolveAutomationFileLogDir(
-    env: NodeJS.ProcessEnv,
-    name = getCurrentSessionName(),
-) {
+export function resolveAutomationFileLogDir(env: NodeJS.ProcessEnv, name = getCurrentSessionName()) {
     const override = env.EVB_FILE_LOG_DIR;
-    return override === undefined || override === ''
-        ? electronFileLogDir(name)
-        : override;
+    return override === undefined || override === '' ? electronFileLogDir(name) : override;
 }
 
 export function screenshotDirPath(name = getCurrentSessionName()) {

@@ -17,12 +17,18 @@ const MAX_EDGE_VISITS = 64_000_000;
 export function readTraineddataComponent(data: Uint8Array, index: number) {
     const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
     const entries = view.getInt32(0, true);
-    if (entries <= index || 4 + 8 * entries > data.byteLength) return null;
+    if (entries <= index || 4 + 8 * entries > data.byteLength) {
+        return null;
+    }
     const offsets = Array.from({length: entries}, (_, entry) => Number(view.getBigInt64(4 + 8 * entry, true)));
     const start = offsets[index]!;
-    if (start < 0) return null;
-    const end = offsets.slice(index + 1).find(offset => offset >= 0) ?? data.byteLength;
-    if (start > end || end > data.byteLength) throw new Error('Corrupt traineddata component table');
+    if (start < 0) {
+        return null;
+    }
+    const end = offsets.slice(index + 1).find((offset) => offset >= 0) ?? data.byteLength;
+    if (start > end || end > data.byteLength) {
+        throw new Error('Corrupt traineddata component table');
+    }
     return data.subarray(start, end);
 }
 
@@ -32,10 +38,14 @@ export function readTraineddataComponent(data: Uint8Array, index: number) {
  * model carries no dictionary.
  */
 export function readTraineddataWordList(data: Uint8Array): string[] | null {
-    if (data.byteLength > MAX_TRAINEDDATA_BYTES) throw new Error('traineddata file exceeds the size limit');
+    if (data.byteLength > MAX_TRAINEDDATA_BYTES) {
+        throw new Error('traineddata file exceeds the size limit');
+    }
     const unicharsetBytes = readTraineddataComponent(data, LSTM_UNICHARSET);
     const dawgBytes = readTraineddataComponent(data, LSTM_SYSTEM_DAWG);
-    if (!unicharsetBytes || !dawgBytes || dawgBytes.byteLength < 10) return null;
+    if (!unicharsetBytes || !dawgBytes || dawgBytes.byteLength < 10) {
+        return null;
+    }
 
     const unicharsetLines = new TextDecoder().decode(unicharsetBytes).split('\n');
     const unichars = unicharsetLines.slice(1, 1 + Number(unicharsetLines[0])).map((line) => {
@@ -43,7 +53,9 @@ export function readTraineddataWordList(data: Uint8Array): string[] | null {
         return unichar === 'NULL' ? ' ' : unichar;
     });
     const view = new DataView(dawgBytes.buffer, dawgBytes.byteOffset, dawgBytes.byteLength);
-    if (view.getInt16(0, true) !== DAWG_MAGIC) throw new Error('traineddata dictionary has a bad magic number');
+    if (view.getInt16(0, true) !== DAWG_MAGIC) {
+        throw new Error('traineddata dictionary has a bad magic number');
+    }
     const unicharsetSize = view.getInt32(2, true);
     const edgeCount = view.getInt32(6, true);
     if (unicharsetSize <= 0 || edgeCount <= 0 || 10 + 8 * edgeCount > dawgBytes.byteLength) {
@@ -58,38 +70,48 @@ export function readTraineddataWordList(data: Uint8Array): string[] | null {
     const words: string[] = [];
     const stack: Array<{
         edge: number;
-        depth: number
-    }> = [{
-        edge: 0,
-        depth: 0,
-    }];
+        depth: number;
+    }> = [
+        {
+            edge: 0,
+            depth: 0,
+        },
+    ];
     const prefix: string[] = [];
     let visits = 0;
     while (stack.length > 0) {
-        const {
-            edge: index, depth,
-        } = stack.pop()!;
-        if (index >= edgeCount) continue;
+        const {edge: index, depth} = stack.pop()!;
+        if (index >= edgeCount) {
+            continue;
+        }
         if (depth >= MAX_WORD_LENGTH || ++visits > MAX_EDGE_VISITS) {
             throw new Error('traineddata dictionary is corrupt: its words do not end');
         }
         const record = edge(index);
-        if ((record & MARKER_FLAG << flagStart) === 0n) stack.push({
-            edge: index + 1,
-            depth,
-        });
-        if ((record & BACKWARD_FLAG << flagStart) !== 0n) continue;
+        if ((record & (MARKER_FLAG << flagStart)) === 0n) {
+            stack.push({
+                edge: index + 1,
+                depth,
+            });
+        }
+        if ((record & (BACKWARD_FLAG << flagStart)) !== 0n) {
+            continue;
+        }
         prefix.length = depth;
         prefix.push(unichars[Number(record & letterMask)] ?? '');
-        if ((record & WORD_END_FLAG << flagStart) !== 0n) {
+        if ((record & (WORD_END_FLAG << flagStart)) !== 0n) {
             words.push(prefix.join(''));
-            if (words.length > MAX_WORDS) throw new Error('traineddata dictionary exceeds the word limit');
+            if (words.length > MAX_WORDS) {
+                throw new Error('traineddata dictionary exceeds the word limit');
+            }
         }
         const next = Number(record >> nextNodeShift);
-        if (next !== 0) stack.push({
-            edge: next,
-            depth: depth + 1,
-        });
+        if (next !== 0) {
+            stack.push({
+                edge: next,
+                depth: depth + 1,
+            });
+        }
     }
     return words;
 }

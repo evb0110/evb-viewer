@@ -1,30 +1,21 @@
-import { startRendererFrameStream } from '@scripts/diagnostics/startRendererFrameStream';
-import {
-    spawn,
-    execFile,
-} from 'node:child_process';
-import { promisify } from 'node:util';
-import { statSync } from 'node:fs';
-import { setTimeout as wait } from 'node:timers/promises';
-import type { Page } from 'puppeteer-core';
+import {startRendererFrameStream} from '@scripts/diagnostics/startRendererFrameStream';
+import {spawn, execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {statSync} from 'node:fs';
+import {setTimeout as wait} from 'node:timers/promises';
+import type {Page} from 'puppeteer-core';
 
 const run = promisify(execFile);
 const FPS = 15;
 
 export function recordingFrameCount(elapsedMs: number) {
-    return Math.max(1, Math.floor(elapsedMs * FPS / 1000) + 1);
+    return Math.max(1, Math.floor((elapsedMs * FPS) / 1000) + 1);
 }
 
-export function recordingEncoderArgs(path: string, input: string[] = [
-    '-f',
-    'image2pipe',
-    '-framerate',
-    String(FPS),
-    '-vcodec',
-    'mjpeg',
-    '-i',
-    'pipe:0',
-]) {
+export function recordingEncoderArgs(
+    path: string,
+    input: string[] = ['-f', 'image2pipe', '-framerate', String(FPS), '-vcodec', 'mjpeg', '-i', 'pipe:0'],
+) {
     return [
         '-hide_banner',
         '-loglevel',
@@ -68,39 +59,40 @@ export async function assertRecordingTools() {
 }
 
 export async function inspectRecordingVideo(path: string) {
-    const { stdout } = await run(process.env.FFPROBE_PATH ?? 'ffprobe', [
-        '-v',
-        'error',
-        '-read_intervals',
-        '%+2',
-        '-select_streams',
-        'v:0',
-        '-count_frames',
-        '-show_entries',
-        'stream=width,height,nb_read_frames,avg_frame_rate:format=duration',
-        '-of',
-        'json',
-        path,
-    ], {
-        timeout: 30_000,
-        maxBuffer: 1024 * 1024,
-    });
+    const {stdout} = await run(
+        process.env.FFPROBE_PATH ?? 'ffprobe',
+        [
+            '-v',
+            'error',
+            '-read_intervals',
+            '%+2',
+            '-select_streams',
+            'v:0',
+            '-count_frames',
+            '-show_entries',
+            'stream=width,height,nb_read_frames,avg_frame_rate:format=duration',
+            '-of',
+            'json',
+            path,
+        ],
+        {
+            timeout: 30_000,
+            maxBuffer: 1024 * 1024,
+        },
+    );
     const result = JSON.parse(stdout) as {
         streams?: Array<{
             width: number;
             height: number;
-            nb_read_frames: string
-            avg_frame_rate?: string
+            nb_read_frames: string;
+            avg_frame_rate?: string;
         }>;
         format?: {duration: string};
     };
     const stream = result.streams?.[0];
     const frames = Number(stream?.nb_read_frames);
     const duration = Number(result.format?.duration);
-    const [
-        rate,
-        divisor,
-    ] = (stream?.avg_frame_rate ?? '').split('/').map(Number);
+    const [rate, divisor] = (stream?.avg_frame_rate ?? '').split('/').map(Number);
     const frameRate = (rate ?? 0) / (divisor ?? 0);
     if (!stream || !(frames > 0) || !(duration > 0)) {
         throw new Error(`Recording has no decodable video: ${path}`);
@@ -118,11 +110,7 @@ export async function inspectRecordingVideo(path: string) {
 /** One encoder process belongs to one capture. Fragmented MP4 retains completed fragments after a crash. */
 export function startVideoEncoder(path: string, onError: (error: Error) => void, input?: string[]) {
     const child = spawn(process.env.FFMPEG_PATH ?? 'ffmpeg', recordingEncoderArgs(path, input), {
-        stdio: [
-            'pipe',
-            'ignore',
-            'pipe',
-        ],
+        stdio: ['pipe', 'ignore', 'pipe'],
         windowsHide: true,
     });
     let stopping = false;
@@ -130,11 +118,16 @@ export function startVideoEncoder(path: string, onError: (error: Error) => void,
     let stderr = '';
     let resolveReady: () => void;
     let rejectReady: (error: Error) => void;
-    const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+    const ready = new Promise<void>((resolve, reject) => {
+        resolveReady = resolve;
+        rejectReady = reject;
+    });
     // A failure may arrive before the caller awaits readiness.
     void ready.catch(() => {});
     const fail = (error: Error) => {
-        if (failure) { return; }
+        if (failure) {
+            return;
+        }
         failure = error;
         rejectReady(error);
         onError(error);
@@ -143,11 +136,15 @@ export function startVideoEncoder(path: string, onError: (error: Error) => void,
     child.stdin.on('error', fail);
     child.stderr.on('data', (data: Buffer) => {
         stderr = (stderr + data.toString()).slice(-8192);
-        if (/frame=\s*[1-9]\d*/.test(stderr)) { resolveReady(); }
+        if (/frame=\s*[1-9]\d*/.test(stderr)) {
+            resolveReady();
+        }
     });
     const exited = new Promise<void>((resolve) => {
         child.once('close', (code) => {
-            if (code !== 0 || !stopping) { fail(new Error(`Video encoder exited (${String(code)}): ${stderr}`)); }
+            if (code !== 0 || !stopping) {
+                fail(new Error(`Video encoder exited (${String(code)}): ${stderr}`));
+            }
             resolve();
         });
     });
@@ -157,18 +154,24 @@ export function startVideoEncoder(path: string, onError: (error: Error) => void,
     return {
         ready,
         fail,
-        get error() { return failure; },
+        get error() {
+            return failure;
+        },
         async write(frame: Buffer) {
-            if (failure) { throw failure; }
+            if (failure) {
+                throw failure;
+            }
             await new Promise<void>((resolve, reject) => {
-                child.stdin.write(frame, error => error ? reject(error) : resolve());
+                child.stdin.write(frame, (error) => (error ? reject(error) : resolve()));
             });
         },
         stop() {
             stopPromise ??= (async () => {
                 stopping = true;
                 clearTimeout(readyTimer);
-                if (input && child.exitCode === null) { child.stdin.write('q\n'); }
+                if (input && child.exitCode === null) {
+                    child.stdin.write('q\n');
+                }
                 child.stdin.end();
                 const timer = setTimeout(() => {
                     fail(new Error('Video encoder did not finalize within 10 seconds'));
@@ -176,7 +179,9 @@ export function startVideoEncoder(path: string, onError: (error: Error) => void,
                 }, 10_000);
                 await exited;
                 clearTimeout(timer);
-                if (failure) { throw failure; }
+                if (failure) {
+                    throw failure;
+                }
                 return inspectRecordingVideo(path);
             })();
             return stopPromise;
@@ -186,11 +191,13 @@ export function startVideoEncoder(path: string, onError: (error: Error) => void,
 
 /** Bounded latest-frame buffer; CFR output follows elapsed time, including idle periods. */
 export async function startRendererVideo(page: Page, path: string, onError: (error: Error) => void) {
-    let latest = Buffer.from(await page.screenshot({
-        type: 'jpeg',
-        quality: 85,
-        captureBeyondViewport: false,
-    }));
+    let latest = Buffer.from(
+        await page.screenshot({
+            type: 'jpeg',
+            quality: 85,
+            captureBeyondViewport: false,
+        }),
+    );
     const encoder = startVideoEncoder(path, onError);
     let stopping = false;
     const startedAt = Date.now();
@@ -198,19 +205,23 @@ export async function startRendererVideo(page: Page, path: string, onError: (err
     let frames = 0;
     let streamFrames = 0;
     let firstFrame: () => void;
-    const streamReady = new Promise<void>(resolve => { firstFrame = resolve; });
+    const streamReady = new Promise<void>((resolve) => {
+        firstFrame = resolve;
+    });
     let stream: Awaited<ReturnType<typeof startRendererFrameStream>> | null = null;
     const loop = (async () => {
         while (!stopping && !encoder.error) {
             const due = recordingFrameCount(performance.now() - started);
-            if (due - frames > FPS * 5) { throw new Error('Recording fell more than 5 seconds behind real time'); }
+            if (due - frames > FPS * 5) {
+                throw new Error('Recording fell more than 5 seconds behind real time');
+            }
             while (frames < due && !stopping) {
                 await encoder.write(latest);
                 frames++;
             }
-            await wait(Math.max(1, frames * 1000 / FPS - (performance.now() - started)));
+            await wait(Math.max(1, (frames * 1000) / FPS - (performance.now() - started)));
         }
-    })().catch(error => encoder.fail(error instanceof Error ? error : new Error(String(error))));
+    })().catch((error) => encoder.fail(error instanceof Error ? error : new Error(String(error))));
     let stopPromise: ReturnType<typeof encoder.stop> | null = null;
     const stop = () => {
         stopPromise ??= (async () => {
@@ -219,19 +230,25 @@ export async function startRendererVideo(page: Page, path: string, onError: (err
             // Hidden Linux windows may stop painting after stopScreencast.
             if (stream && !page.isClosed() && !encoder.error) {
                 try {
-                    const finalFrame = await stream.client.send('Page.captureScreenshot', {
-                        format: 'jpeg',
-                        quality: 85,
-                        captureBeyondViewport: false,
-                    }, {timeout: 5_000});
+                    const finalFrame = await stream.client.send(
+                        'Page.captureScreenshot',
+                        {
+                            format: 'jpeg',
+                            quality: 85,
+                            captureBeyondViewport: false,
+                        },
+                        {timeout: 5_000},
+                    );
                     latest = Buffer.from(finalFrame.data, 'base64');
-                } catch (error) { encoder.fail(error instanceof Error ? error : new Error(String(error))); }
+                } catch (error) {
+                    encoder.fail(error instanceof Error ? error : new Error(String(error)));
+                }
             }
             await stream?.stop().catch((error: unknown) => encoder.fail(error instanceof Error ? error : new Error(String(error))));
             let timer: ReturnType<typeof setTimeout> | undefined;
             await Promise.race([
                 loop,
-                new Promise<void>(resolve => {
+                new Promise<void>((resolve) => {
                     timer = setTimeout(() => {
                         encoder.fail(new Error('Video input did not drain within 5 seconds'));
                         resolve();
@@ -243,8 +260,13 @@ export async function startRendererVideo(page: Page, path: string, onError: (err
                 try {
                     // Include the final visual state, even when stop follows the last input immediately.
                     const due = Math.max(frames + 1, recordingFrameCount(performance.now() - started));
-                    while (frames < due) { await encoder.write(latest); frames++; }
-                } catch (error) { encoder.fail(error instanceof Error ? error : new Error(String(error))); }
+                    while (frames < due) {
+                        await encoder.write(latest);
+                        frames++;
+                    }
+                } catch (error) {
+                    encoder.fail(error instanceof Error ? error : new Error(String(error)));
+                }
             }
             const result = await encoder.stop();
             await loop;
@@ -260,27 +282,30 @@ export async function startRendererVideo(page: Page, path: string, onError: (err
         return stopPromise;
     };
     try {
-        stream = await startRendererFrameStream(page, event => {
-            latest = Buffer.from(event.data, 'base64');
-            streamFrames++;
-            firstFrame();
-        }, {
-            quality: 85,
-            maxWidth: 1600,
-            maxHeight: 1000,
-        });
+        stream = await startRendererFrameStream(
+            page,
+            (event) => {
+                latest = Buffer.from(event.data, 'base64');
+                streamFrames++;
+                firstFrame();
+            },
+            {
+                quality: 85,
+                maxWidth: 1600,
+                maxHeight: 1000,
+            },
+        );
         let readyTimer: ReturnType<typeof setTimeout> | undefined;
         try {
             await Promise.race([
-                Promise.all([
-                    encoder.ready,
-                    streamReady,
-                ]),
+                Promise.all([encoder.ready, streamReady]),
                 new Promise<never>((_, reject) => {
                     readyTimer = setTimeout(() => reject(new Error('No renderer screencast frame within 10 seconds')), 10_000);
                 }),
             ]);
-        } finally { clearTimeout(readyTimer); }
+        } finally {
+            clearTimeout(readyTimer);
+        }
     } catch (error) {
         await stop().catch(() => {});
         throw error;

@@ -8,11 +8,6 @@ function normalizeQuarterTurn(value: number): TQuarterTurn {
     return 0;
 }
 
-export function resolveClockwiseRotationDelta(
-    currentRotation: number,
-    targetRotation: number,
-): TQuarterTurn {
-    return normalizeQuarterTurn(
-        normalizeQuarterTurn(targetRotation) - normalizeQuarterTurn(currentRotation),
-    );
+export function resolveClockwiseRotationDelta(currentRotation: number, targetRotation: number): TQuarterTurn {
+    return normalizeQuarterTurn(normalizeQuarterTurn(targetRotation) - normalizeQuarterTurn(currentRotation));
 }

@@ -1,42 +1,22 @@
 import {useTypedI18n} from '@app/composables/useTypedI18n';
-import { until } from '@vueuse/core';
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import {
-    installScanCleanupRunCoordinator,
-    pruneScanCleanupOutputs,
-} from '@app/modules/scan-cleanup/public/runtime';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import {
-    findDocumentTabId,
-    createScanCleanupOutputSaveAs,
-} from '@app/modules/workspace-shell/composables/scanCleanupOutputTab';
-import {
-    getDocumentOpenCapability,
-    getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import { createRequestId } from '@contracts/shared';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import type { TTranslateFn } from '@i18n-app';
+import {until} from '@vueuse/core';
+import type {ComputedRef, Ref} from 'vue';
+import {installScanCleanupRunCoordinator, pruneScanCleanupOutputs} from '@app/modules/scan-cleanup/public/runtime';
+import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {findDocumentTabId, createScanCleanupOutputSaveAs} from '@app/modules/workspace-shell/composables/scanCleanupOutputTab';
+import {getDocumentOpenCapability, getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import {createRequestId} from '@contracts/shared';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import type {TTranslateFn} from '@i18n-app';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 
-export function resolveScanCleanupEntryViewState(
-    viewState: ITabViewSessionState,
-): ITabViewSessionState {
+export function resolveScanCleanupEntryViewState(viewState: ITabViewSessionState): ITabViewSessionState {
     if (viewState.surfaceMode === 'scan-cleanup') {
         return viewState;
     }
-    const {
-        scanCleanup: _scanCleanup,
-        ...freshViewState
-    } = viewState;
+    const {scanCleanup: _scanCleanup, ...freshViewState} = viewState;
     return {
         ...freshViewState,
         surfaceMode: 'scan-cleanup',
@@ -57,9 +37,7 @@ export async function recoverScanCleanupWorkspaceForDocument(
     // cleanup session when it already owns the surface; otherwise enter with a
     // fresh selection, then make that tab visible for persisted error details.
     const view = session.getView(tabId);
-    view?.applyViewState(resolveScanCleanupEntryViewState(
-        view.viewState.value,
-    ));
+    view?.applyViewState(resolveScanCleanupEntryViewState(view.viewState.value));
     activateTab(tabId);
     await nextTick();
     return true;
@@ -77,7 +55,9 @@ function discardUnclaimedGeneratedOpen(result: TOpenFileResult | null) {
     if (result?.kind !== 'pdf' || !result.workingPath) {
         return;
     }
-    void getDocumentWorkingCopyCapability().cleanupFile(result.workingPath).catch(() => undefined);
+    void getDocumentWorkingCopyCapability()
+        .cleanupFile(result.workingPath)
+        .catch(() => undefined);
 }
 
 export function isWorkingCopyOwnedByAnyTab(
@@ -86,9 +66,11 @@ export function isWorkingCopyOwnedByAnyTab(
 ) {
     return Object.values(documentSessionsByTabId).some((session) => {
         const identity = session.snapshot.value.identity;
-        return session.file?.value.workingCopyPath === workingPath
-            || identity.workingCopyPath === workingPath
-            || identity.documentRef === workingPath;
+        return (
+            session.file?.value.workingCopyPath === workingPath ||
+            identity.workingCopyPath === workingPath ||
+            identity.documentRef === workingPath
+        );
     });
 }
 
@@ -143,7 +125,10 @@ export async function openScanCleanupGeneratedPdf(
             signal.addEventListener('abort', abandonOpenHandler, {once: true});
         });
         const settled = await Promise.race([
-            open.then(result => ({result}), (error: unknown) => ({error})),
+            open.then(
+                (result) => ({result}),
+                (error: unknown) => ({error}),
+            ),
             abandoned,
         ]);
         if (settled === ABANDONED_OPEN) {
@@ -163,12 +148,13 @@ export async function openScanCleanupGeneratedPdf(
         // Scan cleanup outputs are always generated documents: marking the open
         // result keeps visual-settle handoff and Save As semantics consistent
         // across desktop and browser even when the open layer omitted the flag.
-        const generatedResult: TOpenFileResult = settled.result.isGenerated === true
-            ? settled.result
-            : {
-                ...settled.result,
-                isGenerated: true,
-            };
+        const generatedResult: TOpenFileResult =
+            settled.result.isGenerated === true
+                ? settled.result
+                : {
+                      ...settled.result,
+                      isGenerated: true,
+                  };
         const opened = await handleOpenInNewTab(generatedResult, undefined, {
             activate: true,
             signal,
@@ -179,9 +165,10 @@ export async function openScanCleanupGeneratedPdf(
         if (isDocumentOpen?.(documentRef) === true) {
             return true;
         }
-        const workingCopyOwned = isWorkingCopyOwned !== undefined
-            && generatedResult.workingPath !== undefined
-            && isWorkingCopyOwned(generatedResult.workingPath);
+        const workingCopyOwned =
+            isWorkingCopyOwned !== undefined &&
+            generatedResult.workingPath !== undefined &&
+            isWorkingCopyOwned(generatedResult.workingPath);
         if (!workingCopyOwned && (isWorkingCopyOwned !== undefined || signal.aborted)) {
             discardUnclaimedGeneratedOpen(generatedResult);
         }
@@ -230,26 +217,39 @@ export const useScanCleanupRunCoordinator = (
             }
             return foreground
                 ? openScanCleanupGeneratedPdf(
-                    documentRef,
-                    signal,
-                    handleOpenInNewTab,
-                    ref => isGeneratedDocumentOpenInTab(ref, documentSessionsByTabId.value),
-                    workingPath => isWorkingCopyOwnedByAnyTab(workingPath, documentSessionsByTabId.value),
-                )
-                : (tabId !== null || await handleOpenInNewTab(documentRef, undefined, {
-                    activate: false,
-                    signal,
-                })) && persistCheckpointNow().then(() => true, () => false);
+                      documentRef,
+                      signal,
+                      handleOpenInNewTab,
+                      (ref) => isGeneratedDocumentOpenInTab(ref, documentSessionsByTabId.value),
+                      (workingPath) => isWorkingCopyOwnedByAnyTab(workingPath, documentSessionsByTabId.value),
+                  )
+                : (tabId !== null ||
+                      (await handleOpenInNewTab(documentRef, undefined, {
+                          activate: false,
+                          signal,
+                      }))) &&
+                      persistCheckpointNow().then(
+                          () => true,
+                          () => false,
+                      );
         },
-        createCompletedOutputSaveAs: outputPath => createScanCleanupOutputSaveAs(outputPath, documentSessionsByTabId, activateTab, toast, t),
-        openScanCleanupForDocument: documentRef => recoverScanCleanupWorkspaceForDocument(documentRef, documentSessionsByTabId.value, activateTab),
+        createCompletedOutputSaveAs: (outputPath) =>
+            createScanCleanupOutputSaveAs(outputPath, documentSessionsByTabId, activateTab, toast, t),
+        openScanCleanupForDocument: (documentRef) =>
+            recoverScanCleanupWorkspaceForDocument(documentRef, documentSessionsByTabId.value, activateTab),
         t,
         locale: () => locale.value,
         toast,
     });
 
     onUnmounted(cleanup);
-    watch(isStartupOpenClaimPending, (pending) => {
-        if (!pending) void pruneScanCleanupOutputs().catch(() => undefined);
-    }, {immediate: true});
+    watch(
+        isStartupOpenClaimPending,
+        (pending) => {
+            if (!pending) {
+                void pruneScanCleanupOutputs().catch(() => undefined);
+            }
+        },
+        {immediate: true},
+    );
 };

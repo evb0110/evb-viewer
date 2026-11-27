@@ -55,10 +55,7 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
     const leased = new Set<number>();
     /** Pages the consumer has finished reading since their raster was staged. */
     const released = new Set<number>();
-    const readingIndexByPage = new Map(dependencies.pages.map((pageNumber, index) => [
-        pageNumber,
-        index,
-    ]));
+    const readingIndexByPage = new Map(dependencies.pages.map((pageNumber, index) => [pageNumber, index]));
     /** Furthest reading position reached by the consumer. */
     let cursorIndex = -1;
     const inFlight = new Map<number, Promise<void>>();
@@ -79,15 +76,18 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
         slotVersion += 1;
         const waiters = [...slotWaiters];
         slotWaiters.clear();
-        for (const wake of waiters) wake();
-    };
-    const waitForSlotChange = (seenVersion = slotVersion) => new Promise<void>(resolve => {
-        slotWaiters.add(resolve);
-        if (closed || slotVersion !== seenVersion) {
-            slotWaiters.delete(resolve);
-            resolve();
+        for (const wake of waiters) {
+            wake();
         }
-    });
+    };
+    const waitForSlotChange = (seenVersion = slotVersion) =>
+        new Promise<void>((resolve) => {
+            slotWaiters.add(resolve);
+            if (closed || slotVersion !== seenVersion) {
+                slotWaiters.delete(resolve);
+                resolve();
+            }
+        });
 
     /**
      * The sidecar announces a lease and then reads the raster as soon as it
@@ -98,29 +98,23 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
      */
     const evictionCandidates = (exclude: number) => {
         const candidates = [...held]
-            .filter(([
-                pageNumber,
-                state,
-            ]) => state === 'ready' && pageNumber !== exclude && !leased.has(pageNumber))
+            .filter(([pageNumber, state]) => state === 'ready' && pageNumber !== exclude && !leased.has(pageNumber))
             .map(([pageNumber]) => pageNumber);
         const indexOf = (pageNumber: number) => readingIndexByPage.get(pageNumber) ?? -1;
         const distance = (pageNumber: number) => Math.abs(indexOf(pageNumber) - cursorIndex);
-        const releasedCandidates = candidates.filter(pageNumber => released.has(pageNumber));
+        const releasedCandidates = candidates.filter((pageNumber) => released.has(pageNumber));
         const outsideBand = candidates
-            .filter(pageNumber => !released.has(pageNumber) && distance(pageNumber) > window)
+            .filter((pageNumber) => !released.has(pageNumber) && distance(pageNumber) > window)
             .sort((left, right) => distance(right) - distance(left));
-        return [
-            ...releasedCandidates,
-            ...outsideBand,
-        ];
+        return [...releasedCandidates, ...outsideBand];
     };
 
     const evictOneUnleasedPage = async (exclude: number, releasedOnly = false) => {
         const candidates = evictionCandidates(exclude);
-        const victim = releasedOnly
-            ? candidates.find(pageNumber => released.has(pageNumber))
-            : candidates[0];
-        if (victim === undefined) return false;
+        const victim = releasedOnly ? candidates.find((pageNumber) => released.has(pageNumber)) : candidates[0];
+        if (victim === undefined) {
+            return false;
+        }
 
         held.set(victim, 'evicting');
         try {
@@ -132,10 +126,9 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
             // filesystem cause and leave the page admitted for disposal.
             held.set(victim, 'ready');
             notifySlotWaiters();
-            throw new Error(
-                `Scan cleanup could not drop staged detection raster for page ${victim}: ${getErrorMessage(error)}`,
-                {cause: error},
-            );
+            throw new Error(`Scan cleanup could not drop staged detection raster for page ${victim}: ${getErrorMessage(error)}`, {
+                cause: error,
+            });
         }
         admitted.delete(victim);
         held.delete(victim);
@@ -154,7 +147,9 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
             }
             // An eviction elsewhere can free a slot while this one is refused.
             const seenVersion = slotVersion;
-            if (await evictOneUnleasedPage(pageNumber)) continue;
+            if (await evictOneUnleasedPage(pageNumber)) {
+                continue;
+            }
             await waitForSlotChange(seenVersion);
         }
         throw new Error(`Scan cleanup staged raster window closed before page ${pageNumber} could be staged`);
@@ -162,12 +157,16 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
 
     const stageSinglePage = (pageNumber: number): Promise<void> => {
         const pending = inFlight.get(pageNumber);
-        if (pending) return pending;
+        if (pending) {
+            return pending;
+        }
 
         const task = (async () => {
             while (!closed) {
                 if (external.has(pageNumber)) {
-                    if (await dependencies.isStaged(pageNumber)) return;
+                    if (await dependencies.isStaged(pageNumber)) {
+                        return;
+                    }
                     // The cache entry this page was reusing is gone. Rendering it
                     // again makes it this window's page, slot and all.
                     external.delete(pageNumber);
@@ -175,7 +174,9 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
 
                 const state = held.get(pageNumber);
                 if (state === 'ready') {
-                    if (await dependencies.isStaged(pageNumber)) return;
+                    if (await dependencies.isStaged(pageNumber)) {
+                        return;
+                    }
                     // A raster removed by another owner becomes an ordinary
                     // staged page again.
                     held.delete(pageNumber);
@@ -204,7 +205,9 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
             throw new Error(`Scan cleanup staged raster window closed before page ${pageNumber} was ready`);
         })();
         const tracked = task.finally(() => {
-            if (inFlight.get(pageNumber) === tracked) inFlight.delete(pageNumber);
+            if (inFlight.get(pageNumber) === tracked) {
+                inFlight.delete(pageNumber);
+            }
             notifySlotWaiters();
         });
         inFlight.set(pageNumber, tracked);
@@ -212,14 +215,16 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
     };
 
     /** Leases that have no slot yet. A page already rendering holds its slot. */
-    const waitingLeaseCount = () => [...leased]
-        .filter(pageNumber => !held.has(pageNumber) && !external.has(pageNumber))
-        .length;
+    const waitingLeaseCount = () => [...leased].filter((pageNumber) => !held.has(pageNumber) && !external.has(pageNumber)).length;
 
     const prefetchNext = () => {
-        if (closed) return;
+        if (closed) {
+            return;
+        }
         prefetchRequested = true;
-        if (prefetchTask !== null) return;
+        if (prefetchTask !== null) {
+            return;
+        }
 
         prefetchTask = (async () => {
             while (prefetchRequested && !closed) {
@@ -239,12 +244,16 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
                     // skipping it. Staging past it would fill the window with
                     // unread pages that may not be dropped, and that page's own
                     // lease could then wait for a slot nobody frees.
-                    if (next === undefined || prefetchFailures.has(next)) break;
+                    if (next === undefined || prefetchFailures.has(next)) {
+                        break;
+                    }
                     // A lease still waiting for its raster owns the next free
                     // slot. Prefetching past it would fill the window with
                     // unread pages that cannot be evicted, and the lease would
                     // wait for a slot nobody frees.
-                    if (waitingLeaseCount() > 0) break;
+                    if (waitingLeaseCount() > 0) {
+                        break;
+                    }
                     if (held.size >= window) {
                         // Forward prefetch only reclaims a page native explicitly
                         // released. Unleased pages in the reading horizon may
@@ -255,23 +264,26 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
                             log('warn', getErrorMessage(error));
                             return false;
                         });
-                        if (!evicted) break;
+                        if (!evicted) {
+                            break;
+                        }
                         continue;
                     }
                     void stageSinglePage(next).catch((error: unknown) => {
-                        if (closed) return;
+                        if (closed) {
+                            return;
+                        }
                         prefetchFailures.set(next, error);
-                        log(
-                            'debug',
-                            `Scan cleanup could not stage page ${next} ahead of its lease: ${getErrorMessage(error)}`,
-                        );
+                        log('debug', `Scan cleanup could not stage page ${next} ahead of its lease: ${getErrorMessage(error)}`);
                         prefetchNext();
                     });
                 }
             }
         })().finally(() => {
             prefetchTask = null;
-            if (prefetchRequested && !closed) prefetchNext();
+            if (prefetchRequested && !closed) {
+                prefetchNext();
+            }
         });
     };
 
@@ -279,7 +291,9 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
         /** Start the first input, then fill the remaining slots beside analysis. */
         async prime() {
             const firstPage = dependencies.pages[0];
-            if (firstPage === undefined) return;
+            if (firstPage === undefined) {
+                return;
+            }
             cursorIndex = 0;
             const firstPageTask = stageSinglePage(firstPage);
             prefetchNext();
@@ -287,11 +301,15 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
         },
         /** Pin one page and guarantee its raster is readable. */
         async acquire(pageNumber: number) {
-            if (closed) throw new Error('Scan cleanup staged raster window is closed');
+            if (closed) {
+                throw new Error('Scan cleanup staged raster window is closed');
+            }
             leased.add(pageNumber);
             released.delete(pageNumber);
             const failure = prefetchFailures.get(pageNumber);
-            if (getUnprovenNativeTerminationDetail(failure) !== undefined) throw failure;
+            if (getUnprovenNativeTerminationDetail(failure) !== undefined) {
+                throw failure;
+            }
             prefetchFailures.delete(pageNumber);
             cursorIndex = Math.max(cursorIndex, readingIndexByPage.get(pageNumber) ?? cursorIndex);
             try {
@@ -323,16 +341,14 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
         async dispose({retainStaged} = {retainStaged: false}) {
             closed = true;
             notifySlotWaiters();
-            const outcomes = await Promise.allSettled([
-                ...inFlight.values(),
-                ...(prefetchTask === null ? [] : [prefetchTask]),
-            ]);
+            const outcomes = await Promise.allSettled([...inFlight.values(), ...(prefetchTask === null ? [] : [prefetchTask])]);
             const failures = [
                 ...prefetchFailures.values(),
-                ...outcomes.flatMap(outcome => outcome.status === 'rejected' ? [outcome.reason] : []),
-            ]
-                .filter(error => getUnprovenNativeTerminationDetail(error) !== undefined);
-            if (failures.length > 0) throw new AggregateError(failures, 'Native staged reader was not proven stopped');
+                ...outcomes.flatMap((outcome) => (outcome.status === 'rejected' ? [outcome.reason] : [])),
+            ].filter((error) => getUnprovenNativeTerminationDetail(error) !== undefined);
+            if (failures.length > 0) {
+                throw new AggregateError(failures, 'Native staged reader was not proven stopped');
+            }
             if (retainStaged) {
                 admitted.clear();
                 held.clear();
@@ -343,13 +359,10 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
             admitted.clear();
             held.clear();
             leased.clear();
-            const settled = await Promise.allSettled(staged.map(pageNumber => dependencies.unstage(pageNumber)));
+            const settled = await Promise.allSettled(staged.map((pageNumber) => dependencies.unstage(pageNumber)));
             for (const outcome of settled) {
                 if (outcome.status === 'rejected') {
-                    log(
-                        'warn',
-                        `Scan cleanup could not drop a staged detection raster: ${getErrorMessage(outcome.reason)}`,
-                    );
+                    log('warn', `Scan cleanup could not drop a staged detection raster: ${getErrorMessage(outcome.reason)}`);
                 }
             }
         },

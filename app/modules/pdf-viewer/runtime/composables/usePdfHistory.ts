@@ -1,22 +1,19 @@
-import type {
-    TDocumentCommitReceipt, TDocumentRevisionToken,
-} from '@contracts/documentRevision';
+import type {TDocumentCommitReceipt, TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {TDocumentOperationKind} from '@app/types/documentOperationKind';
 import {runWithoutDocumentOperationLease} from '@app/utils/runWithoutDocumentOperationLease';
-import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import type {Ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TWorkspaceUndoSource} from '@app/types/workspaceUndoSource';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 type THistoryDirection = 'undo' | 'redo';
-type THistoryRoute = (
-    | {kind: 'blocked';}
+type THistoryRoute =
+    | {kind: 'blocked'}
     | {
-        kind: 'command';
-        direction: THistoryDirection;
-        source: TWorkspaceUndoSource | null;
-    }
-);
+          kind: 'command';
+          direction: THistoryDirection;
+          source: TWorkspaceUndoSource | null;
+      };
 
 const HISTORY_LOG_SECTION = 'pdf-history';
 
@@ -65,7 +62,7 @@ export const usePdfHistory = (deps: {
         };
     }
 
-    function reportMissingTimelineSource(route: Extract<THistoryRoute, {kind: 'command';}>) {
+    function reportMissingTimelineSource(route: Extract<THistoryRoute, {kind: 'command'}>) {
         BrowserLogger.warn(
             HISTORY_LOG_SECTION,
             `${route.direction === 'undo' ? 'Undo' : 'Redo'} requested but no timeline history source was available`,
@@ -77,10 +74,7 @@ export const usePdfHistory = (deps: {
         );
     }
 
-    async function runTimelineHistoryRoute(
-        direction: THistoryDirection,
-        runHistory: () => Promise<boolean>,
-    ) {
+    async function runTimelineHistoryRoute(direction: THistoryDirection, runHistory: () => Promise<boolean>) {
         await prepareHistory();
         const route = resolveHistoryRoute(direction);
         if (route.kind === 'blocked') {
@@ -94,9 +88,7 @@ export const usePdfHistory = (deps: {
         if (historySource === 'file' && workingCopyPath.value) {
             clearOcrCache(workingCopyPath.value);
         }
-        const reloadWaiter = historySource === 'file'
-            ? prepareReload(page => mapHistoryPage?.(direction, page) ?? page)
-            : null;
+        const reloadWaiter = historySource === 'file' ? prepareReload((page) => mapHistoryPage?.(direction, page) ?? page) : null;
         const didRun = await runHistory();
         if (didRun && reloadWaiter) {
             await reloadWaiter.promise;
@@ -106,14 +98,15 @@ export const usePdfHistory = (deps: {
         return didRun;
     }
 
-    const runHistory = (direction: THistoryDirection, onCommitted?: TDocumentCommitReceipt) => (
+    const runHistory = (direction: THistoryDirection, onCommitted?: TDocumentCommitReceipt) =>
         (deps.runWithDocumentOperationLease ?? runWithoutDocumentOperationLease)('history', async () => {
             const didRun = await runTimelineHistoryRoute(direction, direction === 'undo' ? undoHistory : redoHistory);
             const revision = deps.documentRevisionToken?.value;
-            if (didRun && revision) onCommitted?.(revision);
+            if (didRun && revision) {
+                onCommitted?.(revision);
+            }
             return didRun;
-        })
-    );
+        });
 
     return {
         canUndo,

@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import type {TTranslateFn} from '@i18n-app';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
@@ -15,26 +11,11 @@ import {
 
 describe('classifyDocumentOpenError', () => {
     it.each([
-        [
-            'NotAllowedError',
-            'errors.browser.filePermissionDenied',
-        ],
-        [
-            'NotReadableError',
-            'errors.browser.filePermissionDenied',
-        ],
-        [
-            'QuotaExceededError',
-            'errors.browser.storageFull',
-        ],
-        [
-            'InvalidPDFException',
-            'errors.file.invalid',
-        ],
-        [
-            'BrowserPageOpsWorkerUnavailableError',
-            'errors.browser.documentToolsUnavailable',
-        ],
+        ['NotAllowedError', 'errors.browser.filePermissionDenied'],
+        ['NotReadableError', 'errors.browser.filePermissionDenied'],
+        ['QuotaExceededError', 'errors.browser.storageFull'],
+        ['InvalidPDFException', 'errors.file.invalid'],
+        ['BrowserPageOpsWorkerUnavailableError', 'errors.browser.documentToolsUnavailable'],
     ])('explains a %s browser refusal on screen', (name, key) => {
         const error = Object.assign(new Error('technical detail'), {name});
         const t = ((translationKey: string) => translationKey) as TTranslateFn;
@@ -43,31 +24,17 @@ describe('classifyDocumentOpenError', () => {
 
     it('explains unavailable qpdf document tools without calling the file invalid', () => {
         const t: TTranslateFn = (key, ..._args) => String(key);
-        expect(classifyDocumentOpenError(new BrowserQpdfEngineUnavailableError('Worker unavailable'), null, t))
-            .toBe('errors.browser.documentToolsUnavailable');
+        expect(classifyDocumentOpenError(new BrowserQpdfEngineUnavailableError('Worker unavailable'), null, t)).toBe(
+            'errors.browser.documentToolsUnavailable',
+        );
     });
 
     it.each([
-        [
-            'html',
-            'errors.file.notDjvuHtml',
-        ],
-        [
-            'pdf',
-            'errors.file.notDjvuPdf',
-        ],
-        [
-            'zip',
-            'errors.file.notDjvuZip',
-        ],
-        [
-            'empty',
-            'errors.file.notDjvuEmpty',
-        ],
-        [
-            'unknown',
-            'errors.file.notDjvu',
-        ],
+        ['html', 'errors.file.notDjvuHtml'],
+        ['pdf', 'errors.file.notDjvuPdf'],
+        ['zip', 'errors.file.notDjvuZip'],
+        ['empty', 'errors.file.notDjvuEmpty'],
+        ['unknown', 'errors.file.notDjvu'],
     ])('explains %s content in a file named .djvu through the serialized open envelope', (detectedFormat, key) => {
         const envelope = {
             code: 'not-djvu',
@@ -91,38 +58,18 @@ describe('classifyDocumentOpenError', () => {
     });
 
     it.each([
-        [
-            'source-changed',
-            'errors.file.changedWhileOpening',
-        ],
-        [
-            'invalid-pdf',
-            'errors.file.invalid',
-        ],
-        [
-            'empty-pdf',
-            'errors.file.emptyPdf',
-        ],
-        [
-            'invalid-djvu',
-            'errors.file.invalidDjvu',
-        ],
-        [
-            'djvu-components-required',
-            'errors.file.djvuComponentsRequired',
-        ],
-        [
-            'djvu-raster-limit',
-            'errors.file.djvuRasterLimit',
-        ],
+        ['source-changed', 'errors.file.changedWhileOpening'],
+        ['invalid-pdf', 'errors.file.invalid'],
+        ['empty-pdf', 'errors.file.emptyPdf'],
+        ['invalid-djvu', 'errors.file.invalidDjvu'],
+        ['djvu-components-required', 'errors.file.djvuComponentsRequired'],
+        ['djvu-raster-limit', 'errors.file.djvuRasterLimit'],
     ])('localizes a %s open refusal through the IPC wrapping it arrives in', (code, key) => {
         const envelope = encodeSerializableErrorEnvelope({
             code,
             message: 'The original document changed while it was being opened',
         });
-        const error = new Error(
-            `Error invoking remote method 'dialog:openPdfDirect': Error: Failed to open file: ${envelope}`,
-        );
+        const error = new Error(`Error invoking remote method 'dialog:openPdfDirect': Error: Failed to open file: ${envelope}`);
         const t = ((translationKey: string) => translationKey) as TTranslateFn;
 
         expect(classifyDocumentOpenError(error, null, t)).toBe(key);
@@ -161,8 +108,7 @@ describe('classifyDocumentOpenError for a file that is gone', () => {
     ])('classifies structured %s without relying on message regexes', (_label, error) => {
         const t = ((key: string, parameters?: {name?: string}) => `${key}:${parameters?.name ?? ''}`) as TTranslateFn;
 
-        expect(classifyDocumentOpenError(error, requireDocumentRef('/docs/missing.pdf'), t))
-            .toBe('errors.file.openNotFound:missing.pdf');
+        expect(classifyDocumentOpenError(error, requireDocumentRef('/docs/missing.pdf'), t)).toBe('errors.file.openNotFound:missing.pdf');
     });
 
     it.each([
@@ -173,13 +119,20 @@ describe('classifyDocumentOpenError for a file that is gone', () => {
     ])('does not regex-match unstructured message "%s" as openNotFound', (message) => {
         const t = ((key: string) => key) as TTranslateFn;
 
-        expect(classifyDocumentOpenError(new Error(message), requireDocumentRef('/docs/file.pdf'), t))
-            .toBe('errors.file.openDescription');
+        expect(classifyDocumentOpenError(new Error(message), requireDocumentRef('/docs/file.pdf'), t)).toBe('errors.file.openDescription');
     });
 
     it.each([
-        ['SecurityError cause', new Error('wrapped', {cause: new DOMException('blocked', 'SecurityError')}), 'errors.browser.filePermissionDenied'],
-        ['QuotaExceededError cause', new Error('wrapped', {cause: new DOMException('full', 'QuotaExceededError')}), 'errors.browser.storageFull'],
+        [
+            'SecurityError cause',
+            new Error('wrapped', {cause: new DOMException('blocked', 'SecurityError')}),
+            'errors.browser.filePermissionDenied',
+        ],
+        [
+            'QuotaExceededError cause',
+            new Error('wrapped', {cause: new DOMException('full', 'QuotaExceededError')}),
+            'errors.browser.storageFull',
+        ],
     ])('preserves structured browser %s through wrapped causes', (_label, error, expectedKey) => {
         const t = ((key: string) => key) as TTranslateFn;
 
@@ -209,9 +162,7 @@ describe('describeRefusedDocumentOpen', () => {
             message: 'invalid-pdf',
             fileName: 'damaged.pdf',
         };
-        const error = new Error(
-            `Error invoking remote method 'dialog:openPdf': Error: ${encodeSerializableErrorEnvelope(refusal)}`,
-        );
+        const error = new Error(`Error invoking remote method 'dialog:openPdf': Error: ${encodeSerializableErrorEnvelope(refusal)}`);
 
         expect(describeRefusedDocumentOpen(error, t)).toEqual({
             message: 'errors.file.invalid',
@@ -221,10 +172,12 @@ describe('describeRefusedDocumentOpen', () => {
     });
 
     it('leaves the name out when the refusal does not carry one', () => {
-        const error = new Error(`Error invoking remote method 'dialog:openPdf': Error: ${encodeSerializableErrorEnvelope({
-            code: 'source-changed',
-            message: 'source-changed',
-        })}`);
+        const error = new Error(
+            `Error invoking remote method 'dialog:openPdf': Error: ${encodeSerializableErrorEnvelope({
+                code: 'source-changed',
+                message: 'source-changed',
+            })}`,
+        );
 
         expect(describeRefusedDocumentOpen(error, t)).toMatchObject({
             message: 'errors.file.changedWhileOpening',

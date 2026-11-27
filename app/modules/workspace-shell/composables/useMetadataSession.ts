@@ -1,16 +1,9 @@
-import {
-    type IPdfDocument,
-    useBookmarkState,
-    usePageLabelState,
-    type createPdfReloadWaiter,
-} from '@app/modules/pdf-viewer/public';
-import type { Ref } from 'vue';
-import { isEqual } from 'es-toolkit/predicate';
-import { useWorkspaceMetadataHistory } from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
-import { useWorkspaceCommandLedger } from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
-import type {
-    IWorkspaceCommandRegistration, IWorkspaceCommandSink,
-} from '@app/types/workspaceCommand';
+import {type IPdfDocument, useBookmarkState, usePageLabelState, type createPdfReloadWaiter} from '@app/modules/pdf-viewer/public';
+import type {Ref} from 'vue';
+import {isEqual} from 'es-toolkit/predicate';
+import {useWorkspaceMetadataHistory} from '@app/modules/workspace-shell/composables/useWorkspaceMetadataHistory';
+import {useWorkspaceCommandLedger} from '@app/modules/workspace-shell/composables/useWorkspaceCommandLedger';
+import type {IWorkspaceCommandRegistration, IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
@@ -27,14 +20,7 @@ interface IMetadataSessionOptions {
 }
 
 export const useMetadataSession = (options: IMetadataSessionOptions) => {
-    const {
-        pdfDocument,
-        totalPages,
-        workingCopyPath,
-        documentRevisionToken,
-        markDirty,
-        setWorkspaceCommandSink,
-    } = options;
+    const {pdfDocument, totalPages, workingCopyPath, documentRevisionToken, markDirty, setWorkspaceCommandSink} = options;
 
     let metadataHistory: ReturnType<typeof useWorkspaceMetadataHistory> | null = null;
     const workspaceUndoTimeline = useWorkspaceCommandLedger();
@@ -86,9 +72,12 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
                     restoreCleanState = inverse;
                 }
                 return changed;
-            } finally { reload?.cancel(); }
+            } finally {
+                reload?.cancel();
+            }
         };
-        const run = (operation: IWorkspaceCommandRegistration['undo']) => runWithPreservedMetadataReload(() => replay(operation), scope?.prepareReload);
+        const run = (operation: IWorkspaceCommandRegistration['undo']) =>
+            runWithPreservedMetadataReload(() => replay(operation), scope?.prepareReload);
         workspaceUndoTimeline.registerCommand({
             ...command,
             undo: () => run(command.undo),
@@ -97,8 +86,10 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     }
     const commandSink: IWorkspaceCommandSink = {
         register: registerCommand,
-        reset: source => {
-            if (source === 'file' || source === undefined) preservedReload = null;
+        reset: (source) => {
+            if (source === 'file' || source === undefined) {
+                preservedReload = null;
+            }
             workspaceUndoTimeline.resetSource(source);
         },
         forget: workspaceUndoTimeline.forgetSourceEntries,
@@ -112,18 +103,24 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     /** The field's value as written to the working bytes, or as read from them when `written` is absent. */
     function acknowledgeWorkingMetadata<T>(field: 'bookmarkItems' | 'pageLabelRanges', written?: T) {
         const value = written ?? currentMetadata(field);
-        if (value !== undefined) workingMetadata[field] = structuredClone(toRaw(value));
+        if (value !== undefined) {
+            workingMetadata[field] = structuredClone(toRaw(value));
+        }
         return written;
     }
-    const differsFromWorkingBytes = (field: 'bookmarkItems' | 'pageLabelRanges', value: unknown) => (
-        field in workingMetadata && !isEqual(workingMetadata[field], toRaw(value))
-    );
+    const differsFromWorkingBytes = (field: 'bookmarkItems' | 'pageLabelRanges', value: unknown) =>
+        field in workingMetadata && !isEqual(workingMetadata[field], toRaw(value));
 
     function synchronizeMetadata(field: 'bookmarkItems' | 'pageLabelRanges') {
         acknowledgeWorkingMetadata(field);
-        if (preservesSourceReload()) return;
-        if (preservedReload) metadataHistory?.captureCleanState()(field);
-        else metadataHistory?.markCurrentStateClean(field);
+        if (preservesSourceReload()) {
+            return;
+        }
+        if (preservedReload) {
+            metadataHistory?.captureCleanState()(field);
+        } else {
+            metadataHistory?.markCurrentStateClean(field);
+        }
     }
 
     const bookmarkState = useBookmarkState({
@@ -131,13 +128,10 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         preservesSourceReload,
         onBookmarksSynchronized: () => synchronizeMetadata('bookmarkItems'),
         onBookmarksDirty: () => metadataHistory?.recordCurrentState(),
-        onBookmarksSaved: written => metadataHistory?.markCurrentStateClean('bookmarkItems', acknowledgeWorkingMetadata('bookmarkItems', written)),
+        onBookmarksSaved: (written) =>
+            metadataHistory?.markCurrentStateClean('bookmarkItems', acknowledgeWorkingMetadata('bookmarkItems', written)),
     });
-    const {
-        bookmarkItems,
-        bookmarksResolved,
-        bookmarksDirty,
-    } = bookmarkState;
+    const {bookmarkItems, bookmarksResolved, bookmarksDirty} = bookmarkState;
 
     const pageLabelState = usePageLabelState({
         pdfDocument,
@@ -155,19 +149,16 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         preservesSourceReload,
         onPageLabelsSynchronized: () => synchronizeMetadata('pageLabelRanges'),
         onPageLabelsDirty: () => metadataHistory?.recordCurrentState(),
-        onPageLabelsSaved: written => metadataHistory?.markCurrentStateClean('pageLabelRanges', acknowledgeWorkingMetadata('pageLabelRanges', written)),
+        onPageLabelsSaved: (written) =>
+            metadataHistory?.markCurrentStateClean('pageLabelRanges', acknowledgeWorkingMetadata('pageLabelRanges', written)),
         // The outline is re-read from new bytes, not from another view's copy of the same.
         onDocumentBytesChanged: () => {
             bookmarksResolved.value = false;
         },
     });
-    const {
-        pageLabelRanges,
-        pageLabelsDirty,
-    } = pageLabelState;
+    const {pageLabelRanges, pageLabelsDirty} = pageLabelState;
 
-
-    currentMetadata = field => (field === 'bookmarkItems' ? bookmarkItems.value : pageLabelRanges.value);
+    currentMetadata = (field) => (field === 'bookmarkItems' ? bookmarkItems.value : pageLabelRanges.value);
     metadataHistory = useWorkspaceMetadataHistory({
         bookmarkItems,
         bookmarksDirty,
@@ -198,8 +189,12 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         restoreRecovery: (recovery: IWorkspaceMetadataRecovery) => {
             // Restored edits stay dirty, but do not create a second authored history.
             metadataHistory.restoreCurrentState(() => {
-                if (recovery.bookmarks) bookmarkState.restoreRecovery(recovery.bookmarks);
-                if (recovery.pageLabels) pageLabelState.restoreRecovery(recovery.pageLabels);
+                if (recovery.bookmarks) {
+                    bookmarkState.restoreRecovery(recovery.bookmarks);
+                }
+                if (recovery.pageLabels) {
+                    pageLabelState.restoreRecovery(recovery.pageLabels);
+                }
             });
         },
     };

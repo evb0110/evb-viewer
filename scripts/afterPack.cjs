@@ -5,39 +5,9 @@ const path = require('path');
 const projectRoot = path.resolve(__dirname, '..');
 const {manifest: RELEASE_TARGET_MANIFEST} = require('./release/generated-release-targets.cjs');
 const SUPPORTED_CHROMIUM_LOCALES = {
-    darwin: new Set([
-        'de',
-        'en',
-        'es',
-        'fr',
-        'it',
-        'nl',
-        'pt_BR',
-        'pt_PT',
-        'ru',
-    ]),
-    linux: new Set([
-        'de',
-        'en-US',
-        'es',
-        'fr',
-        'it',
-        'nl',
-        'pt-BR',
-        'pt-PT',
-        'ru',
-    ]),
-    win32: new Set([
-        'de',
-        'en-US',
-        'es',
-        'fr',
-        'it',
-        'nl',
-        'pt-BR',
-        'pt-PT',
-        'ru',
-    ]),
+    darwin: new Set(['de', 'en', 'es', 'fr', 'it', 'nl', 'pt_BR', 'pt_PT', 'ru']),
+    linux: new Set(['de', 'en-US', 'es', 'fr', 'it', 'nl', 'pt-BR', 'pt-PT', 'ru']),
+    win32: new Set(['de', 'en-US', 'es', 'fr', 'it', 'nl', 'pt-BR', 'pt-PT', 'ru']),
 };
 
 function archName(arch) {
@@ -80,18 +50,19 @@ function platformArchTagForContext(context) {
     return `${platform}-${arch}`;
 }
 
-function requiredExtraResourcesForContext(context, {
-    projectRoot: root = projectRoot,
-    resourcesDir = resourcesDirForContext(context),
-} = {}) {
+function requiredExtraResourcesForContext(context, {projectRoot: root = projectRoot, resourcesDir = resourcesDirForContext(context)} = {}) {
     const tag = platformArchTagForContext(context);
-    const entries = RELEASE_TARGET_MANIFEST.globalResources.map(entry => ({
+    const entries = RELEASE_TARGET_MANIFEST.globalResources.map((entry) => ({
         label: entry.label,
-        ...(entry.requiredFiles === undefined ? {} : {packagedEntries: entry.requiredFiles.map(relativePath => ({
-            label: `${entry.label} file`,
-            relativePath,
-            type: 'file',
-        }))}),
+        ...(entry.requiredFiles === undefined
+            ? {}
+            : {
+                  packagedEntries: entry.requiredFiles.map((relativePath) => ({
+                      label: `${entry.label} file`,
+                      relativePath,
+                      type: 'file',
+                  })),
+              }),
         sourcePath: path.join(root, ...entry.sourceSegments),
         stagedPath: path.join(resourcesDir, ...entry.stagedSegments),
         tag,
@@ -101,11 +72,10 @@ function requiredExtraResourcesForContext(context, {
     for (const entry of RELEASE_TARGET_MANIFEST.families) {
         const binaryExtension = context.electronPlatformName === 'win32' ? '.exe' : '';
         const packagedEntries = entry.packagedEntries
-            .filter(resource => !resource.platforms || resource.platforms.includes(context.electronPlatformName))
-            .map(resource => ({
+            .filter((resource) => !resource.platforms || resource.platforms.includes(context.electronPlatformName))
+            .map((resource) => ({
                 label: resource.label,
-                relativePath: path.join(...resource.pathSegments)
-                    .replaceAll('{exeSuffix}', binaryExtension),
+                relativePath: path.join(...resource.pathSegments).replaceAll('{exeSuffix}', binaryExtension),
                 type: resource.type,
             }));
         if (packagedEntries.length === 0) {
@@ -127,9 +97,7 @@ function requiredExtraResourcesForContext(context, {
 function hasExpectedPathType(filePath, type) {
     try {
         const stat = fs.statSync(filePath);
-        return type === 'file'
-            ? stat.isFile()
-            : stat.isDirectory();
+        return type === 'file' ? stat.isFile() : stat.isDirectory();
     } catch (error) {
         if (error && error.code === 'ENOENT') {
             return false;
@@ -176,11 +144,13 @@ function assertRequiredExtraResources(context, options) {
     }
 
     if (missing.length > 0) {
-        throw new Error([
-            `[afterPack] Missing required electron-builder extraResources for ${entries[0].tag}:`,
-            ...missing.map(item => `- ${item}`),
-            'Run the platform native-tool build steps before packaging and verify electron-builder.yml extraResources.',
-        ].join('\n'));
+        throw new Error(
+            [
+                `[afterPack] Missing required electron-builder extraResources for ${entries[0].tag}:`,
+                ...missing.map((item) => `- ${item}`),
+                'Run the platform native-tool build steps before packaging and verify electron-builder.yml extraResources.',
+            ].join('\n'),
+        );
     }
 }
 
@@ -230,19 +200,18 @@ function pruneChromiumLocales(context) {
     const present = new Set();
     let removed = 0;
     for (const entry of fs.readdirSync(localeDirectory, {withFileTypes: true})) {
-        const locale = platform === 'darwin'
-            ? (entry.isDirectory() && entry.name.endsWith('.lproj')
-                ? entry.name.slice(0, -'.lproj'.length)
-                : null)
-            : (entry.isFile() && entry.name.endsWith('.pak')
-                ? entry.name.slice(0, -'.pak'.length)
-                : null);
+        const locale =
+            platform === 'darwin'
+                ? entry.isDirectory() && entry.name.endsWith('.lproj')
+                    ? entry.name.slice(0, -'.lproj'.length)
+                    : null
+                : entry.isFile() && entry.name.endsWith('.pak')
+                  ? entry.name.slice(0, -'.pak'.length)
+                  : null;
         if (locale === null) {
             continue;
         }
-        const baseLocale = platform === 'darwin'
-            ? locale.replace(/_(?:FEMININE|MASCULINE|NEUTER)$/u, '')
-            : locale;
+        const baseLocale = platform === 'darwin' ? locale.replace(/_(?:FEMININE|MASCULINE|NEUTER)$/u, '') : locale;
         if (keep.has(baseLocale)) {
             if (baseLocale === locale) {
                 present.add(locale);
@@ -256,7 +225,7 @@ function pruneChromiumLocales(context) {
         removed++;
     }
 
-    const missing = [...keep].filter(locale => !present.has(locale));
+    const missing = [...keep].filter((locale) => !present.has(locale));
     if (missing.length > 0) {
         throw new Error(`[afterPack] Required Chromium locales are missing for ${platform}: ${missing.join(', ')}`);
     }
@@ -295,10 +264,7 @@ function moveMacNativeToolResources(context) {
 
         // Only code belongs below Contents/MacOS. Fontconfig and Poppler's
         // CMaps stay in Resources so codesign seals them as data.
-        const codeDirectories = [
-            'bin',
-            'lib',
-        ].filter(directory => fs.existsSync(path.join(src, directory)));
+        const codeDirectories = ['bin', 'lib'].filter((directory) => fs.existsSync(path.join(src, directory)));
         if (codeDirectories.length === 0) {
             continue;
         }
@@ -322,12 +288,7 @@ function removeNativeBuildReceipts(context) {
     const resourcesDir = resourcesDirForContext(context);
 
     for (const family of RELEASE_TARGET_MANIFEST.families) {
-        const receiptPath = path.join(
-            resourcesDir,
-            ...family.stagedRootSegments,
-            tag,
-            'build-receipt.json',
-        );
+        const receiptPath = path.join(resourcesDir, ...family.stagedRootSegments, tag, 'build-receipt.json');
         fs.rmSync(receiptPath, {force: true});
     }
 }
@@ -344,8 +305,8 @@ async function bundleWindowsMsvcRuntime(context) {
     const tag = platformArchTagForContext(context);
     const resourcesDir = resourcesDirForContext(context);
     const directories = RELEASE_TARGET_MANIFEST.families
-        .map(family => path.join(resourcesDir, ...family.stagedRootSegments, tag, 'bin'))
-        .filter(directory => fs.existsSync(directory));
+        .map((family) => path.join(resourcesDir, ...family.stagedRootSegments, tag, 'bin'))
+        .filter((directory) => fs.existsSync(directory));
     const windowsDir = process.env.SystemRoot ?? 'C:\\Windows';
     const copied = bundle({
         directories,

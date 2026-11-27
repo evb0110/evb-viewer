@@ -7,49 +7,25 @@ import type {
     TScanCleanupDetectionStartResult,
     TScanCleanupPreviewWireResult,
 } from '@contracts/scan-cleanup/electronApiScanCleanup';
-import {
-    copyFile,
-    mkdir,
-    mkdtemp,
-    readFile,
-    open,
-    readdir,
-    rename,
-    rm,
-    stat,
-    writeFile,
-} from 'fs/promises';
+import {copyFile, mkdir, mkdtemp, readFile, open, readdir, rename, rm, stat, writeFile} from 'fs/promises';
 import {isErrnoException} from '@contracts/runtimeGuards';
 import {getPdfPageCount} from '@electron/pdf/pdfPageCount';
 import {createPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {atomicReplace} from '@electron/utils/atomicReplace';
-import {
-    renderPdfPageToPng,
-    renderPdfPageToPpm,
-} from '@electron/features/ocr/publicNative';
+import {renderPdfPageToPng, renderPdfPageToPpm} from '@electron/features/ocr/publicNative';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {runScanCleanupSidecar} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import {createScanCleanupRasterBatchRenderer} from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
 import {getAppTempDir} from '@electron/utils/appTempDir';
 import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
-import {
-    ensureWorkingCopyMaterialized,
-    getWorkingCopyBackingEntry,
-    isWorkingCopyDocumentPath,
-} from '@electron/file-access/documentStore';
+import {ensureWorkingCopyMaterialized, getWorkingCopyBackingEntry, isWorkingCopyDocumentPath} from '@electron/file-access/documentStore';
 import {resolveDesktopQpdfPath} from '@electron/native-tools/qpdfWasmWorkerClient';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {detectSourceDpiDetails} from '@electron/pdf/sourceDpiDetection';
 import {resolveNativePdfImageCombinePath} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
-import {
-    extractPdfMrcLayers,
-    extractPdfMrcLayersBatch,
-} from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
+import {extractPdfMrcLayers, extractPdfMrcLayersBatch} from '@evb/scan-cleanup/adapters/extractPdfMrcLayers';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
-import {
-    chainJobBrokerRunContext,
-    mainJobBroker,
-} from '@electron/resources/jobBroker';
+import {chainJobBrokerRunContext, mainJobBroker} from '@electron/resources/jobBroker';
 import {getHostResourceProfileSnapshot} from '@electron/resources/hostResourceProfile';
 import {readAvailableScratchBytes} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import type {
@@ -57,10 +33,7 @@ import type {
     IScanCleanupDetectionOwnerDependencies,
     IScanCleanupPreviewDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
-import {
-    scanCleanupDetectionOwner,
-    type IScanCleanupDetectionOwner,
-} from '@electron/features/scan-cleanup/scanCleanupDetectionLifecycle';
+import {scanCleanupDetectionOwner, type IScanCleanupDetectionOwner} from '@electron/features/scan-cleanup/scanCleanupDetectionLifecycle';
 import {
     scanCleanupPreviewRenderingOwner,
     type IScanCleanupPreviewRenderingOwner,
@@ -97,11 +70,8 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
     open,
     stat,
     getAvailableScratchBytes: readAvailableScratchBytes,
-    resolveRasterAdmissionPolicy: options => ({
-        ...resolveScanCleanupPreviewRasterAdmissionPolicy(
-            mainJobBroker.getSnapshot().capacity,
-            options,
-        ),
+    resolveRasterAdmissionPolicy: (options) => ({
+        ...resolveScanCleanupPreviewRasterAdmissionPolicy(mainJobBroker.getSnapshot().capacity, options),
         totalRamBytes: getHostResourceProfileSnapshot().totalRamBytes,
     }),
     getPageCount: getPdfPageCount,
@@ -145,38 +115,30 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
         );
     },
     isRasterDetectionAvailable: () => getPdfNativeToolPaths().pdfimages !== undefined,
-    extractMrcLayers: async (
-        sourcePdfPath,
-        pageNumber,
-        selectionMaskOutputPath,
-        backgroundOutputPath,
-        signal,
-        log,
-        brokerRun,
-    ) => {
+    extractMrcLayers: async (sourcePdfPath, pageNumber, selectionMaskOutputPath, backgroundOutputPath, signal, log, brokerRun) => {
         const paths = getPdfNativeToolPaths();
         const pdfImageCombineBinary = resolveNativePdfImageCombinePath();
-        const runCommand: typeof runNativeToolCommand = brokerRun === undefined
-            ? runNativeToolCommand
-            : (command, args, options) => {
-                const {
-                    onTerminationProof: innerProof,
-                    ...restOptions
-                } = options ?? {};
-                return runNativeToolCommand(command, args, {
-                    ...restOptions,
-                    brokerRun: chainJobBrokerRunContext(brokerRun, innerProof),
-                });
-            };
+        const runCommand: typeof runNativeToolCommand =
+            brokerRun === undefined
+                ? runNativeToolCommand
+                : (command, args, options) => {
+                      const {onTerminationProof: innerProof, ...restOptions} = options ?? {};
+                      return runNativeToolCommand(command, args, {
+                          ...restOptions,
+                          brokerRun: chainJobBrokerRunContext(brokerRun, innerProof),
+                      });
+                  };
         if (pdfImageCombineBinary !== null) {
             const extracted = await extractPdfMrcLayersBatch({
                 pdfPath: sourcePdfPath,
-                targets: [{
-                    pageNumber,
-                    selectionMaskOutputPath: `${selectionMaskOutputPath}.jb2e`,
-                    backgroundOutputPath: `${backgroundOutputPath}.ppm`,
-                    foregroundOutputPath: `${backgroundOutputPath}.foreground.jp2`,
-                }],
+                targets: [
+                    {
+                        pageNumber,
+                        selectionMaskOutputPath: `${selectionMaskOutputPath}.jb2e`,
+                        backgroundOutputPath: `${backgroundOutputPath}.ppm`,
+                        foregroundOutputPath: `${backgroundOutputPath}.foreground.jp2`,
+                    },
+                ],
                 pdfimagesBinary: paths.pdfimages,
                 qpdfBinary: resolveDesktopQpdfPath(),
                 pdfImageCombineBinary,
@@ -200,59 +162,52 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
             signal,
         });
     },
-    runWithDetectionLease: (
-        ownerId,
-        signal,
-        rasterPolicy: IScanCleanupRasterAdmissionPolicy,
-        options,
-        work,
-    ) => mainJobBroker.run({
-        ownerId,
-        kind: 'scan-cleanup-detect-all',
-        priority: 'user',
-        resources: {
-            cpuTokens: rasterPolicy.rasterConcurrency,
-            estimatedResidentBytes: rasterPolicy.rasterConcurrency
-                * resolveScanCleanupPreviewRasterSlotResidentBytes(options, rasterPolicy.rasterMaxPixels),
-            nativeProcesses: rasterPolicy.rasterConcurrency,
-            ioWeight: 2,
-        },
-        perOwnerLimit: 1,
-        signal,
-    }, brokerRun => work(brokerRun)),
-    runWithPreviewLease: (
-        ownerId,
-        visibility,
-        signal,
-        options,
-        rasterMaxPixels,
-        work,
-    ) => {
-        const effectiveRasterMaxPixels = rasterMaxPixels ?? resolveScanCleanupPreviewRasterAdmissionPolicy(
-            mainJobBroker.getSnapshot().capacity,
-            options,
-        ).rasterMaxPixels;
-        return mainJobBroker.run({
-            ownerId,
-            kind: 'scan-cleanup-preview',
-            priority: visibility === 'prefetch' ? 'background' : 'visible',
-            resources: {
-                cpuTokens: 1,
-                estimatedResidentBytes: resolveScanCleanupPreviewRasterSlotResidentBytes(
-                    options,
-                    effectiveRasterMaxPixels,
-                ),
-                nativeProcesses: 1,
-                ioWeight: 1,
+    runWithDetectionLease: (ownerId, signal, rasterPolicy: IScanCleanupRasterAdmissionPolicy, options, work) =>
+        mainJobBroker.run(
+            {
+                ownerId,
+                kind: 'scan-cleanup-detect-all',
+                priority: 'user',
+                resources: {
+                    cpuTokens: rasterPolicy.rasterConcurrency,
+                    estimatedResidentBytes:
+                        rasterPolicy.rasterConcurrency *
+                        resolveScanCleanupPreviewRasterSlotResidentBytes(options, rasterPolicy.rasterMaxPixels),
+                    nativeProcesses: rasterPolicy.rasterConcurrency,
+                    ioWeight: 2,
+                },
+                perOwnerLimit: 1,
+                signal,
             },
-            signal,
-        }, brokerRun => work(brokerRun));
+            (brokerRun) => work(brokerRun),
+        ),
+    runWithPreviewLease: (ownerId, visibility, signal, options, rasterMaxPixels, work) => {
+        const effectiveRasterMaxPixels =
+            rasterMaxPixels ??
+            resolveScanCleanupPreviewRasterAdmissionPolicy(mainJobBroker.getSnapshot().capacity, options).rasterMaxPixels;
+        return mainJobBroker.run(
+            {
+                ownerId,
+                kind: 'scan-cleanup-preview',
+                priority: visibility === 'prefetch' ? 'background' : 'visible',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: resolveScanCleanupPreviewRasterSlotResidentBytes(options, effectiveRasterMaxPixels),
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+                signal,
+            },
+            (brokerRun) => work(brokerRun),
+        );
     },
-    getSourceStatIdentity: async sourcePdfPath => {
+    getSourceStatIdentity: async (sourcePdfPath) => {
         // A source gone from its path is the reader's file, not a missing
         // tool: name it before the broad ENOENT fallback can.
         const sourceStat = await stat(sourcePdfPath, {bigint: true}).catch((cause: unknown) => {
-            if (!isErrnoException(cause) || cause.code !== 'ENOENT') throw cause;
+            if (!isErrnoException(cause) || cause.code !== 'ENOENT') {
+                throw cause;
+            }
             throw Object.assign(new Error('Scan cleanup source PDF is missing', {cause}), {code: 'source-missing'});
         });
         return `${sourceStat.size}:${sourceStat.mtimeNs}`;
@@ -284,25 +239,14 @@ export async function materializeScanCleanupPreviewRequest<T extends IScanCleanu
     };
 }
 
-export interface IScanCleanupPreviewService
-    extends IScanCleanupPreviewRenderingOwner, IScanCleanupDetectionOwner {
-    preview: (
-        sender: IScanCleanupDetectionSubscriber,
-        request: IScanCleanupPreviewRequest,
-    ) => Promise<TScanCleanupPreviewWireResult>;
-    cancel: (
-        sender: IScanCleanupDetectionSubscriber,
-        request: IScanCleanupPreviewCancelRequest,
-    ) => boolean;
+export interface IScanCleanupPreviewService extends IScanCleanupPreviewRenderingOwner, IScanCleanupDetectionOwner {
+    preview: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewRequest) => Promise<TScanCleanupPreviewWireResult>;
+    cancel: (sender: IScanCleanupDetectionSubscriber, request: IScanCleanupPreviewCancelRequest) => boolean;
     detectAll: (
         sender: IScanCleanupDetectionSubscriber,
         request: IScanCleanupDetectionRequest,
     ) => Promise<TScanCleanupDetectionStartResult>;
-    cancelDetection: (
-        sender: IScanCleanupDetectionSubscriber,
-        jobId: string,
-        owner: IScanCleanupOwnerContext,
-    ) => boolean;
+    cancelDetection: (sender: IScanCleanupDetectionSubscriber, jobId: string, owner: IScanCleanupOwnerContext) => boolean;
     getDetectionJobState: (
         sender: IScanCleanupDetectionSubscriber,
         jobId: string,
@@ -315,9 +259,7 @@ export interface IScanCleanupPreviewService
     ) => TScanCleanupDetectionJobState | null;
 }
 
-export function scanCleanupPreviewLifecycle(
-    dependencies: IScanCleanupPreviewDependencies,
-): IScanCleanupPreviewService {
+export function scanCleanupPreviewLifecycle(dependencies: IScanCleanupPreviewDependencies): IScanCleanupPreviewService {
     const detectionDependencies: IScanCleanupDetectionOwnerDependencies = dependencies;
     const rawRasterRetention = scanCleanupRasterRetention(dependencies);
     const detection = scanCleanupDetectionOwner(detectionDependencies, rawRasterRetention);
@@ -330,17 +272,23 @@ export function scanCleanupPreviewLifecycle(
     const watchedSenders = new Map<number, IWatchedSender>();
     const pendingPreviews = new Map<number, Set<Promise<unknown>>>();
     let disposed = false;
-    const isRendererGoneError = (error: unknown) => error instanceof Error
-        && (error.message === RENDERER_DESTROYED_CANCELLATION_REASON
-            || error.message === RENDER_PROCESS_GONE_CANCELLATION_REASON);
+    const isRendererGoneError = (error: unknown) =>
+        error instanceof Error &&
+        (error.message === RENDERER_DESTROYED_CANCELLATION_REASON || error.message === RENDER_PROCESS_GONE_CANCELLATION_REASON);
     const watchSender = (sender: IScanCleanupDetectionSubscriber) => {
-        if (disposed) return;
+        if (disposed) {
+            return;
+        }
         const previous = watchedSenders.get(sender.id);
-        if (previous?.sender === sender) return;
+        if (previous?.sender === sender) {
+            return;
+        }
         previous?.stop();
         const handleGone = () => {
             const watched = watchedSenders.get(sender.id);
-            if (watched?.handleGone !== handleGone) return;
+            if (watched?.handleGone !== handleGone) {
+                return;
+            }
             watchedSenders.delete(sender.id);
             watched.stop();
             rendering.invalidateSender?.(sender.id);
@@ -351,27 +299,34 @@ export function scanCleanupPreviewLifecycle(
             handleGone,
             stop: onSenderLifetimeEnd(sender, handleGone),
         });
-        if (sender.isDestroyed()) handleGone();
+        if (sender.isDestroyed()) {
+            handleGone();
+        }
     };
-    const watchSenderAfterPreviewsSettle = (
-        sender: IScanCleanupDetectionSubscriber,
-        preview: Promise<unknown>,
-    ) => {
+    const watchSenderAfterPreviewsSettle = (sender: IScanCleanupDetectionSubscriber, preview: Promise<unknown>) => {
         const previews = pendingPreviews.get(sender.id) ?? new Set<Promise<unknown>>();
         previews.add(preview);
         pendingPreviews.set(sender.id, previews);
         const settle = (watch: boolean) => {
             const current = pendingPreviews.get(sender.id);
-            if (current === undefined) return;
+            if (current === undefined) {
+                return;
+            }
             current.delete(preview);
-            if (current.size > 0) return;
+            if (current.size > 0) {
+                return;
+            }
             pendingPreviews.delete(sender.id);
-            if (watch) watchSender(sender);
+            if (watch) {
+                watchSender(sender);
+            }
         };
-        void preview.then(
-            () => settle(true),
-            error => settle(!isRendererGoneError(error)),
-        ).catch(() => undefined);
+        void preview
+            .then(
+                () => settle(true),
+                (error) => settle(!isRendererGoneError(error)),
+            )
+            .catch(() => undefined);
     };
 
     return {

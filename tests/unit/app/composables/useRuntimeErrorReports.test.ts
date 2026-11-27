@@ -1,11 +1,5 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {requireEpochMs} from '@contracts/timestamps';
 
@@ -24,7 +18,7 @@ function installUseStateStub() {
 }
 
 async function createReports() {
-    const { useRuntimeErrorReports } = await import('@app/composables/useRuntimeErrorReports');
+    const {useRuntimeErrorReports} = await import('@app/composables/useRuntimeErrorReports');
     return useRuntimeErrorReports();
 }
 
@@ -211,7 +205,7 @@ describe('useRuntimeErrorReports', () => {
         const reports = await createReports();
         const pending = createLease('66666666666666666666666666666666');
         let resolveSave!: (saved: boolean) => void;
-        const savePromise = new Promise<boolean>(resolve => {
+        const savePromise = new Promise<boolean>((resolve) => {
             resolveSave = resolve;
         });
 
@@ -251,6 +245,6 @@ describe('useRuntimeErrorReports', () => {
         });
         reports.dismissRuntimeErrorReport(second.eventId);
 
-        expect(reports.reports.value.map(report => report.title)).toEqual(['First']);
+        expect(reports.reports.value.map((report) => report.title)).toEqual(['First']);
     });
 });

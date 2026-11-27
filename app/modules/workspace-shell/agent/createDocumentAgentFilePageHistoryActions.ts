@@ -1,18 +1,29 @@
-import { normalizeCropMargins } from '@contracts/shared';
-import type { ICropMargins } from '@app/types/crop';
-import type { IWorkspaceAgentCommandContext } from '@app/types/workspaceExpose';
+import {normalizeCropMargins} from '@contracts/shared';
+import type {ICropMargins} from '@app/types/crop';
+import type {IWorkspaceAgentCommandContext} from '@app/types/workspaceExpose';
 import type {IUseDocumentWorkspaceAgentOptions} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import {getAgentNumberArrayInput} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import {
     defineAgentActionHandler,
     type IAgentActionHandlerDefinition,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentActionRegistry';
-import { normalizeAgentPageNumber } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPages';
+import {normalizeAgentPageNumber} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPages';
 
-interface ICreateDocumentAgentFilePageHistoryActionsOptions extends Pick<IUseDocumentWorkspaceAgentOptions,
-    | 'canSave' | 'canUndo' | 'canRedo' | 'totalPages' | 'workingCopyPath' | 'originalPath'
-    | 'handleRepairSave' | 'handleOptimizePdfForInteraction' | 'handleCropPages'
-    | 'handleRemoveCrop' | 'handleUndo' | 'handleRedo'> {
+interface ICreateDocumentAgentFilePageHistoryActionsOptions extends Pick<
+    IUseDocumentWorkspaceAgentOptions,
+    | 'canSave'
+    | 'canUndo'
+    | 'canRedo'
+    | 'totalPages'
+    | 'workingCopyPath'
+    | 'originalPath'
+    | 'handleRepairSave'
+    | 'handleOptimizePdfForInteraction'
+    | 'handleCropPages'
+    | 'handleRemoveCrop'
+    | 'handleUndo'
+    | 'handleRedo'
+> {
     waitForAgentMutationStateSettled: () => Promise<void>;
     runPdfPageOperationAgentAction: (
         run: () => Promise<{completed: boolean} & object>,
@@ -20,16 +31,12 @@ interface ICreateDocumentAgentFilePageHistoryActionsOptions extends Pick<IUseDoc
     ) => Promise<object>;
 }
 
-function parseAgentPageArrayInput(
-    input: Record<string, unknown>,
-    actionId: string,
-    totalPages: number,
-) {
+function parseAgentPageArrayInput(input: Record<string, unknown>, actionId: string, totalPages: number) {
     const pages = getAgentNumberArrayInput(input, 'pages');
     if (!pages || pages.length === 0) {
         throw new Error(`${actionId} requires input.pages with one or more one-based page numbers.`);
     }
-    const normalizedPages = pages.map(page => normalizeAgentPageNumber(page, totalPages, actionId));
+    const normalizedPages = pages.map((page) => normalizeAgentPageNumber(page, totalPages, actionId));
     return Array.from(new Set(normalizedPages));
 }
 
@@ -41,10 +48,7 @@ function parseAgentCropMargins(input: Record<string, unknown>, actionId: string)
     }
 }
 
-function createMaintenanceResult(
-    kind: 'repaired' | 'optimized',
-    options: ICreateDocumentAgentFilePageHistoryActionsOptions,
-) {
+function createMaintenanceResult(kind: 'repaired' | 'optimized', options: ICreateDocumentAgentFilePageHistoryActionsOptions) {
     return {
         [kind]: true,
         canSave: options.canSave.value,
@@ -102,7 +106,11 @@ export function createDocumentAgentFilePageHistoryActions(
             async run(cropInput: ReturnType<typeof parseCropInput>, _actionId, context) {
                 return options.runPdfPageOperationAgentAction(async () => {
                     return {
-                        completed: await options.handleCropPages(cropInput.pages, cropInput.margins, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
+                        completed: await options.handleCropPages(
+                            cropInput.pages,
+                            cropInput.margins,
+                            ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : []),
+                        ),
                         pages: cropInput.pages,
                         margins: cropInput.margins,
                         cropped: true,
@@ -117,7 +125,10 @@ export function createDocumentAgentFilePageHistoryActions(
             async run(pages: number[], _actionId, context) {
                 return options.runPdfPageOperationAgentAction(async () => {
                     return {
-                        completed: await options.handleRemoveCrop(pages, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
+                        completed: await options.handleRemoveCrop(
+                            pages,
+                            ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : []),
+                        ),
                         pages,
                         cropRemoved: true,
                     };

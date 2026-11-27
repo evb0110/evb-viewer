@@ -1,6 +1,6 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import { browserDocumentStore } from '@app/platform/browserDocumentStore';
-import { readBrowserDocumentBlob } from '@app/platform/browser-api/browserFilePickerAdapter';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import {readBrowserDocumentBlob} from '@app/platform/browser-api/browserFilePickerAdapter';
 
 // A document the browser stores has no folder of its own. In the Chrome
 // extension, Show in folder saves the stored file to the Downloads folder
@@ -18,11 +18,7 @@ interface IChromeDownloadDelta {
 }
 
 interface IChromeDownloadsApi {
-    download(options: {
-        url: string;
-        filename: string;
-        conflictAction: 'uniquify';
-    }): Promise<number>;
+    download(options: {url: string; filename: string; conflictAction: 'uniquify'}): Promise<number>;
     search(query: {id: number}): Promise<IChromeDownloadItem[]>;
     show(downloadId: number): void;
     onChanged: {
@@ -50,9 +46,7 @@ declare const chrome: {downloads?: IChromeDownloadsApi} | undefined;
 
 // Extension pages have chrome.downloads; the website does not.
 function getChromeDownloads(): IChromeDownloadsApi | null {
-    return typeof chrome === 'object' && chrome !== null && typeof chrome.downloads?.download === 'function'
-        ? chrome.downloads
-        : null;
+    return typeof chrome === 'object' && chrome !== null && typeof chrome.downloads?.download === 'function' ? chrome.downloads : null;
 }
 
 function toDownloadFileName(name: string) {
@@ -63,19 +57,26 @@ function toDownloadFileName(name: string) {
 function waitForDownload(downloads: IChromeDownloadsApi, id: number) {
     return new Promise<boolean>((resolve, reject) => {
         const finish = (state: string | undefined) => {
-            if (state !== COMPLETE && state !== INTERRUPTED) return;
+            if (state !== COMPLETE && state !== INTERRUPTED) {
+                return;
+            }
             downloads.onChanged.removeListener(onChanged);
             resolve(state === COMPLETE);
         };
         const onChanged = (delta: IChromeDownloadDelta) => {
-            if (delta.id === id) finish(delta.state?.current);
+            if (delta.id === id) {
+                finish(delta.state?.current);
+            }
         };
         downloads.onChanged.addListener(onChanged);
         // The download may have finished before the listener was added.
-        downloads.search({id}).then(([item]) => finish(item?.state), (error: unknown) => {
-            downloads.onChanged.removeListener(onChanged);
-            reject(error instanceof Error ? error : new Error(String(error)));
-        });
+        downloads.search({id}).then(
+            ([item]) => finish(item?.state),
+            (error: unknown) => {
+                downloads.onChanged.removeListener(onChanged);
+                reject(error instanceof Error ? error : new Error(String(error)));
+            },
+        );
     });
 }
 
@@ -87,7 +88,7 @@ async function isDownloadOnDisk(downloads: IChromeDownloadsApi, id: number) {
 async function saveAndShowInDownloads(downloads: IChromeDownloadsApi, ref: TDocumentRef) {
     const {token: revisionToken} = await browserDocumentStore.getDocumentRevision(ref);
     const previous = downloadsByDocument.get(ref);
-    if (previous?.revisionToken === revisionToken && await isDownloadOnDisk(downloads, previous.id)) {
+    if (previous?.revisionToken === revisionToken && (await isDownloadOnDisk(downloads, previous.id))) {
         downloads.show(previous.id);
         return true;
     }
@@ -100,7 +101,7 @@ async function saveAndShowInDownloads(downloads: IChromeDownloadsApi, ref: TDocu
             filename: toDownloadFileName(saveName),
             conflictAction: 'uniquify',
         });
-        if (!await waitForDownload(downloads, id)) {
+        if (!(await waitForDownload(downloads, id))) {
             return false;
         }
         downloadsByDocument.set(ref, {

@@ -1,16 +1,13 @@
-import type { Ref } from 'vue';
-import type {
-    ICropMargins,
-    IPageGeometry,
-} from '@app/types/crop';
-import type { TDocumentRef } from '@contracts/documentRef';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import { screenRectToMargins } from '@app/utils/pdfCropCoordinates';
-import { resolvePdfPageViewportRotation } from '@app/utils/pdfViewRotation';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IWorkspacePdfViewerCropPort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import { getPageOpsCapability } from '@app/utils/platformDocuments';
-import { getErrorMessage } from '@app/utils/error';
+import type {Ref} from 'vue';
+import type {ICropMargins, IPageGeometry} from '@app/types/crop';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {screenRectToMargins} from '@app/utils/pdfCropCoordinates';
+import {resolvePdfPageViewportRotation} from '@app/utils/pdfViewRotation';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {IWorkspacePdfViewerCropPort} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import {getPageOpsCapability} from '@app/utils/platformDocuments';
+import {getErrorMessage} from '@app/utils/error';
 
 interface IUseWorkspaceCropOptions {
     pdfViewerRef: Ref<IWorkspacePdfViewerCropPort | null>;
@@ -32,14 +29,10 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
 
     const isCropSelecting = computed(() => options.pdfViewerRef.value?.isCropSelecting ?? false);
 
-    function isCurrentCropRequest(
-        requestToken: number,
-        viewer: IWorkspacePdfViewerCropPort,
-        workingCopyPath: TDocumentRef,
-    ) {
-        return requestToken === cropRequestToken
-            && options.pdfViewerRef.value === viewer
-            && options.workingCopyPath.value === workingCopyPath;
+    function isCurrentCropRequest(requestToken: number, viewer: IWorkspacePdfViewerCropPort, workingCopyPath: TDocumentRef) {
+        return (
+            requestToken === cropRequestToken && options.pdfViewerRef.value === viewer && options.workingCopyPath.value === workingCopyPath
+        );
     }
 
     async function handleCrop() {
@@ -67,10 +60,7 @@ export const useWorkspaceCrop = (options: IUseWorkspaceCropOptions) => {
 
         let geometry: IPageGeometry | null = null;
         try {
-            geometry = await getPageOpsCapability().getPageGeometry(
-                workingCopyPath,
-                requirePageNumber(result.pageNumber),
-            );
+            geometry = await getPageOpsCapability().getPageGeometry(workingCopyPath, requirePageNumber(result.pageNumber));
         } catch (error) {
             BrowserLogger.warn('crop', 'Failed to initialize crop dialog geometry', {
                 pageNumber: result.pageNumber,

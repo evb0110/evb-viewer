@@ -1,17 +1,10 @@
-import {
-    DEFAULT_LOCALE,
-    resolveLocale,
-    type TLocale,
-} from '@i18n-core';
-import {
-    isBoolean,
-    isString,
-} from 'es-toolkit/predicate';
-import { trim } from 'es-toolkit/string';
-import type { ISettingsData } from '@contracts/shared';
-import { parseClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
-import type { TPerformanceMode } from '@contracts/hostResourceProfile';
-import { isRecord } from '@contracts/runtimeGuards';
+import {DEFAULT_LOCALE, resolveLocale, type TLocale} from '@i18n-core';
+import {isBoolean, isString} from 'es-toolkit/predicate';
+import {trim} from 'es-toolkit/string';
+import type {ISettingsData} from '@contracts/shared';
+import {parseClientDiagnosticsPreference} from '@contracts/diagnostics/diagnosticsPreference';
+import type {TPerformanceMode} from '@contracts/hostResourceProfile';
+import {isRecord} from '@contracts/runtimeGuards';
 
 const DEFAULT_ANNOTATION_COLOR = '#ffd400';
 const SETTINGS_SCHEMA_VERSION = 2;
@@ -22,28 +15,10 @@ const DEFAULT_ZOOM_PRESETS: ReadonlySet<string> = new Set<ISettingsData['default
     '125',
     '150',
 ]);
-const DEFAULT_VIEW_MODES: ReadonlySet<string> = new Set<ISettingsData['defaultViewMode']>([
-    'single',
-    'facing',
-    'facing-first-single',
-]);
-const UI_SCALE_PREFERENCES: ReadonlySet<string> = new Set<ISettingsData['uiScale']>([
-    'auto',
-    'compact',
-    'default',
-    'comfortable',
-    'large',
-]);
-const TAB_MEMORY_POLICIES: ReadonlySet<string> = new Set<ISettingsData['tabMemoryPolicy']>([
-    'conservative',
-    'aggressive',
-]);
-const PERFORMANCE_MODES: ReadonlySet<string> = new Set<TPerformanceMode>([
-    'auto',
-    'low',
-    'medium',
-    'high',
-]);
+const DEFAULT_VIEW_MODES: ReadonlySet<string> = new Set<ISettingsData['defaultViewMode']>(['single', 'facing', 'facing-first-single']);
+const UI_SCALE_PREFERENCES: ReadonlySet<string> = new Set<ISettingsData['uiScale']>(['auto', 'compact', 'default', 'comfortable', 'large']);
+const TAB_MEMORY_POLICIES: ReadonlySet<string> = new Set<ISettingsData['tabMemoryPolicy']>(['conservative', 'aggressive']);
+const PERFORMANCE_MODES: ReadonlySet<string> = new Set<TPerformanceMode>(['auto', 'low', 'medium', 'high']);
 const MAX_AUTHOR_NAME_LENGTH = 256;
 const MAX_SKIPPED_UPDATE_VERSION_LENGTH = 128;
 
@@ -125,8 +100,7 @@ export class UnsupportedSettingsSchemaError extends Error {
 }
 
 export function decodeSettingsRecoveryNotice(value: unknown): ISettingsRecoveryNotice | null {
-    if (!isRecord(value)
-        || (value.reason !== 'corrupt' && value.reason !== 'unsupported' && value.reason !== 'unreadable')) {
+    if (!isRecord(value) || (value.reason !== 'corrupt' && value.reason !== 'unsupported' && value.reason !== 'unreadable')) {
         return null;
     }
     return {
@@ -198,9 +172,7 @@ function normalizeDefaultZoomPreset(value: unknown): ISettingsData['defaultZoomP
         return DEFAULT_SETTINGS.defaultZoomPreset;
     }
 
-    return isDefaultZoomPreset(value)
-        ? value
-        : DEFAULT_SETTINGS.defaultZoomPreset;
+    return isDefaultZoomPreset(value) ? value : DEFAULT_SETTINGS.defaultZoomPreset;
 }
 
 function normalizeDefaultViewMode(value: unknown): ISettingsData['defaultViewMode'] {
@@ -208,9 +180,7 @@ function normalizeDefaultViewMode(value: unknown): ISettingsData['defaultViewMod
         return DEFAULT_SETTINGS.defaultViewMode;
     }
 
-    return isDefaultViewMode(value)
-        ? value
-        : DEFAULT_SETTINGS.defaultViewMode;
+    return isDefaultViewMode(value) ? value : DEFAULT_SETTINGS.defaultViewMode;
 }
 
 function normalizeDefaultAnnotationColor(value: unknown) {
@@ -249,9 +219,7 @@ export function normalizePerformanceMode(value: unknown): TPerformanceMode {
 export function sanitizeSettings(raw: unknown): ISettingsData {
     const value = isRecord(raw) ? raw : null;
     const settings: ISettingsData = {
-        version: typeof value?.version === 'number' && Number.isFinite(value.version)
-            ? value.version
-            : DEFAULT_SETTINGS.version,
+        version: typeof value?.version === 'number' && Number.isFinite(value.version) ? value.version : DEFAULT_SETTINGS.version,
         authorName: normalizeBoundedString(value?.authorName, MAX_AUTHOR_NAME_LENGTH),
         theme: normalizeTheme(value?.theme),
         locale: normalizeLocale(value?.locale),
@@ -269,9 +237,7 @@ export function sanitizeSettings(raw: unknown): ISettingsData {
         assistantPanelEnabled: isBoolean(value?.assistantPanelEnabled)
             ? value.assistantPanelEnabled
             : DEFAULT_SETTINGS.assistantPanelEnabled,
-        agentMcpEnabled: isBoolean(value?.agentMcpEnabled)
-            ? value.agentMcpEnabled
-            : DEFAULT_SETTINGS.agentMcpEnabled,
+        agentMcpEnabled: isBoolean(value?.agentMcpEnabled) ? value.agentMcpEnabled : DEFAULT_SETTINGS.agentMcpEnabled,
         clientDiagnosticsPreference: parseClientDiagnosticsPreference(value?.clientDiagnosticsPreference),
     };
     if (isBoolean(value?.suppressDefaultViewerPrompt)) {
@@ -289,18 +255,16 @@ export function sanitizeSettings(raw: unknown): ISettingsData {
 
 type TSettingsMigration = (settings: Record<string, unknown>) => Record<string, unknown>;
 
-const SETTINGS_MIGRATIONS: Readonly<Record<number, TSettingsMigration>> = {1: settings => ({
-    ...settings,
-    performanceMode: settings.performanceMode ?? DEFAULT_SETTINGS.performanceMode,
-    tabMemoryPolicy: settings.tabMemoryPolicy ?? DEFAULT_SETTINGS.tabMemoryPolicy,
-    version: SETTINGS_SCHEMA_VERSION,
-})};
+const SETTINGS_MIGRATIONS: Readonly<Record<number, TSettingsMigration>> = {
+    1: (settings) => ({
+        ...settings,
+        performanceMode: settings.performanceMode ?? DEFAULT_SETTINGS.performanceMode,
+        tabMemoryPolicy: settings.tabMemoryPolicy ?? DEFAULT_SETTINGS.tabMemoryPolicy,
+        version: SETTINGS_SCHEMA_VERSION,
+    }),
+};
 
-const SETTINGS_STORAGE_KNOWN_KEYS: ReadonlySet<string> = new Set([
-    ...SETTINGS_SAVE_KEYS,
-    'agentMcpEnabled',
-    'skippedUpdateVersion',
-]);
+const SETTINGS_STORAGE_KNOWN_KEYS: ReadonlySet<string> = new Set([...SETTINGS_SAVE_KEYS, 'agentMcpEnabled', 'skippedUpdateVersion']);
 
 function sanitizeSettingsForStorage(raw: unknown): ISettingsData {
     const sanitized = sanitizeSettings(raw);
@@ -308,10 +272,7 @@ function sanitizeSettingsForStorage(raw: unknown): ISettingsData {
         return sanitized;
     }
 
-    for (const [
-        key,
-        value,
-    ] of Object.entries(raw)) {
+    for (const [key, value] of Object.entries(raw)) {
         if (!SETTINGS_STORAGE_KNOWN_KEYS.has(key)) {
             Object.assign(sanitized, {[key]: value});
         }
@@ -320,16 +281,10 @@ function sanitizeSettingsForStorage(raw: unknown): ISettingsData {
 }
 
 export function migrateSettings(raw: unknown): ISettingsData {
-    const source = isRecord(raw)
-        ? Object.fromEntries(Object.entries(raw))
-        : {};
+    const source = isRecord(raw) ? Object.fromEntries(Object.entries(raw)) : {};
     assertSupportedSettingsSchema(source);
 
-    let version = typeof source.version === 'number'
-        && Number.isInteger(source.version)
-        && source.version >= 1
-        ? source.version
-        : 1;
+    let version = typeof source.version === 'number' && Number.isInteger(source.version) && source.version >= 1 ? source.version : 1;
     let migrated = source;
     while (version < DEFAULT_SETTINGS.version) {
         const migration = SETTINGS_MIGRATIONS[version];

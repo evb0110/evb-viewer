@@ -1,22 +1,11 @@
-import {
-    mkdir,
-    readdir,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { join } from 'node:path';
-import {
-    app,
-    type BrowserWindow,
-} from 'electron';
-import type {
-    IHostBugReportBundle,
-    IHostBugReportWriteResult,
-} from '@contracts/hostPlatformFeature';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import {mkdir, readdir, rm, writeFile} from 'node:fs/promises';
+import {join} from 'node:path';
+import {app, type BrowserWindow} from 'electron';
+import type {IHostBugReportBundle, IHostBugReportWriteResult} from '@contracts/hostPlatformFeature';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import { hashFileSha256 } from '@electron/utils/hashFileSha256';
+import {hashFileSha256} from '@electron/utils/hashFileSha256';
 
 const logger = createLogger('bug-report');
 const BUG_REPORT_ROOT_DIRECTORY = 'bug-reports';
@@ -78,9 +67,8 @@ function completeReportJson(reportJson: string, sourceHash: string) {
             return reportJson;
         }
         const record = report as Record<string, unknown>;
-        const document = typeof record.document === 'object' && record.document !== null
-            ? record.document as Record<string, unknown>
-            : {};
+        const document =
+            typeof record.document === 'object' && record.document !== null ? (record.document as Record<string, unknown>) : {};
         record.build = describeBuild();
         record.document = {
             ...document,
@@ -102,8 +90,8 @@ function completeReportJson(reportJson: string, sourceHash: string) {
 async function pruneOlderBundles(root: string) {
     const entries = await readdir(root, {withFileTypes: true});
     const bundles = entries
-        .filter(entry => entry.isDirectory() && BUNDLE_DIRECTORY_PATTERN.test(entry.name))
-        .map(entry => entry.name)
+        .filter((entry) => entry.isDirectory() && BUNDLE_DIRECTORY_PATTERN.test(entry.name))
+        .map((entry) => entry.name)
         .sort();
     for (const name of bundles.slice(0, Math.max(0, bundles.length - BUG_REPORT_RETAINED_BUNDLES))) {
         await rm(join(root, name), {
@@ -138,11 +126,7 @@ export async function writeHostBugReportBundle(
     const directory = join(root, directoryName);
     await mkdir(directory, {recursive: true});
     const sourceHash = await hashDocumentSource(bundle.sourcePath);
-    await writeFile(
-        join(directory, 'report.json'),
-        completeReportJson(bundle.reportJson, sourceHash),
-        'utf-8',
-    );
+    await writeFile(join(directory, 'report.json'), completeReportJson(bundle.reportJson, sourceHash), 'utf-8');
 
     let screenshotWritten = false;
     try {
@@ -150,12 +134,15 @@ export async function writeHostBugReportBundle(
         // empty frame. `stayHidden` keeps an automation window from being
         // revealed by the capture.
         const bounds = window.getContentBounds();
-        const image = await window.webContents.capturePage({
-            height: bounds.height,
-            width: bounds.width,
-            x: 0,
-            y: 0,
-        }, {stayHidden: true});
+        const image = await window.webContents.capturePage(
+            {
+                height: bounds.height,
+                width: bounds.width,
+                x: 0,
+                y: 0,
+            },
+            {stayHidden: true},
+        );
         if (image.isEmpty()) {
             logger.warn('Bug report screenshot was empty; the window produced no frame');
         } else {

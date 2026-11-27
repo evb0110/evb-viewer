@@ -1,18 +1,8 @@
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path, { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path, {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {describe, expect, it} from 'vitest';
 
 interface IWebDeploySourceStats {
     byteLength: number;
@@ -22,10 +12,7 @@ interface IWebDeploySourceStats {
 
 interface IWebDeploySourceModule {
     REQUIRED_VERCELIGNORE_ENTRIES: string[];
-    collectWebDeploySourceStats: (options?: {
-        projectRoot?: string;
-        trackedOnly?: boolean;
-    }) => Promise<IWebDeploySourceStats>;
+    collectWebDeploySourceStats: (options?: {projectRoot?: string; trackedOnly?: boolean}) => Promise<IWebDeploySourceStats>;
     isExcludedWebDeploySourcePath: (fileName: string, relativeDirectory?: string) => boolean;
     validateVercelIgnoreEntries: (content: string, requiredEntries?: string[]) => unknown;
     parseWebDeploySourceCliOptions: (argv: string[]) => {requireCleanTrackedSource: boolean};
@@ -45,18 +32,12 @@ const {
     validateVercelIgnoreEntries,
     parseWebDeploySourceCliOptions,
     validateWebDeploySource,
-} = await import(
-    pathToFileURL(resolve(process.cwd(), 'scripts/check-web-deploy-source.mjs')).href
-) as IWebDeploySourceModule;
+} = (await import(pathToFileURL(resolve(process.cwd(), 'scripts/check-web-deploy-source.mjs')).href)) as IWebDeploySourceModule;
 
 async function createTempProject() {
     const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-web-source-'));
 
-    await writeFile(
-        path.join(tempRoot, '.vercelignore'),
-        `${REQUIRED_VERCELIGNORE_ENTRIES.join('\n')}\n`,
-        'utf8',
-    );
+    await writeFile(path.join(tempRoot, '.vercelignore'), `${REQUIRED_VERCELIGNORE_ENTRIES.join('\n')}\n`, 'utf8');
     await mkdir(path.join(tempRoot, 'app'), {recursive: true});
     await writeFile(path.join(tempRoot, 'app', 'index.ts'), 'export const app = true;\n', 'utf8');
 
@@ -65,21 +46,16 @@ async function createTempProject() {
 
 describe('web deploy source policy', () => {
     it('requires local artifact exclusions in .vercelignore', () => {
-        expect(() => validateVercelIgnoreEntries('native/\nresources/\n', [
-            'native/',
-            'resources/',
-            'coverage/',
-        ])).toThrow('.vercelignore is missing web deploy exclusions: coverage/');
+        expect(() => validateVercelIgnoreEntries('native/\nresources/\n', ['native/', 'resources/', 'coverage/'])).toThrow(
+            '.vercelignore is missing web deploy exclusions: coverage/',
+        );
     });
 
     // localArtifactPolicy.test.ts owns the canonical list; this proves the walker
     // actually skips those names at any depth and in any ASCII case, and that the
     // repository's own .vercelignore still declares them.
     it('keeps local-only artifacts out of the deploy source in any case', async () => {
-        const vercelIgnoreContent = await readFile(
-            path.join(process.cwd(), '.vercelignore'),
-            'utf8',
-        );
+        const vercelIgnoreContent = await readFile(path.join(process.cwd(), '.vercelignore'), 'utf8');
         expect(() => validateVercelIgnoreEntries(vercelIgnoreContent)).not.toThrow();
 
         const tempRoot = await createTempProject();
@@ -148,10 +124,7 @@ describe('web deploy source policy', () => {
             await mkdir(path.join(tempRoot, 'native', 'pdf-image-combine', 'target'), {recursive: true});
             await mkdir(path.join(tempRoot, 'resources'), {recursive: true});
             await mkdir(path.join(tempRoot, 'tmp', 'pdfs'), {recursive: true});
-            await writeFile(
-                path.join(tempRoot, 'native', 'pdf-image-combine', 'target', 'debug.bin'),
-                Buffer.alloc(1024 * 1024),
-            );
+            await writeFile(path.join(tempRoot, 'native', 'pdf-image-combine', 'target', 'debug.bin'), Buffer.alloc(1024 * 1024));
             await writeFile(path.join(tempRoot, 'resources', 'large.fixture'), Buffer.alloc(1024 * 1024));
             await writeFile(path.join(tempRoot, 'tmp', 'pdfs', 'local-proof.pdf'), Buffer.alloc(1024 * 1024));
             await writeFile(path.join(tempRoot, 'electron-builder.yml'), 'appId: test\n', 'utf8');
@@ -179,12 +152,14 @@ describe('web deploy source policy', () => {
     it('fails before Vercel upload when the deploy source exceeds the file cap', async () => {
         const tempRoot = await createTempProject();
         try {
-            await expect(validateWebDeploySource({
-                maxFiles: 1,
-                projectRoot: tempRoot,
-                requireCleanTrackedSource: false,
-                trackedOnly: false,
-            })).rejects.toThrow('Web deploy source has too many files: 2 > 1');
+            await expect(
+                validateWebDeploySource({
+                    maxFiles: 1,
+                    projectRoot: tempRoot,
+                    requireCleanTrackedSource: false,
+                    trackedOnly: false,
+                }),
+            ).rejects.toThrow('Web deploy source has too many files: 2 > 1');
         } finally {
             await rm(tempRoot, {
                 force: true,

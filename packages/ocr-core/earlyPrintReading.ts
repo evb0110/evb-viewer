@@ -1,14 +1,8 @@
-import {
-    isLatinScriptOcrLanguage,
-    type TOcrModelCode,
-} from '@contracts/ocrLanguages';
-import type {
-    IHocrChar,
-    IHocrLine,
-} from '@ocr-core/hocrReading';
-import { hocrWordText } from '@ocr-core/hocrReading';
-import { readTraineddataWordList } from '@ocr-core/readTraineddataWordList';
-import type { IOcrWordEdit } from '@ocr-core/types';
+import {isLatinScriptOcrLanguage, type TOcrModelCode} from '@contracts/ocrLanguages';
+import type {IHocrChar, IHocrLine} from '@ocr-core/hocrReading';
+import {hocrWordText} from '@ocr-core/hocrReading';
+import {readTraineddataWordList} from '@ocr-core/readTraineddataWordList';
+import type {IOcrWordEdit} from '@ocr-core/types';
 
 /*
  * Early print, read by three models. The selected language's model reads the
@@ -46,40 +40,12 @@ const DECODE_STEP_BUDGET = 20_000;
 const MAX_DECODED_LETTERS = 30;
 
 const LETTER = /\p{L}/u;
-const LIGATURE_LETTERS = new Set([
-    'æ',
-    'œ',
-    'Æ',
-    'Œ',
-]);
+const LIGATURE_LETTERS = new Set(['æ', 'œ', 'Æ', 'Œ']);
 const GRAVE = /^[àèìòù]$/u;
 // Letters a modern model reads where the print has ſ.
-const LONG_S_READINGS = new Set([
-    'f',
-    'l',
-    't',
-    's',
-    'í',
-    'i',
-    'r',
-]);
+const LONG_S_READINGS = new Set(['f', 'l', 't', 's', 'í', 'i', 'r']);
 // What a modern model reads for the ct ligature, or for its c.
-const CT_READINGS = new Set([
-    'é',
-    '€',
-    '&',
-    'Q',
-    'G',
-    '@',
-    'ć',
-    '£',
-    '¢',
-    'd',
-    'è',
-    'ê',
-    'C',
-    'q',
-]);
+const CT_READINGS = new Set(['é', '€', '&', 'Q', 'G', '@', 'ć', '£', '¢', 'd', 'è', 'ê', 'C', 'q']);
 const SHORT_WORD = /^[aàeèoô]$/u;
 
 export function canReadEarlyPrint(languages: readonly string[]) {
@@ -88,7 +54,10 @@ export function canReadEarlyPrint(languages: readonly string[]) {
 
 /** The spelling a dictionary is looked up by: no accents or case, ſ as s, æ as ae, u for v and i for j. */
 export function dictionaryKey(word: string) {
-    return word.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+    return word
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .toLowerCase()
         .replaceAll('ſ', 's')
         .replaceAll('æ', 'ae')
         .replaceAll('œ', 'oe')
@@ -104,7 +73,9 @@ export function createEarlyPrintDictionary(words: Iterable<string>, latin: boole
     const keys = new Set<string>();
     for (const word of words) {
         const key = dictionaryKey(word);
-        if (key && !(latin && LATIN_IMPOSSIBLE_F.test(key))) keys.add(key);
+        if (key && !(latin && LATIN_IMPOSSIBLE_F.test(key))) {
+            keys.add(key);
+        }
     }
     return keys;
 }
@@ -120,22 +91,26 @@ export async function readEarlyPrintDictionary(
     readModel: (code: TOcrModelCode) => Promise<Uint8Array>,
 ): Promise<ReadonlySet<string>> {
     const codes = [...new Set(languages)];
-    const lists = await Promise.all(codes.map(async code => readTraineddataWordList(
-        await readModel((code === 'lat' ? 'lat_dictionary' : code) as TOcrModelCode),
-    )));
-    return createEarlyPrintDictionary(lists.flatMap(list => list ?? []), codes.includes('lat'));
+    const lists = await Promise.all(
+        codes.map(async (code) => readTraineddataWordList(await readModel((code === 'lat' ? 'lat_dictionary' : code) as TOcrModelCode))),
+    );
+    return createEarlyPrintDictionary(
+        lists.flatMap((list) => list ?? []),
+        codes.includes('lat'),
+    );
 }
 
 function countInWordLetters(words: readonly string[], letters: readonly string[]) {
-    const counts = new Map(letters.map(letter => [
-        letter,
-        0,
-    ]));
+    const counts = new Map(letters.map((letter) => [letter, 0]));
     for (const text of words) {
         for (let index = 0; index < text.length - 1; index++) {
-            if (!LETTER.test(text[index + 1]!)) continue;
+            if (!LETTER.test(text[index + 1]!)) {
+                continue;
+            }
             const count = counts.get(text[index]!);
-            if (count !== undefined) counts.set(text[index]!, count + 1);
+            if (count !== undefined) {
+                counts.set(text[index]!, count + 1);
+            }
         }
     }
     return counts;
@@ -143,10 +118,7 @@ function countInWordLetters(words: readonly string[], letters: readonly string[]
 
 /** Whether a modern model's reading of a page looks like long-s print read as f. */
 export function hasLongSSignature(words: readonly string[]) {
-    const counts = countInWordLetters(words, [
-        'f',
-        's',
-    ]);
+    const counts = countInWordLetters(words, ['f', 's']);
     const f = counts.get('f')!;
     const s = counts.get('s')!;
     return f + s >= SIGNATURE_MIN_LETTERS && f / (f + s) >= SIGNATURE_MIN_F_SHARE;
@@ -166,8 +138,12 @@ interface ISlot {
 const isLetter = (text: string) => LETTER.test(text);
 
 function substitutionCost(left: string, right: string) {
-    if (left === right) return 0;
-    if (left === ' ' || right === ' ') return 2.5;
+    if (left === right) {
+        return 0;
+    }
+    if (left === ' ' || right === ' ') {
+        return 2.5;
+    }
     return isLetter(left) === isLetter(right) ? 1 : 1.6;
 }
 
@@ -179,9 +155,13 @@ function substitutionCost(left: string, right: string) {
 function alignTo(line: readonly string[], other: readonly IHocrChar[]): IHocrChar[][] | null {
     const rows = line.length + 1;
     const width = other.length + 1;
-    if (rows > MAX_ALIGNED_LINE_LENGTH || width > MAX_ALIGNED_LINE_LENGTH) return null;
+    if (rows > MAX_ALIGNED_LINE_LENGTH || width > MAX_ALIGNED_LINE_LENGTH) {
+        return null;
+    }
     const distance = new Float64Array(rows * width);
-    for (let column = 0; column < width; column++) distance[column] = column;
+    for (let column = 0; column < width; column++) {
+        distance[column] = column;
+    }
     for (let row = 1; row < rows; row++) {
         distance[row * width] = row;
         for (let column = 1; column < width; column++) {
@@ -192,14 +172,19 @@ function alignTo(line: readonly string[], other: readonly IHocrChar[]): IHocrCha
             );
         }
     }
-    if (distance[rows * width - 1]! > 0.5 * Math.max(line.length, other.length)) return null;
+    if (distance[rows * width - 1]! > 0.5 * Math.max(line.length, other.length)) {
+        return null;
+    }
     const aligned: number[][] = Array.from({length: line.length}, () => []);
     let row = line.length;
     let column = other.length;
     while (row > 0 || column > 0) {
         const here = distance[row * width + column]!;
-        if (row > 0 && column > 0
-            && here === distance[(row - 1) * width + column - 1]! + substitutionCost(line[row - 1]!, other[column - 1]!.text)) {
+        if (
+            row > 0 &&
+            column > 0 &&
+            here === distance[(row - 1) * width + column - 1]! + substitutionCost(line[row - 1]!, other[column - 1]!.text)
+        ) {
             aligned[row - 1]!.push(column - 1);
             row--;
             column--;
@@ -210,15 +195,17 @@ function alignTo(line: readonly string[], other: readonly IHocrChar[]): IHocrCha
             column--;
         }
     }
-    return aligned.map(indices => indices.sort((a, b) => a - b).map(index => other[index]!));
+    return aligned.map((indices) => indices.sort((a, b) => a - b).map((index) => other[index]!));
 }
 
 function boxOverlap(a: IHocrLine['box'], b: IHocrLine['box']) {
     const width = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
     const height = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
-    if (width <= 0 || height <= 0) return 0;
+    if (width <= 0 || height <= 0) {
+        return 0;
+    }
     const smaller = Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]));
-    return smaller > 0 ? width * height / smaller : 0;
+    return smaller > 0 ? (width * height) / smaller : 0;
 }
 
 /** The other model's reading of the same printed line, aligned to `line`'s characters. */
@@ -232,10 +219,14 @@ function readingOf(line: IHocrLine, characters: readonly string[], otherLines: r
             bestOverlap = overlap;
         }
     }
-    if (!best) return null;
+    if (!best) {
+        return null;
+    }
     const otherChars: IHocrChar[] = [];
     best.words.forEach((word, index) => {
-        if (index > 0) otherChars.push(spaceChar());
+        if (index > 0) {
+            otherChars.push(spaceChar());
+        }
         otherChars.push(...word.chars);
     });
     return alignTo(characters, otherChars);
@@ -252,7 +243,9 @@ function spaceChar(): IHocrChar {
 }
 
 function seesLongS(chars: readonly IHocrChar[] | undefined) {
-    if (chars?.length !== 1) return false;
+    if (chars?.length !== 1) {
+        return false;
+    }
     const [char] = chars;
     return char!.text === 'ſ' || ((char!.text === 'f' || char!.text === 'l') && (char!.choices.get('ſ') ?? 0) >= LONG_S_CHOICE_MIN);
 }
@@ -275,39 +268,41 @@ function mergeLine(
     ligatures: readonly IHocrLine[],
     dictionary: ReadonlySet<string>,
 ): IWordSlots[] {
-    const flat: Array<ISlot & {
-        space: boolean;
-        vote?: string;
-        ligature: readonly IHocrChar[]
-    }> = [];
+    const flat: Array<
+        ISlot & {
+            space: boolean;
+            vote?: string;
+            ligature: readonly IHocrChar[];
+        }
+    > = [];
     line.words.forEach((word, index) => {
-        if (index > 0) flat.push({
-            ...slotOf(spaceChar(), line),
-            space: true,
-            ligature: [],
-        });
-        for (const char of word.chars) flat.push({
-            ...slotOf(char, line),
-            space: false,
-            ligature: [],
-        });
+        if (index > 0) {
+            flat.push({
+                ...slotOf(spaceChar(), line),
+                space: true,
+                ligature: [],
+            });
+        }
+        for (const char of word.chars) {
+            flat.push({
+                ...slotOf(char, line),
+                space: false,
+                ligature: [],
+            });
+        }
     });
-    const characters = flat.map(slot => slot.text);
+    const characters = flat.map((slot) => slot.text);
     const longSReading = readingOf(line, characters, longS);
     const ligatureReading = readingOf(line, characters, ligatures);
-    const voters = [
-        longSReading,
-        ligatureReading,
-    ].filter(reading => reading !== null);
+    const voters = [longSReading, ligatureReading].filter((reading) => reading !== null);
 
     // A letter changes where both other models read the same other thing.
     if (voters.length === 2) {
         flat.forEach((slot, index) => {
-            if (slot.space) return;
-            const [
-                first,
-                second,
-            ] = voters.map(reading => asVote(reading[index]!.map(char => char.text).join('')));
+            if (slot.space) {
+                return;
+            }
+            const [first, second] = voters.map((reading) => asVote(reading[index]!.map((char) => char.text).join('')));
             if (first !== undefined && first === second && first !== asVote(slot.text)) {
                 slot.vote = first;
             }
@@ -316,13 +311,17 @@ function mergeLine(
         // other two models share some misreadings (codem for eodem).
         let from = 0;
         for (let index = 0; index <= flat.length; index++) {
-            if (index < flat.length && !flat[index]!.space) continue;
+            if (index < flat.length && !flat[index]!.space) {
+                continue;
+            }
             const word = flat.slice(from, index);
             const lettersOf = (text: string) => text.replace(/[^\p{L}\s]/gu, '');
-            const before = lettersOf(word.map(slot => slot.text).join(''));
-            const after = lettersOf(word.map(slot => slot.vote ?? slot.text).join(''));
+            const before = lettersOf(word.map((slot) => slot.text).join(''));
+            const after = lettersOf(word.map((slot) => slot.vote ?? slot.text).join(''));
             if (before !== after && dictionary.has(dictionaryKey(before))) {
-                for (const slot of word) delete slot.vote;
+                for (const slot of word) {
+                    delete slot.vote;
+                }
             }
             from = index + 1;
         }
@@ -330,20 +329,26 @@ function mergeLine(
 
     const wordLengths = flat.map(() => 0);
     for (let from = 0, index = 0; index <= flat.length; index++) {
-        if (index < flat.length && !flat[index]!.space) continue;
-        const length = flat.slice(from, index).filter(slot => isLetter(slot.text)).length;
+        if (index < flat.length && !flat[index]!.space) {
+            continue;
+        }
+        const length = flat.slice(from, index).filter((slot) => isLetter(slot.text)).length;
         wordLengths.fill(length, from, index);
         from = index + 1;
     }
     flat.forEach((slot, index) => {
-        if (slot.space) return;
-        if (slot.vote !== undefined) slot.text = slot.vote;
+        if (slot.space) {
+            return;
+        }
+        if (slot.vote !== undefined) {
+            slot.text = slot.vote;
+        }
         if (LONG_S_READINGS.has(slot.text) && seesLongS(longSReading?.[index])) {
             slot.text = 'ſ';
             slot.settled = true;
         }
         slot.ligature = ligatureReading?.[index] ?? [];
-        const ligature = slot.ligature.find(char => LIGATURE_LETTERS.has(char.text));
+        const ligature = slot.ligature.find((char) => LIGATURE_LETTERS.has(char.text));
         if (ligature) {
             slot.text = ligature.text + (slot.text.endsWith(' ') ? ' ' : '');
             slot.settled = true;
@@ -353,25 +358,37 @@ function mergeLine(
         // bare Latin words (Sì for Si).
         const accent = longSReading?.[index];
         const marked = slot.text.normalize('NFD') !== slot.text;
-        if (accent?.length === 1 && GRAVE.test(accent[0]!.text) && (marked || wordLengths[index]! >= 4)
-            && dictionaryKey(accent[0]!.text) === dictionaryKey(slot.text)) {
+        if (
+            accent?.length === 1 &&
+            GRAVE.test(accent[0]!.text) &&
+            (marked || wordLengths[index]! >= 4) &&
+            dictionaryKey(accent[0]!.text) === dictionaryKey(slot.text)
+        ) {
             slot.text = accent[0]!.text;
         }
         // A semicolon the modern model read as a digit.
-        if (/^[35]$/u.test(slot.text) && (flat[index - 1]?.space ?? true) && (flat[index + 1]?.space ?? true)
-            && voters.some(reading => reading[index]!.length === 1 && reading[index]![0]!.text === ';')) {
+        if (
+            /^[35]$/u.test(slot.text) &&
+            (flat[index - 1]?.space ?? true) &&
+            (flat[index + 1]?.space ?? true) &&
+            voters.some((reading) => reading[index]!.length === 1 && reading[index]![0]!.text === ';')
+        ) {
             slot.text = ';';
         }
     });
     // One æ where the modern model read two letters (RUBRICZE): drop the one the ligature model did not see.
     flat.forEach((slot, index) => {
-        if (!LIGATURE_LETTERS.has(slot.text.trim())) return;
-        for (const neighbour of [
-            flat[index - 1],
-            flat[index + 1],
-        ]) {
-            if (neighbour && !neighbour.space && !neighbour.settled && neighbour.ligature.length === 0
-                && /^[aezxAEZX]$/u.test(neighbour.text)) {
+        if (!LIGATURE_LETTERS.has(slot.text.trim())) {
+            return;
+        }
+        for (const neighbour of [flat[index - 1], flat[index + 1]]) {
+            if (
+                neighbour &&
+                !neighbour.space &&
+                !neighbour.settled &&
+                neighbour.ligature.length === 0 &&
+                /^[aezxAEZX]$/u.test(neighbour.text)
+            ) {
                 neighbour.text = '';
             }
         }
@@ -417,73 +434,105 @@ interface IOption {
 }
 
 function slotOptions(slot: ISlot, ctFollows: boolean): IOption[] {
-    const [
-        head = '',
-        ...rest
-    ] = [...slot.text];
+    const [head = '', ...rest] = [...slot.text];
     const tail = rest.join('');
-    const options: IOption[] = [{
-        text: slot.text,
-        cost: 0,
-    }];
-    if (slot.settled) return options;
+    const options: IOption[] = [
+        {
+            text: slot.text,
+            cost: 0,
+        },
+    ];
+    if (slot.settled) {
+        return options;
+    }
     const add = (text: string, cost: number) => {
-        const existing = options.find(option => option.text === text + tail);
-        if (existing) existing.cost = Math.min(existing.cost, cost);
-        else options.push({
-            text: text + tail,
-            cost,
-        });
+        const existing = options.find((option) => option.text === text + tail);
+        if (existing) {
+            existing.cost = Math.min(existing.cost, cost);
+        } else {
+            options.push({
+                text: text + tail,
+                cost,
+            });
+        }
     };
-    for (const [
-        choice,
-        confidence,
-    ] of slot.choices) {
-        if (choice === head || !isLetter(choice) || confidence < 10) continue;
+    for (const [choice, confidence] of slot.choices) {
+        if (choice === head || !isLetter(choice) || confidence < 10) {
+            continue;
+        }
         add(choice, Math.max(0.05, (slot.confidence - confidence) / 50));
     }
-    if (head === 'f') add('ſ', 0.6);
-    if (head === 'l' || head === 't') add('ſ', 1);
+    if (head === 'f') {
+        add('ſ', 0.6);
+    }
+    if (head === 'l' || head === 't') {
+        add('ſ', 1);
+    }
     if (CT_READINGS.has(head)) {
         // With no t after it, the glyph stands for the whole ct.
         add('c', 0.5);
         add('ct', ctFollows ? 0.6 : 0.4);
     }
-    if (head === 't') add('ct', 0.8);
-    if ('zx’\''.includes(head) && head !== '') add('æ', 0.5);
-    if (head === 'e') add('c', 1);
-    if (head === 'c') add('e', 1);
-    if (head === 'å' || head === 'á') add('â', 0.2);
-    if (head === 'ü') add('ù', 0.2);
-    if (head === 'é') add('è', 0.3);
+    if (head === 't') {
+        add('ct', 0.8);
+    }
+    if ("zx’'".includes(head) && head !== '') {
+        add('æ', 0.5);
+    }
+    if (head === 'e') {
+        add('c', 1);
+    }
+    if (head === 'c') {
+        add('e', 1);
+    }
+    if (head === 'å' || head === 'á') {
+        add('â', 0.2);
+    }
+    if (head === 'ü') {
+        add('ù', 0.2);
+    }
+    if (head === 'é') {
+        add('è', 0.3);
+    }
     return options;
 }
 
 /** The cheapest dictionary word the slots can read as, as one text per slot. */
-function decode(slots: readonly ISlot[], dictionary: ReadonlySet<string>): {
+function decode(
+    slots: readonly ISlot[],
+    dictionary: ReadonlySet<string>,
+): {
     cost: number;
-    texts: string[]
+    texts: string[];
 } | null {
-    if (slots.length === 0 || slots.length > MAX_DECODED_LETTERS) return null;
+    if (slots.length === 0 || slots.length > MAX_DECODED_LETTERS) {
+        return null;
+    }
     const options = slots.map((slot, index) => slotOptions(slot, (slots[index + 1]?.text ?? '').startsWith('t')));
     const chosen = slots.map(() => '');
     let best: {
         cost: number;
-        texts: string[]
+        texts: string[];
     } | null = null;
     let steps = 0;
     const walk = (index: number, cost: number, changes: number) => {
-        if (++steps > DECODE_STEP_BUDGET || cost > MAX_DECODE_COST || (best && cost >= best.cost)) return;
+        if (++steps > DECODE_STEP_BUDGET || cost > MAX_DECODE_COST || (best && cost >= best.cost)) {
+            return;
+        }
         if (index === slots.length) {
-            if (dictionary.has(dictionaryKey(chosen.join('')))) best = {
-                cost,
-                texts: [...chosen],
-            };
+            if (dictionary.has(dictionaryKey(chosen.join('')))) {
+                best = {
+                    cost,
+                    texts: [...chosen],
+                };
+            }
             return;
         }
         for (const option of options[index]!) {
             const change = option.cost > 0 ? 1 : 0;
-            if (changes + change > MAX_DECODE_CHANGES) continue;
+            if (changes + change > MAX_DECODE_CHANGES) {
+                continue;
+            }
             chosen[index] = option.text;
             walk(index + 1, cost + option.cost, changes + change);
         }
@@ -492,7 +541,7 @@ function decode(slots: readonly ISlot[], dictionary: ReadonlySet<string>): {
     return best;
 }
 
-const textOf = (slots: readonly ISlot[]) => slots.map(slot => slot.text).join('');
+const textOf = (slots: readonly ISlot[]) => slots.map((slot) => slot.text).join('');
 
 function isWord(slots: readonly ISlot[], dictionary: ReadonlySet<string>) {
     return (slots.length >= 2 || SHORT_WORD.test(textOf(slots))) && dictionary.has(dictionaryKey(textOf(slots)));
@@ -516,31 +565,40 @@ function apply(slots: readonly ISlot[], texts: readonly string[]) {
 function restoreWordSpaces(slots: readonly ISlot[], dictionary: ReadonlySet<string>) {
     const capitals: number[] = [];
     for (let index = 1; index < slots.length; index++) {
-        if (isUpper(slots[index]!.text) && isLower(slots[index - 1]!.text)) capitals.push(index);
+        if (isUpper(slots[index]!.text) && isLower(slots[index - 1]!.text)) {
+            capitals.push(index);
+        }
     }
     if (capitals.length > 0) {
         let from = 0;
-        for (const to of [
-            ...capitals,
-            slots.length,
-        ]) {
+        for (const to of [...capitals, slots.length]) {
             const part = slots.slice(from, to);
-            if (!isWord(part, dictionary)) restoreWordSpaces(part, dictionary);
-            if (from > 0) slots[from]!.text = ` ${slots[from]!.text}`;
+            if (!isWord(part, dictionary)) {
+                restoreWordSpaces(part, dictionary);
+            }
+            if (from > 0) {
+                slots[from]!.text = ` ${slots[from]!.text}`;
+            }
             from = to;
         }
         return;
     }
-    if (slots.filter(slot => isUpper(slot.text)).length >= 2) return;
+    if (slots.filter((slot) => isUpper(slot.text)).length >= 2) {
+        return;
+    }
     const gapBefore = (index: number) => slots[index]!.left - slots[index - 1]!.right >= SPLIT_GAP_SHARE * slots[index]!.letterHeight;
     const cuts: number[] = [];
     for (let cut = 1; cut < slots.length; cut++) {
-        if (!gapBefore(cut) || !isWord(slots.slice(0, cut), dictionary)) continue;
+        if (!gapBefore(cut) || !isWord(slots.slice(0, cut), dictionary)) {
+            continue;
+        }
         if (isWord(slots.slice(cut), dictionary)) {
             cuts.splice(0, cuts.length, cut);
             break;
         }
-        if (cuts.length > 0) continue;
+        if (cuts.length > 0) {
+            continue;
+        }
         for (let second = cut + 1; second < slots.length; second++) {
             if (gapBefore(second) && isWord(slots.slice(cut, second), dictionary) && isWord(slots.slice(second), dictionary)) {
                 cuts.push(cut, second);
@@ -548,20 +606,22 @@ function restoreWordSpaces(slots: readonly ISlot[], dictionary: ReadonlySet<stri
             }
         }
     }
-    for (const cut of cuts) slots[cut]!.text = ` ${slots[cut]!.text}`;
+    for (const cut of cuts) {
+        slots[cut]!.text = ` ${slots[cut]!.text}`;
+    }
 }
 
 /** The letters of a word between its leading and trailing punctuation; a ct glyph ending it counts (O& for Oct). */
 function letterRange(slots: readonly ISlot[]) {
     let start = 0;
     let end = slots.length;
-    while (start < end && !isLetter(slots[start]!.text || '-')) start++;
-    while (end > start && !isLetter(slots[end - 1]!.text || '-')
-        && !(CT_READINGS.has(slots[end - 1]!.text) && end - 1 > start)) end--;
-    return [
-        start,
-        end,
-    ] as const;
+    while (start < end && !isLetter(slots[start]!.text || '-')) {
+        start++;
+    }
+    while (end > start && !isLetter(slots[end - 1]!.text || '-') && !(CT_READINGS.has(slots[end - 1]!.text) && end - 1 > start)) {
+        end--;
+    }
+    return [start, end] as const;
 }
 
 export interface IEarlyPrintReadings {
@@ -582,10 +642,12 @@ export function planEarlyPrintWordEdits(
     dictionary: ReadonlySet<string>,
     options: {latin: boolean},
 ): IOcrWordEdit[] {
-    const baseWords = readings.base.flatMap(line => line.words.map(hocrWordText));
-    const longSWords = readings.longS.flatMap(line => line.words.map(hocrWordText));
+    const baseWords = readings.base.flatMap((line) => line.words.map(hocrWordText));
+    const longSWords = readings.longS.flatMap((line) => line.words.map(hocrWordText));
     const longSCount = longSWords.join('').split('ſ').length - 1;
-    if (longSCount < CONFIRMED_MIN_LONG_S_SHARE * countInWordLetters(baseWords, ['f']).get('f')!) return [];
+    if (longSCount < CONFIRMED_MIN_LONG_S_SHARE * countInWordLetters(baseWords, ['f']).get('f')!) {
+        return [];
+    }
 
     const lines: IWordSlots[][] = [];
     let ordinal = 0;
@@ -595,35 +657,40 @@ export function planEarlyPrintWordEdits(
     }
 
     // Each word, split where a vote put a space, with a line-end hyphen joined to the next line's first word.
-    for (const word of lines.flat()) word.parts = splitAtSpaces(word.slots);
-    const parts = lines.map(words => words.flatMap(word => word.parts));
+    for (const word of lines.flat()) {
+        word.parts = splitAtSpaces(word.slots);
+    }
+    const parts = lines.map((words) => words.flatMap((word) => word.parts));
     const units: ISlot[][][] = [];
     parts.forEach((lineParts, lineIndex) => {
         lineParts.forEach((part, index) => {
             const next = parts[lineIndex + 1]?.[0];
-            if (index === 0 && units.at(-1)?.[1] === part) return;
+            if (index === 0 && units.at(-1)?.[1] === part) {
+                return;
+            }
             if (index === lineParts.length - 1 && part.at(-1)?.text === '-' && next) {
-                units.push([
-                    part,
-                    next,
-                ]);
+                units.push([part, next]);
             } else {
                 units.push([part]);
             }
         });
     });
     for (const unit of units) {
-        const letters = unit.flatMap((part) => {
-            const [
-                start,
-                end,
-            ] = letterRange(part);
-            return part.slice(start, end);
-        }).filter(slot => slot.text !== '');
-        if (letters.length === 0 || dictionary.has(dictionaryKey(textOf(letters)))) continue;
+        const letters = unit
+            .flatMap((part) => {
+                const [start, end] = letterRange(part);
+                return part.slice(start, end);
+            })
+            .filter((slot) => slot.text !== '');
+        if (letters.length === 0 || dictionary.has(dictionaryKey(textOf(letters)))) {
+            continue;
+        }
         const read = decode(letters, dictionary);
-        if (read) apply(letters, read.texts);
-        else if (unit.length === 1) restoreWordSpaces(letters, dictionary);
+        if (read) {
+            apply(letters, read.texts);
+        } else if (unit.length === 1) {
+            restoreWordSpaces(letters, dictionary);
+        }
     }
 
     const edits: IOcrWordEdit[] = [];
@@ -633,7 +700,9 @@ export function planEarlyPrintWordEdits(
                 part.forEach((slot, index) => {
                     // Latin has no f before a consonant but l, r or f: the print has ſ.
                     const next = dictionaryKey(part[index + 1]?.text ?? '');
-                    if (slot.text === 'f' && /^[b-df-hj-km-np-qs-tv-xz]/u.test(next) && !/^[lrf]/u.test(next)) slot.text = 'ſ';
+                    if (slot.text === 'f' && /^[b-df-hj-km-np-qs-tv-xz]/u.test(next) && !/^[lrf]/u.test(next)) {
+                        slot.text = 'ſ';
+                    }
                     // Latin print marks ù and â, which modern models read as ü and å.
                     slot.text = slot.text.replace('ü', 'ù').replace('å', 'â');
                 });
@@ -657,10 +726,14 @@ function splitAtSpaces(slots: ISlot[]): ISlot[][] {
     for (const slot of slots) {
         const texts = slot.text.split(' ');
         texts.forEach((text, index) => {
-            if (index > 0) pieces.push([]);
+            if (index > 0) {
+                pieces.push([]);
+            }
             if (index === 0) {
                 slot.text = text;
-                if (text !== '' || texts.length === 1) pieces.at(-1)!.push(slot);
+                if (text !== '' || texts.length === 1) {
+                    pieces.at(-1)!.push(slot);
+                }
             } else if (text !== '') {
                 pieces.at(-1)!.push({
                     ...slot,
@@ -671,5 +744,5 @@ function splitAtSpaces(slots: ISlot[]): ISlot[][] {
             }
         });
     }
-    return pieces.filter(piece => piece.length > 0);
+    return pieces.filter((piece) => piece.length > 0);
 }

@@ -1,30 +1,20 @@
-import { readdirSync } from 'node:fs';
+import {readdirSync} from 'node:fs';
 import path from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    DEFAULT_LOCALE,
-    isSupportedLocale,
-    LOCALE_CODES,
-    resolveLocale,
-} from '@i18n-core';
-import { LOCALE_DEFINITIONS } from '@i18n-core/localeDefinitions';
-import { LOCALE_MESSAGES } from '@i18n-app/locales';
+import {describe, expect, it, vi} from 'vitest';
+import {DEFAULT_LOCALE, isSupportedLocale, LOCALE_CODES, resolveLocale} from '@i18n-core';
+import {LOCALE_DEFINITIONS} from '@i18n-core/localeDefinitions';
+import {LOCALE_MESSAGES} from '@i18n-app/locales';
 
 function listLocaleFiles(relativeDirectory: string) {
     return readdirSync(path.join(process.cwd(), relativeDirectory))
-        .filter(fileName => fileName.endsWith('.ts') && fileName !== 'index.ts')
+        .filter((fileName) => fileName.endsWith('.ts') && fileName !== 'index.ts')
         .sort();
 }
 
 describe('locale registry', () => {
     it('keeps locale codes, definitions, and app messages synchronized', () => {
         const codes = [...LOCALE_CODES];
-        const definitionCodes = LOCALE_DEFINITIONS.map(definition => definition.code);
+        const definitionCodes = LOCALE_DEFINITIONS.map((definition) => definition.code);
         const messageCodes = Object.keys(LOCALE_MESSAGES);
 
         expect(new Set(codes).size).toBe(codes.length);
@@ -40,9 +30,7 @@ describe('locale registry', () => {
     });
 
     it('keeps package message files aligned with definitions and uses a single shared runtime loader', () => {
-        const definitionFiles = LOCALE_DEFINITIONS
-            .map(definition => definition.file)
-            .toSorted();
+        const definitionFiles = LOCALE_DEFINITIONS.map((definition) => definition.file).toSorted();
 
         expect(listLocaleFiles('packages/i18n-app/messages')).toEqual(definitionFiles);
         expect(listLocaleFiles('app/i18n/runtime-locales')).toEqual(['loadLocale.ts']);
@@ -51,7 +39,7 @@ describe('locale registry', () => {
     it('loads each registered locale dynamically through the shared runtime loader', async () => {
         vi.stubGlobal('defineI18nLocale', <T>(loader: T) => loader);
         try {
-            const { default: loadLocale } = await import('@app/i18n/runtime-locales/loadLocale') as {
+            const {default: loadLocale} = (await import('@app/i18n/runtime-locales/loadLocale')) as {
                 default: (locale: string) => Promise<Record<string, unknown>>;
             };
 

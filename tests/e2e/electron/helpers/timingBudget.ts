@@ -1,4 +1,4 @@
-import { expect } from 'vitest';
+import {expect} from 'vitest';
 
 /**
  * Wall-clock budgets depend on the runner, not only on the commit, so a missed
@@ -14,11 +14,7 @@ export function reportTimingBudgetMiss(message: string) {
     console.warn(`[timing-budget] ${message} (reported; set EVB_E2E_TIMING_BUDGETS=enforce to fail on it)`);
 }
 
-export function expectWithinTimingBudget(
-    actualMs: number | null | undefined,
-    budgetMs: number,
-    context: string,
-) {
+export function expectWithinTimingBudget(actualMs: number | null | undefined, budgetMs: number, context: string) {
     const observedMs = actualMs ?? Number.POSITIVE_INFINITY;
     if (areTimingBudgetsEnforced()) {
         expect(observedMs, context).toBeLessThanOrEqual(budgetMs);

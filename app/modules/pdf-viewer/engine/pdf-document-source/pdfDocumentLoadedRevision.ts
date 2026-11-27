@@ -10,19 +10,24 @@ interface IPdfOriginalAnnotationSource {
 // A save that rewrites the working copy in place mints a new revision but
 // keeps the PDF.js document every view shows, which still holds the older
 // bytes. The revision the document was loaded from tells them apart.
-const loadedRevisions = new WeakMap<IPdfDocument, {
-    readonly revision: string | null;
-    annotations: IPdfAnnotationParseResult | null;
-    originalSource?: Promise<IPdfOriginalAnnotationSource>;
-}>();
+const loadedRevisions = new WeakMap<
+    IPdfDocument,
+    {
+        readonly revision: string | null;
+        annotations: IPdfAnnotationParseResult | null;
+        originalSource?: Promise<IPdfOriginalAnnotationSource>;
+    }
+>();
 
 export function recordPdfDocumentLoadedRevision(document: IPdfDocument, revision: string | null) {
     const raw = toRaw(document);
     // A later view cannot establish different bytes, including when the first load's revision was unknown.
-    if (!loadedRevisions.has(raw)) loadedRevisions.set(raw, {
-        revision,
-        annotations: null,
-    });
+    if (!loadedRevisions.has(raw)) {
+        loadedRevisions.set(raw, {
+            revision,
+            annotations: null,
+        });
+    }
 }
 
 /** The working-copy revision a PDF.js document holds, or null when unknown. */
@@ -48,11 +53,17 @@ export async function recordPdfDocumentOriginalAnnotations(
     const loaded = loadedRevisions.get(toRaw(document));
     if (loaded && loaded.revision === result.documentRevisionToken) {
         loaded.annotations ??= freezeParsedInput(structuredClone(result));
-        if (!loaded.originalSource && preserveOriginalSource && loaded.annotations.entities.some(entry => entry.kind === 'text-box' && !entry.readOnly && !entry.recoveryData)) {
+        if (
+            !loaded.originalSource &&
+            preserveOriginalSource &&
+            loaded.annotations.entities.some((entry) => entry.kind === 'text-box' && !entry.readOnly && !entry.recoveryData)
+        ) {
             const originalSource = preserveOriginalSource();
             loaded.originalSource = originalSource;
             void originalSource.catch(() => {
-                if (loaded.originalSource === originalSource) delete loaded.originalSource;
+                if (loaded.originalSource === originalSource) {
+                    delete loaded.originalSource;
+                }
             });
         }
     }
@@ -65,7 +76,7 @@ export function readPdfDocumentOriginalAnnotations(document: IPdfDocument) {
 
 /** The managed immutable source retained when an original graph exceeds inline recovery. */
 export function readPdfDocumentOriginalAnnotationSource(document: IPdfDocument) {
-    return loadedRevisions.get(toRaw(document))?.originalSource?.then(source => source.ref) ?? Promise.resolve(null);
+    return loadedRevisions.get(toRaw(document))?.originalSource?.then((source) => source.ref) ?? Promise.resolve(null);
 }
 
 /** The document owner releases these immutable bytes after its PDF.js proxy retires. */

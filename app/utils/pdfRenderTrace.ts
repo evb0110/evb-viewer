@@ -1,5 +1,5 @@
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {IPdfRenderTraceEntry} from '@contracts/pdfDiagnostics';
 
 const PDF_RENDER_TRACE_SECTION = 'pdf-render-trace';
 export const PDF_RENDER_TRACE_BUFFER_LIMIT = 20_000;
@@ -48,9 +48,7 @@ function getTraceWindow() {
     traceWindow.__pdfRenderTraceBuffer ??= [];
     traceWindow.__getPdfRenderTrace ??= () => {
         const buffer = traceWindow.__pdfRenderTraceBuffer ?? [];
-        return buffer.length > PDF_RENDER_TRACE_BUFFER_LIMIT
-            ? buffer.slice(buffer.length - PDF_RENDER_TRACE_BUFFER_LIMIT)
-            : [...buffer];
+        return buffer.length > PDF_RENDER_TRACE_BUFFER_LIMIT ? buffer.slice(buffer.length - PDF_RENDER_TRACE_BUFFER_LIMIT) : [...buffer];
     };
     traceWindow.__clearPdfRenderTrace ??= () => {
         traceWindow.__pdfRenderTraceBuffer = [];
@@ -73,10 +71,7 @@ function pushTraceEntry(entry: IPdfRenderTraceEntry) {
     traceWindow.__pdfRenderTraceBuffer = buffer;
 }
 
-export function logPdfRenderTrace(
-    event: string,
-    payload?: TPdfRenderTracePayload,
-) {
+export function logPdfRenderTrace(event: string, payload?: TPdfRenderTracePayload) {
     if (!isPdfRenderTraceEnabled()) {
         return;
     }

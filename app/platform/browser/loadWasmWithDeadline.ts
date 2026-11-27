@@ -4,10 +4,7 @@ import {
     PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
     type IPrecompiledWasmModuleMessage,
 } from '@contracts/precompiledWasmModule';
-export {
-    PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
-    type IPrecompiledWasmModuleMessage,
-} from '@contracts/precompiledWasmModule';
+export {PRECOMPILED_WASM_MODULE_MESSAGE_TYPE, type IPrecompiledWasmModuleMessage} from '@contracts/precompiledWasmModule';
 
 const DEFAULT_WASM_STALL_TIMEOUT_MS = 30_000;
 const MIB = 1024 * 1024;
@@ -18,7 +15,9 @@ const MIB = 1024 * 1024;
  * rest of the session. 256 MiB on a device that reports more than 4 GiB, 128 MiB otherwise: the performance
  * profile treats an unreported device as a low-memory one too.
  */
-export function wasmMemoryHighWaterBytes(deviceMemory = (globalThis.navigator as (Navigator & {deviceMemory?: number}) | undefined)?.deviceMemory) {
+export function wasmMemoryHighWaterBytes(
+    deviceMemory = (globalThis.navigator as (Navigator & {deviceMemory?: number}) | undefined)?.deviceMemory,
+) {
     return (deviceMemory ?? 4) > 4 ? 256 * MIB : 128 * MIB;
 }
 
@@ -32,25 +31,27 @@ const loadedWasmDigests = new Map<string, Promise<string>>();
 // Compiled modules cached per thread (or received via structured clone from
 // the main thread) so worker pools and post-high-water reloads instantiate
 // without re-fetching or recompiling.
-const precompiledWasmModules = new Map<string, {
-    module: WebAssembly.Module;
-    digest: string | null;
-}>();
-const sharedCompiledWasmPromises = new Map<string, Promise<{
-    module: WebAssembly.Module;
-    digest: string | null;
-}>>();
+const precompiledWasmModules = new Map<
+    string,
+    {
+        module: WebAssembly.Module;
+        digest: string | null;
+    }
+>();
+const sharedCompiledWasmPromises = new Map<
+    string,
+    Promise<{
+        module: WebAssembly.Module;
+        digest: string | null;
+    }>
+>();
 
 /**
  * Registers a precompiled `WebAssembly.Module` for `path` in this thread.
  * Does not overwrite `loadedWasmDigests` eagerly so a late preload message
  * cannot clobber the digest of an instance already compiled locally.
  */
-export function registerPrecompiledWasmModule(
-    path: string,
-    module: WebAssembly.Module,
-    digest?: string | null,
-) {
+export function registerPrecompiledWasmModule(path: string, module: WebAssembly.Module, digest?: string | null) {
     const key = wasmCacheKey(path);
     precompiledWasmModules.set(key, {
         module,
@@ -63,8 +64,12 @@ export function registerPrecompiledWasmModule(
  * Returns true when `data` was a preload message and has been consumed.
  */
 export function handlePrecompiledWasmModuleMessage(data: unknown): boolean {
-    if (typeof data !== 'object' || data === null) return false;
-    if (Reflect.get(data, 'type') !== PRECOMPILED_WASM_MODULE_MESSAGE_TYPE) return false;
+    if (typeof data !== 'object' || data === null) {
+        return false;
+    }
+    if (Reflect.get(data, 'type') !== PRECOMPILED_WASM_MODULE_MESSAGE_TYPE) {
+        return false;
+    }
     const parsed = parsePrecompiledWasmModuleMessage(data);
     if (parsed !== null) {
         registerPrecompiledWasmModule(parsed.path, parsed.module, parsed.digest);
@@ -73,8 +78,7 @@ export function handlePrecompiledWasmModuleMessage(data: unknown): boolean {
 }
 
 export function resolveWasmUrl(path: string) {
-    const baseHref = globalThis.location?.href
-        ?? (globalThis as {self?: {location?: {href?: string}}}).self?.location?.href;
+    const baseHref = globalThis.location?.href ?? (globalThis as {self?: {location?: {href?: string}}}).self?.location?.href;
     return baseHref ? new URL(path, baseHref).toString() : path;
 }
 
@@ -83,17 +87,16 @@ export function resolveWasmUrl(path: string) {
  * and SHA-256 digest for sharing across worker pool clones. A failed compile is
  * evicted so the next caller retries.
  */
-export function compileWasmModuleOnce(
-    path: string,
-    stallTimeoutMs = DEFAULT_WASM_STALL_TIMEOUT_MS,
-) {
+export function compileWasmModuleOnce(path: string, stallTimeoutMs = DEFAULT_WASM_STALL_TIMEOUT_MS) {
     const key = wasmCacheKey(path);
     const existing = sharedCompiledWasmPromises.get(key);
-    if (existing) return existing;
+    if (existing) {
+        return existing;
+    }
     const pending = (async () => {
         const url = resolveWasmUrl(path);
         const module = await compileWasmWithDeadline(url, stallTimeoutMs);
-        const digest = await readLoadedWasmDigest(url)?.catch(() => null) ?? null;
+        const digest = (await readLoadedWasmDigest(url)?.catch(() => null)) ?? null;
         if (isRealWasmModule(module)) {
             registerPrecompiledWasmModule(url, module, digest);
         }
@@ -119,16 +122,15 @@ export function compileWasmModuleOnce(
  * of fetch, SHA-256 hashing, and WASM compilation work.
  */
 export function postPrecompiledWasmModules(worker: Worker, paths: readonly string[]) {
-    if (
-        typeof WebAssembly === 'undefined'
-        || typeof WebAssembly.Module !== 'function'
-    ) {
+    if (typeof WebAssembly === 'undefined' || typeof WebAssembly.Module !== 'function') {
         return;
     }
     for (const path of paths) {
         const resolvedUrl = resolveWasmUrl(path);
         const ready = precompiledWasmModules.get(wasmCacheKey(resolvedUrl));
-        if (!ready || !isRealWasmModule(ready.module)) continue;
+        if (!ready || !isRealWasmModule(ready.module)) {
+            continue;
+        }
         try {
             worker.postMessage({
                 type: PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
@@ -142,16 +144,12 @@ export function postPrecompiledWasmModules(worker: Worker, paths: readonly strin
     }
 }
 
-function reportCompiledWasmModuleToParent(
-    url: string,
-    module: WebAssembly.Module,
-    digest: string | null,
-) {
+function reportCompiledWasmModuleToParent(url: string, module: WebAssembly.Module, digest: string | null) {
     if (
-        typeof window !== 'undefined'
-        || typeof self === 'undefined'
-        || typeof self.postMessage !== 'function'
-        || !isRealWasmModule(module)
+        typeof window !== 'undefined' ||
+        typeof self === 'undefined' ||
+        typeof self.postMessage !== 'function' ||
+        !isRealWasmModule(module)
     ) {
         return;
     }
@@ -167,26 +165,26 @@ function reportCompiledWasmModuleToParent(
     }
 }
 
-function cacheAndShareCompiledWasmModule(
-    url: string,
-    key: string,
-    module: WebAssembly.Module,
-) {
-    if (!isRealWasmModule(module)) return;
+function cacheAndShareCompiledWasmModule(url: string, key: string, module: WebAssembly.Module) {
+    if (!isRealWasmModule(module)) {
+        return;
+    }
     const resolvedUrl = resolveWasmUrl(url);
     const digestPromise = loadedWasmDigests.get(key);
     if (digestPromise) {
-        void digestPromise.then((digest) => {
-            if (!precompiledWasmModules.has(key)) {
-                precompiledWasmModules.set(key, {module, digest});
-            }
-            reportCompiledWasmModuleToParent(resolvedUrl, module, digest);
-        }).catch(() => {
-            if (!precompiledWasmModules.has(key)) {
-                precompiledWasmModules.set(key, {module, digest: null});
-            }
-            reportCompiledWasmModuleToParent(resolvedUrl, module, null);
-        });
+        void digestPromise
+            .then((digest) => {
+                if (!precompiledWasmModules.has(key)) {
+                    precompiledWasmModules.set(key, {module, digest});
+                }
+                reportCompiledWasmModuleToParent(resolvedUrl, module, digest);
+            })
+            .catch(() => {
+                if (!precompiledWasmModules.has(key)) {
+                    precompiledWasmModules.set(key, {module, digest: null});
+                }
+                reportCompiledWasmModuleToParent(resolvedUrl, module, null);
+            });
         return;
     }
     if (!precompiledWasmModules.has(key)) {
@@ -203,13 +201,12 @@ async function sha256Hex(chunks: readonly Uint8Array[]) {
         offset += chunk.byteLength;
     }
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-    return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+    return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 const wasmCacheKey = (url: string) => {
-    const baseHref = globalThis.location?.href
-        ?? (globalThis as {self?: {location?: {href?: string}}}).self?.location?.href
-        ?? 'https://evb.local/';
+    const baseHref =
+        globalThis.location?.href ?? (globalThis as {self?: {location?: {href?: string}}}).self?.location?.href ?? 'https://evb.local/';
     try {
         const resolved = new URL(url, baseHref);
         resolved.hash = '';
@@ -248,11 +245,7 @@ interface IWasmBuild<TResult> {
  * delivering bytes finishes however long the whole download takes; compiling
  * after the last byte has no deadline.
  */
-export function loadWasmWithDeadline(
-    url: string,
-    imports: WebAssembly.Imports = {},
-    stallTimeoutMs = DEFAULT_WASM_STALL_TIMEOUT_MS,
-) {
+export function loadWasmWithDeadline(url: string, imports: WebAssembly.Imports = {}, stallTimeoutMs = DEFAULT_WASM_STALL_TIMEOUT_MS) {
     const key = wasmCacheKey(url);
     const precompiled = precompiledWasmModules.get(key);
     if (precompiled) {
@@ -267,10 +260,11 @@ export function loadWasmWithDeadline(
         });
     }
     return fetchWasmWithDeadline(url, stallTimeoutMs, {
-        streaming: typeof WebAssembly.instantiateStreaming === 'function'
-            ? response => WebAssembly.instantiateStreaming(response, imports)
-            : undefined,
-        buffered: bytes => WebAssembly.instantiate(bytes, imports),
+        streaming:
+            typeof WebAssembly.instantiateStreaming === 'function'
+                ? (response) => WebAssembly.instantiateStreaming(response, imports)
+                : undefined,
+        buffered: (bytes) => WebAssembly.instantiate(bytes, imports),
     }).then((result) => {
         if ('module' in result) {
             cacheAndShareCompiledWasmModule(url, key, result.module);
@@ -290,10 +284,8 @@ export function compileWasmWithDeadline(url: string, stallTimeoutMs = DEFAULT_WA
         return Promise.resolve(precompiled.module);
     }
     return fetchWasmWithDeadline(url, stallTimeoutMs, {
-        streaming: typeof WebAssembly.compileStreaming === 'function'
-            ? response => WebAssembly.compileStreaming(response)
-            : undefined,
-        buffered: bytes => WebAssembly.compile(bytes),
+        streaming: typeof WebAssembly.compileStreaming === 'function' ? (response) => WebAssembly.compileStreaming(response) : undefined,
+        buffered: (bytes) => WebAssembly.compile(bytes),
     }).then((module) => {
         cacheAndShareCompiledWasmModule(url, key, module);
         return module;
@@ -316,12 +308,16 @@ async function fetchWasmWithDeadline<TResult>(url: string, stallTimeoutMs: numbe
         rejectStalled = reject;
     });
     const disarm = () => {
-        if (watch.timer !== null) clearTimeout(watch.timer);
+        if (watch.timer !== null) {
+            clearTimeout(watch.timer);
+        }
         watch.timer = null;
     };
     const arm = () => {
         disarm();
-        if (watch.settled) return;
+        if (watch.settled) {
+            return;
+        }
         watch.timer = setTimeout(() => {
             const error = createWasmStallError(stallTimeoutMs);
             abortController.abort(error);
@@ -361,7 +357,9 @@ async function fetchWasmWithDeadline<TResult>(url: string, stallTimeoutMs: numbe
                 // otherwise leave the body consumed before the buffered fallback reads it.
                 if (build.streaming && servesWasmContentType(response)) {
                     const built = await build.streaming(response);
-                    if (observed !== null) loadedWasmDigests.set(wasmCacheKey(url), observed);
+                    if (observed !== null) {
+                        loadedWasmDigests.set(wasmCacheKey(url), observed);
+                    }
                     return built;
                 }
                 const bytes = await response.arrayBuffer();

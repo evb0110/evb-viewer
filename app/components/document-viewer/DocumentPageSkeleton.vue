@@ -86,56 +86,48 @@ const SKELETON_LAYOUT_REM = {
     formulaInlineMarginTop: 0.45,
 } as const;
 
-const HEADER_HEIGHT_REM = SKELETON_LAYOUT_REM.titleHeight
-    + SKELETON_LAYOUT_REM.headerGap
-    + SKELETON_LAYOUT_REM.subtitleHeight;
-const PARAGRAPH_HEIGHT_REM = SKELETON_LAYOUT_REM.lineTallHeight
-    + SKELETON_LAYOUT_REM.paragraphGap
-    + SKELETON_LAYOUT_REM.lineHeight
-    + SKELETON_LAYOUT_REM.paragraphGap
-    + SKELETON_LAYOUT_REM.lineShortHeight;
-const FORMULA_BLOCK_HEIGHT_REM = SKELETON_LAYOUT_REM.formulaHeight
-    + SKELETON_LAYOUT_REM.formulaInlineMarginTop
-    + SKELETON_LAYOUT_REM.lineHeight;
-const FIXED_RESERVED_HEIGHT_PX = (
-    HEADER_HEIGHT_REM
-    + SKELETON_LAYOUT_REM.headerMarginBottom
-    + SKELETON_LAYOUT_REM.innerGap
-    + PARAGRAPH_HEIGHT_REM
-    + SKELETON_LAYOUT_REM.innerGap
-    + PARAGRAPH_HEIGHT_REM
-    + SKELETON_LAYOUT_REM.innerGap
-    + SKELETON_LAYOUT_REM.formulaMarginTop
-    + FORMULA_BLOCK_HEIGHT_REM
-) * ROOT_FONT_SIZE_PX;
+const HEADER_HEIGHT_REM = SKELETON_LAYOUT_REM.titleHeight + SKELETON_LAYOUT_REM.headerGap + SKELETON_LAYOUT_REM.subtitleHeight;
+const PARAGRAPH_HEIGHT_REM =
+    SKELETON_LAYOUT_REM.lineTallHeight +
+    SKELETON_LAYOUT_REM.paragraphGap +
+    SKELETON_LAYOUT_REM.lineHeight +
+    SKELETON_LAYOUT_REM.paragraphGap +
+    SKELETON_LAYOUT_REM.lineShortHeight;
+const FORMULA_BLOCK_HEIGHT_REM =
+    SKELETON_LAYOUT_REM.formulaHeight + SKELETON_LAYOUT_REM.formulaInlineMarginTop + SKELETON_LAYOUT_REM.lineHeight;
+const FIXED_RESERVED_HEIGHT_PX =
+    (HEADER_HEIGHT_REM +
+        SKELETON_LAYOUT_REM.headerMarginBottom +
+        SKELETON_LAYOUT_REM.innerGap +
+        PARAGRAPH_HEIGHT_REM +
+        SKELETON_LAYOUT_REM.innerGap +
+        PARAGRAPH_HEIGHT_REM +
+        SKELETON_LAYOUT_REM.innerGap +
+        SKELETON_LAYOUT_REM.formulaMarginTop +
+        FORMULA_BLOCK_HEIGHT_REM) *
+    ROOT_FONT_SIZE_PX;
 const PARAGRAPH_STRIDE_PX = (SKELETON_LAYOUT_REM.innerGap + PARAGRAPH_HEIGHT_REM) * ROOT_FONT_SIZE_PX;
 
-const {
-    padding,
-    contentHeight,
-    deferred = false,
-} = defineProps<IProps>();
+const {padding, contentHeight, deferred = false} = defineProps<IProps>();
 
 const isDeferred = ref(deferred);
-watch(() => deferred, (value) => {
-    if (!value) {
-        isDeferred.value = false;
-    }
-});
+watch(
+    () => deferred,
+    (value) => {
+        if (!value) {
+            isDeferred.value = false;
+        }
+    },
+);
 
-const paddingStyle = computed(() => (
-    padding
-        ? {padding: `${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px`}
-        : undefined
-));
+const paddingStyle = computed(() =>
+    padding ? {padding: `${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px`} : undefined,
+);
 
 const repeatParagraphs = computed(() => {
     const height = contentHeight ?? 0;
     const paddingY = (padding?.top ?? 0) + (padding?.bottom ?? 0);
-    const availableHeight = Math.max(
-        height - paddingY - FIXED_RESERVED_HEIGHT_PX,
-        0,
-    );
+    const availableHeight = Math.max(height - paddingY - FIXED_RESERVED_HEIGHT_PX, 0);
     return Math.max(0, Math.floor(availableHeight / PARAGRAPH_STRIDE_PX));
 });
 </script>
@@ -159,7 +151,8 @@ const repeatParagraphs = computed(() => {
 }
 
 .is-deferred {
-    animation: document-page-skeleton-reveal var(--app-document-page-skeleton-reveal-duration) ease-out var(--app-document-page-skeleton-reveal-delay) both;
+    animation: document-page-skeleton-reveal var(--app-document-page-skeleton-reveal-duration) ease-out
+        var(--app-document-page-skeleton-reveal-delay) both;
 }
 
 .inner {

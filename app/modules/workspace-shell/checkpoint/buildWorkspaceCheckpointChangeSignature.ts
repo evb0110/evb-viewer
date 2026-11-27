@@ -1,10 +1,7 @@
-import type { Ref } from 'vue';
-import type {
-    IEditorPaneState,
-    TEditorLayoutNode,
-} from '@contracts/editorPanes';
-import type { ITab } from '@app/types/tabs';
-import type { IWorkspaceDocumentRefs } from '@app/types/workspaceDocumentRecovery';
+import type {Ref} from 'vue';
+import type {IEditorPaneState, TEditorLayoutNode} from '@contracts/editorPanes';
+import type {ITab} from '@app/types/tabs';
+import type {IWorkspaceDocumentRefs} from '@app/types/workspaceDocumentRecovery';
 import {
     describeTabDocument,
     type IWorkspaceDocumentController,
@@ -27,11 +24,7 @@ export interface IWorkspaceCheckpointChangeSignature {
     tabSignatures: Map<string, string>;
 }
 
-function buildTabSignature(
-    tab: ITab,
-    paneId: string | null,
-    session: IWorkspaceDocumentController | undefined,
-) {
+function buildTabSignature(tab: ITab, paneId: string | null, session: IWorkspaceDocumentController | undefined) {
     const view = session?.getView(tab.id) ?? null;
     const workspace = view?.mountedWorkspace.value ?? null;
     const toolbar = view?.toolbarSnapshot.value ?? null;
@@ -76,35 +69,24 @@ function buildTabSignature(
 export function buildWorkspaceCheckpointChangeSignature(
     options: IBuildWorkspaceCheckpointSignatureOptions,
 ): IWorkspaceCheckpointChangeSignature {
-    const tabs = options.tabs.value.map(tab => [
-        tab.id,
-        buildTabSignature(
-            tab,
-            options.getPaneByTabId(tab.id)?.paneId ?? null,
-            options.documentSessionsByTabId.value[tab.id],
-        ),
-    ] as const);
-    const paneMembership = options.panes.value.map(pane => [
-        pane.paneId,
-        ...pane.tabIds,
-    ]);
+    const tabs = options.tabs.value.map(
+        (tab) =>
+            [
+                tab.id,
+                buildTabSignature(tab, options.getPaneByTabId(tab.id)?.paneId ?? null, options.documentSessionsByTabId.value[tab.id]),
+            ] as const,
+    );
+    const paneMembership = options.panes.value.map((pane) => [pane.paneId, ...pane.tabIds]);
     const workspace = JSON.stringify([
         options.activePaneId.value,
         options.activeTabId.value,
         options.layout.value,
-        options.panes.value.map(pane => [
-            pane.paneId,
-            pane.activeTabId,
-            ...pane.tabIds,
-        ]),
+        options.panes.value.map((pane) => [pane.paneId, pane.activeTabId, ...pane.tabIds]),
         tabs.map(([, signature]) => signature.full),
     ]);
     return {
         workspace,
-        structure: JSON.stringify([
-            paneMembership,
-            tabs.map(([, signature]) => signature.structure),
-        ]),
+        structure: JSON.stringify([paneMembership, tabs.map(([, signature]) => signature.structure)]),
         tabSignatures: new Map(tabs.map(([tabId, signature]) => [tabId, signature.full])),
     };
 }

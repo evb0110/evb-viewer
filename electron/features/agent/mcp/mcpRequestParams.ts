@@ -1,4 +1,4 @@
-import { isRecord } from '@contracts/runtimeGuards';
+import {isRecord} from '@contracts/runtimeGuards';
 import {parseTabId} from '@contracts/windowTabs';
 
 /**
@@ -12,9 +12,7 @@ export function getParamsObject(params: unknown) {
 
 export function getOptionalWindowId(params: unknown) {
     const paramsObject = getParamsObject(params);
-    return typeof paramsObject.windowId === 'number' && Number.isFinite(paramsObject.windowId)
-        ? paramsObject.windowId
-        : undefined;
+    return typeof paramsObject.windowId === 'number' && Number.isFinite(paramsObject.windowId) ? paramsObject.windowId : undefined;
 }
 
 export function getOptionalTabId(params: unknown) {

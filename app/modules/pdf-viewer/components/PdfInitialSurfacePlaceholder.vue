@@ -6,21 +6,19 @@
     >
         <div
             class="pdf-initial-surface-placeholder__page-shell"
-            :class="{ 'pdf-initial-surface-placeholder__page-shell--measured': pageStyle != null }"
+            :class="{'pdf-initial-surface-placeholder__page-shell--measured': pageStyle != null}"
             :style="pageStyle ?? undefined"
         >
-            <DocumentPageSkeleton
-                :content-height="skeletonContentHeight"
-            />
+            <DocumentPageSkeleton :content-height="skeletonContentHeight" />
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import type { StyleValue } from 'vue';
+import type {StyleValue} from 'vue';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 
-defineProps<{ pageStyle?: StyleValue | null }>();
+defineProps<{pageStyle?: StyleValue | null}>();
 
 const skeletonContentHeight = 760;
 </script>

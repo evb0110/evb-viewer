@@ -1,25 +1,12 @@
-import type { LiteralUnion } from 'type-fest';
+import type {LiteralUnion} from 'type-fest';
 import type {TIsoTimestamp} from '@contracts/timestamps';
 
-export const RELEASE_PLATFORMS = [
-    'macos',
-    'windows',
-    'linux',
-    'unknown',
-] as const;
-export const RELEASE_ARCHES = [
-    'arm64',
-    'x64',
-    'universal',
-    'unknown',
-] as const;
+export const RELEASE_PLATFORMS = ['macos', 'windows', 'linux', 'unknown'] as const;
+export const RELEASE_ARCHES = ['arm64', 'x64', 'universal', 'unknown'] as const;
 
-export type TReleasePlatform = typeof RELEASE_PLATFORMS[number];
-export type TReleaseArch = typeof RELEASE_ARCHES[number];
-export type TReleaseInstallerExtension = LiteralUnion<
-    'deb' | 'dmg' | 'exe',
-    string
->;
+export type TReleasePlatform = (typeof RELEASE_PLATFORMS)[number];
+export type TReleaseArch = (typeof RELEASE_ARCHES)[number];
+export type TReleaseInstallerExtension = LiteralUnion<'deb' | 'dmg' | 'exe', string>;
 
 export interface IReleaseInstaller {
     id: number;

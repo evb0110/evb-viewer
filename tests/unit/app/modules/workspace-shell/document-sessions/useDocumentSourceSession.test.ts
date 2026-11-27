@@ -1,11 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { effectScope } from 'vue';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { useDocumentSourceSession } from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
+import {describe, expect, it} from 'vitest';
+import {effectScope} from 'vue';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {useDocumentSourceSession} from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
 
 describe('useDocumentSourceSession', () => {
     it('owns source identity and capabilities without a format mode flag', () => {

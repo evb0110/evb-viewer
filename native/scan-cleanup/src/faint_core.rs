@@ -40,17 +40,41 @@ pub(crate) fn split(
 pub(crate) fn printed_core(strokes: &BinaryImage, gray: &GrayImage) -> BinaryImage {
     let paper = grayscale_percentile(gray, 0.7);
     let width = gray.width();
-    let depths: Vec<u32> = (0..gray.height())
-        .flat_map(|y| (0..width).map(move |x| u32::from(paper.saturating_sub(gray.get(x, y)))))
-        .collect();
+    let height = gray.height();
+    debug_assert_eq!((strokes.width(), strokes.height()), (width, height));
     let map = ComponentMap::from_binary(strokes);
-    let deepest = map.maximum_values_by_component(&depths);
-    let core = BinaryImage::from_fn_parallel(width, gray.height(), |x, y| {
+    let mut deepest = vec![0u8; map.components().len() + 1];
+    let words_per_line = strokes.words_per_line();
+    let words = strokes.words();
+    for y in 0..height {
+        let gray_row = gray.row(y);
+        for (word_x, &word) in words[y * words_per_line..(y + 1) * words_per_line]
+            .iter()
+            .enumerate()
+        {
+            if word == 0 {
+                continue;
+            }
+            let base_x = word_x * 32;
+            let mut remaining = word;
+            while remaining != 0 {
+                let bit = remaining.leading_zeros() as usize;
+                let x = base_x + bit;
+                let label = map.label_at(x, y) as usize;
+                let depth = paper.saturating_sub(gray_row[x]);
+                if depth > deepest[label] {
+                    deepest[label] = depth;
+                }
+                remaining ^= 1u32 << (31 - bit);
+            }
+        }
+    }
+    let core = BinaryImage::from_fn_parallel(width, height, |x, y| {
         strokes.get(x, y)
-            && f64::from(depths[y * width + x])
+            && f64::from(paper.saturating_sub(gray.get(x, y)))
                 >= CORE_DEPTH_FRACTION * f64::from(deepest[map.label_at(x, y) as usize])
     });
-    join_split_cores(strokes, &map, core, &depths)
+    join_split_cores(strokes, &map, core, gray, paper)
 }
 
 /// Joins the core pieces of the footprint components whose core is split. A
@@ -62,7 +86,8 @@ fn join_split_cores(
     footprint: &BinaryImage,
     map: &ComponentMap,
     mut core: BinaryImage,
-    depths: &[u32],
+    gray: &GrayImage,
+    paper: u8,
 ) -> BinaryImage {
     let width = footprint.width();
     let core_map = ComponentMap::from_binary(&core);
@@ -75,17 +100,32 @@ fn join_split_cores(
         pieces[map.label_at(x, piece.top) as usize] += 1;
     }
     let mut pixels = Vec::new();
+    let words_per_line = footprint.words_per_line();
+    let words = footprint.words();
     for y in 0..footprint.height() {
-        for x in 0..width {
-            if footprint.get(x, y) && pieces[map.label_at(x, y) as usize] > 1 {
-                pixels.push(y * width + x);
+        for (word_x, &word) in words[y * words_per_line..(y + 1) * words_per_line]
+            .iter()
+            .enumerate()
+        {
+            if word == 0 {
+                continue;
+            }
+            let base_x = word_x * 32;
+            let mut remaining = word;
+            while remaining != 0 {
+                let bit = remaining.leading_zeros() as usize;
+                let x = base_x + bit;
+                if pieces[map.label_at(x, y) as usize] > 1 {
+                    pixels.push(y * width + x);
+                }
+                remaining ^= 1u32 << (31 - bit);
             }
         }
     }
     if pixels.is_empty() {
         return core;
     }
-    let pruned = prune_non_core_branches(&pixels, width, &core, depths);
+    let pruned = prune_non_core_branches(&pixels, width, &core, gray, paper);
     for (node, &pixel) in pixels.iter().enumerate() {
         if !pruned[node] {
             core.set(pixel % width, pixel / width, true);
@@ -103,9 +143,14 @@ fn prune_non_core_branches(
     pixels: &[usize],
     width: usize,
     core: &BinaryImage,
-    depths: &[u32],
+    gray: &GrayImage,
+    paper: u8,
 ) -> Vec<bool> {
     let is_core = |node: usize| core.get(pixels[node] % width, pixels[node] / width);
+    let pixel_depths: Vec<u8> = pixels
+        .iter()
+        .map(|&pixel| paper.saturating_sub(gray.get(pixel % width, pixel / width)))
+        .collect();
     let mut edges = Vec::new();
     for (node, &pixel) in pixels.iter().enumerate() {
         let (x, y) = (pixel % width, pixel / width);
@@ -118,7 +163,7 @@ fn prune_non_core_branches(
             }
             let neighbour = ny * width + nx;
             if let Ok(other) = pixels.binary_search(&neighbour) {
-                let depth = depths[pixel].min(depths[neighbour]);
+                let depth = pixel_depths[node].min(pixel_depths[other]);
                 edges.push((depth, node as u32, other as u32));
             }
         }
@@ -263,5 +308,45 @@ mod tests {
         assert_eq!(component_count(&printed), 1, "the middle must stay joined");
         assert!(printed.count_black() < preserved.count_black());
         assert!(printed.get(20, 20) && printed.get(90, 90));
+    }
+
+    #[test]
+    fn printed_core_without_u32_depth_buffer_matches_reference_at_word_boundaries() {
+        let mut image = GrayImage::new(97, 65, 224);
+        let mut strokes = BinaryImage::new(97, 65);
+        // Component crossing x = 31/32 and x = 63/64 word boundaries with a lighter middle.
+        for x in 20..75 {
+            let y = 10 + (x - 20) / 2;
+            strokes.set(x, y, true);
+            strokes.set(x, y + 1, true);
+            let center_val = if (36..56).contains(&x) { 205 } else { 150 };
+            image.set(x, y, center_val);
+            image.set(x, y + 1, 210);
+        }
+        // Second isolated single-core component.
+        for x in 60..68 {
+            for y in 48..54 {
+                strokes.set(x, y, true);
+                image.set(x, y, if x == 63 || x == 64 { 140 } else { 215 });
+            }
+        }
+
+        let actual = printed_core(&strokes, &image);
+        let paper = crate::mode_select::grayscale_percentile(&image, 0.7);
+        let width = image.width();
+        let gray = &image;
+        let depths: Vec<u32> = (0..gray.height())
+            .flat_map(|y| (0..width).map(move |x| u32::from(paper.saturating_sub(gray.get(x, y)))))
+            .collect();
+        let map = ComponentMap::from_binary(&strokes);
+        let deepest = map.maximum_values_by_component(&depths);
+        let expected_core = BinaryImage::from_fn_parallel(width, image.height(), |x, y| {
+            strokes.get(x, y)
+                && f64::from(depths[y * width + x])
+                    >= super::CORE_DEPTH_FRACTION * f64::from(deepest[map.label_at(x, y) as usize])
+        });
+        let expected = super::join_split_cores(&strokes, &map, expected_core, &image, paper);
+        assert_eq!(actual, expected);
+        assert_eq!(component_count(&actual), 2);
     }
 }

@@ -1,17 +1,8 @@
-import {
-    mkdtemp,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createCanvas} from '@napi-rs/canvas';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     compareDisplayedPreviewLeaves,
     createForcedPostSettleMovementProbeLeaves,
@@ -38,8 +29,8 @@ const forcedMovementComparison = {
 function report(
     postSettleComparisons: object[],
     leafSets: {
-        previewHalves?: string[],
-        provisionalHalves?: string[],
+        previewHalves?: string[];
+        provisionalHalves?: string[];
     } = {},
     forcedPostSettleMovementComparisons: object[] = [forcedMovementComparison],
 ) {
@@ -99,23 +90,22 @@ describe('scan cleanup preview presentation evidence', () => {
             context.fillRect(0, 0, 24, 16);
             context.fillStyle = '#000';
             context.fillRect(3, 2, 9, 8);
-            const captures = await Promise.all([
-                0,
-                1,
-                2,
-                3,
-            ].map(async index => {
-                const metricsPath = join(directory, `capture-${index}.png`);
-                await writeFile(metricsPath, canvas.toBuffer('image/png'));
-                return {
-                    atMs: index,
-                    phase: index < 2 ? 'provisional' : 'settled',
-                    leaves: [{
-                        half: 'left',
-                        metricsPath,
-                    }],
-                };
-            }));
+            const captures = await Promise.all(
+                [0, 1, 2, 3].map(async (index) => {
+                    const metricsPath = join(directory, `capture-${index}.png`);
+                    await writeFile(metricsPath, canvas.toBuffer('image/png'));
+                    return {
+                        atMs: index,
+                        phase: index < 2 ? 'provisional' : 'settled',
+                        leaves: [
+                            {
+                                half: 'left',
+                                metricsPath,
+                            },
+                        ],
+                    };
+                }),
+            );
             const changed = await createForcedPostSettleMovementProbeLeaves(captures[3]!.leaves, join(directory, 'changed'));
             const compareMargins = () => ({maximum: 1});
             const measureMargins = () => ({});
@@ -152,45 +142,60 @@ describe('scan cleanup preview presentation evidence', () => {
     it('reports either missing comparison half instead of silently skipping it', async () => {
         const measureMargins = vi.fn();
         const compareMargins = vi.fn();
-        const beforeMissing = await compareDisplayedPreviewLeaves([], [{
-            half: 'right',
-            metricsPath: '/unused-after.png',
-        }], measureMargins, compareMargins);
-        const afterMissing = await compareDisplayedPreviewLeaves([{
-            half: 'left',
-            metricsPath: '/unused-before.png',
-        }], [], measureMargins, compareMargins);
+        const beforeMissing = await compareDisplayedPreviewLeaves(
+            [],
+            [
+                {
+                    half: 'right',
+                    metricsPath: '/unused-after.png',
+                },
+            ],
+            measureMargins,
+            compareMargins,
+        );
+        const afterMissing = await compareDisplayedPreviewLeaves(
+            [
+                {
+                    half: 'left',
+                    metricsPath: '/unused-before.png',
+                },
+            ],
+            [],
+            measureMargins,
+            compareMargins,
+        );
 
-        expect(beforeMissing).toEqual([expect.objectContaining({
-            half: 'right',
-            missingBefore: true,
-        })]);
-        expect(afterMissing).toEqual([expect.objectContaining({
-            half: 'left',
-            missingAfter: true,
-        })]);
-        expect(report(beforeMissing).violations).toEqual(expect.arrayContaining([
-            'presentation-missing-half',
-            'presentation-post-settle-movement',
-        ]));
+        expect(beforeMissing).toEqual([
+            expect.objectContaining({
+                half: 'right',
+                missingBefore: true,
+            }),
+        ]);
+        expect(afterMissing).toEqual([
+            expect.objectContaining({
+                half: 'left',
+                missingAfter: true,
+            }),
+        ]);
+        expect(report(beforeMissing).violations).toEqual(
+            expect.arrayContaining(['presentation-missing-half', 'presentation-post-settle-movement']),
+        );
         expect(measureMargins).not.toHaveBeenCalled();
         expect(compareMargins).not.toHaveBeenCalled();
     });
 
     it('checks both provisional and settled leaf sets for a dropped half', () => {
-        expect(report([stableComparison], {
-            provisionalHalves: [
-                'left',
-                'right',
-            ],
-            previewHalves: ['left'],
-        }).violations).toContain('presentation-missing-half');
-        expect(report([stableComparison], {
-            provisionalHalves: ['left'],
-            previewHalves: [
-                'left',
-                'right',
-            ],
-        }).violations).toContain('presentation-missing-half');
+        expect(
+            report([stableComparison], {
+                provisionalHalves: ['left', 'right'],
+                previewHalves: ['left'],
+            }).violations,
+        ).toContain('presentation-missing-half');
+        expect(
+            report([stableComparison], {
+                provisionalHalves: ['left'],
+                previewHalves: ['left', 'right'],
+            }).violations,
+        ).toContain('presentation-missing-half');
     });
 });

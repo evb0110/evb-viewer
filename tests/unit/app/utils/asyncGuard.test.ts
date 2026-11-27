@@ -1,15 +1,5 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    guardAsync,
-    runDetached,
-    runGuardedTask,
-} from '@app/utils/asyncGuard';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {guardAsync, runDetached, runGuardedTask} from '@app/utils/asyncGuard';
 
 const loggerSpies = vi.hoisted(() => ({
     error: vi.fn(),
@@ -19,7 +9,7 @@ const loggerSpies = vi.hoisted(() => ({
     warn: vi.fn(),
 }));
 
-vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: loggerSpies }));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: loggerSpies}));
 
 describe('asyncGuard', () => {
     beforeEach(() => {
@@ -42,7 +32,7 @@ describe('asyncGuard', () => {
             'Failed to run task',
             expect.objectContaining({
                 category: 'background-diagnostic',
-                error: expect.objectContaining({ message: 'boom' }),
+                error: expect.objectContaining({message: 'boom'}),
             }),
         );
     });
@@ -66,20 +56,17 @@ describe('asyncGuard', () => {
             'Failed to run task',
             expect.objectContaining({
                 category: 'background-diagnostic',
-                error: expect.objectContaining({ message: 'sync boom' }),
+                error: expect.objectContaining({message: 'sync boom'}),
             }),
         );
     });
 
     it('contains failures from intentionally detached tasks', async () => {
-        await runDetached(
-            () => Promise.reject(new Error('detached boom')),
-            {
-                category: 'background-diagnostic',
-                scope: 'detached-test',
-                message: 'Detached task failed',
-            },
-        );
+        await runDetached(() => Promise.reject(new Error('detached boom')), {
+            category: 'background-diagnostic',
+            scope: 'detached-test',
+            message: 'Detached task failed',
+        });
 
         await Promise.resolve();
 
@@ -119,10 +106,7 @@ describe('asyncGuard', () => {
             {code: 'RENDERER_ASYNC_GUARD_FAILED'},
         );
         expect(onError.mock.invocationCallOrder[0]).toBeLessThan(loggerSpies.error.mock.invocationCallOrder[0]!);
-        expect(observed).toEqual([
-            'onError',
-            'logger',
-        ]);
+        expect(observed).toEqual(['onError', 'logger']);
     });
 
     it('logs expected cancellations at debug level', async () => {

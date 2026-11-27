@@ -1,13 +1,10 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { redactLogText } from '@contracts/redactLogText';
+import {describe, expect, it} from 'vitest';
+import {redactLogText} from '@contracts/redactLogText';
 
 describe('redactLogText', () => {
     it('redacts URL credentials, every query value, and fragments without hiding routing diagnostics', () => {
-        const input = 'GET https://alice:secret@updates.example.test:8443/releases/v1/latest.yml?channel=stable&token=s3cr3t&channel=beta&flag#private-section failed';
+        const input =
+            'GET https://alice:secret@updates.example.test:8443/releases/v1/latest.yml?channel=stable&token=s3cr3t&channel=beta&flag#private-section failed';
 
         expect(redactLogText(input)).toBe(
             'GET https://[redacted]@updates.example.test:8443/releases/v1/latest.yml?channel=[redacted]&token=[redacted]&channel=[redacted]&flag=[redacted]#[redacted] failed',
@@ -16,39 +13,18 @@ describe('redactLogText', () => {
 
     it('hides whole quoted paths, spaces and JSON-escaped separators included', () => {
         const cases: Array<[string, string]> = [
-            [
-                '/Users/alice/report.pdf.backups/medical-record.pdf',
-                '/Users/[redacted]',
-            ],
-            [
-                'browser://documents/abc/input.pdf, fallback=ocr.pdf',
-                'browser://documents/abc/[redacted], fallback=ocr.pdf',
-            ],
+            ['/Users/alice/report.pdf.backups/medical-record.pdf', '/Users/[redacted]'],
+            ['browser://documents/abc/input.pdf, fallback=ocr.pdf', 'browser://documents/abc/[redacted], fallback=ocr.pdf'],
             [
                 'failed to read "C:\\Users\\alice\\" EACCES while reading document.pdf',
                 'failed to read "C:\\Users\\[redacted]" EACCES while reading document.pdf',
             ],
-            [
-                JSON.stringify({path: '/Users/evb/My Documents/scan 1677.pdf'}),
-                '{"path":"/Users/[redacted]"}',
-            ],
-            [
-                JSON.stringify({path: 'C:\\Users\\evb\\My Docs\\scan.pdf'}),
-                '{"path":"C:\\\\Users\\\\[redacted]"}',
-            ],
-            [
-                JSON.stringify({ref: 'browser://documents/abc123/My Thesis Draft.pdf'}),
-                '{"ref":"browser://documents/abc123/[redacted]"}',
-            ],
-            [
-                JSON.stringify({url: 'file:///Users/evb/My Docs/a.pdf'}),
-                '{"url":"file://[redacted]"}',
-            ],
+            [JSON.stringify({path: '/Users/evb/My Documents/scan 1677.pdf'}), '{"path":"/Users/[redacted]"}'],
+            [JSON.stringify({path: 'C:\\Users\\evb\\My Docs\\scan.pdf'}), '{"path":"C:\\\\Users\\\\[redacted]"}'],
+            [JSON.stringify({ref: 'browser://documents/abc123/My Thesis Draft.pdf'}), '{"ref":"browser://documents/abc123/[redacted]"}'],
+            [JSON.stringify({url: 'file:///Users/evb/My Docs/a.pdf'}), '{"url":"file://[redacted]"}'],
         ];
-        for (const [
-            input,
-            expected,
-        ] of cases) {
+        for (const [input, expected] of cases) {
             expect(redactLogText(input)).toBe(expected);
             expect(redactLogText(expected)).toBe(expected);
         }
@@ -59,9 +35,7 @@ describe('redactLogText', () => {
         const redacted = redactLogText(input);
 
         expect(redactLogText(redacted)).toBe(redacted);
-        expect(redacted).toBe(
-            'https://[redacted]@[::1]:3235/path?access_token=[redacted]&empty=[redacted]#[redacted]',
-        );
+        expect(redacted).toBe('https://[redacted]@[::1]:3235/path?access_token=[redacted]&empty=[redacted]#[redacted]');
     });
 
     it('keeps generated fragment placeholders idempotent beside unmatched path brackets', () => {
@@ -72,49 +46,39 @@ describe('redactLogText', () => {
     });
 
     it('redacts valid apostrophes and balanced parentheses inside URL secrets', () => {
-        const input = 'Request (https://us\'er:pa)ss@host.test/a(b)?token=a\'b)c) failed';
+        const input = "Request (https://us'er:pa)ss@host.test/a(b)?token=a'b)c) failed";
 
-        expect(redactLogText(input)).toBe(
-            'Request (https://[redacted]@host.test/a(b)?token=[redacted]) failed',
-        );
+        expect(redactLogText(input)).toBe('Request (https://[redacted]@host.test/a(b)?token=[redacted]) failed');
     });
 
     it('redacts percent-encoded userinfo and query values', () => {
-        expect(redactLogText(
-            'https://user%40example.test:pa%3Ass@host.test/path?redirect=https%3A%2F%2Fprivate.test%2F',
-        )).toBe(
+        expect(redactLogText('https://user%40example.test:pa%3Ass@host.test/path?redirect=https%3A%2F%2Fprivate.test%2F')).toBe(
             'https://[redacted]@host.test/path?redirect=[redacted]',
         );
     });
 
     it('redacts query text containing URL-canonicalized delimiter characters', () => {
-        expect(redactLogText(
-            'https://user:pass@host.test/path?token=sec"ret&next=a<b>c',
-        )).toBe(
+        expect(redactLogText('https://user:pass@host.test/path?token=sec"ret&next=a<b>c')).toBe(
             'https://[redacted]@host.test/path?token=[redacted]&next=[redacted]',
         );
     });
 
     it('retains home-path masking inside HTTP URL paths', () => {
-        expect(redactLogText(
-            'https://host.test/Users/alice/private/report.pdf?download=yes https://host.test/C:/Users/Alice/private/report.pdf',
-        )).toBe(
-            'https://host.test/Users/[redacted]?download=[redacted] https://host.test/C:/Users/[redacted]',
-        );
+        expect(
+            redactLogText(
+                'https://host.test/Users/alice/private/report.pdf?download=yes https://host.test/C:/Users/Alice/private/report.pdf',
+            ),
+        ).toBe('https://host.test/Users/[redacted]?download=[redacted] https://host.test/C:/Users/[redacted]');
     });
 
     it('redacts composite JSON secret values without damaging sibling diagnostics', () => {
-        expect(redactLogText(
-            'event={"authorization":{"scheme":"Basic","credentials":"abc def"},"next":"useful"}',
-        )).toBe(
+        expect(redactLogText('event={"authorization":{"scheme":"Basic","credentials":"abc def"},"next":"useful"}')).toBe(
             'event={"authorization":"[redacted-secret]","next":"useful"}',
         );
     });
 
     it('redacts common prefixed secret headers without matching longer words', () => {
-        expect(redactLogText(
-            'X-Api-Key: api-secret x-auth-token="auth secret" X-Refresh-Token=refresh-secret mytoken=visible',
-        )).toBe(
+        expect(redactLogText('X-Api-Key: api-secret x-auth-token="auth secret" X-Refresh-Token=refresh-secret mytoken=visible')).toBe(
             'X-Api-Key: "[redacted-secret]" x-auth-token="[redacted-secret]" X-Refresh-Token="[redacted-secret]" mytoken=visible',
         );
     });
@@ -127,14 +91,7 @@ describe('redactLogText', () => {
         expect(redacted.match(/\[redacted-secret\]/gu)).toHaveLength(6);
         expect(redacted).toContain('passwordless=visible');
         expect(redacted).toContain('secretary=visible');
-        for (const value of [
-            'one',
-            'two',
-            'three',
-            'four',
-            'five',
-            'six',
-        ]) {
+        for (const value of ['one', 'two', 'three', 'four', 'five', 'six']) {
             expect(redacted).not.toContain(`=${value}`);
         }
     });
@@ -146,19 +103,17 @@ describe('redactLogText', () => {
     });
 
     it('redacts apostrophes inside data URI payloads', () => {
-        expect(redactLogText('payload=data:text/plain,secret\'payload')).toBe(
-            'payload=data:[redacted]',
-        );
+        expect(redactLogText("payload=data:text/plain,secret'payload")).toBe('payload=data:[redacted]');
     });
 
     it.each([
         {
-            input: 'Request (\'https://host.test/path?token=secret\'), failed',
-            output: 'Request (\'https://host.test/path?token=[redacted]\'), failed',
+            input: "Request ('https://host.test/path?token=secret'), failed",
+            output: "Request ('https://host.test/path?token=[redacted]'), failed",
         },
         {
-            input: 'Request \'https://host.test/path?token=secret\', failed',
-            output: 'Request \'https://host.test/path?token=[redacted]\', failed',
+            input: "Request 'https://host.test/path?token=secret', failed",
+            output: "Request 'https://host.test/path?token=[redacted]', failed",
         },
         {
             input: 'Request [https://host.test/path?token=secret], failed',
@@ -168,17 +123,12 @@ describe('redactLogText', () => {
             input: 'Request `https://host.test/path?token=secret`, failed',
             output: 'Request `https://host.test/path?token=[redacted]`, failed',
         },
-    ])('preserves punctuation around wrapped URL diagnostics', ({
-        input,
-        output,
-    }) => {
+    ])('preserves punctuation around wrapped URL diagnostics', ({input, output}) => {
         expect(redactLogText(input)).toBe(output);
     });
 
     it('keeps sentence punctuation outside an unwrapped URL at end of input', () => {
-        expect(redactLogText('Failed at https://host.test/path?token=secret.')).toBe(
-            'Failed at https://host.test/path?token=[redacted].',
-        );
+        expect(redactLogText('Failed at https://host.test/path?token=secret.')).toBe('Failed at https://host.test/path?token=[redacted].');
     });
 
     it('preserves the existing header, bearer, data, file, and home-path redaction', () => {

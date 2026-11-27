@@ -1,12 +1,6 @@
-import { BrowserWindow } from 'electron';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { setupMenu } from '@electron/menu';
+import {BrowserWindow} from 'electron';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {setupMenu} from '@electron/menu';
 
 interface IMenuItemLike {
     click?: (item: unknown, window?: unknown) => unknown;
@@ -14,7 +8,6 @@ interface IMenuItemLike {
     role?: string;
     submenu?: IMenuItemLike[] | unknown;
 }
-
 
 const mocks = vi.hoisted(() => ({
     buildFromTemplate: vi.fn((template: unknown) => ({template})),
@@ -28,7 +21,7 @@ const mocks = vi.hoisted(() => ({
             filePath: '/tmp/native-route-output',
         })),
     },
-    emitRendererEvent: ((_channel: string, ..._args: unknown[]) => undefined),
+    emitRendererEvent: (_channel: string, ..._args: unknown[]) => undefined,
     focusedWindow: null as unknown,
     isMac: false,
     lastMenuTemplate: [] as IMenuItemLike[],
@@ -96,18 +89,24 @@ vi.mock('electron', () => {
     };
 });
 
-vi.mock('@electron/config', () => ({config: {get isMac() { return mocks.isMac; }}}));
+vi.mock('@electron/config', () => ({
+    config: {
+        get isMac() {
+            return mocks.isMac;
+        },
+    },
+}));
 vi.mock('@electron/recentFiles', () => ({getRecentFilesSync: () => []}));
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
 vi.mock('@electron/window/registry', () => ({
-    getAllRegisteredAppWindows: () => mocks.focusedWindow ? [mocks.focusedWindow] : [],
+    getAllRegisteredAppWindows: () => (mocks.focusedWindow ? [mocks.focusedWindow] : []),
     getWindowByIdFromRegistry: () => mocks.focusedWindow,
 }));
 
 function findMenuItem(menuLabel: string, itemLabel: string) {
-    const menu = mocks.lastMenuTemplate.find(item => item.label === menuLabel);
+    const menu = mocks.lastMenuTemplate.find((item) => item.label === menuLabel);
     const submenu = Array.isArray(menu?.submenu) ? menu.submenu : [];
-    const item = submenu.find(candidate => candidate.label === itemLabel);
+    const item = submenu.find((candidate) => candidate.label === itemLabel);
     if (!item) {
         throw new Error(`Missing native menu item ${menuLabel} > ${itemLabel}`);
     }
@@ -117,7 +116,7 @@ function findMenuItem(menuLabel: string, itemLabel: string) {
 async function flushCommandRoute() {
     await Promise.resolve();
     await Promise.resolve();
-    await new Promise(resolve => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 afterEach(() => {
@@ -141,7 +140,7 @@ describe('native menu and dialog routing', () => {
         findMenuItem('menu.help', 'menu.acknowledgements').click?.({}, window);
         await flushCommandRoute();
         expect(window.webContents.executeJavaScript).toHaveBeenCalledWith(
-            expect.stringContaining('window.history.pushState({}, \'\', \'/about\')'),
+            expect.stringContaining("window.history.pushState({}, '', '/about')"),
             true,
         );
 

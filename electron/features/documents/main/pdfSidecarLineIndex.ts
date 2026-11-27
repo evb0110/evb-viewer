@@ -1,18 +1,8 @@
 import {createReadStream} from 'node:fs';
-import {
-    lstat,
-    mkdtemp,
-    open,
-    readdir,
-    rm,
-    stat,
-} from 'node:fs/promises';
+import {lstat, mkdtemp, open, readdir, rm, stat} from 'node:fs/promises';
 import {join} from 'node:path';
 import {createAbortError} from '@contracts/isAbortError';
-import {
-    getCurrentMainOperationCancellationSignal,
-    registerMainOperation,
-} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {getCurrentMainOperationCancellationSignal, registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {cancelNativeCommandGroup} from '@electron/native-tools/runNativeCommand';
 
 export interface IPdfSidecarLine {
@@ -168,19 +158,23 @@ async function beginPdfSidecarMainOperation<TSession extends IPdfSidecarSessionS
 }) {
     sessions.set(session.sessionId, session);
     const invokeCancellationSignal = getCurrentMainOperationCancellationSignal();
-    const cancel = (reason: string) => cancelPdfSidecarSession(
-        session,
-        reason,
-        invokeCancellationSignal?.aborted && invokeCancellationSignal.reason instanceof Error
-            ? invokeCancellationSignal.reason
-            : createAbortError(reason),
+    const cancel = (reason: string) =>
+        cancelPdfSidecarSession(
+            session,
+            reason,
+            invokeCancellationSignal?.aborted && invokeCancellationSignal.reason instanceof Error
+                ? invokeCancellationSignal.reason
+                : createAbortError(reason),
+        );
+    const mainOperation = await registerPdfSidecarMainOperation(
+        {
+            kind: 'abortable-work',
+            ownerWebContentsId,
+            workingCopyPath,
+            cancel,
+        },
+        () => cleanup(session),
     );
-    const mainOperation = await registerPdfSidecarMainOperation({
-        kind: 'abortable-work',
-        ownerWebContentsId,
-        workingCopyPath,
-        cancel,
-    }, () => cleanup(session));
     session.cancelGroup = cancelGroupForOperation(mainOperation.id);
     const unregisterSenderCleanup = registerSenderCleanup?.(cancel);
     if (unregisterSenderCleanup) {
@@ -197,10 +191,7 @@ async function beginPdfSidecarMainOperation<TSession extends IPdfSidecarSessionS
     };
 }
 
-export async function createPdfSidecarMainOperation<
-    TRevision,
-    TSession extends TPdfSidecarSessionState<TRevision>,
->({
+export async function createPdfSidecarMainOperation<TRevision, TSession extends TPdfSidecarSessionState<TRevision>>({
     sessionId,
     ownerId,
     documentRef,
@@ -246,7 +237,7 @@ export async function createPdfSidecarMainOperation<
     }) as TSession;
     return {
         session,
-        ...await beginPdfSidecarMainOperation({
+        ...(await beginPdfSidecarMainOperation({
             session,
             sessions,
             ownerWebContentsId,
@@ -254,7 +245,7 @@ export async function createPdfSidecarMainOperation<
             cleanup,
             cancelGroupForOperation,
             registerSenderCleanup,
-        }),
+        })),
     };
 }
 
@@ -301,13 +292,7 @@ export async function runPdfSidecarOperation<TSession extends IPdfSidecarSession
             session.canceled = session.canceled || session.abortController.signal.aborted;
             throw error;
         } finally {
-            await completePdfSidecarMainOperation(
-                session,
-                mainOperation,
-                handleMainAbort,
-                cleanup,
-                beforeComplete,
-            );
+            await completePdfSidecarMainOperation(session, mainOperation, handleMainAbort, cleanup, beforeComplete);
         }
     })();
     await awaitPdfSidecarOperation(session, cleanup);
@@ -339,12 +324,9 @@ export function assertSafePdfSidecarOffset(value: number, fieldName: string) {
 }
 
 function parsePdfSidecarJsonLine(bytes: Buffer, label: string) {
-    const withoutNewline = bytes[bytes.length - 1] === 0x0a
-        ? bytes.subarray(0, bytes.length - 1)
-        : bytes;
-    const jsonBytes = withoutNewline[withoutNewline.length - 1] === 0x0d
-        ? withoutNewline.subarray(0, withoutNewline.length - 1)
-        : withoutNewline;
+    const withoutNewline = bytes[bytes.length - 1] === 0x0a ? bytes.subarray(0, bytes.length - 1) : bytes;
+    const jsonBytes =
+        withoutNewline[withoutNewline.length - 1] === 0x0d ? withoutNewline.subarray(0, withoutNewline.length - 1) : withoutNewline;
     if (jsonBytes.length === 0) {
         throw new Error(`PDF sidecar contains an empty ${label} line`);
     }
@@ -361,10 +343,7 @@ function parsePdfSidecarJsonLine(bytes: Buffer, label: string) {
  * framing. Keeping the scanner here prevents a new format from acquiring a
  * subtly different offset or oversized-line policy.
  */
-export function scanPdfSidecarLines<TData>(
-    sidecarPath: string,
-    options: IScanPdfSidecarOptions<TData>,
-): Promise<IScannedPdfSidecar> {
+export function scanPdfSidecarLines<TData>(sidecarPath: string, options: IScanPdfSidecarOptions<TData>): Promise<IScannedPdfSidecar> {
     return new Promise((resolveScan, rejectScan) => {
         const lines: IPdfSidecarLine[] = [];
         let stream: ReturnType<typeof createReadStream> | null = null;
@@ -394,35 +373,20 @@ export function scanPdfSidecarLines<TData>(
             const lineValue = parsePdfSidecarJsonLine(line, headerSeen ? 'data' : 'header');
             if (!headerSeen) {
                 headerPageCount = options.decodeHeader(lineValue);
-                dataStartOffset = addSafePdfSidecarOffset(
-                    offset,
-                    line.length,
-                    `${options.label} offset`,
-                );
+                dataStartOffset = addSafePdfSidecarOffset(offset, line.length, `${options.label} offset`);
                 headerSeen = true;
                 return;
             }
             const entries = options.decodeDataLine(lineValue);
-            entryCount = addSafePdfSidecarOffset(
-                entryCount,
-                entries.length,
-                `${options.label} entry count`,
-            );
+            entryCount = addSafePdfSidecarOffset(entryCount, entries.length, `${options.label} entry count`);
             lines.push({
-                offset: addSafePdfSidecarOffset(
-                    offset,
-                    -dataStartOffset,
-                    `${options.label} offset`,
-                ),
+                offset: addSafePdfSidecarOffset(offset, -dataStartOffset, `${options.label} offset`),
                 byteLength: line.length,
             });
         };
         const consume = (chunk: Buffer) => {
             totalBytes = addSafePdfSidecarOffset(totalBytes, chunk.length, `${options.label} sidecar size`);
-            pending = pending.length === 0 ? chunk : Buffer.concat([
-                pending,
-                chunk,
-            ]);
+            pending = pending.length === 0 ? chunk : Buffer.concat([pending, chunk]);
             if (pending.length > options.maxLineBytes && pending.indexOf(0x0a) < 0) {
                 throw new Error(`${options.label} sidecar line exceeds ${options.maxLineBytes} bytes`);
             }
@@ -430,11 +394,7 @@ export function scanPdfSidecarLines<TData>(
             while (newlineIndex >= 0) {
                 const lineLength = newlineIndex + 1;
                 processLine(pending.subarray(0, lineLength), pendingStartOffset);
-                pendingStartOffset = addSafePdfSidecarOffset(
-                    pendingStartOffset,
-                    lineLength,
-                    `${options.label} offset`,
-                );
+                pendingStartOffset = addSafePdfSidecarOffset(pendingStartOffset, lineLength, `${options.label} offset`);
                 pending = pending.subarray(lineLength);
                 newlineIndex = pending.indexOf(0x0a);
             }
@@ -447,9 +407,7 @@ export function scanPdfSidecarLines<TData>(
             rejectOnce(options.signal.reason ?? createAbortError(`${options.label} sidecar scan was aborted`));
             return;
         }
-        const handleAbort = () => rejectOnce(
-            options.signal?.reason ?? createAbortError(`${options.label} sidecar scan was aborted`),
-        );
+        const handleAbort = () => rejectOnce(options.signal?.reason ?? createAbortError(`${options.label} sidecar scan was aborted`));
         options.signal?.addEventListener('abort', handleAbort, {once: true});
         removeAbortListener = () => options.signal?.removeEventListener('abort', handleAbort);
         stream = createReadStream(sidecarPath, {
@@ -471,11 +429,7 @@ export function scanPdfSidecarLines<TData>(
             try {
                 if (pending.length > 0) {
                     processLine(pending, pendingStartOffset);
-                    pendingStartOffset = addSafePdfSidecarOffset(
-                        pendingStartOffset,
-                        pending.length,
-                        `${options.label} offset`,
-                    );
+                    pendingStartOffset = addSafePdfSidecarOffset(pendingStartOffset, pending.length, `${options.label} offset`);
                 }
                 if (headerPageCount === null) {
                     throw new Error(`${options.label} sidecar is empty`);
@@ -487,11 +441,7 @@ export function scanPdfSidecarLines<TData>(
                 removeAbortListener();
                 resolveScan({
                     dataStartOffset,
-                    dataBytes: addSafePdfSidecarOffset(
-                        totalBytes,
-                        -dataStartOffset,
-                        `${options.label} bytes`,
-                    ),
+                    dataBytes: addSafePdfSidecarOffset(totalBytes, -dataStartOffset, `${options.label} bytes`),
                     pageCount: headerPageCount,
                     entryCount,
                     lines,
@@ -512,30 +462,23 @@ function findPdfSidecarLineIndex(lines: readonly IPdfSidecarLine[], offset: numb
         if (line.offset === offset) {
             return middle;
         }
-        if (line.offset < offset) low = middle + 1;
-        else high = middle - 1;
+        if (line.offset < offset) {
+            low = middle + 1;
+        } else {
+            high = middle - 1;
+        }
     }
     return -1;
 }
 
-async function readPdfSidecarLine(
-    sidecarPath: string,
-    dataStartOffset: number,
-    line: IPdfSidecarLine,
-    label: string,
-) {
+async function readPdfSidecarLine(sidecarPath: string, dataStartOffset: number, line: IPdfSidecarLine, label: string) {
     const absoluteOffset = addSafePdfSidecarOffset(dataStartOffset, line.offset, `${label} offset`);
     const lineBytes = Buffer.allocUnsafe(line.byteLength);
     const sidecarHandle = await open(sidecarPath, 'r');
     try {
         let bytesRead = 0;
         while (bytesRead < line.byteLength) {
-            const readResult = await sidecarHandle.read(
-                lineBytes,
-                bytesRead,
-                line.byteLength - bytesRead,
-                absoluteOffset + bytesRead,
-            );
+            const readResult = await sidecarHandle.read(lineBytes, bytesRead, line.byteLength - bytesRead, absoluteOffset + bytesRead);
             if (readResult.bytesRead === 0) {
                 throw new Error(`${label} sidecar ended before the requested chunk`);
             }
@@ -585,7 +528,7 @@ export async function cleanupPdfSidecarSession<TSession extends IPdfSidecarSessi
     session.cleanupPromise = rm(session.sidecarDirectory, {
         force: true,
         recursive: true,
-    }).catch(error => {
+    }).catch((error) => {
         onError(error);
     });
     return session.cleanupPromise;
@@ -595,9 +538,7 @@ export function cleanupPdfSidecarSessionWhenOperationSettles<TSession extends IP
     session: TSession,
     cleanup: (session: TSession) => Promise<void>,
 ) {
-    void session.operationPromise
-        .catch(() => undefined)
-        .then(() => cleanup(session));
+    void session.operationPromise.catch(() => undefined).then(() => cleanup(session));
 }
 
 export function expireStalePdfSidecarSessions<TSession extends IPdfSidecarSessionLifecycleState>(
@@ -628,15 +569,19 @@ export async function sweepStalePdfSidecarArtifacts({
         return 0;
     }
     let deletedCount = 0;
-    for (const entry of entries
-        .filter(name => name.startsWith(directoryPrefix))
-        .slice(0, maxEntries)) {
+    for (const entry of entries.filter((name) => name.startsWith(directoryPrefix)).slice(0, maxEntries)) {
         const directoryPath = join(tempDir, entry);
-        if (activeDirectories.has(directoryPath)) continue;
+        if (activeDirectories.has(directoryPath)) {
+            continue;
+        }
         try {
             const directoryStat = await lstat(directoryPath);
-            if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) continue;
-            if (now - Math.floor(Math.max(directoryStat.mtimeMs, directoryStat.ctimeMs)) < maxAgeMs) continue;
+            if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
+                continue;
+            }
+            if (now - Math.floor(Math.max(directoryStat.mtimeMs, directoryStat.ctimeMs)) < maxAgeMs) {
+                continue;
+            }
             await rm(directoryPath, {
                 force: true,
                 recursive: true,
@@ -677,17 +622,10 @@ export async function readPdfSidecarChunk<TEntry>({
     if (line.byteLength > chunkBytes) {
         throw new RangeError(`${label} line requires a chunk of at least ${line.byteLength} bytes`);
     }
-    const lineBytes = await readPdfSidecarLine(
-        sidecarPath,
-        index.dataStartOffset,
-        line,
-        label,
-    );
+    const lineBytes = await readPdfSidecarLine(sidecarPath, index.dataStartOffset, line, label);
     await afterRead?.();
     const entries = decodeDataLine(parsePdfSidecarJsonLine(lineBytes, 'data'));
-    const nextOffset = lineIndex + 1 < index.lines.length
-        ? addSafePdfSidecarOffset(line.offset, line.byteLength, `${label} offset`)
-        : null;
+    const nextOffset = lineIndex + 1 < index.lines.length ? addSafePdfSidecarOffset(line.offset, line.byteLength, `${label} offset`) : null;
     return {
         offset,
         nextOffset,

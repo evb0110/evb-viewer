@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
+import {execFileSync} from 'node:child_process';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
 
 const COMMAND_TIMEOUT_MS = 1_500;
 const MAX_COMMAND_BUFFER_BYTES = 256 * 1024;
@@ -46,20 +46,21 @@ function toText(value: unknown) {
     return '';
 }
 
-function truncateText(value: string, options: {
-    maxChars?: number;
-    maxLines?: number;
-} = {}) {
+function truncateText(
+    value: string,
+    options: {
+        maxChars?: number;
+        maxLines?: number;
+    } = {},
+) {
     const maxChars = options.maxChars ?? MAX_SECTION_CHARS;
     const maxLines = options.maxLines ?? MAX_SECTION_LINES;
     const normalized = value.replace(/\r\n/g, '\n').trim();
     const lines = normalized.split('\n').filter(Boolean);
-    const lineCapped = lines.length > maxLines
-        ? [
-            ...lines.slice(0, maxLines),
-            `... truncated ${lines.length - maxLines} additional line(s) ...`,
-        ].join('\n')
-        : lines.join('\n');
+    const lineCapped =
+        lines.length > maxLines
+            ? [...lines.slice(0, maxLines), `... truncated ${lines.length - maxLines} additional line(s) ...`].join('\n')
+            : lines.join('\n');
     if (lineCapped.length <= maxChars) {
         return lineCapped;
     }
@@ -70,11 +71,13 @@ function runCommand(command: string, args: string[]): IStartupDiagnosticCommandR
     try {
         return {
             ok: true,
-            output: toText(execFileSync(command, args, {
-                encoding: 'utf8',
-                maxBuffer: MAX_COMMAND_BUFFER_BYTES,
-                timeout: COMMAND_TIMEOUT_MS,
-            })),
+            output: toText(
+                execFileSync(command, args, {
+                    encoding: 'utf8',
+                    maxBuffer: MAX_COMMAND_BUFFER_BYTES,
+                    timeout: COMMAND_TIMEOUT_MS,
+                }),
+            ),
             error: '',
         };
     } catch (error) {
@@ -83,13 +86,8 @@ function runCommand(command: string, args: string[]): IStartupDiagnosticCommandR
             stderr?: unknown;
             message?: unknown;
         };
-        const output = [
-            toText(candidate.stdout),
-            toText(candidate.stderr),
-        ].filter(Boolean).join('\n');
-        const message = typeof candidate.message === 'string'
-            ? candidate.message
-            : String(error);
+        const output = [toText(candidate.stdout), toText(candidate.stderr)].filter(Boolean).join('\n');
+        const message = typeof candidate.message === 'string' ? candidate.message : String(error);
         return {
             ok: false,
             output,
@@ -127,9 +125,9 @@ function normalizePathForMatch(path: string) {
 }
 
 function isElectronProcess(command: string) {
-    return /\bElectron(?:\.app)?\b/.test(command)
-        || command.includes('node_modules/electron')
-        || command.includes('--remote-debugging-port=');
+    return (
+        /\bElectron(?:\.app)?\b/.test(command) || command.includes('node_modules/electron') || command.includes('--remote-debugging-port=')
+    );
 }
 
 function isNuxtProcess(command: string) {
@@ -188,38 +186,33 @@ export function summarizeProcessSnapshot(rows: IProcessSnapshotRow[], root = pro
 export function selectInterestingProcessRows(rows: IProcessSnapshotRow[], root = projectRoot) {
     return rows.filter((row) => {
         const classification = classifyProcessSnapshotRow(row, root);
-        return classification.projectRoot
-            || classification.electron
-            || classification.nuxt
-            || classification.pnpm;
+        return classification.projectRoot || classification.electron || classification.nuxt || classification.pnpm;
     });
 }
 
 export function formatProcessSnapshot(rows: IProcessSnapshotRow[], root = projectRoot) {
     const summary = summarizeProcessSnapshot(rows, root);
-    const interestingRows = selectInterestingProcessRows(rows, root)
-        .slice(0, MAX_PROCESS_ROWS);
+    const interestingRows = selectInterestingProcessRows(rows, root).slice(0, MAX_PROCESS_ROWS);
     const header = [
         `Counts: projectRoot=${summary.projectRoot}, electron=${summary.electron}, nuxt=${summary.nuxt}, pnpm=${summary.pnpm}, interesting=${summary.interesting}`,
         'PID PPID STAT ELAPSED COMMAND',
     ];
-    const body = interestingRows.map(row => [
-        row.pid,
-        row.ppid,
-        row.stat,
-        row.elapsed,
-        row.command.length > MAX_COMMAND_CHARS
-            ? `${row.command.slice(0, MAX_COMMAND_CHARS)}...`
-            : row.command,
-    ].join(' '));
-    const overflow = summary.interesting > interestingRows.length
-        ? [`... truncated ${summary.interesting - interestingRows.length} additional process row(s) ...`]
-        : [];
-    return [
-        ...header,
-        ...(body.length > 0 ? body : ['No project-rooted / Electron / Nuxt / pnpm processes found.']),
-        ...overflow,
-    ].join('\n');
+    const body = interestingRows.map((row) =>
+        [
+            row.pid,
+            row.ppid,
+            row.stat,
+            row.elapsed,
+            row.command.length > MAX_COMMAND_CHARS ? `${row.command.slice(0, MAX_COMMAND_CHARS)}...` : row.command,
+        ].join(' '),
+    );
+    const overflow =
+        summary.interesting > interestingRows.length
+            ? [`... truncated ${summary.interesting - interestingRows.length} additional process row(s) ...`]
+            : [];
+    return [...header, ...(body.length > 0 ? body : ['No project-rooted / Electron / Nuxt / pnpm processes found.']), ...overflow].join(
+        '\n',
+    );
 }
 
 function collectProcessSnapshot(platform: NodeJS.Platform, root: string) {
@@ -227,11 +220,7 @@ function collectProcessSnapshot(platform: NodeJS.Platform, root: string) {
         return 'Process snapshot unavailable on Windows hosts for this diagnostic.';
     }
 
-    const result = runCommand('ps', [
-        '-ax',
-        '-o',
-        'pid=,ppid=,stat=,etime=,command=',
-    ]);
+    const result = runCommand('ps', ['-ax', '-o', 'pid=,ppid=,stat=,etime=,command=']);
     if (!result.ok && !result.output.trim()) {
         return `Process snapshot unavailable: ${result.error}`;
     }
@@ -260,24 +249,16 @@ function collectMacOSLogSnippet(platform: NodeJS.Platform) {
     if (output) {
         return output;
     }
-    return result.ok
-        ? 'No matching macOS unified log entries in the last 2m.'
-        : `macOS unified log unavailable: ${result.error}`;
+    return result.ok ? 'No matching macOS unified log entries in the last 2m.' : `macOS unified log unavailable: ${result.error}`;
 }
 
 export function formatElectronStartupDiagnostics(options: IStartupDiagnosticsOptions = {}) {
     const platform = options.platform ?? process.platform;
     const root = options.root ?? projectRoot;
-    const sections = [
-        '--- Startup process snapshot ---',
-        collectProcessSnapshot(platform, root),
-    ];
+    const sections = ['--- Startup process snapshot ---', collectProcessSnapshot(platform, root)];
 
     if (options.includeMacOSLog ?? platform === 'darwin') {
-        sections.push(
-            '--- macOS unified log (last 2m, Electron/runningboardd/kernel) ---',
-            collectMacOSLogSnippet(platform),
-        );
+        sections.push('--- macOS unified log (last 2m, Electron/runningboardd/kernel) ---', collectMacOSLogSnippet(platform));
     }
 
     return sections.join('\n');

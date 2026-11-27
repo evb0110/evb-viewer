@@ -1,12 +1,9 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type {
-    TFitMode,
-    TPdfViewMode,
-} from '@app/types/pdfContracts';
-import { getCurrentSpreadRenderedBoundsFromDom } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
-import { getCurrentSpreadRenderedBoundsFromMetrics } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics';
-import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
+import type {TFitMode, TPdfViewMode} from '@app/types/pdfContracts';
+import {getCurrentSpreadRenderedBoundsFromDom} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
+import {getCurrentSpreadRenderedBoundsFromMetrics} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics';
+import {resolvePageBoundedHorizontalScroll} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 
 export function resolveHorizontalScrollClampForActiveSpread(options: {
     container: HTMLElement | null;
@@ -32,8 +29,8 @@ export function resolveHorizontalScrollClampForActiveSpread(options: {
             pageNumber: options.pageNumber,
             viewMode: options.viewMode,
             totalPages: options.numPages,
-        })
-        ?? getCurrentSpreadRenderedBoundsFromMetrics({
+        }) ??
+        getCurrentSpreadRenderedBoundsFromMetrics({
             container: options.container,
             basePageWidth: options.basePageWidth,
             basePageHeight: options.basePageHeight,

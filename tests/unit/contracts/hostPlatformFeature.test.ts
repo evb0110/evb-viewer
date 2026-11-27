@@ -1,12 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    decodeHostEnvironmentSnapshot,
-    HOST_PLATFORM_FEATURE,
-} from '@contracts/hostPlatformFeature';
+import {describe, expect, it} from 'vitest';
+import {decodeHostEnvironmentSnapshot, HOST_PLATFORM_FEATURE} from '@contracts/hostPlatformFeature';
 import {
     HOST_RASTER_POOL_MAX_BYTES,
     HOST_RASTER_POOL_MIN_BYTES,
@@ -22,13 +15,9 @@ describe('host platform feature schemas', () => {
     const codecs = HOST_PLATFORM_FEATURE.ipcCodecs;
 
     it('preserves sync, async, and event kinds without inventing sync IPC', () => {
-
         expect(HOST_PLATFORM_FEATURE.platformDescriptors.methods).toEqual([
             expect.objectContaining({
-                path: [
-                    'host',
-                    'getResourceProfile',
-                ],
+                path: ['host', 'getResourceProfile'],
                 kind: 'sync',
                 browserLazy: 'direct',
             }),
@@ -78,45 +67,60 @@ describe('host platform feature schemas', () => {
     });
 
     it('rejects malformed host arguments, results, and events', () => {
-        expect(() => codecs[channels.setZenMode]!.decodeArgs(['true']))
-            .toThrow('expected a boolean IPC result');
-        expect(() => codecs[channels.getEnvironment]!.decodeResult({
-            platform: 'freebsd',
-            osScaleFactor: 1,
-        })).toThrow('invalid host environment');
-        expect(() => codecs[channels.getRasterBudget]!.decodeResult({
-            maxRasterSurfaceBytes: HOST_WINDOW_RASTER_SHARE_MIN_BYTES - 1,
-            hostPoolBytes: 1536 * MIB,
-            windowCount: 2,
-        })).toThrow('invalid host raster budget');
-        expect(() => codecs[channels.getRasterBudget]!.decodeResult({
-            maxRasterSurfaceBytes: 768 * MIB,
-            hostPoolBytes: 1536 * MIB,
-            windowCount: 0,
-        })).toThrow('invalid host raster budget');
-        expect(() => codecs[channels.getRasterBudget]!.decodeResult({
-            maxRasterSurfaceBytes: 768 * MIB,
-            hostPoolBytes: 1536 * MIB,
-            windowCount: 2,
-            extra: true,
-        })).toThrow('invalid host raster budget');
-        expect(() => codecs[channels.getRasterBudget]!.decodeResult({
-            maxRasterSurfaceBytes: 512 * MIB,
-            hostPoolBytes: 256 * MIB,
-            windowCount: 1,
-        })).toThrow('invalid host raster budget');
-        expect(() => codecs[channels.getZenModeState]!.decodeResult({
-            active: false,
-            supported: 'yes',
-        })).toThrow('invalid host zen mode state');
-        expect(() => codecs[channels.restoreNormalWindow]!.decodeResult({
-            fullScreen: false,
-            supported: true,
-        })).toThrow('invalid host window state');
-        expect(decodeHostEnvironmentSnapshot({
-            platform: 'linux',
-            osScaleFactor: 0,
-        })).toBeNull();
+        expect(() => codecs[channels.setZenMode]!.decodeArgs(['true'])).toThrow('expected a boolean IPC result');
+        expect(() =>
+            codecs[channels.getEnvironment]!.decodeResult({
+                platform: 'freebsd',
+                osScaleFactor: 1,
+            }),
+        ).toThrow('invalid host environment');
+        expect(() =>
+            codecs[channels.getRasterBudget]!.decodeResult({
+                maxRasterSurfaceBytes: HOST_WINDOW_RASTER_SHARE_MIN_BYTES - 1,
+                hostPoolBytes: 1536 * MIB,
+                windowCount: 2,
+            }),
+        ).toThrow('invalid host raster budget');
+        expect(() =>
+            codecs[channels.getRasterBudget]!.decodeResult({
+                maxRasterSurfaceBytes: 768 * MIB,
+                hostPoolBytes: 1536 * MIB,
+                windowCount: 0,
+            }),
+        ).toThrow('invalid host raster budget');
+        expect(() =>
+            codecs[channels.getRasterBudget]!.decodeResult({
+                maxRasterSurfaceBytes: 768 * MIB,
+                hostPoolBytes: 1536 * MIB,
+                windowCount: 2,
+                extra: true,
+            }),
+        ).toThrow('invalid host raster budget');
+        expect(() =>
+            codecs[channels.getRasterBudget]!.decodeResult({
+                maxRasterSurfaceBytes: 512 * MIB,
+                hostPoolBytes: 256 * MIB,
+                windowCount: 1,
+            }),
+        ).toThrow('invalid host raster budget');
+        expect(() =>
+            codecs[channels.getZenModeState]!.decodeResult({
+                active: false,
+                supported: 'yes',
+            }),
+        ).toThrow('invalid host zen mode state');
+        expect(() =>
+            codecs[channels.restoreNormalWindow]!.decodeResult({
+                fullScreen: false,
+                supported: true,
+            }),
+        ).toThrow('invalid host window state');
+        expect(
+            decodeHostEnvironmentSnapshot({
+                platform: 'linux',
+                osScaleFactor: 0,
+            }),
+        ).toBeNull();
     });
 
     it('divides the host raster pool deterministically with monotonic bounds and a usable floor', () => {
@@ -150,13 +154,7 @@ describe('host platform feature schemas', () => {
 
         // Sum stays bounded by host pool whenever windowCount * floor <= hostPoolBytes,
         // and shrinks monotonically until reaching the floor.
-        for (const totalRamBytes of [
-            2 * GIB,
-            4 * GIB,
-            8 * GIB,
-            16 * GIB,
-            64 * GIB,
-        ]) {
+        for (const totalRamBytes of [2 * GIB, 4 * GIB, 8 * GIB, 16 * GIB, 64 * GIB]) {
             let previousShare = Number.POSITIVE_INFINITY;
             for (let windowCount = 1; windowCount <= 32; windowCount += 1) {
                 const share = resolveHostWindowRasterShare({
@@ -180,27 +178,33 @@ describe('host platform feature schemas', () => {
         }
 
         // Degenerate inputs never produce NaN, negative, or unbounded values.
-        expect(resolveHostWindowRasterShare({
-            totalRamBytes: Number.NaN,
-            windowCount: Number.NaN,
-            fallbackPoolBytes: 768 * MIB,
-        })).toEqual({
+        expect(
+            resolveHostWindowRasterShare({
+                totalRamBytes: Number.NaN,
+                windowCount: Number.NaN,
+                fallbackPoolBytes: 768 * MIB,
+            }),
+        ).toEqual({
             maxRasterSurfaceBytes: 768 * MIB,
             hostPoolBytes: 768 * MIB,
             windowCount: 1,
         });
-        expect(resolveHostWindowRasterShare({
-            totalRamBytes: 0,
-            windowCount: -5,
-        })).toEqual({
+        expect(
+            resolveHostWindowRasterShare({
+                totalRamBytes: 0,
+                windowCount: -5,
+            }),
+        ).toEqual({
             maxRasterSurfaceBytes: HOST_RASTER_POOL_MAX_BYTES,
             hostPoolBytes: HOST_RASTER_POOL_MAX_BYTES,
             windowCount: 1,
         });
-        expect(resolveHostWindowRasterShare({
-            totalRamBytes: Number.POSITIVE_INFINITY,
-            windowCount: 99_999,
-        })).toEqual({
+        expect(
+            resolveHostWindowRasterShare({
+                totalRamBytes: Number.POSITIVE_INFINITY,
+                windowCount: 99_999,
+            }),
+        ).toEqual({
             maxRasterSurfaceBytes: HOST_WINDOW_RASTER_SHARE_MIN_BYTES,
             hostPoolBytes: HOST_RASTER_POOL_MAX_BYTES,
             windowCount: 1_024,
@@ -257,4 +261,3 @@ describe('host platform feature schemas', () => {
         }
     });
 });
-

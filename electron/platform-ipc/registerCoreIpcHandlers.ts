@@ -1,35 +1,25 @@
-import { BrowserWindow } from 'electron';
-import {
-    countBy,
-    sortBy,
-} from 'es-toolkit/array';
-import type { IWindowTabTargetWindow } from '@contracts/windowTabs';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {BrowserWindow} from 'electron';
+import {countBy, sortBy} from 'es-toolkit/array';
+import type {IWindowTabTargetWindow} from '@contracts/windowTabs';
+import type {TDocumentRef} from '@contracts/documentRef';
 import {
     decodeRendererStartupPhase,
     WINDOW_TABS_PLATFORM_FEATURE,
     type IWindowTabsInvokeMap,
     type TRendererReportedStartupPhase,
 } from '@contracts/windowTabsPlatformFeature';
-import type { TFeatureMainBindings } from '@contracts/platformFeature';
-import { te } from '@electron/te';
-import {
-    acknowledgeWindowTabTransfer,
-    requestWindowTabTransfer,
-} from '@electron/windowTabTransfer';
-import { getAllRegisteredAppWindows } from '@electron/window/registry';
-import { registerRendererLogBridge } from '@electron/platform-ipc/rendererLogBridge';
-import { isTrustedWebContentsSender } from '@electron/platform-ipc/trustedIpcSender';
+import type {TFeatureMainBindings} from '@contracts/platformFeature';
+import {te} from '@electron/te';
+import {acknowledgeWindowTabTransfer, requestWindowTabTransfer} from '@electron/windowTabTransfer';
+import {getAllRegisteredAppWindows} from '@electron/window/registry';
+import {registerRendererLogBridge} from '@electron/platform-ipc/rendererLogBridge';
+import {isTrustedWebContentsSender} from '@electron/platform-ipc/trustedIpcSender';
 import {
     createValidatedIpcMainEventRegistrar,
     createValidatedIpcMainRegistrar,
     registerPlatformFeatureHandlers,
 } from '@electron/platform-ipc/validatedIpcRegistrar';
-import {
-    CORE_IPC_CHANNELS,
-    CORE_IPC_SEND_CHANNELS,
-    decodeIpcInvokeCancelPayload,
-} from '@electron/platform-ipc/coreContract';
+import {CORE_IPC_CHANNELS, CORE_IPC_SEND_CHANNELS, decodeIpcInvokeCancelPayload} from '@electron/platform-ipc/coreContract';
 import {cancelIpcInvoke} from '@electron/platform-ipc/ipcInvokeCancellation';
 import type {IRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 import {
@@ -41,13 +31,9 @@ import {
     saveWorkspaceCheckpoint,
     setWorkspaceDocumentDrafts,
 } from '@electron/workspaceCheckpointStore';
-import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
+import {allowOpenPaths} from '@electron/file-access/openPathCapabilities';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import {
-    activateApplicationMenuItem,
-    decodeApplicationMenuItemQuery,
-    type TApplicationMenuItemQuery,
-} from '@electron/menu';
+import {activateApplicationMenuItem, decodeApplicationMenuItemQuery, type TApplicationMenuItemQuery} from '@electron/menu';
 
 export interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent, phase: TRendererReportedStartupPhase) => void;
@@ -67,10 +53,10 @@ const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
 
 function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetWindow[] {
     const otherWindows = sortBy(
-        getAllRegisteredAppWindows().filter(window => window.id !== sourceWindowId),
-        [window => window.id],
+        getAllRegisteredAppWindows().filter((window) => window.id !== sourceWindowId),
+        [(window) => window.id],
     );
-    const titleCountByLabel = countBy(otherWindows, window => (window.getTitle() || te('app.title')).trim() || te('app.title'));
+    const titleCountByLabel = countBy(otherWindows, (window) => (window.getTitle() || te('app.title')).trim() || te('app.title'));
 
     return otherWindows.map((window) => {
         const title = (window.getTitle() || te('app.title')).trim() || te('app.title');
@@ -83,10 +69,7 @@ function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetW
 }
 
 function assertAutomationCheckpointReset() {
-    if (
-        !runtimeConfig.automationUserDataDir
-        || !runtimeConfig.automationSessionName
-    ) {
+    if (!runtimeConfig.automationUserDataDir || !runtimeConfig.automationSessionName) {
         throw new Error('Workspace checkpoint reset is available only to isolated automation sessions');
     }
 }
@@ -95,26 +78,20 @@ function registerAutomationHandlers(ipcMain: Electron.IpcMain, requestGracefulQu
     const channel = CORE_IPC_CHANNELS.activateMenuItemForAutomation;
     const quitChannel = CORE_IPC_CHANNELS.quitForAutomation;
     const registrar = createValidatedIpcMainRegistrar(ipcMain, {
-        allowedChannels: new Set([
-            channel,
-            quitChannel,
-        ]),
+        allowedChannels: new Set([channel, quitChannel]),
         argumentValidation: {noArgumentChannels: new Set([quitChannel])},
-        codecs: {[channel]: {decodeArgs: args => [decodeApplicationMenuItemQuery(args[0])]}},
+        codecs: {[channel]: {decodeArgs: (args) => [decodeApplicationMenuItemQuery(args[0])]}},
     });
     // Electron sends the reply once this handler's promise settles, which is
     // before an immediate runs. The item runs after it, so one that closes the
     // window or quits cannot take the renderer away before the caller hears it ran.
-    registrar.handle(channel, (_event, query: TApplicationMenuItemQuery) => activateApplicationMenuItem(query, run => setImmediate(run)));
+    registrar.handle(channel, (_event, query: TApplicationMenuItemQuery) => activateApplicationMenuItem(query, (run) => setImmediate(run)));
     // A session owner's stop skips the close decision a person's Quit asks
     // for; the shutdown save flush keeps unsaved documents for recovery.
     registrar.handle(quitChannel, () => requestGracefulQuit?.());
 }
 
-export function registerCoreIpcHandlers(
-    ipcMain: Electron.IpcMain,
-    options: ICoreIpcHandlerOptions,
-) {
+export function registerCoreIpcHandlers(ipcMain: Electron.IpcMain, options: ICoreIpcHandlerOptions) {
     const windowTabsRegistrar = createValidatedIpcMainRegistrar<IWindowTabsInvokeMap>(ipcMain, {
         allowedChannels: WINDOW_TABS_PLATFORM_FEATURE.invokeChannelSet,
         codecs: WINDOW_TABS_PLATFORM_FEATURE.ipcCodecs,
@@ -123,9 +100,10 @@ export function registerCoreIpcHandlers(
     registerRendererLogBridge({
         isTrustedSender: isTrustedWebContentsSender,
         registerListener: (channel, handler) => {
-            const register = () => eventRegistrar.on(channel, (event, payload) => {
-                handler(event, payload as Parameters<typeof handler>[1]);
-            });
+            const register = () =>
+                eventRegistrar.on(channel, (event, payload) => {
+                    handler(event, payload as Parameters<typeof handler>[1]);
+                });
             if (options.rawIpcRegistrationAudit) {
                 options.rawIpcRegistrationAudit.register('renderer-log', register);
             } else {
@@ -149,53 +127,37 @@ export function registerCoreIpcHandlers(
         }
     });
 
-    const bindings: TFeatureMainBindings<
-        typeof WINDOW_TABS_PLATFORM_FEATURE,
-        Electron.IpcMainInvokeEvent
-    > = {
-        claimPendingExternalOpenPaths: ({sender}) =>
-            options.claimPendingExternalOpenPaths?.(sender) ?? [],
+    const bindings: TFeatureMainBindings<typeof WINDOW_TABS_PLATFORM_FEATURE, Electron.IpcMainInvokeEvent> = {
+        claimPendingExternalOpenPaths: ({sender}) => options.claimPendingExternalOpenPaths?.(sender) ?? [],
         acknowledgePendingExternalOpenPaths: ({sender}, failedPaths) => {
             options.acknowledgePendingExternalOpenPaths?.(sender, failedPaths);
         },
-        saveWorkspaceCheckpoint: ({
-            sender, senderId,
-        }, checkpoint) => saveWorkspaceCheckpoint(checkpoint, senderId, sender),
+        saveWorkspaceCheckpoint: ({sender, senderId}, checkpoint) => saveWorkspaceCheckpoint(checkpoint, senderId, sender),
         setWorkspaceDocumentDrafts: ({senderId}, drafts) => setWorkspaceDocumentDrafts(drafts, senderId),
-        discardWorkspaceCheckpoint: async ({
-            sender,
-            senderId,
-        }) => {
+        discardWorkspaceCheckpoint: async ({sender, senderId}) => {
             assertAutomationCheckpointReset();
             return discardWorkspaceCheckpoint(senderId, sender);
         },
-        resumeWorkspaceCheckpoint: ({
-            sender,
-            senderId,
-        }, discardToken) => {
+        resumeWorkspaceCheckpoint: ({sender, senderId}, discardToken) => {
             assertAutomationCheckpointReset();
             resumeWorkspaceCheckpoint(senderId, discardToken, sender);
         },
-        claimWorkspaceCheckpoint: async ({
-            sender,
-            senderId,
-        }) => {
+        claimWorkspaceCheckpoint: async ({sender, senderId}) => {
             const checkpoint = await claimWorkspaceCheckpoint(senderId, sender);
             if (checkpoint) {
-                allowOpenPaths(checkpoint.tabs.flatMap(tab => [
-                    tab.sourceRef,
-                    tab.workingCopyRef,
-                ].filter((path): path is TDocumentRef => path !== null)), sender);
+                allowOpenPaths(
+                    checkpoint.tabs.flatMap((tab) =>
+                        [tab.sourceRef, tab.workingCopyRef].filter((path): path is TDocumentRef => path !== null),
+                    ),
+                    sender,
+                );
                 if (await hasRecoverableWorkspaceCheckpoints(senderId, sender)) {
                     await options.onWorkspaceCheckpointClaimed?.();
                 }
             }
             return checkpoint;
         },
-        acknowledgeWorkspaceCheckpoint: async ({
-            sender,
-            senderId,
-        }) => {
+        acknowledgeWorkspaceCheckpoint: async ({sender, senderId}) => {
             await acknowledgeWorkspaceCheckpoint(senderId, sender);
         },
         requestWindowTabTransfer: async ({sender}, request) => {
@@ -227,9 +189,5 @@ export function registerCoreIpcHandlers(
             return true;
         },
     };
-    registerPlatformFeatureHandlers(
-        windowTabsRegistrar as never,
-        WINDOW_TABS_PLATFORM_FEATURE,
-        bindings,
-    );
+    registerPlatformFeatureHandlers(windowTabsRegistrar as never, WINDOW_TABS_PLATFORM_FEATURE, bindings);
 }

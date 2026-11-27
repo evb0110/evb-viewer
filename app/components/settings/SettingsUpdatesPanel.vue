@@ -13,10 +13,9 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{isCheckInProgress: boolean;}>();
+defineProps<{isCheckInProgress: boolean}>();
 
-const emit = defineEmits<{check: [];}>();
+const emit = defineEmits<{check: []}>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 </script>
-

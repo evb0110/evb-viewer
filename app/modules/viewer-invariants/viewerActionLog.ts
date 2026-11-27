@@ -16,13 +16,7 @@ const MAX_RETAINED_GESTURES = 20;
 const MAX_RETAINED_ACTIONS = 40;
 /** A pause this long ends a wheel gesture. */
 const GESTURE_QUIET_MS = 220;
-const OBSERVED_EVENT_TYPES = [
-    'keydown',
-    'pointerdown',
-    'pointerup',
-    'resize',
-    'wheel',
-] as const;
+const OBSERVED_EVENT_TYPES = ['keydown', 'pointerdown', 'pointerup', 'resize', 'wheel'] as const;
 const PAGE_TRACK_SELECTOR = '[data-pdf-page-track]';
 const VIEWPORT_SELECTOR = '[data-document-viewer-chassis-viewport], #pdf-viewer';
 const CONTROL_DESCRIPTOR_LIMIT = 48;
@@ -86,11 +80,7 @@ interface IViewerTypingAction extends IViewerActionBase {
     type: 'typing';
 }
 
-export type IViewerUserAction =
-    | IViewerKeyAction
-    | IViewerPointerAction
-    | IViewerTypingAction
-    | IViewerWheelGestureAction;
+export type IViewerUserAction = IViewerKeyAction | IViewerPointerAction | IViewerTypingAction | IViewerWheelGestureAction;
 
 let gestures: IViewerWheelGestureAction[] = [];
 let actions: IViewerUserAction[] = [];
@@ -110,18 +100,15 @@ function describeTarget(target: EventTarget | null) {
     if (!(target instanceof Element)) {
         return 'window';
     }
-    const control = target.closest<HTMLElement>(
-        '[data-testid], [role], button, input, textarea, a',
-    ) ?? (target instanceof HTMLElement ? target : null);
+    const control =
+        target.closest<HTMLElement>('[data-testid], [role], button, input, textarea, a') ?? (target instanceof HTMLElement ? target : null);
     if (!control) {
         return target.tagName.toLowerCase();
     }
-    const identity = [
-        control.dataset.testid,
-        control.getAttribute('role'),
-        control.id,
-        control.tagName.toLowerCase(),
-    ].find(candidate => typeof candidate === 'string' && candidate.trim().length > 0) ?? 'unknown';
+    const identity =
+        [control.dataset.testid, control.getAttribute('role'), control.id, control.tagName.toLowerCase()].find(
+            (candidate) => typeof candidate === 'string' && candidate.trim().length > 0,
+        ) ?? 'unknown';
     return identity.trim().slice(0, CONTROL_DESCRIPTOR_LIMIT);
 }
 
@@ -190,8 +177,10 @@ function continuesGesture(gesture: IViewerWheelGestureAction, event: WheelEvent,
     }
     const previousY = gesture.lastDelta.y;
     const previousX = gesture.lastDelta.x;
-    return (previousY === 0 || event.deltaY === 0 || Math.sign(previousY) === Math.sign(event.deltaY))
-        && (previousX === 0 || event.deltaX === 0 || Math.sign(previousX) === Math.sign(event.deltaX));
+    return (
+        (previousY === 0 || event.deltaY === 0 || Math.sign(previousY) === Math.sign(event.deltaY)) &&
+        (previousX === 0 || event.deltaX === 0 || Math.sign(previousX) === Math.sign(event.deltaX))
+    );
 }
 
 function recordWheel(event: WheelEvent, now: number) {
@@ -241,12 +230,13 @@ function recordPointer(event: PointerEvent, now: number) {
     const clientY = event.clientY ?? 0;
     pushAction({
         button: event.button ?? 0,
-        pointInTarget: rect && rect.width > 0 && rect.height > 0
-            ? {
-                x: Number(((clientX - rect.left) / rect.width).toFixed(3)),
-                y: Number(((clientY - rect.top) / rect.height).toFixed(3)),
-            }
-            : null,
+        pointInTarget:
+            rect && rect.width > 0 && rect.height > 0
+                ? {
+                      x: Number(((clientX - rect.left) / rect.width).toFixed(3)),
+                      y: Number(((clientY - rect.top) / rect.height).toFixed(3)),
+                  }
+                : null,
         pointInViewport: pointInViewport(clientX, clientY),
         startedAt: now,
         target: describeTarget(event.target),

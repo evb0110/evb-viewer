@@ -1,11 +1,13 @@
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 interface IPdfjsDocumentTeardown {
     message: string;
     run: () => Promise<void>;
 }
 
-interface IPdfjsDocumentTeardownLane {barrier: Promise<void>}
+interface IPdfjsDocumentTeardownLane {
+    barrier: Promise<void>;
+}
 
 function createAbortError() {
     return new DOMException('PDF document load was superseded', 'AbortError');
@@ -31,15 +33,9 @@ export function createPdfjsDocumentTeardownCoordinator() {
 
     function track(key: string, teardown: IPdfjsDocumentTeardown) {
         const lane = lanes.get(key) ?? {barrier: Promise.resolve()};
-        const tracked = lane.barrier
-            .then(teardown.run)
-            .catch((error) => {
-                BrowserLogger.warn(
-                    'pdf-document',
-                    teardown.message,
-                    error,
-                );
-            });
+        const tracked = lane.barrier.then(teardown.run).catch((error) => {
+            BrowserLogger.warn('pdf-document', teardown.message, error);
+        });
         lane.barrier = tracked;
         lanes.set(key, lane);
         void tracked.finally(() => {

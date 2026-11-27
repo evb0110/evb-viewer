@@ -18,65 +18,76 @@ describe('Stylelint invariants', () => {
     }
 
     it('rejects unknown guarded custom properties while allowing known, local, and fallback values', async () => {
-        await expect(lintStyle(
-            'evb/known-custom-properties',
-            '.fixture { color: var(--app-space-sm); }',
-            'app/components/fixture.css',
-        )).resolves.toHaveLength(0);
-        await expect(lintStyle(
-            'evb/known-custom-properties',
-            '.fixture { --app-local: red; color: var(--app-local); background: var(--app-missing, red); }',
-            'app/components/fixture.css',
-        )).resolves.toHaveLength(0);
-        await expect(lintStyle(
-            'evb/known-custom-properties',
-            '.fixture { color: var(--app-typo); }',
-            'app/components/fixture.css',
-        )).resolves.toMatchObject([{rule: 'evb/known-custom-properties'}]);
+        await expect(
+            lintStyle('evb/known-custom-properties', '.fixture { color: var(--app-space-sm); }', 'app/components/fixture.css'),
+        ).resolves.toHaveLength(0);
+        await expect(
+            lintStyle(
+                'evb/known-custom-properties',
+                '.fixture { --app-local: red; color: var(--app-local); background: var(--app-missing, red); }',
+                'app/components/fixture.css',
+            ),
+        ).resolves.toHaveLength(0);
+        await expect(
+            lintStyle('evb/known-custom-properties', '.fixture { color: var(--app-typo); }', 'app/components/fixture.css'),
+        ).resolves.toMatchObject([{rule: 'evb/known-custom-properties'}]);
     });
 
     it('rejects raw layout dimensions, font sizes, and z-indexes through Stylelint', async () => {
-        await expect(lintStyle(
-            'declaration-property-value-disallowed-list',
-            '.fixture { width: var(--app-width); font-size: var(--app-font-size); z-index: var(--app-z); }',
-            'app/components/fixture.css',
-        )).resolves.toHaveLength(0);
-        await expect(lintStyle(
-            'declaration-property-value-disallowed-list',
-            '.fixture { width: 12px; font-size: 1rem; z-index: 2; }',
-            'app/components/fixture.css',
-        )).resolves.toHaveLength(3);
+        await expect(
+            lintStyle(
+                'declaration-property-value-disallowed-list',
+                '.fixture { width: var(--app-width); font-size: var(--app-font-size); z-index: var(--app-z); }',
+                'app/components/fixture.css',
+            ),
+        ).resolves.toHaveLength(0);
+        await expect(
+            lintStyle(
+                'declaration-property-value-disallowed-list',
+                '.fixture { width: 12px; font-size: 1rem; z-index: 2; }',
+                'app/components/fixture.css',
+            ),
+        ).resolves.toHaveLength(3);
     });
 
     it('rejects unapproved important declarations through Stylelint', async () => {
-        await expect(lintStyle(
-            'evb/important-policy',
-            '.fixture { color: red; }',
-            'app/components/fixture.css',
-        )).resolves.toHaveLength(0);
-        await expect(lintStyle(
-            'evb/important-policy',
-            '/* css-important-allow: native override */\n.fixture { color: red !important; }',
-            'app/components/fixture.css',
-        )).resolves.toHaveLength(0);
-        await expect(lintStyle(
-            'evb/important-policy',
-            '.fixture { color: red !important; }',
-            'app/components/fixture.css',
-        )).resolves.toMatchObject([{rule: 'evb/important-policy'}]);
+        await expect(lintStyle('evb/important-policy', '.fixture { color: red; }', 'app/components/fixture.css')).resolves.toHaveLength(0);
+        await expect(
+            lintStyle(
+                'evb/important-policy',
+                '/* css-important-allow: native override */\n.fixture { color: red !important; }',
+                'app/components/fixture.css',
+            ),
+        ).resolves.toHaveLength(0);
+        await expect(
+            lintStyle('evb/important-policy', '.fixture { color: red !important; }', 'app/components/fixture.css'),
+        ).resolves.toMatchObject([{rule: 'evb/important-policy'}]);
     });
 
     it('rejects invalid app-owned style asset names and CSS extensions', async () => {
-        await expect(lintStyle(
-            'evb/style-asset-conventions',
-            '.fixture { color: red; }',
-            'app/assets/css/_good-name.scss',
-        )).resolves.toHaveLength(0);
-        await expect(lintStyle(
-            'evb/style-asset-conventions',
-            '.fixture { color: red; }',
-            'app/assets/css/Bad_Name.css',
-        )).resolves.toHaveLength(2);
+        await expect(
+            lintStyle('evb/style-asset-conventions', '.fixture { color: red; }', 'app/assets/css/_good-name.scss'),
+        ).resolves.toHaveLength(0);
+        await expect(
+            lintStyle('evb/style-asset-conventions', '.fixture { color: red; }', 'app/assets/css/Bad_Name.css'),
+        ).resolves.toHaveLength(2);
+    });
+
+    it('rejects invalid media queries and unknown property values in standalone CSS files', async () => {
+        const badResult = await stylelint.lint({
+            code: '@media (min-width: ) { .fixture { color: not-a-real-color; } }',
+            codeFilename: 'app/components/fixture.css',
+            config: stylelintConfig,
+        });
+        expect((badResult.results[0]?.warnings ?? []).map((warning) => warning.rule)).toEqual(
+            expect.arrayContaining(['declaration-property-value-no-unknown', 'media-query-no-invalid']),
+        );
+
+        const goodResult = await stylelint.lint({
+            code: '@media (width >= 48rem) { .fixture { color: var(--app-space-sm); } }',
+            codeFilename: 'app/components/fixture.css',
+            config: stylelintConfig,
+        });
+        expect(goodResult.results[0]?.warnings ?? []).toHaveLength(0);
     });
 });
-

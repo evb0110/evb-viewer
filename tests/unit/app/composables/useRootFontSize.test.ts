@@ -1,25 +1,10 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    onMounted,
-} from 'vue';
-import type { Ref } from 'vue';
-import {
-    BASE_ROOT_FONT_SIZE_PX,
-    readRootFontSizePx,
-} from '@app/utils/rootFontSize';
-import { useRootFontSize } from '@app/composables/useRootFontSize';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, onMounted} from 'vue';
+import type {Ref} from 'vue';
+import {BASE_ROOT_FONT_SIZE_PX, readRootFontSizePx} from '@app/utils/rootFontSize';
+import {useRootFontSize} from '@app/composables/useRootFontSize';
 
 /**
  * Everything that lines rem-sized layout up with pixel arithmetic reads its rem
@@ -34,10 +19,14 @@ function mountWithRootFontSize() {
     const host = document.createElement('div');
     document.body.append(host);
     const captured: {rootFontSizePx: Ref<number> | null} = {rootFontSizePx: null};
-    const app = createApp(defineComponent({setup() {
-        captured.rootFontSizePx = useRootFontSize().rootFontSizePx;
-        return () => null;
-    }}));
+    const app = createApp(
+        defineComponent({
+            setup() {
+                captured.rootFontSizePx = useRootFontSize().rootFontSizePx;
+                return () => null;
+            },
+        }),
+    );
     app.mount(host);
     const unmount = () => {
         app.unmount();
@@ -127,33 +116,37 @@ describe('useRootFontSize', () => {
         // An observer that reports nothing leaves the mount-time measurement as
         // the only way to notice the change below, which is the point: the real
         // observer only starts watching after this component has mounted.
-        vi.stubGlobal('MutationObserver', class {
-            disconnect() {}
-            observe() {}
-            takeRecords() {
-                return [];
-            }
-        });
+        vi.stubGlobal(
+            'MutationObserver',
+            class {
+                disconnect() {}
+                observe() {}
+                takeRecords() {
+                    return [];
+                }
+            },
+        );
 
         const captured: {rootFontSizePx: Ref<number> | null} = {rootFontSizePx: null};
-        const consumer = defineComponent({setup() {
-            captured.rootFontSizePx = useRootFontSize().rootFontSizePx;
-            return () => null;
-        }});
+        const consumer = defineComponent({
+            setup() {
+                captured.rootFontSizePx = useRootFontSize().rootFontSizePx;
+                return () => null;
+            },
+        });
         // Applying the UI scale from a mounted hook is what the app does once
         // settings have loaded, and mounted hooks run in render order.
-        const scaleApplier = defineComponent({setup() {
-            onMounted(() => {
-                setRootFontSize('20px');
-            });
-            return () => null;
-        }});
+        const scaleApplier = defineComponent({
+            setup() {
+                onMounted(() => {
+                    setRootFontSize('20px');
+                });
+                return () => null;
+            },
+        });
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp(defineComponent({setup: () => () => [
-            h(scaleApplier),
-            h(consumer),
-        ]}));
+        const app = createApp(defineComponent({setup: () => () => [h(scaleApplier), h(consumer)]}));
         app.mount(host);
         const unmount = () => {
             app.unmount();
@@ -168,10 +161,7 @@ describe('useRootFontSize', () => {
 
     it('stops measuring once the component using it is gone', async () => {
         setRootFontSize('16px');
-        const {
-            rootFontSizePx,
-            unmount,
-        } = mountWithRootFontSize();
+        const {rootFontSizePx, unmount} = mountWithRootFontSize();
 
         unmount();
         setRootFontSize('24px');

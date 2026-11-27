@@ -147,111 +147,103 @@
 </template>
 
 <script setup lang="ts">
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const localePath = useLocalePath();
 const pageDescription = computed(() => t('features.seo.ogDescription'));
 
 const entryPointCards = computed(() => [
-    {
-        icon: 'i-ph-globe',
-        title: t('home.entryPoints.web.title'),
-        description: t('home.entryPoints.web.description'),
-        points: [
-            t('home.entryPoints.web.point1'),
-            t('home.entryPoints.web.point2'),
-            t('home.entryPoints.web.point3'),
-        ],
-    },
-    {
-        icon: 'i-ph-download',
-        title: t('home.entryPoints.desktop.title'),
-        description: t('home.entryPoints.desktop.description'),
-        points: [
-            t('home.entryPoints.desktop.point1'),
-            t('home.entryPoints.desktop.point2'),
-            t('home.entryPoints.desktop.point3'),
-        ],
-    },
+  {
+    icon: 'i-ph-globe',
+    title: t('home.entryPoints.web.title'),
+    description: t('home.entryPoints.web.description'),
+    points: [t('home.entryPoints.web.point1'), t('home.entryPoints.web.point2'), t('home.entryPoints.web.point3')],
+  },
+  {
+    icon: 'i-ph-download',
+    title: t('home.entryPoints.desktop.title'),
+    description: t('home.entryPoints.desktop.description'),
+    points: [t('home.entryPoints.desktop.point1'), t('home.entryPoints.desktop.point2'), t('home.entryPoints.desktop.point3')],
+  },
 ]);
 
 const featureCards = computed(() => [
-    {
-        icon: 'i-ph-files',
-        title: t('features.cards.pdfDjvu.title'),
-        description: t('features.cards.pdfDjvu.description'),
-    },
-    {
-        icon: 'i-ph-text-aa',
-        title: t('features.cards.ocr.title'),
-        description: t('features.cards.ocr.description'),
-    },
-    {
-        icon: 'i-ph-pen-nib',
-        title: t('features.cards.annotations.title'),
-        description: t('features.cards.annotations.description'),
-    },
-    {
-        icon: 'i-ph-scissors',
-        title: t('features.cards.pages.title'),
-        description: t('features.cards.pages.description'),
-    },
-    {
-        icon: 'i-ph-sidebar',
-        title: t('features.cards.workspace.title'),
-        description: t('features.cards.workspace.description'),
-    },
-    {
-        icon: 'i-ph-folder-open',
-        title: t('features.cards.exports.title'),
-        description: t('features.cards.exports.description'),
-    },
+  {
+    icon: 'i-ph-files',
+    title: t('features.cards.pdfDjvu.title'),
+    description: t('features.cards.pdfDjvu.description'),
+  },
+  {
+    icon: 'i-ph-text-aa',
+    title: t('features.cards.ocr.title'),
+    description: t('features.cards.ocr.description'),
+  },
+  {
+    icon: 'i-ph-pen-nib',
+    title: t('features.cards.annotations.title'),
+    description: t('features.cards.annotations.description'),
+  },
+  {
+    icon: 'i-ph-scissors',
+    title: t('features.cards.pages.title'),
+    description: t('features.cards.pages.description'),
+  },
+  {
+    icon: 'i-ph-sidebar',
+    title: t('features.cards.workspace.title'),
+    description: t('features.cards.workspace.description'),
+  },
+  {
+    icon: 'i-ph-folder-open',
+    title: t('features.cards.exports.title'),
+    description: t('features.cards.exports.description'),
+  },
 ]);
 
 const workflowSteps = computed(() => [
-    {
-        title: t('features.workflow.load.title'),
-        body: t('features.workflow.load.body'),
-    },
-    {
-        title: t('features.workflow.review.title'),
-        body: t('features.workflow.review.body'),
-    },
-    {
-        title: t('features.workflow.edit.title'),
-        body: t('features.workflow.edit.body'),
-    },
-    {
-        title: t('features.workflow.export.title'),
-        body: t('features.workflow.export.body'),
-    },
+  {
+    title: t('features.workflow.load.title'),
+    body: t('features.workflow.load.body'),
+  },
+  {
+    title: t('features.workflow.review.title'),
+    body: t('features.workflow.review.body'),
+  },
+  {
+    title: t('features.workflow.edit.title'),
+    body: t('features.workflow.edit.body'),
+  },
+  {
+    title: t('features.workflow.export.title'),
+    body: t('features.workflow.export.body'),
+  },
 ]);
 
 const platformRows = computed(() => [
-    {
-        os: t('features.platforms.web'),
-        architectures: t('features.platforms.webArch'),
-        installerTypes: t('features.platforms.webInstallers'),
-    },
-    {
-        os: t('features.platforms.macOs'),
-        architectures: t('features.platforms.macArch'),
-        installerTypes: t('features.platforms.macInstallers'),
-    },
-    {
-        os: t('features.platforms.windows'),
-        architectures: t('features.platforms.winArch'),
-        installerTypes: t('features.platforms.winInstallers'),
-    },
-    {
-        os: t('features.platforms.linux'),
-        architectures: t('features.platforms.linuxArch'),
-        installerTypes: t('features.platforms.linuxInstallers'),
-    },
+  {
+    os: t('features.platforms.web'),
+    architectures: t('features.platforms.webArch'),
+    installerTypes: t('features.platforms.webInstallers'),
+  },
+  {
+    os: t('features.platforms.macOs'),
+    architectures: t('features.platforms.macArch'),
+    installerTypes: t('features.platforms.macInstallers'),
+  },
+  {
+    os: t('features.platforms.windows'),
+    architectures: t('features.platforms.winArch'),
+    installerTypes: t('features.platforms.winInstallers'),
+  },
+  {
+    os: t('features.platforms.linux'),
+    architectures: t('features.platforms.linuxArch'),
+    installerTypes: t('features.platforms.linuxInstallers'),
+  },
 ]);
 
 useLandingPageSeo({
-    title: () => t('features.seo.title'),
-    description: () => pageDescription.value,
-    ogTitle: () => t('features.seo.ogTitle'),
+  title: () => t('features.seo.title'),
+  description: () => pageDescription.value,
+  ogTitle: () => t('features.seo.ogTitle'),
 });
 </script>

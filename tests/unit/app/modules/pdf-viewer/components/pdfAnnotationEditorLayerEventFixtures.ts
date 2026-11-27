@@ -1,35 +1,27 @@
-import {
-    createApp as createVueApp,
-    computed,
-    defineComponent,
-    effectScope,
-    ref,
-    shallowRef,
-    h,
-} from 'vue';
-import {
-    onTestFinished,
-    vi,
-} from 'vitest';
+import {createApp as createVueApp, computed, defineComponent, effectScope, ref, shallowRef, h} from 'vue';
+import {onTestFinished, vi} from 'vitest';
 import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import type {IAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import {useAnnotationStoreSnapshot} from '@app/modules/pdf-viewer/runtime/sessions/createPdfDocumentAnnotations';
 import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
-import type {
-    ITextBoxEntity,
-    ITextMarkupEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {ITextBoxEntity, ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {TAnnotationTool} from '@app/types/annotations';
 import {requirePageIndex} from '@contracts/pageNumbers';
 
 export function createApp(...args: Parameters<typeof createVueApp>) {
     const app = createVueApp(...args);
     app.component('UIcon', {render: () => h('span')});
-    app.component('AppTooltip', defineComponent({
-        inheritAttrs: false,
-        setup: (_props, {slots}) => () => slots.default?.(),
-    }));
+    app.component(
+        'AppTooltip',
+        defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    slots.default?.(),
+        }),
+    );
     return app;
 }
 
@@ -47,12 +39,14 @@ export const entity: ITextMarkupEntity = {
     author: null,
     subtype: 'Highlight',
     contents: '',
-    quadPoints: [{
-        left: 0.2,
-        top: 0.2,
-        width: 0.3,
-        height: 0.05,
-    }],
+    quadPoints: [
+        {
+            left: 0.2,
+            top: 0.2,
+            width: 0.3,
+            height: 0.05,
+        },
+    ],
     color: '#facc15',
     opacity: 0.5,
 };
@@ -85,31 +79,46 @@ function createInteractionMethods(
 ) {
     const scope = effectScope();
     const annotationApplication = shallowRef(new AnnotationApplication('component-event-fixture'));
-    const defaults = scope.run(() => usePdfAnnotationEditorSurface({
-        annotationApplication,
-        entitiesByPage: useAnnotationStoreSnapshot(annotationApplication).entitiesByPage,
-        activeTool: computed(() => 'select'),
-        settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
-    }))!;
+    const defaults = scope.run(() =>
+        usePdfAnnotationEditorSurface({
+            annotationApplication,
+            entitiesByPage: useAnnotationStoreSnapshot(annotationApplication).entitiesByPage,
+            activeTool: computed(() => 'select'),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+        }),
+    )!;
     onTestFinished(() => scope.stop());
     const editingId = ref<ITextBoxEntity['identity']['id'] | null>(null);
     const textEditPoint = ref<{
         clientX: number;
-        clientY: number
+        clientY: number;
     } | null>(null);
     const selectionMoveDelta = ref<IAnnotationEditorSurface['selectionMoveDelta']['value']>(null);
     return {
         ...defaults,
         selectionMoveDelta,
-        setSelectionMoveDelta: (delta: IAnnotationEditorSurface['selectionMoveDelta']['value']) => {selectionMoveDelta.value = delta;},
+        setSelectionMoveDelta: (delta: IAnnotationEditorSurface['selectionMoveDelta']['value']) => {
+            selectionMoveDelta.value = delta;
+        },
         editingId,
         textEditPoint,
         registerPageInteraction: register ?? defaults.registerPageInteraction,
-        beginTextEditing: vi.fn((id: ITextBoxEntity['identity']['id'], point?: {
-            clientX: number;
-            clientY: number
-        }) => {select([id]); editingId.value = id; textEditPoint.value = point ?? null;}),
-        endTextEditing: vi.fn(() => {editingId.value = null;}),
+        beginTextEditing: vi.fn(
+            (
+                id: ITextBoxEntity['identity']['id'],
+                point?: {
+                    clientX: number;
+                    clientY: number;
+                },
+            ) => {
+                select([id]);
+                editingId.value = id;
+                textEditPoint.value = point ?? null;
+            },
+        ),
+        endTextEditing: vi.fn(() => {
+            editingId.value = null;
+        }),
         beginPointerInteraction: vi.fn(),
         endPointerInteraction: vi.fn(),
         cancelActiveInteraction: vi.fn(() => false),
@@ -136,7 +145,7 @@ export function createCreationSurface() {
         return () => draftCommitters.delete(interaction.commitTextDraft);
     });
     const commitPendingTextBoxDraftsForSave = vi.fn(async () => {
-        await Promise.all([...draftCommitters].map(committer => committer()));
+        await Promise.all([...draftCommitters].map((committer) => committer()));
     });
     const pendingDraftIds = new Set<ITextBoxEntity['identity']['id']>();
     const setTextBoxDraftPending = vi.fn((id: ITextBoxEntity['identity']['id']) => {
@@ -154,20 +163,20 @@ export function createCreationSurface() {
     const surface: IAnnotationEditorSurface = {
         ...interaction,
         activeTool,
-        entitiesByPage: computed(() => new Map([[
-            25,
-            entities.value,
-        ]])),
+        entitiesByPage: computed(() => new Map([[25, entities.value]])),
         selectedIds,
         movingIds: computed(() => selectedIds.value),
         settings: computed(() => null),
-        getEntitiesForPage: (pageIndex: number) => pageIndex === 25 ? entities.value : [],
+        getEntitiesForPage: (pageIndex: number) => (pageIndex === 25 ? entities.value : []),
         select,
         clearSelection,
         commitPendingTextBoxDraftsForSave,
         getPendingTextCompletion: () => undefined,
         setTextBoxDraftPending,
-        endTextEditing: vi.fn((id) => {interaction.endTextEditing(); clearTextBoxDraftPending(id);}),
+        endTextEditing: vi.fn((id) => {
+            interaction.endTextEditing();
+            clearTextBoxDraftPending(id);
+        }),
         hasTextBoxDraftPending,
         discardUnsavedAnnotation: vi.fn(() => true),
         deleteAnnotation: vi.fn(() => true),
@@ -178,12 +187,7 @@ export function createCreationSurface() {
         undo: vi.fn(() => true),
         redo: vi.fn(() => true),
         getPageGeometry: vi.fn(() => ({
-            pageView: [
-                0,
-                0,
-                100,
-                100,
-            ],
+            pageView: [0, 0, 100, 100],
             rotation: 0 as const,
         })),
         beginMove: vi.fn(() => null),
@@ -228,16 +232,15 @@ export function createSurface() {
     const surface: IAnnotationEditorSurface = {
         ...createInteractionMethods(select),
         activeTool,
-        entitiesByPage: ref(new Map([[
-            25,
-            [entity],
-        ]])),
+        entitiesByPage: ref(new Map([[25, [entity]]])),
         selectedIds,
         movingIds: computed(() => selectedIds.value),
         settings: computed(() => null),
-        getEntitiesForPage: (pageIndex: number) => pageIndex === 25 ? [entity] : [],
+        getEntitiesForPage: (pageIndex: number) => (pageIndex === 25 ? [entity] : []),
         select,
-        clearSelection: vi.fn(() => { selectedIds.value = new Set(); }),
+        clearSelection: vi.fn(() => {
+            selectedIds.value = new Set();
+        }),
         commitPendingTextBoxDraftsForSave: vi.fn(),
         getPendingTextCompletion: () => undefined,
         setTextBoxDraftPending: vi.fn(),
@@ -250,12 +253,7 @@ export function createSurface() {
         undo: vi.fn(() => true),
         redo: vi.fn(() => true),
         getPageGeometry: vi.fn(() => ({
-            pageView: [
-                0,
-                0,
-                100,
-                100,
-            ],
+            pageView: [0, 0, 100, 100],
             rotation: 0 as const,
         })),
         beginMove: vi.fn(() => gesture),

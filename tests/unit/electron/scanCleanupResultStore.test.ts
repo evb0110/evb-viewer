@@ -1,23 +1,8 @@
-import {
-    copyFile,
-    mkdir,
-    mkdtemp,
-    open as fsOpen,
-    readFile,
-    readdir,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {copyFile, mkdir, mkdtemp, open as fsOpen, readFile, readdir, rm, writeFile} from 'node:fs/promises';
 import type {FileHandle} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     createFileBackedScanCleanupDetectionResultStore,
     createFileBackedScanCleanupResultStore,
@@ -54,10 +39,14 @@ interface IValueRecord {
 }
 
 afterEach(async () => {
-    await Promise.all(roots.splice(0).map(root => rm(root, {
-        force: true,
-        recursive: true,
-    })));
+    await Promise.all(
+        roots.splice(0).map((root) =>
+            rm(root, {
+                force: true,
+                recursive: true,
+            }),
+        ),
+    );
 });
 
 describe('file-backed scan-cleanup result store', () => {
@@ -72,7 +61,7 @@ describe('file-backed scan-cleanup result store', () => {
         const store = await createFileBackedScanCleanupResultStore<IValueRecord>({
             fileSystem,
             pageCount: 1,
-            pageNumberOf: record => record.pageNumber,
+            pageNumberOf: (record) => record.pageNumber,
             rootDir: root,
         });
 
@@ -98,7 +87,9 @@ describe('file-backed scan-cleanup result store', () => {
         await writeFile(join(scratch, 'scan-cleanup-representation-report.json'), report);
         const fileSystem: IScanCleanupEvidenceFileSystem = {
             copyFile,
-            mkdir: async (path, options) => {await mkdir(path, options);},
+            mkdir: async (path, options) => {
+                await mkdir(path, options);
+            },
             readdir,
             readFile,
             writeFile,
@@ -115,8 +106,9 @@ describe('file-backed scan-cleanup result store', () => {
             'scan-cleanup-representation-report.json',
         ]);
         expect(await readFile(join(evidence, 'pages.json'), 'utf8')).toBe('{}\n');
-        expect(JSON.parse(await readFile(join(evidence, 'scan-cleanup-representation-report.json'), 'utf8')))
-            .toMatchObject({pagesSidecarPath: join(evidence, 'pages.json')});
+        expect(JSON.parse(await readFile(join(evidence, 'scan-cleanup-representation-report.json'), 'utf8'))).toMatchObject({
+            pagesSidecarPath: join(evidence, 'pages.json'),
+        });
     });
 
     it('keeps only the compact report files when report preservation is requested', async () => {
@@ -129,30 +121,19 @@ describe('file-backed scan-cleanup result store', () => {
             'scan-cleanup-output-pages.jsonl',
             'scan-cleanup-batch-summaries.jsonl',
         ];
-        const excludedFiles = [
-            'page-1-diagnostics.json',
-            'scan-cleanup-native-manifest.json',
-            'page.png',
-        ];
-        for (const file of [
-            ...reportFiles,
-            ...excludedFiles,
-        ]) {
+        const excludedFiles = ['page-1-diagnostics.json', 'scan-cleanup-native-manifest.json', 'page.png'];
+        for (const file of [...reportFiles, ...excludedFiles]) {
             await writeFile(join(scratch, file), '{}\n');
         }
         await preserveScanCleanupJsonEvidence(scratch, vi.fn(), evidence, undefined, isScanCleanupRunReportFile);
-        expect((await readdir(evidence)).sort()).toEqual([
-            ...reportFiles,
-            'scan-cleanup-evidence-manifest.json',
-        ].sort());
-        for (const file of reportFiles.filter(file => file.endsWith('.jsonl'))) {
+        expect((await readdir(evidence)).sort()).toEqual([...reportFiles, 'scan-cleanup-evidence-manifest.json'].sort());
+        for (const file of reportFiles.filter((file) => file.endsWith('.jsonl'))) {
             expect(await readFile(join(evidence, file), 'utf8')).toBe('{}\n');
         }
-        expect(JSON.parse(await readFile(join(evidence, 'scan-cleanup-evidence-manifest.json'), 'utf8')))
-            .toEqual({
-                schemaVersion: 1,
-                files: expect.arrayContaining(reportFiles),
-            });
+        expect(JSON.parse(await readFile(join(evidence, 'scan-cleanup-evidence-manifest.json'), 'utf8'))).toEqual({
+            schemaVersion: 1,
+            files: expect.arrayContaining(reportFiles),
+        });
     });
 
     it('omits analysis-only diagnostics from persisted detection records', async () => {
@@ -162,9 +143,7 @@ describe('file-backed scan-cleanup result store', () => {
             pageCount: 1,
             rootDir: root,
         });
-        const outputModeDiagnostics = {rule: 'blank'} as NonNullable<
-            IScanCleanupDetectionResult['outputModeDiagnostics']
-        >;
+        const outputModeDiagnostics = {rule: 'blank'} as NonNullable<IScanCleanupDetectionResult['outputModeDiagnostics']>;
         const result: IScanCleanupDetectionResult = {
             pageNumber: requirePageNumber(1),
             revision: 1,
@@ -200,7 +179,7 @@ describe('file-backed scan-cleanup result store', () => {
         const store = await createFileBackedScanCleanupResultStore<IClassificationRecord>({
             maxReadPages: 2,
             pageCount: 1_000_000,
-            pageNumberOf: record => record.pageNumber,
+            pageNumberOf: (record) => record.pageNumber,
             rootDir: root,
         });
         await store.append({
@@ -219,10 +198,12 @@ describe('file-backed scan-cleanup result store', () => {
             pageNumber: 1,
             classification: 'first',
         });
-        expect(await store.readRange(999_999, 1_000_001)).toEqual([{
-            pageNumber: 1_000_000,
-            classification: 'last',
-        }]);
+        expect(await store.readRange(999_999, 1_000_001)).toEqual([
+            {
+                pageNumber: 1_000_000,
+                classification: 'last',
+            },
+        ]);
         await expect(store.readRange(1, 4)).rejects.toThrow('bounded window');
 
         await store.close();
@@ -235,19 +216,22 @@ describe('file-backed scan-cleanup result store', () => {
         roots.push(root);
         // A write may store fewer bytes than it was given; this handle never
         // stores more than ten at a time.
-        const storingTenBytesPerWrite = (handle: FileHandle) => new Proxy(handle, {get(target, key) {
-            if (key === 'write') {
-                return (data: Buffer | string, offset: number, length?: number | string, position?: number) => {
-                    const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
-                    const start = typeof data === 'string' ? 0 : offset;
-                    const available = typeof length === 'number' ? length : bytes.byteLength - start;
-                    const at = typeof data === 'string' ? offset : position;
-                    return target.write(bytes, start, Math.min(10, available), at);
-                };
-            }
-            const value = Reflect.get(target, key) as unknown;
-            return typeof value === 'function' ? value.bind(target) : value;
-        }});
+        const storingTenBytesPerWrite = (handle: FileHandle) =>
+            new Proxy(handle, {
+                get(target, key) {
+                    if (key === 'write') {
+                        return (data: Buffer | string, offset: number, length?: number | string, position?: number) => {
+                            const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
+                            const start = typeof data === 'string' ? 0 : offset;
+                            const available = typeof length === 'number' ? length : bytes.byteLength - start;
+                            const at = typeof data === 'string' ? offset : position;
+                            return target.write(bytes, start, Math.min(10, available), at);
+                        };
+                    }
+                    const value = Reflect.get(target, key) as unknown;
+                    return typeof value === 'function' ? value.bind(target) : value;
+                },
+            });
         const store = await createFileBackedScanCleanupResultStore<IValueRecord>({
             fileSystem: {
                 mkdtemp,
@@ -255,7 +239,7 @@ describe('file-backed scan-cleanup result store', () => {
                 rm,
             },
             pageCount: 2,
-            pageNumberOf: record => record.pageNumber,
+            pageNumberOf: (record) => record.pageNumber,
             rootDir: root,
         });
         await store.append({
@@ -284,7 +268,7 @@ describe('file-backed scan-cleanup result store', () => {
         roots.push(root);
         const store = await createFileBackedScanCleanupResultStore<IValueRecord>({
             pageCount: 5,
-            pageNumberOf: record => record.pageNumber,
+            pageNumberOf: (record) => record.pageNumber,
             rootDir: root,
         });
         const long = 'y'.repeat(300_000);
@@ -336,7 +320,7 @@ describe('file-backed scan-cleanup result store', () => {
         roots.push(root);
         const store = await createFileBackedScanCleanupResultStore<IValueRecord>({
             pageCount: 1,
-            pageNumberOf: record => record.pageNumber,
+            pageNumberOf: (record) => record.pageNumber,
             rootDir: root,
         });
         const value = 'x'.repeat(100_000);
@@ -358,7 +342,7 @@ describe('file-backed scan-cleanup result store', () => {
         const store = await createFileBackedScanCleanupResultStore<IValueRecord>({
             maxReadPages: 2,
             pageCount: 4,
-            pageNumberOf: record => record.pageNumber,
+            pageNumberOf: (record) => record.pageNumber,
             rootDir: root,
         });
         await store.append({
@@ -380,7 +364,7 @@ describe('file-backed scan-cleanup result store', () => {
         });
         const chunks: Array<{
             firstPageNumber: number;
-            records: unknown[]
+            records: unknown[];
         }> = [];
         await store.forEachChunk((records, firstPageNumber) => {
             chunks.push({
@@ -391,17 +375,21 @@ describe('file-backed scan-cleanup result store', () => {
         expect(chunks).toEqual([
             {
                 firstPageNumber: 1,
-                records: [{
-                    pageNumber: 1,
-                    value: 'new',
-                }],
+                records: [
+                    {
+                        pageNumber: 1,
+                        value: 'new',
+                    },
+                ],
             },
             {
                 firstPageNumber: 3,
-                records: [{
-                    pageNumber: 3,
-                    value: 'three',
-                }],
+                records: [
+                    {
+                        pageNumber: 3,
+                        value: 'three',
+                    },
+                ],
             },
         ]);
 
@@ -442,34 +430,41 @@ describe('file-backed scan-cleanup result store', () => {
         };
         const pageNumbers = resolveScanCleanupPageScopeLazy(undefined, pageCount);
 
-        await expect(runLosslessScanCleanup(
-            request,
-            paths,
-            request.sourcePdfPath,
-            [],
-            pageNumbers,
-            pageSizeStore,
-            dpiSource,
-            '/tmp',
-            '/tmp/scan-cleanup-staged.pdf',
-            controller.signal,
-            vi.fn(),
-            (() => undefined) as TScanCleanupLog,
-            policy,
-            dependencies,
-            {documentCanvas: {
-                heightPoints: 792,
-                heightPx: 3_300,
-                widthPoints: 612,
-                widthPx: 2_550,
-            }},
-        )).rejects.toThrow('lossless child canceled');
+        await expect(
+            runLosslessScanCleanup(
+                request,
+                paths,
+                request.sourcePdfPath,
+                [],
+                pageNumbers,
+                pageSizeStore,
+                dpiSource,
+                '/tmp',
+                '/tmp/scan-cleanup-staged.pdf',
+                controller.signal,
+                vi.fn(),
+                (() => undefined) as TScanCleanupLog,
+                policy,
+                dependencies,
+                {
+                    documentCanvas: {
+                        heightPoints: 792,
+                        heightPx: 3_300,
+                        widthPoints: 612,
+                        widthPx: 2_550,
+                    },
+                },
+            ),
+        ).rejects.toThrow('lossless child canceled');
         expect(forEachChunk).not.toHaveBeenCalled();
         expect(pageSizeStore.readRange).not.toHaveBeenCalled();
     });
 });
 
-function detectionResult(pageNumber: number, classification: IScanCleanupDetectionResult['classification'] = 'single-uncut-page'): IScanCleanupDetectionResult {
+function detectionResult(
+    pageNumber: number,
+    classification: IScanCleanupDetectionResult['classification'] = 'single-uncut-page',
+): IScanCleanupDetectionResult {
     return {
         pageNumber: requirePageNumber(pageNumber),
         revision: 1,
@@ -524,34 +519,20 @@ describe.each([
 
     it('reads page-ordered bounded windows and chunks over missing pages', async () => {
         const store = await create(5, 2);
-        for (const pageNumber of [
-            5,
-            1,
-            3,
-        ]) await store.append(detectionResult(pageNumber));
+        for (const pageNumber of [5, 1, 3]) {
+            await store.append(detectionResult(pageNumber));
+        }
 
-        expect((await store.readRange(1, 3)).map(result => result.pageNumber)).toEqual([1]);
+        expect((await store.readRange(1, 3)).map((result) => result.pageNumber)).toEqual([1]);
         await expect(store.readRange(1, 4)).rejects.toThrow('bounded window');
         const chunks: Array<[number, number[]]> = [];
         await store.forEachChunk((results, firstPageNumber) => {
-            chunks.push([
-                firstPageNumber,
-                results.map(result => result.pageNumber),
-            ]);
+            chunks.push([firstPageNumber, results.map((result) => result.pageNumber)]);
         });
         expect(chunks).toEqual([
-            [
-                1,
-                [1],
-            ],
-            [
-                3,
-                [3],
-            ],
-            [
-                5,
-                [5],
-            ],
+            [1, [1]],
+            [3, [3]],
+            [5, [5]],
         ]);
         await store.close();
         await expect(store.getPage(1)).rejects.toThrow('closed');
@@ -561,10 +542,12 @@ describe.each([
         const store = await create(4, 2);
         await store.append(detectionResult(3));
         const chunks: number[] = [];
-        await expect(store.forEachChunk(async (_results, firstPageNumber) => {
-            chunks.push(firstPageNumber);
-            await store.close();
-        })).rejects.toThrow('closed');
+        await expect(
+            store.forEachChunk(async (_results, firstPageNumber) => {
+                chunks.push(firstPageNumber);
+                await store.close();
+            }),
+        ).rejects.toThrow('closed');
         expect(chunks).toEqual([1]);
 
         const empty = await create(0);
@@ -572,7 +555,6 @@ describe.each([
         await expect(empty.forEachChunk(() => undefined)).rejects.toThrow('closed');
     });
 });
-
 
 describe('memory detection preview snapshots', () => {
     it('captures detached page evidence and append/replace layouts together', async () => {

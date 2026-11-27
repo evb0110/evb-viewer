@@ -1,28 +1,22 @@
-import type { TestProjectConfiguration } from 'vitest/config';
-import { fileURLToPath } from 'node:url';
+import type {TestProjectConfiguration} from 'vitest/config';
+import {fileURLToPath} from 'node:url';
 import AutoImport from 'unplugin-auto-import/vite';
 import Vue from '@vitejs/plugin-vue';
-import { vitestResolveAlias } from './scripts/vitestResolveAlias.ts';
-import {
-    listNightlyElectronE2ELanes,
-    listRequiredElectronE2ELanes,
-} from './scripts/electron-e2e-lanes.mjs';
+import {vitestResolveAlias} from './scripts/vitestResolveAlias.ts';
+import {listNightlyElectronE2ELanes, listRequiredElectronE2ELanes} from './scripts/electron-e2e-lanes.mjs';
 
-const vitestResolveConfig = { alias: vitestResolveAlias };
+const vitestResolveConfig = {alias: vitestResolveAlias};
 
 // Mirrors `css.preprocessorOptions.scss.additionalData` in `nuxt.config.ts`, with
 // the `~` alias spelled out, so a component's `<style lang="scss">` block compiles
 // under Vitest exactly as it does in the app build. Sass reads the path out of a
 // quoted string, where a Windows separator would be an escape, so keep it posix.
-const scssPreprocessorOptions = { additionalData: `@use "${
-    fileURLToPath(new URL('app/assets/css/transitions', import.meta.url)).replaceAll('\\', '/')
-}" as *;\n` };
+const scssPreprocessorOptions = {
+    additionalData: `@use "${fileURLToPath(new URL('app/assets/css/transitions', import.meta.url)).replaceAll('\\', '/')}" as *;\n`,
+};
 
 const unitTestSetupFiles = ['tests/setup.ts'];
-const appUnitTestSetupFiles = [
-    ...unitTestSetupFiles,
-    'tests/setupApp.ts',
-];
+const appUnitTestSetupFiles = [...unitTestSetupFiles, 'tests/setupApp.ts'];
 export const unitSlowTestThresholdMs = 300;
 export const electronE2ETeardownTimeoutMs = 30_000;
 
@@ -43,10 +37,7 @@ const unitPolicyTestFiles = ['tests/unit/scripts/*Policy.test.ts'];
 
 function createUnitAutoImportPlugin() {
     return AutoImport({
-        imports: [
-            'vue',
-            { 'vue-i18n': ['useI18n'] },
-        ],
+        imports: ['vue', {'vue-i18n': ['useI18n']}],
         dirs: ['app/composables/**'],
     });
 }
@@ -71,26 +62,20 @@ function createUnitTestProject(
     } = {},
 ) {
     return {
-        plugins: [
-            ...(vueComponents ? [Vue()] : []),
-            ...(autoImport ? [createUnitAutoImportPlugin()] : []),
-        ],
+        plugins: [...(vueComponents ? [Vue()] : []), ...(autoImport ? [createUnitAutoImportPlugin()] : [])],
         resolve: vitestResolveConfig,
         ...(processCss ? {css: {preprocessorOptions: {scss: scssPreprocessorOptions}}} : {}),
         test: {
             name,
             include,
-            exclude: [
-                ...electronBundleStaticIntegrityTestFiles,
-                ...exclude,
-            ],
+            exclude: [...electronBundleStaticIntegrityTestFiles, ...exclude],
             globals: false,
             isolate,
             ...(name === vitestProjectNames.browserIntegration
                 ? {
-                    expect: {poll: {timeout: 15_000}},
-                    globalSetup: ['scripts/run-browser-integration.mjs'],
-                }
+                      expect: {poll: {timeout: 15_000}},
+                      globalSetup: ['scripts/run-browser-integration.mjs'],
+                  }
                 : {}),
             ...(processCss ? {css: true} : {}),
             setupFiles: setupFiles ?? unitTestSetupFiles,
@@ -110,13 +95,7 @@ function createBundleIntegrityTestProject() {
     } satisfies TestProjectConfiguration;
 }
 
-function createElectronE2ETestProject({
-    name,
-    directory,
-}: {
-    name: string;
-    directory: string;
-}) {
+function createElectronE2ETestProject({name, directory}: {name: string; directory: string}) {
     return {
         resolve: vitestResolveConfig,
         test: {
@@ -130,13 +109,13 @@ function createElectronE2ETestProject({
             // assertion or user-flow failure.
             retry: process.env.CI
                 ? {
-                    condition: /\[INFRA\]/u,
-                    count: 2,
-                }
+                      condition: /\[INFRA\]/u,
+                      count: 2,
+                  }
                 : 0,
             testTimeout: 90_000,
             hookTimeout: 150_000,
-            sequence: { concurrent: false },
+            sequence: {concurrent: false},
         },
     } satisfies TestProjectConfiguration;
 }
@@ -156,55 +135,29 @@ export const vitestProjects = [
         ],
         // These files change no process state (cwd, HOME, globals), so they
         // share one module graph: about twice as fast as a fresh one per file.
-        { autoImport: true, isolate: false },
+        {autoImport: true, isolate: false},
     ),
-    createUnitTestProject(
-        vitestProjectNames.nativeIntegration,
-        ['tests/integration/native/**/*.test.ts'],
-        {setupFiles: unitTestSetupFiles},
-    ),
-    createUnitTestProject(
-        vitestProjectNames.browserIntegration,
-        browserIntegrationTestFiles,
-        {
-            // Browser-integration specs mount real SFCs in a DOM environment and
-            // hand the component's own rendered markup and its own compiled
-            // styles to Chromium, so this project needs the app unit project's
-            // Vue/auto-import/setup pipeline plus real CSS compilation.
-            autoImport: true,
-            vueComponents: true,
-            processCss: true,
-            setupFiles: appUnitTestSetupFiles,
-        },
-    ),
-    createUnitTestProject(
-        vitestProjectNames.unitApp,
-        ['tests/unit/app/**/*.test.ts'],
-        {
-            autoImport: true,
-            vueComponents: true,
-            setupFiles: appUnitTestSetupFiles,
-        },
-    ),
-    createUnitTestProject(
-        vitestProjectNames.unitElectron,
-        [
-            'tests/unit/e2e/**/*.test.ts',
-            'tests/unit/electron/**/*.test.ts',
-        ],
-    ),
-    createUnitTestProject(
-        vitestProjectNames.unitScripts,
-        ['tests/unit/scripts/**/*.test.ts'],
-        { exclude: [...unitPolicyTestFiles] },
-    ),
-    createUnitTestProject(
-        vitestProjectNames.unitPolicy,
-        unitPolicyTestFiles,
-    ),
+    createUnitTestProject(vitestProjectNames.nativeIntegration, ['tests/integration/native/**/*.test.ts'], {
+        setupFiles: unitTestSetupFiles,
+    }),
+    createUnitTestProject(vitestProjectNames.browserIntegration, browserIntegrationTestFiles, {
+        // Browser-integration specs mount real SFCs in a DOM environment and
+        // hand the component's own rendered markup and its own compiled
+        // styles to Chromium, so this project needs the app unit project's
+        // Vue/auto-import/setup pipeline plus real CSS compilation.
+        autoImport: true,
+        vueComponents: true,
+        processCss: true,
+        setupFiles: appUnitTestSetupFiles,
+    }),
+    createUnitTestProject(vitestProjectNames.unitApp, ['tests/unit/app/**/*.test.ts'], {
+        autoImport: true,
+        vueComponents: true,
+        setupFiles: appUnitTestSetupFiles,
+    }),
+    createUnitTestProject(vitestProjectNames.unitElectron, ['tests/unit/e2e/**/*.test.ts', 'tests/unit/electron/**/*.test.ts']),
+    createUnitTestProject(vitestProjectNames.unitScripts, ['tests/unit/scripts/**/*.test.ts'], {exclude: [...unitPolicyTestFiles]}),
+    createUnitTestProject(vitestProjectNames.unitPolicy, unitPolicyTestFiles),
     createBundleIntegrityTestProject(),
-    ...[
-        ...listRequiredElectronE2ELanes(),
-        ...listNightlyElectronE2ELanes(),
-    ].map(createElectronE2ETestProject),
+    ...[...listRequiredElectronE2ELanes(), ...listNightlyElectronE2ELanes()].map(createElectronE2ETestProject),
 ] satisfies TestProjectConfiguration[];

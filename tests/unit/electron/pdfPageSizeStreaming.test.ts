@@ -1,17 +1,7 @@
-import {
-    mkdtemp,
-    open,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, open, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {afterEach, describe, expect, it} from 'vitest';
 import {
     PDF_PAGE_SIZE_SIDECAR_FORMAT,
     PDF_PAGE_SIZE_SIDECAR_MAX_CHUNK_BYTES,
@@ -50,29 +40,22 @@ function page(pageNumber: number) {
 
 describe('page-size sidecar reader', () => {
     it.each([
-        [
-            'performed',
-            'normal page-ops analysis',
-        ],
-        [
-            'unavailable',
-            'qpdf structural analysis',
-        ],
-        [
-            'skipped',
-            'explicitly skipped analysis',
-        ],
+        ['performed', 'normal page-ops analysis'],
+        ['unavailable', 'qpdf structural analysis'],
+        ['skipped', 'explicitly skipped analysis'],
     ] as const)('decodes the %s dominant-image analysis status (%s)', (status, description) => {
         void description;
-        expect(parsePdfPageSizeSidecarHeader({
-            format: PDF_PAGE_SIZE_SIDECAR_FORMAT,
-            schemaVersion: PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION,
-            pageCount: 1,
-            chunkBytes: 512,
-            declaredPageCount: 1,
-            reachablePageCount: 1,
-            dominantImageAnalysis: status,
-        }).dominantImageAnalysis).toBe(status);
+        expect(
+            parsePdfPageSizeSidecarHeader({
+                format: PDF_PAGE_SIZE_SIDECAR_FORMAT,
+                schemaVersion: PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION,
+                pageCount: 1,
+                chunkBytes: 512,
+                declaredPageCount: 1,
+                reachablePageCount: 1,
+                dominantImageAnalysis: status,
+            }).dominantImageAnalysis,
+        ).toBe(status);
     });
 
     it('maps a pre-status sidecar header to unknown for compatibility', () => {
@@ -88,14 +71,16 @@ describe('page-size sidecar reader', () => {
     });
 
     it('rejects a sidecar whose declared and reachable counts disagree', () => {
-        expect(() => parsePdfPageSizeSidecarHeader({
-            format: PDF_PAGE_SIZE_SIDECAR_FORMAT,
-            schemaVersion: PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION,
-            pageCount: 2,
-            declaredPageCount: 2,
-            reachablePageCount: 1,
-            chunkBytes: 512,
-        })).toThrow('declared 2 pages and reached 1 pages');
+        expect(() =>
+            parsePdfPageSizeSidecarHeader({
+                format: PDF_PAGE_SIZE_SIDECAR_FORMAT,
+                schemaVersion: PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION,
+                pageCount: 2,
+                declaredPageCount: 2,
+                reachablePageCount: 1,
+                chunkBytes: 512,
+            }),
+        ).toThrow('declared 2 pages and reached 1 pages');
     });
 
     it('uses collision-proof native sidecar names for concurrent reads', async () => {
@@ -106,21 +91,28 @@ describe('page-size sidecar reader', () => {
         let commandCalls = 0;
         const runCommand = async (_command: string, args: string[]) => {
             const outputPath = args[args.indexOf('--output') + 1];
-            if (outputPath === undefined) throw new Error('native output path is missing');
+            if (outputPath === undefined) {
+                throw new Error('native output path is missing');
+            }
             outputPaths.push(outputPath);
             commandCalls += 1;
-            if (commandCalls === 2) release.resolve(undefined);
+            if (commandCalls === 2) {
+                release.resolve(undefined);
+            }
             await release.promise;
-            await writeFile(outputPath, `${JSON.stringify({
-                format: PDF_PAGE_SIZE_SIDECAR_FORMAT,
-                schemaVersion: PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION,
-                pageCount: 1,
-                chunkBytes: 512,
-            })}\n${JSON.stringify({
-                chunkIndex: 0,
-                firstPageNumber: 1,
-                pages: [page(1)],
-            })}\n`);
+            await writeFile(
+                outputPath,
+                `${JSON.stringify({
+                    format: PDF_PAGE_SIZE_SIDECAR_FORMAT,
+                    schemaVersion: PDF_PAGE_SIZE_SIDECAR_SCHEMA_VERSION,
+                    pageCount: 1,
+                    chunkBytes: 512,
+                })}\n${JSON.stringify({
+                    chunkIndex: 0,
+                    firstPageNumber: 1,
+                    pages: [page(1)],
+                })}\n`,
+            );
             return {
                 exitCode: 0,
                 stdout: '',
@@ -140,18 +132,12 @@ describe('page-size sidecar reader', () => {
             return chunks;
         };
 
-        const [
-            first,
-            second,
-        ] = await Promise.all([
-            read(),
-            read(),
-        ]);
+        const [first, second] = await Promise.all([read(), read()]);
 
         expect(outputPaths).toHaveLength(2);
         expect(new Set(outputPaths).size).toBe(2);
-        expect(first.flatMap(chunk => chunk.pages).map(value => value.pageNumber)).toEqual([1]);
-        expect(second.flatMap(chunk => chunk.pages).map(value => value.pageNumber)).toEqual([1]);
+        expect(first.flatMap((chunk) => chunk.pages).map((value) => value.pageNumber)).toEqual([1]);
+        expect(second.flatMap((chunk) => chunk.pages).map((value) => value.pageNumber)).toEqual([1]);
     });
 
     it('reads a chunk that crosses the bounded stream window without building a document array', async () => {
@@ -250,12 +236,9 @@ describe('page-size sidecar reader', () => {
         tempDir = await mkdtemp(join(tmpdir(), 'evb-page-size-store-'));
         const store = new PdfPageSizeStore(async function* () {
             const pageCount = 100_003;
-            for (let firstPageNumber = 1, chunkIndex = 0;
-                firstPageNumber <= pageCount;
-                firstPageNumber += 1_024, chunkIndex += 1) {
-                const pages = Array.from(
-                    {length: Math.min(1_024, pageCount - firstPageNumber + 1)},
-                    (_, index) => page(firstPageNumber + index),
+            for (let firstPageNumber = 1, chunkIndex = 0; firstPageNumber <= pageCount; firstPageNumber += 1_024, chunkIndex += 1) {
+                const pages = Array.from({length: Math.min(1_024, pageCount - firstPageNumber + 1)}, (_, index) =>
+                    page(firstPageNumber + index),
                 );
                 yield {
                     pageCount,
@@ -270,16 +253,11 @@ describe('page-size sidecar reader', () => {
 
         expect((await store.getPage(100_003)).pageNumber).toBe(100_003);
         const boundaryRange = await store.readRange(1_023, 1_027);
-        expect(boundaryRange.map(value => value.pageNumber)).toEqual([
-            1_023,
-            1_024,
-            1_025,
-            1_026,
-        ]);
+        expect(boundaryRange.map((value) => value.pageNumber)).toEqual([1_023, 1_024, 1_025, 1_026]);
         await expect(store.readRange(1, 1_026)).rejects.toThrow('1024-page bound');
         let chunkCount = 0;
         let largestChunk = 0;
-        await store.forEachChunk(chunk => {
+        await store.forEachChunk((chunk) => {
             chunkCount += 1;
             largestChunk = Math.max(largestChunk, chunk.pages.length);
         });
@@ -301,9 +279,7 @@ describe('page-size sidecar reader', () => {
             signalSecondChunkReaders = resolve;
         });
         const store = new PdfPageSizeStore(async function* () {
-            for (let firstPageNumber = 1, chunkIndex = 0;
-                firstPageNumber <= pageCount;
-                firstPageNumber += 1_024, chunkIndex += 1) {
+            for (let firstPageNumber = 1, chunkIndex = 0; firstPageNumber <= pageCount; firstPageNumber += 1_024, chunkIndex += 1) {
                 if (chunkIndex === 1) {
                     secondChunkReaders += 1;
                     if (secondChunkReaders === 2) {
@@ -317,9 +293,8 @@ describe('page-size sidecar reader', () => {
                     firstPageNumber,
                     offset: 0,
                     byteLength: 0,
-                    pages: Array.from(
-                        {length: Math.min(1_024, pageCount - firstPageNumber + 1)},
-                        (_, index) => page(firstPageNumber + index),
+                    pages: Array.from({length: Math.min(1_024, pageCount - firstPageNumber + 1)}, (_, index) =>
+                        page(firstPageNumber + index),
                     ),
                 };
             }
@@ -330,23 +305,11 @@ describe('page-size sidecar reader', () => {
         const rangePages = store.readRange(2_047, 2_050);
         await bothReadersReachedSecondChunk;
         releaseSecondChunk();
-        const [
-            first,
-            last,
-            range,
-        ] = await Promise.all([
-            firstPage,
-            lastPage,
-            rangePages,
-        ]);
+        const [first, last, range] = await Promise.all([firstPage, lastPage, rangePages]);
 
         expect(first.pageNumber).toBe(1);
         expect(last.pageNumber).toBe(pageCount);
-        expect(range.map(value => value.pageNumber)).toEqual([
-            2_047,
-            2_048,
-            2_049,
-        ]);
+        expect(range.map((value) => value.pageNumber)).toEqual([2_047, 2_048, 2_049]);
         await store.close();
     });
 
@@ -360,11 +323,7 @@ describe('page-size sidecar reader', () => {
                 firstPageNumber: 1,
                 offset: 0,
                 byteLength: 0,
-                pages: [
-                    page(1),
-                    page(2),
-                    page(3),
-                ],
+                pages: [page(1), page(2), page(3)],
             };
         });
 
@@ -399,43 +358,32 @@ describe('page-size sidecar reader', () => {
                 rm,
                 open: async (path, flags) => {
                     const handle = await open(path, flags);
-                    if (!path.endsWith('index.bin')) return handle;
-                    return new Proxy(handle, {get(target, property) {
-                        if (property === 'read') {
-                            return async (
-                                buffer: Buffer,
-                                offset: number,
-                                length: number,
-                                position: number,
-                            ) => {
-                                if (!cacheIndexReads) {
-                                    return target.read(buffer, offset, length, position);
-                                }
-                                if (cachedIndex === null) {
-                                    cachedIndex = Buffer.alloc(pageCount * 8);
-                                    const {bytesRead} = await target.read(
-                                        cachedIndex,
-                                        0,
-                                        cachedIndex.byteLength,
-                                        0,
-                                    );
-                                    cachedIndex = cachedIndex.subarray(0, bytesRead);
-                                }
-                                const bytesRead = cachedIndex.copy(
-                                    buffer,
-                                    offset,
-                                    position,
-                                    position + length,
-                                );
-                                return {
-                                    bytesRead,
-                                    buffer,
+                    if (!path.endsWith('index.bin')) {
+                        return handle;
+                    }
+                    return new Proxy(handle, {
+                        get(target, property) {
+                            if (property === 'read') {
+                                return async (buffer: Buffer, offset: number, length: number, position: number) => {
+                                    if (!cacheIndexReads) {
+                                        return target.read(buffer, offset, length, position);
+                                    }
+                                    if (cachedIndex === null) {
+                                        cachedIndex = Buffer.alloc(pageCount * 8);
+                                        const {bytesRead} = await target.read(cachedIndex, 0, cachedIndex.byteLength, 0);
+                                        cachedIndex = cachedIndex.subarray(0, bytesRead);
+                                    }
+                                    const bytesRead = cachedIndex.copy(buffer, offset, position, position + length);
+                                    return {
+                                        bytesRead,
+                                        buffer,
+                                    };
                                 };
-                            };
-                        }
-                        const value = Reflect.get(target, property, target);
-                        return typeof value === 'function' ? value.bind(target) : value;
-                    }});
+                            }
+                            const value = Reflect.get(target, property, target);
+                            return typeof value === 'function' ? value.bind(target) : value;
+                        },
+                    });
                 },
             },
         });
@@ -452,10 +400,12 @@ describe('page-size sidecar reader', () => {
             pageNumber: pageCount,
             classification: 'last',
         });
-        expect(await store.readRange(pageCount - 2, pageCount + 1)).toEqual([{
-            pageNumber: pageCount,
-            classification: 'last',
-        }]);
+        expect(await store.readRange(pageCount - 2, pageCount + 1)).toEqual([
+            {
+                pageNumber: pageCount,
+                classification: 'last',
+            },
+        ]);
         let largestChunk = 0;
         let visitedChunks = 0;
         cacheIndexReads = true;

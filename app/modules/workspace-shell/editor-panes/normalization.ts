@@ -1,23 +1,9 @@
-import type { ITab } from '@app/types/tabs';
-import {
-    uniq,
-    uniqBy,
-} from 'es-toolkit/array';
-import type {
-    IEditorPaneState,
-    TPaneId,
-    TEditorLayoutNode,
-} from '@contracts/editorPanes';
-import { parsePaneId } from '@contracts/editorPanes';
-import {
-    parseTabId,
-    type TTabId,
-} from '@contracts/windowTabs';
-import {
-    appendPaneToLayout,
-    collectLayoutPaneIds,
-    pruneLayoutToExistingPanes,
-} from '@app/modules/workspace-shell/editor-panes/layoutTree';
+import type {ITab} from '@app/types/tabs';
+import {uniq, uniqBy} from 'es-toolkit/array';
+import type {IEditorPaneState, TPaneId, TEditorLayoutNode} from '@contracts/editorPanes';
+import {parsePaneId} from '@contracts/editorPanes';
+import {parseTabId, type TTabId} from '@contracts/windowTabs';
+import {appendPaneToLayout, collectLayoutPaneIds, pruneLayoutToExistingPanes} from '@app/modules/workspace-shell/editor-panes/layoutTree';
 
 interface IEditorPanesStateSnapshot {
     panes: IEditorPaneState[];
@@ -27,10 +13,12 @@ interface IEditorPanesStateSnapshot {
     paneMru: string[];
 }
 
-interface INormalizeEditorPanesStateParams extends IEditorPanesStateSnapshot { createPane: () => IEditorPaneState; }
+interface INormalizeEditorPanesStateParams extends IEditorPanesStateSnapshot {
+    createPane: () => IEditorPaneState;
+}
 
 function readPaneId(pane: IEditorPaneState): TPaneId | null {
-    const rawPane = pane as IEditorPaneState & { id?: unknown };
+    const rawPane = pane as IEditorPaneState & {id?: unknown};
     return parsePaneId(rawPane.paneId) ?? parsePaneId(rawPane.id);
 }
 
@@ -49,28 +37,24 @@ export function arraysEqual<T>(left: T[], right: T[]) {
     return true;
 }
 
-function buildNormalizedPaneMru(
-    currentActivePaneId: string | null,
-    currentMru: string[],
-    panesOrder: string[],
-    validPaneIds: Set<string>,
-) {
-    const preferredPaneIds = [
-        currentActivePaneId,
-        ...currentMru,
-        ...panesOrder,
-    ];
-    return uniq(preferredPaneIds.flatMap((paneId): TPaneId[] => {
-        const parsedPaneId = parsePaneId(paneId);
-        if (parsedPaneId === null) {
-            return [];
-        }
-        return validPaneIds.has(parsedPaneId) ? [parsedPaneId] : [];
-    }));
+function buildNormalizedPaneMru(currentActivePaneId: string | null, currentMru: string[], panesOrder: string[], validPaneIds: Set<string>) {
+    const preferredPaneIds = [currentActivePaneId, ...currentMru, ...panesOrder];
+    return uniq(
+        preferredPaneIds.flatMap((paneId): TPaneId[] => {
+            const parsedPaneId = parsePaneId(paneId);
+            if (parsedPaneId === null) {
+                return [];
+            }
+            return validPaneIds.has(parsedPaneId) ? [parsedPaneId] : [];
+        }),
+    );
 }
 
 function collectUniqueTabs(tabs: ITab[]) {
-    const uniqueTabs = uniqBy(tabs.filter(tab => tab.id), tab => tab.id);
+    const uniqueTabs = uniqBy(
+        tabs.filter((tab) => tab.id),
+        (tab) => tab.id,
+    );
     const validTabIds = new Set<TTabId>();
     for (const tab of uniqueTabs) {
         const tabId = parseTabId(tab.id);
@@ -86,10 +70,7 @@ function collectUniqueTabs(tabs: ITab[]) {
     };
 }
 
-function normalizePaneTabIds(
-    panes: IEditorPaneState[],
-    validTabIds: Set<TTabId>,
-) {
+function normalizePaneTabIds(panes: IEditorPaneState[], validTabIds: Set<TTabId>) {
     const normalizedPanes: IEditorPaneState[] = [];
     const validPaneIds = new Set<string>();
     const assignedTabIds = new Set<TTabId>();
@@ -115,9 +96,7 @@ function normalizePaneTabIds(
             nextTabIds.push(parsedTabId);
         }
 
-        const activeTabId = pane.activeTabId && nextTabIds.includes(pane.activeTabId)
-            ? pane.activeTabId
-            : (nextTabIds[0] ?? null);
+        const activeTabId = pane.activeTabId && nextTabIds.includes(pane.activeTabId) ? pane.activeTabId : (nextTabIds[0] ?? null);
         hasInvalidPanes ||= pane.activeTabId !== activeTabId;
         normalizedPanes.push({
             paneId,
@@ -182,19 +161,12 @@ function layoutMatchesPanes(layout: TEditorLayoutNode | null, validPaneIds: Set<
     return true;
 }
 
-function normalizeActivePaneAndMru(
-    activePaneId: string | null,
-    paneMru: string[],
-    panes: IEditorPaneState[],
-    validPaneIds: Set<string>,
-) {
-    const nextActivePaneId = activePaneId && validPaneIds.has(activePaneId)
-        ? activePaneId
-        : (panes[0]?.paneId ?? null);
+function normalizeActivePaneAndMru(activePaneId: string | null, paneMru: string[], panes: IEditorPaneState[], validPaneIds: Set<string>) {
+    const nextActivePaneId = activePaneId && validPaneIds.has(activePaneId) ? activePaneId : (panes[0]?.paneId ?? null);
     const nextMru = buildNormalizedPaneMru(
         nextActivePaneId,
         paneMru,
-        panes.map(pane => pane.paneId),
+        panes.map((pane) => pane.paneId),
         validPaneIds,
     );
 
@@ -204,12 +176,8 @@ function normalizeActivePaneAndMru(
     };
 }
 
-function clonePanesWithUnassignedTabs(
-    panes: IEditorPaneState[],
-    tabs: ITab[],
-    assignedTabIds: Set<TTabId>,
-) {
-    const nextPanes = panes.map(pane => ({
+function clonePanesWithUnassignedTabs(panes: IEditorPaneState[], tabs: ITab[], assignedTabIds: Set<TTabId>) {
+    const nextPanes = panes.map((pane) => ({
         ...pane,
         tabIds: [...pane.tabIds],
     }));
@@ -228,9 +196,7 @@ function clonePanesWithUnassignedTabs(
     }
 
     for (const pane of nextPanes) {
-        pane.activeTabId = pane.activeTabId && pane.tabIds.includes(pane.activeTabId)
-            ? pane.activeTabId
-            : (pane.tabIds[0] ?? null);
+        pane.activeTabId = pane.activeTabId && pane.tabIds.includes(pane.activeTabId) ? pane.activeTabId : (pane.tabIds[0] ?? null);
     }
 
     return nextPanes;
@@ -247,11 +213,7 @@ export function isEditorPanesStateNormalized(state: IEditorPanesStateSnapshot) {
     }
 
     const panes = normalizePaneTabIds(state.panes, tabs.tabIds);
-    if (
-        panes.hasInvalidPanes
-        || panes.assignedTabIds.size !== tabs.tabIds.size
-        || panes.panes.length !== state.panes.length
-    ) {
+    if (panes.hasInvalidPanes || panes.assignedTabIds.size !== tabs.tabIds.size || panes.panes.length !== state.panes.length) {
         return false;
     }
 
@@ -263,12 +225,7 @@ export function isEditorPanesStateNormalized(state: IEditorPanesStateSnapshot) {
         return false;
     }
 
-    const nextMru = normalizeActivePaneAndMru(
-        state.activePaneId,
-        state.paneMru,
-        panes.panes,
-        panes.paneIds,
-    ).paneMru;
+    const nextMru = normalizeActivePaneAndMru(state.activePaneId, state.paneMru, panes.panes, panes.paneIds).paneMru;
     return arraysEqual(state.paneMru, nextMru);
 }
 
@@ -289,19 +246,10 @@ export function normalizeEditorPanesState({
         normalizedPanes.paneIds.add(fallbackPane.paneId);
     }
 
-    const nextPanes = clonePanesWithUnassignedTabs(
-        normalizedPanes.panes,
-        uniqueTabs.tabs,
-        normalizedPanes.assignedTabIds,
-    );
-    const freshPaneIds = new Set(nextPanes.map(pane => pane.paneId));
+    const nextPanes = clonePanesWithUnassignedTabs(normalizedPanes.panes, uniqueTabs.tabs, normalizedPanes.assignedTabIds);
+    const freshPaneIds = new Set(nextPanes.map((pane) => pane.paneId));
     const nextLayout = normalizeLayoutForPanes(layout, nextPanes, freshPaneIds);
-    const activePaneMru = normalizeActivePaneAndMru(
-        activePaneId,
-        paneMru,
-        nextPanes,
-        freshPaneIds,
-    );
+    const activePaneMru = normalizeActivePaneAndMru(activePaneId, paneMru, nextPanes, freshPaneIds);
 
     return {
         panes: nextPanes,

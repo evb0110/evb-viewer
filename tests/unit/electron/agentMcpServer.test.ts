@@ -1,38 +1,29 @@
 import {requireDocumentInstanceId} from '@contracts/documentInstanceId';
-import { ref } from 'vue';
-import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import { createDocumentAgentBookmarks } from '@app/modules/workspace-shell/agent/createDocumentAgentBookmarks';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createServer } from 'node:net';
+import {ref} from 'vue';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {createDocumentAgentBookmarks} from '@app/modules/workspace-shell/agent/createDocumentAgentBookmarks';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createServer} from 'node:net';
 import {request as createHttpRequest} from 'node:http';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
-import { rm } from 'node:fs/promises';
-import type {
-    IAgentWorkspaceSnapshot,
-    TAgentCommand,
-} from '@contracts/agent';
+import {rm} from 'node:fs/promises';
+import type {IAgentWorkspaceSnapshot, TAgentCommand} from '@contracts/agent';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePaneId} from '@contracts/editorPanes';
 import {requireIsoTimestamp} from '@contracts/timestamps';
 import {requireTabId} from '@contracts/windowTabs';
 import {
-    clearAssistantMcpSessionScope, setActiveAssistantMcpSessionScope, setAssistantTurnSuccessorListener,
+    clearAssistantMcpSessionScope,
+    setActiveAssistantMcpSessionScope,
+    setAssistantTurnSuccessorListener,
 } from '@electron/features/agent/assistantMcpSessionScope';
-import {
-    requestAgentCommand, requestAgentWorkspaceSnapshot,
-} from '@electron/features/agent/workspaceBridge';
-import { getWindowByIdFromRegistry } from '@electron/window/registry';
+import {requestAgentCommand, requestAgentWorkspaceSnapshot} from '@electron/features/agent/workspaceBridge';
+import {getWindowByIdFromRegistry} from '@electron/window/registry';
 import {requireSessionId} from '@contracts/shared';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import { ASSISTANT_MCP_TOKEN_ENV } from '@electron/features/agent/codexAssistantConfig';
+import {ASSISTANT_MCP_TOKEN_ENV} from '@electron/features/agent/codexAssistantConfig';
 import {
     createLocalMcpServerIdentity,
     getLocalMcpCodexRegistrationTransport,
@@ -58,11 +49,11 @@ vi.mock('electron', () => ({
     app: {
         getName: () => 'EVB Viewer Dev',
         getAppPath: () => '/tmp/app-root',
-        getPath: (name: string) => name === 'userData' ? userDataPath : join(tmpdir(), name),
+        getPath: (name: string) => (name === 'userData' ? userDataPath : join(tmpdir(), name)),
         getVersion: () => 'test',
         isPackaged: false,
     },
-    BrowserWindow: { getFocusedWindow: () => null },
+    BrowserWindow: {getFocusedWindow: () => null},
 }));
 
 vi.mock('@electron/window/registry', () => ({
@@ -76,28 +67,33 @@ vi.mock('@electron/features/agent/workspaceBridge', () => ({
     requestAgentWorkspaceSnapshot: vi.fn(),
 }));
 
-const mocks = vi.hoisted(() => ({logger: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-}}));
+const mocks = vi.hoisted(() => ({
+    logger: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+    },
+}));
 
-vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => mocks.logger }));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 const lazyCopy = vi.hoisted(() => ({entered: () => {}}));
 
-vi.mock('@electron/file-access/documentStore', async importOriginal => ({
+vi.mock('@electron/file-access/documentStore', async (importOriginal) => ({
     ...(await importOriginal<Record<string, unknown>>()),
     findWorkingCopyPathByOriginalPath: () => '/tmp/lazy.pdf',
     getWorkingCopyBackingEntry: () => ({}),
     // Materialization completes only when the caller aborts, so a lost signal stalls the test.
-    ensureWorkingCopyMaterialized: (_path: string, {signal}: {signal?: AbortSignal}) => new Promise((_resolve, reject) => {
-        lazyCopy.entered();
-        signal?.addEventListener('abort', () => reject(signal.reason), {once: true});
-    }),
+    ensureWorkingCopyMaterialized: (_path: string, {signal}: {signal?: AbortSignal}) =>
+        new Promise((_resolve, reject) => {
+            lazyCopy.entered();
+            signal?.addEventListener('abort', () => reject(signal.reason), {once: true});
+        }),
 }));
 
-interface IListToolsResult { tools?: IListToolsResultTool[]; }
+interface IListToolsResult {
+    tools?: IListToolsResultTool[];
+}
 interface IListToolsResultTool {
     annotations?: Record<string, unknown>;
     name: string;
@@ -120,14 +116,13 @@ const workspaceSnapshot: IAgentWorkspaceSnapshot = {
         recentFileCount: 1,
         recentFilesResolved: true,
     },
-    panes: [{
-        paneId: requirePaneId('pane-1'),
-        tabIds: [
-            requireTabId('tab-1'),
-            requireTabId('tab-empty'),
-        ],
-        activeTabId: requireTabId('tab-1'),
-    }],
+    panes: [
+        {
+            paneId: requirePaneId('pane-1'),
+            tabIds: [requireTabId('tab-1'), requireTabId('tab-empty')],
+            activeTabId: requireTabId('tab-1'),
+        },
+    ],
     tabs: [
         {
             tabId: requireTabId('tab-1'),
@@ -150,12 +145,14 @@ const workspaceSnapshot: IAgentWorkspaceSnapshot = {
                     status: 'unknown',
                     pageCount: 25,
                 },
-                recommendations: [{
-                    id: 'ocr_all_pages',
-                    title: 'OCR all pages',
-                    reason: 'If any pages lack a searchable text layer, OCRing all pages gives the agent consistent text access.',
-                    toolName: 'evb.ocr_all_pages',
-                }],
+                recommendations: [
+                    {
+                        id: 'ocr_all_pages',
+                        title: 'OCR all pages',
+                        reason: 'If any pages lack a searchable text layer, OCRing all pages gives the agent consistent text access.',
+                        toolName: 'evb.ocr_all_pages',
+                    },
+                ],
             },
         },
         {
@@ -179,12 +176,14 @@ const workspaceSnapshot: IAgentWorkspaceSnapshot = {
             },
         },
     ],
-    recentFiles: [{
-        fileName: 'Recent Grammar.pdf',
-        originalPath: requireDocumentRef('/tmp/Recent Grammar.pdf'),
-        kind: 'pdf',
-        openedAt: requireIsoTimestamp('2026-05-31T00:00:00.000Z'),
-    }],
+    recentFiles: [
+        {
+            fileName: 'Recent Grammar.pdf',
+            originalPath: requireDocumentRef('/tmp/Recent Grammar.pdf'),
+            kind: 'pdf',
+            openedAt: requireIsoTimestamp('2026-05-31T00:00:00.000Z'),
+        },
+    ],
     layout: {
         type: 'leaf',
         paneId: requirePaneId('pane-1'),
@@ -198,7 +197,7 @@ async function findFreePort() {
         server.listen(0, '127.0.0.1', () => resolve());
     });
     const address = server.address();
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    await new Promise<void>((resolve) => server.close(() => resolve()));
     return typeof address === 'object' && address !== null ? address.port : 38672;
 }
 
@@ -215,10 +214,7 @@ function createOptions() {
             port: 38672,
         },
         getWorkspaceSnapshot: vi.fn(async (_windowId?: number) => workspaceSnapshot),
-        runCommand: vi.fn(async (
-            _command: TAgentCommand,
-            _windowId?: number,
-        ): Promise<Record<string, unknown>> => ({ ok: true })),
+        runCommand: vi.fn(async (_command: TAgentCommand, _windowId?: number): Promise<Record<string, unknown>> => ({ok: true})),
         inspectDocumentText: vi.fn(async ({tab}: IAgentDocumentTextOperationInput<Record<never, never>>) => ({
             tabId: tab.tabId,
             textStatus: {
@@ -231,37 +227,33 @@ function createOptions() {
             },
             recommendations: [],
         })),
-        searchDocument: vi.fn(async ({
-            tab,
-            options,
-        }: IAgentDocumentTextOperationInput<IAgentDocumentSearchOptions>) => ({
+        searchDocument: vi.fn(async ({tab, options}: IAgentDocumentTextOperationInput<IAgentDocumentSearchOptions>) => ({
             tabId: tab.tabId,
             query: options.query,
-            results: [{
-                pageNumber: 12,
-                pageMatchIndex: 0,
-                matchIndex: 0,
-                startOffset: 10,
-                endOffset: 16,
-                excerpt: {
-                    prefix: false,
-                    suffix: false,
-                    before: 'before ',
-                    match: options.query,
-                    after: ' after',
+            results: [
+                {
+                    pageNumber: 12,
+                    pageMatchIndex: 0,
+                    matchIndex: 0,
+                    startOffset: 10,
+                    endOffset: 16,
+                    excerpt: {
+                        prefix: false,
+                        suffix: false,
+                        before: 'before ',
+                        match: options.query,
+                        after: ' after',
+                    },
                 },
-            }],
+            ],
             returnedResults: 1,
             totalAvailableResults: 1,
             truncated: false,
         })),
-        readDocumentPages: vi.fn(async ({
-            tab,
-            options,
-        }: IAgentDocumentTextOperationInput<IAgentDocumentPageReadOptions>) => ({
+        readDocumentPages: vi.fn(async ({tab, options}: IAgentDocumentTextOperationInput<IAgentDocumentPageReadOptions>) => ({
             tabId: tab.tabId,
             pageCount: 25,
-            pages: options.pages.map(page => ({
+            pages: options.pages.map((page) => ({
                 page,
                 hasText: true,
                 textLength: 12,
@@ -274,43 +266,41 @@ function createOptions() {
 
 type TMcpOptions = Parameters<typeof processMcpRequest>[1];
 
-function request(
-    options: TMcpOptions,
-    method: string,
-    params?: Record<string, unknown>,
-    id: string | number = method,
-) {
-    return processMcpRequest({
-        jsonrpc: '2.0',
-        id,
-        method,
-        ...(params === undefined ? {} : {params}),
-    }, options);
+function request(options: TMcpOptions, method: string, params?: Record<string, unknown>, id: string | number = method) {
+    return processMcpRequest(
+        {
+            jsonrpc: '2.0',
+            id,
+            method,
+            ...(params === undefined ? {} : {params}),
+        },
+        options,
+    );
 }
 
-function callTool(
-    options: TMcpOptions,
-    name: string,
-    args: Record<string, unknown> = {},
-    id: string | number = name,
-) {
-    return request(options, 'tools/call', {
-        name,
-        arguments: args,
-    }, id);
+function callTool(options: TMcpOptions, name: string, args: Record<string, unknown> = {}, id: string | number = name) {
+    return request(
+        options,
+        'tools/call',
+        {
+            name,
+            arguments: args,
+        },
+        id,
+    );
 }
 
-function runAction(
-    options: TMcpOptions,
-    id: string,
-    input?: Record<string, unknown>,
-    extras: Record<string, unknown> = {},
-) {
-    return callTool(options, 'evb_run_action', {
+function runAction(options: TMcpOptions, id: string, input?: Record<string, unknown>, extras: Record<string, unknown> = {}) {
+    return callTool(
+        options,
+        'evb_run_action',
+        {
+            id,
+            ...(input === undefined ? {} : {input}),
+            ...extras,
+        },
         id,
-        ...(input === undefined ? {} : {input}),
-        ...extras,
-    }, id);
+    );
 }
 
 function expectStructuredCloneable(value: unknown) {
@@ -346,29 +336,28 @@ describe('processMcpRequest', () => {
                 y: 0.2,
             },
         },
-    ])('accepts alias-only $id inputs while refusing missing selectors and unknown fields', async ({
-        id, alias, primary, missing,
-    }) => {
+    ])('accepts alias-only $id inputs while refusing missing selectors and unknown fields', async ({id, alias, primary, missing}) => {
         const options = createOptions();
-        options.runCommand.mockImplementation(async command => {
-            if (command.name !== 'run_action') throw new Error('Expected an action command');
+        options.runCommand.mockImplementation(async (command) => {
+            if (command.name !== 'run_action') {
+                throw new Error('Expected an action command');
+            }
             return {
                 ok: true,
                 dryRun: command.arguments.dryRun,
                 input: command.arguments.input,
             };
         });
-        for (const input of [
-            alias,
-            primary,
-        ]) {
+        for (const input of [alias, primary]) {
             const response = await runAction(options, id, input, {dryRun: true});
             expect(response?.error).toBeUndefined();
-            expect(response?.result).toMatchObject({structuredContent: {
-                ok: true,
-                dryRun: true,
-                input,
-            }});
+            expect(response?.result).toMatchObject({
+                structuredContent: {
+                    ok: true,
+                    dryRun: true,
+                    input,
+                },
+            });
             expect(response?.result).not.toHaveProperty('isError', true);
         }
         for (const input of [
@@ -386,66 +375,62 @@ describe('processMcpRequest', () => {
         }
     });
 
-    it.each([
-        'direct',
-        'wrapped',
-    ])('refuses insertion placement fields in %s bookmark updates while preserving additions', async (form) => {
+    it.each(['direct', 'wrapped'])('refuses insertion placement fields in %s bookmark updates while preserving additions', async (form) => {
         const options = createOptions();
-        for (const placement of [
-            {parentPath: [0]},
-            {index: 0},
-        ]) {
+        for (const placement of [{parentPath: [0]}, {index: 0}]) {
             const entry = {
                 title: 'Renamed',
                 ...placement,
             };
-            const input = form === 'direct' ? {
-                path: [1],
-                ...entry,
-            } : {
-                path: [1],
-                bookmark: entry,
-            };
+            const input =
+                form === 'direct'
+                    ? {
+                          path: [1],
+                          ...entry,
+                      }
+                    : {
+                          path: [1],
+                          bookmark: entry,
+                      };
             const response = await runAction(options, 'bookmarks.update', input);
             expect(response?.result).toMatchObject({
                 isError: true,
                 structuredContent: {message: expect.stringContaining('did not match its advertised schema')},
             });
         }
-        const update = form === 'direct' ? {
-            path: [1],
-            title: 'Renamed',
-        } : {
-            path: [1],
-            bookmark: {title: 'Renamed'},
-        };
-        for (const [
-            id,
-            input,
-        ] of [
-                [
-                    'bookmarks.update',
-                    update,
-                ],
-                [
-                    'bookmarks.add',
-                    {
-                        title: 'Inserted',
-                        parentPath: [0],
-                        index: 0,
-                    },
-                ],
-                [
-                    'bookmarks.add_batch',
-                    {
-                        parentPath: [0],
-                        bookmarks: [{
+        const update =
+            form === 'direct'
+                ? {
+                      path: [1],
+                      title: 'Renamed',
+                  }
+                : {
+                      path: [1],
+                      bookmark: {title: 'Renamed'},
+                  };
+        for (const [id, input] of [
+            ['bookmarks.update', update],
+            [
+                'bookmarks.add',
+                {
+                    title: 'Inserted',
+                    parentPath: [0],
+                    index: 0,
+                },
+            ],
+            [
+                'bookmarks.add_batch',
+                {
+                    parentPath: [0],
+                    bookmarks: [
+                        {
                             title: 'Inserted',
                             index: 0,
-                        }],
-                    },
-                ],
-            ] as const) {
+                        },
+                    ],
+                },
+            ],
+        ] as const) {
             const response = await runAction(options, id, input);
             expect(response?.result).toMatchObject({structuredContent: {ok: true}});
             expect(response?.result).not.toHaveProperty('isError', true);
@@ -539,10 +524,12 @@ describe('processMcpRequest', () => {
             },
         });
         request.on('error', () => undefined);
-        request.on('socket', socket => socket.once('connect', () => {
-            request.write('{"jsonrpc":');
-            connected.resolve(undefined);
-        }));
+        request.on('socket', (socket) =>
+            socket.once('connect', () => {
+                request.write('{"jsonrpc":');
+                connected.resolve(undefined);
+            }),
+        );
         await connected.promise;
 
         const startedAt = Date.now();
@@ -553,9 +540,7 @@ describe('processMcpRequest', () => {
     });
 
     it('keeps an unbound partial HTTP request unbound when a turn starts', async () => {
-        const {
-            descriptor, token,
-        } = await startEmbeddedMcpServer();
+        const {descriptor, token} = await startEmbeddedMcpServer();
         const body = JSON.stringify({
             jsonrpc: '2.0',
             id: 1,
@@ -567,20 +552,29 @@ describe('processMcpRequest', () => {
         });
         const response = Promise.withResolvers<string>();
         const started = Promise.withResolvers<undefined>();
-        const req = createHttpRequest(descriptor.url, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Length': Buffer.byteLength(body),
-                Expect: '100-continue',
+        const req = createHttpRequest(
+            descriptor.url,
+            {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'Content-Length': Buffer.byteLength(body),
+                    Expect: '100-continue',
+                },
             },
-        } , res => {
-            let data = '';
-            res.on('data', chunk => { data += String(chunk); });
-            res.on('end', () => response.resolve(data));
-        });
+            (res) => {
+                let data = '';
+                res.on('data', (chunk) => {
+                    data += String(chunk);
+                });
+                res.on('end', () => response.resolve(data));
+            },
+        );
         req.on('error', response.reject);
-        req.on('continue', () => { req.write(body.slice(0, 1)); started.resolve(undefined); });
+        req.on('continue', () => {
+            req.write(body.slice(0, 1));
+            started.resolve(undefined);
+        });
         req.flushHeaders();
         await started.promise;
         setActiveAssistantMcpSessionScope({
@@ -600,10 +594,7 @@ describe('processMcpRequest', () => {
         expect(requestAgentWorkspaceSnapshot).not.toHaveBeenCalled();
     });
 
-    it.each([
-        true,
-        false,
-    ])('only reads a saved revision in the same HTTP batch when its turn accepts it: %s', async accepted => {
+    it.each([true, false])('only reads a saved revision in the same HTTP batch when its turn accepts it: %s', async (accepted) => {
         const target = {
             kind: 'revision' as const,
             tabId: requireTabId('tab-1'),
@@ -631,7 +622,9 @@ describe('processMcpRequest', () => {
         };
         setActiveAssistantMcpSessionScope(binding);
         setAssistantTurnSuccessorListener((current, successor) => {
-            if (!accepted || current.turnGeneration !== 1) return false;
+            if (!accepted || current.turnGeneration !== 1) {
+                return false;
+            }
             setActiveAssistantMcpSessionScope({
                 ...binding,
                 commandTarget: successor.commandTarget,
@@ -642,10 +635,14 @@ describe('processMcpRequest', () => {
         let saved = false;
         vi.mocked(requestAgentWorkspaceSnapshot).mockImplementation(async () => ({
             ...workspaceSnapshot,
-            tabs: workspaceSnapshot.tabs.map(tab => tab.tabId === target.tabId ? {
-                ...tab,
-                commandTarget: saved ? next : target,
-            } : tab),
+            tabs: workspaceSnapshot.tabs.map((tab) =>
+                tab.tabId === target.tabId
+                    ? {
+                          ...tab,
+                          commandTarget: saved ? next : target,
+                      }
+                    : tab,
+            ),
         }));
         vi.mocked(requestAgentCommand).mockImplementation(async (_window, _command, _timeout, _scope, _signal, onSuccessor) => {
             saved = true;
@@ -655,9 +652,7 @@ describe('processMcpRequest', () => {
             });
             return {ok: true};
         });
-        const {
-            descriptor, token,
-        } = await startEmbeddedMcpServer();
+        const {descriptor, token} = await startEmbeddedMcpServer();
         const response = await fetch(descriptor.url, {
             method: 'POST',
             headers: {
@@ -712,17 +707,18 @@ describe('processMcpRequest', () => {
     it('builds authenticated external MCP setup snippets through the stdio proxy transport', async () => {
         vi.stubEnv(ASSISTANT_MCP_TOKEN_ENV, '');
 
-        const {
-            descriptor,
-            launchConfig,
-            token,
-        } = await getLocalMcpCodexRegistrationTransport();
+        const {descriptor, launchConfig, token} = await getLocalMcpCodexRegistrationTransport();
         const snippets = await getLocalMcpSetupSnippets();
-        const cursorConfig = JSON.parse(snippets.cursor) as {mcpServers: Record<string, {
-            command: string;
-            args: string[];
-            env: Record<string, string>;
-        }>;};
+        const cursorConfig = JSON.parse(snippets.cursor) as {
+            mcpServers: Record<
+                string,
+                {
+                    command: string;
+                    args: string[];
+                    env: Record<string, string>;
+                }
+            >;
+        };
 
         expect(launchConfig.command).toBe(process.execPath);
         expect(launchConfig.args).toEqual([join('/tmp/app-root', 'scripts', 'evb-mcp-proxy.mjs')]);
@@ -779,15 +775,17 @@ describe('processMcpRequest', () => {
                 title: 'EVB Viewer Dev',
                 version: '1.2.3',
             },
-            _meta: {evb: {
-                appName: 'EVB Viewer Dev',
-                isPackaged: false,
-                userDataPath,
-                mcp: {
-                    host: '127.0.0.1',
-                    port: 38672,
+            _meta: {
+                evb: {
+                    appName: 'EVB Viewer Dev',
+                    isPackaged: false,
+                    userDataPath,
+                    mcp: {
+                        host: '127.0.0.1',
+                        port: 38672,
+                    },
                 },
-            }},
+            },
         });
         expect(JSON.stringify(initialized?.result)).toContain('evb_run_action');
         expect(JSON.stringify(initialized?.result)).toContain('evb_read_action');
@@ -807,14 +805,14 @@ describe('processMcpRequest', () => {
         expect(initializedJson).toContain('ask one focused clarification and stop');
         expect(initializedJson).not.toContain('document.capture_page_image, page_labels.preview');
 
-        const runActionTool = (tools?.result as IListToolsResult).tools?.find(tool => tool.name === 'evb_run_action');
+        const runActionTool = (tools?.result as IListToolsResult).tools?.find((tool) => tool.name === 'evb_run_action');
         expect(runActionTool?.annotations).toMatchObject({
             readOnlyHint: false,
             destructiveHint: false,
             idempotentHint: false,
             openWorldHint: false,
         });
-        const readActionTool = (tools?.result as IListToolsResult).tools?.find(tool => tool.name === 'evb_read_action');
+        const readActionTool = (tools?.result as IListToolsResult).tools?.find((tool) => tool.name === 'evb_read_action');
         expect(readActionTool?.annotations).toMatchObject({
             readOnlyHint: true,
             destructiveHint: false,
@@ -833,7 +831,7 @@ describe('processMcpRequest', () => {
         const tools = await request(options, 'tools/list', undefined, 2);
 
         expect(JSON.stringify(initialized?.result)).toContain('policy.external is confirm are blocked');
-        const runActionTool = (tools?.result as IListToolsResult).tools?.find(tool => tool.name === 'evb_run_action');
+        const runActionTool = (tools?.result as IListToolsResult).tools?.find((tool) => tool.name === 'evb_run_action');
         expect(runActionTool?.annotations).toMatchObject({
             readOnlyHint: false,
             destructiveHint: true,
@@ -848,27 +846,33 @@ describe('processMcpRequest', () => {
         const response = await callTool(options, 'evb_viewer_open_documents');
 
         expect(options.getWorkspaceSnapshot).toHaveBeenCalledOnce();
-        expect(response?.result).toMatchObject({structuredContent: {
-            workspaceMode: 'open-document',
-            documentCount: 1,
-            activeTabId: 'tab-1',
-            activeDocument: {
-                tabId: 'tab-1',
-                fileName: 'Grammar.pdf',
-                originalPath: '/tmp/Grammar.pdf',
-                currentPage: 5,
-                totalPages: 25,
+        expect(response?.result).toMatchObject({
+            structuredContent: {
+                workspaceMode: 'open-document',
+                documentCount: 1,
+                activeTabId: 'tab-1',
+                activeDocument: {
+                    tabId: 'tab-1',
+                    fileName: 'Grammar.pdf',
+                    originalPath: '/tmp/Grammar.pdf',
+                    currentPage: 5,
+                    totalPages: 25,
+                },
+                documents: [
+                    {
+                        tabId: 'tab-1',
+                        isActive: true,
+                    },
+                ],
+                recentFileCount: 1,
+                recentFiles: [
+                    {
+                        fileName: 'Recent Grammar.pdf',
+                        originalPath: '/tmp/Recent Grammar.pdf',
+                    },
+                ],
             },
-            documents: [{
-                tabId: 'tab-1',
-                isActive: true,
-            }],
-            recentFileCount: 1,
-            recentFiles: [{
-                fileName: 'Recent Grammar.pdf',
-                originalPath: '/tmp/Recent Grammar.pdf',
-            }],
-        }});
+        });
     });
 
     it('returns document readiness through a tool call', async () => {
@@ -877,13 +881,17 @@ describe('processMcpRequest', () => {
         const response = await callTool(options, 'evb_document_readiness', {tabId: 'tab-1'});
 
         expect(options.getWorkspaceSnapshot).toHaveBeenCalledOnce();
-        expect(response?.result).toMatchObject({structuredContent: {
-            activeTabId: 'tab-1',
-            tabs: [{
-                tabId: 'tab-1',
-                readiness: {recommendations: [{id: 'ocr_all_pages'}]},
-            }],
-        }});
+        expect(response?.result).toMatchObject({
+            structuredContent: {
+                activeTabId: 'tab-1',
+                tabs: [
+                    {
+                        tabId: 'tab-1',
+                        readiness: {recommendations: [{id: 'ocr_all_pages'}]},
+                    },
+                ],
+            },
+        });
     });
 
     it('lists capabilities compactly by default and keeps schemas behind full detail or describe', async () => {
@@ -896,59 +904,70 @@ describe('processMcpRequest', () => {
         });
         const describeResponse = await callTool(options, 'evb_describe_capability', {id: 'file.repair_save'});
 
-        expect(compactResponse?.result).toMatchObject({structuredContent: {
-            detail: 'compact',
-            capabilities: expect.arrayContaining([
-                expect.objectContaining({
-                    id: 'file.repair_save',
-                    risk: 'longRunning',
-                    hasInputSchema: true,
-                    hasOutputSchema: true,
-                }),
-                expect.objectContaining({
-                    id: 'file.optimize_for_interaction',
-                    risk: 'longRunning',
-                }),
-            ]),
-        }});
+        expect(compactResponse?.result).toMatchObject({
+            structuredContent: {
+                detail: 'compact',
+                capabilities: expect.arrayContaining([
+                    expect.objectContaining({
+                        id: 'file.repair_save',
+                        risk: 'longRunning',
+                        hasInputSchema: true,
+                        hasOutputSchema: true,
+                    }),
+                    expect.objectContaining({
+                        id: 'file.optimize_for_interaction',
+                        risk: 'longRunning',
+                    }),
+                ]),
+            },
+        });
         expect(JSON.stringify(compactResponse?.result)).not.toContain('inputSchema');
-        expect(fullResponse?.result).toMatchObject({structuredContent: {
-            detail: 'full',
-            capabilities: expect.arrayContaining([expect.objectContaining({
-                id: 'file.repair_save',
-                inputSchema: expect.objectContaining({additionalProperties: false}),
-            })]),
-        }});
-        expect(describeResponse?.result).toMatchObject({structuredContent: {capability: expect.objectContaining({
-            id: 'file.repair_save',
-            inputSchema: expect.objectContaining({additionalProperties: false}),
-        })}});
+        expect(fullResponse?.result).toMatchObject({
+            structuredContent: {
+                detail: 'full',
+                capabilities: expect.arrayContaining([
+                    expect.objectContaining({
+                        id: 'file.repair_save',
+                        inputSchema: expect.objectContaining({additionalProperties: false}),
+                    }),
+                ]),
+            },
+        });
+        expect(describeResponse?.result).toMatchObject({
+            structuredContent: {
+                capability: expect.objectContaining({
+                    id: 'file.repair_save',
+                    inputSchema: expect.objectContaining({additionalProperties: false}),
+                }),
+            },
+        });
     });
 
     it('normalizes compatibility aliases without advertising them as public capabilities', async () => {
         const options = createOptions();
 
         const compactResponse = await callTool(options, 'evb_list_capabilities');
-        const describeAliasResponse = await callTool(
-            options,
-            'evb_describe_capability',
-            {id: 'page_numbering.preview'},
-        );
+        const describeAliasResponse = await callTool(options, 'evb_describe_capability', {id: 'page_numbering.preview'});
         await runAction(options, 'annotation.set_tool', {tool: 'highlight'});
 
         expect(JSON.stringify(compactResponse?.result)).not.toContain('page_numbering.preview');
         expect(JSON.stringify(compactResponse?.result)).not.toContain('annotation.set_tool');
-        expect(describeAliasResponse?.result).toMatchObject({structuredContent: {
-            requestedId: 'page_numbering.preview',
-            capability: expect.objectContaining({id: 'page_labels.preview'}),
-        }});
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'run_action',
-            arguments: {
-                id: 'annotation.select_tool',
-                input: {tool: 'highlight'},
+        expect(describeAliasResponse?.result).toMatchObject({
+            structuredContent: {
+                requestedId: 'page_numbering.preview',
+                capability: expect.objectContaining({id: 'page_labels.preview'}),
             },
-        }, undefined);
+        });
+        expect(options.runCommand).toHaveBeenCalledWith(
+            {
+                name: 'run_action',
+                arguments: {
+                    id: 'annotation.select_tool',
+                    input: {tool: 'highlight'},
+                },
+            },
+            undefined,
+        );
     });
 
     it('blocks external run action calls that require confirmation', async () => {
@@ -957,11 +976,16 @@ describe('processMcpRequest', () => {
             callerKind: 'external' as const,
         };
 
-        const response = await runAction(options, 'annotation.create_text_markup', {
-            page: 12,
-            text: 'broken plural',
-            markup: 'underline',
-        }, {tabId: 'tab-1'});
+        const response = await runAction(
+            options,
+            'annotation.create_text_markup',
+            {
+                page: 12,
+                text: 'broken plural',
+                markup: 'underline',
+            },
+            {tabId: 'tab-1'},
+        );
 
         expect(response?.result).toMatchObject({
             isError: true,
@@ -982,29 +1006,19 @@ describe('processMcpRequest', () => {
         const response = await runAction(options, 'document.open_documents');
 
         expect(response?.error).toBeUndefined();
-        expect(response?.result).toMatchObject({structuredContent: {
-            hasOpenDocument: true,
-            documentCount: 1,
-        }});
+        expect(response?.result).toMatchObject({
+            structuredContent: {
+                hasOpenDocument: true,
+                documentCount: 1,
+            },
+        });
     });
 
     it.each([
-        [
-            'view.activate_tab',
-            false,
-        ],
-        [
-            'view.activate_tab',
-            true,
-        ],
-        [
-            'view.go_to_page',
-            false,
-        ],
-        [
-            'view.go_to_page',
-            true,
-        ],
+        ['view.activate_tab', false],
+        ['view.activate_tab', true],
+        ['view.go_to_page', false],
+        ['view.go_to_page', true],
     ] as const)('keeps navigation passive for dry-run %s with nested target %s', async (id, nested) => {
         const options = createOptions();
         let snapshot = structuredClone(workspaceSnapshot);
@@ -1014,29 +1028,25 @@ describe('processMcpRequest', () => {
         };
         snapshot = {
             ...snapshot,
-            tabs: [
-                ...snapshot.tabs,
-                other,
-            ],
-            panes: snapshot.panes.map(pane => ({
+            tabs: [...snapshot.tabs, other],
+            panes: snapshot.panes.map((pane) => ({
                 ...pane,
-                tabIds: [
-                    ...pane.tabIds,
-                    other.tabId,
-                ],
+                tabIds: [...pane.tabIds, other.tabId],
             })),
         };
-        options.getWorkspaceSnapshot.mockImplementation(async windowId => {
+        options.getWorkspaceSnapshot.mockImplementation(async (windowId) => {
             expect(windowId).toBe(42);
             return snapshot;
         });
-        options.runCommand.mockImplementation(async command => {
+        options.runCommand.mockImplementation(async (command) => {
             if (command.name === 'activate_tab' || command.name === 'go_to_page') {
                 snapshot = {
                     ...snapshot,
                     activeTabId: other.tabId,
                 };
-                if (command.name === 'go_to_page') other.currentPage = command.arguments.page;
+                if (command.name === 'go_to_page') {
+                    other.currentPage = command.arguments.page;
+                }
             }
             return {ok: true};
         });
@@ -1044,21 +1054,28 @@ describe('processMcpRequest', () => {
             tabId: 'tab-2',
             ...(id === 'view.go_to_page' ? {page: 9} : {}),
         };
-        const response = await runAction(options, id, {
-            ...(id === 'view.go_to_page' ? {page: 9} : {}),
-            ...(nested ? {tabId: 'tab-2'} : {}),
-        }, {
-            windowId: 42,
-            dryRun: true,
-            ...(nested ? {} : {tabId: 'tab-2'}),
+        const response = await runAction(
+            options,
+            id,
+            {
+                ...(id === 'view.go_to_page' ? {page: 9} : {}),
+                ...(nested ? {tabId: 'tab-2'} : {}),
+            },
+            {
+                windowId: 42,
+                dryRun: true,
+                ...(nested ? {} : {tabId: 'tab-2'}),
+            },
+        );
+        expect(response?.result).toMatchObject({
+            structuredContent: {
+                actionId: id,
+                dryRun: true,
+                wouldRun: true,
+                targetTabId: 'tab-2',
+                ...(id === 'view.go_to_page' ? {page: 9} : {}),
+            },
         });
-        expect(response?.result).toMatchObject({structuredContent: {
-            actionId: id,
-            dryRun: true,
-            wouldRun: true,
-            targetTabId: 'tab-2',
-            ...(id === 'view.go_to_page' ? {page: 9} : {}),
-        }});
         expect(snapshot.activeTabId).toBe('tab-1');
         expect(other.currentPage).toBe(5);
         expect(options.runCommand).not.toHaveBeenCalled();
@@ -1080,7 +1097,7 @@ describe('processMcpRequest', () => {
             tabId: 'tab-1',
             page: 0,
         },
-    ])('rejects invalid passive navigation intent $id', async args => {
+    ])('rejects invalid passive navigation intent $id', async (args) => {
         const options = createOptions();
         const response = await callTool(options, 'evb_run_action', {
             ...args,
@@ -1095,11 +1112,15 @@ describe('processMcpRequest', () => {
             ...createOptions(),
             callerKind: 'external' as const,
         };
-        const bookmarkPlanInput = {entries: [{
-            level: 1,
-            title: 'Chapter 1',
-            page: 5,
-        }]};
+        const bookmarkPlanInput = {
+            entries: [
+                {
+                    level: 1,
+                    title: 'Chapter 1',
+                    page: 5,
+                },
+            ],
+        };
 
         const response = await callTool(options, 'evb_read_action', {
             windowId: 42,
@@ -1109,14 +1130,17 @@ describe('processMcpRequest', () => {
         });
 
         expect(response?.error).toBeUndefined();
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'run_action',
-            arguments: {
-                tabId: 'tab-1',
-                id: 'bookmarks.preview_tree',
-                input: bookmarkPlanInput,
+        expect(options.runCommand).toHaveBeenCalledWith(
+            {
+                name: 'run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'bookmarks.preview_tree',
+                    input: bookmarkPlanInput,
+                },
             },
-        }, 42);
+            42,
+        );
     });
 
     it('rejects non-read capabilities on the read-only action tool', async () => {
@@ -1162,40 +1186,56 @@ describe('processMcpRequest', () => {
     it('dispatches a page capture to the tab named in its advertised input', async () => {
         const options = createOptions();
 
-        await callTool(options, 'evb_run_action', {
-            id: 'document.capture_page_image',
-            input: {
-                tabId: 'tab-2',
-                page: 1,
-            },
-        }, 'nested-capture');
-
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'run_action',
-            arguments: {
-                tabId: 'tab-2',
+        await callTool(
+            options,
+            'evb_run_action',
+            {
                 id: 'document.capture_page_image',
                 input: {
                     tabId: 'tab-2',
                     page: 1,
                 },
             },
-        }, undefined);
+            'nested-capture',
+        );
+
+        expect(options.runCommand).toHaveBeenCalledWith(
+            {
+                name: 'run_action',
+                arguments: {
+                    tabId: 'tab-2',
+                    id: 'document.capture_page_image',
+                    input: {
+                        tabId: 'tab-2',
+                        page: 1,
+                    },
+                },
+            },
+            undefined,
+        );
     });
 
     it('lets a top-level tabId override a nested one for page capture', async () => {
         const options = createOptions();
 
-        await callTool(options, 'evb_run_action', {
-            id: 'document.capture_page_image',
-            tabId: 'tab-1',
-            input: {
-                tabId: 'tab-2',
-                page: 1,
+        await callTool(
+            options,
+            'evb_run_action',
+            {
+                id: 'document.capture_page_image',
+                tabId: 'tab-1',
+                input: {
+                    tabId: 'tab-2',
+                    page: 1,
+                },
             },
-        }, 'top-level-capture');
+            'top-level-capture',
+        );
 
-        expect(options.runCommand).toHaveBeenCalledWith(expect.objectContaining({arguments: expect.objectContaining({tabId: 'tab-1'})}), undefined);
+        expect(options.runCommand).toHaveBeenCalledWith(
+            expect.objectContaining({arguments: expect.objectContaining({tabId: 'tab-1'})}),
+            undefined,
+        );
     });
 
     it('returns MCP image content for rendered page capture results', async () => {
@@ -1211,33 +1251,45 @@ describe('processMcpRequest', () => {
             },
         });
 
-        const response = await runAction(options, 'document.capture_page_image', {
-            page: 4,
-            region: 'top',
-        }, {tabId: 'tab-1'});
+        const response = await runAction(
+            options,
+            'document.capture_page_image',
+            {
+                page: 4,
+                region: 'top',
+            },
+            {tabId: 'tab-1'},
+        );
 
         expectStructuredCloneable(response);
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'run_action',
-            arguments: {
-                tabId: 'tab-1',
-                id: 'document.capture_page_image',
-                input: {
-                    page: 4,
-                    region: 'top',
+        expect(options.runCommand).toHaveBeenCalledWith(
+            {
+                name: 'run_action',
+                arguments: {
+                    tabId: 'tab-1',
+                    id: 'document.capture_page_image',
+                    input: {
+                        page: 4,
+                        region: 'top',
+                    },
                 },
             },
-        }, undefined);
+            undefined,
+        );
         expect(response?.result).toMatchObject({
-            structuredContent: {image: {
-                mimeType: 'image/png',
-                sizeBytes: 3,
-            }},
-            content: expect.arrayContaining([expect.objectContaining({
-                type: 'image',
-                mimeType: 'image/png',
-                data: 'aW1n',
-            })]),
+            structuredContent: {
+                image: {
+                    mimeType: 'image/png',
+                    sizeBytes: 3,
+                },
+            },
+            content: expect.arrayContaining([
+                expect.objectContaining({
+                    type: 'image',
+                    mimeType: 'image/png',
+                    data: 'aW1n',
+                }),
+            ]),
         });
         const result = response?.result as {
             content?: Array<{
@@ -1247,7 +1299,7 @@ describe('processMcpRequest', () => {
             structuredContent?: unknown;
         };
         expect(JSON.stringify(result.structuredContent)).not.toContain('"data":"aW1n"');
-        expect(result.content?.find(item => item.type === 'text')?.text).not.toContain('"data"');
+        expect(result.content?.find((item) => item.type === 'text')?.text).not.toContain('"data"');
     });
 
     it('searches the active PDF through the document text handler', async () => {
@@ -1259,23 +1311,28 @@ describe('processMcpRequest', () => {
             wholeWord: true,
         });
 
-        expect(options.searchDocument).toHaveBeenCalledWith({
-            tab: workspaceSnapshot.tabs[0],
-            options: {
-                query: 'stem',
-                maxResults: 5,
-                wholeWord: true,
+        expect(options.searchDocument).toHaveBeenCalledWith(
+            {
+                tab: workspaceSnapshot.tabs[0],
+                options: {
+                    query: 'stem',
+                    maxResults: 5,
+                    wholeWord: true,
+                },
             },
-        }, undefined);
-        expect(response?.result).toMatchObject({structuredContent: {
-            tabId: 'tab-1',
-            query: 'stem',
-            results: [{pageNumber: 12}],
-        }});
+            undefined,
+        );
+        expect(response?.result).toMatchObject({
+            structuredContent: {
+                tabId: 'tab-1',
+                query: 'stem',
+                results: [{pageNumber: 12}],
+            },
+        });
     });
 
     it('agent Cancel releases a wait for a lazily backed copy before it materializes', async () => {
-        const { searchAgentDocument } = await import('@electron/features/agent/documentText');
+        const {searchAgentDocument} = await import('@electron/features/agent/documentText');
         const entered = Promise.withResolvers<undefined>();
         lazyCopy.entered = () => entered.resolve(undefined);
         const controller = new AbortController();
@@ -1304,7 +1361,7 @@ describe('processMcpRequest', () => {
 
         await entered.promise;
         controller.abort(new DOMException('Cancel', 'AbortError'));
-        await new Promise<void>(resolve => setImmediate(resolve));
+        await new Promise<void>((resolve) => setImmediate(resolve));
         expect(settled).toBe(true);
         expect(rejected).toBe(true);
         await search;
@@ -1318,20 +1375,25 @@ describe('processMcpRequest', () => {
             endPage: 1000,
         });
 
-        expect(options.readDocumentPages).toHaveBeenCalledWith({
-            tab: workspaceSnapshot.tabs[0],
-            options: {pages: Array.from({length: 25}, (_value, index) => index + 1)},
-        }, undefined);
+        expect(options.readDocumentPages).toHaveBeenCalledWith(
+            {
+                tab: workspaceSnapshot.tabs[0],
+                options: {pages: Array.from({length: 25}, (_value, index) => index + 1)},
+            },
+            undefined,
+        );
     });
 
     it('rejects document page reads that exceed the MCP page budget', async () => {
         const options = createOptions();
         options.getWorkspaceSnapshot.mockResolvedValueOnce({
             ...workspaceSnapshot,
-            tabs: [{
-                ...workspaceSnapshot.tabs[0]!,
-                totalPages: 1000,
-            }],
+            tabs: [
+                {
+                    ...workspaceSnapshot.tabs[0]!,
+                    totalPages: 1000,
+                },
+            ],
         });
 
         const response = await runAction(options, 'document.read_pages', {
@@ -1346,53 +1408,39 @@ describe('processMcpRequest', () => {
         expect(options.readDocumentPages).not.toHaveBeenCalled();
     });
 
-    it.each([
-        'document.inspect_text',
-        'document.search',
-        'document.read_pages',
-    ])('resolves the %s tab in the window the request names', async (id) => {
-        const options = createOptions();
-        const response = await callTool(options, 'evb_read_action', {
-            id,
-            windowId: 42,
-            input: id === 'document.search' ? {query: 'Grammar'} : {},
-        });
+    it.each(['document.inspect_text', 'document.search', 'document.read_pages'])(
+        'resolves the %s tab in the window the request names',
+        async (id) => {
+            const options = createOptions();
+            const response = await callTool(options, 'evb_read_action', {
+                id,
+                windowId: 42,
+                input: id === 'document.search' ? {query: 'Grammar'} : {},
+            });
 
-        expect(response?.error).toBeUndefined();
-        expect(response?.result).toMatchObject({structuredContent: {tabId: 'tab-1'}});
-        expect(response?.result).not.toHaveProperty('isError', true);
-        expect(options.getWorkspaceSnapshot).toHaveBeenCalledWith(42);
-        expect(options.getWorkspaceSnapshot).not.toHaveBeenCalledWith(undefined);
-    });
+            expect(response?.error).toBeUndefined();
+            expect(response?.result).toMatchObject({structuredContent: {tabId: 'tab-1'}});
+            expect(response?.result).not.toHaveProperty('isError', true);
+            expect(options.getWorkspaceSnapshot).toHaveBeenCalledWith(42);
+            expect(options.getWorkspaceSnapshot).not.toHaveBeenCalledWith(undefined);
+        },
+    );
 
     it.each([
-        [
-            'toc.read',
-            'toc',
-        ],
-        [
-            'bookmarks.read',
-            'bookmarks',
-        ],
-        [
-            'page_labels.read',
-            'page-labels',
-        ],
-        [
-            'annotation.list',
-            'annotations',
-        ],
-        [
-            'annotation.list_notes',
-            'notes',
-        ],
+        ['toc.read', 'toc'],
+        ['bookmarks.read', 'bookmarks'],
+        ['page_labels.read', 'page-labels'],
+        ['annotation.list', 'annotations'],
+        ['annotation.list_notes', 'notes'],
     ])('returns the same metadata through %s and its resource', async (id, kind) => {
         const options = createOptions();
         const metadata = {
-            entries: [{
-                title: '한글 “Chapter”',
-                page: 7,
-            }],
+            entries: [
+                {
+                    title: '한글 “Chapter”',
+                    page: 7,
+                },
+            ],
             issues: [],
         };
         options.runCommand.mockResolvedValue(metadata);
@@ -1406,22 +1454,33 @@ describe('processMcpRequest', () => {
             windowId: 42,
         });
         expect(action?.result).toMatchObject({structuredContent: metadata});
-        expect(action?.result).toMatchObject({content: [{
-            type: 'text',
-            text: JSON.stringify(metadata),
-        }]});
-        expect(resource?.result).toMatchObject({contents: [{
-            uri,
-            mimeType: 'application/json',
-            text: JSON.stringify(metadata, null, 2),
-        }]});
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'read_resource',
-            arguments: {
-                tabId: 'tab-1',
-                uri,
+        expect(action?.result).toMatchObject({
+            content: [
+                {
+                    type: 'text',
+                    text: JSON.stringify(metadata),
+                },
+            ],
+        });
+        expect(resource?.result).toMatchObject({
+            contents: [
+                {
+                    uri,
+                    mimeType: 'application/json',
+                    text: JSON.stringify(metadata, null, 2),
+                },
+            ],
+        });
+        expect(options.runCommand).toHaveBeenCalledWith(
+            {
+                name: 'read_resource',
+                arguments: {
+                    tabId: 'tab-1',
+                    uri,
+                },
             },
-        }, 42);
+            42,
+        );
     });
 
     it('keeps a metadata command scope rejection in the tool error result', async () => {
@@ -1447,24 +1506,24 @@ describe('processMcpRequest', () => {
             name: 'evb_find_in_current_pdf',
             arguments: {topic: 'seventh stem tables'},
         });
-        const [
-            pageNumberingPrompt,
-            bookmarkPrompt,
-            largeDocumentPrompt,
-        ] = await Promise.all([
-            'evb_number_pages_from_printed_pages',
-            'evb_rebuild_verified_bookmarks',
-            'evb_large_document_strategy',
-        ].map(name => request(options, 'prompts/get', {name})));
+        const [pageNumberingPrompt, bookmarkPrompt, largeDocumentPrompt] = await Promise.all(
+            ['evb_number_pages_from_printed_pages', 'evb_rebuild_verified_bookmarks', 'evb_large_document_strategy'].map((name) =>
+                request(options, 'prompts/get', {name}),
+            ),
+        );
 
         expect(JSON.stringify(resources?.result)).toContain('evb://workspace/current');
         expect(JSON.stringify(resources?.result)).toContain('evb://document/tab-1/bookmarks');
         expect(JSON.stringify(resources?.result)).toContain('evb://document/tab-1/page-labels');
-        expect(pageText?.result).toMatchObject({contents: [{
-            uri: 'evb://document/tab-1/page/7',
-            mimeType: 'text/plain',
-            text: 'Page 7 text',
-        }]});
+        expect(pageText?.result).toMatchObject({
+            contents: [
+                {
+                    uri: 'evb://document/tab-1/page/7',
+                    mimeType: 'text/plain',
+                    text: 'Page 7 text',
+                },
+            ],
+        });
         expect(JSON.stringify(prompt?.result)).toContain('seventh stem tables');
         expect(JSON.stringify(prompt?.result)).toContain('document.search');
         expect(JSON.stringify(pageNumberingPrompt?.result)).toContain('page_labels.preview');
@@ -1494,13 +1553,16 @@ describe('processMcpRequest', () => {
             page: 8.9,
         });
 
-        expect(options.runCommand).toHaveBeenCalledWith({
-            name: 'go_to_page',
-            arguments: {
-                tabId: 'tab-1',
-                page: 8,
+        expect(options.runCommand).toHaveBeenCalledWith(
+            {
+                name: 'go_to_page',
+                arguments: {
+                    tabId: 'tab-1',
+                    page: 8,
+                },
             },
-        }, undefined);
+            undefined,
+        );
     });
 });
 
@@ -1523,7 +1585,7 @@ describe('bookmark replacement confirmation', () => {
             bookmarksDirty: ref(false),
             getBookmarksRevision: () => bookmarksRevision,
             totalPages: ref(3),
-            t: key => key,
+            t: (key) => key,
             handleBookmarksChange: ({bookmarks}) => {
                 bookmarkItems.value = [...bookmarks];
                 bookmarksRevision += 1;
@@ -1531,73 +1593,77 @@ describe('bookmark replacement confirmation', () => {
         });
         const options = createOptions();
         options.runCommand.mockImplementation(async (command) => {
-            if (command.name !== 'run_action') throw new Error('Unexpected command');
-            const {
-                id, input = {}, dryRun,
-            } = command.arguments;
-            if (dryRun) return {
-                id,
-                dryRun: true,
-            };
-            if (id === 'bookmarks.set_tree') return {...owner.setAgentBookmarkTree(input, id)};
-            if (id === 'bookmarks.apply_plan') return {...owner.applyAgentBookmarkPlan(input, id)};
-            if (id === 'bookmarks.update') return {...owner.updateAgentBookmark(input, id)};
-            if (id === 'bookmarks.preview_tree') return {...owner.previewAgentBookmarkPlan(input, id)};
-            if (id === 'bookmarks.delete') return {...owner.deleteAgentBookmark(input, id)};
+            if (command.name !== 'run_action') {
+                throw new Error('Unexpected command');
+            }
+            const {id, input = {}, dryRun} = command.arguments;
+            if (dryRun) {
+                return {
+                    id,
+                    dryRun: true,
+                };
+            }
+            if (id === 'bookmarks.set_tree') {
+                return {...owner.setAgentBookmarkTree(input, id)};
+            }
+            if (id === 'bookmarks.apply_plan') {
+                return {...owner.applyAgentBookmarkPlan(input, id)};
+            }
+            if (id === 'bookmarks.update') {
+                return {...owner.updateAgentBookmark(input, id)};
+            }
+            if (id === 'bookmarks.preview_tree') {
+                return {...owner.previewAgentBookmarkPlan(input, id)};
+            }
+            if (id === 'bookmarks.delete') {
+                return {...owner.deleteAgentBookmark(input, id)};
+            }
             throw new Error(`Unexpected action ${id}`);
         });
-        for (const [
-            id,
-            input,
-        ] of [
-                [
-                    'bookmarks.delete',
-                    {path: [0]},
-                ],
-                [
-                    'bookmarks.set_tree',
-                    {bookmarks: []},
-                ],
-                [
-                    'bookmarks.apply_plan',
-                    {entries: []},
-                ],
-                [
-                    'bookmarks.set_tree',
-                    {bookmarks: [{
-                        title: 'Parent',
-                        page: 1,
-                    }]},
-                ],
-                [
-                    'bookmarks.update',
-                    {
-                        path: [0],
-                        children: [],
-                    },
-                ],
-                [
-                    'bookmarks.update',
-                    {
-                        path: [0],
-                        items: [],
-                    },
-                ],
-                [
-                    'bookmarks.update',
-                    {
-                        path: [0],
-                        bookmark: {children: []},
-                    },
-                ],
-                [
-                    'bookmarks.update',
-                    {
-                        path: [0],
-                        bookmark: {items: []},
-                    },
-                ],
-            ] as const) {
+        for (const [id, input] of [
+            ['bookmarks.delete', {path: [0]}],
+            ['bookmarks.set_tree', {bookmarks: []}],
+            ['bookmarks.apply_plan', {entries: []}],
+            [
+                'bookmarks.set_tree',
+                {
+                    bookmarks: [
+                        {
+                            title: 'Parent',
+                            page: 1,
+                        },
+                    ],
+                },
+            ],
+            [
+                'bookmarks.update',
+                {
+                    path: [0],
+                    children: [],
+                },
+            ],
+            [
+                'bookmarks.update',
+                {
+                    path: [0],
+                    items: [],
+                },
+            ],
+            [
+                'bookmarks.update',
+                {
+                    path: [0],
+                    bookmark: {children: []},
+                },
+            ],
+            [
+                'bookmarks.update',
+                {
+                    path: [0],
+                    bookmark: {items: []},
+                },
+            ],
+        ] as const) {
             const response = await runAction(options, id, input);
             expect(response?.result).toMatchObject({
                 isError: true,
@@ -1608,40 +1674,34 @@ describe('bookmark replacement confirmation', () => {
         const preview = await runAction(options, 'bookmarks.preview_tree', {bookmarks: []});
         expect(preview?.result).toMatchObject({structuredContent: {diff: {removedCount: 2}}});
         expect(bookmarkItems.value).toEqual(before);
-        for (const [
-            id,
-            input,
-        ] of [
-                [
-                    'bookmarks.set_tree',
-                    {bookmarks: []},
-                ],
-                [
-                    'bookmarks.apply_plan',
-                    {entries: []},
-                ],
-                [
-                    'bookmarks.update',
-                    {
-                        path: [0],
-                        children: [],
-                    },
-                ],
-            ] as const) {
+        for (const [id, input] of [
+            ['bookmarks.set_tree', {bookmarks: []}],
+            ['bookmarks.apply_plan', {entries: []}],
+            [
+                'bookmarks.update',
+                {
+                    path: [0],
+                    children: [],
+                },
+            ],
+        ] as const) {
             const dryRun = await runAction(options, id, input, {
                 tabId: 'tab-1',
                 dryRun: true,
             });
             expect(dryRun?.result).toMatchObject({structuredContent: {dryRun: true}});
-            expect(options.runCommand).toHaveBeenLastCalledWith({
-                name: 'run_action',
-                arguments: {
-                    tabId: 'tab-1',
-                    id,
-                    input,
-                    dryRun: true,
+            expect(options.runCommand).toHaveBeenLastCalledWith(
+                {
+                    name: 'run_action',
+                    arguments: {
+                        tabId: 'tab-1',
+                        id,
+                        input,
+                        dryRun: true,
+                    },
                 },
-            }, undefined);
+                undefined,
+            );
         }
         const rename = await runAction(options, 'bookmarks.update', {
             path: [0],
@@ -1649,18 +1709,24 @@ describe('bookmark replacement confirmation', () => {
             bold: true,
         });
         expect(rename?.result).not.toHaveProperty('isError', true);
-        expect(bookmarkItems.value).toEqual([{
-            ...before[0],
-            title: 'Renamed',
-            bold: true,
-        }]);
-        const denied = await runAction({
-            ...options,
-            callerKind: 'external',
-        }, 'bookmarks.update', {
-            path: [0],
-            title: 'External',
-        });
+        expect(bookmarkItems.value).toEqual([
+            {
+                ...before[0],
+                title: 'Renamed',
+                bold: true,
+            },
+        ]);
+        const denied = await runAction(
+            {
+                ...options,
+                callerKind: 'external',
+            },
+            'bookmarks.update',
+            {
+                path: [0],
+                title: 'External',
+            },
+        );
         expect(denied?.result).toMatchObject({isError: true});
         expect(bookmarkItems.value[0]?.title).toBe('Renamed');
     });

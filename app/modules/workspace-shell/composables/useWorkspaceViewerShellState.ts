@@ -8,25 +8,17 @@ import {
     type TPdfZoomState,
     type TZoomMode,
 } from '@contracts/shared';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import { useDropdownManager } from '@app/modules/workspace-shell/composables/useDropdownManager';
-import type {
-    IDocumentViewerExpose,
-    IPdfDocument,
-    IPdfViewerExpose,
-} from '@app/modules/pdf-viewer/public';
+import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import {useDropdownManager} from '@app/modules/workspace-shell/composables/useDropdownManager';
+import type {IDocumentViewerExpose, IPdfDocument, IPdfViewerExpose} from '@app/modules/pdf-viewer/public';
 import {
     resolveDocumentViewportCurrentPage,
     type IDocumentOpenSurfaceSession,
     type IDocumentPageSource,
     type TDocumentSidebarTab,
 } from '@app/modules/document-viewer/public';
-import type { TPageSelection } from '@pdf-core/pdfPageSelection';
-import {
-    createExplicitPageSelection,
-    materializePageSelection,
-    pageSelectionCount,
-} from '@pdf-core/pdfPageSelection';
+import type {TPageSelection} from '@pdf-core/pdfPageSelection';
+import {createExplicitPageSelection, materializePageSelection, pageSelectionCount} from '@pdf-core/pdfPageSelection';
 
 const LEGACY_SELECTION_MATERIALIZATION_LIMIT = 100_000;
 
@@ -46,13 +38,11 @@ export const useWorkspaceViewerShellState = (
     initialState: ITabViewSessionState | null | undefined,
     openSurface: Pick<IDocumentOpenSurfaceSession, 'viewportSession'>,
     /** The count the shell shows of the viewer's, given the last one it showed. */
-    admitPageCount: (count: number, previous: number) => number = count => count,
+    admitPageCount: (count: number, previous: number) => number = (count) => count,
 ) => {
     const pdfViewerRef = ref<IPdfViewerExpose | null>(null);
     const djvuViewerRef = ref<IMountedDocumentViewer | null>(null);
-    const documentViewerRef = computed<IMountedDocumentViewer | null>(() => (
-        pdfViewerRef.value ?? djvuViewerRef.value
-    ));
+    const documentViewerRef = computed<IMountedDocumentViewer | null>(() => pdfViewerRef.value ?? djvuViewerRef.value);
     const zoomDropdownOpen = ref(false);
     const pageDropdownOpen = ref(false);
     const ocrPopupOpen = ref(false);
@@ -80,11 +70,7 @@ export const useWorkspaceViewerShellState = (
         // the last bounded mirror when the compact model cannot fit there.
     }
 
-    function requestThumbnailInvalidation(
-        pages: number[],
-        expectedDocumentRevision?: string,
-        options: {rotationOnly?: boolean} = {},
-    ) {
+    function requestThumbnailInvalidation(pages: number[], expectedDocumentRevision?: string, options: {rotationOnly?: boolean} = {}) {
         thumbnailInvalidationRequestId += 1;
         thumbnailInvalidationRequest.value = {
             id: thumbnailInvalidationRequestId,
@@ -99,12 +85,7 @@ export const useWorkspaceViewerShellState = (
         selectedPageSelection.value = createExplicitPageSelection(totalPages.value, pages);
     }
 
-    const {
-        closeAllDropdowns,
-        closeOtherDropdowns,
-        handleDropdownOpenChange,
-        openDropdown,
-    } = useDropdownManager({
+    const {closeAllDropdowns, closeOtherDropdowns, handleDropdownOpenChange, openDropdown} = useDropdownManager({
         zoomOpen: zoomDropdownOpen,
         pageOpen: pageDropdownOpen,
         ocrOpen: ocrPopupOpen,
@@ -115,9 +96,13 @@ export const useWorkspaceViewerShellState = (
     // scale and the last fit axis outlive a request of the other kind.
     const zoomState = shallowRef<TPdfZoomState>(createZoomState(initialState?.zoomMode ?? 'fit-width', initialState?.zoom ?? 1));
     const manualScale = ref(initialState?.zoom ?? 1);
-    const rememberedFitAxis = ref<TFitMode>(initialState?.zoomMode === 'fit-height'
-        ? 'height'
-        : initialState?.zoomMode === 'fit-width' ? 'width' : initialState?.fitMode ?? 'width');
+    const rememberedFitAxis = ref<TFitMode>(
+        initialState?.zoomMode === 'fit-height'
+            ? 'height'
+            : initialState?.zoomMode === 'fit-width'
+              ? 'width'
+              : (initialState?.fitMode ?? 'width'),
+    );
     /** The one write path for zoom: commands, wheel and the viewer's own fit snaps. */
     function setZoomState(state: TPdfZoomState) {
         // The request first: projections of both change with this one write.
@@ -128,9 +113,9 @@ export const useWorkspaceViewerShellState = (
             rememberedFitAxis.value = state.axis;
         }
     }
-    const zoom = computed(() => zoomState.value.kind === 'custom' ? zoomState.value.scale : manualScale.value);
+    const zoom = computed(() => (zoomState.value.kind === 'custom' ? zoomState.value.scale : manualScale.value));
     const zoomMode = computed<TZoomMode>(() => getZoomMode(zoomState.value));
-    const fitMode = computed<TFitMode>(() => zoomState.value.kind === 'fit' ? zoomState.value.axis : rememberedFitAxis.value);
+    const fitMode = computed<TFitMode>(() => (zoomState.value.kind === 'fit' ? zoomState.value.axis : rememberedFitAxis.value));
     const zoomAccess: IZoomStateAccess = {
         get state() {
             return zoomState.value;
@@ -143,18 +128,22 @@ export const useWorkspaceViewerShellState = (
     const viewMode = ref<TPdfViewMode>(initialState?.viewMode ?? 'single');
     const viewRotation = ref<TPdfViewRotation>(initialState?.viewRotation ?? 0);
     const currentPage = computed(() => resolveDocumentViewportCurrentPage(openSurface.viewportSession.value));
-    const totalPages = computed<number>(previous => admitPageCount(documentViewerRef.value?.getPageCount?.() ?? 0, previous ?? 0));
+    const totalPages = computed<number>((previous) => admitPageCount(documentViewerRef.value?.getPageCount?.() ?? 0, previous ?? 0));
     // A new count keeps the selected pages that still exist.
-    watch(totalPages, (count) => {
-        if (selectedPageSelection.value?.pageCount === count) {
-            return;
-        }
-        const pages = selectedThumbnailPages.value.filter(page => page >= 1 && page <= count);
-        selectedPageSelection.value = createExplicitPageSelection(count, pages);
-        if (pages.length !== selectedThumbnailPages.value.length) {
-            setSelectedThumbnailPages(pages);
-        }
-    }, {flush: 'sync'});
+    watch(
+        totalPages,
+        (count) => {
+            if (selectedPageSelection.value?.pageCount === count) {
+                return;
+            }
+            const pages = selectedThumbnailPages.value.filter((page) => page >= 1 && page <= count);
+            selectedPageSelection.value = createExplicitPageSelection(count, pages);
+            if (pages.length !== selectedThumbnailPages.value.length) {
+                setSelectedThumbnailPages(pages);
+            }
+        },
+        {flush: 'sync'},
+    );
     const pdfDocument = shallowRef<IPdfDocument | null>(null);
     const documentPageSource = computed(() => documentViewerRef.value?.getPageSource?.() ?? null);
     const isLoading = computed(() => documentViewerRef.value?.isDocumentLoading?.() ?? false);

@@ -1,8 +1,5 @@
-import type { IDocumentPageMetrics } from '@app/modules/document-viewer/source/documentPageSource';
-import {
-    createRafCoalescedCallback,
-    type IRafCoalescedCallbackEnvironment,
-} from '@app/utils/createRafCoalescedCallback';
+import type {IDocumentPageMetrics} from '@app/modules/document-viewer/source/documentPageSource';
+import {createRafCoalescedCallback, type IRafCoalescedCallbackEnvironment} from '@app/utils/createRafCoalescedCallback';
 import {
     mergeDocumentPageMetrics,
     type TDocumentPageMetricsCollection,

@@ -1,10 +1,16 @@
 <template>
     <div
         class="app-shell-root h-dvh min-w-0 flex flex-col bg-[var(--app-window-bg)]"
-        :class="{ 'is-zen-mode': isFullscreen }"
+        :class="{'is-zen-mode': isFullscreen}"
     >
-        <div v-if="showBrowserInstallHint" class="browser-install-hint">
-            <UIcon name="i-ph-download-simple" class="browser-install-icon" />
+        <div
+            v-if="showBrowserInstallHint"
+            class="browser-install-hint"
+        >
+            <UIcon
+                name="i-ph-download-simple"
+                class="browser-install-icon"
+            />
             <a
                 :href="browserInstallUrl"
                 target="_blank"
@@ -13,7 +19,10 @@
                 @click="handleBrowserInstallHintClick"
             >
                 {{ t('webApp.installDesktop') }}
-                <UIcon name="i-ph-arrow-up-right" class="browser-install-link-icon" />
+                <UIcon
+                    name="i-ph-arrow-up-right"
+                    class="browser-install-link-icon"
+                />
             </a>
             <span class="browser-install-divider" />
             <button
@@ -22,7 +31,10 @@
                 :aria-label="t('webApp.dismissInstallDesktop')"
                 @click="dismissBrowserInstallHint('manual')"
             >
-                <UIcon name="i-ph-x" class="browser-install-dismiss-icon" />
+                <UIcon
+                    name="i-ph-x"
+                    class="browser-install-dismiss-icon"
+                />
             </button>
         </div>
         <!-- The window's Menu and More tools live in this row, beside whichever
@@ -33,7 +45,10 @@
             class="editor-global-toolbar-shell"
             :data-collapse-tier="shellToolbarCollapseTier"
         >
-            <div v-show="showShellMenus" class="shell-toolbar-menu shell-toolbar-menu--start">
+            <div
+                v-show="showShellMenus"
+                class="shell-toolbar-menu shell-toolbar-menu--start"
+            >
                 <ToolbarAppMenu
                     v-model:open="shellToolbarAppMenuOpen"
                     :has-pdf="shellToolbarHasPdf"
@@ -88,7 +103,10 @@
                 ref="globalToolbarHostRef"
                 class="editor-global-toolbar-host"
             />
-            <div v-show="showShellMenus" class="shell-toolbar-menu shell-toolbar-menu--end">
+            <div
+                v-show="showShellMenus"
+                class="shell-toolbar-menu shell-toolbar-menu--end"
+            >
                 <ToolbarOverflowMenu
                     v-model:open="shellToolbarOverflowMenuOpen"
                     :collapse-tier="shellToolbarCollapseTier"
@@ -150,7 +168,10 @@
             </div>
         </div>
 
-        <div v-show="!activeToolPage" class="workspace-main-shell">
+        <div
+            v-show="!activeToolPage"
+            class="workspace-main-shell"
+        >
             <EditorPanesHost
                 :layout="layout"
                 :panes="panes"
@@ -202,7 +223,11 @@
             @close="closeToolPage"
         />
 
-        <div v-show="!activeToolPage" id="editor-global-status-host" class="editor-global-status-host" />
+        <div
+            v-show="!activeToolPage"
+            id="editor-global-status-host"
+            class="editor-global-status-host"
+        />
         <DirtyTabCloseDialog
             :open="dirtyTabCloseDialogOpen"
             :mode="dirtyTabCloseDialogMode"
@@ -237,14 +262,14 @@
     </div>
 </template>
 <script setup lang="ts">
-import { useCanUseScanCleanup } from '@app/composables/useCanUseScanCleanup';
-import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
-import { useEventListener } from '@vueuse/core';
-import { guardAsync } from '@app/utils/asyncGuard';
-import { createDisposalFlag } from '@app/utils/createDisposalFlag';
-import { resolveAppWindowTitle } from '@app/utils/appWindowTitle';
-import { traceRendererStartup } from '@app/utils/traceRendererStartup';
-import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
+import {useCanUseScanCleanup} from '@app/composables/useCanUseScanCleanup';
+import {rememberReadingView} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import {useEventListener} from '@vueuse/core';
+import {guardAsync} from '@app/utils/asyncGuard';
+import {createDisposalFlag} from '@app/utils/createDisposalFlag';
+import {resolveAppWindowTitle} from '@app/utils/appWindowTitle';
+import {traceRendererStartup} from '@app/utils/traceRendererStartup';
+import {syncBrowserWindowTitle} from '@app/platform/browserWindowTabs';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
 import DocumentPasswordDialog from '@app/modules/workspace-shell/components/DocumentPasswordDialog.vue';
@@ -253,67 +278,64 @@ import EditorPanesHost from '@app/modules/workspace-shell/components/EditorPanes
 import ShellWorkspaceToolbar from '@app/modules/workspace-shell/components/ShellWorkspaceToolbar.vue';
 import ToolbarAppMenu from '@app/components/toolbar/ToolbarAppMenu.vue';
 import ToolbarOverflowMenu from '@app/components/toolbar/ToolbarOverflowMenu.vue';
-import { useCanUseOcr } from '@app/composables/useCanUseOcr';
-import { createReaderToolbarSurface } from '@app/utils/readerCommandSurface';
-import { useAppShellDirectionalTabs } from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
-import { useAppShellLifecycle } from '@app/modules/workspace-shell/composables/useAppShellLifecycle';
-import { useAppShellTabLifecycle } from '@app/modules/workspace-shell/composables/useAppShellTabLifecycle';
-import { createWorkspaceLayoutChange } from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
-import { useAppShellUpdatesDialog } from '@app/modules/workspace-shell/composables/useAppShellUpdatesDialog';
-import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
-import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
-import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
-import { useNativeWindowCloseHandshake } from '@app/modules/workspace-shell/composables/useNativeWindowCloseHandshake';
-import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
-import { useAppShellMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
-import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
-import { useWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
-import { documentViewDetachKey } from '@app/modules/workspace-shell/documentViewContext';
-import {
-    describeTabDocument,
-    snapshotOccupiesTab,
-} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { useWorkspaceToolbarContentPresence } from '@app/modules/workspace-shell/composables/useWorkspaceToolbarContentPresence';
-import { useTabsShellBindings } from '@app/modules/workspace-shell/composables/useTabsShellBindings';
-import { useAgentWorkspaceSnapshot } from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
-import { useAssistantPanelResize } from '@app/modules/workspace-shell/composables/useAssistantPanelResize';
-import { useAssistantChatScope } from '@app/modules/workspace-shell/composables/useAssistantChatScope';
-import { provideAppUpdates } from '@app/composables/useAppUpdates';
-import { provideAssistantPanel } from '@app/composables/useAssistantPanel';
-import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
-import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
-import { useWorkspaceRestoreTracker } from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
-import { installAppShellE2EHooks } from '@app/modules/workspace-shell/automation/installAppShellE2EHooks';
-import { isAutomationSession } from '@app/utils/isAutomationSession';
-import { useAppShellResilience } from '@app/modules/workspace-shell/composables/useAppShellResilience';
-import { useWorkspaceMemoryPressureMonitor } from '@app/modules/workspace-shell/composables/useWorkspaceMemoryPressureMonitor';
-import { useUnencryptedSaveNotice } from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
-import { useAppShellToolPages } from '@app/modules/workspace-shell/composables/useAppShellToolPages';
-import { useWindowTabTransfers } from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
-import { useBrowserInstallHint } from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
-import { useBrowserDirtyUnloadGuard } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
-import { useDirectOpenAutomationDispatcherShell } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
+import {useCanUseOcr} from '@app/composables/useCanUseOcr';
+import {createReaderToolbarSurface} from '@app/utils/readerCommandSurface';
+import {useAppShellDirectionalTabs} from '@app/modules/workspace-shell/composables/useAppShellDirectionalTabs';
+import {useAppShellLifecycle} from '@app/modules/workspace-shell/composables/useAppShellLifecycle';
+import {useAppShellTabLifecycle} from '@app/modules/workspace-shell/composables/useAppShellTabLifecycle';
+import {createWorkspaceLayoutChange} from '@app/modules/workspace-shell/composables/workspaceLayoutChange';
+import {useAppShellUpdatesDialog} from '@app/modules/workspace-shell/composables/useAppShellUpdatesDialog';
+import {useAppShellWorkspaceRouting} from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
+import {useExternalFileDrop} from '@app/modules/workspace-shell/composables/useExternalFileDrop';
+import {useDirtyTabCloseDialog} from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import {useNativeWindowCloseHandshake} from '@app/modules/workspace-shell/composables/useNativeWindowCloseHandshake';
+import {useShellWorkspaceToolbar} from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
+import {useAppShellMenuSync} from '@app/modules/workspace-shell/composables/useMenuSync';
+import {useWorkspaceShellState} from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
+import {useWorkspaceDocumentSessions} from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
+import {documentViewDetachKey} from '@app/modules/workspace-shell/documentViewContext';
+import {describeTabDocument, snapshotOccupiesTab} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {useWorkspaceToolbarContentPresence} from '@app/modules/workspace-shell/composables/useWorkspaceToolbarContentPresence';
+import {useTabsShellBindings} from '@app/modules/workspace-shell/composables/useTabsShellBindings';
+import {useAgentWorkspaceSnapshot} from '@app/modules/workspace-shell/composables/useAgentWorkspaceSnapshot';
+import {useAssistantPanelResize} from '@app/modules/workspace-shell/composables/useAssistantPanelResize';
+import {useAssistantChatScope} from '@app/modules/workspace-shell/composables/useAssistantChatScope';
+import {provideAppUpdates} from '@app/composables/useAppUpdates';
+import {provideAssistantPanel} from '@app/composables/useAssistantPanel';
+import {useRuntimeEnvironment} from '@app/composables/useRuntimeEnvironment';
+import {useEditorPanesManager} from '@app/modules/workspace-shell/composables/useEditorPanesManager';
+import {useWorkspaceRestoreTracker} from '@app/modules/workspace-shell/composables/useWorkspaceRestoreTracker';
+import {installAppShellE2EHooks} from '@app/modules/workspace-shell/automation/installAppShellE2EHooks';
+import {isAutomationSession} from '@app/utils/isAutomationSession';
+import {useAppShellResilience} from '@app/modules/workspace-shell/composables/useAppShellResilience';
+import {useWorkspaceMemoryPressureMonitor} from '@app/modules/workspace-shell/composables/useWorkspaceMemoryPressureMonitor';
+import {useUnencryptedSaveNotice} from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
+import {useAppShellToolPages} from '@app/modules/workspace-shell/composables/useAppShellToolPages';
+import {useWindowTabTransfers} from '@app/modules/workspace-shell/composables/useWindowTabTransfers';
+import {useBrowserInstallHint} from '@app/modules/workspace-shell/composables/useBrowserInstallHint';
+import {useBrowserDirtyUnloadGuard} from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
+import {useDirectOpenAutomationDispatcherShell} from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
 import {
     describeScanCleanupTrigger,
     flushScanCleanupDocumentPreferencesStore,
     flushScanCleanupPreferencesStore,
 } from '@app/modules/scan-cleanup/public/runtime';
-import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
-import { createFallbackToolbarCommandListeners } from '@app/modules/workspace-shell/expose/createFallbackToolbarCommandListeners';
-import { useScanCleanupRunCoordinator } from '@app/modules/workspace-shell/composables/useScanCleanupRunCoordinator';
-import { pruneStartSectionByTabId } from '@app/modules/workspace-shell/tabs/pruneStartSectionByTabId';
-import type { TStartSection } from '@app/types/startSection';
-import type { IHostZenModeState } from '@contracts/hostPlatformFeature';
-import { getHostCapability } from '@app/utils/getHostCapability';
-import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
+import {resolveTabLifecycleStates} from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
+import {createFallbackToolbarCommandListeners} from '@app/modules/workspace-shell/expose/createFallbackToolbarCommandListeners';
+import {useScanCleanupRunCoordinator} from '@app/modules/workspace-shell/composables/useScanCleanupRunCoordinator';
+import {pruneStartSectionByTabId} from '@app/modules/workspace-shell/tabs/pruneStartSectionByTabId';
+import type {TStartSection} from '@app/types/startSection';
+import type {IHostZenModeState} from '@contracts/hostPlatformFeature';
+import {getHostCapability} from '@app/utils/getHostCapability';
+import {getDocumentWindowCapability} from '@app/utils/platformDocuments';
 traceRendererStartup('index.vue script setup start');
 useDirectOpenAutomationDispatcherShell();
 // User-initiated surfaces load on first open; split policy: warmupDesktopViewerChunks.ts.
 const AgentAssistantPanel = defineAsyncComponent(() =>
-    import('@app/modules/agent-panel/public/component-exports/agentAssistantPanel').then(module => module.AgentAssistantPanel));
-const CombinePdfPage = defineAsyncComponent(() =>
-    import('@app/modules/combine/public').then(module => module.CombinePdfPage));
-const editorPanesManager = useEditorPanesManager({isTabEmpty: tabId => isTabEmpty(tabId)});
+    import('@app/modules/agent-panel/public/component-exports/agentAssistantPanel').then((module) => module.AgentAssistantPanel),
+);
+const CombinePdfPage = defineAsyncComponent(() => import('@app/modules/combine/public').then((module) => module.CombinePdfPage));
+const editorPanesManager = useEditorPanesManager({isTabEmpty: (tabId) => isTabEmpty(tabId)});
 const {
     panes,
     tabs,
@@ -337,15 +359,11 @@ const {
     moveTabToPane,
 } = editorPanesManager;
 ensureAtLeastOneTab();
-const { t } = useTypedI18n();
-const {
-    settings: appSettings,
-    save: saveAppSettings,
-    updateSetting,
-} = useSettings();
+const {t} = useTypedI18n();
+const {settings: appSettings, save: saveAppSettings, updateSetting} = useSettings();
 
 async function flushDesktopSettings() {
-    if (!await saveAppSettings()) {
+    if (!(await saveAppSettings())) {
         return false;
     }
     try {
@@ -356,12 +374,8 @@ async function flushDesktopSettings() {
         return false;
     }
 }
-const {
-    unencryptedSaveNoticeOpen,
-    unencryptedSaveNoticeDontShowAgain,
-    confirmUnencryptedSaveNotice,
-    cancelUnencryptedSaveNotice,
-} = useUnencryptedSaveNotice();
+const {unencryptedSaveNoticeOpen, unencryptedSaveNoticeDontShowAgain, confirmUnencryptedSaveNotice, cancelUnencryptedSaveNotice} =
+    useUnencryptedSaveNotice();
 
 function handleUnencryptedSaveNoticeOpenUpdate(open: boolean) {
     if (!open) {
@@ -374,20 +388,18 @@ function handleUnencryptedSaveNoticeDontShowAgainUpdate(value: boolean) {
 }
 const activeToolPage = ref<'combine' | null>(null);
 const isShellActive = ref(true);
-onActivated(() => { isShellActive.value = true; });
-onDeactivated(() => { isShellActive.value = false; });
+onActivated(() => {
+    isShellActive.value = true;
+});
+onDeactivated(() => {
+    isShellActive.value = false;
+});
 const startSectionByTabId = ref<Record<string, TStartSection>>({});
 const isStartupOpenClaimPending = ref(true);
-const {
+const {isBrowserRuntime, isDesktopRuntime} = useRuntimeEnvironment();
+const {browserInstallUrl, dismissBrowserInstallHint, handleBrowserInstallHintClick, showBrowserInstallHint} = useBrowserInstallHint({
     isBrowserRuntime,
-    isDesktopRuntime,
-} = useRuntimeEnvironment();
-const {
-    browserInstallUrl,
-    dismissBrowserInstallHint,
-    handleBrowserInstallHintClick,
-    showBrowserInstallHint,
-} = useBrowserInstallHint({isBrowserRuntime});
+});
 const isFullscreen = ref(false);
 const {
     panelWidth: assistantPanelWidth,
@@ -397,62 +409,56 @@ const {
 // A divider drag and a split or collapse fence the views apart: one ending does not end the other.
 const isEditorDividerResizing = ref(false);
 const isEditorLayoutChanging = ref(false);
-const isWorkspaceLayoutResizing = computed(() => (
-    isAssistantPanelResizing.value || isEditorDividerResizing.value || isEditorLayoutChanging.value
-));
+const isWorkspaceLayoutResizing = computed(
+    () => isAssistantPanelResizing.value || isEditorDividerResizing.value || isEditorLayoutChanging.value,
+);
 const fullscreenSupported = ref(true);
 let zenModeRequestInFlight = false;
 const workspaceMemoryBudget = useWorkspaceMemoryPressureMonitor();
 const tabActivationOrder = ref<string[]>([]);
-watch([
-    activeTabId,
-    tabs,
-], ([
-    tabId,
-    nextTabs,
-], previous) => {
-    const prevTabId = previous?.[0];
-    const prevTabs = previous?.[1];
-    let nextOrder = tabActivationOrder.value;
-    if (tabId && tabId !== prevTabId) {
-        nextOrder = [
-            tabId,
-            ...nextOrder.filter(candidate => candidate !== tabId),
-        ];
-    }
-    if (prevTabs !== undefined && nextTabs !== prevTabs) {
-        const tabIds = new Set(nextTabs.map(tab => tab.id));
-        nextOrder = nextOrder.filter(candidate => tabIds.has(candidate));
-        const nextStartSectionByTabId = pruneStartSectionByTabId(startSectionByTabId.value, nextTabs);
-        if (nextStartSectionByTabId !== startSectionByTabId.value) {
-            startSectionByTabId.value = nextStartSectionByTabId;
+watch(
+    [activeTabId, tabs],
+    ([tabId, nextTabs], previous) => {
+        const prevTabId = previous?.[0];
+        const prevTabs = previous?.[1];
+        let nextOrder = tabActivationOrder.value;
+        if (tabId && tabId !== prevTabId) {
+            nextOrder = [tabId, ...nextOrder.filter((candidate) => candidate !== tabId)];
         }
-    }
-    if (nextOrder !== tabActivationOrder.value) {
-        tabActivationOrder.value = nextOrder;
-    }
-}, { immediate: true });
-const tabLifecycleById = computed(() => Object.fromEntries(
-    resolveTabLifecycleStates({
-        activationOrder: tabActivationOrder.value,
-        panes: panes.value,
-        policy: appSettings.value.tabMemoryPolicy,
-        tabs: tabs.value,
-        documentTabIds: new Set(Object.entries(documentSessionsByTabId.value).flatMap(([
-            tabId,
-            session,
-        ]) => snapshotOccupiesTab(session.snapshot.value) ? [tabId] : [])),
-        dirtyTabIds: new Set(Object.entries(documentSessionsByTabId.value).flatMap(([
-            tabId,
-            session,
-        ]) => session.snapshot.value.dirty ? [tabId] : [])),
-        tier: workspaceMemoryBudget.value.deviceTier,
-        targetWarmViewers: workspaceMemoryBudget.value.targetWarmViewers,
-    }).map(state => [
-        state.tabId,
-        state,
-    ]),
-));
+        if (prevTabs !== undefined && nextTabs !== prevTabs) {
+            const tabIds = new Set(nextTabs.map((tab) => tab.id));
+            nextOrder = nextOrder.filter((candidate) => tabIds.has(candidate));
+            const nextStartSectionByTabId = pruneStartSectionByTabId(startSectionByTabId.value, nextTabs);
+            if (nextStartSectionByTabId !== startSectionByTabId.value) {
+                startSectionByTabId.value = nextStartSectionByTabId;
+            }
+        }
+        if (nextOrder !== tabActivationOrder.value) {
+            tabActivationOrder.value = nextOrder;
+        }
+    },
+    {immediate: true},
+);
+const tabLifecycleById = computed(() =>
+    Object.fromEntries(
+        resolveTabLifecycleStates({
+            activationOrder: tabActivationOrder.value,
+            panes: panes.value,
+            policy: appSettings.value.tabMemoryPolicy,
+            tabs: tabs.value,
+            documentTabIds: new Set(
+                Object.entries(documentSessionsByTabId.value).flatMap(([tabId, session]) =>
+                    snapshotOccupiesTab(session.snapshot.value) ? [tabId] : [],
+                ),
+            ),
+            dirtyTabIds: new Set(
+                Object.entries(documentSessionsByTabId.value).flatMap(([tabId, session]) => (session.snapshot.value.dirty ? [tabId] : [])),
+            ),
+            tier: workspaceMemoryBudget.value.deviceTier,
+            targetWarmViewers: workspaceMemoryBudget.value.targetWarmViewers,
+        }).map((state) => [state.tabId, state]),
+    ),
+);
 const workspaceRestoreTracker = useWorkspaceRestoreTracker();
 const {
     checkForUpdates,
@@ -498,7 +504,9 @@ const {
     resolveDirtyTabCloseDialog,
 } = useDirtyTabCloseDialog({getSession: getDocumentSession});
 const changeWorkspaceLayout = createWorkspaceLayoutChange({
-    setWorkspaceLayoutResizing: value => { isEditorLayoutChanging.value = value; },
+    setWorkspaceLayoutResizing: (value) => {
+        isEditorLayoutChanging.value = value;
+    },
     documentSessionsByTabId,
 });
 useNativeWindowCloseHandshake({
@@ -506,14 +514,12 @@ useNativeWindowCloseHandshake({
     flushSettings: flushDesktopSettings,
     requestDirtyCloseConfirmation: requestDirtyWindowCloseConfirmation,
 });
-useBrowserDirtyUnloadGuard(() => isBrowserRuntime.value && Object.values(documentSessionsByTabId.value)
-    .some(session => session.snapshot.value.dirty));
+useBrowserDirtyUnloadGuard(
+    () => isBrowserRuntime.value && Object.values(documentSessionsByTabId.value).some((session) => session.snapshot.value.dirty),
+);
 const globalToolbarHostRef = ref<HTMLElement | null>(null);
 const shellToolbarRef = ref<{$el: HTMLElement} | null>(null);
-const {
-    hasWorkspaceToolbarContent,
-    workspaceToolbar,
-} = useWorkspaceToolbarContentPresence(globalToolbarHostRef);
+const {hasWorkspaceToolbarContent, workspaceToolbar} = useWorkspaceToolbarContentPresence(globalToolbarHostRef);
 function activateTab(paneId: string, tabId: string) {
     activateEditorTab(paneId, tabId);
 }
@@ -535,18 +541,14 @@ const {
     activeTabDocument,
     isTabEmpty,
     // Read lazily: the command owner is set up further down.
-    isScopedCommandRunning: tabId => isScopedCommandRunning(tabId),
+    isScopedCommandRunning: (tabId) => isScopedCommandRunning(tabId),
 });
 const assistantPanelEnabled = computed(() => isDesktopRuntime.value && appSettings.value.assistantPanelEnabled);
 const assistantPanel = provideAssistantPanel({
     isEnabled: computed(() => assistantPanelEnabled.value && !isFullscreen.value),
     hasActiveDocument: assistantHasActiveDocument,
 });
-const {
-    isAvailable: assistantPanelAvailable,
-    isEnabled: assistantToggleShown,
-    isOpen: assistantPanelOpen,
-} = assistantPanel;
+const {isAvailable: assistantPanelAvailable, isEnabled: assistantToggleShown, isOpen: assistantPanelOpen} = assistantPanel;
 watch(assistantPanelEnabled, (enabled) => {
     if (!enabled) {
         assistantPanelOpen.value = false;
@@ -584,10 +586,8 @@ const {
     requestDirtyTabCloseConfirmation,
     changeWorkspaceLayout,
 });
-const {
-    listeners: fallbackToolbarCommandListeners,
-    run: runFallbackWorkspaceCommand,
-} = createFallbackToolbarCommandListeners(activeWorkspace);
+const {listeners: fallbackToolbarCommandListeners, run: runFallbackWorkspaceCommand} =
+    createFallbackToolbarCommandListeners(activeWorkspace);
 function handleToggleFullscreen() {
     if (!fullscreenSupported.value || (!isFullscreen.value && !shellState.activeWorkspaceHasDocument.value)) {
         return;
@@ -611,7 +611,8 @@ function setZenMode(active: boolean) {
     zenModeRequestInFlight = true;
 
     guardAsync(
-        getHostCapability().setZenMode(active)
+        getHostCapability()
+            .setZenMode(active)
             .then(applyZenModeState)
             .catch((error: unknown) => {
                 isFullscreen.value = previousActive;
@@ -628,15 +629,20 @@ function setZenMode(active: boolean) {
     );
 }
 
-useEventListener(computed(() => isShellActive.value ? window : undefined), 'keydown', (event: KeyboardEvent) => {
-    if (event.key !== 'Escape' || !isFullscreen.value) {
-        return;
-    }
+useEventListener(
+    computed(() => (isShellActive.value ? window : undefined)),
+    'keydown',
+    (event: KeyboardEvent) => {
+        if (event.key !== 'Escape' || !isFullscreen.value) {
+            return;
+        }
 
-    event.preventDefault();
-    event.stopPropagation();
-    setZenMode(false);
-}, { capture: true });
+        event.preventDefault();
+        event.stopPropagation();
+        setZenMode(false);
+    },
+    {capture: true},
+);
 
 let unsubscribeZenModeChange: (() => void) | null = null;
 const shellRootLifecycle = createDisposalFlag();
@@ -665,9 +671,11 @@ onMounted(() => {
     );
 
     if (isAutomationSession()) {
-        cleanupAppShellE2EHooks = installAppShellE2EHooks({setTabMemoryPolicy: (policy) => {
-            updateSetting('tabMemoryPolicy', policy);
-        }});
+        cleanupAppShellE2EHooks = installAppShellE2EHooks({
+            setTabMemoryPolicy: (policy) => {
+                updateSetting('tabMemoryPolicy', policy);
+            },
+        });
     }
 });
 
@@ -711,34 +719,31 @@ const {
 });
 const canUseOcr = useCanUseOcr();
 const canUseScanCleanup = useCanUseScanCleanup();
-const readerToolbarSurface = computed(() => createReaderToolbarSurface({
-    ocr: canUseOcr.value,
-    scanCleanup: canUseScanCleanup.value,
-}));
-const shellScanCleanupTrigger = computed(() => describeScanCleanupTrigger(
-    shellToolbarOcrWorkingCopyPath.value,
-    shellToolbarSnapshot.value.totalPages,
-    t,
-));
+const readerToolbarSurface = computed(() =>
+    createReaderToolbarSurface({
+        ocr: canUseOcr.value,
+        scanCleanup: canUseScanCleanup.value,
+    }),
+);
+const shellScanCleanupTrigger = computed(() =>
+    describeScanCleanupTrigger(shellToolbarOcrWorkingCopyPath.value, shellToolbarSnapshot.value.totalPages, t),
+);
 
-const updatesDialogBindings = reactive(useAppShellUpdatesDialog({
-    updatesStatus,
-    updatesDialog,
-    checkForUpdates,
-    updatesDialogVersion,
-    closeUpdatesDialog,
-    deferUpdate,
-    downloadUpdate,
-    skipUpdateVersion,
-    installUpdateNow,
-}));
+const updatesDialogBindings = reactive(
+    useAppShellUpdatesDialog({
+        updatesStatus,
+        updatesDialog,
+        checkForUpdates,
+        updatesDialogVersion,
+        closeUpdatesDialog,
+        deferUpdate,
+        downloadUpdate,
+        skipUpdateVersion,
+        installUpdateNow,
+    }),
+);
 
-const {
-    handleIncomingTabTransfer,
-    moveTabToNewWindow,
-    moveTabToWindow,
-    mergeWindowInto,
-} = useWindowTabTransfers({
+const {handleIncomingTabTransfer, moveTabToNewWindow, moveTabToWindow, mergeWindowInto} = useWindowTabTransfers({
     activePaneId,
     panes,
     tabs,
@@ -793,11 +798,10 @@ function isTabEmpty(tabId: string) {
 }
 
 function findEmptyTab() {
-    return [
-        getTabById(activeTabId.value),
-        ...tabs.value,
-    ]
-        .find(tab => tab && !workspaceRestoreTracker.has(tab.id) && isTabEmpty(tab.id)) ?? null;
+    return (
+        [getTabById(activeTabId.value), ...tabs.value].find((tab) => tab && !workspaceRestoreTracker.has(tab.id) && isTabEmpty(tab.id)) ??
+        null
+    );
 }
 function activateTabById(tabId: string) {
     const pane = getPaneByTabId(tabId);
@@ -808,12 +812,7 @@ function activateTabById(tabId: string) {
     activateTab(pane.paneId, tabId);
 }
 
-const {
-    recentFiles,
-    isResolved: recentFilesResolved,
-    loadRecentFiles,
-    clearRecentFiles,
-} = useRecentFiles();
+const {recentFiles, isResolved: recentFilesResolved, loadRecentFiles, clearRecentFiles} = useRecentFiles();
 
 const {isScopedCommandRunning} = useAgentWorkspaceSnapshot({
     panes,
@@ -828,11 +827,14 @@ const {isScopedCommandRunning} = useAgentWorkspaceSnapshot({
     activateTab,
 });
 
-const {persistCheckpointNow} = useAppShellResilience({
-    enabled: isDesktopRuntime,
-    editorPanesManager,
-    documentSessionsByTabId,
-}, isStartupOpenClaimPending);
+const {persistCheckpointNow} = useAppShellResilience(
+    {
+        enabled: isDesktopRuntime,
+        editorPanesManager,
+        documentSessionsByTabId,
+    },
+    isStartupOpenClaimPending,
+);
 useScanCleanupRunCoordinator(
     activeWorkspace,
     handleOpenInNewTab,
@@ -843,12 +845,7 @@ useScanCleanupRunCoordinator(
     persistCheckpointNow,
 );
 
-const {
-    closeToolPage,
-    handleCombineOpenResult,
-    openCombinePage,
-    openSettingsPage,
-} = useAppShellToolPages({
+const {closeToolPage, handleCombineOpenResult, openCombinePage, openSettingsPage} = useAppShellToolPages({
     activePaneId,
     activeToolPage,
     activateTabById,
@@ -895,41 +892,50 @@ useAppShellMenuSync({
     tabs,
 });
 
-const { cleanup: cleanupExternalFileDrop } = useExternalFileDrop({
+const {cleanup: cleanupExternalFileDrop} = useExternalFileDrop({
     openPathsInAppropriateTab,
     isEnabled: computed(() => activeToolPage.value === null),
 });
 
-const windowTitle = computed(() => resolveAppWindowTitle({
-    appTitle: t('app.title'),
-    webTitle: t('app.webTitle'),
-    fileName: activeTabDocument.value?.fileName ?? null,
-    isBrowserRuntime: isBrowserRuntime.value,
-}));
+const windowTitle = computed(() =>
+    resolveAppWindowTitle({
+        appTitle: t('app.title'),
+        webTitle: t('app.webTitle'),
+        fileName: activeTabDocument.value?.fileName ?? null,
+        isBrowserRuntime: isBrowserRuntime.value,
+    }),
+);
 
-watch(windowTitle, (nextTitle) => {
-    if (!import.meta.client) {
-        return;
-    }
-
-    if (isBrowserRuntime.value) {
-        if (typeof document === 'undefined' || document.title === nextTitle) {
+watch(
+    windowTitle,
+    (nextTitle) => {
+        if (!import.meta.client) {
             return;
         }
 
-        document.title = nextTitle;
-        syncBrowserWindowTitle();
-        return;
-    }
+        if (isBrowserRuntime.value) {
+            if (typeof document === 'undefined' || document.title === nextTitle) {
+                return;
+            }
 
-    guardAsync((async () => {
-        await getDocumentWindowCapability().setWindowTitle(nextTitle);
-    })(), {
-        category: 'background-diagnostic',
-        scope: 'window-title',
-        message: 'Failed to sync window title',
-    });
-}, { immediate: true });
+            document.title = nextTitle;
+            syncBrowserWindowTitle();
+            return;
+        }
+
+        guardAsync(
+            (async () => {
+                await getDocumentWindowCapability().setWindowTitle(nextTitle);
+            })(),
+            {
+                category: 'background-diagnostic',
+                scope: 'window-title',
+                message: 'Failed to sync window title',
+            },
+        );
+    },
+    {immediate: true},
+);
 
 useTabsShellBindings({
     isActive: isShellActive,
@@ -938,7 +944,7 @@ useTabsShellBindings({
     activeTabId,
     activeWorkspace,
     createTab: () => {
-        return createTab({ activate: true });
+        return createTab({activate: true});
     },
     activateTab: (tabId) => {
         const pane = getPaneByTabId(tabId);
@@ -964,8 +970,8 @@ useTabsShellBindings({
     isStartupOpenClaimPending,
     checkForUpdates,
     openNewPane: splitEditorEmpty,
-    canOpenNewPane: direction => activePaneId.value !== null
-        && tabContextAvailabilityByPane.value[activePaneId.value]?.splitEmpty[direction] === true,
+    canOpenNewPane: (direction) =>
+        activePaneId.value !== null && tabContextAvailabilityByPane.value[activePaneId.value]?.splitEmpty[direction] === true,
     handleWindowTabsAction,
     toggleAssistant: () => assistantPanel.toggle(),
 });

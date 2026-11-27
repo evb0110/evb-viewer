@@ -1,4 +1,4 @@
-import { vi } from 'vitest';
+import {vi} from 'vitest';
 
 type TListener = (...args: unknown[]) => void;
 
@@ -23,12 +23,9 @@ export function createTestEventSender(id: number, send = vi.fn()): ITestEventSen
         destroyed: false,
         emit: (event, ...args) => {
             sender.destroyed ||= event === 'destroyed';
-            const current = [
-                ...(listeners.get(event) ?? []),
-                ...(onceListeners.get(event) ?? []),
-            ];
+            const current = [...(listeners.get(event) ?? []), ...(onceListeners.get(event) ?? [])];
             onceListeners.delete(event);
-            current.forEach(listener => listener(...args));
+            current.forEach((listener) => listener(...args));
             return current.length > 0;
         },
         isDestroyed: vi.fn(() => sender.destroyed),

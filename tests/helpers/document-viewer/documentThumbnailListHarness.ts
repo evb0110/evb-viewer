@@ -1,15 +1,6 @@
 import {vi} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-} from 'vue';
-import type {
-    IDocumentPageRenderRequest,
-    IDocumentPageSource,
-} from '@app/modules/document-viewer/source/documentPageSource';
+import {createApp, defineComponent, h, nextTick, ref} from 'vue';
+import type {IDocumentPageRenderRequest, IDocumentPageSource} from '@app/modules/document-viewer/source/documentPageSource';
 import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumbnailList.vue';
 import {requireDocumentRef} from '@contracts/documentRef';
 
@@ -71,11 +62,13 @@ interface IPendingRender {
 }
 
 const ICON_STUB = defineComponent({
-    props: {name: {
-        type: String,
-        required: true,
-    }},
-    setup: props => () => h('span', {'data-icon': props.name}),
+    props: {
+        name: {
+            type: String,
+            required: true,
+        },
+    },
+    setup: (props) => () => h('span', {'data-icon': props.name}),
 });
 
 class ResizeObserverStub implements ResizeObserver {
@@ -148,8 +141,8 @@ export function installDocumentThumbnailListEnvironment() {
     // frames they schedule instead of for real elapsed time.
     vi.useFakeTimers();
     globalThis.ResizeObserver = ResizeObserverStub;
-    globalThis.requestAnimationFrame = callback => window.setTimeout(() => callback(performance.now()), 0);
-    globalThis.cancelAnimationFrame = handle => window.clearTimeout(handle);
+    globalThis.requestAnimationFrame = (callback) => window.setTimeout(() => callback(performance.now()), 0);
+    globalThis.cancelAnimationFrame = (handle) => window.clearTimeout(handle);
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(220);
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600);
     vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) {
@@ -170,7 +163,9 @@ export function widenDocumentThumbnailFrames(width: number) {
 
 /** Unmounts every rail this harness mounted and undoes the installed globals. */
 export function restoreDocumentThumbnailListEnvironment() {
-    for (const unmount of [...mounted]) unmount();
+    for (const unmount of [...mounted]) {
+        unmount();
+    }
     vi.useRealTimers();
     globalThis.ResizeObserver = originalResizeObserver;
     globalThis.requestAnimationFrame = originalRequestAnimationFrame;
@@ -194,11 +189,7 @@ export function createDocumentThumbnailSourceHarness(
     const renderCalls: number[] = [];
     const renderRequests: IDocumentThumbnailRenderRequestRecord[] = [];
     const runawayPages = new Set<number>();
-    const renderThumbnail = vi.fn((request: {
-        pageNumber: number;
-        widthPx: number;
-        signal?: AbortSignal;
-    }) => {
+    const renderThumbnail = vi.fn((request: {pageNumber: number; widthPx: number; signal?: AbortSignal}) => {
         openThumbnailRenders += 1;
         let open = true;
         const close = () => {
@@ -212,10 +203,7 @@ export function createDocumentThumbnailSourceHarness(
         void render.then(close, close);
         return render;
     });
-    async function startThumbnailRender(request: {
-        pageNumber: number;
-        widthPx: number;
-    }) {
+    async function startThumbnailRender(request: {pageNumber: number; widthPx: number}) {
         sourceActivity += 1;
         renderCalls.push(request.pageNumber);
         renderRequests.push({
@@ -281,7 +269,7 @@ export function createDocumentThumbnailSourceHarness(
     return {
         behaviors,
         async failPendingRender(pageNumber: number) {
-            const index = pending.findIndex(entry => entry.pageNumber === pageNumber);
+            const index = pending.findIndex((entry) => entry.pageNumber === pageNumber);
             const entry = index >= 0 ? pending.splice(index, 1)[0] : undefined;
             if (!entry) {
                 throw new Error(`no pending render for page ${String(pageNumber)}`);
@@ -313,18 +301,21 @@ export function mountDocumentThumbnailList(
     const navigationEvents: MouseEvent[] = [];
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp({render: () => h(DocumentThumbnailList, {
-        source: activeSource.value,
-        currentPage: currentPage.value,
-        isActive: active.value,
-        itemMetricsKey: itemMetricsKey.value,
-        ...(pageRevision === undefined ? {} : {pageRevision}),
-        ...(documentPage === undefined ? {} : {documentPage}),
-        onGoToPage: (pageNumber: number, event: MouseEvent) => {
-            navigations.push(pageNumber);
-            navigationEvents.push(event);
-        },
-    })});
+    const app = createApp({
+        render: () =>
+            h(DocumentThumbnailList, {
+                source: activeSource.value,
+                currentPage: currentPage.value,
+                isActive: active.value,
+                itemMetricsKey: itemMetricsKey.value,
+                ...(pageRevision === undefined ? {} : {pageRevision}),
+                ...(documentPage === undefined ? {} : {documentPage}),
+                onGoToPage: (pageNumber: number, event: MouseEvent) => {
+                    navigations.push(pageNumber);
+                    navigationEvents.push(event);
+                },
+            }),
+    });
     app.component('UIcon', ICON_STUB);
     app.mount(host);
     const unmount = () => {
@@ -360,7 +351,7 @@ export function mountDocumentThumbnailList(
  * is what guarantees its DOM writes are visible afterwards.
  */
 async function drainDocumentThumbnailWork() {
-    await new Promise(resolve => scheduleRealMacrotask(resolve, 0));
+    await new Promise((resolve) => scheduleRealMacrotask(resolve, 0));
     await nextTick();
 }
 
@@ -383,11 +374,11 @@ export async function settleDocumentThumbnailList() {
             return;
         }
         lastActivity = sourceActivity;
-        if (pendingTimers > 0) await vi.advanceTimersToNextTimerAsync();
+        if (pendingTimers > 0) {
+            await vi.advanceTimersToNextTimerAsync();
+        }
     }
-    throw new Error(
-        `the thumbnail rail was still scheduling work after ${String(MAX_SETTLE_ROUNDS)} settle rounds`,
-    );
+    throw new Error(`the thumbnail rail was still scheduling work after ${String(MAX_SETTLE_ROUNDS)} settle rounds`);
 }
 
 export async function scrollDocumentThumbnailRail(host: HTMLElement, scrollTop: number) {
@@ -401,11 +392,7 @@ export async function scrollDocumentThumbnailRail(host: HTMLElement, scrollTop: 
 }
 
 /** Scrolls to an offset and returns a page the rail actually rendered there. */
-export async function scrollToRenderedPage(
-    harness: {renderCalls: number[]},
-    host: HTMLElement,
-    scrollTop: number,
-) {
+export async function scrollToRenderedPage(harness: {renderCalls: number[]}, host: HTMLElement, scrollTop: number) {
     const before = harness.renderCalls.length;
     await scrollDocumentThumbnailRail(host, scrollTop);
     const target = harness.renderCalls.slice(before).at(-1);
@@ -420,5 +407,5 @@ export function documentThumbnailRow(host: HTMLElement, pageNumber: number) {
 }
 
 export function countDocumentThumbnailCalls(calls: readonly number[], pageNumber: number) {
-    return calls.filter(page => page === pageNumber).length;
+    return calls.filter((page) => page === pageNumber).length;
 }

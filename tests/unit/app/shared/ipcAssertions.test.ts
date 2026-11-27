@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     MAX_IPC_PATH_LENGTH,
     assertAbsolutePath,
@@ -20,9 +16,7 @@ describe('ipcAssertions', () => {
 
     it('enforces max length for strings', () => {
         const tooLong = 'a'.repeat(MAX_IPC_PATH_LENGTH + 1);
-        expect(() => assertNonEmptyString(tooLong, 'field')).toThrowError(
-            `field exceeds maximum length (${MAX_IPC_PATH_LENGTH})`,
-        );
+        expect(() => assertNonEmptyString(tooLong, 'field')).toThrowError(`field exceeds maximum length (${MAX_IPC_PATH_LENGTH})`);
     });
 
     it('recognizes absolute path formats', () => {

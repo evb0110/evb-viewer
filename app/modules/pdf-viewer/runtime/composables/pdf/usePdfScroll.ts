@@ -1,4 +1,4 @@
-export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
+export type {IScrollToPageOptions} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 
 /** The page the viewport authority reports, once the authority binds it. */
 export const usePdfScroll = () => {

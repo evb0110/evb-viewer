@@ -1,34 +1,20 @@
-import {
-    mkdir,
-    mkdtemp,
-    rm,
-    symlink,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdir, mkdtemp, rm, symlink, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    join,
-    relative,
-} from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {join, relative} from 'node:path';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 const logged = vi.hoisted(() => [] as string[]);
 
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    warn: (message: string) => {
-        logged.push(message);
-    },
-})}));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: vi.fn(),
+        error: vi.fn(),
+        info: vi.fn(),
+        warn: (message: string) => {
+            logged.push(message);
+        },
+    }),
+}));
 
 const originalPlatform = process.platform;
 
@@ -47,7 +33,7 @@ describe('working copy quarantine', () => {
     beforeEach(async () => {
         vi.resetModules();
         logged.length = 0;
-        const { clearWorkingCopyQuarantinesForTests } = await importQuarantine();
+        const {clearWorkingCopyQuarantinesForTests} = await importQuarantine();
         clearWorkingCopyQuarantinesForTests();
     });
 
@@ -56,11 +42,7 @@ describe('working copy quarantine', () => {
     });
 
     it('answers for a path spelled relative to the process directory', async () => {
-        const {
-            describeWorkingCopyQuarantine,
-            isWorkingCopyQuarantined,
-            quarantineWorkingCopy,
-        } = await importQuarantine();
+        const {describeWorkingCopyQuarantine, isWorkingCopyQuarantined, quarantineWorkingCopy} = await importQuarantine();
         const absolutePath = join(process.cwd(), 'pdf-work-alias', 'working.pdf');
         // The recording caller and the asking caller are different subsystems
         // holding different spellings of the same file. A quarantine that only
@@ -69,29 +51,19 @@ describe('working copy quarantine', () => {
         quarantineWorkingCopy(absolutePath, 'process tree was not proven dead');
 
         expect(isWorkingCopyQuarantined(relative(process.cwd(), absolutePath))).toBe(true);
-        expect(describeWorkingCopyQuarantine(relative(process.cwd(), absolutePath)))
-            .toBe('process tree was not proven dead');
+        expect(describeWorkingCopyQuarantine(relative(process.cwd(), absolutePath))).toBe('process tree was not proven dead');
     });
 
     it('normalizes a path that walks through its own parent', async () => {
-        const {
-            isWorkingCopyQuarantined,
-            quarantineWorkingCopy,
-        } = await importQuarantine();
+        const {isWorkingCopyQuarantined, quarantineWorkingCopy} = await importQuarantine();
         const absolutePath = join(process.cwd(), 'pdf-work-dotdot', 'working.pdf');
-        quarantineWorkingCopy(
-            join(process.cwd(), 'pdf-work-dotdot', 'nested', '..', 'working.pdf'),
-            'process tree was not proven dead',
-        );
+        quarantineWorkingCopy(join(process.cwd(), 'pdf-work-dotdot', 'nested', '..', 'working.pdf'), 'process tree was not proven dead');
 
         expect(isWorkingCopyQuarantined(absolutePath)).toBe(true);
     });
 
     it('answers for a spelling through a symlinked folder', async () => {
-        const {
-            isWorkingCopyQuarantined,
-            quarantineWorkingCopy,
-        } = await importQuarantine();
+        const {isWorkingCopyQuarantined, quarantineWorkingCopy} = await importQuarantine();
         const root = await mkdtemp(join(tmpdir(), 'evb-quarantine-alias-'));
         try {
             await mkdir(join(root, 'real'));
@@ -109,7 +81,7 @@ describe('working copy quarantine', () => {
     });
 
     it('logs the path the caller supplied rather than the normalized key', async () => {
-        const { quarantineWorkingCopy } = await importQuarantine();
+        const {quarantineWorkingCopy} = await importQuarantine();
 
         quarantineWorkingCopy('  ./pdf-work-logged/working.pdf  ', 'process tree was not proven dead');
 
@@ -117,10 +89,7 @@ describe('working copy quarantine', () => {
     });
 
     it('keeps distinct reasons in order and records a repeated one once', async () => {
-        const {
-            describeWorkingCopyQuarantine,
-            quarantineWorkingCopy,
-        } = await importQuarantine();
+        const {describeWorkingCopyQuarantine, quarantineWorkingCopy} = await importQuarantine();
         const absolutePath = join(process.cwd(), 'pdf-work-repeat', 'working.pdf');
 
         quarantineWorkingCopy(absolutePath, 'process tree was not proven dead');
@@ -140,10 +109,7 @@ describe('working copy quarantine', () => {
     });
 
     it('ignores a blank path', async () => {
-        const {
-            isWorkingCopyQuarantined,
-            quarantineWorkingCopy,
-        } = await importQuarantine();
+        const {isWorkingCopyQuarantined, quarantineWorkingCopy} = await importQuarantine();
 
         quarantineWorkingCopy('   ', 'process tree was not proven dead');
 
@@ -157,10 +123,7 @@ describe('working copy quarantine', () => {
         // `beforeEach` evaluated, so this stays a test of the Windows branch even
         // if the module ever samples the platform once at evaluation time.
         vi.resetModules();
-        const {
-            isWorkingCopyQuarantined,
-            quarantineWorkingCopy,
-        } = await importQuarantine();
+        const {isWorkingCopyQuarantined, quarantineWorkingCopy} = await importQuarantine();
         const workingPath = join(process.cwd(), 'PDF-Work-Case', 'Working.pdf');
 
         quarantineWorkingCopy(workingPath, 'process tree was not proven dead');
@@ -171,10 +134,7 @@ describe('working copy quarantine', () => {
     it('keeps case significant elsewhere, where they are two files', async () => {
         setPlatform('linux');
         vi.resetModules();
-        const {
-            isWorkingCopyQuarantined,
-            quarantineWorkingCopy,
-        } = await importQuarantine();
+        const {isWorkingCopyQuarantined, quarantineWorkingCopy} = await importQuarantine();
         const workingPath = join(process.cwd(), 'PDF-Work-Case', 'Working.pdf');
 
         quarantineWorkingCopy(workingPath, 'process tree was not proven dead');

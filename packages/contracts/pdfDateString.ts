@@ -10,7 +10,7 @@ export function isPdfDateString(value: unknown): value is TPdfDateString {
 
 export function requirePdfDateString(value: unknown): TPdfDateString {
     if (!isPdfDateString(value)) {
-        throw new TypeError('PDF date must match D:YYYYMMDDHHmmss with an optional Z or ±HH\'mm\' offset');
+        throw new TypeError("PDF date must match D:YYYYMMDDHHmmss with an optional Z or ±HH'mm' offset");
     }
     return value;
 }

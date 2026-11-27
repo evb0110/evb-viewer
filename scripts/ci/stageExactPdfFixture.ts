@@ -1,28 +1,12 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
-import { fsyncFile } from '@electron/utils/fsyncPath';
-import {
-    createHash,
-    randomUUID,
-} from 'node:crypto';
-import {
-    constants as fsConstants,
-    createReadStream,
-    createWriteStream,
-} from 'node:fs';
-import {
-    copyFile,
-    mkdir,
-    rename,
-    stat,
-    unlink,
-} from 'node:fs/promises';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
+import {fsyncFile} from '@electron/utils/fsyncPath';
+import {createHash, randomUUID} from 'node:crypto';
+import {constants as fsConstants, createReadStream, createWriteStream} from 'node:fs';
+import {copyFile, mkdir, rename, stat, unlink} from 'node:fs/promises';
 import {Transform} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
-import {
-    dirname,
-    resolve,
-} from 'node:path';
+import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 export type TExactPdfFixtureCopyMode = 'clone' | 'stream';
@@ -33,7 +17,9 @@ export interface IExactPdfFixtureIdentity {
     sha256: string;
 }
 
-export interface IExactPdfFixtureExpectation extends IExactPdfFixtureIdentity {profile: string;}
+export interface IExactPdfFixtureExpectation extends IExactPdfFixtureIdentity {
+    profile: string;
+}
 
 export interface IExactPdfFixtureStageResult {
     copyMode: TExactPdfFixtureCopyMode;
@@ -43,17 +29,9 @@ export interface IExactPdfFixtureStageResult {
     stagedPath: string;
 }
 
-type TCopyFileImplementation = (
-    sourcePath: string,
-    targetPath: string,
-    mode?: number,
-) => Promise<void>;
+type TCopyFileImplementation = (sourcePath: string, targetPath: string, mode?: number) => Promise<void>;
 
-type TStreamCopyImplementation = (
-    sourcePath: string,
-    targetPath: string,
-    signal?: AbortSignal,
-) => Promise<void>;
+type TStreamCopyImplementation = (sourcePath: string, targetPath: string, signal?: AbortSignal) => Promise<void>;
 
 type TSyncFileImplementation = (path: string) => Promise<void>;
 
@@ -105,19 +83,11 @@ export const EXACT_PDF_FIXTURE_MANIFEST = Object.freeze({
     },
 } satisfies Record<string, IExactPdfFixtureExpectation>);
 
-
-
 const EXACT_FIXTURE_OPT_IN_REQUIRED = 'EXACT_FIXTURE_OPT_IN_REQUIRED';
 
 const DEFAULT_MAX_BYTES = 2_500_000_000;
 const DEFAULT_TIMEOUT_MS = 15 * 60_000;
-const CLONE_UNSUPPORTED_CODES = new Set([
-    'EINVAL',
-    'ENOSYS',
-    'ENOTSUP',
-    'EOPNOTSUPP',
-    'EXDEV',
-]);
+const CLONE_UNSUPPORTED_CODES = new Set(['EINVAL', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EXDEV']);
 
 function asPositiveInteger(value: string, label: string) {
     const parsed = Number(value);
@@ -217,47 +187,32 @@ function createStageAbortController(timeoutMs: number, parentSignal?: AbortSigna
     };
 }
 
-export function validateExactPdfFixtureIdentity(
-    actual: IExactPdfFixtureIdentity,
-    expected: IExactPdfFixtureIdentity,
-) {
-    const identityKeys: Array<keyof IExactPdfFixtureIdentity> = [
-        'bytes',
-        'pages',
-        'sha256',
-    ];
+export function validateExactPdfFixtureIdentity(actual: IExactPdfFixtureIdentity, expected: IExactPdfFixtureIdentity) {
+    const identityKeys: Array<keyof IExactPdfFixtureIdentity> = ['bytes', 'pages', 'sha256'];
     const mismatches = identityKeys
-        .filter(key => actual[key] !== expected[key])
-        .map(key => `${key}: expected ${String(expected[key])}, got ${String(actual[key])}`);
+        .filter((key) => actual[key] !== expected[key])
+        .map((key) => `${key}: expected ${String(expected[key])}, got ${String(actual[key])}`);
     if (mismatches.length > 0) {
-        throw new Error(
-            `Exact PDF fixture identity mismatch: ${mismatches.join('; ')} `
-            + `(${formatIdentity(actual)})`,
-        );
+        throw new Error(`Exact PDF fixture identity mismatch: ${mismatches.join('; ')} ` + `(${formatIdentity(actual)})`);
     }
     return actual;
 }
 
 function createMaxBytesTransform(maxBytes: number) {
     let bytesRead = 0;
-    return new Transform({transform(chunk: Buffer, _encoding, callback) {
-        bytesRead += chunk.byteLength;
-        if (bytesRead > maxBytes) {
-            callback(new Error(
-                `Exact PDF fixture exceeds the ${maxBytes}-byte resource limit while streaming`,
-            ));
-            return;
-        }
-        callback(null, chunk);
-    }});
+    return new Transform({
+        transform(chunk: Buffer, _encoding, callback) {
+            bytesRead += chunk.byteLength;
+            if (bytesRead > maxBytes) {
+                callback(new Error(`Exact PDF fixture exceeds the ${maxBytes}-byte resource limit while streaming`));
+                return;
+            }
+            callback(null, chunk);
+        },
+    });
 }
 
-async function streamCopyFile(
-    sourcePath: string,
-    targetPath: string,
-    maxBytes: number,
-    signal?: AbortSignal,
-) {
+async function streamCopyFile(sourcePath: string, targetPath: string, maxBytes: number, signal?: AbortSignal) {
     assertMaxBytes(maxBytes);
     throwIfAborted(signal);
     await pipeline(
@@ -277,17 +232,13 @@ export async function copyExactPdfFixture(
     sourcePath: string,
     targetPath: string,
     options: IExactPdfCopyOptions = {},
-): Promise<{mode: TExactPdfFixtureCopyMode;}> {
+): Promise<{mode: TExactPdfFixtureCopyMode}> {
     const copyFileImpl = options.copyFileImpl ?? copyFile;
     const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     assertMaxBytes(maxBytes);
-    const streamCopyImpl = options.streamCopyImpl
-        ?? ((sourcePathToCopy, targetPathToCopy, signal) => streamCopyFile(
-            sourcePathToCopy,
-            targetPathToCopy,
-            maxBytes,
-            signal,
-        ));
+    const streamCopyImpl =
+        options.streamCopyImpl ??
+        ((sourcePathToCopy, targetPathToCopy, signal) => streamCopyFile(sourcePathToCopy, targetPathToCopy, maxBytes, signal));
     const syncFileImpl = options.syncFileImpl ?? fsyncFile;
     const mode = options.mode ?? 'auto';
     const temporaryPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
@@ -297,18 +248,12 @@ export async function copyExactPdfFixture(
     try {
         let copyMode: TExactPdfFixtureCopyMode;
         if (mode === 'stream') {
-            await raceWithAbort(
-                streamCopyImpl(sourcePath, temporaryPath, options.signal),
-                options.signal,
-            );
+            await raceWithAbort(streamCopyImpl(sourcePath, temporaryPath, options.signal), options.signal);
             copyMode = 'stream';
         } else {
             try {
                 throwIfAborted(options.signal);
-                await raceWithAbort(
-                    copyFileImpl(sourcePath, temporaryPath, fsConstants.COPYFILE_FICLONE_FORCE),
-                    options.signal,
-                );
+                await raceWithAbort(copyFileImpl(sourcePath, temporaryPath, fsConstants.COPYFILE_FICLONE_FORCE), options.signal);
                 throwIfAborted(options.signal);
                 copyMode = 'clone';
             } catch (error) {
@@ -316,20 +261,14 @@ export async function copyExactPdfFixture(
                     throw error;
                 }
                 if (mode === 'clone' || !isCloneUnsupportedError(error)) {
-                    throw new Error(
-                        `Exact PDF fixture clone staging failed for ${sourcePath}`,
-                        {cause: error},
-                    );
+                    throw new Error(`Exact PDF fixture clone staging failed for ${sourcePath}`, {cause: error});
                 }
                 // A failed clone may have left a partial destination behind.
                 // Remove it before the streaming implementation opens the same
                 // temporary path with exclusive-create semantics.
                 await unlink(temporaryPath).catch(() => undefined);
                 throwIfAborted(options.signal);
-                await raceWithAbort(
-                    streamCopyImpl(sourcePath, temporaryPath, options.signal),
-                    options.signal,
-                );
+                await raceWithAbort(streamCopyImpl(sourcePath, temporaryPath, options.signal), options.signal);
                 copyMode = 'stream';
             }
         }
@@ -370,18 +309,19 @@ async function hashFile(path: string, timeoutMs: number, signal?: AbortSignal) {
             signal?.removeEventListener('abort', onAbort);
             callback();
         };
-        const fail = (error: Error) => settle(() => {
-            stream.destroy(error);
-            reject(error);
-        });
+        const fail = (error: Error) =>
+            settle(() => {
+                stream.destroy(error);
+                reject(error);
+            });
         const onAbort = () => {
             const reason: unknown = signal?.reason;
             const error = reason instanceof Error ? reason : new Error(`SHA-256 for ${path} was aborted`);
             fail(error);
         };
         signal?.addEventListener('abort', onAbort, {once: true});
-        stream.on('data', chunk => digest.update(chunk));
-        stream.on('error', error => settle(() => reject(error)));
+        stream.on('data', (chunk) => digest.update(chunk));
+        stream.on('error', (error) => settle(() => reject(error)));
         stream.on('end', () => settle(() => resolvePromise(digest.digest('hex'))));
         if (signal?.aborted) {
             onAbort();
@@ -389,11 +329,7 @@ async function hashFile(path: string, timeoutMs: number, signal?: AbortSignal) {
     });
 }
 
-async function runQpdf(
-    args: string[],
-    timeoutMs: number,
-    signal?: AbortSignal,
-) {
+async function runQpdf(args: string[], timeoutMs: number, signal?: AbortSignal) {
     try {
         throwIfAborted(signal);
         return await runDesktopQpdfWasm(args, {
@@ -408,10 +344,7 @@ async function runQpdf(
     }
 }
 
-export async function readExactPdfFixtureIdentity(
-    path: string,
-    options: IExactPdfIdentityOptions = {},
-): Promise<IExactPdfFixtureIdentity> {
+export async function readExactPdfFixtureIdentity(path: string, options: IExactPdfIdentityOptions = {}): Promise<IExactPdfFixtureIdentity> {
     const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     assertTimeout(timeoutMs);
@@ -430,14 +363,8 @@ export async function readExactPdfFixtureIdentity(
     let pageCountOutput: string;
     let sha256: string;
     try {
-        [
-            {stdout: pageCountOutput},
-            sha256,
-        ] = await Promise.all([
-            runQpdf([
-                '--show-npages',
-                path,
-            ], timeoutMs, siblingController.signal),
+        [{stdout: pageCountOutput}, sha256] = await Promise.all([
+            runQpdf(['--show-npages', path], timeoutMs, siblingController.signal),
             hashFile(path, timeoutMs, siblingController.signal),
         ]);
     } catch (error) {
@@ -446,10 +373,7 @@ export async function readExactPdfFixtureIdentity(
     } finally {
         options.signal?.removeEventListener('abort', onAbort);
     }
-    await runQpdf([
-        '--check',
-        path,
-    ], timeoutMs, options.signal);
+    await runQpdf(['--check', path], timeoutMs, options.signal);
     const pages = Number.parseInt(pageCountOutput.trim(), 10);
     if (!Number.isSafeInteger(pages) || pages <= 0) {
         throw new Error(`qpdf returned an invalid page count for ${path}: ${pageCountOutput}`);
@@ -461,9 +385,7 @@ export async function readExactPdfFixtureIdentity(
     };
 }
 
-export async function stageExactPdfFixture(
-    options: IStageExactPdfFixtureOptions,
-): Promise<IExactPdfFixtureStageResult> {
+export async function stageExactPdfFixture(options: IStageExactPdfFixtureOptions): Promise<IExactPdfFixtureStageResult> {
     const sourcePath = resolve(options.sourcePath);
     const stagedPath = resolve(options.outputPath);
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -504,46 +426,41 @@ function isExactPdfFixtureProfileName(value: string): value is TExactPdfFixtureP
     return Object.hasOwn(EXACT_PDF_FIXTURE_MANIFEST, value);
 }
 
-export function resolveExactPdfFixtureExpectation(
-    env: NodeJS.ProcessEnv = process.env,
-): IExactPdfFixtureExpectation {
+export function resolveExactPdfFixtureExpectation(env: NodeJS.ProcessEnv = process.env): IExactPdfFixtureExpectation {
     const configuredProfile = env.EVB_EXACT_FIXTURE_PROFILE?.trim();
     if (configuredProfile === undefined || configuredProfile === '') {
-        throw Object.assign(new Error(
-            'Exact fixture opt-in boundary: a runner must set EVB_EXACT_FIXTURE_PROFILE '
-            + `to one of ${Object.keys(EXACT_PDF_FIXTURE_MANIFEST).join(', ')}; `
-            + 'fixture absence cannot produce a green exact-fixture lane',
-        ), {code: EXACT_FIXTURE_OPT_IN_REQUIRED});
+        throw Object.assign(
+            new Error(
+                'Exact fixture opt-in boundary: a runner must set EVB_EXACT_FIXTURE_PROFILE ' +
+                    `to one of ${Object.keys(EXACT_PDF_FIXTURE_MANIFEST).join(', ')}; ` +
+                    'fixture absence cannot produce a green exact-fixture lane',
+            ),
+            {code: EXACT_FIXTURE_OPT_IN_REQUIRED},
+        );
     }
     const profileName = configuredProfile;
     if (!isExactPdfFixtureProfileName(profileName)) {
         throw new Error(
-            `Unknown EVB_EXACT_FIXTURE_PROFILE '${profileName}'. `
-            + `Expected one of ${Object.keys(EXACT_PDF_FIXTURE_MANIFEST).join(', ')}`,
+            `Unknown EVB_EXACT_FIXTURE_PROFILE '${profileName}'. ` +
+                `Expected one of ${Object.keys(EXACT_PDF_FIXTURE_MANIFEST).join(', ')}`,
         );
     }
     const profile = EXACT_PDF_FIXTURE_MANIFEST[profileName];
 
-    const identityOverrideKeys = [
-        'EVB_EXACT_FIXTURE_BYTES',
-        'EVB_EXACT_FIXTURE_PAGES',
-        'EVB_EXACT_FIXTURE_SHA256',
-    ] as const;
-    const identityOverrides = identityOverrideKeys.filter(key => {
+    const identityOverrideKeys = ['EVB_EXACT_FIXTURE_BYTES', 'EVB_EXACT_FIXTURE_PAGES', 'EVB_EXACT_FIXTURE_SHA256'] as const;
+    const identityOverrides = identityOverrideKeys.filter((key) => {
         const value = env[key];
         return value !== undefined && value.trim() !== '';
     });
     if (identityOverrides.length > 0) {
-        throw new Error(
-            `Exact fixture identity override is not supported: ${identityOverrides.join(', ')}`,
-        );
+        throw new Error(`Exact fixture identity override is not supported: ${identityOverrides.join(', ')}`);
     }
     return profile;
 }
 
 function readArgument(argv: string[], name: string) {
     const prefix = `--${name}=`;
-    return argv.find(argument => argument.startsWith(prefix))?.slice(prefix.length);
+    return argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length);
 }
 
 async function main(argv = process.argv.slice(2)) {
@@ -551,8 +468,8 @@ async function main(argv = process.argv.slice(2)) {
     const outputPath = readArgument(argv, 'output') ?? process.env.EVB_EXACT_FIXTURE_OUTPUT?.trim();
     if (!sourcePath || !outputPath) {
         throw new Error(
-            'Exact fixture staging requires --source=<path> and --output=<path> '
-            + '(or EVB_EXACT_FIXTURE_SOURCE/EVB_EXACT_FIXTURE_OUTPUT)',
+            'Exact fixture staging requires --source=<path> and --output=<path> ' +
+                '(or EVB_EXACT_FIXTURE_SOURCE/EVB_EXACT_FIXTURE_OUTPUT)',
         );
     }
     const expectation = resolveExactPdfFixtureExpectation();
@@ -568,14 +485,20 @@ async function main(argv = process.argv.slice(2)) {
             ? asPositiveInteger(process.env.EVB_EXACT_FIXTURE_TIMEOUT_MS, 'EVB_EXACT_FIXTURE_TIMEOUT_MS')
             : DEFAULT_TIMEOUT_MS,
     });
-    process.stdout.write(`${JSON.stringify({
-        ...result,
-        expectedIdentity: expectation,
-    }, null, 2)}\n`);
+    process.stdout.write(
+        `${JSON.stringify(
+            {
+                ...result,
+                expectedIdentity: expectation,
+            },
+            null,
+            2,
+        )}\n`,
+    );
 }
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-    main().catch(error => {
+    main().catch((error) => {
         console.error(getErrorMessage(error));
         process.exitCode = 1;
     });

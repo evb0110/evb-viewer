@@ -1,49 +1,24 @@
 // @vitest-environment happy-dom
 
 import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
-import {
-    afterAll,
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    inject,
-    nextTick,
-    ref,
-    shallowRef,
-} from 'vue';
-import type {
-    App,
-    Ref,
-} from 'vue';
-import {
-    requireDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import {afterAll, afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, inject, nextTick, ref, shallowRef} from 'vue';
+import type {App, Ref} from 'vue';
+import {requireDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import {
     documentOpenSurfaceSessionKey,
     type IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
-import type { IDocumentNavigationTicket } from '@app/modules/document-viewer/public';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { provideDocumentContextRegistry } from '@app/modules/workspace-shell/documentContext';
-import {
-    documentViewDetachKey,
-    useDocumentViewContext,
-    type TDocumentViewDetach,
-} from '@app/modules/workspace-shell/documentViewContext';
-import { workspaceViewerChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
-import { cast } from '@tests/helpers/cast';
+import type {IPdfSemanticAnchor} from '@contracts/recentReadingView';
+import type {IDocumentNavigationTicket} from '@app/modules/document-viewer/public';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {provideDocumentContextRegistry} from '@app/modules/workspace-shell/documentContext';
+import {documentViewDetachKey, useDocumentViewContext, type TDocumentViewDetach} from '@app/modules/workspace-shell/documentViewContext';
+import {workspaceViewerChunkLoaders} from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
+import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/public';
+import {cast} from '@tests/helpers/cast';
 import type * as PlatformDocuments from '@app/utils/platformDocuments';
-import { seedOpeningSource } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import {seedOpeningSource} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import DocumentWorkspace from '@app/modules/workspace-shell/components/DocumentWorkspace.vue';
 import DocumentSessionHost from '@app/modules/workspace-shell/components/DocumentSessionHost.vue';
 import {requireJobId} from '@contracts/shared';
@@ -51,7 +26,7 @@ import {requireEpochMs} from '@contracts/timestamps';
 import {scanCleanupRun} from '@app/modules/scan-cleanup/public/runtime';
 import type * as VueI18n from 'vue-i18n';
 
-vi.mock('vue-i18n', async importOriginal => {
+vi.mock('vue-i18n', async (importOriginal) => {
     const module = await importOriginal<typeof VueI18n>();
     const {default: messages} = await import('@i18n-app/messages/en');
     const i18n = module.createI18n<[typeof messages], 'en', false>({
@@ -69,8 +44,8 @@ const recentReadingViews = vi.hoisted(() => ({
     readingView: vi.fn(),
     rememberReadingView: async () => undefined,
 }));
-vi.mock('@app/utils/platformDocuments', async importOriginal => ({
-    ...await importOriginal<typeof PlatformDocuments>(),
+vi.mock('@app/utils/platformDocuments', async (importOriginal) => ({
+    ...(await importOriginal<typeof PlatformDocuments>()),
     getDocumentRecentFilesCapability: () => ({recentFiles: recentReadingViews}),
 }));
 
@@ -78,77 +53,90 @@ const toolbarRenders: Array<Record<string, unknown>> = [];
 const surfaceRenders = vi.hoisted(() => ({
     openSurface: null as IDocumentOpenSurfaceSession | null,
     openSurfaces: new Map<string, IDocumentOpenSurfaceSession>(),
-    presentations: new Map<string, {
-        presentDocument: () => void;
-        clearPresentedDocument: () => void;
-        captureReadingAnchor: () => IPdfSemanticAnchor | null
-    }>(),
+    presentations: new Map<
+        string,
+        {
+            presentDocument: () => void;
+            clearPresentedDocument: () => void;
+            captureReadingAnchor: () => IPdfSemanticAnchor | null;
+        }
+    >(),
     // The viewer's count of the reader's scrolls and drags.
     interactionEpoch: {value: 0},
     sidebars: [] as Array<Record<string, unknown>>,
     viewers: [] as Array<Record<string, unknown>>,
 }));
 
-vi.mock('@app/modules/pdf-viewer/components/PdfSidebar.vue', () => ({default: defineComponent({
-    name: 'PdfSidebarStub',
-    inheritAttrs: false,
-    setup(_props, {attrs}) {
-        return () => {
-            surfaceRenders.sidebars.push({...attrs});
-            return h('aside', {class: 'pdf-sidebar-stub'});
-        };
-    },
-})}));
+vi.mock('@app/modules/pdf-viewer/components/PdfSidebar.vue', () => ({
+    default: defineComponent({
+        name: 'PdfSidebarStub',
+        inheritAttrs: false,
+        setup(_props, {attrs}) {
+            return () => {
+                surfaceRenders.sidebars.push({...attrs});
+                return h('aside', {class: 'pdf-sidebar-stub'});
+            };
+        },
+    }),
+}));
 
-vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders', () => ({workspaceViewerChunkLoaders: {chassis: () => Promise.resolve({default: defineComponent({
-    name: 'DocumentViewerChassisStub',
-    inheritAttrs: false,
-    setup(_props, {
-        attrs,
-        expose,
-    }) {
-        // The workspace owns its open surface; the viewer is where it is shared.
-        const tabId = useDocumentViewContext().tabId;
-        const surface = inject(documentOpenSurfaceSessionKey, null)!;
-        surfaceRenders.openSurface = surface;
-        surfaceRenders.openSurfaces.set(tabId, surface);
-        let presented = false;
-        const presentation = {
-            presentDocument: () => { presented = true; },
-            clearPresentedDocument: () => { presented = false; },
-            captureReadingAnchor: () => presented ? {
-                page: tabId === 'tab-1' ? 3 : 5,
-                pageXFraction: tabId === 'tab-1' ? 0.42 : 0.72,
-                pageYFraction: tabId === 'tab-1' ? 0.61 : 0.28,
-                viewportXFraction: 0.5,
-                viewportYFraction: 0.5,
-                affinity: 'center' as const,
-            } : null,
-        };
-        surfaceRenders.presentations.set(tabId, presentation);
-        expose({
-            scrollToPage: vi.fn(),
-            ...presentation,
-            getViewerContainer: () => null,
-            getReaderInteractionEpoch: () => surfaceRenders.interactionEpoch.value,
-            observeReaderCommand: () => {
-                surfaceRenders.interactionEpoch.value += 1;
-            },
-        });
-        return () => {
-            surfaceRenders.viewers.push({...attrs});
-            return h('div', {class: 'document-viewer-chassis-stub'});
-        };
+vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders', () => ({
+    workspaceViewerChunkLoaders: {
+        chassis: () =>
+            Promise.resolve({
+                default: defineComponent({
+                    name: 'DocumentViewerChassisStub',
+                    inheritAttrs: false,
+                    setup(_props, {attrs, expose}) {
+                        // The workspace owns its open surface; the viewer is where it is shared.
+                        const tabId = useDocumentViewContext().tabId;
+                        const surface = inject(documentOpenSurfaceSessionKey, null)!;
+                        surfaceRenders.openSurface = surface;
+                        surfaceRenders.openSurfaces.set(tabId, surface);
+                        let presented = false;
+                        const presentation = {
+                            presentDocument: () => {
+                                presented = true;
+                            },
+                            clearPresentedDocument: () => {
+                                presented = false;
+                            },
+                            captureReadingAnchor: () =>
+                                presented
+                                    ? {
+                                          page: tabId === 'tab-1' ? 3 : 5,
+                                          pageXFraction: tabId === 'tab-1' ? 0.42 : 0.72,
+                                          pageYFraction: tabId === 'tab-1' ? 0.61 : 0.28,
+                                          viewportXFraction: 0.5,
+                                          viewportYFraction: 0.5,
+                                          affinity: 'center' as const,
+                                      }
+                                    : null,
+                        };
+                        surfaceRenders.presentations.set(tabId, presentation);
+                        expose({
+                            scrollToPage: vi.fn(),
+                            ...presentation,
+                            getViewerContainer: () => null,
+                            getReaderInteractionEpoch: () => surfaceRenders.interactionEpoch.value,
+                            observeReaderCommand: () => {
+                                surfaceRenders.interactionEpoch.value += 1;
+                            },
+                        });
+                        return () => {
+                            surfaceRenders.viewers.push({...attrs});
+                            return h('div', {class: 'document-viewer-chassis-stub'});
+                        };
+                    },
+                }),
+            }),
     },
-})})}}));
+}));
 
 vi.mock('@app/modules/scan-cleanup/public/workspace', () => ({
     ScanCleanupWorkspace: defineComponent({
         name: 'ScanCleanupWorkspaceStub',
-        emits: [
-            'done',
-            'ready',
-        ],
+        emits: ['done', 'ready'],
         inheritAttrs: false,
         setup: () => () => h('div', {class: 'scan-cleanup-workspace-stub'}),
     }),
@@ -159,36 +147,39 @@ vi.mock('@app/modules/scan-cleanup/public/workspace', () => ({
     scanCleanupSourceIdentityKey: Symbol('scan-cleanup-source-identity'),
 }));
 
-vi.mock('@app/modules/workspace-shell/components/ScanCleanupWorkspaceLoading.vue', () => ({default: defineComponent({
-    name: 'ScanCleanupWorkspaceLoadingStub',
-    emits: [
-        'done',
-        'ready',
-    ],
-    inheritAttrs: false,
-    setup: () => () => h('div', {class: 'scan-cleanup-workspace-loading-stub'}),
-})}));
+vi.mock('@app/modules/workspace-shell/components/ScanCleanupWorkspaceLoading.vue', () => ({
+    default: defineComponent({
+        name: 'ScanCleanupWorkspaceLoadingStub',
+        emits: ['done', 'ready'],
+        inheritAttrs: false,
+        setup: () => () => h('div', {class: 'scan-cleanup-workspace-loading-stub'}),
+    }),
+}));
 
 // The toolbar is the consumer of the shared navigation ticket. Recording what
 // DocumentWorkspace binds to it is the only way to observe, from outside, the
 // command stream the workspace publishes.
-vi.mock('@app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue', () => ({default: defineComponent({
-    name: 'WorkspacePdfToolbarViewStub',
-    inheritAttrs: false,
-    setup(_props, {attrs}) {
-        return () => {
-            toolbarRenders.push({...attrs});
-            return h('div', {class: 'workspace-pdf-toolbar-stub'});
-        };
-    },
-})}));
+vi.mock('@app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue', () => ({
+    default: defineComponent({
+        name: 'WorkspacePdfToolbarViewStub',
+        inheritAttrs: false,
+        setup(_props, {attrs}) {
+            return () => {
+                toolbarRenders.push({...attrs});
+                return h('div', {class: 'workspace-pdf-toolbar-stub'});
+            };
+        },
+    }),
+}));
 
 // Teleport availability polls `import.meta.client`, which only Nuxt defines.
 // The unit mount provides the host elements itself, so it reports them ready.
-vi.mock('@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability', () => ({useWorkspaceHostTeleportAvailability: () => ({
-    canTeleportStatus: shallowRef(true),
-    canTeleportToolbar: shallowRef(true),
-})}));
+vi.mock('@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability', () => ({
+    useWorkspaceHostTeleportAvailability: () => ({
+        canTeleportStatus: shallowRef(true),
+        canTeleportToolbar: shallowRef(true),
+    }),
+}));
 
 const nuxtState = new Map<string, unknown>();
 vi.stubGlobal('useToast', () => ({add: vi.fn()}));
@@ -213,7 +204,7 @@ afterEach(() => {
     mountedApp = null;
     mountedHost?.remove();
     mountedHost = null;
-    teleportTargets.splice(0).forEach(target => target.remove());
+    teleportTargets.splice(0).forEach((target) => target.remove());
     toolbarRenders.length = 0;
     surfaceRenders.sidebars.length = 0;
     surfaceRenders.viewers.length = 0;
@@ -238,19 +229,21 @@ function readToolbarNavigationTicket() {
     return cast<IDocumentNavigationTicket | null>(readToolbarAttrs()['navigation-ticket'] ?? null);
 }
 
-async function mountDocumentWorkspace(options: {
-    initialSurfaceMode?: 'reader' | 'scan-cleanup';
-    pendingDocumentPath?: TDocumentRef;
-    openSurfaceDocument?: TDocumentRef;
-    /** Another tab views the document without a mounted workspace, as a hidden tab does. */
-    hiddenSecondView?: boolean;
-    linkedSecondView?: boolean;
-    detachDocumentView?: TDocumentViewDetach;
-    /** The tab names this file, and its previous workspace failed before loading it. */
-    failedAssignedPath?: TDocumentRef;
-    /** Whether the tab is shown; it stays mounted when switched away. */
-    shown?: Ref<boolean>;
-} = {}) {
+async function mountDocumentWorkspace(
+    options: {
+        initialSurfaceMode?: 'reader' | 'scan-cleanup';
+        pendingDocumentPath?: TDocumentRef;
+        openSurfaceDocument?: TDocumentRef;
+        /** Another tab views the document without a mounted workspace, as a hidden tab does. */
+        hiddenSecondView?: boolean;
+        linkedSecondView?: boolean;
+        detachDocumentView?: TDocumentViewDetach;
+        /** The tab names this file, and its previous workspace failed before loading it. */
+        failedAssignedPath?: TDocumentRef;
+        /** Whether the tab is shown; it stays mounted when switched away. */
+        shown?: Ref<boolean>;
+    } = {},
+) {
     const documentSession = createWorkspaceDocumentController({tabId: 'tab-1'});
     if (options.failedAssignedPath) {
         documentSession.assign({
@@ -276,13 +269,18 @@ async function mountDocumentWorkspace(options: {
     }
     // An open whose views have not presented its document keeps the tab opening.
     const pendingPresentation = Promise.withResolvers<{status: 'presented'}>();
-    const pendingOpen = options.pendingDocumentPath && documentSession.runOpen({
-        kind: 'open',
-        target: {
-            fileName: 'reopened.pdf',
-            originalPath: options.pendingDocumentPath,
-        },
-    }, async () => ({presentation: pendingPresentation.promise}));
+    const pendingOpen =
+        options.pendingDocumentPath &&
+        documentSession.runOpen(
+            {
+                kind: 'open',
+                target: {
+                    fileName: 'reopened.pdf',
+                    originalPath: options.pendingDocumentPath,
+                },
+            },
+            async () => ({presentation: pendingPresentation.promise}),
+        );
     // Nuxt UI registers its primitives globally in the app; unit mounts resolve
     // them to an inert passthrough so the workspace tree itself stays real.
     const designSystemStub = defineComponent({
@@ -293,40 +291,43 @@ async function mountDocumentWorkspace(options: {
         },
     });
     let registry: ReturnType<typeof provideDocumentContextRegistry> | null = null;
-    const app = createApp(defineComponent({setup() {
-        registry = provideDocumentContextRegistry();
-        return () => [
-            h(DocumentSessionHost, {documentController: documentSession}),
-            ...(options.linkedSecondView ? [
-                'tab-1',
-                'tab-2',
-            ] : ['tab-1']).map(tabId => h(cast<never>(DocumentWorkspace), {
-                tabId,
-                isActive: tabId === 'tab-1' && (options.shown?.value ?? true),
-                isRenderActive: options.shown?.value ?? true,
-                isTabTransitionBusy: false,
-                isFullscreen: false,
-                fullscreenSupported: false,
-                isWorkspaceLayoutResizing: false,
-                splitCacheSession: null,
-                startSection: 'recent',
-                documentSession,
-            })),
-        ];
-    }}));
+    const app = createApp(
+        defineComponent({
+            setup() {
+                registry = provideDocumentContextRegistry();
+                return () => [
+                    h(DocumentSessionHost, {documentController: documentSession}),
+                    ...(options.linkedSecondView ? ['tab-1', 'tab-2'] : ['tab-1']).map((tabId) =>
+                        h(cast<never>(DocumentWorkspace), {
+                            tabId,
+                            isActive: tabId === 'tab-1' && (options.shown?.value ?? true),
+                            isRenderActive: options.shown?.value ?? true,
+                            isTabTransitionBusy: false,
+                            isFullscreen: false,
+                            fullscreenSupported: false,
+                            isWorkspaceLayoutResizing: false,
+                            splitCacheSession: null,
+                            startSection: 'recent',
+                            documentSession,
+                        }),
+                    ),
+                ];
+            },
+        }),
+    );
     if (options.detachDocumentView) {
         app.provide(documentViewDetachKey, options.detachDocumentView);
     }
-    cast<{_context: {components: unknown}}>(app)._context.components = new Proxy({}, {
-        get: () => designSystemStub,
-        has: () => true,
-    });
+    cast<{_context: {components: unknown}}>(app)._context.components = new Proxy(
+        {},
+        {
+            get: () => designSystemStub,
+            has: () => true,
+        },
+    );
     // The shell teleports its toolbar into the app-owned host element, so the
     // toolbar only renders when that target exists.
-    for (const hostId of [
-        'editor-global-toolbar-host',
-        'editor-global-status-host',
-    ]) {
+    for (const hostId of ['editor-global-toolbar-host', 'editor-global-status-host']) {
         const teleportTarget = document.createElement('div');
         teleportTarget.id = hostId;
         document.body.append(teleportTarget);
@@ -417,57 +418,59 @@ describe('DocumentWorkspace navigation command', () => {
         }
     }, 120_000);
 
-    it.each([
-        false,
-        true,
-    ])('keeps each pre-save reading point after the old presentation clears (late revision: %s)', async (lateRevision) => {
-        const path = requireDocumentRef('/tmp/shared.pdf');
-        const workspace = await mountDocumentWorkspace({
-            pendingDocumentPath: path,
-            openSurfaceDocument: path,
-            linkedSecondView: true,
-        });
-        const source = {
-            kind: 'path' as const,
-            path,
-            size: 400,
-        };
-        workspace.documentContext.file.pdfSrc.value = source;
-        await workspace.presentPendingOpen();
-        for (const view of surfaceRenders.presentations.values()) view.presentDocument();
-        await nextTick();
-        const anchors = [...surfaceRenders.presentations.values()].map(view => view.captureReadingAnchor());
-
-        workspace.documentContext.file.publishPdfSource({...source}, 'adopt');
-        for (const view of surfaceRenders.presentations.values()) {
-            view.clearPresentedDocument();
-            expect(view.captureReadingAnchor()).toBeNull();
-        }
-        const revision = lateRevision ? 'revision:saved' : 'revision:test-navigation';
-        if (lateRevision) {
-            workspace.documentContext.file.documentRevisionToken.value = cast<never>(revision);
-        }
-        for (const [
-            index,
-            surface,
-        ] of [...surfaceRenders.openSurfaces.values()].entries()) {
-            surface.acquireSource({
-                documentId: path,
-                documentRevision: revision,
-            }, surface.snapshot.value.generation);
-            expect(surface.snapshot.value.identity?.documentRevision).toBe(revision);
-            expect(surface.navigationTicket.value?.request).toMatchObject({
-                source: 'restore',
-                target: {
-                    kind: 'page',
-                    page: anchors[index]!.page,
-                    anchor: anchors[index],
-                },
+    it.each([false, true])(
+        'keeps each pre-save reading point after the old presentation clears (late revision: %s)',
+        async (lateRevision) => {
+            const path = requireDocumentRef('/tmp/shared.pdf');
+            const workspace = await mountDocumentWorkspace({
+                pendingDocumentPath: path,
+                openSurfaceDocument: path,
+                linkedSecondView: true,
             });
-        }
-        await nextTick();
-        expect(readToolbarNavigationTicket()?.request.target).toMatchObject({anchor: anchors[0]});
-    });
+            const source = {
+                kind: 'path' as const,
+                path,
+                size: 400,
+            };
+            workspace.documentContext.file.pdfSrc.value = source;
+            await workspace.presentPendingOpen();
+            for (const view of surfaceRenders.presentations.values()) {
+                view.presentDocument();
+            }
+            await nextTick();
+            const anchors = [...surfaceRenders.presentations.values()].map((view) => view.captureReadingAnchor());
+
+            workspace.documentContext.file.publishPdfSource({...source}, 'adopt');
+            for (const view of surfaceRenders.presentations.values()) {
+                view.clearPresentedDocument();
+                expect(view.captureReadingAnchor()).toBeNull();
+            }
+            const revision = lateRevision ? 'revision:saved' : 'revision:test-navigation';
+            if (lateRevision) {
+                workspace.documentContext.file.documentRevisionToken.value = cast<never>(revision);
+            }
+            for (const [index, surface] of [...surfaceRenders.openSurfaces.values()].entries()) {
+                surface.acquireSource(
+                    {
+                        documentId: path,
+                        documentRevision: revision,
+                    },
+                    surface.snapshot.value.generation,
+                );
+                expect(surface.snapshot.value.identity?.documentRevision).toBe(revision);
+                expect(surface.navigationTicket.value?.request).toMatchObject({
+                    source: 'restore',
+                    target: {
+                        kind: 'page',
+                        page: anchors[index]!.page,
+                        anchor: anchors[index],
+                    },
+                });
+            }
+            await nextTick();
+            expect(readToolbarNavigationTicket()?.request.target).toMatchObject({anchor: anchors[0]});
+        },
+    );
 
     it('leaves page-mutation navigation in charge of a source reload outside saving', async () => {
         const path = requireDocumentRef('/tmp/mutation.pdf');
@@ -482,7 +485,9 @@ describe('DocumentWorkspace navigation command', () => {
         };
         workspace.documentContext.file.pdfSrc.value = source;
         await workspace.presentPendingOpen();
-        for (const view of surfaceRenders.presentations.values()) view.presentDocument();
+        for (const view of surfaceRenders.presentations.values()) {
+            view.presentDocument();
+        }
         await nextTick();
         workspace.expose.handleGoToPage(4);
         workspace.documentContext.file.pdfSrc.value = {...source};
@@ -494,30 +499,12 @@ describe('DocumentWorkspace navigation command', () => {
     });
 
     it.each([
-        [
-            'page-operation',
-            'nothing',
-        ],
-        [
-            'page-operation',
-            'save',
-        ],
-        [
-            'page-operation',
-            'save-as',
-        ],
-        [
-            'ocr-apply',
-            'nothing',
-        ],
-        [
-            'ocr-apply',
-            'save',
-        ],
-        [
-            'ocr-apply',
-            'save-as',
-        ],
+        ['page-operation', 'nothing'],
+        ['page-operation', 'save'],
+        ['page-operation', 'save-as'],
+        ['ocr-apply', 'nothing'],
+        ['ocr-apply', 'save'],
+        ['ocr-apply', 'save-as'],
     ] as const)('keeps the page a %s places when %s waits behind it', async (kind, queuedSave) => {
         const path = requireDocumentRef('/tmp/queued-save.pdf');
         const workspace = await mountDocumentWorkspace({
@@ -535,19 +522,19 @@ describe('DocumentWorkspace navigation command', () => {
         file.originalPath.value = path;
         file.isDirty.value = true;
         await workspace.presentPendingOpen();
-        for (const view of surfaceRenders.presentations.values()) view.presentDocument();
+        for (const view of surfaceRenders.presentations.values()) {
+            view.presentDocument();
+        }
         await nextTick();
 
         let releaseOperation!: () => void;
-        const gate = new Promise<void>(resolve => {
+        const gate = new Promise<void>((resolve) => {
             releaseOperation = resolve;
         });
         const operation = workspace.documentSession.operationLease.runExclusive(kind, () => gate);
         await vi.waitFor(() => expect(workspace.documentSession.operationLease.activeKind.value).toBe(kind));
         const {saveService} = workspace.documentContext;
-        const save = queuedSave === 'save-as'
-            ? saveService.handleSaveAs()
-            : queuedSave === 'save' ? saveService.handleSave() : null;
+        const save = queuedSave === 'save-as' ? saveService.handleSaveAs() : queuedSave === 'save' ? saveService.handleSave() : null;
         try {
             // The queued save joins the operation lease within the next microtask.
             await nextTick();
@@ -567,9 +554,12 @@ describe('DocumentWorkspace navigation command', () => {
 
     it('#1608 tells the user when closing the document cannot discard its Scan Cleanup settings', async () => {
         const messages: string[] = [];
-        vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
-            messages.push([notice.title, notice.description].filter(Boolean).join(' '));
-        }, remove: vi.fn()}));
+        vi.stubGlobal('useToast', () => ({
+            add: (notice: {title: string; description?: string}) => {
+                messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+            },
+            remove: vi.fn(),
+        }));
         const path = requireDocumentRef('/tmp/cleanup.pdf');
         const write = vi.spyOn(localStorage, 'setItem');
         try {
@@ -674,34 +664,32 @@ describe('DocumentWorkspace navigation command', () => {
         expect(workspace.documentSession.snapshot.value.identity.originalPath).toBeNull();
     }, 120_000);
 
-    it.each([
-        'handleZoomIn',
-        'handleZoomOut',
-        'handleActualSize',
-        'handleFitWidth',
-        'handleFitHeight',
-    ] as const)('lets the reader\'s %s outrank a restored place, which a restored view does not', async (command) => {
-        const workspace = await mountDocumentWorkspace({
-            pendingDocumentPath: requireDocumentRef('/tmp/shared.pdf'),
-            openSurfaceDocument: requireDocumentRef('/tmp/shared.pdf'),
-        });
-        const reader = workspace.expose.followReader!();
+    it.each(['handleZoomIn', 'handleZoomOut', 'handleActualSize', 'handleFitWidth', 'handleFitHeight'] as const)(
+        "lets the reader's %s outrank a restored place, which a restored view does not",
+        async (command) => {
+            const workspace = await mountDocumentWorkspace({
+                pendingDocumentPath: requireDocumentRef('/tmp/shared.pdf'),
+                openSurfaceDocument: requireDocumentRef('/tmp/shared.pdf'),
+            });
+            const reader = workspace.expose.followReader!();
 
-        workspace.expose.restoreViewState({
-            currentPage: null,
-            zoom: 1.5,
-            zoomMode: 'custom',
-            continuousScroll: false,
-            viewMode: 'facing',
-            viewRotation: 90,
-        });
-        expect(reader.moved()).toBe(false);
-        expect(workspace.expose.getToolbarSnapshot().zoom).toBe(1.5);
+            workspace.expose.restoreViewState({
+                currentPage: null,
+                zoom: 1.5,
+                zoomMode: 'custom',
+                continuousScroll: false,
+                viewMode: 'facing',
+                viewRotation: 90,
+            });
+            expect(reader.moved()).toBe(false);
+            expect(workspace.expose.getToolbarSnapshot().zoom).toBe(1.5);
 
-        workspace.expose[command]();
-        expect(reader.moved()).toBe(true);
-        reader.finish();
-    }, 120_000);
+            workspace.expose[command]();
+            expect(reader.moved()).toBe(true);
+            reader.finish();
+        },
+        120_000,
+    );
 
     describe('following the reader of an open across the viewer routing', () => {
         // The workspace routes its viewer through the PDF or the DjVu slot as
@@ -710,10 +698,7 @@ describe('DocumentWorkspace navigation command', () => {
         // driven here directly, before the workspace re-renders and re-binds.
         async function mountFollowedView() {
             surfaceRenders.interactionEpoch.value = 3;
-            const {
-                documentContext,
-                expose,
-            } = await mountDocumentWorkspace();
+            const {documentContext, expose} = await mountDocumentWorkspace();
             const view = cast<{
                 pdfViewerRef: {value: unknown};
                 djvuViewerRef: {value: unknown};
@@ -750,7 +735,7 @@ describe('DocumentWorkspace navigation command', () => {
             followed.reader.finish();
         }, 120_000);
 
-        it('counts a move in a different chassis that replaced the followed one from that chassis\'s start', async () => {
+        it("counts a move in a different chassis that replaced the followed one from that chassis's start", async () => {
             const followed = await mountFollowedView();
             const replacementMoves = {value: 0};
 
@@ -765,15 +750,8 @@ describe('DocumentWorkspace navigation command', () => {
     });
 
     it('ends a normal open whose admission throws as a failed open ends: its view takes no later reading seed', async () => {
-        const {
-            documentContext,
-            documentSession,
-            expose,
-        } = await mountDocumentWorkspace();
-        const {
-            zoom: zoomBefore,
-            zoomMode: zoomModeBefore,
-        } = expose.getToolbarSnapshot();
+        const {documentContext, documentSession, expose} = await mountDocumentWorkspace();
+        const {zoom: zoomBefore, zoomMode: zoomModeBefore} = expose.getToolbarSnapshot();
         recentReadingViews.readingView.mockResolvedValue({
             currentPage: 27,
             pageCount: 40,
@@ -784,13 +762,19 @@ describe('DocumentWorkspace navigation command', () => {
             viewRotation: 0,
         });
 
-        await expect(documentContext.views.runDocumentOpen(documentContext.views.soleView.value, {
-            kind: 'open',
-            target: {
-                fileName: 'remembered.pdf',
-                originalPath: requireDocumentRef('/tmp/remembered.pdf'),
-            },
-        }, () => Promise.reject(new Error('admission refused')))).rejects.toThrow('admission refused');
+        await expect(
+            documentContext.views.runDocumentOpen(
+                documentContext.views.soleView.value,
+                {
+                    kind: 'open',
+                    target: {
+                        fileName: 'remembered.pdf',
+                        originalPath: requireDocumentRef('/tmp/remembered.pdf'),
+                    },
+                },
+                () => Promise.reject(new Error('admission refused')),
+            ),
+        ).rejects.toThrow('admission refused');
         // A late source admission for the open that ended reaches no open.
         await seedOpeningSource(documentSession, requireDocumentRef('/tmp/remembered-working.pdf'), () => Promise.resolve(40));
 
@@ -801,111 +785,123 @@ describe('DocumentWorkspace navigation command', () => {
         });
     }, 120_000);
 
-    it.each([
-        'fails while hidden',
-        'is shown again and paints',
-    ])('keeps a page-source open switched away before its first visual until its view %s', async (ending) => {
-        const shown = ref(true);
-        const {
-            documentContext,
-            documentSession,
-        } = await mountDocumentWorkspace({shown});
-        const path = requireDocumentRef('/tmp/book.djvu');
-        let settled: boolean | 'pending' = 'pending';
-        void documentContext.views.runDocumentOpen(documentContext.views.soleView.value, {
-            kind: 'open',
-            target: {
-                fileName: 'book.djvu',
-                originalPath: path,
-                isDjvu: true,
-            },
-        }, async () => ({
-            status: 'opened',
-            result: {
-                kind: 'djvu',
-                originalPath: path,
-                workingPath: '',
-            },
-            presentation: null,
-        })).then((opened) => { settled = opened; });
-        await vi.waitFor(() => expect(documentSession.snapshot.value.phase).toBe('opening'));
-        shown.value = false;
-        await nextTick();
-        await new Promise<void>(resolve => setImmediate(resolve));
-        expect(settled, 'a hidden view has not shown the first page yet').toBe('pending');
+    it.each(['fails while hidden', 'is shown again and paints'])(
+        'keeps a page-source open switched away before its first visual until its view %s',
+        async (ending) => {
+            const shown = ref(true);
+            const {documentContext, documentSession} = await mountDocumentWorkspace({shown});
+            const path = requireDocumentRef('/tmp/book.djvu');
+            let settled: boolean | 'pending' = 'pending';
+            void documentContext.views
+                .runDocumentOpen(
+                    documentContext.views.soleView.value,
+                    {
+                        kind: 'open',
+                        target: {
+                            fileName: 'book.djvu',
+                            originalPath: path,
+                            isDjvu: true,
+                        },
+                    },
+                    async () => ({
+                        status: 'opened',
+                        result: {
+                            kind: 'djvu',
+                            originalPath: path,
+                            workingPath: '',
+                        },
+                        presentation: null,
+                    }),
+                )
+                .then((opened) => {
+                    settled = opened;
+                });
+            await vi.waitFor(() => expect(documentSession.snapshot.value.phase).toBe('opening'));
+            shown.value = false;
+            await nextTick();
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(settled, 'a hidden view has not shown the first page yet').toBe('pending');
 
-        if (ending === 'fails while hidden') {
-            documentContext.file.pdfError.value = 'The first page could not be shown.';
-            await vi.waitFor(() => expect(settled).toBe(false));
-            return;
-        }
-        shown.value = true;
-        await nextTick();
-        await new Promise<void>(resolve => setImmediate(resolve));
-        expect(settled).toBe('pending');
-        const surface = surfaceRenders.openSurfaces.get('tab-1')!;
-        const generation = surface.begin({
-            documentId: path,
-            documentRevision: 'revision-1',
-        });
-        surface.commitGeometry(generation, {
-            width: 612,
-            height: 792,
-            margin: 20,
-        });
-        const fence = surface.createRenderFence({
-            generation,
-            documentRevision: 'revision-1',
-            renderVersion: 1,
-            requestId: 1,
-            pageNumber: 1,
-        })!;
-        surface.commitCanvas(fence);
-        surface.commitViewport({
-            generation,
-            documentRevision: 'revision-1',
-            viewportIntentId: fence.viewportIntentId,
-            documentGeometryRevision: 1,
-            interactionEpoch: 0,
-            pageNumber: 1,
-            left: 0,
-            top: 0,
-        });
-        expect(surface.markReady(fence)).toBe(true);
-        await vi.waitFor(() => expect(settled).toBe(true));
-        expect(documentSession.snapshot.value.phase).toBe('presented');
-    });
+            if (ending === 'fails while hidden') {
+                documentContext.file.pdfError.value = 'The first page could not be shown.';
+                await vi.waitFor(() => expect(settled).toBe(false));
+                return;
+            }
+            shown.value = true;
+            await nextTick();
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(settled).toBe('pending');
+            const surface = surfaceRenders.openSurfaces.get('tab-1')!;
+            const generation = surface.begin({
+                documentId: path,
+                documentRevision: 'revision-1',
+            });
+            surface.commitGeometry(generation, {
+                width: 612,
+                height: 792,
+                margin: 20,
+            });
+            const fence = surface.createRenderFence({
+                generation,
+                documentRevision: 'revision-1',
+                renderVersion: 1,
+                requestId: 1,
+                pageNumber: 1,
+            })!;
+            surface.commitCanvas(fence);
+            surface.commitViewport({
+                generation,
+                documentRevision: 'revision-1',
+                viewportIntentId: fence.viewportIntentId,
+                documentGeometryRevision: 1,
+                interactionEpoch: 0,
+                pageNumber: 1,
+                left: 0,
+                top: 0,
+            });
+            expect(surface.markReady(fence)).toBe(true);
+            await vi.waitFor(() => expect(settled).toBe(true));
+            expect(documentSession.snapshot.value.phase).toBe('presented');
+        },
+    );
 
     it.each([
         ['failed', false],
         ['presented', true],
     ] as const)('ends a generated open by its source job, without a paint: %s', async (job, opened) => {
-        const {
-            documentContext,
-            documentSession,
-        } = await mountDocumentWorkspace();
+        const {documentContext, documentSession} = await mountDocumentWorkspace();
         const path = requireDocumentRef('/tmp/combined.pdf');
 
-        await expect(documentContext.views.runDocumentOpen(documentContext.views.soleView.value, {
-            kind: 'open',
-            target: {
-                fileName: 'combined.pdf',
-                originalPath: path,
-            },
-            acceptDocumentWithoutVisual: true,
-        }, async () => ({
-            status: 'opened',
-            result: {
-                kind: 'pdf',
-                originalPath: path,
-                workingPath: path,
-                isGenerated: true,
-            },
-            presentation: Promise.resolve(job === 'failed' ? {
-                status: 'failed',
-                error: new Error('The combined PDF did not load.'),
-            } : {status: 'presented'}),
-        }))).resolves.toBe(opened);
+        await expect(
+            documentContext.views.runDocumentOpen(
+                documentContext.views.soleView.value,
+                {
+                    kind: 'open',
+                    target: {
+                        fileName: 'combined.pdf',
+                        originalPath: path,
+                    },
+                    acceptDocumentWithoutVisual: true,
+                },
+                async () => ({
+                    status: 'opened',
+                    result: {
+                        kind: 'pdf',
+                        originalPath: path,
+                        workingPath: path,
+                        isGenerated: true,
+                    },
+                    presentation: Promise.resolve(
+                        job === 'failed'
+                            ? {
+                                  status: 'failed',
+                                  error: new Error('The combined PDF did not load.'),
+                              }
+                            : {status: 'presented'},
+                    ),
+                }),
+            ),
+        ).resolves.toBe(opened);
         expect(documentSession.snapshot.value.activeTransaction).toBeNull();
     });
 });

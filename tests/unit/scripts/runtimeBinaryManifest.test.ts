@@ -1,44 +1,26 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    computeRuntimeBinaryManifestSha256,
-    validateRuntimeBinaryManifest,
-} from '@scripts/runtimeBinaryArchive';
-import {
-    RUNTIME_BINARY_MANIFEST,
-    RUNTIME_BINARY_MANIFEST_ENTRIES,
-    TESSDATA_RUNTIME_DATA_ENTRY,
-} from '@scripts/runtimeBinaryManifest';
+import {describe, expect, it} from 'vitest';
+import {computeRuntimeBinaryManifestSha256, validateRuntimeBinaryManifest} from '@scripts/runtimeBinaryArchive';
+import {RUNTIME_BINARY_MANIFEST, RUNTIME_BINARY_MANIFEST_ENTRIES, TESSDATA_RUNTIME_DATA_ENTRY} from '@scripts/runtimeBinaryManifest';
 import {assertAllowedRuntimeBinaryDownloadRedirect} from '@scripts/fetchRuntimeBinaries';
 import {validateRuntimeBinaryArchivePaths} from '@scripts/validateRuntimeBinaryArchivePaths';
 
 const firstRuntimeEntry = RUNTIME_BINARY_MANIFEST.entries[0];
-if (!firstRuntimeEntry) throw new Error('Runtime manifest test requires one binary entry.');
+if (!firstRuntimeEntry) {
+    throw new Error('Runtime manifest test requires one binary entry.');
+}
 
 describe('runtime binary manifest', () => {
     it('covers every tracked runtime family on every currently packed target', () => {
         expect(validateRuntimeBinaryManifest(RUNTIME_BINARY_MANIFEST)).toBe(RUNTIME_BINARY_MANIFEST);
         expect(RUNTIME_BINARY_MANIFEST_ENTRIES).toHaveLength(5);
-        expect(new Set(RUNTIME_BINARY_MANIFEST_ENTRIES.map(entry => entry.familyId))).toEqual(
-            new Set(['poppler']),
-        );
-        expect(new Set(RUNTIME_BINARY_MANIFEST_ENTRIES.map(entry => entry.target.platformArch))).toEqual(
-            new Set([
-                'darwin-arm64',
-                'linux-x64',
-                'linux-arm64',
-                'win32-x64',
-                'win32-arm64',
-            ]),
+        expect(new Set(RUNTIME_BINARY_MANIFEST_ENTRIES.map((entry) => entry.familyId))).toEqual(new Set(['poppler']));
+        expect(new Set(RUNTIME_BINARY_MANIFEST_ENTRIES.map((entry) => entry.target.platformArch))).toEqual(
+            new Set(['darwin-arm64', 'linux-x64', 'linux-arm64', 'win32-x64', 'win32-arm64']),
         );
         expect(RUNTIME_BINARY_MANIFEST.dataEntries).toEqual([TESSDATA_RUNTIME_DATA_ENTRY]);
-        expect(computeRuntimeBinaryManifestSha256(
-            RUNTIME_BINARY_MANIFEST.entries,
-            RUNTIME_BINARY_MANIFEST.dataEntries,
-        )).toBe(RUNTIME_BINARY_MANIFEST.manifestSha256);
+        expect(computeRuntimeBinaryManifestSha256(RUNTIME_BINARY_MANIFEST.entries, RUNTIME_BINARY_MANIFEST.dataEntries)).toBe(
+            RUNTIME_BINARY_MANIFEST.manifestSha256,
+        );
     });
 
     it('binds every archive to the repository release asset and its staged executable', () => {
@@ -54,33 +36,33 @@ describe('runtime binary manifest', () => {
     });
 
     it('rejects a changed archive URL under the fixed manifest identity', () => {
-        expect(() => validateRuntimeBinaryManifest({
-            ...RUNTIME_BINARY_MANIFEST,
-            entries: [{
-                ...firstRuntimeEntry,
-                archiveUrl: 'https://example.test/replaced-runtime.tar.gz',
-            }],
-        })).toThrow('does not match');
+        expect(() =>
+            validateRuntimeBinaryManifest({
+                ...RUNTIME_BINARY_MANIFEST,
+                entries: [
+                    {
+                        ...firstRuntimeEntry,
+                        archiveUrl: 'https://example.test/replaced-runtime.tar.gz',
+                    },
+                ],
+            }),
+        ).toThrow('does not match');
     });
 
     it('rejects unsafe archive paths before extraction', () => {
-        expect(validateRuntimeBinaryArchivePaths([
-            'qpdf/linux-x64/bin/qpdf',
-            'qpdf/linux-x64/lib/libqpdf.so',
-        ])).toHaveLength(2);
-        expect(() => validateRuntimeBinaryArchivePaths(['qpdf/linux-x64/../../escape'])).toThrow(
-            'safe relative path',
-        );
+        expect(validateRuntimeBinaryArchivePaths(['qpdf/linux-x64/bin/qpdf', 'qpdf/linux-x64/lib/libqpdf.so'])).toHaveLength(2);
+        expect(() => validateRuntimeBinaryArchivePaths(['qpdf/linux-x64/../../escape'])).toThrow('safe relative path');
     });
 
     it('keeps redirects constrained to GitHub release assets', () => {
-        expect(assertAllowedRuntimeBinaryDownloadRedirect(
-            firstRuntimeEntry.archiveUrl,
-            'https://release-assets.githubusercontent.com/github-production-release-asset/archive',
-        )).toContain('release-assets.githubusercontent.com');
-        expect(() => assertAllowedRuntimeBinaryDownloadRedirect(
-            firstRuntimeEntry.archiveUrl,
-            'https://objects.example.test/runtime.tar.gz',
-        )).toThrow('untrusted origin');
+        expect(
+            assertAllowedRuntimeBinaryDownloadRedirect(
+                firstRuntimeEntry.archiveUrl,
+                'https://release-assets.githubusercontent.com/github-production-release-asset/archive',
+            ),
+        ).toContain('release-assets.githubusercontent.com');
+        expect(() =>
+            assertAllowedRuntimeBinaryDownloadRedirect(firstRuntimeEntry.archiveUrl, 'https://objects.example.test/runtime.tar.gz'),
+        ).toThrow('untrusted origin');
     });
 });

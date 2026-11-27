@@ -1,32 +1,21 @@
 // Page-side capture: prepares the live DOM so dom-to-svg reproduces what the browser paints,
 // captures, then undoes every change. Injected together with d2s.bundle.js.
 // Every correction is made IN PLACE (same stacking context, same clipping) so later paint order is right.
-window.__filmCapture = async function filmCapture({
-    width,
-    height: viewportHeight,
-    prefix,
-    fullPage,
-}) {
+window.__filmCapture = async function filmCapture({width, height: viewportHeight, prefix, fullPage}) {
     const undo = [];
     const setStyle = (el, props) => {
         const old = {};
-        for (const k of Object.keys(props)) old[k] = [
-            el.style.getPropertyValue(k),
-            el.style.getPropertyPriority(k),
-        ];
+        for (const k of Object.keys(props)) {
+            old[k] = [el.style.getPropertyValue(k), el.style.getPropertyPriority(k)];
+        }
         undo.push(() => {
-            for (const [
-                k,
-                [
-                    v,
-                    p,
-                ],
-            ] of Object.entries(old)) el.style.setProperty(k, v, p);
+            for (const [k, [v, p]] of Object.entries(old)) {
+                el.style.setProperty(k, v, p);
+            }
         });
-        for (const [
-            k,
-            v,
-        ] of Object.entries(props)) el.style.setProperty(k, v, 'important');
+        for (const [k, v] of Object.entries(props)) {
+            el.style.setProperty(k, v, 'important');
+        }
     };
     const added = [];
     const addNode = (node, insert) => {
@@ -35,18 +24,13 @@ window.__filmCapture = async function filmCapture({
     };
 
     // Resolve any CSS colour (oklch, color-mix, ...) to rgba() via a 1x1 canvas.
-    const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    const ctx = document.createElement('canvas').getContext('2d', {willReadFrequently: true});
     const toRgb = (color) => {
         ctx.clearRect(0, 0, 1, 1);
         ctx.fillStyle = '#000';
         ctx.fillStyle = color;
         ctx.fillRect(0, 0, 1, 1);
-        const [
-            r,
-            g,
-            b,
-            a,
-        ] = ctx.getImageData(0, 0, 1, 1).data;
+        const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
         return `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(3)})`;
     };
 
@@ -68,12 +52,16 @@ window.__filmCapture = async function filmCapture({
 
     const effectiveOpacity = (el) => {
         let o = 1;
-        for (let e = el; e && e.nodeType === 1; e = e.parentElement) o *= parseFloat(getComputedStyle(e).opacity) || 0;
+        for (let e = el; e && e.nodeType === 1; e = e.parentElement) {
+            o *= parseFloat(getComputedStyle(e).opacity) || 0;
+        }
         return o;
     };
     const isVisible = (el) => {
         const r = el.getBoundingClientRect();
-        if (r.width === 0 || r.height === 0) return false;
+        if (r.width === 0 || r.height === 0) {
+            return false;
+        }
         const cs = getComputedStyle(el);
         return cs.visibility !== 'hidden' && cs.display !== 'none';
     };
@@ -86,7 +74,7 @@ window.__filmCapture = async function filmCapture({
 
     // 1. Development-only chrome.
     for (const el of document.querySelectorAll('#nuxt-devtools-container, nuxt-devtools-frame, #nuxt-devtools-anchor')) {
-        setStyle(el, { display: 'none' });
+        setStyle(el, {display: 'none'});
     }
 
     // 2. Unroll inner scroll containers for full-page captures.
@@ -114,14 +102,20 @@ window.__filmCapture = async function filmCapture({
     // 2b. Visually hidden elements (sr-only: clip-path inset(50%) / clip rect(0 0 0 0)) - dom-to-svg ignores clipping.
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
-        if (/inset\((50|100)%\)/.test(cs.clipPath) || /rect\(0px,? 0px,? 0px,? 0px\)/.test(cs.clip)) setStyle(el, { visibility: 'hidden' });
+        if (/inset\((50|100)%\)/.test(cs.clipPath) || /rect\(0px,? 0px,? 0px,? 0px\)/.test(cs.clip)) {
+            setStyle(el, {visibility: 'hidden'});
+        }
     }
 
     // 2c. text-overflow: ellipsis - truncate overflowing single-text elements to what the browser shows.
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
-        if (cs.textOverflow !== 'ellipsis' || el.scrollWidth <= el.clientWidth + 1) continue;
-        if (el.childNodes.length !== 1 || el.firstChild.nodeType !== Node.TEXT_NODE) continue;
+        if (cs.textOverflow !== 'ellipsis' || el.scrollWidth <= el.clientWidth + 1) {
+            continue;
+        }
+        if (el.childNodes.length !== 1 || el.firstChild.nodeType !== Node.TEXT_NODE) {
+            continue;
+        }
         const node = el.firstChild;
         const original = node.nodeValue;
         undo.push(() => {
@@ -132,8 +126,11 @@ window.__filmCapture = async function filmCapture({
         while (lo < hi) {
             const mid = Math.ceil((lo + hi) / 2);
             node.nodeValue = `${original.slice(0, mid).trimEnd()}…`;
-            if (el.scrollWidth <= el.clientWidth + 1) lo = mid;
-            else hi = mid - 1;
+            if (el.scrollWidth <= el.clientWidth + 1) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
         }
         node.nodeValue = `${original.slice(0, lo).trimEnd()}…`;
     }
@@ -142,23 +139,36 @@ window.__filmCapture = async function filmCapture({
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
         const rad = parseFloat(cs.borderTopLeftRadius);
-        if (!(rad > 1000)) continue;
+        if (!(rad > 1000)) {
+            continue;
+        }
         const r = el.getBoundingClientRect();
-        if (!r.width || !r.height) continue;
-        setStyle(el, { 'border-radius': `${Math.min(r.width, r.height) / 2}px` });
+        if (!r.width || !r.height) {
+            continue;
+        }
+        setStyle(el, {'border-radius': `${Math.min(r.width, r.height) / 2}px`});
     }
 
     // 2e. overflow:hidden + rounded parent: dom-to-svg does not clip children, so give children that
     //     fill the parent the parent's radius (radio dots, avatars, pill buttons).
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
-        if (cs.overflow === 'visible' || !(parseFloat(cs.borderTopLeftRadius) > 0)) continue;
+        if (cs.overflow === 'visible' || !(parseFloat(cs.borderTopLeftRadius) > 0)) {
+            continue;
+        }
         const r = el.getBoundingClientRect();
-        if (!r.width || !r.height) continue;
+        if (!r.width || !r.height) {
+            continue;
+        }
         for (const child of el.querySelectorAll('*')) {
             const c = child.getBoundingClientRect();
-            if (Math.abs(c.left - r.left) < 1.5 && Math.abs(c.top - r.top) < 1.5 && Math.abs(c.width - r.width) < 1.5 && Math.abs(c.height - r.height) < 1.5) {
-                setStyle(child, { 'border-radius': cs.borderRadius });
+            if (
+                Math.abs(c.left - r.left) < 1.5 &&
+                Math.abs(c.top - r.top) < 1.5 &&
+                Math.abs(c.width - r.width) < 1.5 &&
+                Math.abs(c.height - r.height) < 1.5
+            ) {
+                setStyle(child, {'border-radius': cs.borderRadius});
             }
         }
     }
@@ -166,7 +176,9 @@ window.__filmCapture = async function filmCapture({
     // 3. Canvases (PDF pages) -> in-place images.
     const canvasInfo = [];
     for (const cv of document.querySelectorAll('canvas')) {
-        if (!isVisible(cv)) continue;
+        if (!isVisible(cv)) {
+            continue;
+        }
         let url;
         try {
             url = cv.toDataURL('image/webp', 0.8);
@@ -179,23 +191,31 @@ window.__filmCapture = async function filmCapture({
         const r = cv.getBoundingClientRect();
         const img = document.createElement('img');
         const cs = getComputedStyle(cv);
-        for (let i = 0; i < cs.length; i++) img.style.setProperty(cs[i], cs.getPropertyValue(cs[i]));
+        for (let i = 0; i < cs.length; i++) {
+            img.style.setProperty(cs[i], cs.getPropertyValue(cs[i]));
+        }
         img.style.width = `${r.width}px`;
         img.style.height = `${r.height}px`;
         img.src = url;
         addNode(img, (n) => cv.before(n));
-        setStyle(cv, { display: 'none' });
+        setStyle(cv, {display: 'none'});
     }
 
     // 3a. dom-to-svg paints in DOM order and ignores z-index, so a fixed element covering the viewport
     //     (EVB Player's full window mode) would be drawn under later siblings. Hide what it covers.
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
-        if (cs.position !== 'fixed' || !(parseInt(cs.zIndex, 10) > 0) || !isVisible(el)) continue;
+        if (cs.position !== 'fixed' || !(parseInt(cs.zIndex, 10) > 0) || !isVisible(el)) {
+            continue;
+        }
         const r = el.getBoundingClientRect();
-        if (r.width * r.height < 0.9 * width * viewportHeight) continue;
+        if (r.width * r.height < 0.9 * width * viewportHeight) {
+            continue;
+        }
         for (const other of document.querySelectorAll('body *')) {
-            if (!el.contains(other) && !other.contains(el)) setStyle(other, { visibility: 'hidden' });
+            if (!el.contains(other) && !other.contains(el)) {
+                setStyle(other, {visibility: 'hidden'});
+            }
         }
         break;
     }
@@ -203,7 +223,9 @@ window.__filmCapture = async function filmCapture({
     // 3b. Videos -> in-place images. dom-to-svg cannot draw a <video>; the recorder supplies the
     //     current frame per media file name (window.__filmVideoFrames), drawn with the element's object-fit.
     for (const video of document.querySelectorAll('video')) {
-        if (!isVisible(video)) continue;
+        if (!isVisible(video)) {
+            continue;
+        }
         let name = '';
         try {
             const src = new URL(video.currentSrc || video.src);
@@ -219,20 +241,24 @@ window.__filmCapture = async function filmCapture({
         const r = video.getBoundingClientRect();
         const img = document.createElement('img');
         const cs = getComputedStyle(video);
-        for (let i = 0; i < cs.length; i++) img.style.setProperty(cs[i], cs.getPropertyValue(cs[i]));
+        for (let i = 0; i < cs.length; i++) {
+            img.style.setProperty(cs[i], cs.getPropertyValue(cs[i]));
+        }
         img.style.width = `${r.width}px`;
         img.style.height = `${r.height}px`;
         img.style.objectFit = cs.objectFit === 'fill' ? 'contain' : cs.objectFit;
         img.src = frame;
         addNode(img, (n) => video.before(n));
-        setStyle(video, { display: 'none' });
+        setStyle(video, {display: 'none'});
     }
 
     // 3b2. Images with blob: URLs (EVB Viewer's scan cleanup previews) only exist in the app's session,
     //      so the SVG would point at nothing. Swap in a data URL of the same pixels.
     const blobLoads = [];
     for (const image of document.querySelectorAll('img')) {
-        if (!image.currentSrc.startsWith('blob:') || !image.naturalWidth) continue;
+        if (!image.currentSrc.startsWith('blob:') || !image.naturalWidth) {
+            continue;
+        }
         const surface = document.createElement('canvas');
         surface.width = image.naturalWidth;
         surface.height = image.naturalHeight;
@@ -247,7 +273,9 @@ window.__filmCapture = async function filmCapture({
     // 3c. Range inputs: dom-to-svg writes their value as text instead of drawing a slider. Draw the
     //     track, fill and thumb the app paints (EVB Player's .seek-range/.volume-range) and hide the input.
     for (const range of document.querySelectorAll('input[type="range"]')) {
-        if (!isVisible(range)) continue;
+        if (!isVisible(range)) {
+            continue;
+        }
         const r = range.getBoundingClientRect();
         const cs = getComputedStyle(range);
         const min = Number(range.min || 0);
@@ -298,16 +326,20 @@ window.__filmCapture = async function filmCapture({
         });
         box.append(bar, knob);
         addNode(box, (n) => range.before(n));
-        setStyle(range, { display: 'none' });
+        setStyle(range, {display: 'none'});
     }
 
     // 3d. dom-to-svg turns a linear-gradient without a direction into a zero-length gradient that paints
     //     as a solid block. Chrome drops the default 180deg from computed styles, so use a direction it keeps.
     for (const el of document.querySelectorAll('body *')) {
         const image = getComputedStyle(el).backgroundImage;
-        if (!image.includes('linear-gradient(')) continue;
+        if (!image.includes('linear-gradient(')) {
+            continue;
+        }
         const fixed = image.replace(/linear-gradient\((?!\s*(?:to\s|-?[\d.]+(?:deg|turn|rad|grad)))/g, 'linear-gradient(180.01deg, ');
-        if (fixed !== image) setStyle(el, { 'background-image': fixed });
+        if (fixed !== image) {
+            setStyle(el, {'background-image': fixed});
+        }
     }
 
     // 4. Pseudo-elements -> real spans.
@@ -316,26 +348,26 @@ window.__filmCapture = async function filmCapture({
     let pseudoCount = 0;
     const pseudoHosts = [];
     for (const el of document.querySelectorAll('body *')) {
-        if (el.closest('svg') || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') continue;
-        for (const which of [
-            '::before',
-            '::after',
-        ]) {
+        if (el.closest('svg') || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {
+            continue;
+        }
+        for (const which of ['::before', '::after']) {
             const ps = getComputedStyle(el, which);
             const content = ps.content;
-            if (!content || content === 'none' || content === 'normal' || ps.display === 'none') continue;
+            if (!content || content === 'none' || content === 'normal' || ps.display === 'none') {
+                continue;
+            }
             const text = /^["'].*["']$/.test(content)
                 ? content.slice(1, -1).replace(/\\([0-9a-f]{1,6})\s?/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
                 : '';
             const span = document.createElement('span');
-            for (let i = 0; i < ps.length; i++) span.style.setProperty(ps[i], ps.getPropertyValue(ps[i]));
+            for (let i = 0; i < ps.length; i++) {
+                span.style.setProperty(ps[i], ps.getPropertyValue(ps[i]));
+            }
             span.textContent = text;
             const cls = `film-ps-${pseudoCount++}`;
             el.classList.add(cls);
-            pseudoHosts.push([
-                el,
-                cls,
-            ]);
+            pseudoHosts.push([el, cls]);
             pseudoStyle.append(`.${cls}${which}{display:none!important}\n`);
             addNode(span, (n) => (which === '::before' ? el.prepend(n) : el.append(n)));
         }
@@ -345,10 +377,14 @@ window.__filmCapture = async function filmCapture({
     const MODERN = /(oklab|oklch|lab|lch|color-mix|color)\((?:[^()]|\([^()]*\))*\)/;
     for (const el of document.querySelectorAll('*')) {
         const bg = getComputedStyle(el).backgroundImage;
-        if (!bg.includes('gradient(') || !MODERN.test(bg)) continue;
+        if (!bg.includes('gradient(') || !MODERN.test(bg)) {
+            continue;
+        }
         let fixed = bg;
-        for (let guard = 0; guard < 60 && MODERN.test(fixed); guard++) fixed = fixed.replace(MODERN, (c) => toRgb(c));
-        setStyle(el, { 'background-image': fixed });
+        for (let guard = 0; guard < 60 && MODERN.test(fixed); guard++) {
+            fixed = fixed.replace(MODERN, (c) => toRgb(c));
+        }
+        setStyle(el, {'background-image': fixed});
     }
 
     // 6. CSS-mask icons (Iconify CSS mode) -> <img> child inside the icon element itself.
@@ -356,18 +392,26 @@ window.__filmCapture = async function filmCapture({
     for (const el of document.querySelectorAll('*')) {
         const cs = getComputedStyle(el);
         const mask = cs.maskImage || cs.webkitMaskImage;
-        if (!mask || !mask.startsWith('url("')) continue;
-        if (!isVisible(el) || [
-            'IMG',
-            'INPUT',
-            'SVG',
-        ].includes(el.tagName)) continue;
+        if (!mask || !mask.startsWith('url("')) {
+            continue;
+        }
+        if (!isVisible(el) || ['IMG', 'INPUT', 'SVG'].includes(el.tagName)) {
+            continue;
+        }
         const src = mask.slice(5, mask.indexOf('")'));
         let data = null;
-        if (src.startsWith('data:image/svg+xml;base64,')) data = atob(src.slice(26));
-        else if (src.startsWith('data:image/svg+xml')) data = decodeURIComponent(src.slice(src.indexOf(',') + 1));
-        else if (/^https?:/.test(src)) data = await fetch(src).then((res) => res.text()).catch(() => null);
-        if (!data || !data.includes('<svg')) continue;
+        if (src.startsWith('data:image/svg+xml;base64,')) {
+            data = atob(src.slice(26));
+        } else if (src.startsWith('data:image/svg+xml')) {
+            data = decodeURIComponent(src.slice(src.indexOf(',') + 1));
+        } else if (/^https?:/.test(src)) {
+            data = await fetch(src)
+                .then((res) => res.text())
+                .catch(() => null);
+        }
+        if (!data || !data.includes('<svg')) {
+            continue;
+        }
         const color = toRgb(cs.backgroundColor);
         // Masks only use alpha, so any paint colour is the icon colour.
         const tinted = data.replace(/(fill|stroke)=(['"])(?!none)[^'"]*\2/g, `$1=$2${color}$2`).replace('<svg', `<svg fill="${color}"`);
@@ -392,7 +436,9 @@ window.__filmCapture = async function filmCapture({
     //     dom-to-svg draws borders as straight lines, so a spinner comes out as a square.
     const ringLoads = [];
     for (const el of document.querySelectorAll('body *')) {
-        if (el.closest('svg') || !isVisible(el)) continue;
+        if (el.closest('svg') || !isVisible(el)) {
+            continue;
+        }
         const cs = getComputedStyle(el);
         // Layout size, not the bounding box: a rotated spinner's box grows with the angle.
         const r = {
@@ -400,19 +446,20 @@ window.__filmCapture = async function filmCapture({
             height: el.offsetHeight,
         };
         const w = parseFloat(cs.borderTopWidth) || 0;
-        if (!w || !r.width || Math.abs(r.width - r.height) > 1) continue;
-        if (!(parseFloat(cs.borderTopLeftRadius) >= r.width / 2 - 1)) continue;
-        const sides = [
-            'Top',
-            'Right',
-            'Bottom',
-            'Left',
-        ].map((s) => ({
+        if (!w || !r.width || Math.abs(r.width - r.height) > 1) {
+            continue;
+        }
+        if (!(parseFloat(cs.borderTopLeftRadius) >= r.width / 2 - 1)) {
+            continue;
+        }
+        const sides = ['Top', 'Right', 'Bottom', 'Left'].map((s) => ({
             color: toRgb(cs[`border${s}Color`]),
             width: parseFloat(cs[`border${s}Width`]) || 0,
             style: cs[`border${s}Style`],
         }));
-        if (sides.some((s) => s.style !== 'solid' || Math.abs(s.width - w) > 0.5)) continue;
+        if (sides.some((s) => s.style !== 'solid' || Math.abs(s.width - w) > 0.5)) {
+            continue;
+        }
         const size = r.width;
         const rad = (size - w) / 2;
         const c = size / 2;
@@ -436,7 +483,9 @@ window.__filmCapture = async function filmCapture({
             height: `${size}px`,
             maxWidth: 'none',
         });
-        if (cs.position === 'static') setStyle(el, { position: 'relative' });
+        if (cs.position === 'static') {
+            setStyle(el, {position: 'relative'});
+        }
         // A frozen rotation differs per state and makes the ring jump between frames; record it at rest.
         setStyle(el, {
             'border-color': 'transparent',
@@ -452,21 +501,26 @@ window.__filmCapture = async function filmCapture({
     // 7. Tailwind rings (zero-blur box-shadows) -> bordered sibling at the same place.
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
-        if (cs.boxShadow === 'none' || !isVisible(el) || el.parentElement?.tagName === 'TR') continue;
+        if (cs.boxShadow === 'none' || !isVisible(el) || el.parentElement?.tagName === 'TR') {
+            continue;
+        }
         const r = el.getBoundingClientRect();
         let replaced = false;
         for (const part of cs.boxShadow.split(/,(?![^(]*\))/)) {
             const color = (part.match(/rgba?\([^)]*\)|oklch\([^)]*\)|oklab\([^)]*\)|#[0-9a-f]+/i) || [])[0];
-            const nums = part.replace(/rgba?\([^)]*\)|okl(?:ch|ab)\([^)]*\)/gi, '').match(/-?[\d.]+px/g)?.map(parseFloat) ?? [];
-            const [
-                ox = 0,
-                oy = 0,
-                blur = 0,
-                spread = 0,
-            ] = nums;
-            if (!color || blur !== 0 || spread <= 0) continue;
+            const nums =
+                part
+                    .replace(/rgba?\([^)]*\)|okl(?:ch|ab)\([^)]*\)/gi, '')
+                    .match(/-?[\d.]+px/g)
+                    ?.map(parseFloat) ?? [];
+            const [ox = 0, oy = 0, blur = 0, spread = 0] = nums;
+            if (!color || blur !== 0 || spread <= 0) {
+                continue;
+            }
             const rgb = toRgb(color);
-            if (rgb.endsWith(', 0.000)')) continue;
+            if (rgb.endsWith(', 0.000)')) {
+                continue;
+            }
             const inset = part.includes('inset');
             const grow = inset ? 0 : spread;
             const ring = document.createElement('div');
@@ -481,7 +535,9 @@ window.__filmCapture = async function filmCapture({
             placeSibling(el, ring, r.left - grow + ox, r.top - grow + oy);
             replaced = true;
         }
-        if (replaced) setStyle(el, { 'box-shadow': 'none' });
+        if (replaced) {
+            setStyle(el, {'box-shadow': 'none'});
+        }
     }
 
     // 8. Form fields: dom-to-svg draws neither values nor placeholders. Blank the native value and
@@ -490,18 +546,15 @@ window.__filmCapture = async function filmCapture({
     let caretPos = null;
     for (const el of document.querySelectorAll('input, textarea, select')) {
         const type = (el.getAttribute('type') || 'text').toLowerCase();
-        if (el.tagName === 'INPUT' && ![
-            'text',
-            'search',
-            'email',
-            'url',
-            'password',
-            'number',
-            'tel',
-            '',
-        ].includes(type)) continue;
-        if (!isVisible(el) || effectiveOpacity(el) < 0.05 || el.getAttribute('aria-hidden') === 'true') continue;
-        if (el.readOnly && el.tabIndex === -1) continue; // auto-grow sizer clones (Vuetify etc.)
+        if (el.tagName === 'INPUT' && !['text', 'search', 'email', 'url', 'password', 'number', 'tel', ''].includes(type)) {
+            continue;
+        }
+        if (!isVisible(el) || effectiveOpacity(el) < 0.05 || el.getAttribute('aria-hidden') === 'true') {
+            continue;
+        }
+        if (el.readOnly && el.tabIndex === -1) {
+            continue;
+        } // auto-grow sizer clones (Vuetify etc.)
         const isSelect = el.tagName === 'SELECT';
         const isArea = el.tagName === 'TEXTAREA';
         const cs = getComputedStyle(el);
@@ -510,12 +563,9 @@ window.__filmCapture = async function filmCapture({
         if (!isSelect && !el.value) {
             // Placeholders are often dimmed with opacity on ::placeholder rather than a lighter colour.
             const ph = getComputedStyle(el, '::placeholder');
-            const [
-                pr,
-                pg,
-                pb,
-                pa,
-            ] = toRgb(ph.color).match(/[\d.]+/g).map(Number);
+            const [pr, pg, pb, pa] = toRgb(ph.color)
+                .match(/[\d.]+/g)
+                .map(Number);
             color = `rgba(${pr}, ${pg}, ${pb}, ${(pa * (parseFloat(ph.opacity) || 1)).toFixed(3)})`;
         }
         const r = el.getBoundingClientRect();
@@ -549,7 +599,9 @@ window.__filmCapture = async function filmCapture({
         });
         const span = document.createElement('span');
         text.split('\n').forEach((line, n) => {
-            if (n > 0) span.append(document.createElement('br'));
+            if (n > 0) {
+                span.append(document.createElement('br'));
+            }
             span.append(document.createTextNode(line));
         });
         twin.append(span);
@@ -561,17 +613,10 @@ window.__filmCapture = async function filmCapture({
             const lineHeight = last ? last.height : sr.height || parseFloat(cs.fontSize) * 1.2;
             const x = el.value && last ? last.right + 1 : sr.left;
             const top = last ? last.top : sr.top;
-            caretPos = [
-                Math.round(x),
-                Math.round(top),
-                Math.round(lineHeight),
-            ];
+            caretPos = [Math.round(x), Math.round(top), Math.round(lineHeight)];
         }
         if (!isSelect) {
-            restores.push([
-                el,
-                el.value,
-            ]);
+            restores.push([el, el.value]);
             el.value = '';
             setStyle(el, {
                 color: 'transparent',
@@ -595,11 +640,9 @@ window.__filmCapture = async function filmCapture({
                 rect = marker.getBoundingClientRect();
                 marker.remove();
             }
-            if (rect) caretPos = [
-                Math.round(rect.left),
-                Math.round(rect.top),
-                Math.round(rect.height),
-            ];
+            if (rect) {
+                caretPos = [Math.round(rect.left), Math.round(rect.top), Math.round(rect.height)];
+            }
         }
     }
 
@@ -607,17 +650,18 @@ window.__filmCapture = async function filmCapture({
     const transformed = [];
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
-        if (cs.transform === 'none' && cs.rotate === 'none' && cs.translate === 'none' && cs.scale === 'none') continue;
-        if (cs.transform.startsWith('matrix3d')) continue;
+        if (cs.transform === 'none' && cs.rotate === 'none' && cs.translate === 'none' && cs.scale === 'none') {
+            continue;
+        }
+        if (cs.transform.startsWith('matrix3d')) {
+            continue;
+        }
         let mx = new DOMMatrix();
         if (cs.translate !== 'none') {
             const box = el.getBoundingClientRect();
             const bw = el.offsetWidth || box.width;
             const bh = el.offsetHeight || box.height;
-            const [
-                txs = '0px',
-                tys = '0px',
-            ] = cs.translate.split(' ');
+            const [txs = '0px', tys = '0px'] = cs.translate.split(' ');
             const resolve = (v, size) => (v.endsWith('%') ? (parseFloat(v) / 100) * size : parseFloat(v));
             mx = mx.translate(resolve(txs, bw), resolve(tys, bh));
         }
@@ -627,22 +671,16 @@ window.__filmCapture = async function filmCapture({
             mx = mx.rotate(deg);
         }
         if (cs.scale !== 'none') {
-            const [
-                sx,
-                sy,
-            ] = cs.scale.split(' ').map(parseFloat);
+            const [sx, sy] = cs.scale.split(' ').map(parseFloat);
             mx = mx.scale(sx, sy ?? sx);
         }
-        if (cs.transform !== 'none') mx = mx.multiply(new DOMMatrix(cs.transform));
-        const m = [
-            mx.a,
-            mx.b,
-            mx.c,
-            mx.d,
-            mx.e,
-            mx.f,
-        ];
-        if (m[0] === 1 && m[1] === 0 && m[2] === 0 && m[3] === 1 && Math.abs(m[4]) < 0.01 && Math.abs(m[5]) < 0.01) continue;
+        if (cs.transform !== 'none') {
+            mx = mx.multiply(new DOMMatrix(cs.transform));
+        }
+        const m = [mx.a, mx.b, mx.c, mx.d, mx.e, mx.f];
+        if (m[0] === 1 && m[1] === 0 && m[2] === 0 && m[3] === 1 && Math.abs(m[4]) < 0.01 && Math.abs(m[5]) < 0.01) {
+            continue;
+        }
         const cls = `film-tf-${transformed.length}`;
         el.classList.add(cls);
         transformed.push({
@@ -652,13 +690,15 @@ window.__filmCapture = async function filmCapture({
             origin: cs.transformOrigin.split(' ').map(parseFloat),
         });
     }
-    for (const t of transformed) setStyle(t.el, {
-        transform: 'none',
-        rotate: 'none',
-        translate: 'none',
-        scale: 'none',
-        transition: 'none',
-    });
+    for (const t of transformed) {
+        setStyle(t.el, {
+            transform: 'none',
+            rotate: 'none',
+            translate: 'none',
+            scale: 'none',
+            transition: 'none',
+        });
+    }
     // Untransformed boxes can lie outside the viewport (a dialog centred with translate(-50%, -50%) moves
     // half its width right); dom-to-svg skips everything outside its capture area, so widen the area to them.
     let areaLeft = 0;
@@ -681,33 +721,41 @@ window.__filmCapture = async function filmCapture({
     const nlNodes = [];
     while (nlWalker.nextNode()) {
         const node = nlWalker.currentNode;
-        if (!node.nodeValue.replace(/\n+$/, '').includes('\n')) continue;
+        if (!node.nodeValue.replace(/\n+$/, '').includes('\n')) {
+            continue;
+        }
         const parent = node.parentElement;
-        if (!parent || parent.closest('textarea, script, style, svg')) continue;
-        if (!/^pre/.test(getComputedStyle(parent).whiteSpace)) continue;
+        if (!parent || parent.closest('textarea, script, style, svg')) {
+            continue;
+        }
+        if (!/^pre/.test(getComputedStyle(parent).whiteSpace)) {
+            continue;
+        }
         nlNodes.push(node);
     }
     for (const node of nlNodes) {
         const parts = [];
         node.nodeValue.split('\n').forEach((line, n) => {
-            if (n > 0) parts.push(document.createElement('br'));
+            if (n > 0) {
+                parts.push(document.createElement('br'));
+            }
             parts.push(document.createTextNode(line));
         });
         node.replaceWith(...parts);
-        nlUndo.push([
-            node,
-            parts,
-        ]);
+        nlUndo.push([node, parts]);
     }
 
     // 11. Right-to-left runs: isolate as LTR-direction inline-blocks (the renderer still reorders glyphs).
-    const RTL = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]+(?:[\s\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]*[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]+)*/g;
+    const RTL =
+        /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]+(?:[\s\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]*[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]+)*/g;
     const rtlUndo = [];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     const rtlNodes = [];
     while (walker.nextNode()) {
         RTL.lastIndex = 0;
-        if (RTL.test(walker.currentNode.nodeValue) && !walker.currentNode.parentElement?.closest('textarea, input')) rtlNodes.push(walker.currentNode);
+        if (RTL.test(walker.currentNode.nodeValue) && !walker.currentNode.parentElement?.closest('textarea, input')) {
+            rtlNodes.push(walker.currentNode);
+        }
     }
     for (const node of rtlNodes) {
         const text = node.nodeValue;
@@ -727,67 +775,53 @@ window.__filmCapture = async function filmCapture({
         }
         parts.push(document.createTextNode(text.slice(last)));
         node.replaceWith(...parts);
-        rtlUndo.push([
-            node,
-            parts,
-        ]);
+        rtlUndo.push([node, parts]);
     }
 
     // Capture.
-    const {
-        documentToSVG,
-        inlineResources,
-    } = window.__domToSvg;
-    const doc = documentToSVG(document, { captureArea: new DOMRect(areaLeft, areaTop, areaRight - areaLeft, areaBottom - areaTop) });
+    const {documentToSVG, inlineResources} = window.__domToSvg;
+    const doc = documentToSVG(document, {captureArea: new DOMRect(areaLeft, areaTop, areaRight - areaLeft, areaBottom - areaTop)});
     const root = doc.documentElement;
     for (const t of transformed) {
         t.el.classList.remove(t.cls);
         const g = root.querySelector(`[class~="${t.cls}"]`);
-        if (!g) continue;
-        const [
-            a,
-            b,
-            c,
-            d,
-            e,
-            f,
-        ] = t.m;
+        if (!g) {
+            continue;
+        }
+        const [a, b, c, d, e, f] = t.m;
         const own = g.getAttribute('transform');
-        g.setAttribute('transform', `translate(${t.ox} ${t.oy}) matrix(${a} ${b} ${c} ${d} ${e} ${f}) translate(${-t.ox} ${-t.oy})${own ? ' ' + own : ''}`);
+        g.setAttribute(
+            'transform',
+            `translate(${t.ox} ${t.oy}) matrix(${a} ${b} ${c} ${d} ${e} ${f}) translate(${-t.ox} ${-t.oy})${own ? ' ' + own : ''}`,
+        );
     }
     // dom-to-svg appends some in-flow children after a context's z-index layers; move them in front.
-    for (const ctxEl of [
-        root,
-        ...root.querySelectorAll('[data-stacking-context="true"]'),
-    ]) {
+    for (const ctxEl of [root, ...root.querySelectorAll('[data-stacking-context="true"]')]) {
         const kids = [...ctxEl.children];
         const boundary = kids.find((k) => /StackLevelZero|PositiveStackLevels/.test(k.dataset?.stackingLayer || ''));
-        if (!boundary) continue;
+        if (!boundary) {
+            continue;
+        }
         for (const k of kids.slice(kids.indexOf(boundary) + 1)) {
-            if (k.dataset?.stackingLayer || [
-                'title',
-                'mask',
-                'clipPath',
-                'defs',
-                'style',
-            ].includes(k.localName)) continue;
+            if (k.dataset?.stackingLayer || ['title', 'mask', 'clipPath', 'defs', 'style'].includes(k.localName)) {
+                continue;
+            }
             ctxEl.insertBefore(k, boundary);
         }
     }
     // ...and it never sorts the root context's z-index layers.
     for (const layer of root.querySelectorAll('[data-stacking-layer$="StackLevels"]')) {
         const kids = [...layer.children].sort((a, b) => (parseInt(a.dataset.zIndex, 10) || 0) - (parseInt(b.dataset.zIndex, 10) || 0));
-        for (const kid of kids) layer.append(kid);
+        for (const kid of kids) {
+            layer.append(kid);
+        }
     }
     for (const node of root.querySelectorAll('[fill], [stroke], [stop-color], [flood-color]')) {
-        for (const attr of [
-            'fill',
-            'stroke',
-            'stop-color',
-            'flood-color',
-        ]) {
+        for (const attr of ['fill', 'stroke', 'stop-color', 'flood-color']) {
             const v = node.getAttribute(attr);
-            if (v && /(oklab|oklch|lab|lch|color-mix|color)\(/.test(v)) node.setAttribute(attr, toRgb(v));
+            if (v && /(oklab|oklch|lab|lch|color-mix|color)\(/.test(v)) {
+                node.setAttribute(attr, toRgb(v));
+            }
         }
     }
     root.setAttribute('width', String(width));
@@ -796,30 +830,30 @@ window.__filmCapture = async function filmCapture({
     await inlineResources(root);
 
     // Undo everything.
-    for (const [
-        node,
-        parts,
-    ] of rtlUndo) {
+    for (const [node, parts] of rtlUndo) {
         parts[0].replaceWith(node);
-        for (const part of parts.slice(1)) part.remove();
+        for (const part of parts.slice(1)) {
+            part.remove();
+        }
     }
-    for (const [
-        node,
-        parts,
-    ] of nlUndo.reverse()) {
+    for (const [node, parts] of nlUndo.reverse()) {
         parts[0].replaceWith(node);
-        for (const part of parts.slice(1)) part.remove();
+        for (const part of parts.slice(1)) {
+            part.remove();
+        }
     }
-    for (const [
-        el,
-        value,
-    ] of restores) el.value = value;
-    for (const node of added) node.remove();
-    for (const [
-        el,
-        cls,
-    ] of pseudoHosts) el.classList.remove(cls);
-    for (const fn of undo.reverse()) fn();
+    for (const [el, value] of restores) {
+        el.value = value;
+    }
+    for (const node of added) {
+        node.remove();
+    }
+    for (const [el, cls] of pseudoHosts) {
+        el.classList.remove(cls);
+    }
+    for (const fn of undo.reverse()) {
+        fn();
+    }
 
     let svg = new XMLSerializer().serializeToString(root);
     svg = svg

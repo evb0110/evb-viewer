@@ -1,55 +1,29 @@
-import { execFile } from 'node:child_process';
-import {
-    existsSync,
-    mkdirSync,
-    readFileSync,
-    rmSync,
-} from 'node:fs';
-import {
-    join,
-    resolve,
-} from 'node:path';
-import { promisify } from 'node:util';
-import { decode } from 'fast-png';
-import { PDFDocument } from 'pdf-lib';
-import {
-    afterAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import {
-    resolveDjvuFixturePath,
-    selectFixtureDescribe,
-} from '@tests/e2e/electron/helpers/fixtures';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
-import { clickFoundAsUser } from '@tests/e2e/electron/helpers/userInput';
-import {
-    clickToolbarButtonWhenEnabled, openDjvuInApp,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {execFile} from 'node:child_process';
+import {existsSync, mkdirSync, readFileSync, rmSync} from 'node:fs';
+import {join, resolve} from 'node:path';
+import {promisify} from 'node:util';
+import {decode} from 'fast-png';
+import {PDFDocument} from 'pdf-lib';
+import {afterAll, describe, expect, it} from 'vitest';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {resolveDjvuFixturePath, selectFixtureDescribe} from '@tests/e2e/electron/helpers/fixtures';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
+import {clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {clickToolbarButtonWhenEnabled, openDjvuInApp} from '@tests/e2e/electron/helpers/viewerCore';
 
 const execFileAsync = promisify(execFile);
 const PRINT_HANDOFF_TIMEOUT_MS = 240_000;
 const DJVU_OPEN_TIMEOUT_MS = 90_000;
-const PRINT_HANDOFF_SELECTED_PAGES = [
-    1,
-    2,
-];
+const PRINT_HANDOFF_SELECTED_PAGES = [1, 2];
 const PRINT_VALIDATION_DPI = 180;
 const smokeDir = resolve(process.cwd(), '.devkit', 'tmp', `djvu-print-handoff-${Date.now()}`);
 const capturedPdfPath = join(smokeDir, 'captured-print.pdf');
 const renderedFirstPagePrefix = join(smokeDir, 'captured-first-page');
 const renderedFirstPagePath = `${renderedFirstPagePrefix}.png`;
-const djvuFixture = resolveDjvuFixturePath({corpusFixturePath: resolve(
-    process.cwd(),
-    'tests',
-    'fixtures',
-    'djvu',
-    'sources',
-    'mixed-dpi.djvu',
-)});
+const djvuFixture = resolveDjvuFixturePath({
+    corpusFixturePath: resolve(process.cwd(), 'tests', 'fixtures', 'djvu', 'sources', 'mixed-dpi.djvu'),
+});
 const runDjvuPrintHandoffOrSkip = selectFixtureDescribe(describe, djvuFixture);
 
 const printHandoffSessionEnv = {
@@ -67,18 +41,11 @@ afterAll(() => {
 async function renderFirstPdfPage(pdfPath: string) {
     const pdftoppmPath = getPdfNativeToolPaths().pdftoppm;
 
-    await execFileAsync(pdftoppmPath, [
-        '-png',
-        '-singlefile',
-        '-r',
-        String(PRINT_VALIDATION_DPI),
-        '-f',
-        '1',
-        '-l',
-        '1',
-        pdfPath,
-        renderedFirstPagePrefix,
-    ], { timeout: 30_000 });
+    await execFileAsync(
+        pdftoppmPath,
+        ['-png', '-singlefile', '-r', String(PRINT_VALIDATION_DPI), '-f', '1', '-l', '1', pdfPath, renderedFirstPagePrefix],
+        {timeout: 30_000},
+    );
 }
 
 function countNonWhitePixels(pngPath: string) {
@@ -87,14 +54,10 @@ function countNonWhitePixels(pngPath: string) {
     let nonWhitePixels = 0;
 
     for (let offset = 0; offset < image.data.length; offset += channelCount) {
-        const alpha = channelCount >= 4 ? image.data[offset + 3] ?? 255 : 255;
+        const alpha = channelCount >= 4 ? (image.data[offset + 3] ?? 255) : 255;
         if (
-            alpha > 8
-            && (
-                (image.data[offset] ?? 255) < 245
-                || (image.data[offset + 1] ?? 255) < 245
-                || (image.data[offset + 2] ?? 255) < 245
-            )
+            alpha > 8 &&
+            ((image.data[offset] ?? 255) < 245 || (image.data[offset + 1] ?? 255) < 245 || (image.data[offset + 2] ?? 255) < 245)
         ) {
             nonWhitePixels += 1;
         }
@@ -109,103 +72,152 @@ runDjvuPrintHandoffOrSkip('Electron E2E - DjVu Print Handoff', () => {
         extraEnv: printHandoffSessionEnv,
     });
 
-    it('prints selected DjVu pages to a multi-page nonblank PDF surface', async () => {
-        const session = sessionFixture.getSession();
-        if (!djvuFixture.path) {
-            throw new Error(djvuFixture.reason);
-        }
-
-        rmSync(smokeDir, {
-            force: true,
-            recursive: true,
-        });
-        mkdirSync(smokeDir, { recursive: true });
-        await openDjvuInApp(session.page, djvuFixture.path, DJVU_OPEN_TIMEOUT_MS);
-
-        const result = await session.page.evaluate(async (
-            sourcePath: string,
-            pageNumbers: number[],
-        ) => {
-            const api = (window as typeof globalThis & IE2EWindow & {electronAPI?: {djvu?: {printDjvuPath?: (
-                path: string,
-                options: {
-                    fileName: string;
-                    orientation: string;
-                    pageNumbers: number[];
-                    requestId: string;
-                    viewMode: string;
-                },
-            ) => Promise<{
-                success: boolean;
-                canceled?: boolean;
-                error?: string;
-                jobId?: string;
-            }>;};};}).electronAPI;
-
-            const printDjvuPath = api?.djvu?.printDjvuPath;
-            if (!printDjvuPath) {
-                throw new Error('electronAPI.djvu.printDjvuPath is unavailable');
+    it(
+        'prints selected DjVu pages to a multi-page nonblank PDF surface',
+        async () => {
+            const session = sessionFixture.getSession();
+            if (!djvuFixture.path) {
+                throw new Error(djvuFixture.reason);
             }
 
-            return printDjvuPath(sourcePath, {
-                fileName: 'djvu-print-handoff-smoke.djvu',
-                orientation: 'auto',
-                pageNumbers,
-                requestId: `e2e-${Date.now()}`,
-                viewMode: 'single',
+            rmSync(smokeDir, {
+                force: true,
+                recursive: true,
             });
-        }, djvuFixture.path, PRINT_HANDOFF_SELECTED_PAGES);
+            mkdirSync(smokeDir, {recursive: true});
+            await openDjvuInApp(session.page, djvuFixture.path, DJVU_OPEN_TIMEOUT_MS);
 
-        expect(result).toEqual(expect.objectContaining({
-            jobId: expect.stringMatching(/^djvu-print-e2e-/u),
-            success: true,
-        }));
-        expect(existsSync(capturedPdfPath)).toBe(true);
+            const result = await session.page.evaluate(
+                async (sourcePath: string, pageNumbers: number[]) => {
+                    const api = (
+                        window as typeof globalThis &
+                            IE2EWindow & {
+                                electronAPI?: {
+                                    djvu?: {
+                                        printDjvuPath?: (
+                                            path: string,
+                                            options: {
+                                                fileName: string;
+                                                orientation: string;
+                                                pageNumbers: number[];
+                                                requestId: string;
+                                                viewMode: string;
+                                            },
+                                        ) => Promise<{
+                                            success: boolean;
+                                            canceled?: boolean;
+                                            error?: string;
+                                            jobId?: string;
+                                        }>;
+                                    };
+                                };
+                            }
+                    ).electronAPI;
 
-        const capturedData = readFileSync(capturedPdfPath);
-        const capturedDocument = await PDFDocument.load(capturedData, { updateMetadata: false });
-        expect(capturedDocument.getPageCount()).toBe(PRINT_HANDOFF_SELECTED_PAGES.length);
+                    const printDjvuPath = api?.djvu?.printDjvuPath;
+                    if (!printDjvuPath) {
+                        throw new Error('electronAPI.djvu.printDjvuPath is unavailable');
+                    }
 
-        await renderFirstPdfPage(capturedPdfPath);
-        expect(countNonWhitePixels(renderedFirstPagePath)).toBeGreaterThan(500);
-    }, PRINT_HANDOFF_TIMEOUT_MS);
-    it('never hands off a native print dialog after Cancel during DjVu preparation', async () => {
-        const session = sessionFixture.getSession();
-        rmSync(capturedPdfPath, {force: true});
-        mkdirSync(smokeDir, {recursive: true});
-        const source = resolve(process.cwd(), 'tests/fixtures/djvu/sources/browser-boundary-501-pages.djvu');
-        await openDjvuInApp(session.page, source, DJVU_OPEN_TIMEOUT_MS);
-        await session.page.evaluate(() => {
-            const api = (window as IE2EWindow).electronAPI?.djvu;
-            if (!api) throw new Error('DjVu capability is unavailable');
-            Reflect.set(window, '__core4PrintProgress', null);
-            const stop = api.onProgress(progress => {
-                if (progress.jobId.startsWith('djvu-print-')) Reflect.set(window, '__core4PrintProgress', progress);
+                    return printDjvuPath(sourcePath, {
+                        fileName: 'djvu-print-handoff-smoke.djvu',
+                        orientation: 'auto',
+                        pageNumbers,
+                        requestId: `e2e-${Date.now()}`,
+                        viewMode: 'single',
+                    });
+                },
+                djvuFixture.path,
+                PRINT_HANDOFF_SELECTED_PAGES,
+            );
+
+            expect(result).toEqual(
+                expect.objectContaining({
+                    jobId: expect.stringMatching(/^djvu-print-e2e-/u),
+                    success: true,
+                }),
+            );
+            expect(existsSync(capturedPdfPath)).toBe(true);
+
+            const capturedData = readFileSync(capturedPdfPath);
+            const capturedDocument = await PDFDocument.load(capturedData, {updateMetadata: false});
+            expect(capturedDocument.getPageCount()).toBe(PRINT_HANDOFF_SELECTED_PAGES.length);
+
+            await renderFirstPdfPage(capturedPdfPath);
+            expect(countNonWhitePixels(renderedFirstPagePath)).toBeGreaterThan(500);
+        },
+        PRINT_HANDOFF_TIMEOUT_MS,
+    );
+    it(
+        'never hands off a native print dialog after Cancel during DjVu preparation',
+        async () => {
+            const session = sessionFixture.getSession();
+            rmSync(capturedPdfPath, {force: true});
+            mkdirSync(smokeDir, {recursive: true});
+            const source = resolve(process.cwd(), 'tests/fixtures/djvu/sources/browser-boundary-501-pages.djvu');
+            await openDjvuInApp(session.page, source, DJVU_OPEN_TIMEOUT_MS);
+            await session.page.evaluate(() => {
+                const api = (window as IE2EWindow).electronAPI?.djvu;
+                if (!api) {
+                    throw new Error('DjVu capability is unavailable');
+                }
+                Reflect.set(window, '__core4PrintProgress', null);
+                const stop = api.onProgress((progress) => {
+                    if (progress.jobId.startsWith('djvu-print-')) {
+                        Reflect.set(window, '__core4PrintProgress', progress);
+                    }
+                });
+                Reflect.set(window, '__core4StopPrintProgress', stop);
             });
-            Reflect.set(window, '__core4StopPrintProgress', stop);
-        });
-        try {
-            await clickToolbarButtonWhenEnabled(session.page, 'Print');
-            await session.page.waitForSelector('[role="dialog"] input');
-            await clickFoundAsUser(session.page, () => document.querySelector<HTMLInputElement>('[role="dialog"] input[type="text"]'), undefined, {description: 'Print page range'});
-            await session.page.keyboard.type('1-40');
-            await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(button => button.textContent?.trim() === 'Print...') ?? null, undefined, {description: 'Prepare DjVu print'});
-            await session.page.waitForFunction(() => Reflect.get(window, '__core4PrintProgress')?.phase === 'converting', {timeout: 30_000});
-            await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(button => button.textContent?.trim() === 'Cancel') ?? null, undefined, {description: 'Cancel DjVu print preparation'});
-            await session.page.waitForFunction(async () => {
-                const progress = Reflect.get(window, '__core4PrintProgress');
-                const state = await (window as IE2EWindow).electronAPI!.djvu.getJobState(progress.jobId);
-                return state?.status === 'canceled' || state?.status === 'completed' || state?.status === 'failed';
-            }, {timeout: PRINT_HANDOFF_TIMEOUT_MS});
-            const state = await session.page.evaluate(async () => {
-                const progress = Reflect.get(window, '__core4PrintProgress');
-                return (window as IE2EWindow).electronAPI!.djvu.getJobState(progress.jobId);
-            });
-            expect(state?.status).toBe('canceled');
-            expect(existsSync(capturedPdfPath)).toBe(false);
-        } finally {
-            await session.page.evaluate(() => Reflect.get(window, '__core4StopPrintProgress')?.()).catch(() => undefined);
-        }
-    }, PRINT_HANDOFF_TIMEOUT_MS);
-
+            try {
+                await clickToolbarButtonWhenEnabled(session.page, 'Print');
+                await session.page.waitForSelector('[role="dialog"] input');
+                await clickFoundAsUser(
+                    session.page,
+                    () => document.querySelector<HTMLInputElement>('[role="dialog"] input[type="text"]'),
+                    undefined,
+                    {description: 'Print page range'},
+                );
+                await session.page.keyboard.type('1-40');
+                await clickFoundAsUser(
+                    session.page,
+                    () =>
+                        Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                            (button) => button.textContent?.trim() === 'Print...',
+                        ) ?? null,
+                    undefined,
+                    {description: 'Prepare DjVu print'},
+                );
+                await session.page.waitForFunction(() => Reflect.get(window, '__core4PrintProgress')?.phase === 'converting', {
+                    timeout: 30_000,
+                });
+                await clickFoundAsUser(
+                    session.page,
+                    () =>
+                        Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                            (button) => button.textContent?.trim() === 'Cancel',
+                        ) ?? null,
+                    undefined,
+                    {description: 'Cancel DjVu print preparation'},
+                );
+                await session.page.waitForFunction(
+                    async () => {
+                        const progress = Reflect.get(window, '__core4PrintProgress');
+                        const state = await (window as IE2EWindow).electronAPI!.djvu.getJobState(progress.jobId);
+                        return state?.status === 'canceled' || state?.status === 'completed' || state?.status === 'failed';
+                    },
+                    {timeout: PRINT_HANDOFF_TIMEOUT_MS},
+                );
+                const state = await session.page.evaluate(async () => {
+                    const progress = Reflect.get(window, '__core4PrintProgress');
+                    return (window as IE2EWindow).electronAPI!.djvu.getJobState(progress.jobId);
+                });
+                expect(state?.status).toBe('canceled');
+                expect(existsSync(capturedPdfPath)).toBe(false);
+            } finally {
+                await session.page.evaluate(() => Reflect.get(window, '__core4StopPrintProgress')?.()).catch(() => undefined);
+            }
+        },
+        PRINT_HANDOFF_TIMEOUT_MS,
+    );
 });

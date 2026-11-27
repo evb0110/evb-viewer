@@ -8,13 +8,10 @@
 // dmg-builder auto-combines the 1x and @2x files into a HiDPI TIFF via
 // tiffutil, so both files must stay in sync.
 
-import { createRequire } from 'node:module';
-import {
-    readdirSync,
-    writeFileSync,
-} from 'node:fs';
+import {createRequire} from 'node:module';
+import {readdirSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {fileURLToPath} from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -24,7 +21,7 @@ function resolveCanvasModule() {
         return require('@napi-rs/canvas');
     } catch {
         const pnpmDir = path.join(repoRoot, 'node_modules', '.pnpm');
-        const entry = readdirSync(pnpmDir).find(name => name.startsWith('@napi-rs+canvas@'));
+        const entry = readdirSync(pnpmDir).find((name) => name.startsWith('@napi-rs+canvas@'));
         if (!entry) {
             throw new Error('@napi-rs/canvas not found in node_modules/.pnpm');
         }
@@ -32,7 +29,7 @@ function resolveCanvasModule() {
     }
 }
 
-const { createCanvas } = resolveCanvasModule();
+const {createCanvas} = resolveCanvasModule();
 
 const WIDTH = 600;
 const HEIGHT = 450;

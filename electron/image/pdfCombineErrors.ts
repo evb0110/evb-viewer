@@ -1,4 +1,1 @@
-export {
-    isPdfCombineCapabilityError,
-    PdfCombineCapabilityError,
-} from '@contracts/pdfCombineErrors';
+export {isPdfCombineCapabilityError, PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';

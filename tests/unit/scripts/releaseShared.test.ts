@@ -1,160 +1,57 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { execFileSync } from 'node:child_process';
-import {
-    mkdtempSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {describe, expect, it} from 'vitest';
+import {execFileSync} from 'node:child_process';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {pathToFileURL} from 'node:url';
+import {join, resolve} from 'node:path';
 
-const {
-    assertVersionNotBehindAncestorRelease,
-    getReleaseMainUpstream,
-    parsePinnedNodeMajor,
-    restoreVersionIfChanged,
-} = await import(
-    pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href,
+const {assertVersionNotBehindAncestorRelease, getReleaseMainUpstream, parsePinnedNodeMajor, restoreVersionIfChanged} = await import(
+    pathToFileURL(resolve(process.cwd(), 'scripts/release/shared.mjs')).href
 );
 
 describe('release shared helpers', () => {
     it('rejects a lower manifest when a release tag is reachable through a merge parent', () => {
         const root = mkdtempSync(join(tmpdir(), 'evb-release-ancestry-'));
-        const git = (args: string[]) => execFileSync('git', args, {
-            cwd: root,
-            encoding: 'utf8',
-        }).trim();
-        const writeVersion = (version: string) => writeFileSync(
-            join(root, 'package.json'),
-            `${JSON.stringify({version})}\n`,
-        );
+        const git = (args: string[]) =>
+            execFileSync('git', args, {
+                cwd: root,
+                encoding: 'utf8',
+            }).trim();
+        const writeVersion = (version: string) => writeFileSync(join(root, 'package.json'), `${JSON.stringify({version})}\n`);
 
         try {
-            git([
-                'init',
-                '-b',
-                'main',
-            ]);
-            git([
-                'config',
-                'user.email',
-                'release-test@example.com',
-            ]);
-            git([
-                'config',
-                'user.name',
-                'Release test',
-            ]);
-            git([
-                'config',
-                'gc.auto',
-                '0',
-            ]);
-            git([
-                'config',
-                'maintenance.auto',
-                'false',
-            ]);
+            git(['init', '-b', 'main']);
+            git(['config', 'user.email', 'release-test@example.com']);
+            git(['config', 'user.name', 'Release test']);
+            git(['config', 'gc.auto', '0']);
+            git(['config', 'maintenance.auto', 'false']);
             writeVersion('0.1.452');
-            git([
-                'add',
-                'package.json',
-            ]);
-            git([
-                'commit',
-                '-m',
-                'base',
-            ]);
-            const baseSha = git([
-                'rev-parse',
-                'HEAD',
-            ]);
+            git(['add', 'package.json']);
+            git(['commit', '-m', 'base']);
+            const baseSha = git(['rev-parse', 'HEAD']);
 
-            git([
-                'checkout',
-                '-b',
-                'unrelated',
-            ]);
+            git(['checkout', '-b', 'unrelated']);
             writeFileSync(join(root, 'unrelated.txt'), 'unrelated\n');
-            git([
-                'add',
-                'unrelated.txt',
-            ]);
-            git([
-                'commit',
-                '-m',
-                'unrelated change',
-            ]);
-            git([
-                'tag',
-                'v99.0.0',
-            ]);
-            git([
-                'checkout',
-                'main',
-            ]);
+            git(['add', 'unrelated.txt']);
+            git(['commit', '-m', 'unrelated change']);
+            git(['tag', 'v99.0.0']);
+            git(['checkout', 'main']);
 
-            git([
-                'checkout',
-                '-b',
-                'release',
-            ]);
+            git(['checkout', '-b', 'release']);
             writeVersion('0.1.453');
-            git([
-                'add',
-                'package.json',
-            ]);
-            git([
-                'commit',
-                '-m',
-                'release',
-            ]);
-            git([
-                'tag',
-                'v0.1.453',
-            ]);
+            git(['add', 'package.json']);
+            git(['commit', '-m', 'release']);
+            git(['tag', 'v0.1.453']);
 
-            git([
-                'checkout',
-                'main',
-            ]);
+            git(['checkout', 'main']);
             writeFileSync(join(root, 'marker.txt'), 'main\n');
-            git([
-                'add',
-                'marker.txt',
-            ]);
-            git([
-                'commit',
-                '-m',
-                'main change',
-            ]);
-            git([
-                'merge',
-                '--no-commit',
-                'release',
-            ]);
+            git(['add', 'marker.txt']);
+            git(['commit', '-m', 'main change']);
+            git(['merge', '--no-commit', 'release']);
             writeVersion('0.1.452');
-            git([
-                'add',
-                'package.json',
-            ]);
-            git([
-                'commit',
-                '-m',
-                'merge stale manifest',
-            ]);
-            const candidateSha = git([
-                'rev-parse',
-                'HEAD',
-            ]);
+            git(['add', 'package.json']);
+            git(['commit', '-m', 'merge stale manifest']);
+            const candidateSha = git(['rev-parse', 'HEAD']);
 
             expect(candidateSha).not.toBe(baseSha);
             const runCommand = (command: string, args: string[], options: object = {}) => {
@@ -167,10 +64,9 @@ describe('release shared helpers', () => {
                     ...options,
                 }).trim();
             };
-            expect(() => assertVersionNotBehindAncestorRelease('0.1.452', candidateSha, {runCommand})).toThrow(new RegExp(
-                `candidate ${candidateSha}.*0\\.1\\.452.*v0\\.1\\.453`,
-                'u',
-            ));
+            expect(() => assertVersionNotBehindAncestorRelease('0.1.452', candidateSha, {runCommand})).toThrow(
+                new RegExp(`candidate ${candidateSha}.*0\\.1\\.452.*v0\\.1\\.453`, 'u'),
+            );
             expect(() => assertVersionNotBehindAncestorRelease('0.1.453', candidateSha, {runCommand})).not.toThrow();
         } finally {
             rmSync(root, {
@@ -186,33 +82,41 @@ describe('release shared helpers', () => {
             ref: 'origin/main',
             remote: 'origin',
         };
-        expect(getReleaseMainUpstream('Release test', {
-            readBranch: () => 'main',
-            readUpstream: () => canonicalUpstream,
-        })).toEqual(canonicalUpstream);
+        expect(
+            getReleaseMainUpstream('Release test', {
+                readBranch: () => 'main',
+                readUpstream: () => canonicalUpstream,
+            }),
+        ).toEqual(canonicalUpstream);
 
-        expect(() => getReleaseMainUpstream('Release test', {
-            readBranch: () => 'feature/release',
-            readUpstream: () => {
-                throw new Error('upstream must not be read');
-            },
-        })).toThrow('current branch to be main');
-        expect(() => getReleaseMainUpstream('Release test', {
-            readBranch: () => 'main',
-            readUpstream: () => ({
-                branch: 'release',
-                ref: 'origin/release',
-                remote: 'origin',
+        expect(() =>
+            getReleaseMainUpstream('Release test', {
+                readBranch: () => 'feature/release',
+                readUpstream: () => {
+                    throw new Error('upstream must not be read');
+                },
             }),
-        })).toThrow('track origin/main');
-        expect(() => getReleaseMainUpstream('Release test', {
-            readBranch: () => 'main',
-            readUpstream: () => ({
-                branch: 'main',
-                ref: 'fork/main',
-                remote: 'fork',
+        ).toThrow('current branch to be main');
+        expect(() =>
+            getReleaseMainUpstream('Release test', {
+                readBranch: () => 'main',
+                readUpstream: () => ({
+                    branch: 'release',
+                    ref: 'origin/release',
+                    remote: 'origin',
+                }),
             }),
-        })).toThrow('track origin/main');
+        ).toThrow('track origin/main');
+        expect(() =>
+            getReleaseMainUpstream('Release test', {
+                readBranch: () => 'main',
+                readUpstream: () => ({
+                    branch: 'main',
+                    ref: 'fork/main',
+                    remote: 'fork',
+                }),
+            }),
+        ).toThrow('track origin/main');
     });
 
     it('parses the project node baseline from a pinned major range', () => {
@@ -221,12 +125,8 @@ describe('release shared helpers', () => {
     });
 
     it('rejects non-pinned node engine ranges', () => {
-        expect(() => parsePinnedNodeMajor('lts/*')).toThrow(
-            'requires package.json engines.node to use a pinned "<major>.x" range',
-        );
-        expect(() => parsePinnedNodeMajor('>=24')).toThrow(
-            'requires package.json engines.node to use a pinned "<major>.x" range',
-        );
+        expect(() => parsePinnedNodeMajor('lts/*')).toThrow('requires package.json engines.node to use a pinned "<major>.x" range');
+        expect(() => parsePinnedNodeMajor('>=24')).toThrow('requires package.json engines.node to use a pinned "<major>.x" range');
     });
 
     it('restores the intended release version when verification drifts package metadata', () => {
@@ -235,7 +135,7 @@ describe('release shared helpers', () => {
 
         const restored = restoreVersionIfChanged('0.1.205', {
             readVersionFn: () => '0.1.204',
-            stderr: { write: (message: string) => messages.push(message) },
+            stderr: {write: (message: string) => messages.push(message)},
             writeVersionFn: (version: string) => writes.push(version),
         });
 
@@ -249,7 +149,7 @@ describe('release shared helpers', () => {
 
         const restored = restoreVersionIfChanged('0.1.205', {
             readVersionFn: () => '0.1.205',
-            stderr: { write: () => undefined },
+            stderr: {write: () => undefined},
             writeVersionFn: (version: string) => writes.push(version),
         });
 

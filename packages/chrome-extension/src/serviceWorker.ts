@@ -4,10 +4,7 @@ import {
     createBrowserExtensionViewerUrl,
     isBrowserExtensionOpenNativelyRequest,
 } from '@contracts/browserExtensionLaunch';
-import {
-    createDocumentRedirectRules,
-    createOpenNativelyRule,
-} from './documentRedirectRules';
+import {createDocumentRedirectRules, createOpenNativelyRule} from './documentRedirectRules';
 
 // Tabs the viewer handed back to Chrome, one session entry per tab holding the
 // document URL Chrome opens there. The entry ends when the tab shows anything
@@ -24,9 +21,7 @@ async function readNativeTab(tabId: number) {
 }
 
 async function setNativeTab(tabId: number, url: string | null) {
-    await (url === null
-        ? chrome.storage.session.remove(nativeTabKey(tabId))
-        : chrome.storage.session.set({[nativeTabKey(tabId)]: url}));
+    await (url === null ? chrome.storage.session.remove(nativeTabKey(tabId)) : chrome.storage.session.set({[nativeTabKey(tabId)]: url}));
     await chrome.declarativeNetRequest.updateSessionRules({
         removeRuleIds: [tabId],
         addRules: url !== null && !url.startsWith('file:') ? [createOpenNativelyRule(tabId)] : [],
@@ -36,7 +31,7 @@ async function setNativeTab(tabId: number, url: string | null) {
 async function installRedirectRules() {
     const existing = await chrome.declarativeNetRequest.getDynamicRules();
     await chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds: existing.map(rule => rule.id),
+        removeRuleIds: existing.map((rule) => rule.id),
         addRules: createDocumentRedirectRules(chrome.runtime.getURL(BROWSER_EXTENSION_OPEN_PAGE)),
     });
 }
@@ -49,7 +44,7 @@ async function openNatively(tabId: number, url: string) {
 // A local file never reaches the network rules. Its tab is sent to the viewer
 // only when Chrome lets the extension read local files.
 async function openLocalDocument(tabId: number, url: string) {
-    if (!await chrome.extension.isAllowedFileSchemeAccess() || await readNativeTab(tabId) === url) {
+    if (!(await chrome.extension.isAllowedFileSchemeAccess()) || (await readNativeTab(tabId)) === url) {
         return;
     }
     await chrome.tabs.update(tabId, {url: createBrowserExtensionViewerUrl(chrome.runtime.getURL(''), url)});
@@ -75,24 +70,29 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
     return true;
 });
 
-chrome.webNavigation.onBeforeNavigate.addListener((details) => {
-    if (details.frameId === 0) {
-        void openLocalDocument(details.tabId, details.url);
-    }
-}, {url: [{
-    schemes: ['file'],
-    urlMatches: LOCAL_DOCUMENT_URL_PATTERN,
-}]});
+chrome.webNavigation.onBeforeNavigate.addListener(
+    (details) => {
+        if (details.frameId === 0) {
+            void openLocalDocument(details.tabId, details.url);
+        }
+    },
+    {
+        url: [
+            {
+                schemes: ['file'],
+                urlMatches: LOCAL_DOCUMENT_URL_PATTERN,
+            },
+        ],
+    },
+);
 
 chrome.webNavigation.onCommitted.addListener((details) => {
     if (details.frameId !== 0) {
         return;
     }
-    void readNativeTab(details.tabId).then(url => (
-        url !== null && url !== details.url ? setNativeTab(details.tabId, null) : undefined
-    ));
+    void readNativeTab(details.tabId).then((url) => (url !== null && url !== details.url ? setNativeTab(details.tabId, null) : undefined));
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-    void readNativeTab(tabId).then(url => (url !== null ? setNativeTab(tabId, null) : undefined));
+    void readNativeTab(tabId).then((url) => (url !== null ? setNativeTab(tabId, null) : undefined));
 });

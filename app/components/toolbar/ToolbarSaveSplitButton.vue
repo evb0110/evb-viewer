@@ -1,10 +1,16 @@
 <template>
-    <div class="save-split" :class="{ 'is-open': menuOpen, 'is-primary-disabled': primaryDisabled }">
-        <AppTooltip :delay-duration="1200" :disabled="primaryDisabled">
+    <div
+        class="save-split"
+        :class="{'is-open': menuOpen, 'is-primary-disabled': primaryDisabled}"
+    >
+        <AppTooltip
+            :delay-duration="1200"
+            :disabled="primaryDisabled"
+        >
             <button
                 type="button"
                 class="save-split-primary"
-                :class="{ 'is-loading': isSaving }"
+                :class="{'is-loading': isSaving}"
                 :disabled="primaryDisabled"
                 :aria-label="saveTooltip"
                 :aria-busy="isSaving"
@@ -16,7 +22,12 @@
                     class="save-split-icon"
                     aria-hidden="true"
                 />
-                <Icon v-else name="ph:circle-notch" class="save-split-icon animate-spin" aria-hidden="true" />
+                <Icon
+                    v-else
+                    name="ph:circle-notch"
+                    class="save-split-icon animate-spin"
+                    aria-hidden="true"
+                />
             </button>
 
             <template #content>
@@ -45,11 +56,18 @@
                 :aria-expanded="menuOpen"
                 :aria-label="t('toolbar.saveOptions')"
             >
-                <Icon name="ph:caret-down" class="save-split-chevron" aria-hidden="true" />
+                <Icon
+                    name="ph:caret-down"
+                    class="save-split-chevron"
+                    aria-hidden="true"
+                />
             </button>
 
-            <template #item-trailing="{ item }">
-                <span v-if="getMenuShortcut(item)" class="toolbar-menu-shortcut">
+            <template #item-trailing="{item}">
+                <span
+                    v-if="getMenuShortcut(item)"
+                    class="toolbar-menu-shortcut"
+                >
                     {{ getMenuShortcut(item) }}
                 </span>
             </template>
@@ -58,10 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    getReaderCommandMenuIcon,
-    getReaderCommandToolbarIcon,
-} from '@app/utils/readerCommandIcons';
+import {getReaderCommandMenuIcon, getReaderCommandToolbarIcon} from '@app/utils/readerCommandIcons';
 
 const {
     saveDisabled = false,
@@ -85,7 +100,7 @@ const emit = defineEmits<{
     'save-as': [];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 const menuOpen = ref(false);
 

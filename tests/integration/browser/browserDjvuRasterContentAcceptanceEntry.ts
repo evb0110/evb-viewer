@@ -1,16 +1,8 @@
 // fallow-ignore-file unused-file -- bundled by browserDjvuRasterContentAcceptance.test.ts for Chromium.
 
-import {
-    PDFDict,
-    PDFDocument,
-    PDFName,
-    PDFRawStream,
-} from 'pdf-lib';
+import {PDFDict, PDFDocument, PDFName, PDFRawStream} from 'pdf-lib';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
-import {
-    runBrowserDjvuConversion,
-    withBrowserDjvuWorker,
-} from '@app/platform/browser-api/browserDjvuConversionPipeline';
+import {runBrowserDjvuConversion, withBrowserDjvuWorker} from '@app/platform/browser-api/browserDjvuConversionPipeline';
 import {requireJobId} from '@contracts/shared';
 
 function countInkPixels(pixels: Uint8ClampedArray) {
@@ -31,10 +23,10 @@ async function readSavedScanPixels(bytes: Uint8Array) {
         if (!images) {
             throw new Error('Exported scan page has no image');
         }
-        const image = images.values()
-            .map(value => pdf.context.lookup(value))
-            .find(value => value instanceof PDFRawStream
-                && value.dict.get(PDFName.of('Subtype')) === PDFName.of('Image'));
+        const image = images
+            .values()
+            .map((value) => pdf.context.lookup(value))
+            .find((value) => value instanceof PDFRawStream && value.dict.get(PDFName.of('Subtype')) === PDFName.of('Image'));
         if (!(image instanceof PDFRawStream)) {
             throw new Error('Exported scan page has no image');
         }
@@ -47,10 +39,7 @@ async function readSavedScanPixels(bytes: Uint8Array) {
         if (image.dict.get(PDFName.of('Filter')) !== PDFName.of('DCTDecode')) {
             throw new Error('Compact scan page has no decodable JPEG image');
         }
-        const bitmap = await createImageBitmap(new Blob(
-            [new Uint8Array(image.getContents()).buffer],
-            {type: 'image/jpeg'},
-        ));
+        const bitmap = await createImageBitmap(new Blob([new Uint8Array(image.getContents()).buffer], {type: 'image/jpeg'}));
         try {
             const canvas = document.createElement('canvas');
             canvas.width = bitmap.width;
@@ -87,17 +76,20 @@ async function installBrowserDjvuRasterContentAcceptance() {
         mimeType: 'application/pdf',
         saveKind: 'pdf',
     });
-    const sourceInkPixels = await withBrowserDjvuWorker(source, async (worker) => {
-        const counts: number[] = [];
-        for (const page of [
-            1,
-            2,
-        ]) {
-            const decoded = await worker.renderPage(page, { pixelFormat: 'rgba' });
-            counts.push(countInkPixels(new Uint8ClampedArray(decoded.bytes.buffer, decoded.bytes.byteOffset, decoded.bytes.byteLength)));
-        }
-        return counts;
-    }, 'convert');
+    const sourceInkPixels = await withBrowserDjvuWorker(
+        source,
+        async (worker) => {
+            const counts: number[] = [];
+            for (const page of [1, 2]) {
+                const decoded = await worker.renderPage(page, {pixelFormat: 'rgba'});
+                counts.push(
+                    countInkPixels(new Uint8ClampedArray(decoded.bytes.buffer, decoded.bytes.byteOffset, decoded.bytes.byteLength)),
+                );
+            }
+            return counts;
+        },
+        'convert',
+    );
     document.body.innerHTML = '<button>Export compact PDF</button>';
     document.querySelector('button')!.addEventListener('click', (event) => {
         if (!event.isTrusted) {

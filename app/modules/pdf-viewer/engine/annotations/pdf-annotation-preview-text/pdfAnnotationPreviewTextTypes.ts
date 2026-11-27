@@ -1,5 +1,3 @@
-
-
 export interface IPdfTextPreviewItem {
     str?: string | null | undefined;
     transform?: number[] | null | undefined;

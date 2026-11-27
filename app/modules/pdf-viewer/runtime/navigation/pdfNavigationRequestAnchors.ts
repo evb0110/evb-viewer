@@ -1,7 +1,4 @@
-import type {
-    IDocumentNavigationRequest,
-    IPdfSemanticAnchor,
-} from '@app/modules/document-viewer/public';
+import type {IDocumentNavigationRequest, IPdfSemanticAnchor} from '@app/modules/document-viewer/public';
 
 export function getRequestPage(request: IDocumentNavigationRequest | undefined, fallback: number) {
     const target = request?.target;
@@ -12,10 +9,7 @@ export function getRequestPage(request: IDocumentNavigationRequest | undefined, 
  * The semantic anchor a navigation request asks for. A rect target keeps its
  * own centre; everything else lands on the top of the page.
  */
-export function getRequestAnchor(
-    request: IDocumentNavigationRequest | undefined,
-    fallbackPage: number,
-): IPdfSemanticAnchor {
+export function getRequestAnchor(request: IDocumentNavigationRequest | undefined, fallbackPage: number): IPdfSemanticAnchor {
     const target = request?.target;
     const page = getRequestPage(request, fallbackPage);
     if (target?.kind === 'rect') {

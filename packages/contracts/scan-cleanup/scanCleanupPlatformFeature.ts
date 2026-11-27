@@ -34,12 +34,19 @@ import {
 } from '@contracts/scan-cleanup/scanCleanupSettings';
 
 const booleanResult = v.boolean();
-const documentRef = v.pipe(v.string(),
-    v.check(value => parseDocumentRef(value) !== null, 'invalid scan-cleanup document reference'),
-    v.transform(value => parseDocumentRef(value)!));
-const voidResult = v.pipe(v.undefined(), v.transform(() => {}));
-const nonNegativeInteger = v.message(v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
-    'invalid scan-cleanup non-negative integer result');
+const documentRef = v.pipe(
+    v.string(),
+    v.check((value) => parseDocumentRef(value) !== null, 'invalid scan-cleanup document reference'),
+    v.transform((value) => parseDocumentRef(value)!),
+);
+const voidResult = v.pipe(
+    v.undefined(),
+    v.transform(() => {}),
+);
+const nonNegativeInteger = v.message(
+    v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+    'invalid scan-cleanup non-negative integer result',
+);
 // Settings request decoders retain legacy key normalization and file repair semantics.
 const settingsReadArgs = v.strictTuple([v.pipe(v.unknown(), v.transform(decodeScanCleanupSettingsReadRequest))]);
 const settingsUpdateArgs = v.strictTuple([v.pipe(v.unknown(), v.transform(decodeScanCleanupSettingsUpdateRequest))]);

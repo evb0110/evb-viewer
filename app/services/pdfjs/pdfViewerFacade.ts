@@ -1,8 +1,5 @@
-import pdfjsRuntime, {
-    AnnotationLayer,
-    TextLayer,
-} from '@app/services/pdfjs/runtimeLib';
-import type { AnnotationLayer as TAnnotationLayer } from 'pdfjs-dist/types/src/display/annotation_layer';
+import pdfjsRuntime, {AnnotationLayer, TextLayer} from '@app/services/pdfjs/runtimeLib';
+import type {AnnotationLayer as TAnnotationLayer} from 'pdfjs-dist/types/src/display/annotation_layer';
 import type {IPdfjsLinkService} from '@app/types/pdfjsLinkService';
 import {getPdfjsAssetDir} from '@app/utils/viewerAssets';
 import type {
@@ -29,7 +26,6 @@ export interface IRenderPdfjsAnnotationLayerOptions {
     renderForms: boolean;
 }
 
-
 export interface ICreatePdfjsTextLayerOptions {
     textContentSource: IPdfTextContent | ReadableStream;
     container: HTMLElement;
@@ -48,11 +44,6 @@ export interface IPdfStructTreeLayer {
     render(): Promise<unknown>;
     updateTextLayer(): void;
 }
-
-
-
-
-
 
 type TAnnotationLayerCtorParams = ConstructorParameters<typeof AnnotationLayer>[0];
 type TAnnotationLayerRenderParams = Parameters<TAnnotationLayer['render']>[0];
@@ -73,10 +64,7 @@ export function createPdfjsAnnotationLayer(options: ICreatePdfjsAnnotationLayerO
     });
 }
 
-export function renderPdfjsAnnotationLayer(
-    layer: TAnnotationLayer,
-    options: IRenderPdfjsAnnotationLayerOptions,
-) {
+export function renderPdfjsAnnotationLayer(layer: TAnnotationLayer, options: IRenderPdfjsAnnotationLayerOptions) {
     return layer.render({
         annotations: options.annotations as TAnnotationLayerRenderParams['annotations'],
         viewport: options.viewport,
@@ -88,22 +76,12 @@ export function renderPdfjsAnnotationLayer(
     });
 }
 
-
-
 export function createPdfjsTextLayer(options: ICreatePdfjsTextLayerOptions): IPdfTextLayer {
-    return new TextLayer(
-        options as ConstructorParameters<typeof TextLayer>[0],
-    );
+    return new TextLayer(options as ConstructorParameters<typeof TextLayer>[0]);
 }
 
-export async function createPdfjsStructTreeLayer(options: {
-    page: IPdfPage;
-    rawDims: object;
-}): Promise<IPdfStructTreeLayer> {
+export async function createPdfjsStructTreeLayer(options: {page: IPdfPage; rawDims: object}): Promise<IPdfStructTreeLayer> {
     (globalThis as typeof globalThis & {pdfjsLib?: typeof pdfjsRuntime}).pdfjsLib ??= pdfjsRuntime;
-    const { StructTreeLayerBuilder } = await import('pdfjs-dist/web/pdf_viewer.mjs');
+    const {StructTreeLayerBuilder} = await import('pdfjs-dist/web/pdf_viewer.mjs');
     return new StructTreeLayerBuilder(options.page, options.rawDims);
 }
-
-
-

@@ -3,7 +3,7 @@
         ref="viewerHost"
         class="relative min-h-full w-full"
         data-pdf-viewer-host
-        :class="{ 'is-capture-clean': regionSnip.isCleanPaint.value }"
+        :class="{'is-capture-clean': regionSnip.isCleanPaint.value}"
     >
         <template v-if="props.mountPresentation !== false">
             <PdfViewerViewport
@@ -79,27 +79,25 @@
 </template>
 
 <script setup lang="ts">
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
 import PdfViewerPortalLayers from '@app/modules/pdf-viewer/components/PdfViewerPortalLayers.vue';
 import PdfViewerViewport from '@app/modules/pdf-viewer/components/PdfViewerViewport.vue';
 import PdfRegionSnipOverlay from '@app/modules/pdf-viewer/components/PdfRegionSnipOverlay.vue';
 import PdfCropOverlay from '@app/modules/pdf-viewer/components/PdfCropOverlay.vue';
-import { PdfInitialSurfacePlaceholder } from '@app/modules/pdf-viewer/public/component-exports/pdfInitialSurfacePlaceholder';
-import { buildPdfInitialSurfacePlaceholderStyle } from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/buildPdfInitialSurfacePlaceholderStyle';
-import { buildPdfCommittedOpenPageShellStyle } from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/buildPdfCommittedOpenPageShellStyle';
-import { shouldApplyPdfOpeningPageFrame } from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/shouldApplyPdfOpeningPageFrame';
+import {PdfInitialSurfacePlaceholder} from '@app/modules/pdf-viewer/public/component-exports/pdfInitialSurfacePlaceholder';
+import {buildPdfInitialSurfacePlaceholderStyle} from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/buildPdfInitialSurfacePlaceholderStyle';
+import {buildPdfCommittedOpenPageShellStyle} from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/buildPdfCommittedOpenPageShellStyle';
+import {shouldApplyPdfOpeningPageFrame} from '@app/modules/pdf-viewer/engine/pdf-initial-surface-placeholder/shouldApplyPdfOpeningPageFrame';
 import * as initialPageSkeletonGeometry from '@app/modules/pdf-viewer/runtime/lifecycle/commitPdfInitialPageSkeletonGeometry';
-import { observePdfOpeningPageGeometry } from '@app/modules/pdf-viewer/runtime/lifecycle/observePdfOpeningPageGeometry';
-import type {
-    IPdfViewerProps,
-    IPdfViewerEmit,
-} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
-import { usePdfViewerFeatureController } from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
+import {observePdfOpeningPageGeometry} from '@app/modules/pdf-viewer/runtime/lifecycle/observePdfOpeningPageGeometry';
+import type {IPdfViewerProps, IPdfViewerEmit} from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
+import {usePdfViewerFeatureController} from '@app/modules/pdf-viewer/runtime/usePdfViewerFeatureController';
 import {
     createDocumentViewerRuntime,
-    injectDocumentViewerRuntime, createDocumentOpenGenerationErrorLatch,
+    injectDocumentViewerRuntime,
+    createDocumentOpenGenerationErrorLatch,
 } from '@app/modules/document-viewer/public';
 import {
     isPdfViewportPageError,
@@ -110,16 +108,17 @@ import '@app/assets/css/vendor/pdfjs-viewer-sanitized.css';
 
 const props = defineProps<IPdfViewerProps>();
 const injectedChassisAuthority = injectDocumentViewerRuntime();
-const chassisAuthority = injectedChassisAuthority
-    ?? createDocumentViewerRuntime(ref('pdf'));
+const chassisAuthority = injectedChassisAuthority ?? createDocumentViewerRuntime(ref('pdf'));
 const emitBase = defineEmits<IPdfViewerEmit>();
 const openErrorLatch = createDocumentOpenGenerationErrorLatch();
 const isCommittedInitialPageTransition = computed(() => {
     const snapshot = chassisAuthority?.openSurface.snapshot.value;
-    return snapshot.phase === 'pending'
-        || snapshot.phase === 'geometry-committed'
-        || snapshot.phase === 'canvas-committed'
-        || snapshot.phase === 'viewport-committed';
+    return (
+        snapshot.phase === 'pending' ||
+        snapshot.phase === 'geometry-committed' ||
+        snapshot.phase === 'canvas-committed' ||
+        snapshot.phase === 'viewport-committed'
+    );
 });
 const emit = ((event: string, ...args: unknown[]) => {
     if (event === 'initial-visual-ready') {
@@ -181,36 +180,35 @@ const {
     handleViewerContainerRef,
     pdfViewerPublicApi,
 } = controller;
-const showInitialSurfacePlaceholder = computed(() => (
-    injectedChassisAuthority === null
-    && isViewerLoadingOverlayVisible.value
-    && props.isActive !== false
-));
-const initialSurfacePlaceholderPageStyle = computed(() => buildPdfInitialSurfacePlaceholderStyle({
-    pageStyle: getPagePlaceholderStyle(requirePageNumber(1)),
-    scaledMargin: scaledMargin.value,
-    viewportOwnsPadding: injectedChassisAuthority !== null,
-}));
+const showInitialSurfacePlaceholder = computed(
+    () => injectedChassisAuthority === null && isViewerLoadingOverlayVisible.value && props.isActive !== false,
+);
+const initialSurfacePlaceholderPageStyle = computed(() =>
+    buildPdfInitialSurfacePlaceholderStyle({
+        pageStyle: getPagePlaceholderStyle(requirePageNumber(1)),
+        scaledMargin: scaledMargin.value,
+        viewportOwnsPadding: injectedChassisAuthority !== null,
+    }),
+);
 // The page the open surface is opening at; the viewport authority places it.
-const committedInitialPageNumber = computed<TPageNumber>(() => requirePageNumber(
-    chassisAuthority.openSurface.viewportSession.value.requestedPage,
-));
+const committedInitialPageNumber = computed<TPageNumber>(() =>
+    requirePageNumber(chassisAuthority.openSurface.viewportSession.value.requestedPage),
+);
 // The chassis runtime sizes the opening frame from the page geometry and its
 // viewport; this renderer only projects it.
 const openingPageFrame = computed(() => chassisAuthority.openSurface.snapshot.value.openingPageFrame);
-const canonicalOpeningPageStyle = computed(() => buildPdfCommittedOpenPageShellStyle({pageStyle: getExactPagePlaceholderStyle(committedInitialPageNumber.value)}));
+const canonicalOpeningPageStyle = computed(() =>
+    buildPdfCommittedOpenPageShellStyle({pageStyle: getExactPagePlaceholderStyle(committedInitialPageNumber.value)}),
+);
 // A navigation request can supersede page 1 while the same empty-to-document
 // generation is still opening. Keep the generation-fenced frame as the
 // provisional geometry owner for the requested page, then replace its visual
 // projection with exact target metrics as soon as they are available. The
 // open-surface frame itself remains owned by the chassis runtime.
-const projectedOpeningPageStyle = computed(() => (
-    canonicalOpeningPageStyle.value ?? openingPageFrame.value?.style ?? null
-));
-const showCommittedInitialPageShell = computed(() => (
-    isCommittedInitialPageTransition.value
-    && chassisAuthority?.openSurface.viewportSession.value.visual.kind === 'page'
-));
+const projectedOpeningPageStyle = computed(() => canonicalOpeningPageStyle.value ?? openingPageFrame.value?.style ?? null);
+const showCommittedInitialPageShell = computed(
+    () => isCommittedInitialPageTransition.value && chassisAuthority?.openSurface.viewportSession.value.visual.kind === 'page',
+);
 function shouldShowViewportPageSkeleton(pageNumber: TPageNumber) {
     const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
     const visual = viewportSession?.visual;
@@ -226,12 +224,16 @@ function shouldShowViewportPageSkeleton(pageNumber: TPageNumber) {
 }
 function isViewportPageRenderFailed(pageNumber: TPageNumber) {
     const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
-    return isPageRenderFailed(pageNumber) || (!!viewportSession && isPdfViewportPageError({
-        pageNumber,
-        totalPages: chassisAuthority.pageCount.value,
-        viewMode: props.viewMode ?? 'single',
-        visual: viewportSession.visual,
-    }));
+    return (
+        isPageRenderFailed(pageNumber) ||
+        (!!viewportSession &&
+            isPdfViewportPageError({
+                pageNumber,
+                totalPages: chassisAuthority.pageCount.value,
+                viewMode: props.viewMode ?? 'single',
+                visual: viewportSession.visual,
+            }))
+    );
 }
 const shouldApplyOpeningPageFrame = computed(() => {
     const snapshot = chassisAuthority?.openSurface.snapshot.value;
@@ -242,26 +244,22 @@ const shouldApplyOpeningPageFrame = computed(() => {
         phase: snapshot.phase,
     });
 });
-const hasProjectedOpeningPageFrame = computed(() => (
-    shouldApplyOpeningPageFrame.value
-    && projectedOpeningPageStyle.value !== null
-));
+const hasProjectedOpeningPageFrame = computed(() => shouldApplyOpeningPageFrame.value && projectedOpeningPageStyle.value !== null);
 
 // One opening page at a time waits for its size.
 let stopOpeningGeometryObserver = () => {};
 let openingGeometryDisposed = false;
 function isOpeningGeometryCurrent(expectedGeneration: number, pageNumber: TPageNumber) {
-    return !openingGeometryDisposed
-        && showCommittedInitialPageShell.value
-        && openingPageFrame.value !== null
-        && chassisAuthority.openSurface.snapshot.value.generation === expectedGeneration
-        && chassisAuthority.openSurface.snapshot.value.geometry === null
-        && committedInitialPageNumber.value === pageNumber;
+    return (
+        !openingGeometryDisposed &&
+        showCommittedInitialPageShell.value &&
+        openingPageFrame.value !== null &&
+        chassisAuthority.openSurface.snapshot.value.generation === expectedGeneration &&
+        chassisAuthority.openSurface.snapshot.value.geometry === null &&
+        committedInitialPageNumber.value === pageNumber
+    );
 }
-function commitOpeningPageGeometryAfterDomUpdate(
-    expectedGeneration: number,
-    pageNumber: TPageNumber,
-) {
+function commitOpeningPageGeometryAfterDomUpdate(expectedGeneration: number, pageNumber: TPageNumber) {
     if (!isOpeningGeometryCurrent(expectedGeneration, pageNumber)) {
         return false;
     }
@@ -279,10 +277,7 @@ function commitOpeningPageGeometryAfterDomUpdate(
     if (!diagnostic.canCommit) {
         return false;
     }
-    const didCommit = chassisAuthority.openSurface.commitGeometry(
-        expectedGeneration,
-        diagnostic.geometry,
-    );
+    const didCommit = chassisAuthority.openSurface.commitGeometry(expectedGeneration, diagnostic.geometry);
     return didCommit;
 }
 
@@ -296,12 +291,9 @@ async function handleOpeningPageContainerMounted(pageNumber: TPageNumber) {
     if (commitOpeningPageGeometryAfterDomUpdate(expectedGeneration, pageNumber)) {
         return;
     }
-    const pageContainer = viewerContainer.value?.querySelector<HTMLElement>(
-        `.page_container[data-page="${String(pageNumber)}"]`,
-    );
+    const pageContainer = viewerContainer.value?.querySelector<HTMLElement>(`.page_container[data-page="${String(pageNumber)}"]`);
     const rect = pageContainer?.getBoundingClientRect();
-    if (!pageContainer || !rect || rect.width > 0 && rect.height > 0
-        || !isOpeningGeometryCurrent(expectedGeneration, pageNumber)) {
+    if (!pageContainer || !rect || (rect.width > 0 && rect.height > 0) || !isOpeningGeometryCurrent(expectedGeneration, pageNumber)) {
         return;
     }
     stopOpeningGeometryObserver();

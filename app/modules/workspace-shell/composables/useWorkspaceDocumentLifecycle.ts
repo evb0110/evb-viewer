@@ -1,38 +1,24 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import { until } from '@vueuse/core';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IWorkspaceOpenFailure,
-    IWorkspaceToolbarSnapshot,
-} from '@app/types/workspaceExpose';
-import type { IDocumentOpenSurfaceSession } from '@app/modules/document-viewer/public';
-import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
-import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type {ComputedRef, Ref} from 'vue';
+import {until} from '@vueuse/core';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IWorkspaceOpenFailure, IWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
+import type {IDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
+import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/public';
+import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import {
     identityHasDocument,
     type IWorkspaceDocumentController,
     type IWorkspaceDocumentView,
     type IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import {
-    admitOpenedDocument,
-    didPresent,
-    type TDocumentOpenOutcome,
-    type TWorkspaceOpenFinish,
-} from '@app/types/documentOpenOutcome';
-import { useRecentFiles } from '@app/composables/useRecentFiles';
-import {
-    rememberReadingView,
-    seedOpeningPreflight,
-} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import {admitOpenedDocument, didPresent, type TDocumentOpenOutcome, type TWorkspaceOpenFinish} from '@app/types/documentOpenOutcome';
+import {useRecentFiles} from '@app/composables/useRecentFiles';
+import {rememberReadingView, seedOpeningPreflight} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
 import {
     beginOpenSurfaceWithPageShape,
     readPdfPageShape,
 } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
-import type { IDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import type {IDocumentDirectOpenOptions} from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
@@ -89,12 +75,18 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     // the view's open surface: after a PDF's source job presented, and for a
     // page source, whose open job does not reach the document's DjVu activation.
     function presentInView(transactionId: string) {
-        return until(computed((): TWorkspaceOpenFinish | null => {
-            const failure = options.readOpenFailure();
-            if (activeOpen.value?.id !== transactionId) return {status: 'superseded'};
-            if (failure) return {status: 'failed', failure};
-            return options.documentOpenSettled.value ? {status: 'presented'} : null;
-        })).not.toBeNull();
+        return until(
+            computed((): TWorkspaceOpenFinish | null => {
+                const failure = options.readOpenFailure();
+                if (activeOpen.value?.id !== transactionId) {
+                    return {status: 'superseded'};
+                }
+                if (failure) {
+                    return {status: 'failed', failure};
+                }
+                return options.documentOpenSettled.value ? {status: 'presented'} : null;
+            }),
+        ).not.toBeNull();
     }
 
     async function runOpen(request: IWorkspaceOpenRequest, run: () => Promise<TDocumentOpenOutcome>) {
@@ -105,12 +97,17 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         const sourcePath = opensNew ? request.target?.originalPath : null;
         if (opensNew) {
             checkingOpenSource = true;
-            const gone = await rememberReadingView(session, view.tabId).then(async () => Boolean(
-                sourcePath && recent.recentFiles.value.some(file => file.originalPath === sourcePath)
-                && await recent.forgetRecentFileIfMissing(sourcePath),
-            )).finally(() => {
-                checkingOpenSource = false;
-            });
+            const gone = await rememberReadingView(session, view.tabId)
+                .then(async () =>
+                    Boolean(
+                        sourcePath &&
+                        recent.recentFiles.value.some((file) => file.originalPath === sourcePath) &&
+                        (await recent.forgetRecentFileIfMissing(sourcePath)),
+                    ),
+                )
+                .finally(() => {
+                    checkingOpenSource = false;
+                });
             if (gone) {
                 pendingPage = null;
                 return false;
@@ -123,56 +120,77 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         let transactionId = null as string | null;
         let finish: TWorkspaceOpenFinish = {status: 'cancelled'};
         try {
-            finish = await session.runOpen({
-                ...request,
-                pageShape,
-            }, async (shape, id) => {
-                transactionId = id;
-                const surface = options.openSurface.snapshot.value;
-                if (surface.phase === 'idle' || surface.phase === 'ready' || surface.phase === 'failed') {
-                    beginOpenSurfaceWithPageShape(options.openSurface, {
-                        documentId: String(path ?? id),
-                        documentRevision: `open-intent:${id}`,
-                        provisional: true,
-                    }, request.kind === 'restore' ? view.readingAnchor.value ?? view.viewState.value.currentPage ?? 1 : 1,
-                    shape ?? null, request.kind === 'open' && !request.carriesView ? {
-                        seed: view => seedOpeningPreflight(session, view),
-                        shown: !hadDocument,
-                    } : null);
-                    if (pendingPage !== null) {
-                        options.openSurface.requestNavigation(pendingPage);
-                        pendingPage = null;
+            finish = await session.runOpen(
+                {
+                    ...request,
+                    pageShape,
+                },
+                async (shape, id) => {
+                    transactionId = id;
+                    const surface = options.openSurface.snapshot.value;
+                    if (surface.phase === 'idle' || surface.phase === 'ready' || surface.phase === 'failed') {
+                        beginOpenSurfaceWithPageShape(
+                            options.openSurface,
+                            {
+                                documentId: String(path ?? id),
+                                documentRevision: `open-intent:${id}`,
+                                provisional: true,
+                            },
+                            request.kind === 'restore' ? (view.readingAnchor.value ?? view.viewState.value.currentPage ?? 1) : 1,
+                            shape ?? null,
+                            request.kind === 'open' && !request.carriesView
+                                ? {
+                                      seed: (view) => seedOpeningPreflight(session, view),
+                                      shown: !hadDocument,
+                                  }
+                                : null,
+                        );
+                        if (pendingPage !== null) {
+                            options.openSurface.requestNavigation(pendingPage);
+                            pendingPage = null;
+                        }
                     }
-                }
-                const admission = admitOpenedDocument(await run(), options.readOpenFailure);
-                if (!admission && activeOpen.value?.id === id) {
-                    session.markFailed(options.readOpenFailure());
-                }
-                // A generated or recovered document needs no paint, only its source job's load.
-                return admission && {presentation: (admission.presentation ?? Promise.resolve({status: 'presented'})).then(finish => (
-                    finish.status !== 'presented' ? finish : request.acceptDocumentWithoutVisual ? {status: 'accepted-without-visual'} : presentInView(id)))};
-            }).finished;
+                    const admission = admitOpenedDocument(await run(), options.readOpenFailure);
+                    if (!admission && activeOpen.value?.id === id) {
+                        session.markFailed(options.readOpenFailure());
+                    }
+                    // A generated or recovered document needs no paint, only its source job's load.
+                    return (
+                        admission && {
+                            presentation: (admission.presentation ?? Promise.resolve({status: 'presented'})).then((finish) =>
+                                finish.status !== 'presented'
+                                    ? finish
+                                    : request.acceptDocumentWithoutVisual
+                                      ? {status: 'accepted-without-visual'}
+                                      : presentInView(id),
+                            ),
+                        }
+                    );
+                },
+            ).finished;
         } finally {
             // However the open ends (shown, failed, cancelled, superseded or
             // thrown), it gives back its surface claim.
-            if (!didPresent(finish) && transactionId && options.openSurface.snapshot.value.identity?.documentRevision === `open-intent:${transactionId}`) {
+            if (
+                !didPresent(finish) &&
+                transactionId &&
+                options.openSurface.snapshot.value.identity?.documentRevision === `open-intent:${transactionId}`
+            ) {
                 options.openSurface.reset();
             }
         }
         const presented = didPresent(finish);
         // A tab whose open did not present shows what it held before.
-        if (presented) options.onOpened();
-        else presentWhenShown();
+        if (presented) {
+            options.onOpened();
+        } else {
+            presentWhenShown();
+        }
         // An open that fails on an empty tab gives the tab back to Start,
         // which then says why the file did not open. A generated result
         // belongs to the page that made it, which reports its own failure and
         // keeps an adopted working copy for Retry and Save As.
-        if (
-            !presented
-            && request.kind === 'open'
-            && !hadDocument
-            && snapshot.value.phase === 'failed'
-        ) {
+        if (!presented && request.kind === 'open' && !hadDocument && snapshot.value.phase === 'failed') {
             const generated = request.acceptDocumentWithoutVisual === true;
             if (!generated || !options.hasWorkingCopy()) {
                 await options.closeFailedDocument();
@@ -195,36 +213,38 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         }
         if (hasDocument.value) {
             if (options.openSurface.snapshot.value.phase === 'idle') {
-                beginOpenSurfaceWithPageShape(options.openSurface, {
-                    documentId: String(current.identity.originalPath ?? current.identity.documentRef ?? current.sessionId),
-                    documentRevision: `open-intent:view:${view.tabId}`,
-                    provisional: true,
-                }, view.readingAnchor.value ?? view.viewState.value.currentPage ?? 1, null);
+                beginOpenSurfaceWithPageShape(
+                    options.openSurface,
+                    {
+                        documentId: String(current.identity.originalPath ?? current.identity.documentRef ?? current.sessionId),
+                        documentRevision: `open-intent:view:${view.tabId}`,
+                        provisional: true,
+                    },
+                    view.readingAnchor.value ?? view.viewState.value.currentPage ?? 1,
+                    null,
+                );
             }
         } else if (path && !(current.dirty && current.recoveryWorkingCopyPath)) {
             // Reloading a tab the session already held is not the reader
             // opening the file: Recent Files keeps their last open. A file the
             // reader opened into a hidden tab opens as theirs.
             const openOptions = session.isDeferredReaderOpen() ? {} : {recordRecent: false};
-            void runOpen({
-                kind: 'restore',
-                target: {
-                    fileName: current.identity.fileName,
-                    originalPath: path,
-                    isDjvu: current.identity.isDjvu,
+            void runOpen(
+                {
+                    kind: 'restore',
+                    target: {
+                        fileName: current.identity.fileName,
+                        originalPath: path,
+                        isDjvu: current.identity.isDjvu,
+                    },
                 },
-            }, () => options.openPath(path, openOptions));
+                () => options.openPath(path, openOptions),
+            );
         }
     }
     // A view opens or presents its document when shown and when given one;
     // an open that ends without presenting re-presents what the tab held.
-    watch(
-        [
-            options.isShown,
-            () => snapshot.value.identity.documentSessionKey,
-        ],
-        presentWhenShown,
-    );
+    watch([options.isShown, () => snapshot.value.identity.documentSessionKey], presentWhenShown);
 
     // While an open has not claimed a surface yet, a page command waits for it.
     function goToPage(page: number, scrollOptions?: IScrollToPageOptions) {

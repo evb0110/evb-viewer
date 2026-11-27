@@ -1,5 +1,8 @@
 <template>
-    <div ref="hostRef" class="editor-panes-host flex-1 min-h-0 min-w-0">
+    <div
+        ref="hostRef"
+        class="editor-panes-host flex-1 min-h-0 min-w-0"
+    >
         <div
             ref="parkingTarget"
             class="editor-pane-parking"
@@ -29,70 +32,64 @@
             :to="host.to"
             :disabled="host.disabled"
         >
-                <EditorPaneView
-                    :key="host.pane.paneId"
-                    :pane="host.pane"
-                    :pane-count="panes.length"
-                    :in-place="host.disabled"
-                    :tabs="tabs"
-                    :active-pane-id="activePaneId"
-                    :is-tab-transition-busy="isTabTransitionBusy"
-                    :tab-context-availability="host.tabContextAvailability"
-                    :start-section-by-tab-id="startSectionByTabId"
-                    :tab-lifecycle-by-id="tabLifecycleById"
-                    :document-sessions-by-tab-id="documentSessionsByTabId"
-                    :zen-mode="zenMode"
-                    :zen-active-tab-id="zenActiveTabId"
-                    :is-fullscreen="isFullscreen"
-                    :fullscreen-supported="fullscreenSupported"
-                    :is-workspace-layout-resizing="isWorkspaceLayoutResizing ?? false"
-                    @activate-pane="handleActivatePane"
-                    @activate-tab="handleActivateTab"
-                    @close-tab="handleCloseTab"
-                    @new-tab="handleNewTab"
-                    @reorder-tab="handleReorderTab"
-                    @move-tab-direction="handleMoveTabDirection"
-                    @tab-context-command="handleTabContextCommand"
-                    @update-tab-start-section="handleUpdateTabStartSection"
-                    @open-in-new-tab="handleOpenInNewTab"
-                    @request-close-tab="handleRequestCloseTab"
-                    @open-settings="handleOpenSettings"
-                    @toggle-fullscreen="handleToggleFullscreen"
-                />
+            <EditorPaneView
+                :key="host.pane.paneId"
+                :pane="host.pane"
+                :pane-count="panes.length"
+                :in-place="host.disabled"
+                :tabs="tabs"
+                :active-pane-id="activePaneId"
+                :is-tab-transition-busy="isTabTransitionBusy"
+                :tab-context-availability="host.tabContextAvailability"
+                :start-section-by-tab-id="startSectionByTabId"
+                :tab-lifecycle-by-id="tabLifecycleById"
+                :document-sessions-by-tab-id="documentSessionsByTabId"
+                :zen-mode="zenMode"
+                :zen-active-tab-id="zenActiveTabId"
+                :is-fullscreen="isFullscreen"
+                :fullscreen-supported="fullscreenSupported"
+                :is-workspace-layout-resizing="isWorkspaceLayoutResizing ?? false"
+                @activate-pane="handleActivatePane"
+                @activate-tab="handleActivateTab"
+                @close-tab="handleCloseTab"
+                @new-tab="handleNewTab"
+                @reorder-tab="handleReorderTab"
+                @move-tab-direction="handleMoveTabDirection"
+                @tab-context-command="handleTabContextCommand"
+                @update-tab-start-section="handleUpdateTabStartSection"
+                @open-in-new-tab="handleOpenInNewTab"
+                @request-close-tab="handleRequestCloseTab"
+                @open-settings="handleOpenSettings"
+                @toggle-fullscreen="handleToggleFullscreen"
+            />
         </Teleport>
     </div>
 </template>
 
 <script setup lang="ts">
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
 import EditorPanesGrid from '@app/modules/workspace-shell/components/EditorPanesGrid.vue';
 import EditorPaneView from '@app/modules/workspace-shell/components/EditorPaneView.vue';
 import DocumentSessionHost from '@app/modules/workspace-shell/components/DocumentSessionHost.vue';
-import { provideDocumentContextRegistry } from '@app/modules/workspace-shell/documentContext';
-import { handleDocumentWorkspaceCrash } from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
-import { getErrorMessage } from '@app/utils/error';
-import type {
-    IEditorPaneState,
-    TEditorLayoutNode,
-} from '@contracts/editorPanes';
-import { parsePaneId } from '@contracts/editorPanes';
-import { parseTabId } from '@contracts/windowTabs';
-import type {
-    ITabContextAvailability,
-    TTabContextCommand,
-} from '@app/types/tabContextMenu';
+import {provideDocumentContextRegistry} from '@app/modules/workspace-shell/documentContext';
+import {handleDocumentWorkspaceCrash} from '@app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash';
+import {getErrorMessage} from '@app/utils/error';
+import type {IEditorPaneState, TEditorLayoutNode} from '@contracts/editorPanes';
+import {parsePaneId} from '@contracts/editorPanes';
+import {parseTabId} from '@contracts/windowTabs';
+import type {ITabContextAvailability, TTabContextCommand} from '@app/types/tabContextMenu';
 import type {ITab} from '@app/types/tabs';
-import type { TStartSection } from '@app/types/startSection';
-import type { ITabLifecycleState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import type {TStartSection} from '@app/types/startSection';
+import type {ITabLifecycleState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {
     clearDocumentViewportPaneRelocationScrollFence,
     fenceDocumentViewportPaneRelocationScroll,
     placeDocumentThumbnailRailsWithin,
 } from '@app/modules/document-viewer/public';
 
-defineOptions({ name: 'EditorPanesHost' });
+defineOptions({name: 'EditorPanesHost'});
 
 const {
     activePaneId,
@@ -129,43 +126,49 @@ const {
 const documentContexts = provideDocumentContextRegistry();
 // A document is hosted while any tab that views it keeps a mounted workspace,
 // and while it converts or owns an operation: that work belongs to the document.
-const hostedDocumentControllers = computed(() => [...new Set(Object.entries(documentSessionsByTabId).flatMap(([
-    tabId,
-    controller,
-]) => (tabLifecycleById[tabId]?.shouldMountHost === false
-    && !documentContexts.get(controller)?.file.conversionState.value.isConverting
-    && !controller.operationLease.isBusy.value ? [] : [controller])))]);
+const hostedDocumentControllers = computed(() => [
+    ...new Set(
+        Object.entries(documentSessionsByTabId).flatMap(([tabId, controller]) =>
+            tabLifecycleById[tabId]?.shouldMountHost === false &&
+            !documentContexts.get(controller)?.file.conversionState.value.isConverting &&
+            !controller.operationLease.isBusy.value
+                ? []
+                : [controller],
+        ),
+    ),
+]);
 // A document that fails in its host fails for every view of it; the tabs
 // then show why, as they do for a workspace crash.
 onErrorCaptured((error, instance, info) => {
-    const documentController = (instance as {documentController?: IWorkspaceDocumentController} | null)
-        ?.documentController;
+    const documentController = (instance as {documentController?: IWorkspaceDocumentController} | null)?.documentController;
     if (instance?.$options.name !== 'DocumentSessionHost' || !documentController) {
         return;
     }
     documentController.markFailed({
         message: getErrorMessage(error),
-        failure: handleDocumentWorkspaceCrash(error, 'DocumentSessionHost', info, {tabId: [...documentController.views.value.keys()].join(',') || documentController.snapshot.value.sessionId}),
+        failure: handleDocumentWorkspaceCrash(error, 'DocumentSessionHost', info, {
+            tabId: [...documentController.views.value.keys()].join(',') || documentController.snapshot.value.sessionId,
+        }),
     });
     return false;
 });
 const parkingTarget = ref<HTMLElement | null>(null);
 const hostRef = ref<HTMLElement | null>(null);
 const paneSlotTargets = shallowReactive(new Map<string, HTMLElement>());
-const paneHosts = computed(() => panes.map((pane) => {
-    const slotTarget = paneSlotTargets.get(pane.paneId) ?? parkingTarget.value;
-    return {
-        pane,
-        to: slotTarget ?? 'body',
-        disabled: !slotTarget,
-        tabContextAvailability: tabContextAvailabilityByPane[pane.paneId] ?? null,
-    };
-}));
+const paneHosts = computed(() =>
+    panes.map((pane) => {
+        const slotTarget = paneSlotTargets.get(pane.paneId) ?? parkingTarget.value;
+        return {
+            pane,
+            to: slotTarget ?? 'body',
+            disabled: !slotTarget,
+            tabContextAvailability: tabContextAvailabilityByPane[pane.paneId] ?? null,
+        };
+    }),
+);
 const zenActivePaneId = computed(() => {
     const tabId = parseTabId(zenActiveTabId);
-    return tabId === null
-        ? null
-        : panes.find(pane => pane.tabIds.includes(tabId))?.paneId ?? null;
+    return tabId === null ? null : (panes.find((pane) => pane.tabIds.includes(tabId))?.paneId ?? null);
 });
 
 const emit = defineEmits<{
@@ -174,12 +177,7 @@ const emit = defineEmits<{
     'close-tab': [paneId: string, tabId: string];
     'new-tab': [paneId: string];
     'reorder-tab': [paneId: string, fromIndex: number, toIndex: number];
-    'move-tab-direction': [
-        paneId: string,
-        tabId: string,
-        direction: 'left' | 'right',
-        targetIndex?: number | null,
-    ];
+    'move-tab-direction': [paneId: string, tabId: string, direction: 'left' | 'right', targetIndex?: number | null];
     'tab-context-command': [paneId: string, tabId: string, command: TTabContextCommand];
     'update-tab-start-section': [tabId: string, section: TStartSection];
     'open-in-new-tab': [result: TDocumentRef | TOpenFileResult, paneId?: string];
@@ -210,12 +208,7 @@ function handleReorderTab(paneId: string, fromIndex: number, toIndex: number) {
     emit('reorder-tab', paneId, fromIndex, toIndex);
 }
 
-function handleMoveTabDirection(
-    paneId: string,
-    tabId: string,
-    direction: 'left' | 'right',
-    targetIndex?: number | null,
-) {
+function handleMoveTabDirection(paneId: string, tabId: string, direction: 'left' | 'right', targetIndex?: number | null) {
     emit('move-tab-direction', paneId, tabId, direction, targetIndex);
 }
 
@@ -252,9 +245,9 @@ function handlePaneSlot(paneId: string, element: HTMLElement | null) {
     // patch, let each connected rail place its own semantic anchor again.
     void nextTick(() => hostRef.value && placeDocumentThumbnailRailsWithin(hostRef.value));
     if (element) {
-        const pane = Array.from(
-            hostRef.value?.querySelectorAll<HTMLElement>('[data-editor-pane-id]') ?? [],
-        ).find(candidate => candidate.dataset.editorPaneId === paneId);
+        const pane = Array.from(hostRef.value?.querySelectorAll<HTMLElement>('[data-editor-pane-id]') ?? []).find(
+            (candidate) => candidate.dataset.editorPaneId === paneId,
+        );
         if (pane) {
             fenceDocumentViewportPaneRelocationScroll(pane);
             requestAnimationFrame(() => clearDocumentViewportPaneRelocationScrollFence(pane));
@@ -264,7 +257,7 @@ function handlePaneSlot(paneId: string, element: HTMLElement | null) {
     }
     const current = paneSlotTargets.get(paneId);
     const parsedPaneId = parsePaneId(paneId);
-    const paneIsLive = parsedPaneId !== null && panes.some(pane => pane.paneId === parsedPaneId);
+    const paneIsLive = parsedPaneId !== null && panes.some((pane) => pane.paneId === parsedPaneId);
     if (paneIsLive && current && !current.isConnected) {
         // Keep the detached target until its replacement registers in the
         // same layout transition. Teleport then moves the persistent pane

@@ -1,9 +1,4 @@
-import type {
-    IPdfSearchProgress,
-    IPdfSearchResponse,
-    IResolvedSearchMatchOptions,
-    TSearchResultOffset,
-} from '@contracts/search';
+import type {IPdfSearchProgress, IPdfSearchResponse, IResolvedSearchMatchOptions, TSearchResultOffset} from '@contracts/search';
 
 export interface IPreviewPageSize {
     width: number;
@@ -52,10 +47,7 @@ export interface IPagePreviewSource {
         signal: AbortSignal;
     }): Promise<IPdfSearchResponse>;
     getOutline?(): Promise<IPagePreviewOutlineItem[]>;
-    renderPageObjectUrl(
-        pageNumber: number,
-        options?: unknown,
-    ): Promise<IPagePreviewRenderedObjectUrl>;
+    renderPageObjectUrl(pageNumber: number, options?: unknown): Promise<IPagePreviewRenderedObjectUrl>;
     revokeObjectURL(url: string): void;
     terminate(): void;
 }

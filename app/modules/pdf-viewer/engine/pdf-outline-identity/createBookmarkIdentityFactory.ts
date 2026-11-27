@@ -1,10 +1,7 @@
-import { requirePageIndex } from '@contracts/pageNumbers';
-import type { TPageIndex } from '@contracts/pageNumbers';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import type {TPageIndex} from '@contracts/pageNumbers';
 
-import type {
-    IBookmarkIdentityInput,
-    TCreateBookmarkId,
-} from '@app/types/pdfOutline';
+import type {IBookmarkIdentityInput, TCreateBookmarkId} from '@app/types/pdfOutline';
 
 /**
  * `untitledLabel` is what persistence writes in place of a blank title.
@@ -12,7 +9,9 @@ import type {
  * be handed one id when it is resolved from the PDF and a different one after a
  * round trip through persisted entries, taking its whole subtree with it.
  */
-export interface IBookmarkIdentityOptions { untitledLabel?: string }
+export interface IBookmarkIdentityOptions {
+    untitledLabel?: string;
+}
 
 export interface IBookmarkIdentityFactory {
     createBookmarkId: TCreateBookmarkId;
@@ -42,9 +41,7 @@ function resolveIdentityTitle(title: string | null | undefined, untitledLabel: s
 }
 
 function resolveIdentityPageIndex(pageIndex: TPageIndex | null) {
-    return typeof pageIndex === 'number' && Number.isFinite(pageIndex)
-        ? Math.max(0, Math.trunc(pageIndex))
-        : null;
+    return typeof pageIndex === 'number' && Number.isFinite(pageIndex) ? Math.max(0, Math.trunc(pageIndex)) : null;
 }
 
 /**
@@ -89,9 +86,7 @@ function hashContentPath(value: string) {
  * duplicates themselves do not change. Draft bookmarks get a counter id
  * instead: their content is about to be typed, so it cannot identify them.
  */
-export function createBookmarkIdentityFactory(
-    options: IBookmarkIdentityOptions = {},
-): IBookmarkIdentityFactory {
+export function createBookmarkIdentityFactory(options: IBookmarkIdentityOptions = {}): IBookmarkIdentityFactory {
     const untitledLabel = options.untitledLabel ?? '';
     const occurrencesByContentPath = new Map<string, number>();
     const usedIds = new Set<string>();
@@ -116,17 +111,13 @@ export function createBookmarkIdentityFactory(
         const contentPath = [
             encodeField(input.parentId),
             encodeField(resolveIdentityTitle(input.title, untitledLabel)),
-            encodeField(resolveIdentityPageIndex(
-                input.pageIndex === null ? null : requirePageIndex(input.pageIndex),
-            )),
+            encodeField(resolveIdentityPageIndex(input.pageIndex === null ? null : requirePageIndex(input.pageIndex))),
             encodeField(resolveIdentityNamedDest(input.dest)),
         ].join('');
         const occurrence = occurrencesByContentPath.get(contentPath) ?? 0;
         occurrencesByContentPath.set(contentPath, occurrence + 1);
 
-        return reserveUniqueId(
-            `${BOOKMARK_ID_PREFIX}${hashContentPath(`${contentPath}${encodeField(occurrence)}`)}`,
-        );
+        return reserveUniqueId(`${BOOKMARK_ID_PREFIX}${hashContentPath(`${contentPath}${encodeField(occurrence)}`)}`);
     }
 
     function createDraftBookmarkId() {

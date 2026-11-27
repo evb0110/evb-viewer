@@ -1,19 +1,8 @@
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
-import {
-    mkdtemp,
-    readdir,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, readdir, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {createOcrPageSizeSource} from '@electron/features/ocr/pipeline/pdfPageSizeProbe';
 
 let tempDir: string | null = null;
@@ -35,16 +24,19 @@ function nativePageSizesCommand(pageSizes: unknown[]) {
         if (outputPath === undefined) {
             throw new Error('test native command did not receive an output path');
         }
-        await writeFile(outputPath, `${JSON.stringify({
-            format: 'evb-pdf-page-sizes',
-            schemaVersion: 1,
-            pageCount: pageSizes.length,
-            chunkBytes: 512,
-        })}\n${JSON.stringify({
-            chunkIndex: 0,
-            firstPageNumber: 1,
-            pages: pageSizes,
-        })}\n`);
+        await writeFile(
+            outputPath,
+            `${JSON.stringify({
+                format: 'evb-pdf-page-sizes',
+                schemaVersion: 1,
+                pageCount: pageSizes.length,
+                chunkBytes: 512,
+            })}\n${JSON.stringify({
+                chunkIndex: 0,
+                firstPageNumber: 1,
+                pages: pageSizes,
+            })}\n`,
+        );
         return {
             stdout: '',
             stderr: '',
@@ -74,25 +66,21 @@ describe('OCR worker native page-size probe', () => {
         const probeTempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-page-size-probe-'));
         tempDir = probeTempDir;
         const sourcePdfPath = join(probeTempDir, 'huge.pdf');
-        const runCommand = nativePageSizesCommand(Array.from({length: 6}, (_, index) => ({
-            pageNumber: index + 1,
-            widthInches: 8.5 + index,
-            heightInches: 11,
-        })));
+        const runCommand = nativePageSizesCommand(
+            Array.from({length: 6}, (_, index) => ({
+                pageNumber: index + 1,
+                widthInches: 8.5 + index,
+                heightInches: 11,
+            })),
+        );
         const source = createOcrPageSizeSource({
             pdfPageOpsBinary: '/native/evb-pdf-page-ops',
             tempDir: probeTempDir,
             runCommand,
         });
 
-        const firstBatch = await source.read(sourcePdfPath, [
-            2,
-            1,
-        ]);
-        const secondBatch = await source.read(sourcePdfPath, [
-            5,
-            9,
-        ]);
+        const firstBatch = await source.read(sourcePdfPath, [2, 1]);
+        const secondBatch = await source.read(sourcePdfPath, [5, 9]);
 
         expect(firstBatch).toEqual({
             status: 'available',
@@ -115,13 +103,15 @@ describe('OCR worker native page-size probe', () => {
         });
         expect(secondBatch).toEqual({
             status: 'available',
-            pageSizes: new Map([[
-                5,
-                {
-                    width: 12.5,
-                    height: 11,
-                },
-            ]]),
+            pageSizes: new Map([
+                [
+                    5,
+                    {
+                        width: 12.5,
+                        height: 11,
+                    },
+                ],
+            ]),
         });
         expect(runCommand).toHaveBeenCalledOnce();
         expect(runCommand.mock.calls[0]?.[0]).toBe('/native/evb-pdf-page-ops');
@@ -141,11 +131,13 @@ describe('OCR worker native page-size probe', () => {
     it('probes a new source path, such as the Poppler fallback copy, once more', async () => {
         const probeTempDir = await mkdtemp(join(tmpdir(), 'evb-ocr-page-size-probe-'));
         tempDir = probeTempDir;
-        const runCommand = nativePageSizesCommand([{
-            pageNumber: 1,
-            widthInches: 8.5,
-            heightInches: 11,
-        }]);
+        const runCommand = nativePageSizesCommand([
+            {
+                pageNumber: 1,
+                widthInches: 8.5,
+                heightInches: 11,
+            },
+        ]);
         const source = createOcrPageSizeSource({
             pdfPageOpsBinary: '/native/evb-pdf-page-ops',
             tempDir: probeTempDir,
@@ -156,7 +148,7 @@ describe('OCR worker native page-size probe', () => {
         await source.read(join(probeTempDir, 'normalized.pdf'), [1]);
         await source.read(join(probeTempDir, 'normalized.pdf'), [1]);
 
-        expect(runCommand.mock.calls.map(call => call[1][2])).toEqual([
+        expect(runCommand.mock.calls.map((call) => call[1][2])).toEqual([
             join(probeTempDir, 'source.pdf'),
             join(probeTempDir, 'normalized.pdf'),
         ]);

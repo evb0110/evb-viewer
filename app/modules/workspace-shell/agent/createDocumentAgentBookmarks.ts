@@ -1,9 +1,9 @@
-import type { Ref } from 'vue';
-import { isRecord } from '@contracts/runtimeGuards';
-import { isEqual } from 'es-toolkit/predicate';
-import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
-import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
-import { normalizeBookmarkColor } from '@app/utils/pdfOutlineHelpers';
+import type {Ref} from 'vue';
+import {isRecord} from '@contracts/runtimeGuards';
+import {isEqual} from 'es-toolkit/predicate';
+import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
+import type {IPdfBookmarkChangePayload} from '@app/types/pdfUi';
+import {normalizeBookmarkColor} from '@app/utils/pdfOutlineHelpers';
 import {
     getAgentBooleanInput,
     getAgentNullableStringInput,
@@ -13,16 +13,9 @@ import {
     hasAgentInputKey,
     isAgentRecord,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
-import {
-    normalizeAgentPageNumber,
-    requireAgentPdfPageCount,
-} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPages';
-import {
-    pageNumberToPageIndex,
-    requirePageIndex,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
-import type { TWorkspaceAgentTranslate } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
+import {normalizeAgentPageNumber, requireAgentPdfPageCount} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPages';
+import {pageNumberToPageIndex, requirePageIndex, requirePageNumber} from '@contracts/pageNumbers';
+import type {TWorkspaceAgentTranslate} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 
 type TAgentMetadataIssueSeverity = 'error' | 'warning' | 'info';
 type TAgentBookmarkInputMode = 'nested' | 'flat';
@@ -90,9 +83,7 @@ interface IAgentBookmarkPlan {
 }
 
 type TAgentMutableBookmarkEntry = {
-    -readonly [TKey in keyof IPdfBookmarkEntry]: TKey extends 'items'
-        ? TAgentMutableBookmarkEntry[]
-        : IPdfBookmarkEntry[TKey];
+    -readonly [TKey in keyof IPdfBookmarkEntry]: TKey extends 'items' ? TAgentMutableBookmarkEntry[] : IPdfBookmarkEntry[TKey];
 };
 
 const MAX_ISSUE_COUNT = 50;
@@ -106,11 +97,7 @@ function pushIssue(issues: IAgentMetadataIssue[], issue: IAgentMetadataIssue) {
     }
 }
 
-function normalizeBookmarkPageIndex(
-    input: Record<string, unknown>,
-    totalPages: number,
-    actionId: string,
-) {
+function normalizeBookmarkPageIndex(input: Record<string, unknown>, totalPages: number, actionId: string) {
     const pageNumber = getAgentNumberInput(input, 'page') ?? getAgentNumberInput(input, 'pageNumber');
     if (pageNumber !== null) {
         return pageNumberToPageIndex(requirePageNumber(normalizeAgentPageNumber(pageNumber, totalPages, actionId), totalPages));
@@ -144,11 +131,7 @@ function clampBookmarkPageYRatio(value: number) {
     return Math.min(1, Math.max(0, value));
 }
 
-function normalizeBookmarkPageYRatioInput(
-    input: Record<string, unknown>,
-    pageIndex: number | null,
-    actionId: string,
-) {
+function normalizeBookmarkPageYRatioInput(input: Record<string, unknown>, pageIndex: number | null, actionId: string) {
     if (pageIndex === null) {
         return null;
     }
@@ -163,22 +146,12 @@ function normalizeBookmarkPageYRatioInput(
     return clampBookmarkPageYRatio(value);
 }
 
-function normalizeBookmarkPageYRatioValue(
-    pageIndex: number | null,
-    value: number | null | undefined,
-) {
-    return pageIndex !== null && typeof value === 'number' && Number.isFinite(value)
-        ? clampBookmarkPageYRatio(value)
-        : null;
+function normalizeBookmarkPageYRatioValue(pageIndex: number | null, value: number | null | undefined) {
+    return pageIndex !== null && typeof value === 'number' && Number.isFinite(value) ? clampBookmarkPageYRatio(value) : null;
 }
 
-function normalizeBookmarkPageYRatioForComparison(
-    pageIndex: number,
-    value: number | null | undefined,
-) {
-    const normalized = typeof value === 'number' && Number.isFinite(value)
-        ? clampBookmarkPageYRatio(value)
-        : 0;
+function normalizeBookmarkPageYRatioForComparison(pageIndex: number, value: number | null | undefined) {
+    const normalized = typeof value === 'number' && Number.isFinite(value) ? clampBookmarkPageYRatio(value) : 0;
     return Number(normalized.toFixed(6));
 }
 
@@ -190,10 +163,7 @@ function getBookmarkDestinationKey(bookmark: Pick<IPdfBookmarkEntry, 'pageIndex'
     if (pageIndex === null) {
         return null;
     }
-    return `page:${pageIndex}:${normalizeBookmarkPageYRatioForComparison(
-        pageIndex,
-        bookmark.pageYRatio,
-    )}`;
+    return `page:${pageIndex}:${normalizeBookmarkPageYRatioForComparison(pageIndex, bookmark.pageYRatio)}`;
 }
 
 function normalizeBookmarkEntry(
@@ -205,9 +175,7 @@ function normalizeBookmarkEntry(
     const rawTitle = getAgentRawStringInput(input, 'title')?.trim();
     const title = rawTitle && rawTitle.length > 0 ? rawTitle : untitledTitle;
     const pageIndex = normalizeBookmarkPageIndex(input, totalPages, actionId);
-    const namedDest = getAgentRawStringInput(input, 'namedDest')
-        ?? getAgentRawStringInput(input, 'dest')
-        ?? null;
+    const namedDest = getAgentRawStringInput(input, 'namedDest') ?? getAgentRawStringInput(input, 'dest') ?? null;
     const color = getAgentNullableStringInput(input, 'color');
     const rawItems = Array.isArray(input.items) ? input.items : input.children;
     return {
@@ -219,9 +187,7 @@ function normalizeBookmarkEntry(
         italic: getAgentBooleanInput(input, 'italic') ?? false,
         color: color === null ? null : normalizeBookmarkColor(color),
         items: Array.isArray(rawItems)
-            ? rawItems
-                .filter(isRecord)
-                .map(item => normalizeBookmarkEntry(item, totalPages, untitledTitle, actionId))
+            ? rawItems.filter(isRecord).map((item) => normalizeBookmarkEntry(item, totalPages, untitledTitle, actionId))
             : [],
     };
 }
@@ -297,7 +263,7 @@ function normalizeBookmarkTreeInput(options: {
             inputMode: 'nested' as const,
             bookmarks: rawTree
                 .filter(isRecord)
-                .map(item => normalizeBookmarkEntry(item, options.totalPages, options.untitledTitle, options.actionId)),
+                .map((item) => normalizeBookmarkEntry(item, options.totalPages, options.untitledTitle, options.actionId)),
             issues: [] as IAgentMetadataIssue[],
         };
     }
@@ -319,10 +285,7 @@ function normalizeBookmarkTreeInput(options: {
     throw new Error(`${options.actionId} requires input.bookmarks, input.items, input.tree, input.entries, input.flat, or input.outline.`);
 }
 
-function normalizeBookmarkForAgent(
-    bookmark: IPdfBookmarkEntry,
-    path: number[],
-): Record<string, unknown> {
+function normalizeBookmarkForAgent(bookmark: IPdfBookmarkEntry, path: number[]): Record<string, unknown> {
     return {
         path,
         // Zero-based, as in the flat view and the style selector: a root is 0.
@@ -335,10 +298,7 @@ function normalizeBookmarkForAgent(
         bold: bookmark.bold,
         italic: bookmark.italic,
         color: bookmark.color,
-        items: bookmark.items.map((child, index) => normalizeBookmarkForAgent(child, [
-            ...path,
-            index,
-        ])),
+        items: bookmark.items.map((child, index) => normalizeBookmarkForAgent(child, [...path, index])),
     };
 }
 
@@ -346,10 +306,7 @@ function flattenBookmarks(bookmarks: readonly IPdfBookmarkEntry[], basePath: num
     const flat: IAgentBookmarkFlatEntry[] = [];
     const visit = (items: readonly IPdfBookmarkEntry[], path: number[]) => {
         items.forEach((bookmark, index) => {
-            const nextPath = [
-                ...path,
-                index,
-            ];
+            const nextPath = [...path, index];
             flat.push({
                 path: nextPath,
                 depth: nextPath.length - 1,
@@ -426,31 +383,22 @@ function createBookmarkIssues(bookmarks: readonly IPdfBookmarkEntry[], flat: rea
                     severity: 'info',
                     code: 'duplicate_sibling_bookmark_title',
                     message: `Sibling bookmark title "${item.title}" appears more than once.`,
-                    path: [
-                        ...path,
-                        index,
-                    ],
+                    path: [...path, index],
                 });
             }
-            visitSiblings(item.items, [
-                ...path,
-                index,
-            ]);
+            visitSiblings(item.items, [...path, index]);
         });
     };
     visitSiblings(bookmarks, []);
 
     const visitChildrenSharingParentDestination = (items: readonly IPdfBookmarkEntry[], path: number[]) => {
         items.forEach((parent, index) => {
-            const parentPath = [
-                ...path,
-                index,
-            ];
+            const parentPath = [...path, index];
             const parentDestinationKey = getBookmarkDestinationKey(parent);
             if (parentDestinationKey !== null) {
-                const childrenAtParentDestination = parent.items.filter(child => (
-                    getBookmarkDestinationKey(child) === parentDestinationKey
-                ));
+                const childrenAtParentDestination = parent.items.filter(
+                    (child) => getBookmarkDestinationKey(child) === parentDestinationKey,
+                );
                 if (childrenAtParentDestination.length >= MIN_CHILDREN_SHARING_PARENT_DESTINATION_FOR_ANCHOR_WARNING) {
                     pushIssue(issues, {
                         severity: 'error',
@@ -480,22 +428,17 @@ function createBookmarkSummary(bookmarks: readonly IPdfBookmarkEntry[], flat: IA
         rootCount: bookmarks.length,
         totalCount: flat.length,
         maxDepth: flat.reduce((maxDepth, entry) => Math.max(maxDepth, entry.depth), 0),
-        destinationlessCount: flat.filter(entry => entry.pageIndex === null && !entry.namedDest).length,
-        namedDestinationCount: flat.filter(entry => Boolean(entry.namedDest)).length,
-        anchoredPageDestinationCount: flat.filter(entry => (
-            entry.pageIndex !== null
-            && typeof entry.pageYRatio === 'number'
-            && entry.pageYRatio > 0
-        )).length,
+        destinationlessCount: flat.filter((entry) => entry.pageIndex === null && !entry.namedDest).length,
+        namedDestinationCount: flat.filter((entry) => Boolean(entry.namedDest)).length,
+        anchoredPageDestinationCount: flat.filter(
+            (entry) => entry.pageIndex !== null && typeof entry.pageYRatio === 'number' && entry.pageYRatio > 0,
+        ).length,
         firstPageNumber: pageNumbers.length > 0 ? Math.min(...pageNumbers) : null,
         lastPageNumber: pageNumbers.length > 0 ? Math.max(...pageNumbers) : null,
     };
 }
 
-export function createAgentBookmarkSnapshot(
-    bookmarks: readonly IPdfBookmarkEntry[],
-    options: {dirty: boolean;},
-): IAgentBookmarkSnapshot {
+export function createAgentBookmarkSnapshot(bookmarks: readonly IPdfBookmarkEntry[], options: {dirty: boolean}): IAgentBookmarkSnapshot {
     const flat = flattenBookmarks(bookmarks);
     return {
         count: bookmarks.length,
@@ -508,14 +451,8 @@ export function createAgentBookmarkSnapshot(
 }
 
 function createBookmarkDiff(current: IAgentBookmarkSnapshot, proposed: IAgentBookmarkSnapshot) {
-    const currentByPath = new Map(current.flat.map(entry => [
-        entry.path.join('.'),
-        entry,
-    ]));
-    const proposedByPath = new Map(proposed.flat.map(entry => [
-        entry.path.join('.'),
-        entry,
-    ]));
+    const currentByPath = new Map(current.flat.map((entry) => [entry.path.join('.'), entry]));
+    const proposedByPath = new Map(proposed.flat.map((entry) => [entry.path.join('.'), entry]));
     const added: IAgentBookmarkFlatEntry[] = [];
     const removed: IAgentBookmarkFlatEntry[] = [];
     const updated: IAgentBookmarkPlan['diff']['updated'] = [];
@@ -547,13 +484,11 @@ function createBookmarkDiff(current: IAgentBookmarkSnapshot, proposed: IAgentBoo
         }
     }
 
-    const addedCount = proposed.flat.filter(entry => !currentByPath.has(entry.path.join('.'))).length;
-    const removedCount = current.flat.filter(entry => !proposedByPath.has(entry.path.join('.'))).length;
+    const addedCount = proposed.flat.filter((entry) => !currentByPath.has(entry.path.join('.'))).length;
+    const removedCount = current.flat.filter((entry) => !proposedByPath.has(entry.path.join('.'))).length;
     const updatedCount = proposed.flat.filter((entry) => {
         const currentEntry = currentByPath.get(entry.path.join('.'));
-        return currentEntry
-            ? !isEqual(getBookmarkComparable(currentEntry), getBookmarkComparable(entry))
-            : false;
+        return currentEntry ? !isEqual(getBookmarkComparable(currentEntry), getBookmarkComparable(entry)) : false;
     }).length;
 
     return {
@@ -581,10 +516,7 @@ export function createAgentBookmarkPlan(options: {
     const normalized = normalizeBookmarkTreeInput(options);
     const current = createAgentBookmarkSnapshot(options.currentBookmarks, {dirty: options.dirty});
     const proposed = createAgentBookmarkSnapshot(normalized.bookmarks, {dirty: options.dirty});
-    const issues = [
-        ...normalized.issues,
-        ...proposed.issues,
-    ];
+    const issues = [...normalized.issues, ...proposed.issues];
     return {
         inputMode: normalized.inputMode,
         bookmarks: normalized.bookmarks,
@@ -610,14 +542,7 @@ interface ICreateDocumentAgentBookmarksOptions {
 }
 
 export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookmarksOptions) {
-    const {
-        bookmarkItems,
-        bookmarksDirty,
-        getBookmarksRevision,
-        handleBookmarksChange,
-        t,
-        totalPages,
-    } = options;
+    const {bookmarkItems, bookmarksDirty, getBookmarksRevision, handleBookmarksChange, t, totalPages} = options;
 
     // A path names a place in the outline as the agent last read it; after the
     // reader edits the outline it can name another bookmark. A write that
@@ -626,7 +551,9 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         const expected = getAgentNumberInput(input, 'revision');
         const current = getBookmarksRevision();
         if (expected !== null && expected !== current) {
-            throw new Error(`${actionId} refused: the bookmarks changed since revision ${String(expected)} (now ${String(current)}). Read them again.`);
+            throw new Error(
+                `${actionId} refused: the bookmarks changed since revision ${String(expected)} (now ${String(current)}). Read them again.`,
+            );
         }
     }
 
@@ -651,11 +578,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         return getRawAgentBookmarkPageYRatioInput(input) !== undefined;
     }
 
-    function normalizeAgentBookmarkPageYRatioInput(
-        input: Record<string, unknown>,
-        pageIndex: number | null,
-        actionId: string,
-    ) {
+    function normalizeAgentBookmarkPageYRatioInput(input: Record<string, unknown>, pageIndex: number | null, actionId: string) {
         if (pageIndex === null) {
             return null;
         }
@@ -683,7 +606,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
 
     function getAgentBookmarkPathInput(input: Record<string, unknown>, key = 'path') {
         const path = getAgentNumberArrayInput(input, key);
-        return path?.map(index => Math.max(0, Math.trunc(index))) ?? null;
+        return path?.map((index) => Math.max(0, Math.trunc(index))) ?? null;
     }
 
     function normalizeAgentBookmarkPath(value: unknown) {
@@ -748,11 +671,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         throw new Error(`${actionId} requires input.paths, input.items with path, or input.path.`);
     }
 
-    function getBookmarkListAtPath(
-        bookmarks: TAgentMutableBookmarkEntry[],
-        path: number[],
-        actionId: string,
-    ) {
+    function getBookmarkListAtPath(bookmarks: TAgentMutableBookmarkEntry[], path: number[], actionId: string) {
         let list = bookmarks;
         for (const index of path) {
             const bookmark = list[index];
@@ -764,11 +683,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         return list;
     }
 
-    function getBookmarkLocationAtPath(
-        bookmarks: TAgentMutableBookmarkEntry[],
-        path: number[] | null,
-        actionId: string,
-    ) {
+    function getBookmarkLocationAtPath(bookmarks: TAgentMutableBookmarkEntry[], path: number[] | null, actionId: string) {
         if (!path || path.length === 0) {
             throw new Error(`${actionId} requires input.path.`);
         }
@@ -832,18 +747,20 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         return roots;
     }
 
-    function removeBookmarkPaths(
-        items: TAgentMutableBookmarkEntry[],
-        paths: number[][],
-    ): TAgentMutableBookmarkEntry[] {
-        const removedKeys = new Set(paths.map(path => path.join('/')));
-        const remove = (list: TAgentMutableBookmarkEntry[], parentKey: string): TAgentMutableBookmarkEntry[] => list.flatMap((item, index) => {
-            const key = parentKey === '' ? String(index) : `${parentKey}/${index}`;
-            return removedKeys.has(key) ? [] : [{
-                ...item,
-                items: remove(item.items, key),
-            }];
-        });
+    function removeBookmarkPaths(items: TAgentMutableBookmarkEntry[], paths: number[][]): TAgentMutableBookmarkEntry[] {
+        const removedKeys = new Set(paths.map((path) => path.join('/')));
+        const remove = (list: TAgentMutableBookmarkEntry[], parentKey: string): TAgentMutableBookmarkEntry[] =>
+            list.flatMap((item, index) => {
+                const key = parentKey === '' ? String(index) : `${parentKey}/${index}`;
+                return removedKeys.has(key)
+                    ? []
+                    : [
+                          {
+                              ...item,
+                              items: remove(item.items, key),
+                          },
+                      ];
+            });
         return remove(items, '');
     }
 
@@ -851,14 +768,10 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         const rawTitle = getAgentRawStringInput(input, 'title')?.trim();
         const title = rawTitle && rawTitle.length > 0 ? rawTitle : t('bookmarks.untitled');
         const pageIndex = normalizeAgentBookmarkPageIndex(input, actionId);
-        const namedDest = getAgentRawStringInput(input, 'namedDest')
-            ?? getAgentRawStringInput(input, 'dest')
-            ?? null;
+        const namedDest = getAgentRawStringInput(input, 'namedDest') ?? getAgentRawStringInput(input, 'dest') ?? null;
         const rawItems = Array.isArray(input.items) ? input.items : input.children;
         const items = Array.isArray(rawItems)
-            ? rawItems
-                .filter(isAgentRecord)
-                .map(item => normalizeAgentBookmarkEntry(item, actionId))
+            ? rawItems.filter(isAgentRecord).map((item) => normalizeAgentBookmarkEntry(item, actionId))
             : [];
         const color = getAgentNullableStringInput(input, 'color');
         return {
@@ -875,10 +788,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
 
     function normalizeAgentBookmarkInput(input: Record<string, unknown>, actionId: string) {
         const rawBookmark = input.bookmark;
-        return normalizeAgentBookmarkEntry(
-            isAgentRecord(rawBookmark) ? rawBookmark : input,
-            actionId,
-        );
+        return normalizeAgentBookmarkEntry(isAgentRecord(rawBookmark) ? rawBookmark : input, actionId);
     }
 
     function createAgentBookmarkSnapshot() {
@@ -889,28 +799,20 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
     }
 
     function getBlockingBookmarkIssues(snapshot: TAgentBookmarkSnapshot) {
-        return snapshot.issues.filter(issue => issue.severity === 'error');
+        return snapshot.issues.filter((issue) => issue.severity === 'error');
     }
 
     function getBookmarkIssueKey(issue: TAgentBookmarkIssue) {
-        return [
-            issue.code,
-            issue.path?.join('.') ?? '',
-            issue.page ?? '',
-        ].join('|');
+        return [issue.code, issue.path?.join('.') ?? '', issue.page ?? ''].join('|');
     }
 
     function getNewBlockingBookmarkIssues(proposedBookmarks: readonly IPdfBookmarkEntry[]) {
         const currentIssueKeys = new Set(getBlockingBookmarkIssues(createAgentBookmarkSnapshot()).map(getBookmarkIssueKey));
         const proposedSnapshot = createAgentBookmarkPlanSnapshot(proposedBookmarks, {dirty: bookmarksDirty.value});
-        return getBlockingBookmarkIssues(proposedSnapshot)
-            .filter(issue => !currentIssueKeys.has(getBookmarkIssueKey(issue)));
+        return getBlockingBookmarkIssues(proposedSnapshot).filter((issue) => !currentIssueKeys.has(getBookmarkIssueKey(issue)));
     }
 
-    function assertAgentBookmarkChangeIsAllowed(
-        proposedBookmarks: readonly IPdfBookmarkEntry[],
-        actionId: string,
-    ) {
+    function assertAgentBookmarkChangeIsAllowed(proposedBookmarks: readonly IPdfBookmarkEntry[], actionId: string) {
         const newBlockingIssues = getNewBlockingBookmarkIssues(proposedBookmarks);
         if (newBlockingIssues.length === 0) {
             return;
@@ -970,9 +872,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         const list = getBookmarkListAtPath(bookmarks, parentPath, actionId);
         const bookmark = normalizeAgentBookmarkInput(input, actionId);
         const index = getAgentNumberInput(input, 'index');
-        const insertIndex = index === null
-            ? list.length
-            : Math.min(list.length, Math.max(0, Math.trunc(index)));
+        const insertIndex = index === null ? list.length : Math.min(list.length, Math.max(0, Math.trunc(index)));
         list.splice(insertIndex, 0, bookmark);
         assertAgentBookmarkChangeIsAllowed(bookmarks, actionId);
         return updateAgentBookmarks(bookmarks);
@@ -987,19 +887,13 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
             throw new Error(`${actionId} requires input.bookmarks or input.items.`);
         }
 
-        rawItems
-            .filter(isAgentRecord)
-            .forEach((item) => {
-                const parentPath = getAgentBookmarkPathInput(item, 'parentPath') ?? batchParentPath;
-                const list = getBookmarkListAtPath(bookmarks, parentPath, actionId);
-                const insertIndex = getAgentNumberInput(item, 'index');
-                const bookmark = normalizeAgentBookmarkEntry(item, actionId);
-                list.splice(
-                    insertIndex === null ? list.length : Math.min(list.length, Math.max(0, Math.trunc(insertIndex))),
-                    0,
-                    bookmark,
-                );
-            });
+        rawItems.filter(isAgentRecord).forEach((item) => {
+            const parentPath = getAgentBookmarkPathInput(item, 'parentPath') ?? batchParentPath;
+            const list = getBookmarkListAtPath(bookmarks, parentPath, actionId);
+            const insertIndex = getAgentNumberInput(item, 'index');
+            const bookmark = normalizeAgentBookmarkEntry(item, actionId);
+            list.splice(insertIndex === null ? list.length : Math.min(list.length, Math.max(0, Math.trunc(insertIndex))), 0, bookmark);
+        });
         assertAgentBookmarkChangeIsAllowed(bookmarks, actionId);
         return updateAgentBookmarks(bookmarks);
     }
@@ -1015,9 +909,9 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
             updated.title = rawTitle && rawTitle.length > 0 ? rawTitle : t('bookmarks.untitled');
         }
         if (
-            hasAgentInputKey(bookmarkUpdates, 'page')
-            || hasAgentInputKey(bookmarkUpdates, 'pageNumber')
-            || hasAgentInputKey(bookmarkUpdates, 'pageIndex')
+            hasAgentInputKey(bookmarkUpdates, 'page') ||
+            hasAgentInputKey(bookmarkUpdates, 'pageNumber') ||
+            hasAgentInputKey(bookmarkUpdates, 'pageIndex')
         ) {
             updated.pageIndex = normalizeAgentBookmarkPageIndex(bookmarkUpdates, actionId);
             updated.pageYRatio = normalizeAgentBookmarkPageYRatioInput(bookmarkUpdates, updated.pageIndex, actionId);
@@ -1031,9 +925,8 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
             }
         }
         if (hasAgentInputKey(bookmarkUpdates, 'namedDest') || hasAgentInputKey(bookmarkUpdates, 'dest')) {
-            const namedDest = getAgentRawStringInput(bookmarkUpdates, 'namedDest')
-                ?? getAgentRawStringInput(bookmarkUpdates, 'dest')
-                ?? null;
+            const namedDest =
+                getAgentRawStringInput(bookmarkUpdates, 'namedDest') ?? getAgentRawStringInput(bookmarkUpdates, 'dest') ?? null;
             updated.namedDest = namedDest && namedDest.trim().length > 0 ? namedDest.trim() : null;
             updated.pageIndex = null;
             updated.pageYRatio = null;
@@ -1051,9 +944,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         }
         const rawUpdatedItems = Array.isArray(bookmarkUpdates.items) ? bookmarkUpdates.items : bookmarkUpdates.children;
         if (Array.isArray(rawUpdatedItems)) {
-            updated.items = rawUpdatedItems
-                .filter(isAgentRecord)
-                .map(item => normalizeAgentBookmarkEntry(item, actionId));
+            updated.items = rawUpdatedItems.filter(isAgentRecord).map((item) => normalizeAgentBookmarkEntry(item, actionId));
         }
         location.list.splice(location.index, 1, updated);
         assertAgentBookmarkChangeIsAllowed(bookmarks, actionId);
@@ -1072,7 +963,7 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         assertAgentBookmarkRevision(input, actionId);
         const bookmarks = cloneAgentBookmarks();
         const paths = getAgentBookmarkPathListInput(input, actionId);
-        paths.forEach(path => getBookmarkLocationAtPath(bookmarks, path, actionId));
+        paths.forEach((path) => getBookmarkLocationAtPath(bookmarks, path, actionId));
         const rootPaths = resolveRootBookmarkPaths(paths);
         const nextBookmarks = removeBookmarkPaths(bookmarks, rootPaths);
         return updateAgentBookmarks(nextBookmarks);
@@ -1096,33 +987,27 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         const startIndex = Math.min(fromIndex, toIndex);
         const endIndex = Math.max(fromIndex, toIndex);
         if (endIndex >= getBookmarkListAtPath(bookmarks, parentPath, actionId).length) {
-            throw new Error(`${actionId} range endpoint ${JSON.stringify(endIndex === fromIndex ? fromPath : toPath)} is outside its parent.`);
+            throw new Error(
+                `${actionId} range endpoint ${JSON.stringify(endIndex === fromIndex ? fromPath : toPath)} is outside its parent.`,
+            );
         }
-        return Array.from({length: endIndex - startIndex + 1}, (_, offset) => [
-            ...parentPath,
-            startIndex + offset,
-        ]);
+        return Array.from({length: endIndex - startIndex + 1}, (_, offset) => [...parentPath, startIndex + offset]);
     }
 
     function collectAgentBookmarkDepthPaths(bookmarks: TAgentMutableBookmarkEntry[], input: Record<string, unknown>, actionId: string) {
         const depth = getAgentNumberInput(input, 'depth');
         const level = getAgentNumberInput(input, 'level');
-        const selectedDepth = depth !== null
-            ? Math.max(0, Math.trunc(depth))
-            : level !== null
-                ? Math.max(0, Math.trunc(level) - 1)
-                : null;
+        const selectedDepth = depth !== null ? Math.max(0, Math.trunc(depth)) : level !== null ? Math.max(0, Math.trunc(level) - 1) : null;
         if (selectedDepth === null) {
             return [];
         }
         const scopedParentPath = getAgentBookmarkPathInput(input, 'parentPath') ?? [];
         // Depth stays absolute inside a scoped subtree: walk the scope's children from its own path.
-        const scopedItems = scopedParentPath.length === 0
-            ? bookmarks
-            : getBookmarkLocationAtPath(bookmarks, scopedParentPath, actionId).bookmark.items;
+        const scopedItems =
+            scopedParentPath.length === 0 ? bookmarks : getBookmarkLocationAtPath(bookmarks, scopedParentPath, actionId).bookmark.items;
         return flattenBookmarks(scopedItems, scopedParentPath)
-            .filter(entry => entry.depth === selectedDepth)
-            .map(entry => entry.path);
+            .filter((entry) => entry.depth === selectedDepth)
+            .map((entry) => entry.path);
     }
 
     function dedupeSortedAgentBookmarkPaths(paths: number[][]) {
@@ -1139,10 +1024,8 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         actionId: string,
     ) {
         const explicitPaths = getAgentBookmarkPathListInput(input, actionId, true);
-        explicitPaths.forEach(path => getBookmarkLocationAtPath(bookmarks, path, actionId));
-        const rangePaths = hasAgentInputKey(input, 'range')
-            ? collectAgentBookmarkStyleRangePaths(bookmarks, input.range, actionId)
-            : [];
+        explicitPaths.forEach((path) => getBookmarkLocationAtPath(bookmarks, path, actionId));
+        const rangePaths = hasAgentInputKey(input, 'range') ? collectAgentBookmarkStyleRangePaths(bookmarks, input.range, actionId) : [];
         const selectedPaths = dedupeSortedAgentBookmarkPaths([
             ...explicitPaths,
             ...rangePaths,
@@ -1154,17 +1037,17 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
         if (getAgentBooleanInput(input, 'includeDescendants') !== true) {
             return selectedPaths;
         }
-        const selectedKeys = new Set(selectedPaths.map(path => path.join('/')));
+        const selectedKeys = new Set(selectedPaths.map((path) => path.join('/')));
         return flattenBookmarks(bookmarks)
-            .filter(entry => hasPathOrAncestorIn(entry.path, selectedKeys))
-            .map(entry => entry.path);
+            .filter((entry) => hasPathOrAncestorIn(entry.path, selectedKeys))
+            .map((entry) => entry.path);
     }
 
     function getAgentBookmarkStyleUpdate(input: Record<string, unknown>, actionId: string) {
         const rawColor = hasAgentInputKey(input, 'color') ? getAgentNullableStringInput(input, 'color') : undefined;
         if (
-            (hasAgentInputKey(input, 'color') && rawColor === undefined)
-            || (typeof rawColor === 'string' && !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/iu.test(rawColor))
+            (hasAgentInputKey(input, 'color') && rawColor === undefined) ||
+            (typeof rawColor === 'string' && !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/iu.test(rawColor))
         ) {
             throw new Error(`${actionId} color must be a hex color such as #336699 or null.`);
         }
@@ -1187,7 +1070,12 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
 
     type TAgentBookmarkStyleUpdate = ReturnType<typeof getAgentBookmarkStyleUpdate>;
 
-    function applyAgentBookmarkStyleAtPath(bookmarks: TAgentMutableBookmarkEntry[], path: number[], styleUpdate: TAgentBookmarkStyleUpdate, actionId: string) {
+    function applyAgentBookmarkStyleAtPath(
+        bookmarks: TAgentMutableBookmarkEntry[],
+        path: number[],
+        styleUpdate: TAgentBookmarkStyleUpdate,
+        actionId: string,
+    ) {
         const location = getBookmarkLocationAtPath(bookmarks, path, actionId);
         const updated = {
             ...location.bookmark,
@@ -1196,9 +1084,9 @@ export function createDocumentAgentBookmarks(options: ICreateDocumentAgentBookma
             color: styleUpdate.color === undefined ? location.bookmark.color : styleUpdate.color,
         };
         if (
-            updated.bold === location.bookmark.bold
-            && updated.italic === location.bookmark.italic
-            && updated.color === location.bookmark.color
+            updated.bold === location.bookmark.bold &&
+            updated.italic === location.bookmark.italic &&
+            updated.color === location.bookmark.color
         ) {
             return false;
         }

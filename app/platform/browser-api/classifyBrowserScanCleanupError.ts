@@ -5,6 +5,6 @@ import {SCAN_CLEANUP_ERROR_CODES} from '@contracts/scan-cleanup/ipc';
 export function classifyBrowserScanCleanupError(error: unknown): TScanCleanupErrorCode {
     const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
     return typeof code === 'string' && (SCAN_CLEANUP_ERROR_CODES as readonly string[]).includes(code)
-        ? code as TScanCleanupErrorCode
+        ? (code as TScanCleanupErrorCode)
         : 'internal';
 }

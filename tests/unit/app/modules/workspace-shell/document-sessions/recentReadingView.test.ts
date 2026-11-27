@@ -1,27 +1,15 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { requireDocumentRef } from '@contracts/documentRef';
-import type {
-    IPdfSemanticAnchor,
-    IRecentReadingView,
-} from '@contracts/recentReadingView';
-import { createDocumentOpenSurfaceSession } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {IPdfSemanticAnchor, IRecentReadingView} from '@contracts/recentReadingView';
+import {createDocumentOpenSurfaceSession} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import type {IWorkspaceExpose} from '@app/types/workspaceExpose';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 const recent = vi.hoisted(() => ({readingView: vi.fn<(source: string) => Promise<IRecentReadingView | null>>()}));
 vi.mock('@app/utils/platformDocuments', () => ({getDocumentRecentFilesCapability: () => ({recentFiles: recent})}));
 
-const {
-    followOpeningReader,
-    finishOpeningReader,
-    seedOpeningSource,
-} = await import('@app/modules/workspace-shell/document-sessions/recentReadingView');
+const {followOpeningReader, finishOpeningReader, seedOpeningSource} =
+    await import('@app/modules/workspace-shell/document-sessions/recentReadingView');
 
 const source = requireDocumentRef('/tmp/working.pdf');
 const remembered: IRecentReadingView = {
@@ -46,27 +34,33 @@ const anchor: IPdfSemanticAnchor = {
 // and the view settings a workspace shows for it.
 function createOpeningView(readerMoved = () => false) {
     const openSurface = createDocumentOpenSurfaceSession();
-    openSurface.begin({
-        documentId: '/documents/remembered.pdf',
-        documentRevision: 'open-intent:test',
-        provisional: true,
-    }, null, 1);
+    openSurface.begin(
+        {
+            documentId: '/documents/remembered.pdf',
+            documentRevision: 'open-intent:test',
+            provisional: true,
+        },
+        null,
+        1,
+    );
     const view = {
         zoom: 1,
         zoomMode: 'fit-width' as string,
         viewMode: 'facing' as string,
         seededSource: null as string | null,
     };
-    const workspace: Pick<IWorkspaceExpose, 'followReader'> = {followReader: () => ({
-        moved: readerMoved,
-        seed: (state, seededSource) => {
-            view.zoom = state.zoom ?? view.zoom;
-            view.zoomMode = state.zoomMode ?? view.zoomMode;
-            view.viewMode = state.viewMode ?? view.viewMode;
-            view.seededSource = seededSource;
-        },
-        finish: () => {},
-    })};
+    const workspace: Pick<IWorkspaceExpose, 'followReader'> = {
+        followReader: () => ({
+            moved: readerMoved,
+            seed: (state, seededSource) => {
+                view.zoom = state.zoom ?? view.zoom;
+                view.zoomMode = state.zoomMode ?? view.zoomMode;
+                view.viewMode = state.viewMode ?? view.viewMode;
+                view.seededSource = seededSource;
+            },
+            finish: () => {},
+        }),
+    };
     const controller = createWorkspaceDocumentController({tabId: 'tab-a'});
     return {
         openSurface,
@@ -118,7 +112,7 @@ describe('seeding a normal open from its reading view', () => {
         expect(opening.view.zoom).toBe(1.85);
     });
 
-    it('opens at the remembered page and view, as the opening\'s own restore', async () => {
+    it("opens at the remembered page and view, as the opening's own restore", async () => {
         const opening = createOpeningView();
 
         await seedOpeningSource(opening.controller, source, () => Promise.resolve(40));
@@ -174,7 +168,7 @@ describe('seeding a normal open from its reading view', () => {
         expect(opening.view.zoomMode).toBe('fit-width');
     });
 
-    it('places a remembered anchor with the opening\'s restore navigation, not after the page is shown', async () => {
+    it("places a remembered anchor with the opening's restore navigation, not after the page is shown", async () => {
         recent.readingView.mockResolvedValue({
             ...remembered,
             anchor,

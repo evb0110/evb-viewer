@@ -1,10 +1,5 @@
-import {
-    decodeJson,
-    encodeJson,
-    isRecord,
-    STORE_ID_PATTERN,
-} from './documentDirectory';
-import type { IStorePort } from './storePort';
+import {decodeJson, encodeJson, isRecord, STORE_ID_PATTERN} from './documentDirectory';
+import type {IStorePort} from './storePort';
 
 export const WORKSPACES_DIR = 'workspaces';
 const CHECKPOINT_SUFFIX = '.json';
@@ -25,7 +20,9 @@ export interface IWorkspaceCheckpoint<TView = unknown, TLayout = unknown> {
 }
 
 function checkpointPath(windowId: string) {
-    if (!STORE_ID_PATTERN.test(windowId)) throw new Error(`Invalid window id: ${windowId}`);
+    if (!STORE_ID_PATTERN.test(windowId)) {
+        throw new Error(`Invalid window id: ${windowId}`);
+    }
     return `${WORKSPACES_DIR}/${windowId}${CHECKPOINT_SUFFIX}`;
 }
 
@@ -37,17 +34,21 @@ export function checkpointWindowId(name: string) {
 
 function decodeCheckpoint(bytes: Uint8Array): IWorkspaceCheckpoint | null {
     const value = decodeJson(bytes);
-    if (!isRecord(value) || value.version !== 1 || !isRecord(value.tabs)) return null;
+    if (!isRecord(value) || value.version !== 1 || !isRecord(value.tabs)) {
+        return null;
+    }
     const tabs: Record<string, ICheckpointTab> = {};
     for (const [tabId, tab] of Object.entries(value.tabs)) {
-        if (!isRecord(tab) || typeof tab.directory !== 'string' || !STORE_ID_PATTERN.test(tab.directory)) return null;
-        tabs[tabId] = { directory: tab.directory, view: tab.view };
+        if (!isRecord(tab) || typeof tab.directory !== 'string' || !STORE_ID_PATTERN.test(tab.directory)) {
+            return null;
+        }
+        tabs[tabId] = {directory: tab.directory, view: tab.view};
     }
-    return { tabs, layout: value.layout };
+    return {tabs, layout: value.layout};
 }
 
 export function writeWorkspaceCheckpoint(port: IStorePort, windowId: string, checkpoint: IWorkspaceCheckpoint) {
-    return port.writeAtomic(checkpointPath(windowId), encodeJson({ version: 1, ...checkpoint }));
+    return port.writeAtomic(checkpointPath(windowId), encodeJson({version: 1, ...checkpoint}));
 }
 
 /** Recovery data that exists but cannot be read: kept as it is, for the host to report. */
@@ -64,14 +65,21 @@ export async function readWorkspaceCheckpoints(port: IStorePort, unreadable: IUn
     const checkpoints = new Map<string, IWorkspaceCheckpoint | null>();
     for (const name of await port.list(WORKSPACES_DIR)) {
         const windowId = checkpointWindowId(name);
-        if (windowId === null) continue;
+        if (windowId === null) {
+            continue;
+        }
         const path = `${WORKSPACES_DIR}/${name}`;
-        checkpoints.set(windowId, await port.read(path).then(decodeCheckpoint)
-            .then(checkpoint => checkpoint ?? Promise.reject(new Error('Not a workspace checkpoint')))
-            .catch((error: unknown) => {
-                unreadable.push({ path, error });
-                return null;
-            }));
+        checkpoints.set(
+            windowId,
+            await port
+                .read(path)
+                .then(decodeCheckpoint)
+                .then((checkpoint) => checkpoint ?? Promise.reject(new Error('Not a workspace checkpoint')))
+                .catch((error: unknown) => {
+                    unreadable.push({path, error});
+                    return null;
+                }),
+        );
     }
     return checkpoints;
 }

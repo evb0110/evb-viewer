@@ -1,22 +1,13 @@
 import {getUnprovenNativeTerminationDetail} from '@contracts/nativeErrors';
 import type {TOcrTextSupersessionPolicy} from '@contracts/electronApiOcr';
-import type {
-    IOcrPdfPageRequest,
-    TWorkerLog,
-} from '@electron/features/ocr/pipeline/types';
-import { iterateOcrPageRanges } from '@ocr-core/ocrPageSelection';
-import {
-    OCR_TEXT_PROBE_UNAVAILABLE,
-    selectOcrPagesByExistingText,
-} from '@ocr-core/selectOcrPagesByExistingText';
+import type {IOcrPdfPageRequest, TWorkerLog} from '@electron/features/ocr/pipeline/types';
+import {iterateOcrPageRanges} from '@ocr-core/ocrPageSelection';
+import {OCR_TEXT_PROBE_UNAVAILABLE, selectOcrPagesByExistingText} from '@ocr-core/selectOcrPagesByExistingText';
 import {inspectPdfPageTextVisibility} from '@electron/pdf/inspectPdfPageTextVisibility';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
-import {
-    groupContiguousPages,
-    splitPdfTextOutput,
-} from '@electron/pdf/pdfTextPageBatching';
-import { isAbortError } from '@electron/utils/abort';
-import { getErrorMessage } from '@electron/utils/error';
+import {groupContiguousPages, splitPdfTextOutput} from '@electron/pdf/pdfTextPageBatching';
+import {isAbortError} from '@electron/utils/abort';
+import {getErrorMessage} from '@electron/utils/error';
 
 const TEXT_PROBE_TIMEOUT_MS = 2 * 60 * 1000;
 const TEXT_PROBE_MAX_STDOUT_BYTES = 64 * 1024 * 1024;
@@ -54,20 +45,17 @@ async function extractPageTextForClassification(input: {
 
             const batchLength = lastPage - firstPage + 1;
             try {
-                const probe = await runNativeToolCommand(input.pdftotextBinary, [
-                    '-f',
-                    String(firstPage),
-                    '-l',
-                    String(lastPage),
-                    input.sourcePdfPath,
-                    '-',
-                ], {
-                    commandLabel: 'pdftotext(ocr-supersession-probe)',
-                    timeoutMs: TEXT_PROBE_TIMEOUT_MS,
-                    maxStdoutBytes: TEXT_PROBE_MAX_STDOUT_BYTES,
-                    rejectOnStdoutTruncation: true,
-                    signal: input.signal,
-                });
+                const probe = await runNativeToolCommand(
+                    input.pdftotextBinary,
+                    ['-f', String(firstPage), '-l', String(lastPage), input.sourcePdfPath, '-'],
+                    {
+                        commandLabel: 'pdftotext(ocr-supersession-probe)',
+                        timeoutMs: TEXT_PROBE_TIMEOUT_MS,
+                        maxStdoutBytes: TEXT_PROBE_MAX_STDOUT_BYTES,
+                        rejectOnStdoutTruncation: true,
+                        signal: input.signal,
+                    },
+                );
                 const rangeTexts = splitPdfTextOutput(probe.stdout, batchLength);
                 for (let index = 0; index < batchLength; index += 1) {
                     texts.set(firstPage + index, rangeTexts[index] ?? '');
@@ -97,7 +85,7 @@ export async function selectOcrPagesForSupersession(input: {
     signal: AbortSignal;
 }) {
     const warnings: string[] = [];
-    const requestedPageNumbers = input.pages.map(page => page.pageNumber);
+    const requestedPageNumbers = input.pages.map((page) => page.pageNumber);
     const visibilityAnalysis = await inspectPdfPageTextVisibility({
         pdfPath: input.sourcePdfPath,
         pageNumbers: requestedPageNumbers,
@@ -127,10 +115,7 @@ export async function selectOcrPagesForSupersession(input: {
     });
     return {
         pages: selection.pages,
-        warnings: [
-            ...warnings,
-            ...selection.warnings,
-        ],
+        warnings: [...warnings, ...selection.warnings],
         diagnostics: selection.diagnostics,
     };
 }

@@ -1,17 +1,11 @@
-import {
-    contentOf,
-    sameWitness,
-} from '@document-store/contentWitness';
-import type {
-    IPublicationPort,
-    IPublishSource,
-} from '@document-store/documentDirectory';
-import { isRecord } from '@contracts/runtimeGuards';
-import { fileHandleStore } from '@app/platform/browser/browserFileHandleStore';
-import { blobContentWitness } from '@app/platform/browser/browserStorePort';
-import { runBrowserLock } from '@app/platform/browser/runBrowserLock';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getErrorMessage } from '@app/utils/error';
+import {contentOf, sameWitness} from '@document-store/contentWitness';
+import type {IPublicationPort, IPublishSource} from '@document-store/documentDirectory';
+import {isRecord} from '@contracts/runtimeGuards';
+import {fileHandleStore} from '@app/platform/browser/browserFileHandleStore';
+import {blobContentWitness} from '@app/platform/browser/browserStorePort';
+import {runBrowserLock} from '@app/platform/browser/runBrowserLock';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getErrorMessage} from '@app/utils/error';
 
 const HANDLE_PREFIX = 'handle:';
 const DOWNLOAD_PREFIX = 'download:';
@@ -49,7 +43,9 @@ export function rememberFileHandle(key: string, handle: FileSystemFileHandle) {
 export async function storeFileHandle(key: string, handle: FileSystemFileHandle) {
     handles.set(key, handle);
     await fileHandleStore.put(key, {handle, name: handle.name}).catch((error: unknown) => {
-        if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) return;
+        if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) {
+            return;
+        }
         BrowserLogger.warn('browser-publication', 'Could not persist a file handle', {
             key,
             fileName: handle.name,
@@ -60,16 +56,22 @@ export async function storeFileHandle(key: string, handle: FileSystemFileHandle)
 
 export async function resolveFileHandle(key: string) {
     const known = handles.get(key);
-    if (known) return known;
+    if (known) {
+        return known;
+    }
     const stored = await fileHandleStore.get(key);
-    if (stored) handles.set(key, stored.handle);
+    if (stored) {
+        handles.set(key, stored.handle);
+    }
     return stored?.handle ?? null;
 }
 
 async function requireFileHandle(destination: string) {
     const key = handleKeyOf(destination);
     const handle = key === null ? null : await resolveFileHandle(key);
-    if (!handle) throw new Error(`No file is known for ${destination}`);
+    if (!handle) {
+        throw new Error(`No file is known for ${destination}`);
+    }
     return handle;
 }
 
@@ -89,7 +91,9 @@ async function* sourceChunks(source: IPublishSource) {
 /** The published bytes as a Blob whose parts the browser may keep on disk; no single buffer holds them. */
 export async function publishSourceBlob(source: IPublishSource, type: string) {
     const parts: Blob[] = [];
-    for await (const chunk of sourceChunks(source)) parts.push(new Blob([chunk]));
+    for await (const chunk of sourceChunks(source)) {
+        parts.push(new Blob([chunk]));
+    }
     return new Blob(parts, {type});
 }
 
@@ -117,7 +121,9 @@ export function downloadBlob(blob: Blob, fileName: string) {
  */
 export const browserPublication: IPublicationPort = {
     async witness(destination, content) {
-        if (handleKeyOf(destination) === null) return null;
+        if (handleKeyOf(destination) === null) {
+            return null;
+        }
         const file = await (await requireFileHandle(destination)).getFile();
         return content ? `${fileFact(file)} ${await blobContentWitness(file)}` : fileFact(file);
     },
@@ -125,7 +131,7 @@ export const browserPublication: IPublicationPort = {
         return (await requireFileHandle(destination)).getFile();
     },
     async publish(destination, source, expected, stage) {
-        const witness = contentOf(source.witness) ?? await source.file.witness(source.length);
+        const witness = contentOf(source.witness) ?? (await source.file.witness(source.length));
         const fileName = destinationFileName(destination);
         if (fileName !== null) {
             await stage(witness);
@@ -136,11 +142,15 @@ export const browserPublication: IPublicationPort = {
         // Two documents can name one file (it was opened twice). Every publication to a file takes one lock, so
         // the check sees what another document's save wrote.
         return runBrowserPublishLock(async () => {
-            if (expected !== null && !sameWitness(fileFact(await handle.getFile()), expected)) return {status: 'conflict'} as const;
+            if (expected !== null && !sameWitness(fileFact(await handle.getFile()), expected)) {
+                return {status: 'conflict'} as const;
+            }
             await stage(witness);
             const writable = await handle.createWritable();
             try {
-                for await (const chunk of sourceChunks(source)) await writable.write(chunk);
+                for await (const chunk of sourceChunks(source)) {
+                    await writable.write(chunk);
+                }
             } catch (error) {
                 await writable.abort().catch(() => undefined);
                 throw error;
@@ -150,7 +160,9 @@ export const browserPublication: IPublicationPort = {
             // The store worker hashes it while this lock is held, so no other publication writes the file meanwhile.
             const written = await handle.getFile();
             const content = await blobContentWitness(written);
-            return content === witness ? {status: 'published', witness: `${fileFact(written)} ${content}`} as const : {status: 'conflict'} as const;
+            return content === witness
+                ? ({status: 'published', witness: `${fileFact(written)} ${content}`} as const)
+                : ({status: 'conflict'} as const);
         });
     },
 };

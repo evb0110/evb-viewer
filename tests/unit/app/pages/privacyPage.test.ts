@@ -2,19 +2,8 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    nextTick,
-    ref,
-} from 'vue';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {createApp, nextTick, ref} from 'vue';
 import PrivacyPage from '@app/pages/privacy.vue';
 
 const locale = ref('en');
@@ -65,8 +54,9 @@ describe('privacy page', () => {
     it('describes assistant providers without offering a response report control', () => {
         const host = mountPage();
 
-        const assistantSection = [...host.querySelectorAll('section')]
-            .find(section => section.querySelector('h2')?.textContent === 'Optional assistant services');
+        const assistantSection = [...host.querySelectorAll('section')].find(
+            (section) => section.querySelector('h2')?.textContent === 'Optional assistant services',
+        );
         expect(assistantSection?.textContent).toContain('sent to that provider under your account');
         expect(assistantSection?.querySelectorAll('p')).toHaveLength(1);
         expect(host.textContent).not.toContain('report control');

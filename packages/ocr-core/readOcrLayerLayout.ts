@@ -1,8 +1,5 @@
-import type {
-    IDocumentTextPageLayout,
-    IDocumentTextRegion,
-} from '@contracts/documentTextCatalog';
-import type { IPdfOcrLayerLine } from '@contracts/pdfOcrTextVisibility';
+import type {IDocumentTextPageLayout, IDocumentTextRegion} from '@contracts/documentTextCatalog';
+import type {IPdfOcrLayerLine} from '@contracts/pdfOcrTextVisibility';
 
 interface IBlock {
     lines: IPdfOcrLayerLine[];
@@ -12,10 +9,7 @@ interface IBlock {
     bottom: number;
 }
 
-const SIDES = [
-    'left',
-    'right',
-] as const;
+const SIDES = ['left', 'right'] as const;
 type TSide = (typeof SIDES)[number];
 
 // A block narrower than this share of the page's text is a margin note or the
@@ -73,24 +67,26 @@ function median(values: number[]) {
  * line-end hyphen joins the word it splits.
  */
 function paragraphsOf(blocks: readonly IBlock[]) {
-    const lines = blocks.flatMap(block => block.lines.map((line, index) => ({
-        line,
-        startsBlock: index === 0,
-    }))).filter(({line}) => line.text.trim() !== '');
-    const near = (index: number, edge: (line: IPdfOcrLayerLine) => number) => median(
-        lines.slice(Math.max(0, index - NEIGHBOURHOOD), index + NEIGHBOURHOOD + 1).map(({line}) => edge(line)),
-    );
+    const lines = blocks
+        .flatMap((block) =>
+            block.lines.map((line, index) => ({
+                line,
+                startsBlock: index === 0,
+            })),
+        )
+        .filter(({line}) => line.text.trim() !== '');
+    const near = (index: number, edge: (line: IPdfOcrLayerLine) => number) =>
+        median(lines.slice(Math.max(0, index - NEIGHBOURHOOD), index + NEIGHBOURHOOD + 1).map(({line}) => edge(line)));
     const paragraphs: string[] = [];
-    lines.forEach(({
-        line, startsBlock,
-    }, index) => {
+    lines.forEach(({line, startsBlock}, index) => {
         const text = line.text.trim();
         const previous = paragraphs.at(-1);
         // Beside a drop cap the second line is as indented as the first.
-        const indented = line.left > near(index, entry => entry.left) + INDENT_SHARE * line.size
-            && (index === 0 || line.left > lines[index - 1]!.line.left + INDENT_SHARE * line.size);
-        const afterShort = index > 0
-            && lines[index - 1]!.line.right < near(index - 1, entry => entry.right) - SHORT_LINE_SHARE * line.size;
+        const indented =
+            line.left > near(index, (entry) => entry.left) + INDENT_SHARE * line.size &&
+            (index === 0 || line.left > lines[index - 1]!.line.left + INDENT_SHARE * line.size);
+        const afterShort =
+            index > 0 && lines[index - 1]!.line.right < near(index - 1, (entry) => entry.right) - SHORT_LINE_SHARE * line.size;
         const continues = previous !== undefined && (/\p{L}-$/u.test(previous) || /^\p{Ll}/u.test(text));
         if (previous === undefined || indented || afterShort || (startsBlock && !continues)) {
             paragraphs.push(text);
@@ -110,34 +106,39 @@ function paragraphsOf(blocks: readonly IBlock[]) {
  */
 export function readOcrLayerLayout(lines: readonly IPdfOcrLayerLine[]): IDocumentTextPageLayout {
     const blocks = blocksOf(lines);
-    if (blocks.length === 0) return {regions: []};
-    const pageWidth = Math.max(...blocks.map(block => block.right)) - Math.min(...blocks.map(block => block.left));
+    if (blocks.length === 0) {
+        return {regions: []};
+    }
+    const pageWidth = Math.max(...blocks.map((block) => block.right)) - Math.min(...blocks.map((block) => block.left));
     const isAside = (block: IBlock) => block.right - block.left < ASIDE_MAX_WIDTH_SHARE * pageWidth;
-    const body = blocks.filter(block => !isAside(block));
+    const body = blocks.filter((block) => !isAside(block));
     const regions: IDocumentTextRegion[] = [];
     const aside = blocks.filter(isAside);
     if (body.length > 0) {
         // The text's extent, from blocks of several lines: specks and page
         // edges Tesseract read as one line would move the gutter.
-        const columns = body.filter(block => block.lines.length >= EXTENT_MIN_LINES);
+        const columns = body.filter((block) => block.lines.length >= EXTENT_MIN_LINES);
         const extent = columns.length > 0 ? columns : body;
-        const left = Math.min(...extent.map(block => block.left));
-        const right = Math.max(...extent.map(block => block.right));
+        const left = Math.min(...extent.map((block) => block.left));
+        const right = Math.max(...extent.map((block) => block.right));
         const gutter = (left + right) / 2;
         const slack = GUTTER_SLACK_SHARE * (right - left);
-        const sideOf = (block: IBlock): TSide | null => block.right <= gutter + slack
-            ? 'left'
-            : block.left >= gutter - slack ? 'right' : null;
+        const sideOf = (block: IBlock): TSide | null =>
+            block.right <= gutter + slack ? 'left' : block.left >= gutter - slack ? 'right' : null;
         let open: Map<TSide, IBlock[]> | null = null;
         const close = () => {
             const current = open;
-            if (!current) return;
-            const sides = SIDES.map(side => current.get(side)).filter(side => side !== undefined);
-            const overlap = sides.length === 2 && Math.min(...sides.map(side => Math.max(...side.map(block => block.top))))
-                > Math.max(...sides.map(side => Math.min(...side.map(block => block.bottom))));
-            regions.push(overlap
-                ? {columns: sides.map(paragraphsOf)}
-                : {columns: [paragraphsOf(sides.flat().sort((a, b) => b.top - a.top))]});
+            if (!current) {
+                return;
+            }
+            const sides = SIDES.map((side) => current.get(side)).filter((side) => side !== undefined);
+            const overlap =
+                sides.length === 2 &&
+                Math.min(...sides.map((side) => Math.max(...side.map((block) => block.top)))) >
+                    Math.max(...sides.map((side) => Math.min(...side.map((block) => block.bottom))));
+            regions.push(
+                overlap ? {columns: sides.map(paragraphsOf)} : {columns: [paragraphsOf(sides.flat().sort((a, b) => b.top - a.top))]},
+            );
             open = null;
         };
         for (const block of body) {
@@ -152,23 +153,19 @@ export function readOcrLayerLayout(lines: readonly IPdfOcrLayerLine[]): IDocumen
                 continue;
             }
             open ??= new Map();
-            open.set(side, [
-                ...(open.get(side) ?? []),
-                block,
-            ]);
+            open.set(side, [...(open.get(side) ?? []), block]);
         }
         close();
     }
-    if (aside.length > 0) regions.push({columns: [paragraphsOf(aside)]});
+    if (aside.length > 0) {
+        regions.push({columns: [paragraphsOf(aside)]});
+    }
     // Consecutive single-column regions read as one run.
     const merged: IDocumentTextRegion[] = [];
-    for (const region of regions.filter(entry => entry.columns.some(column => column.length > 0))) {
+    for (const region of regions.filter((entry) => entry.columns.some((column) => column.length > 0))) {
         const previous = merged.at(-1);
         if (previous && previous.columns.length === 1 && region.columns.length === 1) {
-            merged[merged.length - 1] = {columns: [[
-                ...previous.columns[0]!,
-                ...region.columns[0]!,
-            ]]};
+            merged[merged.length - 1] = {columns: [[...previous.columns[0]!, ...region.columns[0]!]]};
         } else {
             merged.push(region);
         }

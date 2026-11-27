@@ -1,4 +1,4 @@
-import { nativeImage } from 'electron';
+import {nativeImage} from 'electron';
 
 interface IRgbaColor {
     r: number;
@@ -27,7 +27,7 @@ function fillBitmapRect(
     const endY = Math.min(boundedStartY + Math.max(rectHeight, 0), height);
     for (let y = boundedStartY; y < endY; y += 1) {
         for (let x = boundedStartX; x < endX; x += 1) {
-            const offset = ((y * width) + x) * 4;
+            const offset = (y * width + x) * 4;
             const blue = bitmap[offset] ?? 0;
             const green = bitmap[offset + 1] ?? 0;
             const red = bitmap[offset + 2] ?? 0;
@@ -46,10 +46,7 @@ export function createDevDockIcon(devDockIconPath: string) {
         return null;
     }
 
-    const {
-        width,
-        height,
-    } = baseIcon.getSize();
+    const {width, height} = baseIcon.getSize();
     if (width <= 0 || height <= 0) {
         return null;
     }
@@ -73,8 +70,8 @@ export function createDevDockIcon(devDockIconPath: string) {
         height,
         anchorX + borderWidth,
         anchorY + borderWidth,
-        markerSize - (borderWidth * 2),
-        markerSize - (borderWidth * 2),
+        markerSize - borderWidth * 2,
+        markerSize - borderWidth * 2,
         {
             r: 255,
             g: 255,

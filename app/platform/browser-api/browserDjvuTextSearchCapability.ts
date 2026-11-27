@@ -1,14 +1,8 @@
-import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
-import {
-    createDjvuWorkerFromPath,
-    searchDjvuWorkerText,
-} from '@app/platform/browser-api/createDjvuWorkerFromPath';
+import type {IDjvuCapability} from '@contracts/djvuPlatformFeature';
+import {createDjvuWorkerFromPath, searchDjvuWorkerText} from '@app/platform/browser-api/createDjvuWorkerFromPath';
 import {assertBrowserDjvuSource} from '@app/platform/browser-api/browserDjvuConversionPipeline';
 
-type TBrowserDjvuTextSearchCapability = Pick<
-    IDjvuCapability,
-    'searchText' | 'cancelTextSearch' | 'onTextSearchProgress'
->;
+type TBrowserDjvuTextSearchCapability = Pick<IDjvuCapability, 'searchText' | 'cancelTextSearch' | 'onTextSearchProgress'>;
 
 const progressListeners = new Set<Parameters<IDjvuCapability['onTextSearchProgress']>[0]>();
 const activeSearchesByRequestId = new Map<string, Map<string, AbortController>>();
@@ -50,7 +44,7 @@ export const browserDjvuTextSearchCapability = {
                     if (!isCurrentSearch()) {
                         return;
                     }
-                    progressListeners.forEach(listener => listener(progress));
+                    progressListeners.forEach((listener) => listener(progress));
                 },
             });
         } finally {
@@ -58,10 +52,7 @@ export const browserDjvuTextSearchCapability = {
             if (isCurrentSearch()) {
                 activeSearches.delete(djvuPath);
             }
-            if (
-                activeSearches.size === 0
-                && activeSearchesByRequestId.get(options.requestId) === activeSearches
-            ) {
+            if (activeSearches.size === 0 && activeSearchesByRequestId.get(options.requestId) === activeSearches) {
                 activeSearchesByRequestId.delete(options.requestId);
             }
         }

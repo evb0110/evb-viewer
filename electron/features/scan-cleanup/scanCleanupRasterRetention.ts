@@ -1,15 +1,12 @@
 import {randomUUID} from 'crypto';
 import {join} from 'path';
-import type { IScanCleanupPreviewRequest } from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {resolveRasterHandoff} from '@evb/scan-cleanup/core/resolveRasterHandoff';
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
-import type {
-    IDetectedPageRaster,
-    IScanCleanupPageRasterSource,
-} from '@evb/scan-cleanup/core/types';
-import { detectPageRasterFromPageSize } from '@evb/scan-cleanup/core/types';
+import type {IDetectedPageRaster, IScanCleanupPageRasterSource} from '@evb/scan-cleanup/core/types';
+import {detectPageRasterFromPageSize} from '@evb/scan-cleanup/core/types';
 import {PREVIEW_DPI} from '@evb/scan-cleanup/core/detection';
 import {
     RAW_RASTER_RETENTION_PREFIX,
@@ -37,10 +34,7 @@ import {
     requireScanCleanupRasterDependencies,
     type IScanCleanupRetainedReadOperation,
 } from '@electron/features/scan-cleanup/scanCleanupRasterRetentionIo';
-import {
-    getActiveJobBrokerLease,
-    type IJobBrokerRunContext,
-} from '@electron/resources/jobBroker';
+import {getActiveJobBrokerLease, type IJobBrokerRunContext} from '@electron/resources/jobBroker';
 import {
     resolveScanCleanupDocumentMeasurement,
     resolveScanCleanupDocumentPageMeasurement,
@@ -50,19 +44,16 @@ const logger = createLogger('scan-cleanup-raster-retention');
 // Enough for switching between a few open documents without reopening them.
 const SCAN_CLEANUP_IDLE_DOCUMENT_LIMIT = 4;
 
-export function scanCleanupRasterRetention(
-    dependencies: IScanCleanupRasterDependencies,
-): IScanCleanupRasterRetention {
+export function scanCleanupRasterRetention(dependencies: IScanCleanupRasterDependencies): IScanCleanupRasterRetention {
     const requiredDependencies = requireScanCleanupRasterDependencies(dependencies);
-    const {
-        fileSystem,
-        getAvailableScratchBytes,
-        getSourceStatIdentity,
-    } = requiredDependencies;
-    const documents = new Map<string, IRetainedDocument>(); const opening = new Map<string, Promise<IRetainedDocument>>();
-    const rasters = new Map<string, IRetainedRawRaster>(); const adoptedRasters = new Set<string>();
+    const {fileSystem, getAvailableScratchBytes, getSourceStatIdentity} = requiredDependencies;
+    const documents = new Map<string, IRetainedDocument>();
+    const opening = new Map<string, Promise<IRetainedDocument>>();
+    const rasters = new Map<string, IRetainedRawRaster>();
+    const adoptedRasters = new Set<string>();
     let retainedBytes = 0;
-    let root: Promise<string> | null = null; let budget: Promise<number> | null = null;
+    let root: Promise<string> | null = null;
+    let budget: Promise<number> | null = null;
     const pendingStoreClosures = new Set<Promise<void>>();
     const documentGenerations = new WeakMap<IRetainedDocument, number>();
     const inFlightReads = new Map<string, IScanCleanupRetainedReadOperation>();
@@ -70,21 +61,23 @@ export function scanCleanupRasterRetention(
     const rasterClaims = new Map<string, Set<string>>();
     const canceledClaims = new Set<string>();
     const activeClaimOperations = new Map<string, number>();
-    const claimFenceKey = (document: IRetainedDocument, claimId: string) => [
-        claimId,
-        document.sourcePdfPath,
-        document.documentRevision,
-        document.sourceStatIdentity,
-    ].join('\u0000');
+    const claimFenceKey = (document: IRetainedDocument, claimId: string) =>
+        [claimId, document.sourcePdfPath, document.documentRevision, document.sourceStatIdentity].join('\u0000');
     const senderIdFromClaim = (claimId: string) => {
         const match = /^scan-cleanup:(\d+):/u.exec(claimId);
-        if (match === null) return undefined;
+        if (match === null) {
+            return undefined;
+        }
         return Number(match[1]);
     };
     const rememberClaimOwner = (document: IRetainedDocument, claimId: string | undefined) => {
-        if (claimId === undefined) return;
+        if (claimId === undefined) {
+            return;
+        }
         const senderId = senderIdFromClaim(claimId);
-        if (senderId !== undefined) document.rendererOwners.add(senderId);
+        if (senderId !== undefined) {
+            document.rendererOwners.add(senderId);
+        }
     };
     const beginClaimOperation = (document: IRetainedDocument, claimId: string) => {
         const key = claimFenceKey(document, claimId);
@@ -93,9 +86,14 @@ export function scanCleanupRasterRetention(
     };
     const finishClaimOperation = (key: string) => {
         const active = activeClaimOperations.get(key) ?? 0;
-        if (active <= 1) activeClaimOperations.delete(key);
-        else activeClaimOperations.set(key, active - 1);
-        if (!activeClaimOperations.has(key)) canceledClaims.delete(key);
+        if (active <= 1) {
+            activeClaimOperations.delete(key);
+        } else {
+            activeClaimOperations.set(key, active - 1);
+        }
+        if (!activeClaimOperations.has(key)) {
+            canceledClaims.delete(key);
+        }
     };
     const enqueuePathOperation = createScanCleanupPathOperationQueue();
     const removal = createScanCleanupRasterRemovalCoordinator({
@@ -103,24 +101,12 @@ export function scanCleanupRasterRetention(
         rasters,
         removePath: fileSystem.rm,
     });
-    const {
-        pendingCleanups: pendingPathCleanups,
-        remove,
-        removeQuietly,
-        removeRaster,
-    } = removal;
+    const {pendingCleanups: pendingPathCleanups, remove, removeQuietly, removeRaster} = removal;
     const pendingDocumentCleanups = new Set<IRetainedDocument>();
     const readLifecycle = createScanCleanupReadLifecycle();
     let disposed = false;
-    const documentKey = (
-        sourcePdfPath: string,
-        documentRevision: string,
-        sourceStatIdentity: string,
-    ) => JSON.stringify([
-        sourcePdfPath,
-        documentRevision,
-        sourceStatIdentity,
-    ]);
+    const documentKey = (sourcePdfPath: string, documentRevision: string, sourceStatIdentity: string) =>
+        JSON.stringify([sourcePdfPath, documentRevision, sourceStatIdentity]);
     const finishRead = (key: string, operation: IScanCleanupRetainedReadOperation) => {
         if (inFlightReads.get(key)?.token === operation.token) {
             inFlightReads.delete(key);
@@ -134,7 +120,7 @@ export function scanCleanupRasterRetention(
         readLifecycle.finish();
         if (readLifecycle.pendingCount === 0) {
             for (const document of pendingDocumentCleanups) {
-                if (![...inFlightReads.values()].some(read => read.raster.document === document)) {
+                if (![...inFlightReads.values()].some((read) => read.raster.document === document)) {
                     pendingDocumentCleanups.delete(document);
                     discard(document);
                 }
@@ -148,10 +134,7 @@ export function scanCleanupRasterRetention(
     };
     const ensureRoot = () => {
         root ??= (async () => {
-            const path = join(
-                dependencies.getTempDir(),
-                `${RAW_RASTER_RETENTION_PREFIX}${randomUUID()}-${process.pid}`,
-            );
+            const path = join(dependencies.getTempDir(), `${RAW_RASTER_RETENTION_PREFIX}${randomUUID()}-${process.pid}`);
             await fileSystem.rm(path, {
                 force: true,
                 recursive: true,
@@ -163,25 +146,16 @@ export function scanCleanupRasterRetention(
     };
     const resolveBudgetBytes = () => {
         budget ??= ensureRoot()
-            .then(path => resolveRasterHandoff(
-                [],
-                path,
-                getAvailableScratchBytes,
-            ))
-            .then(handoff => handoff.budgetBytes ?? 0);
+            .then((path) => resolveRasterHandoff([], path, getAvailableScratchBytes))
+            .then((handoff) => handoff.budgetBytes ?? 0);
         return budget;
     };
     const removeDocumentWhenIdle = (document: IRetainedDocument) => {
-        const key = documentKey(
-            document.sourcePdfPath,
-            document.documentRevision,
-            document.sourceStatIdentity,
-        );
-        if (documents.get(key) === document) documents.delete(key);
-        for (const [
-            key,
-            raster,
-        ] of rasters) {
+        const key = documentKey(document.sourcePdfPath, document.documentRevision, document.sourceStatIdentity);
+        if (documents.get(key) === document) {
+            documents.delete(key);
+        }
+        for (const [key, raster] of rasters) {
             if (raster.document === document) {
                 forget(key, raster);
                 rasterClaims.delete(key);
@@ -189,15 +163,15 @@ export function scanCleanupRasterRetention(
             }
         }
         document.lifetime.abort(new DOMException('Scan cleanup document was closed', 'AbortError'));
-        if ([...inFlightReads.values()].some(read => read.raster.document === document)) {
+        if ([...inFlightReads.values()].some((read) => read.raster.document === document)) {
             pendingDocumentCleanups.add(document);
             return;
         }
         const storesClosed = closeScanCleanupPageSizeStores(document, pendingStoreClosures);
-        void Promise.all([
-            document.dir,
-            storesClosed,
-        ]).then(([directory]) => remove(directory), () => undefined);
+        void Promise.all([document.dir, storesClosed]).then(
+            ([directory]) => remove(directory),
+            () => undefined,
+        );
     };
     const readRetained = async <TValue>(
         document: IRetainedDocument,
@@ -223,8 +197,10 @@ export function scanCleanupRasterRetention(
             currentGeneration: () => documentGenerations.get(document) ?? 0,
             beginRead: readLifecycle.begin,
             finishRead,
-            adjustBytes: delta => { retainedBytes += delta; },
-            adopt: keyToAdopt => adoptedRasters.add(keyToAdopt),
+            adjustBytes: (delta) => {
+                retainedBytes += delta;
+            },
+            adopt: (keyToAdopt) => adoptedRasters.add(keyToAdopt),
             load,
             refresh,
         });
@@ -239,14 +215,13 @@ export function scanCleanupRasterRetention(
     };
     const prune = async () => {
         const budgetBytes = await resolveBudgetBytes();
-        for (const [
-            key,
-            raster,
-        ] of rasters) {
+        for (const [key, raster] of rasters) {
             if (retainedBytes <= budgetBytes) {
                 return;
             }
-            if (raster.document.pinned > 0) continue;
+            if (raster.document.pinned > 0) {
+                continue;
+            }
             forget(key, raster);
             rasterClaims.delete(key);
             removeRaster(raster);
@@ -256,13 +231,10 @@ export function scanCleanupRasterRetention(
     // each closed document keeps its geometry store and directory until the
     // service ends. Only the most recently used idle documents stay reusable.
     const pruneIdleDocuments = () => {
-        const idle = [...documents.values()].filter(document => document.pinned === 0 && document.claims.size === 0);
+        const idle = [...documents.values()].filter((document) => document.pinned === 0 && document.claims.size === 0);
         idle.slice(0, Math.max(0, idle.length - SCAN_CLEANUP_IDLE_DOCUMENT_LIMIT)).forEach(removeDocumentWhenIdle);
     };
-    const resolveDocument = async (
-        request: Pick<IScanCleanupPreviewRequest, 'sourcePdfPath' | 'documentRevision'>,
-        claimId?: string,
-    ) => {
+    const resolveDocument = async (request: Pick<IScanCleanupPreviewRequest, 'sourcePdfPath' | 'documentRevision'>, claimId?: string) => {
         if (disposed) {
             throw new DOMException('Scan cleanup raster retention is disposed', 'AbortError');
         }
@@ -270,21 +242,11 @@ export function scanCleanupRasterRetention(
         if (disposed) {
             throw new DOMException('Scan cleanup raster retention is disposed', 'AbortError');
         }
-        const key = documentKey(
-            request.sourcePdfPath,
-            request.documentRevision,
-            sourceStatIdentity,
-        );
+        const key = documentKey(request.sourcePdfPath, request.documentRevision, sourceStatIdentity);
         const current = documents.get(key);
         const retireSupersededDocuments = () => {
-            for (const [
-                existingKey,
-                existing,
-            ] of documents) {
-                if (
-                    existingKey !== key
-                    && existing.sourcePdfPath === request.sourcePdfPath
-                ) {
+            for (const [existingKey, existing] of documents) {
+                if (existingKey !== key && existing.sourcePdfPath === request.sourcePdfPath) {
                     // A pinned superseded document remains usable until its
                     // last owner releases it; discard() marks it for removal
                     // and the final release closes its stores and scratch.
@@ -293,10 +255,10 @@ export function scanCleanupRasterRetention(
             }
         };
         if (
-            current
-            && current.documentRevision === request.documentRevision
-            && current.sourceStatIdentity === sourceStatIdentity
-            && !current.removeWhenIdle
+            current &&
+            current.documentRevision === request.documentRevision &&
+            current.sourceStatIdentity === sourceStatIdentity &&
+            !current.removeWhenIdle
         ) {
             retireSupersededDocuments();
             documents.delete(key);
@@ -309,15 +271,19 @@ export function scanCleanupRasterRetention(
             }
             return current;
         }
-        if (current) discard(current);
+        if (current) {
+            discard(current);
+        }
         retireSupersededDocuments();
         if (disposed) {
             throw new DOMException('Scan cleanup raster retention is disposed', 'AbortError');
         }
         const claims = new Map<string, number>();
-        if (claimId !== undefined) claims.set(claimId, 1);
+        if (claimId !== undefined) {
+            claims.set(claimId, 1);
+        }
         const document: IRetainedDocument = {
-            dir: ensureRoot().then(async path => {
+            dir: ensureRoot().then(async (path) => {
                 if (disposed) {
                     throw new DOMException('Scan cleanup raster retention is disposed', 'AbortError');
                 }
@@ -359,10 +325,7 @@ export function scanCleanupRasterRetention(
         documentGenerations,
         disposed: () => disposed,
     });
-    const {
-        resolvePageCount,
-        resolvePageSizeStore,
-    } = measurements;
+    const {resolvePageCount, resolvePageSizeStore} = measurements;
     interface ISharedProbeCaller {
         brokerRun?: IJobBrokerRunContext;
         signal: AbortSignal;
@@ -377,9 +340,7 @@ export function scanCleanupRasterRetention(
         owner: ISharedProbeCaller | undefined,
         onOwnerAbort: () => void,
     ) => {
-        const probeBrokerRun = owner !== undefined && getActiveJobBrokerLease(owner.brokerRun) !== undefined
-            ? owner.brokerRun
-            : undefined;
+        const probeBrokerRun = owner !== undefined && getActiveJobBrokerLease(owner.brokerRun) !== undefined ? owner.brokerRun : undefined;
         if (probeBrokerRun === undefined || owner === undefined) {
             return {
                 probeSignal: documentSignal,
@@ -424,12 +385,9 @@ export function scanCleanupRasterRetention(
             },
         };
     };
-    const wrapOwnerAbandonedError = (error: unknown) => (
-        error instanceof OwnerAbandonedProbeError ? error : new OwnerAbandonedProbeError(error)
-    );
-    const unwrapOwnerAbandonedError = (error: unknown) => (
-        error instanceof OwnerAbandonedProbeError ? error.originalError : error
-    );
+    const wrapOwnerAbandonedError = (error: unknown) =>
+        error instanceof OwnerAbandonedProbeError ? error : new OwnerAbandonedProbeError(error);
+    const unwrapOwnerAbandonedError = (error: unknown) => (error instanceof OwnerAbandonedProbeError ? error.originalError : error);
     const resolveRasterPageSource = async (
         document: IRetainedDocument,
         signal: AbortSignal,
@@ -438,7 +396,7 @@ export function scanCleanupRasterRetention(
         const baseSource = await resolveScanCleanupDocumentMeasurement(
             {
                 read: () => document.rasterPageSource,
-                write: value => {
+                write: (value) => {
                     document.rasterPageSource = value;
                 },
             },
@@ -466,7 +424,10 @@ export function scanCleanupRasterRetention(
                         return rasterPageSizeStore.getPage(pageNumber);
                     }
                     const read = pageReadTail.then(() => rasterPageSizeStore.getPage(pageNumber));
-                    pageReadTail = read.then(() => undefined, () => undefined);
+                    pageReadTail = read.then(
+                        () => undefined,
+                        () => undefined,
+                    );
                     return read;
                 };
                 interface IPendingRasterRead {
@@ -480,11 +441,7 @@ export function scanCleanupRasterRetention(
                 let rasterReadFlushScheduled = false;
                 let documentDpi: number | null = null;
                 const observeRaster = (raster: IDetectedPageRaster | undefined) => {
-                    if (
-                        raster !== undefined
-                        && Number.isFinite(raster.dpi)
-                        && raster.dpi > 0
-                    ) {
+                    if (raster !== undefined && Number.isFinite(raster.dpi) && raster.dpi > 0) {
                         documentDpi = Math.max(documentDpi ?? 0, raster.dpi);
                     }
                     return raster;
@@ -494,120 +451,124 @@ export function scanCleanupRasterRetention(
                     if (pendingRasterReads.size === 0) {
                         return;
                     }
-                    const entries = [...pendingRasterReads.entries()]
-                        .slice(0, RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES);
-                    for (const [pageNumber] of entries) pendingRasterReads.delete(pageNumber);
+                    const entries = [...pendingRasterReads.entries()].slice(0, RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES);
+                    for (const [pageNumber] of entries) {
+                        pendingRasterReads.delete(pageNumber);
+                    }
                     const pageNumbers = entries.map(([pageNumber]) => pageNumber);
                     const ownerCaller = entries
                         .flatMap(([, entry]) => entry.callers)
-                        .find(caller => !caller.signal.aborted && getActiveJobBrokerLease(caller.brokerRun) !== undefined);
-                    const batchLifecycle = createOwnerBoundProbeLifecycle(
-                        document.lifetime.signal,
-                        ownerCaller,
-                        () => {
-                            for (const [
-                                pageNumber,
-                                {waiter},
-                            ] of entries) {
-                                if (pageRasterCache.get(pageNumber) === waiter.promise) {
-                                    pageRasterCache.delete(pageNumber);
-                                }
+                        .find((caller) => !caller.signal.aborted && getActiveJobBrokerLease(caller.brokerRun) !== undefined);
+                    const batchLifecycle = createOwnerBoundProbeLifecycle(document.lifetime.signal, ownerCaller, () => {
+                        for (const [pageNumber, {waiter}] of entries) {
+                            if (pageRasterCache.get(pageNumber) === waiter.promise) {
+                                pageRasterCache.delete(pageNumber);
                             }
-                        },
-                    );
-                    void Promise.all(pageNumbers.map(async pageNumber => {
-                        try {
-                            return await readPageSize(pageNumber);
-                        } catch (error) {
-                            if (document.lifetime.signal.aborted) throw error;
-                            logger.warn(`Scan cleanup could not read page ${String(pageNumber)} geometry for raster facts: ${getErrorMessage(error)}`);
-                            return undefined;
-                        }
-                    })).then(async pageSizes => {
-                        const rasters = pageSizes.map(pageSize => (
-                            pageSize === undefined ? undefined : detectPageRasterFromPageSize(pageSize)
-                        ));
-                        // Geometry measures the dominant image but cannot say whether
-                        // the page carries a compact bilevel layer. That structural
-                        // fact comes from the probe, as it does for conversion, so a
-                        // page's preview and its output agree on its representation.
-                        // Without it a measured page keeps its geometry and is not
-                        // proven bilevel; a page with neither fails its read.
-                        let probeError: unknown = null;
-                        const probed = dependencies.detectRasterPages === undefined
-                            ? undefined
-                            : await dependencies.detectRasterPages(
-                                document.sourcePdfPath,
-                                batchLifecycle.probeSignal,
-                                pageNumbers,
-                                ...(batchLifecycle.probeBrokerRun === undefined ? [] : [batchLifecycle.probeBrokerRun]),
-                            ).catch((error: unknown) => {
-                                if (batchLifecycle.abandonedByOwner()) {
-                                    throw wrapOwnerAbandonedError(error);
-                                }
-                                if (
-                                    document.lifetime.signal.aborted
-                                    || batchLifecycle.probeSignal.aborted
-                                    || rasters.every(raster => raster === undefined)
-                                ) {
-                                    throw error;
-                                }
-                                logger.warn(`Scan cleanup could not probe page structure for raster facts: ${getErrorMessage(error)}`);
-                                probeError = error;
-                                return undefined;
-                            });
-                        if (probed?.documentDpi !== undefined && probed.documentDpi !== null) {
-                            documentDpi = Math.max(documentDpi ?? 0, probed.documentDpi);
-                        }
-                        const probedRasters = probed === undefined
-                            ? []
-                            : await Promise.all(pageNumbers.map(pageNumber => Promise.resolve(
-                                probed.getPageRaster(pageNumber),
-                            )));
-                        for (const [
-                            index,
-                            [
-                                ,
-                                {waiter},
-                            ],
-                        ] of entries.entries()) {
-                            const measured = rasters[index];
-                            const structure = probedRasters[index];
-                            if (measured === undefined && probeError !== null) {
-                                waiter.reject(probeError);
-                                continue;
-                            }
-                            waiter.resolve(observeRaster(measured === undefined || structure === undefined
-                                ? measured ?? structure
-                                : {
-                                    ...measured,
-                                    ...(structure.hasBilevelLayer === undefined ? {} : {hasBilevelLayer: structure.hasBilevelLayer}),
-                                    ...(structure.hasDominantBilevelLayer === undefined
-                                        ? {}
-                                        : {hasDominantBilevelLayer: structure.hasDominantBilevelLayer}),
-                                    ...(structure.backgroundDpi === undefined ? {} : {backgroundDpi: structure.backgroundDpi}),
-                                }));
-                        }
-                    }).catch((error: unknown) => {
-                        const rejection = batchLifecycle.abandonedByOwner()
-                            ? wrapOwnerAbandonedError(error)
-                            : error;
-                        // These waiters already left the pending map, so whatever
-                        // fails, the geometry read or the probe after it, must
-                        // settle them here; resolved waiters ignore the rejection.
-                        for (const [
-                            ,
-                            {waiter},
-                        ] of entries) {
-                            waiter.reject(rejection);
-                        }
-                    }).finally(() => {
-                        batchLifecycle.cleanup();
-                        if (pendingRasterReads.size > 0) {
-                            rasterReadFlushScheduled = true;
-                            void Promise.resolve().then(flushRasterReads);
                         }
                     });
+                    void Promise.all(
+                        pageNumbers.map(async (pageNumber) => {
+                            try {
+                                return await readPageSize(pageNumber);
+                            } catch (error) {
+                                if (document.lifetime.signal.aborted) {
+                                    throw error;
+                                }
+                                logger.warn(
+                                    `Scan cleanup could not read page ${String(pageNumber)} geometry for raster facts: ${getErrorMessage(error)}`,
+                                );
+                                return undefined;
+                            }
+                        }),
+                    )
+                        .then(async (pageSizes) => {
+                            const rasters = pageSizes.map((pageSize) =>
+                                pageSize === undefined ? undefined : detectPageRasterFromPageSize(pageSize),
+                            );
+                            // Geometry measures the dominant image but cannot say whether
+                            // the page carries a compact bilevel layer. That structural
+                            // fact comes from the probe, as it does for conversion, so a
+                            // page's preview and its output agree on its representation.
+                            // Without it a measured page keeps its geometry and is not
+                            // proven bilevel; a page with neither fails its read.
+                            let probeError: unknown = null;
+                            const probed =
+                                dependencies.detectRasterPages === undefined
+                                    ? undefined
+                                    : await dependencies
+                                          .detectRasterPages(
+                                              document.sourcePdfPath,
+                                              batchLifecycle.probeSignal,
+                                              pageNumbers,
+                                              ...(batchLifecycle.probeBrokerRun === undefined ? [] : [batchLifecycle.probeBrokerRun]),
+                                          )
+                                          .catch((error: unknown) => {
+                                              if (batchLifecycle.abandonedByOwner()) {
+                                                  throw wrapOwnerAbandonedError(error);
+                                              }
+                                              if (
+                                                  document.lifetime.signal.aborted ||
+                                                  batchLifecycle.probeSignal.aborted ||
+                                                  rasters.every((raster) => raster === undefined)
+                                              ) {
+                                                  throw error;
+                                              }
+                                              logger.warn(
+                                                  `Scan cleanup could not probe page structure for raster facts: ${getErrorMessage(error)}`,
+                                              );
+                                              probeError = error;
+                                              return undefined;
+                                          });
+                            if (probed?.documentDpi !== undefined && probed.documentDpi !== null) {
+                                documentDpi = Math.max(documentDpi ?? 0, probed.documentDpi);
+                            }
+                            const probedRasters =
+                                probed === undefined
+                                    ? []
+                                    : await Promise.all(pageNumbers.map((pageNumber) => Promise.resolve(probed.getPageRaster(pageNumber))));
+                            for (const [index, [, {waiter}]] of entries.entries()) {
+                                const measured = rasters[index];
+                                const structure = probedRasters[index];
+                                if (measured === undefined && probeError !== null) {
+                                    waiter.reject(probeError);
+                                    continue;
+                                }
+                                waiter.resolve(
+                                    observeRaster(
+                                        measured === undefined || structure === undefined
+                                            ? (measured ?? structure)
+                                            : {
+                                                  ...measured,
+                                                  ...(structure.hasBilevelLayer === undefined
+                                                      ? {}
+                                                      : {hasBilevelLayer: structure.hasBilevelLayer}),
+                                                  ...(structure.hasDominantBilevelLayer === undefined
+                                                      ? {}
+                                                      : {hasDominantBilevelLayer: structure.hasDominantBilevelLayer}),
+                                                  ...(structure.backgroundDpi === undefined
+                                                      ? {}
+                                                      : {backgroundDpi: structure.backgroundDpi}),
+                                              },
+                                    ),
+                                );
+                            }
+                        })
+                        .catch((error: unknown) => {
+                            const rejection = batchLifecycle.abandonedByOwner() ? wrapOwnerAbandonedError(error) : error;
+                            // These waiters already left the pending map, so whatever
+                            // fails, the geometry read or the probe after it, must
+                            // settle them here; resolved waiters ignore the rejection.
+                            for (const [, {waiter}] of entries) {
+                                waiter.reject(rejection);
+                            }
+                        })
+                        .finally(() => {
+                            batchLifecycle.cleanup();
+                            if (pendingRasterReads.size > 0) {
+                                rasterReadFlushScheduled = true;
+                                void Promise.resolve().then(flushRasterReads);
+                            }
+                        });
                 };
                 const readRasterPage = (pageNumber: number, caller?: ISharedProbeCaller) => {
                     const pending = pendingRasterReads.get(pageNumber);
@@ -661,11 +622,7 @@ export function scanCleanupRasterRetention(
                         try {
                             return await pending;
                         } catch (error) {
-                            if (
-                                error instanceof OwnerAbandonedProbeError
-                                && !document.lifetime.signal.aborted
-                                && !caller?.signal.aborted
-                            ) {
+                            if (error instanceof OwnerAbandonedProbeError && !document.lifetime.signal.aborted && !caller?.signal.aborted) {
                                 continue;
                             }
                             throw unwrapOwnerAbandonedError(error);
@@ -674,12 +631,11 @@ export function scanCleanupRasterRetention(
                 };
                 document.rasterPageSourceReader = getPageRasterWithCaller;
                 const source: IScanCleanupPageRasterSource = {
-                    detected: dependencies.isRasterDetectionAvailable?.()
-                        ?? dependencies.detectRasterPages !== undefined,
+                    detected: dependencies.isRasterDetectionAvailable?.() ?? dependencies.detectRasterPages !== undefined,
                     get documentDpi() {
                         return Math.max(documentDpi ?? 0, document.pageGeometryDpi ?? 0) || null;
                     },
-                    getPageRaster: pageNumber => getPageRasterWithCaller(pageNumber),
+                    getPageRaster: (pageNumber) => getPageRasterWithCaller(pageNumber),
                 };
                 return source;
             },
@@ -692,14 +648,13 @@ export function scanCleanupRasterRetention(
             get documentDpi() {
                 return baseSource.documentDpi ?? null;
             },
-            getPageRaster: pageNumber => (
+            getPageRaster: (pageNumber) =>
                 document.rasterPageSourceReader !== undefined && document.rasterPageSourceReader !== null
                     ? document.rasterPageSourceReader(pageNumber, {
-                        brokerRun,
-                        signal,
-                    })
-                    : baseSource.getPageRaster(pageNumber)
-            ),
+                          brokerRun,
+                          signal,
+                      })
+                    : baseSource.getPageRaster(pageNumber),
         };
     };
     const resolveSourceDpi = async (
@@ -710,65 +665,54 @@ export function scanCleanupRasterRetention(
     ): Promise<number | null> => {
         for (;;) {
             try {
-                return await resolveScanCleanupDocumentPageMeasurement(
-                    document.sourceDpiByPage,
-                    pageNumber,
-                    signal,
-                    () => {
-                        if (dependencies.detectSourceDpi === undefined) {
-                            return Promise.resolve(null);
-                        }
-                        let startedPromise: Promise<number | null> | null = null;
-                        const probeLifecycle = createOwnerBoundProbeLifecycle(
-                            document.lifetime.signal,
-                            {
-                                ...(brokerRun === undefined ? {} : {brokerRun}),
-                                signal,
-                            },
-                            () => {
-                                if (startedPromise !== null && document.sourceDpiByPage.get(pageNumber) === startedPromise) {
-                                    document.sourceDpiByPage.delete(pageNumber);
-                                }
-                            },
-                        );
-                        startedPromise = (async () => {
-                            try {
-                                return await dependencies.detectSourceDpi!(
-                                    document.sourcePdfPath,
-                                    pageNumber,
-                                    probeLifecycle.probeSignal,
-                                    ...(probeLifecycle.probeBrokerRun === undefined ? [] : [probeLifecycle.probeBrokerRun]),
-                                );
-                            } catch (error) {
-                                if (probeLifecycle.abandonedByOwner()) {
-                                    throw wrapOwnerAbandonedError(error);
-                                }
-                                throw error;
-                            } finally {
-                                probeLifecycle.cleanup();
+                return await resolveScanCleanupDocumentPageMeasurement(document.sourceDpiByPage, pageNumber, signal, () => {
+                    if (dependencies.detectSourceDpi === undefined) {
+                        return Promise.resolve(null);
+                    }
+                    let startedPromise: Promise<number | null> | null = null;
+                    const probeLifecycle = createOwnerBoundProbeLifecycle(
+                        document.lifetime.signal,
+                        {
+                            ...(brokerRun === undefined ? {} : {brokerRun}),
+                            signal,
+                        },
+                        () => {
+                            if (startedPromise !== null && document.sourceDpiByPage.get(pageNumber) === startedPromise) {
+                                document.sourceDpiByPage.delete(pageNumber);
                             }
-                        })();
-                        return startedPromise;
-                    },
-                );
+                        },
+                    );
+                    startedPromise = (async () => {
+                        try {
+                            return await dependencies.detectSourceDpi!(
+                                document.sourcePdfPath,
+                                pageNumber,
+                                probeLifecycle.probeSignal,
+                                ...(probeLifecycle.probeBrokerRun === undefined ? [] : [probeLifecycle.probeBrokerRun]),
+                            );
+                        } catch (error) {
+                            if (probeLifecycle.abandonedByOwner()) {
+                                throw wrapOwnerAbandonedError(error);
+                            }
+                            throw error;
+                        } finally {
+                            probeLifecycle.cleanup();
+                        }
+                    })();
+                    return startedPromise;
+                });
             } catch (error) {
-                if (
-                    error instanceof OwnerAbandonedProbeError
-                    && !signal.aborted
-                    && !document.lifetime.signal.aborted
-                ) {
+                if (error instanceof OwnerAbandonedProbeError && !signal.aborted && !document.lifetime.signal.aborted) {
                     continue;
                 }
                 throw unwrapOwnerAbandonedError(error);
             }
         }
     };
-    const documentsFor = (sourcePdfPath: string, documentRevision: string) => (
-        [...documents.values()].filter(document => (
-            document.sourcePdfPath === sourcePdfPath
-            && document.documentRevision === documentRevision
-        ))
-    );
+    const documentsFor = (sourcePdfPath: string, documentRevision: string) =>
+        [...documents.values()].filter(
+            (document) => document.sourcePdfPath === sourcePdfPath && document.documentRevision === documentRevision,
+        );
     const invalidateDocumentClaim = (document: IRetainedDocument, claimId: string) => {
         const claimed = document.claims.get(claimId) ?? 0;
         const fenceKey = claimFenceKey(document, claimId);
@@ -778,12 +722,13 @@ export function scanCleanupRasterRetention(
         canceledClaims.add(fenceKey);
         document.claims.delete(claimId);
         document.pinned = Math.max(0, document.pinned - claimed);
-        for (const [
-            key,
-            claims,
-        ] of rasterClaims) {
-            if (!claims.delete(claimId)) continue;
-            if (claims.size === 0) rasterClaims.delete(key);
+        for (const [key, claims] of rasterClaims) {
+            if (!claims.delete(claimId)) {
+                continue;
+            }
+            if (claims.size === 0) {
+                rasterClaims.delete(key);
+            }
         }
         return true;
     };
@@ -821,17 +766,13 @@ export function scanCleanupRasterRetention(
                 return;
             }
             if (
-                claimId === undefined
-                && documents.get(documentKey(
-                    document.sourcePdfPath,
-                    document.documentRevision,
-                    document.sourceStatIdentity,
-                )) === document
-                && !document.removeWhenIdle
+                claimId === undefined &&
+                documents.get(documentKey(document.sourcePdfPath, document.documentRevision, document.sourceStatIdentity)) === document &&
+                !document.removeWhenIdle
             ) {
                 const path = stableScanCleanupRasterPath(await document.dir, pageNumber, dpi, view);
                 await enqueuePathOperation(path, async () => {
-                    if (![...rasters.values()].some(current => current.path === path)) {
+                    if (![...rasters.values()].some((current) => current.path === path)) {
                         await removeQuietly(path);
                     }
                 });
@@ -855,27 +796,28 @@ export function scanCleanupRasterRetention(
         }
         forget(key, raster);
         await enqueuePathOperation(raster.path, async () => {
-            if (![...rasters.values()].some(current => current.path === raster.path)) {
+            if (![...rasters.values()].some((current) => current.path === raster.path)) {
                 await removeQuietly(raster.path);
             }
         });
     };
     return {
-        openDocument(
-            request: Pick<IScanCleanupPreviewRequest, 'sourcePdfPath' | 'documentRevision'>,
-            claimId?: string,
-        ) {
+        openDocument(request: Pick<IScanCleanupPreviewRequest, 'sourcePdfPath' | 'documentRevision'>, claimId?: string) {
             if (disposed) {
                 return Promise.reject(new DOMException('Scan cleanup raster retention is disposed', 'AbortError'));
             }
-            const pending = (opening.get(request.sourcePdfPath) ?? Promise.resolve())
-                .then(() => resolveDocument(request, claimId), () => resolveDocument(request, claimId));
+            const pending = (opening.get(request.sourcePdfPath) ?? Promise.resolve()).then(
+                () => resolveDocument(request, claimId),
+                () => resolveDocument(request, claimId),
+            );
             opening.set(request.sourcePdfPath, pending);
-            void pending.finally(() => {
-                if (opening.get(request.sourcePdfPath) === pending) {
-                    opening.delete(request.sourcePdfPath);
-                }
-            }).catch(() => undefined);
+            void pending
+                .finally(() => {
+                    if (opening.get(request.sourcePdfPath) === pending) {
+                        opening.delete(request.sourcePdfPath);
+                    }
+                })
+                .catch(() => undefined);
             return pending;
         },
         pageCount: resolvePageCount,
@@ -888,26 +830,18 @@ export function scanCleanupRasterRetention(
         async stagedRasterPath(document: IRetainedDocument, pageNumber: number, dpi: number) {
             return stableScanCleanupRasterPath(await document.dir, pageNumber, dpi);
         },
-        releaseRaster(
-            document: IRetainedDocument,
-            pageNumber: number,
-            dpi: number,
-            claimId?: string,
-            view?: 'mediabox',
-        ) {
+        releaseRaster(document: IRetainedDocument, pageNumber: number, dpi: number, claimId?: string, view?: 'mediabox') {
             return releasePageLease(document, pageNumber, dpi, claimId, false, view);
         },
-        evictRaster(
-            document: IRetainedDocument,
-            pageNumber: number,
-            dpi: number,
-            claimId?: string,
-        ) {
+        evictRaster(document: IRetainedDocument, pageNumber: number, dpi: number, claimId?: string) {
             return releasePageLease(document, pageNumber, dpi, claimId, true);
         },
         claimRaster(document, pageNumber, dpi, claimId, view) {
-            if ((document.claims.get(claimId) ?? 0) === 0 || document.removeWhenIdle
-                || canceledClaims.has(claimFenceKey(document, claimId))) {
+            if (
+                (document.claims.get(claimId) ?? 0) === 0 ||
+                document.removeWhenIdle ||
+                canceledClaims.has(claimFenceKey(document, claimId))
+            ) {
                 return false;
             }
             const key = createScanCleanupRasterKey(document, pageNumber, dpi, view);
@@ -932,7 +866,10 @@ export function scanCleanupRasterRetention(
                     continue;
                 }
                 try {
-                    if (!dependencies.stat) throw new Error('Scan cleanup retained path checks require injected stat'); await dependencies.stat(raster.path);
+                    if (!dependencies.stat) {
+                        throw new Error('Scan cleanup retained path checks require injected stat');
+                    }
+                    await dependencies.stat(raster.path);
                 } catch {
                     if (rasters.get(key) === raster) {
                         forget(key, raster);
@@ -940,11 +877,7 @@ export function scanCleanupRasterRetention(
                     }
                     continue;
                 }
-                if (
-                    document.removeWhenIdle
-                    || (documentGenerations.get(document) ?? 0) !== generation
-                    || rasters.get(key) !== raster
-                ) {
+                if (document.removeWhenIdle || (documentGenerations.get(document) ?? 0) !== generation || rasters.get(key) !== raster) {
                     continue;
                 }
                 rasters.delete(key);
@@ -954,33 +887,35 @@ export function scanCleanupRasterRetention(
             return retained;
         },
         async materializeRawRaster(document, pageNumber, signal, deps, knownTotalPages, dpi = PREVIEW_DPI, pageSize, claimId) {
-            const view = pageSize?.renderBox === 'mediabox' ? 'mediabox' as const : undefined;
-            const claimedForRead = claimId !== undefined
-                && this.claimRaster(document, pageNumber, dpi, claimId, view);
-            const claimOperationKey = claimedForRead && claimId !== undefined
-                ? beginClaimOperation(document, claimId)
-                : undefined;
+            const view = pageSize?.renderBox === 'mediabox' ? ('mediabox' as const) : undefined;
+            const claimedForRead = claimId !== undefined && this.claimRaster(document, pageNumber, dpi, claimId, view);
+            const claimOperationKey = claimedForRead && claimId !== undefined ? beginClaimOperation(document, claimId) : undefined;
             let retained;
             try {
                 retained = await this.read(document, pageNumber, dpi, view);
             } catch (error) {
-                if (claimedForRead) await this.releaseRaster(document, pageNumber, dpi, claimId, view);
-                if (claimOperationKey !== undefined) finishClaimOperation(claimOperationKey);
+                if (claimedForRead) {
+                    await this.releaseRaster(document, pageNumber, dpi, claimId, view);
+                }
+                if (claimOperationKey !== undefined) {
+                    finishClaimOperation(claimOperationKey);
+                }
                 throw error;
             }
-            if (claimOperationKey !== undefined) finishClaimOperation(claimOperationKey);
+            if (claimOperationKey !== undefined) {
+                finishClaimOperation(claimOperationKey);
+            }
             if (retained) {
                 return {
                     ...retained.raster,
                     bytes: retained.bytes,
-                    totalPages: knownTotalPages ?? await this.pageCount(document, signal),
+                    totalPages: knownTotalPages ?? (await this.pageCount(document, signal)),
                 };
             }
-            if (claimedForRead) await this.releaseRaster(document, pageNumber, dpi, claimId, view);
-            const {
-                scratchPath,
-                totalPages,
-            } = await renderUnretainedRawRaster(
+            if (claimedForRead) {
+                await this.releaseRaster(document, pageNumber, dpi, claimId, view);
+            }
+            const {scratchPath, totalPages} = await renderUnretainedRawRaster(
                 document,
                 pageNumber,
                 signal,
@@ -997,15 +932,18 @@ export function scanCleanupRasterRetention(
             }
             let raster: IRetainedRawRaster;
             try {
-                raster = await this.retain({
-                    document,
-                    dpi,
-                    ...readPngDimensions(bytes, undefined, 'preview'),
-                    pageNumber,
-                    scratchPath,
-                    ...(view === undefined ? {} : {view}),
-                    sizeBytes: bytes.byteLength,
-                }, claimId);
+                raster = await this.retain(
+                    {
+                        document,
+                        dpi,
+                        ...readPngDimensions(bytes, undefined, 'preview'),
+                        pageNumber,
+                        scratchPath,
+                        ...(view === undefined ? {} : {view}),
+                        sizeBytes: bytes.byteLength,
+                    },
+                    claimId,
+                );
             } catch (error) {
                 this.remove(scratchPath);
                 throw error;
@@ -1017,49 +955,48 @@ export function scanCleanupRasterRetention(
             };
         },
         async materializeRawRasterPath(document, pageNumber, signal, deps, knownTotalPages, dpi = PREVIEW_DPI, pageSize, claimId) {
-            const view = pageSize?.renderBox === 'mediabox' ? 'mediabox' as const : undefined;
-            const claimedForRead = claimId !== undefined
-                && this.claimRaster(document, pageNumber, dpi, claimId, view);
-            const claimOperationKey = claimedForRead && claimId !== undefined
-                ? beginClaimOperation(document, claimId)
-                : undefined;
+            const view = pageSize?.renderBox === 'mediabox' ? ('mediabox' as const) : undefined;
+            const claimedForRead = claimId !== undefined && this.claimRaster(document, pageNumber, dpi, claimId, view);
+            const claimOperationKey = claimedForRead && claimId !== undefined ? beginClaimOperation(document, claimId) : undefined;
             let retained;
             try {
                 retained = await this.readPath(document, pageNumber, dpi, view);
             } catch (error) {
-                if (claimedForRead) await this.releaseRaster(document, pageNumber, dpi, claimId, view);
-                if (claimOperationKey !== undefined) finishClaimOperation(claimOperationKey);
+                if (claimedForRead) {
+                    await this.releaseRaster(document, pageNumber, dpi, claimId, view);
+                }
+                if (claimOperationKey !== undefined) {
+                    finishClaimOperation(claimOperationKey);
+                }
                 throw error;
             }
-            if (claimOperationKey !== undefined) finishClaimOperation(claimOperationKey);
+            if (claimOperationKey !== undefined) {
+                finishClaimOperation(claimOperationKey);
+            }
             if (retained) {
                 return retained;
             }
-            if (claimedForRead) await this.releaseRaster(document, pageNumber, dpi, claimId, view);
-            const {scratchPath} = await renderUnretainedRawRaster(
-                document,
-                pageNumber,
-                signal,
-                this,
-                deps,
-                knownTotalPages,
-                dpi,
-                pageSize,
-            );
+            if (claimedForRead) {
+                await this.releaseRaster(document, pageNumber, dpi, claimId, view);
+            }
+            const {scratchPath} = await renderUnretainedRawRaster(document, pageNumber, signal, this, deps, knownTotalPages, dpi, pageSize);
             const metadata = await readPreviewMetadata(scratchPath, deps);
             if (signal.aborted) {
                 this.remove(scratchPath);
                 throw signal.reason;
             }
             try {
-                return await this.retain({
-                    document,
-                    dpi,
-                    ...metadata,
-                    pageNumber,
-                    scratchPath,
-                    ...(view === undefined ? {} : {view}),
-                }, claimId);
+                return await this.retain(
+                    {
+                        document,
+                        dpi,
+                        ...metadata,
+                        pageNumber,
+                        scratchPath,
+                        ...(view === undefined ? {} : {view}),
+                    },
+                    claimId,
+                );
             } catch (error) {
                 this.remove(scratchPath);
                 throw error;
@@ -1070,21 +1007,23 @@ export function scanCleanupRasterRetention(
                 document,
                 pageNumber,
                 dpi,
-                current => readPreviewBytes(current.path, dependencies),
-                current => current,
+                (current) => readPreviewBytes(current.path, dependencies),
+                (current) => current,
                 view,
             );
-            return retained === null ? null : {
-                bytes: retained.value,
-                raster: retained.raster,
-            };
+            return retained === null
+                ? null
+                : {
+                      bytes: retained.value,
+                      raster: retained.raster,
+                  };
         },
         async readPath(document: IRetainedDocument, pageNumber: number, dpi: number, view?: 'mediabox') {
             const retained = await readRetained(
                 document,
                 pageNumber,
                 dpi,
-                current => readPreviewMetadata(current.path, dependencies),
+                (current) => readPreviewMetadata(current.path, dependencies),
                 (current, metadata) => ({
                     ...current,
                     ...metadata,
@@ -1093,34 +1032,33 @@ export function scanCleanupRasterRetention(
             );
             return retained?.raster ?? null;
         },
-        async retain(
-            rendered: Omit<IRetainedRawRaster, 'path'> & {scratchPath: string},
-            claimId?: string,
-        ) {
+        async retain(rendered: Omit<IRetainedRawRaster, 'path'> & {scratchPath: string}, claimId?: string) {
             if (disposed) {
                 throw new DOMException('Scan cleanup raster retention is disposed', 'AbortError');
             }
             const generation = documentGenerations.get(rendered.document) ?? 0;
             const path = stableScanCleanupRasterPath(await rendered.document.dir, rendered.pageNumber, rendered.dpi, rendered.view);
-            const claimOperationKey = claimId === undefined
-                ? undefined
-                : beginClaimOperation(rendered.document, claimId);
+            const claimOperationKey = claimId === undefined ? undefined : beginClaimOperation(rendered.document, claimId);
             try {
                 const raster = await enqueuePathOperation(path, async () => {
-                    if ((documentGenerations.get(rendered.document) ?? 0) !== generation
-                    || (claimId !== undefined && canceledClaims.has(claimFenceKey(rendered.document, claimId)))) {
+                    if (
+                        (documentGenerations.get(rendered.document) ?? 0) !== generation ||
+                        (claimId !== undefined && canceledClaims.has(claimFenceKey(rendered.document, claimId)))
+                    ) {
                         throw new DOMException('Scan cleanup raster publication was invalidated', 'AbortError');
                     }
                     await dependencies.publishRaster(rendered.scratchPath, path, {
                         durable: false,
                         markMutationCommitStarted: false,
                     });
-                    if ((documentGenerations.get(rendered.document) ?? 0) !== generation
-                    || (claimId !== undefined && canceledClaims.has(claimFenceKey(rendered.document, claimId)))) {
-                    // The publication may have replaced a stable path that a
-                    // different owner still has indexed and pinned. Only
-                    // remove it when no current raster represents that path.
-                        if (![...rasters.values()].some(current => current.path === path)) {
+                    if (
+                        (documentGenerations.get(rendered.document) ?? 0) !== generation ||
+                        (claimId !== undefined && canceledClaims.has(claimFenceKey(rendered.document, claimId)))
+                    ) {
+                        // The publication may have replaced a stable path that a
+                        // different owner still has indexed and pinned. Only
+                        // remove it when no current raster represents that path.
+                        if (![...rasters.values()].some((current) => current.path === path)) {
                             await removeQuietly(path);
                         }
                         throw new DOMException('Scan cleanup raster publication was invalidated', 'AbortError');
@@ -1153,29 +1091,37 @@ export function scanCleanupRasterRetention(
                 await prune();
                 return raster;
             } finally {
-                if (claimOperationKey !== undefined) finishClaimOperation(claimOperationKey);
+                if (claimOperationKey !== undefined) {
+                    finishClaimOperation(claimOperationKey);
+                }
             }
         },
         remove,
         async release(document: IRetainedDocument, claimId?: string) {
             if (claimId !== undefined) {
-                for (const [
-                    key,
-                    claims,
-                ] of rasterClaims) {
+                for (const [key, claims] of rasterClaims) {
                     claims.delete(claimId);
-                    if (claims.size === 0) rasterClaims.delete(key);
+                    if (claims.size === 0) {
+                        rasterClaims.delete(key);
+                    }
                 }
                 const claimed = document.claims.get(claimId) ?? 0;
                 if (claimed === 0) {
                     const key = claimFenceKey(document, claimId);
-                    if (!activeClaimOperations.has(key)) canceledClaims.delete(key);
+                    if (!activeClaimOperations.has(key)) {
+                        canceledClaims.delete(key);
+                    }
                     return;
                 }
-                if (claimed === 1) document.claims.delete(claimId);
-                else document.claims.set(claimId, claimed - 1);
+                if (claimed === 1) {
+                    document.claims.delete(claimId);
+                } else {
+                    document.claims.set(claimId, claimed - 1);
+                }
                 const key = claimFenceKey(document, claimId);
-                if (!activeClaimOperations.has(key)) canceledClaims.delete(key);
+                if (!activeClaimOperations.has(key)) {
+                    canceledClaims.delete(key);
+                }
             }
             document.pinned = Math.max(0, document.pinned - 1);
             if (document.pinned > 0) {
@@ -1192,13 +1138,15 @@ export function scanCleanupRasterRetention(
             const matchingDocuments = documentsFor(sourcePdfPath, documentRevision);
             const documentsToDiscard: IRetainedDocument[] = [];
             if (claimId !== undefined) {
-                const matchingDocument = matchingDocuments.find(document => {
+                const matchingDocument = matchingDocuments.find((document) => {
                     const fenceKey = claimFenceKey(document, claimId);
                     return document.claims.has(claimId) || activeClaimOperations.has(fenceKey);
                 });
                 if (matchingDocument) {
                     invalidateDocumentClaim(matchingDocument, claimId);
-                    if (matchingDocument.pinned > 0) return;
+                    if (matchingDocument.pinned > 0) {
+                        return;
+                    }
                     matchingDocument.removeWhenIdle = true;
                     documentGenerations.set(matchingDocument, (documentGenerations.get(matchingDocument) ?? 0) + 1);
                     documentsToDiscard.push(matchingDocument);
@@ -1213,17 +1161,13 @@ export function scanCleanupRasterRetention(
                     }
                     document.removeWhenIdle = true;
                     documentGenerations.set(document, (documentGenerations.get(document) ?? 0) + 1);
-                    if (document.pinned === 0) documentsToDiscard.push(document);
+                    if (document.pinned === 0) {
+                        documentsToDiscard.push(document);
+                    }
                 }
             }
-            for (const [
-                key,
-                raster,
-            ] of rasters) {
-                if (
-                    raster.document.sourcePdfPath === sourcePdfPath
-                    && raster.document.documentRevision === documentRevision
-                ) {
+            for (const [key, raster] of rasters) {
+                if (raster.document.sourcePdfPath === sourcePdfPath && raster.document.documentRevision === documentRevision) {
                     if (raster.document.pinned === 0) {
                         forget(key, raster);
                         rasterClaims.delete(key);
@@ -1231,22 +1175,28 @@ export function scanCleanupRasterRetention(
                     }
                 }
             }
-            documentsToDiscard.forEach(document => discard(document));
+            documentsToDiscard.forEach((document) => discard(document));
         },
         invalidateSender(senderId: number) {
             for (const document of [...documents.values()]) {
-                if (!document.rendererOwners.delete(senderId)) continue;
+                if (!document.rendererOwners.delete(senderId)) {
+                    continue;
+                }
                 // Native leases outlive their renderer until the job settles.
                 if (document.rendererOwners.size === 0) {
                     document.retireWhenIdle = true;
-                    if (document.pinned === 0) discard(document);
+                    if (document.pinned === 0) {
+                        discard(document);
+                    }
                 }
             }
         },
         async dispose() {
             disposed = true;
-            const hasNativeReaders = [...documents.values()].some(document => document.pinned > 0);
-            for (const document of [...documents.values()]) discard(document);
+            const hasNativeReaders = [...documents.values()].some((document) => document.pinned > 0);
+            for (const document of [...documents.values()]) {
+                discard(document);
+            }
             documents.clear();
             const pendingOpenings = [...opening.values()];
             opening.clear();

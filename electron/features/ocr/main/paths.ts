@@ -1,12 +1,12 @@
-import { dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { getRuntimeTessdataDir } from '@electron/features/ocr/languageModels';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
-import { resolveNativePageOpsPath } from '@electron/features/page-ops/public';
-import { getAppTempDir } from '@electron/utils/appTempDir';
+import {dirname} from 'path';
+import {fileURLToPath} from 'url';
+import {getRuntimeTessdataDir} from '@electron/features/ocr/languageModels';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public';
+import {getAppTempDir} from '@electron/utils/appTempDir';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import type { IOcrPipelinePaths } from '@electron/features/ocr/pipeline/types';
+import type {IOcrPipelinePaths} from '@electron/features/ocr/pipeline/types';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -14,13 +14,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export function resolveOcrPipelinePaths(): IOcrPipelinePaths {
     const pdfPaths = getPdfNativeToolPaths();
     const pdfPageOpsBinary = resolveNativePageOpsPath() ?? undefined;
-    const scanCleanupBinary = resolveNativeToolPath({
-        binaryName: process.platform === 'win32' ? 'evb-scan-cleanup.exe' : 'evb-scan-cleanup',
-        crateName: 'scan-cleanup',
-        currentDir: __dirname,
-        envOverridePath: runtimeConfig.scanCleanupPath,
-        isPackaged: __dirname.includes('app.asar'),
-    }) ?? undefined;
+    const scanCleanupBinary =
+        resolveNativeToolPath({
+            binaryName: process.platform === 'win32' ? 'evb-scan-cleanup.exe' : 'evb-scan-cleanup',
+            crateName: 'scan-cleanup',
+            currentDir: __dirname,
+            envOverridePath: runtimeConfig.scanCleanupPath,
+            isPackaged: __dirname.includes('app.asar'),
+        }) ?? undefined;
     return {
         tessdataPath: getRuntimeTessdataDir(),
         pdftoppmBinary: pdfPaths.pdftoppm,

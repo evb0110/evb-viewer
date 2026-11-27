@@ -3,34 +3,18 @@ import type * as TViMockOriginalModule2 from '@electron/utils/abort';
 import type * as TMainOperationLifecycleModule from '@electron/operation-lifecycle/mainOperationLifecycle';
 import type {IPdfAnnotationParseOptions} from '@contracts/pdfAnnotationParseTypes';
 
-import {
-    existsSync,
-    mkdtempSync,
-    rmSync,
-} from 'node:fs';
+import {existsSync, mkdtempSync, rmSync} from 'node:fs';
 import {writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {
-    dirname,
-    join,
-} from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {dirname, join} from 'node:path';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import type {IpcMainInvokeEvent} from 'electron';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireRequestId} from '@contracts/shared';
 import {DOCUMENT_WORKING_COPY_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
 import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
 import {createPlatformFeaturePreloadClient} from '@electron/preload/ipcClient';
-import {
-    IPC_INVOKE_REQUEST_ID_FIELD, CORE_IPC_SEND_CHANNELS,
-} from '@electron/platform-ipc/coreContract';
+import {IPC_INVOKE_REQUEST_ID_FIELD, CORE_IPC_SEND_CHANNELS} from '@electron/platform-ipc/coreContract';
 import {cancelIpcInvoke} from '@electron/platform-ipc/ipcInvokeCancellation';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {PDF_ANNOTATION_PARSE_MAX_LINE_BYTES} from '@contracts/pdfAnnotationParseTypes';
@@ -56,82 +40,94 @@ const mocks = vi.hoisted(() => ({
     runWithWorkingCopyReadBacking: vi.fn(),
 }));
 
-vi.mock('@electron/file-access/documentStore', async importOriginal => ({
-    ...await importOriginal<Record<string, unknown>>(),
+vi.mock('@electron/file-access/documentStore', async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
     assertWorkingCopyRevisionCurrent: (...args: unknown[]) => mocks.assertWorkingCopyRevisionCurrent(...args),
     getWorkingCopyRevision: (...args: unknown[]) => mocks.getWorkingCopyRevision(...args),
     runWithWorkingCopyReadBacking: (...args: unknown[]) => mocks.runWithWorkingCopyReadBacking(...args),
 }));
-vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({resolveExistingReadablePdfPath: (...args: unknown[]) => mocks.resolveExistingReadablePdfPath(...args)}));
-vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args)}));
-vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args)}));
+vi.mock('@electron/features/documents/main/documentFilePathResolution', () => ({
+    resolveExistingReadablePdfPath: (...args: unknown[]) => mocks.resolveExistingReadablePdfPath(...args),
+}));
+vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({
+    resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args),
+}));
+vi.mock('@electron/features/page-ops/public/nativePageOpsPath', () => ({
+    resolveNativePageOpsPath: (...args: unknown[]) => mocks.resolveNativePageOpsPath(...args),
+}));
 vi.mock('@electron/pdf/nativeToolPaths', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
     getPdfNativeToolPaths: (...args: unknown[]) => mocks.getPdfNativeToolPaths(...args),
 }));
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
-vi.mock('@electron/native-tools/runNativeCommand', () => ({cancelNativeCommandGroup: (...args: unknown[]) => mocks.cancelNativeCommandGroup(...args)}));
-vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', async importOriginal => ({
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({
+    runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args),
+}));
+vi.mock('@electron/native-tools/runNativeCommand', () => ({
+    cancelNativeCommandGroup: (...args: unknown[]) => mocks.cancelNativeCommandGroup(...args),
+}));
+vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', async (importOriginal) => ({
     ...(await importOriginal<typeof TMainOperationLifecycleModule>()),
     registerMainOperation: (...args: unknown[]) => mocks.registerMainOperation(...args),
 }));
 vi.mock('@electron/platform-ipc/trustedIpcSender', () => ({isTrustedIpcInvokeSender: () => true}));
-vi.mock('@electron/features/documents/main/nativePdfMetadata', () => ({registerNativePdfSenderCleanup: (...args: unknown[]) => mocks.registerNativePdfSenderCleanup(...args)}));
+vi.mock('@electron/features/documents/main/nativePdfMetadata', () => ({
+    registerNativePdfSenderCleanup: (...args: unknown[]) => mocks.registerNativePdfSenderCleanup(...args),
+}));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: (...args: unknown[]) => mocks.getAppTempDir(...args)}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: (...args: unknown[]) => mocks.createLogger(...args)}));
 vi.mock('@electron/utils/abort', async (importOriginal_1) => ({
     ...(await importOriginal_1<typeof TViMockOriginalModule2>()),
-    abortErrorFromSignal: (signal: AbortSignal) => signal.reason instanceof Error
-        ? signal.reason
-        : new Error('aborted'),
+    abortErrorFromSignal: (signal: AbortSignal) => (signal.reason instanceof Error ? signal.reason : new Error('aborted')),
 }));
 
 const revisionToken = requireDocumentRevisionToken('drt1:annotation-parse-host-test');
 const context = {senderId: 7};
 
 function createSidecar() {
-    return [
-        JSON.stringify({
-            format: 'evb-pdf-annotation-parse',
-            schemaVersion: 1,
-            pageCount: 1,
-            chunkBytes: 4 * 1024 * 1024,
-        }),
-        JSON.stringify({
-            chunkIndex: 0,
-            entries: [
-                {
-                    kind: 'text-box',
-                    pageIndex: 0,
-                    objectNumber: 11,
-                    generationNumber: 0,
-                    name: 'text-box-11',
-                    author: null,
-                    createdAt: null,
-                    modifiedAt: null,
-                    text: 'writer text',
-                    rect: {
-                        left: 0.1,
-                        top: 0.2,
-                        width: 0.3,
-                        height: 0.1,
+    return (
+        [
+            JSON.stringify({
+                format: 'evb-pdf-annotation-parse',
+                schemaVersion: 1,
+                pageCount: 1,
+                chunkBytes: 4 * 1024 * 1024,
+            }),
+            JSON.stringify({
+                chunkIndex: 0,
+                entries: [
+                    {
+                        kind: 'text-box',
+                        pageIndex: 0,
+                        objectNumber: 11,
+                        generationNumber: 0,
+                        name: 'text-box-11',
+                        author: null,
+                        createdAt: null,
+                        modifiedAt: null,
+                        text: 'writer text',
+                        rect: {
+                            left: 0.1,
+                            top: 0.2,
+                            width: 0.3,
+                            height: 0.1,
+                        },
+                        rotation: 0,
+                        fontSize: 12,
+                        color: '#336699',
                     },
-                    rotation: 0,
-                    fontSize: 12,
-                    color: '#336699',
-                },
-                {
-                    kind: 'foreign',
-                    pageIndex: 0,
-                    objectNumber: 12,
-                    generationNumber: 0,
-                    name: 'link-12',
-                    subtype: 'Link',
-                    reason: 'Unsupported annotation subtype /Link',
-                },
-            ],
-        }),
-    ].join('\n') + '\n';
+                    {
+                        kind: 'foreign',
+                        pageIndex: 0,
+                        objectNumber: 12,
+                        generationNumber: 0,
+                        name: 'link-12',
+                        subtype: 'Link',
+                        reason: 'Unsupported annotation subtype /Link',
+                    },
+                ],
+            }),
+        ].join('\n') + '\n'
+    );
 }
 
 describe('PDF annotation parse main session', () => {
@@ -148,10 +144,9 @@ describe('PDF annotation parse main session', () => {
         mocks.resolveExistingReadablePdfPath.mockResolvedValue(join(tempRoot, 'working.pdf'));
         mocks.getWorkingCopyRevision.mockResolvedValue({token: revisionToken});
         mocks.assertWorkingCopyRevisionCurrent.mockResolvedValue(undefined);
-        mocks.runWithWorkingCopyReadBacking.mockImplementation(async (
-            path: string,
-            operation: (physicalPath: string) => Promise<unknown>,
-        ) => operation(path));
+        mocks.runWithWorkingCopyReadBacking.mockImplementation(
+            async (path: string, operation: (physicalPath: string) => Promise<unknown>) => operation(path),
+        );
         mocks.resolveNativePageOpsPath.mockReturnValue('/native/evb-pdf-page-ops');
         mocks.getPdfNativeToolPaths.mockReturnValue({qpdf: '/native/qpdf'});
         mocks.registerNativePdfSenderCleanup.mockReturnValue(() => undefined);
@@ -190,10 +185,17 @@ describe('PDF annotation parse main session', () => {
         let handler: ((event: IpcMainInvokeEvent, ...args: unknown[]) => Promise<unknown>) | undefined;
         const feature = DOCUMENT_WORKING_COPY_PLATFORM_FEATURE;
         const channel = feature.invokeChannels.parsePdfAnnotations;
-        const registrar = createValidatedIpcMainRegistrar({handle: (_channel, registered) => {
-            handler = registered as typeof handler;
-        }}, {codecs: feature.ipcCodecs});
-        registrar.handle(channel, (_event, path: string, options: IPdfAnnotationParseOptions) => parsePdfAnnotations(context, path, options));
+        const registrar = createValidatedIpcMainRegistrar(
+            {
+                handle: (_channel, registered) => {
+                    handler = registered as typeof handler;
+                },
+            },
+            {codecs: feature.ipcCodecs},
+        );
+        registrar.handle(channel, (_event, path: string, options: IPdfAnnotationParseOptions) =>
+            parsePdfAnnotations(context, path, options),
+        );
         const sender = {id: context.senderId} as IpcMainInvokeEvent['sender'];
         const mainReplies: Array<Promise<unknown>> = [];
         const ipcRenderer = {
@@ -213,7 +215,7 @@ describe('PDF annotation parse main session', () => {
         vi.stubGlobal('window', {electronAPI: {documentWorkingCopy: preload}});
         const nativeStarted = Promise.withResolvers<{
             signal: AbortSignal;
-            cancelGroup: string
+            cancelGroup: string;
         }>();
         mocks.runNativeToolCommand.mockImplementation(async (_nativePath: string, args: string[], options) => {
             sidecarPath = args[args.indexOf('--output') + 1]!;
@@ -250,11 +252,7 @@ describe('PDF annotation parse main session', () => {
     });
 
     it('runs parse-annotations with deterministic metadata and streams typed entries', async () => {
-        const session = await beginPdfAnnotationParse(
-            context,
-            '/logical/working.pdf',
-            {expectedDocumentRevisionToken: revisionToken},
-        );
+        const session = await beginPdfAnnotationParse(context, '/logical/working.pdf', {expectedDocumentRevisionToken: revisionToken});
         expect(session).toMatchObject({
             documentRef: '/logical/working.pdf',
             documentRevisionToken: revisionToken,
@@ -301,11 +299,7 @@ describe('PDF annotation parse main session', () => {
     it('starts the stale-artifact sweep only while a session exists', async () => {
         const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
         const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
-        const session = await beginPdfAnnotationParse(
-            context,
-            '/logical/working.pdf',
-            {expectedDocumentRevisionToken: revisionToken},
-        );
+        const session = await beginPdfAnnotationParse(context, '/logical/working.pdf', {expectedDocumentRevisionToken: revisionToken});
 
         expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
         await releasePdfAnnotationParse(context, session.sessionId);
@@ -315,22 +309,24 @@ describe('PDF annotation parse main session', () => {
     });
 
     it('returns editable entities and inert foreign records from the one-shot capability', async () => {
-        await expect(parsePdfAnnotations(
-            context,
-            '/logical/working.pdf',
-            {expectedDocumentRevisionToken: revisionToken},
-        )).resolves.toEqual({
-            documentRevisionToken: revisionToken,
-            pageCount: 1,
-            entities: [expect.objectContaining({
-                kind: 'text-box',
-                name: 'text-box-11',
-            })],
-            foreign: [expect.objectContaining({
-                kind: 'foreign',
-                subtype: 'Link',
-            })],
-        });
+        await expect(parsePdfAnnotations(context, '/logical/working.pdf', {expectedDocumentRevisionToken: revisionToken})).resolves.toEqual(
+            {
+                documentRevisionToken: revisionToken,
+                pageCount: 1,
+                entities: [
+                    expect.objectContaining({
+                        kind: 'text-box',
+                        name: 'text-box-11',
+                    }),
+                ],
+                foreign: [
+                    expect.objectContaining({
+                        kind: 'foreign',
+                        subtype: 'Link',
+                    }),
+                ],
+            },
+        );
         expect(existsSync(sidecarPath)).toBe(false);
     });
 
@@ -342,11 +338,9 @@ describe('PDF annotation parse main session', () => {
             chunkBytes: 4 * 1024 * 1024,
         })}\nnot-json\n`;
 
-        await expect(beginPdfAnnotationParse(
-            context,
-            '/logical/working.pdf',
-            {expectedDocumentRevisionToken: revisionToken},
-        )).rejects.toThrow(/invalid JSON/iu);
+        await expect(
+            beginPdfAnnotationParse(context, '/logical/working.pdf', {expectedDocumentRevisionToken: revisionToken}),
+        ).rejects.toThrow(/invalid JSON/iu);
         expect(sidecarPath).not.toBe('');
         expect(existsSync(sidecarPath)).toBe(false);
         const sidecarDirectory = dirname(sidecarPath);
@@ -360,30 +354,24 @@ describe('PDF annotation parse main session', () => {
             pageCount: 1,
             chunkBytes: 4 * 1024 * 1024,
         })}\n${'x'.repeat(PDF_ANNOTATION_PARSE_MAX_LINE_BYTES)}\n`;
-        await expect(beginPdfAnnotationParse(
-            context,
-            '/logical/working.pdf',
-            {expectedDocumentRevisionToken: revisionToken},
-        )).rejects.toThrow(/line exceeds/iu);
+        await expect(
+            beginPdfAnnotationParse(context, '/logical/working.pdf', {expectedDocumentRevisionToken: revisionToken}),
+        ).rejects.toThrow(/line exceeds/iu);
         expect(existsSync(sidecarPath)).toBe(false);
 
         sidecarText = createSidecar().replace('"chunkIndex":0', '"chunkIndex":1');
-        await expect(beginPdfAnnotationParse(
-            context,
-            '/logical/working.pdf',
-            {expectedDocumentRevisionToken: revisionToken},
-        )).rejects.toThrow(/out of order/iu);
+        await expect(
+            beginPdfAnnotationParse(context, '/logical/working.pdf', {expectedDocumentRevisionToken: revisionToken}),
+        ).rejects.toThrow(/out of order/iu);
         expect(existsSync(sidecarPath)).toBe(false);
     });
 
     it('rejects revision changes after native output before returning the session', async () => {
         mocks.assertWorkingCopyRevisionCurrent.mockRejectedValueOnce(new Error('STALE_REVISION'));
 
-        await expect(beginPdfAnnotationParse(
-            context,
-            '/logical/working.pdf',
-            {expectedDocumentRevisionToken: revisionToken},
-        )).rejects.toThrow('STALE_REVISION');
+        await expect(
+            beginPdfAnnotationParse(context, '/logical/working.pdf', {expectedDocumentRevisionToken: revisionToken}),
+        ).rejects.toThrow('STALE_REVISION');
         expect(existsSync(sidecarPath)).toBe(false);
     });
 
@@ -409,11 +397,7 @@ describe('PDF annotation parse main session', () => {
             lastTouchedAt: 0,
         };
 
-        cancelPdfSidecarSession(
-            session,
-            'PDF annotation parse session expired',
-            new Error('PDF annotation parse session expired'),
-        );
+        cancelPdfSidecarSession(session, 'PDF annotation parse session expired', new Error('PDF annotation parse session expired'));
 
         expect(session.abortController.signal.aborted).toBe(true);
         expect(session.abortController.signal.reason).toBeInstanceOf(Error);
@@ -428,23 +412,20 @@ describe('PDF annotation parse main session', () => {
             '@electron/operation-lifecycle/mainOperationLifecycle',
         );
         mocks.registerMainOperation.mockImplementation(lifecycle.registerMainOperation);
-        const {
-            beginIpcInvokeCancellation,
-            cancelIpcInvoke,
-        } = await import('@electron/platform-ipc/ipcInvokeCancellation');
+        const {beginIpcInvokeCancellation, cancelIpcInvoke} = await import('@electron/platform-ipc/ipcInvokeCancellation');
         const sender = {id: context.senderId} as IpcMainInvokeEvent['sender'];
         const registration = beginIpcInvokeCancellation(sender, requireRequestId('parse-pre-register-timeout'));
         cancelIpcInvoke(sender, requireRequestId('parse-pre-register-timeout'), undefined, {timedOut: true});
 
         try {
-            const error = await lifecycle.runWithMainOperationCancellationSignal(
-                registration.signal,
-                () => beginPdfAnnotationParse(
-                    context,
-                    '/logical/working.pdf',
-                    {expectedDocumentRevisionToken: revisionToken},
-                ),
-            ).then(() => null, (caught: unknown) => caught);
+            const error = await lifecycle
+                .runWithMainOperationCancellationSignal(registration.signal, () =>
+                    beginPdfAnnotationParse(context, '/logical/working.pdf', {expectedDocumentRevisionToken: revisionToken}),
+                )
+                .then(
+                    () => null,
+                    (caught: unknown) => caught,
+                );
 
             expect(isTimeoutError(error)).toBe(true);
             expect(isAbortError(error)).toBe(false);

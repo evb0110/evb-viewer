@@ -1,31 +1,13 @@
-import type {
-    captureException,
-    getClient,
-} from '@sentry/browser';
-import type {
-    CaptureFailureInput,
-    FailureReceipt,
-} from '@contracts/diagnostics/failureReceipt';
-import {
-    parseClientDiagnosticsPreference,
-    type TClientDiagnosticsPreference,
-} from '@contracts/diagnostics/diagnosticsPreference';
-import {
-    beforeSendSentryEvent,
-    SENTRY_EXCLUDED_INTEGRATIONS,
-} from '@contracts/diagnostics/scrubSentryEvent';
-import { createEpochMs } from '@contracts/timestamps';
-import { isRecord } from '@contracts/runtimeGuards';
-import {
-    getRawElectronPlatformApi,
-    hasElectronPlatformBridge,
-} from '@app/utils/electronPlatformBridge';
-import { safeGetLocalStorageItem } from '@app/utils/localStorage';
-import { BROWSER_SETTINGS_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
-import {
-    hasFutureLegacyBrowserSettingsCookie,
-    isFutureBrowserSettingsPayload,
-} from '@app/utils/browserSettingsPersistence';
+import type {captureException, getClient} from '@sentry/browser';
+import type {CaptureFailureInput, FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {parseClientDiagnosticsPreference, type TClientDiagnosticsPreference} from '@contracts/diagnostics/diagnosticsPreference';
+import {beforeSendSentryEvent, SENTRY_EXCLUDED_INTEGRATIONS} from '@contracts/diagnostics/scrubSentryEvent';
+import {createEpochMs} from '@contracts/timestamps';
+import {isRecord} from '@contracts/runtimeGuards';
+import {getRawElectronPlatformApi, hasElectronPlatformBridge} from '@app/utils/electronPlatformBridge';
+import {safeGetLocalStorageItem} from '@app/utils/localStorage';
+import {BROWSER_SETTINGS_STORAGE_KEY} from '@app/utils/browserRuntimePersistence';
+import {hasFutureLegacyBrowserSettingsCookie, isFutureBrowserSettingsPayload} from '@app/utils/browserSettingsPersistence';
 
 /** A report held back until the user answers the first-error consent prompt. */
 export interface ILiveDiagnosticLease {
@@ -60,7 +42,7 @@ let sdk: ISentrySdk | null = null;
 let sdkLoad: Promise<void> | null = null;
 let pendingCaptures: Array<{
     input: CaptureFailureInput;
-    eventId: string
+    eventId: string;
 }> = [];
 let suppressionDepth = 0;
 
@@ -94,9 +76,8 @@ function sdkOptions() {
     return {
         enabled: preference === 'granted',
         sendDefaultPii: false,
-        integrations: <T extends {name: string}>(defaults: T[]) => defaults.filter(
-            integration => !SENTRY_EXCLUDED_INTEGRATIONS.has(integration.name),
-        ),
+        integrations: <T extends {name: string}>(defaults: T[]) =>
+            defaults.filter((integration) => !SENTRY_EXCLUDED_INTEGRATIONS.has(integration.name)),
         beforeSend: beforeSendSentryEvent,
         beforeBreadcrumb: () => null,
     };
@@ -107,9 +88,7 @@ async function loadSdk() {
     // rest, including the integration loader that fetches scripts from
     // Sentry's CDN, which a Chrome Web Store review treats as remote code.
     if (isElectronRenderer()) {
-        const {
-            captureException, getClient, init,
-        } = await import('@sentry/electron/renderer');
+        const {captureException, getClient, init} = await import('@sentry/electron/renderer');
         init(sdkOptions());
         sdk = {
             captureException,
@@ -119,17 +98,15 @@ async function loadSdk() {
         return;
     }
     if (hostedConfig?.dsn) {
-        const {
-            captureException, getClient, init, makeFetchTransport,
-        } = await import('@sentry/browser');
+        const {captureException, getClient, init, makeFetchTransport} = await import('@sentry/browser');
         init({
             ...sdkOptions(),
             ...hostedConfig,
-            transport: options => {
+            transport: (options) => {
                 const transport = makeFetchTransport(options);
                 return {
-                    send: envelope => preference === 'granted' ? transport.send(envelope) : Promise.resolve({}),
-                    flush: timeout => transport.flush(timeout),
+                    send: (envelope) => (preference === 'granted' ? transport.send(envelope) : Promise.resolve({})),
+                    flush: (timeout) => transport.flush(timeout),
                 };
             },
         });
@@ -205,10 +182,7 @@ function sendToSentry(input: CaptureFailureInput, eventId = createEventId()) {
         captureContext: {
             level: input.severity ?? 'error',
             tags: {diagnostic_code: input.code},
-            fingerprint: [
-                '{{ default }}',
-                input.code,
-            ],
+            fingerprint: ['{{ default }}', input.code],
         },
     });
     return eventId;

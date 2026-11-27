@@ -1,19 +1,8 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import * as utifModule from 'utif';
-import {
-    buildTiffImageIfd,
-    encodeTiffIfds,
-} from '@pdf-core';
-import {
-    encodeMultiPageTiffHeader, estimateMultiPageTiffByteLength, splitTiffPageDescriptorsForClassicLimit,
-} from '@pdf-core/tiffEncoding';
-import {
-    encode as encodePng, decode as decodePng,
-} from 'fast-png';
+import {buildTiffImageIfd, encodeTiffIfds} from '@pdf-core';
+import {encodeMultiPageTiffHeader, estimateMultiPageTiffByteLength, splitTiffPageDescriptorsForClassicLimit} from '@pdf-core/tiffEncoding';
+import {encode as encodePng, decode as decodePng} from 'fast-png';
 import {addPngPhysicalResolution} from '@pdf-core/addPngPhysicalResolution';
 import {addJpegJfifDensity} from '@pdf-core/addJpegJfifDensity';
 
@@ -22,12 +11,7 @@ interface IUtifEncoderModule {
         writeUint(buffer: Uint8Array, offset: number, value: number): void;
         writeUshort(buffer: Uint8Array, offset: number, value: number): void;
     };
-    _writeIFD(
-        bin: IUtifEncoderModule['_binBE'],
-        data: Uint8Array,
-        offset: number,
-        ifd: Record<string, unknown>,
-    ): [number, number];
+    _writeIFD(bin: IUtifEncoderModule['_binBE'], data: Uint8Array, offset: number, ifd: Record<string, unknown>): [number, number];
     ttypes: Record<number, number | undefined>;
 }
 
@@ -44,27 +28,37 @@ describe('tiff encoding helpers', () => {
             dpiY: 144,
         }));
         const groups = splitTiffPageDescriptorsForClassicLimit(pages, UTIF);
-        expect(groups.map(group => group.length)).toEqual([
-            553,
-            47,
-        ]);
+        expect(groups.map((group) => group.length)).toEqual([553, 47]);
         expect(groups.flat()).toEqual(pages);
         expect(groups.flat().every((page, index) => page === pages[index])).toBe(true);
-        for (const group of groups) expect(estimateMultiPageTiffByteLength(group, UTIF)).toBeLessThanOrEqual(0xFFFFFFFF);
-        expect(estimateMultiPageTiffByteLength([
-            ...groups[0]!,
-            groups[1]![0]!,
-        ], UTIF)).toBeGreaterThan(0xFFFFFFFF);
-        expect(() => encodeMultiPageTiffHeader([{
-            width: 32768,
-            height: 32768,
-            dataLength: 2 ** 32,
-        }], UTIF)).toThrow('Classic TIFF');
-        expect(() => splitTiffPageDescriptorsForClassicLimit([{
-            width: 32768,
-            height: 32768,
-            dataLength: 2 ** 32,
-        }], UTIF)).toThrow('A single TIFF page');
+        for (const group of groups) {
+            expect(estimateMultiPageTiffByteLength(group, UTIF)).toBeLessThanOrEqual(0xffffffff);
+        }
+        expect(estimateMultiPageTiffByteLength([...groups[0]!, groups[1]![0]!], UTIF)).toBeGreaterThan(0xffffffff);
+        expect(() =>
+            encodeMultiPageTiffHeader(
+                [
+                    {
+                        width: 32768,
+                        height: 32768,
+                        dataLength: 2 ** 32,
+                    },
+                ],
+                UTIF,
+            ),
+        ).toThrow('Classic TIFF');
+        expect(() =>
+            splitTiffPageDescriptorsForClassicLimit(
+                [
+                    {
+                        width: 32768,
+                        height: 32768,
+                        dataLength: 2 ** 32,
+                    },
+                ],
+                UTIF,
+            ),
+        ).toThrow('A single TIFF page');
     });
 
     it('packs an exact two-page boundary and decodes all ordered pixels, densities and strip offsets', () => {
@@ -78,34 +72,20 @@ describe('tiff encoding helpers', () => {
         }));
         const limit = estimateMultiPageTiffByteLength(pages.slice(0, 2), UTIF);
         const groups = splitTiffPageDescriptorsForClassicLimit(pages, UTIF, limit);
-        expect(groups.map(group => group.length)).toEqual([
-            2,
-            2,
-            1,
-        ]);
+        expect(groups.map((group) => group.length)).toEqual([2, 2, 1]);
         expect(splitTiffPageDescriptorsForClassicLimit([], UTIF)).toEqual([]);
         expect(splitTiffPageDescriptorsForClassicLimit([pages[0]!], UTIF)).toEqual([[pages[0]]]);
         const decodedMarkers: number[] = [];
         for (const group of groups) {
-            const {
-                header, firstDataOffset, totalByteLength,
-            } = encodeMultiPageTiffHeader(group, UTIF);
+            const {header, firstDataOffset, totalByteLength} = encodeMultiPageTiffHeader(group, UTIF);
             expect(firstDataOffset % 8).toBe(0);
             expect(totalByteLength).toBeLessThanOrEqual(limit);
             const bytes = new Uint8Array(totalByteLength);
             bytes.set(header);
-            group.forEach((page, index) => bytes.set([
-                page.marker,
-                20,
-                30,
-                255,
-            ], firstDataOffset + index * 4));
+            group.forEach((page, index) => bytes.set([page.marker, 20, 30, 255], firstDataOffset + index * 4));
             const frames = UTIF.decode(bytes);
             expect(frames).toHaveLength(group.length);
-            for (const [
-                index,
-                frame,
-            ] of frames.entries()) {
+            for (const [index, frame] of frames.entries()) {
                 const page = group[index]!;
                 expect(frame.t256).toEqual([1]);
                 expect(frame.t257).toEqual([1]);
@@ -116,55 +96,46 @@ describe('tiff encoding helpers', () => {
                 expect(offset + 4).toBeLessThanOrEqual(bytes.byteLength);
                 UTIF.decodeImage(bytes, frame);
                 const rgba = UTIF.toRGBA8(frame);
-                expect(Array.from(rgba)).toEqual([
-                    page.marker,
-                    20,
-                    30,
-                    255,
-                ]);
+                expect(Array.from(rgba)).toEqual([page.marker, 20, 30, 255]);
                 decodedMarkers.push(rgba[0]!);
             }
             const view = new DataView(bytes.buffer);
             let offset = view.getUint32(4);
-            for (let index = 0; index < group.length; index += 1) offset = view.getUint32(offset + 2 + view.getUint16(offset) * 12);
+            for (let index = 0; index < group.length; index += 1) {
+                offset = view.getUint32(offset + 2 + view.getUint16(offset) * 12);
+            }
             expect(offset).toBe(0);
         }
-        expect(decodedMarkers).toEqual([
-            1,
-            2,
-            3,
-            4,
-            5,
-        ]);
+        expect(decodedMarkers).toEqual([1, 2, 3, 4, 5]);
     });
 
     it('encodes a multi-page TIFF header', () => {
         const ifds = [
-            buildTiffImageIfd({
-                width: 1,
-                height: 1,
-                dataLength: 4,
-            }, 8),
-            buildTiffImageIfd({
-                width: 2,
-                height: 1,
-                dataLength: 8,
-            }, 12),
+            buildTiffImageIfd(
+                {
+                    width: 1,
+                    height: 1,
+                    dataLength: 4,
+                },
+                8,
+            ),
+            buildTiffImageIfd(
+                {
+                    width: 2,
+                    height: 1,
+                    dataLength: 8,
+                },
+                12,
+            ),
         ];
 
         const bytes = encodeTiffIfds(ifds, UTIF);
         const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
         const firstIfdOffset = view.getUint32(4, false);
         const firstIfdEntryCount = view.getUint16(firstIfdOffset, false);
-        const firstNextIfdOffset = view.getUint32(
-            firstIfdOffset + 2 + (firstIfdEntryCount * 12),
-            false,
-        );
+        const firstNextIfdOffset = view.getUint32(firstIfdOffset + 2 + firstIfdEntryCount * 12, false);
         const secondIfdEntryCount = view.getUint16(firstNextIfdOffset, false);
-        const secondNextIfdOffset = view.getUint32(
-            firstNextIfdOffset + 2 + (secondIfdEntryCount * 12),
-            false,
-        );
+        const secondNextIfdOffset = view.getUint32(firstNextIfdOffset + 2 + secondIfdEntryCount * 12, false);
 
         expect(bytes[0]).toBe(77);
         expect(bytes[1]).toBe(77);
@@ -177,107 +148,128 @@ describe('tiff encoding helpers', () => {
 
     it('writes each page density into its resolution tags', () => {
         const ifds = [
-            buildTiffImageIfd({
-                width: 1,
-                height: 1,
-                dataLength: 4,
-                dpiX: 300,
-                dpiY: 150,
-            }, 8),
-            buildTiffImageIfd({
-                width: 2,
-                height: 1,
-                dataLength: 8,
-            }, 12),
+            buildTiffImageIfd(
+                {
+                    width: 1,
+                    height: 1,
+                    dataLength: 4,
+                    dpiX: 300,
+                    dpiY: 150,
+                },
+                8,
+            ),
+            buildTiffImageIfd(
+                {
+                    width: 2,
+                    height: 1,
+                    dataLength: 8,
+                },
+                12,
+            ),
         ];
 
         const frames = UTIF.decode(encodeTiffIfds(ifds, UTIF));
 
         // ResolutionUnit 2 is inches; a page without a density keeps the 72 DPI default.
-        expect(frames.map(frame => [
-            frame.t282,
-            frame.t283,
-            frame.t296,
-        ])).toEqual([
-            [
-                [300],
-                [150],
-                [2],
-            ],
-            [
-                [72],
-                [72],
-                [2],
-            ],
+        expect(frames.map((frame) => [frame.t282, frame.t283, frame.t296])).toEqual([
+            [[300], [150], [2]],
+            [[72], [72], [2]],
         ]);
     });
-
 });
 
 describe('JFIF density helper', () => {
     // SOI, then an APP0 "JFIF\0" segment with units 0 and 1x1 densities, then EOI.
     const jfifJpeg = Uint8Array.of(
-        0xff, 0xd8,
-        0xff, 0xe0, 0x00, 0x10,
-        0x4a, 0x46, 0x49, 0x46, 0x00,
-        0x01, 0x01, 0x00,
-        0x00, 0x01,
-        0x00, 0x01,
-        0x00, 0x00,
-        0xff, 0xd9,
+        0xff,
+        0xd8,
+        0xff,
+        0xe0,
+        0x00,
+        0x10,
+        0x4a,
+        0x46,
+        0x49,
+        0x46,
+        0x00,
+        0x01,
+        0x01,
+        0x00,
+        0x00,
+        0x01,
+        0x00,
+        0x01,
+        0x00,
+        0x00,
+        0xff,
+        0xd9,
     );
 
     it('records a valid density in units of dots per inch', () => {
         const output = addJpegJfifDensity(jfifJpeg, 300);
 
         // Units 1 is dots per inch; the X and Y densities follow as big-endian 16-bit values.
-        expect(Array.from(output.subarray(13, 18))).toEqual([
-            1,
-            0x01,
-            0x2c,
-            0x01,
-            0x2c,
-        ]);
+        expect(Array.from(output.subarray(13, 18))).toEqual([1, 0x01, 0x2c, 0x01, 0x2c]);
     });
 
     // An APP1 Exif segment in place of the APP0 JFIF segment, then EOI.
     const exifJpeg = Uint8Array.of(
-        0xff, 0xd8,
-        0xff, 0xe1, 0x00, 0x10,
-        0x45, 0x78, 0x69, 0x66, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0xff, 0xd9,
+        0xff,
+        0xd8,
+        0xff,
+        0xe1,
+        0x00,
+        0x10,
+        0x45,
+        0x78,
+        0x69,
+        0x66,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0xff,
+        0xd9,
     );
     const pngBytes = Uint8Array.of(
-        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-        0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
+        0x89,
+        0x50,
+        0x4e,
+        0x47,
+        0x0d,
+        0x0a,
+        0x1a,
+        0x0a,
+        0x00,
+        0x00,
+        0x00,
+        0x0d,
+        0x49,
+        0x48,
+        0x44,
+        0x52,
+        0x00,
+        0x00,
     );
 
     it.each([
-        [
-            'an APP1 Exif header',
-            exifJpeg,
-        ],
-        [
-            'a PNG signature',
-            pngBytes,
-        ],
-        [
-            'a header shorter than the density fields',
-            jfifJpeg.subarray(0, 17),
-        ],
+        ['an APP1 Exif header', exifJpeg],
+        ['a PNG signature', pngBytes],
+        ['a header shorter than the density fields', jfifJpeg.subarray(0, 17)],
     ])('returns %s unchanged even with a valid density', (_label, input) => {
         expect(addJpegJfifDensity(input, 300)).toEqual(input);
     });
 
-    it.each([
-        0,
-        -300,
-        Number.NaN,
-        Number.POSITIVE_INFINITY,
-    ])('ignores the invalid density %s and returns the JFIF bytes unchanged', (dpi) => {
-        expect(addJpegJfifDensity(jfifJpeg, dpi)).toEqual(jfifJpeg);
-    });
+    it.each([0, -300, Number.NaN, Number.POSITIVE_INFINITY])(
+        'ignores the invalid density %s and returns the JFIF bytes unchanged',
+        (dpi) => {
+            expect(addJpegJfifDensity(jfifJpeg, dpi)).toEqual(jfifJpeg);
+        },
+    );
 });
 
 describe('PNG density', () => {
@@ -290,11 +282,7 @@ describe('PNG density', () => {
         return types;
     }
 
-    it.each([
-        0,
-        1,
-        2,
-    ])('replaces %s existing density chunks with one before image data', (existingChunks) => {
+    it.each([0, 1, 2])('replaces %s existing density chunks with one before image data', (existingChunks) => {
         const encoded = encodePng({
             width: 1,
             height: 1,
@@ -303,9 +291,27 @@ describe('PNG density', () => {
         });
         // fast-png encodes no pHYs; insert a valid 96 DPI chunk after IHDR.
         const density = Uint8Array.of(
-            0x00, 0x00, 0x00, 0x09, 0x70, 0x48, 0x59,
-            0x73, 0x00, 0x00, 0x0e, 0xc4, 0x00, 0x00,
-            0x0e, 0xc4, 0x01, 0x95, 0x2b, 0x0e, 0x1b,
+            0x00,
+            0x00,
+            0x00,
+            0x09,
+            0x70,
+            0x48,
+            0x59,
+            0x73,
+            0x00,
+            0x00,
+            0x0e,
+            0xc4,
+            0x00,
+            0x00,
+            0x0e,
+            0xc4,
+            0x01,
+            0x95,
+            0x2b,
+            0x0e,
+            0x1b,
         );
         const png = Uint8Array.from([
             ...encoded.subarray(0, 33),
@@ -314,11 +320,11 @@ describe('PNG density', () => {
             ...(existingChunks === 2 ? density : []),
             ...encoded.subarray(-12),
         ]);
-        expect(chunkTypes(png).filter(type => type === 'pHYs')).toHaveLength(existingChunks);
+        expect(chunkTypes(png).filter((type) => type === 'pHYs')).toHaveLength(existingChunks);
         expect(decodePng(png).resolution?.x).toBe(existingChunks ? 3780 : undefined);
         const bytes = addPngPhysicalResolution(png, 300);
         const chunks = chunkTypes(bytes);
-        expect(chunks.filter(type => type === 'pHYs')).toHaveLength(1);
+        expect(chunks.filter((type) => type === 'pHYs')).toHaveLength(1);
         expect(chunks.indexOf('pHYs')).toBeLessThan(chunks.indexOf('IDAT'));
         const decoded = decodePng(bytes);
         expect(decoded.resolution).toEqual({
@@ -326,10 +332,6 @@ describe('PNG density', () => {
             y: 11811,
             unit: 1,
         });
-        expect(Array.from(decoded.data)).toEqual([
-            17,
-            33,
-            55,
-        ]);
+        expect(Array.from(decoded.data)).toEqual([17, 33, 55]);
     });
 });

@@ -1,18 +1,14 @@
-import { basename } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { isPdfPageOpsWasmPath } from '@node-runtime/pdfPageOpsWasmRunner';
-import { isQpdfWasmPath } from '@node-runtime/qpdfWasmRunner';
-import { runDesktopPageOpsWasm } from '@electron/native-tools/pdfPageOpsWorkerClient';
-import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
-import { withDefinedCommandOptions } from '@electron/native-tools/withDefinedCommandOptions';
-import type { IProcessResult } from '@electron/native-tools/processResult';
-import {
-    mergeTerminationProofSinks,
-    type IJobBrokerRunContext,
-    type TTerminationProofSink,
-} from '@electron/resources/jobBroker';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import {basename} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {isPdfPageOpsWasmPath} from '@node-runtime/pdfPageOpsWasmRunner';
+import {isQpdfWasmPath} from '@node-runtime/qpdfWasmRunner';
+import {runDesktopPageOpsWasm} from '@electron/native-tools/pdfPageOpsWorkerClient';
+import {runDesktopQpdfWasm} from '@electron/native-tools/qpdfWasmWorkerClient';
+import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
+import {withDefinedCommandOptions} from '@electron/native-tools/withDefinedCommandOptions';
+import type {IProcessResult} from '@electron/native-tools/processResult';
+import {mergeTerminationProofSinks, type IJobBrokerRunContext, type TTerminationProofSink} from '@electron/resources/jobBroker';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
 /**
  * Build IDs of the native tools, keyed by binary name, embedded by
@@ -25,14 +21,14 @@ declare const __EVB_RUNTIME_ARCHIVE_IDS__: Readonly<Record<string, string>> | un
 
 /** The same build identity the command owner validates before native execution. */
 export function getNativeToolBuildIdentity(binaryName: string) {
-    return typeof __EVB_NATIVE_BUILD_IDS__ === 'undefined' ? null : __EVB_NATIVE_BUILD_IDS__[binaryName] ?? null;
+    return typeof __EVB_NATIVE_BUILD_IDS__ === 'undefined' ? null : (__EVB_NATIVE_BUILD_IDS__[binaryName] ?? null);
 }
 
 /** Archive pins already verified when the bundled third-party tools are installed. */
 export function getRuntimeToolArchiveIdentity(familyId: string) {
     return typeof __EVB_RUNTIME_ARCHIVE_IDS__ === 'undefined'
         ? null
-        : __EVB_RUNTIME_ARCHIVE_IDS__[`${familyId}-${process.platform}-${process.arch}`] ?? null;
+        : (__EVB_RUNTIME_ARCHIVE_IDS__[`${familyId}-${process.platform}-${process.arch}`] ?? null);
 }
 
 export interface IRunNativeToolCommandOptions {
@@ -61,10 +57,10 @@ export interface IRunNativeToolCommandOptions {
 
 // A packaged app ships the binaries built with it, so only a development
 // checkout can pair the app with a binary built from other sources.
-const expectedBuildIds = typeof __EVB_NATIVE_BUILD_IDS__ === 'undefined'
-    || fileURLToPath(import.meta.url).includes('app.asar')
-    ? null
-    : __EVB_NATIVE_BUILD_IDS__;
+const expectedBuildIds =
+    typeof __EVB_NATIVE_BUILD_IDS__ === 'undefined' || fileURLToPath(import.meta.url).includes('app.asar')
+        ? null
+        : __EVB_NATIVE_BUILD_IDS__;
 const verifiedBuilds = new Map<string, Promise<void>>();
 
 /**
@@ -81,10 +77,7 @@ export async function runNativeToolCommand(
     args: string[],
     options: IRunNativeToolCommandOptions = {},
 ): Promise<IProcessResult> {
-    const wasmTerminationProof = mergeTerminationProofSinks(
-        options.brokerRun?.onTerminationProof,
-        options.onTerminationProof,
-    );
+    const wasmTerminationProof = mergeTerminationProofSinks(options.brokerRun?.onTerminationProof, options.onTerminationProof);
     if (isPdfPageOpsWasmPath(command)) {
         try {
             return await runDesktopPageOpsWasm(command, args, {
@@ -93,12 +86,8 @@ export async function runNativeToolCommand(
                 ...(options.cancelGroup === undefined ? {} : {cancelGroup: options.cancelGroup}),
                 ...(options.commandLabel === undefined ? {} : {commandLabel: options.commandLabel}),
                 ...(options.maxStdoutBytes === undefined ? {} : {maxStdoutBytes: options.maxStdoutBytes}),
-                ...(options.rejectOnStdoutTruncation === undefined
-                    ? {}
-                    : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),
-                ...(wasmTerminationProof === undefined
-                    ? {}
-                    : {onTerminationProof: wasmTerminationProof}),
+                ...(options.rejectOnStdoutTruncation === undefined ? {} : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),
+                ...(wasmTerminationProof === undefined ? {} : {onTerminationProof: wasmTerminationProof}),
             });
         } finally {
             options.onClose?.();
@@ -116,12 +105,8 @@ export async function runNativeToolCommand(
                 ...(options.commandLabel === undefined ? {} : {commandLabel: options.commandLabel}),
                 ...(options.maxStdoutBytes === undefined ? {} : {maxStdoutBytes: options.maxStdoutBytes}),
                 ...(options.maxStderrBytes === undefined ? {} : {maxStderrBytes: options.maxStderrBytes}),
-                ...(options.rejectOnStdoutTruncation === undefined
-                    ? {}
-                    : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),
-                ...(wasmTerminationProof === undefined
-                    ? {}
-                    : {onTerminationProof: wasmTerminationProof}),
+                ...(options.rejectOnStdoutTruncation === undefined ? {} : {rejectOnStdoutTruncation: options.rejectOnStdoutTruncation}),
+                ...(wasmTerminationProof === undefined ? {} : {onTerminationProof: wasmTerminationProof}),
             });
         } finally {
             options.onClose?.();
@@ -135,47 +120,52 @@ export async function runNativeToolCommand(
  * Fails when an EVB native binary was built from other native sources than this
  * app, checked once per binary path.
  */
-export function assertNativeToolBuild(
-    command: string,
-    brokerRun?: IJobBrokerRunContext,
-) {
-    const baseName = basename(command).toLowerCase().replace(/\.exe$/u, '');
+export function assertNativeToolBuild(command: string, brokerRun?: IJobBrokerRunContext) {
+    const baseName = basename(command)
+        .toLowerCase()
+        .replace(/\.exe$/u, '');
     const expectedBuildId = expectedBuildIds?.[baseName];
     if (expectedBuildId === undefined) {
         return Promise.resolve();
     }
     let verified = verifiedBuilds.get(command);
     if (verified === undefined) {
-        const probeBrokerRun: IJobBrokerRunContext | undefined = brokerRun === undefined
-            ? undefined
-            : {
-                broker: brokerRun.broker,
-                lease: brokerRun.lease,
-                onTerminationProof: brokerRun.leaseTerminationProof ?? brokerRun.onTerminationProof,
-                ...(brokerRun.leaseTerminationProof === undefined
-                    ? {}
-                    : {leaseTerminationProof: brokerRun.leaseTerminationProof}),
-            };
-        verified = runNativeCommand(command, ['--build-id'], createRunCommandOptions({
-            maxStdoutBytes: 256,
-            commandLabel: `${baseName}(build-id)`,
-            ...(probeBrokerRun === undefined ? {} : {brokerRun: probeBrokerRun}),
-        })).then((result) => {
-            const actualBuildId = result.stdout.trim();
-            if (actualBuildId !== expectedBuildId) {
-                throw new NativeToolBuildMismatchError(
-                    `${baseName} at ${command} was built from other native sources `
-                    + `(binary build ${actualBuildId || '<empty>'}, app build ${expectedBuildId}). `
-                    + `Rebuild it with pnpm run build:${baseName.slice('evb-'.length)}.`,
-                );
-            }
-        }, (error: unknown) => {
-            // The check's child opens none of the caller's files, so one that
-            // outlived its kill must not keep the caller from reclaiming them.
-            throw getUnprovenNativeTerminationDetail(error) === undefined || !(error instanceof Error)
-                ? error
-                : new Error(error.message, {cause: error});
-        });
+        const probeBrokerRun: IJobBrokerRunContext | undefined =
+            brokerRun === undefined
+                ? undefined
+                : {
+                      broker: brokerRun.broker,
+                      lease: brokerRun.lease,
+                      onTerminationProof: brokerRun.leaseTerminationProof ?? brokerRun.onTerminationProof,
+                      ...(brokerRun.leaseTerminationProof === undefined ? {} : {leaseTerminationProof: brokerRun.leaseTerminationProof}),
+                  };
+        verified = runNativeCommand(
+            command,
+            ['--build-id'],
+            createRunCommandOptions({
+                maxStdoutBytes: 256,
+                commandLabel: `${baseName}(build-id)`,
+                ...(probeBrokerRun === undefined ? {} : {brokerRun: probeBrokerRun}),
+            }),
+        ).then(
+            (result) => {
+                const actualBuildId = result.stdout.trim();
+                if (actualBuildId !== expectedBuildId) {
+                    throw new NativeToolBuildMismatchError(
+                        `${baseName} at ${command} was built from other native sources ` +
+                            `(binary build ${actualBuildId || '<empty>'}, app build ${expectedBuildId}). ` +
+                            `Rebuild it with pnpm run build:${baseName.slice('evb-'.length)}.`,
+                    );
+                }
+            },
+            (error: unknown) => {
+                // The check's child opens none of the caller's files, so one that
+                // outlived its kill must not keep the caller from reclaiming them.
+                throw getUnprovenNativeTerminationDetail(error) === undefined || !(error instanceof Error)
+                    ? error
+                    : new Error(error.message, {cause: error});
+            },
+        );
         verified.catch(() => verifiedBuilds.delete(command));
         verifiedBuilds.set(command, verified);
     }
@@ -183,10 +173,13 @@ export function assertNativeToolBuild(
 }
 
 function createRunCommandOptions(options: IRunNativeToolCommandOptions) {
-    return withDefinedCommandOptions({
-        defaultCwdToCommandDir: true,
-        prependCommandDirToPath: true,
-        includeProcessEnv: true,
-        windowsHide: true,
-    }, options);
+    return withDefinedCommandOptions(
+        {
+            defaultCwdToCommandDir: true,
+            prependCommandDirToPath: true,
+            includeProcessEnv: true,
+            windowsHide: true,
+        },
+        options,
+    );
 }

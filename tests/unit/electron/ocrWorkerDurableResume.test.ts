@@ -1,17 +1,5 @@
-import {
-    readdir,
-    readFile,
-    writeFile,
-    rm,
-} from 'node:fs/promises';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {readdir, readFile, writeFile, rm} from 'node:fs/promises';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
     createOcrWorkerPipelineHarness,
     hasOcrWorkerPipelineTools,
@@ -25,34 +13,38 @@ import {OCR_LANGUAGE_MODEL_SHA256} from '@contracts/ocrLanguages';
 let harnesses: IOcrWorkerPipelineHarness[] = [];
 
 afterEach(async () => {
-    await Promise.all(harnesses.map(harness => harness.close().catch(() => undefined)));
-    const roots = new Set(harnesses.map(harness => harness.root));
-    await Promise.all([...roots].map(root => rm(root, {
-        recursive: true,
-        force: true,
-    })));
+    await Promise.all(harnesses.map((harness) => harness.close().catch(() => undefined)));
+    const roots = new Set(harnesses.map((harness) => harness.root));
+    await Promise.all(
+        [...roots].map((root) =>
+            rm(root, {
+                recursive: true,
+                force: true,
+            }),
+        ),
+    );
     harnesses = [];
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
 });
 
-
 async function waitForFirstCheckpoint(root: string) {
-    await expect.poll(async () => {
-        const files = await readdir(`${root}/ocr-checkpoints`, {recursive: true}).catch(() => []);
-        return files.some(file => file.endsWith('page-1.json'));
-    }, {
-        timeout: 45_000,
-        interval: 100,
-    }).toBe(true);
+    await expect
+        .poll(
+            async () => {
+                const files = await readdir(`${root}/ocr-checkpoints`, {recursive: true}).catch(() => []);
+                return files.some((file) => file.endsWith('page-1.json'));
+            },
+            {
+                timeout: 45_000,
+                interval: 100,
+            },
+        )
+        .toBe(true);
 }
 
 describe('real OCR worker durable page checkpoints', () => {
-    describe.each([
-        'native',
-        'runtime',
-        'selected-model',
-    ] as const)('recipe identity: %s', identityKind => {
+    describe.each(['native', 'runtime', 'selected-model'] as const)('recipe identity: %s', (identityKind) => {
         let first: IOcrWorkerPipelineHarness;
         const identityName = identityKind === 'native' ? '__EVB_NATIVE_BUILD_IDS__' : '__EVB_RUNTIME_ARCHIVE_IDS__';
         const identityKey = identityKind === 'native' ? 'evb-scan-cleanup' : `poppler-${process.platform}-${process.arch}`;
@@ -74,9 +66,11 @@ describe('real OCR worker durable page checkpoints', () => {
                 const readSavedText = async () => {
                     const root = join(first.root, 'ocr-checkpoints');
                     const files = await readdir(root, {recursive: true});
-                    return Promise.all(files.filter(file => file.endsWith('page-1.json')).map(async file => (
-                        JSON.parse(await readFile(join(root, file), 'utf8')).page.text as string
-                    )));
+                    return Promise.all(
+                        files
+                            .filter((file) => file.endsWith('page-1.json'))
+                            .map(async (file) => JSON.parse(await readFile(join(root, file), 'utf8')).page.text as string),
+                    );
                 };
                 expect(await readSavedText()).toEqual(['checkpoint page 1']);
                 if (identityKind === 'selected-model') {
@@ -104,7 +98,7 @@ describe('real OCR worker durable page checkpoints', () => {
         it('rejects same-size checkpoint corruption while retaining the other recognized pages', async () => {
             const root = join(harness.root, 'ocr-checkpoints');
             const files = await readdir(root, {recursive: true});
-            const pageOne = files.find(file => file.endsWith('page-1.pdf'))!;
+            const pageOne = files.find((file) => file.endsWith('page-1.pdf'))!;
             const pdf = await readFile(join(root, pageOne));
             pdf[0] = pdf[0]! ^ 1;
             await writeFile(join(root, pageOne), pdf);
@@ -112,11 +106,14 @@ describe('real OCR worker durable page checkpoints', () => {
             await harness.start('repair');
             const repaired = JSON.parse(await readFile(join(root, pageOne.replace('.pdf', '.json')), 'utf8'));
             expect(repaired.page.text).toBe('repaired page 1');
-            expect(repaired.pdfSha256).toBe(createHash('sha256').update(await readFile(join(root, pageOne))).digest('hex'));
+            expect(repaired.pdfSha256).toBe(
+                createHash('sha256')
+                    .update(await readFile(join(root, pageOne)))
+                    .digest('hex'),
+            );
             const retained = JSON.parse(await readFile(join(root, pageOne.replace('page-1.pdf', 'page-2.json')), 'utf8'));
             expect(retained.page.text).toBe('checkpoint page 2');
         });
-
     });
 
     describe('concurrent recognition', () => {
@@ -133,13 +130,10 @@ describe('real OCR worker durable page checkpoints', () => {
 
         it('keeps concurrent twin recognition artifacts independent and the source unchanged', async () => {
             const sourceBefore = await readFile(first.sourcePdfPath);
-            await Promise.all([
-                first.start('first'),
-                twin.start('twin'),
-            ]);
+            await Promise.all([first.start('first'), twin.start('twin')]);
             const root = join(first.root, 'ocr-checkpoints');
             const files = await readdir(root, {recursive: true});
-            const pageFiles = files.filter(file => /page-\d+\.json$/u.test(file));
+            const pageFiles = files.filter((file) => /page-\d+\.json$/u.test(file));
             expect(pageFiles).toHaveLength(6);
             for (const file of pageFiles) {
                 const checkpoint = JSON.parse(await readFile(join(root, file), 'utf8'));
@@ -149,11 +143,10 @@ describe('real OCR worker durable page checkpoints', () => {
             }
             expect(await readFile(first.sourcePdfPath)).toEqual(sourceBefore);
         });
-
     });
 
     it('restarts after page one without recognizing that page again', async (context) => {
-        if (!await hasOcrWorkerPipelineTools()) {
+        if (!(await hasOcrWorkerPipelineTools())) {
             context.skip();
             return;
         }
@@ -172,10 +165,7 @@ describe('real OCR worker durable page checkpoints', () => {
 
         const {calls} = resumed;
         expect(calls).not.toContain(1);
-        expect(calls, JSON.stringify({result: resumedResult.result})).toEqual(expect.arrayContaining([
-            2,
-            3,
-        ]));
+        expect(calls, JSON.stringify({result: resumedResult.result})).toEqual(expect.arrayContaining([2, 3]));
     }, 90_000);
 
     it('streams searchable-PDF instructions page by page and removes temp artifacts on abort', async () => {
@@ -203,13 +193,15 @@ describe('real OCR worker durable page checkpoints', () => {
                             wordGeometry: {
                                 rasterWidthPx: 100,
                                 rasterHeightPx: 100,
-                                words: [{
-                                    text: 'streamed',
-                                    x: 10,
-                                    y: 10,
-                                    width: 40,
-                                    height: 12,
-                                }],
+                                words: [
+                                    {
+                                        text: 'streamed',
+                                        x: 10,
+                                        y: 10,
+                                        width: 40,
+                                        height: 12,
+                                    },
+                                ],
                             },
                             diagnostics: [],
                         },
@@ -217,14 +209,16 @@ describe('real OCR worker durable page checkpoints', () => {
                 }
             }
 
-            await expect(writeSearchablePdf({
-                pdfPageOpsBinary: 'evb-pdf-page-ops',
-                sourcePdfPath: join(tempDir, 'source.pdf'),
-                pages: streamingCheckpoints(),
-                tempDir,
-                sessionId: 'stream-abort-test',
-                signal: controller.signal,
-            })).rejects.toThrow('Finalization canceled mid-stream');
+            await expect(
+                writeSearchablePdf({
+                    pdfPageOpsBinary: 'evb-pdf-page-ops',
+                    sourcePdfPath: join(tempDir, 'source.pdf'),
+                    pages: streamingCheckpoints(),
+                    tempDir,
+                    sessionId: 'stream-abort-test',
+                    signal: controller.signal,
+                }),
+            ).rejects.toThrow('Finalization canceled mid-stream');
 
             expect(yieldedPages).toBe(3);
             expect(await readdir(tempDir)).toEqual([]);

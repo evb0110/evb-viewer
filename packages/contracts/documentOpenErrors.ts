@@ -18,13 +18,7 @@ export const DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA = v.object({
     ]),
     message: v.string(),
     fileName: v.optional(v.string()),
-    detectedFormat: v.optional(v.picklist([
-        'html',
-        'pdf',
-        'zip',
-        'empty',
-        'unknown',
-    ])),
+    detectedFormat: v.optional(v.picklist(['html', 'pdf', 'zip', 'empty', 'unknown'])),
     maxBytes: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
 });
 
@@ -43,10 +37,7 @@ export class DocumentOpenRefusalError extends Error {
             fileName?: string;
         } = {},
     ) {
-        const {
-            fileName,
-            ...errorOptions
-        } = options;
+        const {fileName, ...errorOptions} = options;
         super(message, errorOptions);
         this.name = 'DocumentOpenRefusalError';
         this.fileName = fileName;

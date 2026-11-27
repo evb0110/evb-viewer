@@ -1,5 +1,5 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TMenuEventUnsubscribe} from '@contracts/electronApiCommon';
 
 // Documents handed to the page from outside it, such as a PDF the Chrome
 // extension redirected here. They can arrive before the workspace listens,

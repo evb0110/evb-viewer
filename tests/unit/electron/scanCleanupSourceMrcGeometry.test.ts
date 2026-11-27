@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {buildScanCleanupSourceMrcForegroundPdfMatrix} from '@evb/scan-cleanup/core/buildScanCleanupSourceMrcForegroundPdfMatrix';
 import type {IRenderedCleanupOutputPage} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import {sourceMrcForegroundPdfMatrix} from '@evb/scan-cleanup/core/scanCleanupOutputComposition';
@@ -29,23 +25,13 @@ function output(overrides: Partial<IRenderedCleanupOutputPage['metadata']> = {})
             matchedCanvasIntrinsicOverflowLeftPx: 80,
             matchedCanvasIntrinsicOverflowRightPx: 20,
             matchedCanvasIntrinsicOverflowTopPx: 20,
-            forwardTransform: {matrix: [
-                [
-                    1,
-                    0,
-                    0,
+            forwardTransform: {
+                matrix: [
+                    [1, 0, 0],
+                    [0, 1, 0],
+                    [0, 0, 1],
                 ],
-                [
-                    0,
-                    1,
-                    0,
-                ],
-                [
-                    0,
-                    0,
-                    1,
-                ],
-            ]},
+            },
             rotationDegrees: 0,
             dewarpMapping: null,
             ...overrides,
@@ -70,14 +56,7 @@ describe('scan-cleanup source MRC geometry', () => {
             100,
         );
 
-        expect(matrix).toEqual([
-            100,
-            -0,
-            -0,
-            100,
-            -8,
-            2,
-        ]);
+        expect(matrix).toEqual([100, -0, -0, 100, -8, 2]);
     });
 
     it('applies independent matched-canvas x and y scales', () => {
@@ -103,14 +82,7 @@ describe('scan-cleanup source MRC geometry', () => {
             600,
         );
 
-        expect(matrix).toEqual([
-            1_200,
-            -0,
-            -0,
-            1_200,
-            0,
-            -600,
-        ]);
+        expect(matrix).toEqual([1_200, -0, -0, 1_200, 0, -600]);
     });
 
     it('combines placement offsets with clipped intrinsic overflow', () => {
@@ -134,14 +106,7 @@ describe('scan-cleanup source MRC geometry', () => {
             100,
         );
 
-        expect(matrix).toEqual([
-            100,
-            -0,
-            -0,
-            100,
-            3,
-            -4,
-        ]);
+        expect(matrix).toEqual([100, -0, -0, 100, 3, -4]);
     });
 
     it('converts source pixels through non-unit page-to-canvas ratios', () => {
@@ -169,13 +134,6 @@ describe('scan-cleanup source MRC geometry', () => {
             240,
         );
 
-        expect(matrix).toEqual([
-            200,
-            -0,
-            -0,
-            120,
-            0,
-            120,
-        ]);
+        expect(matrix).toEqual([200, -0, -0, 120, 0, 120]);
     });
 });

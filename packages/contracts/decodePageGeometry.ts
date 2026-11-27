@@ -1,6 +1,4 @@
-import {
-    isFiniteNumber, isRecord,
-} from '@contracts/runtimeGuards';
+import {isFiniteNumber, isRecord} from '@contracts/runtimeGuards';
 import * as v from 'valibot';
 
 export const PDF_BOX_SCHEMA = v.object({
@@ -11,20 +9,18 @@ export const PDF_BOX_SCHEMA = v.object({
 });
 
 function isFiniteBox(value: unknown) {
-    return isRecord(value)
-        && isFiniteNumber(value.x)
-        && isFiniteNumber(value.y)
-        && isFiniteNumber(value.width)
-        && isFiniteNumber(value.height);
+    return (
+        isRecord(value) && isFiniteNumber(value.x) && isFiniteNumber(value.y) && isFiniteNumber(value.width) && isFiniteNumber(value.height)
+    );
 }
 
 export const PAGE_GEOMETRY_SCHEMA = v.pipe(
     v.unknown(),
-    v.check(value => isRecord(value) && isFiniteNumber(value.rotation), 'page geometry must contain a finite rotation'),
-    v.check(value => isRecord(value)
-        && isFiniteBox(value.mediaBox)
-        && (value.cropBox === null || isFiniteBox(value.cropBox)),
-    'page geometry box must contain finite coordinates'),
+    v.check((value) => isRecord(value) && isFiniteNumber(value.rotation), 'page geometry must contain a finite rotation'),
+    v.check(
+        (value) => isRecord(value) && isFiniteBox(value.mediaBox) && (value.cropBox === null || isFiniteBox(value.cropBox)),
+        'page geometry box must contain finite coordinates',
+    ),
     v.object({
         mediaBox: PDF_BOX_SCHEMA,
         cropBox: v.nullable(PDF_BOX_SCHEMA),

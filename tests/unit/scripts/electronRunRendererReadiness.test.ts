@@ -1,25 +1,9 @@
-import type {
-    Browser,
-    ConsoleMessage,
-    Page,
-} from 'puppeteer-core';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    findAppPage,
-    probeRendererBody,
-    waitForRendererPaint,
-} from '@scripts/electron-run/rendererReadiness';
+import type {Browser, ConsoleMessage, Page} from 'puppeteer-core';
+import {describe, expect, it, vi} from 'vitest';
+import {findAppPage, probeRendererBody, waitForRendererPaint} from '@scripts/electron-run/rendererReadiness';
 
 describe('Electron renderer readiness', () => {
-    it.each([
-        true,
-        false,
-    ])('reads body readiness in the main world and clears its timer, body=%s', async (hasBody) => {
+    it.each([true, false])('reads body readiness in the main world and clears its timer, body=%s', async (hasBody) => {
         vi.useFakeTimers();
         try {
             const query = vi.fn(() => new Promise<never>(() => {}));
@@ -46,9 +30,7 @@ describe('Electron renderer readiness', () => {
     it('bounds CDP page discovery when a target attach never responds', async () => {
         const browser = {pages: () => new Promise<never>(() => {})} satisfies Pick<Browser, 'pages'>;
 
-        await expect(findAppPage(browser, 5)).rejects.toThrow(
-            'Puppeteer page discovery did not respond within 5ms',
-        );
+        await expect(findAppPage(browser, 5)).rejects.toThrow('Puppeteer page discovery did not respond within 5ms');
     });
 
     it('clears the discovery timer after CDP page discovery resolves', async () => {
@@ -63,11 +45,7 @@ describe('Electron renderer readiness', () => {
         }
     });
 
-    it.each([
-        0,
-        1,
-        2,
-    ])('keeps the paint outcome and diagnostic state after %s callbacks', async (callbacks) => {
+    it.each([0, 1, 2])('keeps the paint outcome and diagnostic state after %s callbacks', async (callbacks) => {
         vi.useFakeTimers();
         let listener: ((message: ConsoleMessage) => void) | undefined;
         const frames: FrameRequestCallback[] = [];
@@ -88,12 +66,12 @@ describe('Electron renderer readiness', () => {
             removeEventListener: () => undefined,
         });
         vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback));
-        vi.spyOn(console, 'debug').mockImplementation(message => {
+        vi.spyOn(console, 'debug').mockImplementation((message) => {
             listener?.({text: () => String(message)} as ConsoleMessage);
         });
         try {
             let settled = false;
-            const result = waitForRendererPaint(page).catch(error => {
+            const result = waitForRendererPaint(page).catch((error) => {
                 settled = true;
                 return error;
             });
@@ -119,5 +97,4 @@ describe('Electron renderer readiness', () => {
             vi.useRealTimers();
         }
     });
-
 });

@@ -1,16 +1,13 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { focusWindowForUser } from '@electron/window/focusWindowForUser';
+import {describe, expect, it, vi} from 'vitest';
+import {focusWindowForUser} from '@electron/window/focusWindowForUser';
 
-function createHarness(options: {
-    destroyed?: boolean;
-    minimized?: boolean;
-    visible?: boolean;
-} = {}) {
+function createHarness(
+    options: {
+        destroyed?: boolean;
+        minimized?: boolean;
+        visible?: boolean;
+    } = {},
+) {
     const calls: string[] = [];
     const application = {focus: vi.fn(() => calls.push('application.focus'))};
     const window = {
@@ -48,7 +45,7 @@ describe('focusWindowForUser', () => {
     });
 
     it('does not operate on a destroyed window', () => {
-        const harness = createHarness({ destroyed: true });
+        const harness = createHarness({destroyed: true});
 
         focusWindowForUser(harness.window, {
             application: harness.application,
@@ -71,18 +68,12 @@ describe('focusWindowForUser', () => {
             platform: 'darwin',
         });
 
-        expect(harness.calls).toEqual([
-            'window.restore',
-            'window.show',
-            'application.focus',
-            'window.focus',
-            'window.webContents.focus',
-        ]);
-        expect(harness.application.focus).toHaveBeenCalledWith({ steal: true });
+        expect(harness.calls).toEqual(['window.restore', 'window.show', 'application.focus', 'window.focus', 'window.webContents.focus']);
+        expect(harness.application.focus).toHaveBeenCalledWith({steal: true});
     });
 
     it('focuses an ordinary visible window without mutating its geometry', () => {
-        const harness = createHarness({ visible: true });
+        const harness = createHarness({visible: true});
 
         focusWindowForUser(harness.window, {
             application: harness.application,
@@ -90,17 +81,13 @@ describe('focusWindowForUser', () => {
             platform: 'darwin',
         });
 
-        expect(harness.calls).toEqual([
-            'application.focus',
-            'window.focus',
-            'window.webContents.focus',
-        ]);
+        expect(harness.calls).toEqual(['application.focus', 'window.focus', 'window.webContents.focus']);
         expect(harness.window.restore).not.toHaveBeenCalled();
         expect(harness.window.show).not.toHaveBeenCalled();
     });
 
     it('does not request application activation outside macOS', () => {
-        const harness = createHarness({ visible: true });
+        const harness = createHarness({visible: true});
 
         focusWindowForUser(harness.window, {
             application: harness.application,
@@ -108,10 +95,7 @@ describe('focusWindowForUser', () => {
             platform: 'linux',
         });
 
-        expect(harness.calls).toEqual([
-            'window.focus',
-            'window.webContents.focus',
-        ]);
+        expect(harness.calls).toEqual(['window.focus', 'window.webContents.focus']);
         expect(harness.application.focus).not.toHaveBeenCalled();
     });
 });

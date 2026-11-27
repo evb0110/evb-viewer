@@ -6,7 +6,7 @@
             :unmount-on-hide="false"
             class="pdf-sidebar-pages-collapsible"
         >
-            <template #default="{ open }">
+            <template #default="{open}">
                 <button
                     type="button"
                     class="pdf-sidebar-pages-disclosure"
@@ -122,11 +122,9 @@
                     <div class="flex items-center gap-1.5">
                         <span
                             id="page-label-target-summary"
-                            :class="[
-                                'pdf-sidebar-pages-selection-text',
-                                { 'pdf-sidebar-pages-selection-text--error': rangeErrorMessage },
-                            ]"
-                        >{{ rangeErrorMessage || targetSummary }}</span>
+                            :class="['pdf-sidebar-pages-selection-text', {'pdf-sidebar-pages-selection-text--error': rangeErrorMessage}]"
+                            >{{ rangeErrorMessage || targetSummary }}</span
+                        >
                         <UButton
                             size="xs"
                             variant="link"
@@ -144,7 +142,7 @@
                         variant="soft"
                         color="primary"
                         class="pdf-sidebar-pages-primary-button"
-                        :ui="{ base: 'justify-center text-center whitespace-nowrap' }"
+                        :ui="{base: 'justify-center text-center whitespace-nowrap'}"
                         :disabled="applyTargetRange === null"
                         @click="applyToTargetRange"
                     >
@@ -157,13 +155,9 @@
 </template>
 
 <script setup lang="ts">
-
 import {admitPdfPageLabelStartNumber} from '@contracts/pdfPageLabels';
-import type {
-    IPdfPageLabelRange,
-    TPageLabelStyle,
-} from '@app/types/pdfContracts';
-import type { IPdfPageRange } from '@app/types/pdfUi';
+import type {IPdfPageLabelRange, TPageLabelStyle} from '@app/types/pdfContracts';
+import type {IPdfPageRange} from '@app/types/pdfUi';
 import {
     applyPageLabelRange,
     buildWholeDocumentPageLabelRanges,
@@ -203,12 +197,7 @@ interface IProps {
     pageLabelRanges?: IPdfPageLabelRange[] | undefined;
 }
 
-const {
-    pageLabelRanges = undefined,
-    pageLabels = undefined,
-    selectedPageSelection,
-    totalPages,
-} = defineProps<IProps>();
+const {pageLabelRanges = undefined, pageLabels = undefined, selectedPageSelection, totalPages} = defineProps<IProps>();
 
 const emit = defineEmits<{
     'update:selectedPageSelection': [selection: TPageSelection];
@@ -216,7 +205,7 @@ const emit = defineEmits<{
     clear: [];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const {presentNoticeToast} = useFailureToast();
 
 const isExpanded = ref(false);
@@ -229,7 +218,7 @@ const pageLabelStyle = ref<'' | Exclude<TPageLabelStyle, null>>('D');
 const pageLabelPrefix = ref('');
 const pageLabelStartNumber = ref(1);
 const PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE = '__prefix_only__';
-const formFieldUi = { label: 'pdf-sidebar-pages-label' } as const;
+const formFieldUi = {label: 'pdf-sidebar-pages-label'} as const;
 const scopeRadioGroupUi = {
     fieldset: 'gap-y-1',
     legend: 'pdf-sidebar-pages-label',
@@ -237,13 +226,15 @@ const scopeRadioGroupUi = {
     label: 'min-w-0 truncate text-xs font-normal',
 } as const;
 
-const numberingScopeOptions = computed<Array<{
-    value: TNumberingScope;
-    label: string;
-}>>(() => [
+const numberingScopeOptions = computed<
+    Array<{
+        value: TNumberingScope;
+        label: string;
+    }>
+>(() => [
     {
         value: 'all',
-        label: t('pageNumbering.scopeAll', { count: totalPages }),
+        label: t('pageNumbering.scopeAll', {count: totalPages}),
     },
     {
         value: 'range',
@@ -255,10 +246,12 @@ const numberingScopeOptions = computed<Array<{
     },
 ]);
 
-const pageLabelStyleOptions = computed<Array<{
-    value: Exclude<TPageLabelStyle, null> | typeof PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE;
-    label: string;
-}>>(() => [
+const pageLabelStyleOptions = computed<
+    Array<{
+        value: Exclude<TPageLabelStyle, null> | typeof PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE;
+        label: string;
+    }>
+>(() => [
     {
         value: 'D',
         label: t('pageNumbering.decimal'),
@@ -285,33 +278,25 @@ const pageLabelStyleOptions = computed<Array<{
     },
 ]);
 const pageLabelStyleSelectValue = computed({
-    get: () => pageLabelStyle.value === ''
-        ? PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE
-        : pageLabelStyle.value,
+    get: () => (pageLabelStyle.value === '' ? PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE : pageLabelStyle.value),
     set: (value: string) => {
-        pageLabelStyle.value = value === PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE
-            ? ''
-            : normalizePageLabelStyleSelectValue(value);
+        pageLabelStyle.value = value === PAGE_LABEL_STYLE_PREFIX_ONLY_VALUE ? '' : normalizePageLabelStyleSelectValue(value);
         handleStartNumberModelUpdate(pageLabelStartNumber.value);
     },
 });
 
-const normalizedPageLabelRanges = computed(() => normalizePageLabelRanges(
-    pageLabelRanges
-        ?? (
-            Array.isArray(pageLabels)
-            && totalPages <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES
-            && pageLabels.length === totalPages
+const normalizedPageLabelRanges = computed(() =>
+    normalizePageLabelRanges(
+        pageLabelRanges ??
+            (Array.isArray(pageLabels) && totalPages <= PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES && pageLabels.length === totalPages
                 ? derivePageLabelRangesFromLabels(pageLabels, totalPages)
-                : []
-        ),
-    totalPages,
-));
+                : []),
+        totalPages,
+    ),
+);
 
 function normalizePageLabelStyleSelectValue(value: string): Exclude<TPageLabelStyle, null> {
-    return value === 'D' || value === 'r' || value === 'R' || value === 'a' || value === 'A'
-        ? value
-        : 'D';
+    return value === 'D' || value === 'r' || value === 'R' || value === 'a' || value === 'A' ? value : 'D';
 }
 
 const selectionCount = computed(() => (selectedPageSelection ? pageSelectionCount(selectedPageSelection) : 0));
@@ -326,9 +311,9 @@ const selectionRange = computed<IPdfPageRange | null>(() => {
     return first.done || !ranges.next().done
         ? null
         : {
-            startPage: first.value.startPage,
-            endPage: first.value.endPage,
-        };
+              startPage: first.value.startPage,
+              endPage: first.value.endPage,
+          };
 });
 
 const isTargetCurrent = computed(() => target.value.selection === selectedPageSelection);
@@ -387,7 +372,7 @@ const targetSummary = computed(() => {
         if (totalPages <= 0) {
             return t('pageNumbering.targetNone');
         }
-        return t('pageNumbering.targetAllPages', { count: totalPages });
+        return t('pageNumbering.targetAllPages', {count: totalPages});
     }
 
     if (numberingScope.value === 'range') {
@@ -410,7 +395,7 @@ const targetSummary = computed(() => {
     }
 
     const rangeText = formatPageRange(selectionRange.value);
-    return t('pageNumbering.targetSelectedPages', { range: rangeText });
+    return t('pageNumbering.targetSelectedPages', {range: rangeText});
 });
 
 const rangeErrorMessage = computed(() => {
@@ -448,15 +433,15 @@ function handleStartNumberModelUpdate(value: number | null | undefined) {
  * selection object the view holds afterwards.
  */
 function selectRange(range: IPdfPageRange | null): TPageSelection | null {
-    const isUnchanged = range === null
-        ? selectionCount.value === 0
-        : selectionRange.value?.startPage === range.startPage && selectionRange.value.endPage === range.endPage;
+    const isUnchanged =
+        range === null
+            ? selectionCount.value === 0
+            : selectionRange.value?.startPage === range.startPage && selectionRange.value.endPage === range.endPage;
     if (isUnchanged && selectedPageSelection) {
         return selectedPageSelection;
     }
-    const selection = range === null
-        ? createEmptyPageSelection(totalPages)
-        : createRangePageSelection(totalPages, range.startPage, range.endPage);
+    const selection =
+        range === null ? createEmptyPageSelection(totalPages) : createRangePageSelection(totalPages, range.startPage, range.endPage);
     emit('update:selectedPageSelection', selection);
     return selection;
 }
@@ -464,9 +449,7 @@ function selectRange(range: IPdfPageRange | null): TPageSelection | null {
 /** The range field's input: keeps the text and selects every valid range as it is typed. */
 function updateRangeText(text: string) {
     if (!text.trim()) {
-        const scope = numberingScope.value === 'range'
-            ? (selectionRange.value === null ? 'all' : 'selection')
-            : numberingScope.value;
+        const scope = numberingScope.value === 'range' ? (selectionRange.value === null ? 'all' : 'selection') : numberingScope.value;
         target.value = {
             scope,
             rangeDraft: text,
@@ -482,7 +465,6 @@ function updateRangeText(text: string) {
     };
 }
 
-
 function getConfiguredPageLabelStyle(): TPageLabelStyle {
     return pageLabelStyle.value === '' ? null : pageLabelStyle.value;
 }
@@ -497,23 +479,21 @@ function getConfiguredPageLabelRange(startPage: number): IPdfPageLabelRange {
 }
 
 function applyPageLabelsToWholeDocument() {
-    emit('update:pageLabelRanges', buildWholeDocumentPageLabelRanges(totalPages, {
-        style: getConfiguredPageLabelStyle(),
-        prefix: pageLabelPrefix.value,
-        startNumber: pageLabelStartNumber.value,
-    }));
+    emit(
+        'update:pageLabelRanges',
+        buildWholeDocumentPageLabelRanges(totalPages, {
+            style: getConfiguredPageLabelStyle(),
+            prefix: pageLabelPrefix.value,
+            startNumber: pageLabelStartNumber.value,
+        }),
+    );
 }
 
 function applyPageLabelsToRange(range: IPdfPageRange) {
     if (totalPages <= 0) {
         return;
     }
-    emit('update:pageLabelRanges', applyPageLabelRange(
-        totalPages,
-        normalizedPageLabelRanges.value,
-        range,
-        getConfiguredPageLabelRange(1),
-    ));
+    emit('update:pageLabelRanges', applyPageLabelRange(totalPages, normalizedPageLabelRanges.value, range, getConfiguredPageLabelRange(1)));
 }
 
 function applyToTargetRange() {
@@ -550,7 +530,6 @@ function clearAll() {
     };
     emit('clear');
 }
-
 </script>
 
 <style lang="scss" scoped>

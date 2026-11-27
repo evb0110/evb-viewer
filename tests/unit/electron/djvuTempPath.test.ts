@@ -1,9 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { isAllowedDjvuTempPdfPath } from '@electron/features/djvu/main/isAllowedDjvuTempPdfPath';
+import {describe, expect, it} from 'vitest';
+import {isAllowedDjvuTempPdfPath} from '@electron/features/djvu/main/isAllowedDjvuTempPdfPath';
 
 describe('isAllowedDjvuTempPdfPath', () => {
     const tempDir = '/tmp';

@@ -66,9 +66,4 @@ export const WORKER_BUNDLES = [
 ];
 
 /** @type {Readonly<Record<TWorkerBundleId, IWorkerBundleEntry>>} */
-export const WORKER_BUNDLES_BY_ID = Object.freeze(
-    Object.fromEntries(WORKER_BUNDLES.map(bundle => [
-        bundle.id,
-        bundle,
-    ])),
-);
+export const WORKER_BUNDLES_BY_ID = Object.freeze(Object.fromEntries(WORKER_BUNDLES.map((bundle) => [bundle.id, bundle])));

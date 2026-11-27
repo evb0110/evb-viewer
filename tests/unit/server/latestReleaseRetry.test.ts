@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     createReleaseCatalogLoader,
     fetchReleaseDataWithRetry,
@@ -13,15 +8,17 @@ import {
 } from '@releaseSelection';
 
 interface IReleaseFixture {
-    assets: string[]
-    tag: string
+    assets: string[];
+    tag: string;
 }
 
 function createResponseError(status: number, retryAfter: string | null = null) {
-    return {response: {
-        status,
-        headers: {get: (name: string) => name === 'retry-after' ? retryAfter : null},
-    }};
+    return {
+        response: {
+            status,
+            headers: {get: (name: string) => (name === 'retry-after' ? retryAfter : null)},
+        },
+    };
 }
 
 function createOptions(fetchRelease: () => Promise<IReleaseFixture>) {
@@ -35,7 +32,8 @@ function createOptions(fetchRelease: () => Promise<IReleaseFixture>) {
 
 describe('latest landing release retry', () => {
     it('retries an initial server failure and returns the first usable release', async () => {
-        const fetchRelease = vi.fn()
+        const fetchRelease = vi
+            .fn()
             .mockRejectedValueOnce(createResponseError(503))
             .mockResolvedValue({
                 tag: 'v2',
@@ -52,7 +50,8 @@ describe('latest landing release retry', () => {
     });
 
     it('honors a bounded Retry-After delay for rate limits', async () => {
-        const fetchRelease = vi.fn()
+        const fetchRelease = vi
+            .fn()
             .mockRejectedValueOnce(createResponseError(429, '2'))
             .mockResolvedValue({
                 tag: 'v2',
@@ -88,7 +87,8 @@ describe('latest landing release retry', () => {
     });
 
     it('jitters retry delays to avoid synchronized upstream refreshes', async () => {
-        const fetchRelease = vi.fn()
+        const fetchRelease = vi
+            .fn()
             .mockRejectedValueOnce(createResponseError(503))
             .mockResolvedValue({
                 tag: 'v2',
@@ -103,7 +103,8 @@ describe('latest landing release retry', () => {
 
         expect(options.sleep).toHaveBeenCalledWith(338);
 
-        const upperFetch = vi.fn()
+        const upperFetch = vi
+            .fn()
             .mockRejectedValueOnce(createResponseError(503))
             .mockResolvedValue({
                 tag: 'v2',
@@ -123,14 +124,20 @@ describe('latest landing release retry', () => {
         try {
             let upstreamSignal: AbortSignal | undefined;
             const fetchResult = fetchReleaseDataWithRetry({
-                ...createOptions(vi.fn((signal?: AbortSignal) => {
-                    upstreamSignal = signal;
-                    return new Promise<IReleaseFixture>((_resolve, reject) => {
-                        signal?.addEventListener('abort', () => {
-                            reject(signal.reason);
-                        }, {once: true});
-                    });
-                })),
+                ...createOptions(
+                    vi.fn((signal?: AbortSignal) => {
+                        upstreamSignal = signal;
+                        return new Promise<IReleaseFixture>((_resolve, reject) => {
+                            signal?.addEventListener(
+                                'abort',
+                                () => {
+                                    reject(signal.reason);
+                                },
+                                {once: true},
+                            );
+                        });
+                    }),
+                ),
                 totalTimeoutMs: 50,
             });
             const rejection = expect(fetchResult).rejects.toMatchObject({name: 'TimeoutError'});
@@ -145,7 +152,8 @@ describe('latest landing release retry', () => {
     });
 
     it('retries empty releases but preserves the final empty response', async () => {
-        const fetchRelease = vi.fn()
+        const fetchRelease = vi
+            .fn()
             .mockResolvedValueOnce({
                 tag: 'v1',
                 assets: [],
@@ -173,10 +181,12 @@ describe('latest landing release retry', () => {
             assets: [],
         });
 
-        await expect(fetchReleaseDataWithRetry({
-            ...createOptions(fetchRelease),
-            totalTimeoutMs: 100,
-        })).resolves.toEqual({
+        await expect(
+            fetchReleaseDataWithRetry({
+                ...createOptions(fetchRelease),
+                totalTimeoutMs: 100,
+            }),
+        ).resolves.toEqual({
             tag: 'v1',
             assets: [],
         });
@@ -184,21 +194,16 @@ describe('latest landing release retry', () => {
     });
 
     it('still reports a deadline when no upstream attempt has succeeded', async () => {
-        await expect(fetchReleaseDataWithRetry({
-            ...createOptions(vi.fn().mockRejectedValue(createResponseError(503))),
-            totalTimeoutMs: 100,
-        })).rejects.toMatchObject({name: 'TimeoutError'});
+        await expect(
+            fetchReleaseDataWithRetry({
+                ...createOptions(vi.fn().mockRejectedValue(createResponseError(503))),
+                totalTimeoutMs: 100,
+            }),
+        ).rejects.toMatchObject({name: 'TimeoutError'});
     });
 
     it('identifies configured rollback tags omitted from the catalog page', () => {
-        expect(getMissingConfiguredReleaseTags([
-            {tag_name: 'v100'},
-            {tag_name: 'v99'},
-        ], [
-            'v100',
-            'v20',
-            'v20',
-        ])).toEqual(['v20']);
+        expect(getMissingConfiguredReleaseTags([{tag_name: 'v100'}, {tag_name: 'v99'}], ['v100', 'v20', 'v20'])).toEqual(['v20']);
     });
 });
 
@@ -221,10 +226,7 @@ describe('release catalog cache', () => {
         });
         resolveCatalog(['v2']);
 
-        await expect(Promise.all([
-            first,
-            second,
-        ])).resolves.toEqual([
+        await expect(Promise.all([first, second])).resolves.toEqual([
             {
                 catalog: ['v2'],
                 stale: false,
@@ -234,10 +236,12 @@ describe('release catalog cache', () => {
                 stale: false,
             },
         ]);
-        await expect(loader({
-            cacheKey: 'github/repository/config',
-            fetchCatalog,
-        })).resolves.toEqual({
+        await expect(
+            loader({
+                cacheKey: 'github/repository/config',
+                fetchCatalog,
+            }),
+        ).resolves.toEqual({
             catalog: ['v2'],
             stale: false,
         });
@@ -257,23 +261,27 @@ describe('release catalog cache', () => {
         });
         now = 11;
 
-        await expect(loader({
-            cacheKey: 'catalog',
-            fetchCatalog: async () => {
-                throw new Error('upstream unavailable');
-            },
-        })).resolves.toEqual({
+        await expect(
+            loader({
+                cacheKey: 'catalog',
+                fetchCatalog: async () => {
+                    throw new Error('upstream unavailable');
+                },
+            }),
+        ).resolves.toEqual({
             catalog: ['v2'],
             stale: true,
         });
 
         now = 101;
-        await expect(loader({
-            cacheKey: 'catalog',
-            fetchCatalog: async () => {
-                throw new Error('still unavailable');
-            },
-        })).rejects.toThrow('still unavailable');
+        await expect(
+            loader({
+                cacheKey: 'catalog',
+                fetchCatalog: async () => {
+                    throw new Error('still unavailable');
+                },
+            }),
+        ).rejects.toThrow('still unavailable');
     });
 
     it('does not replace last-known-good data with an unusable empty catalog', async () => {
@@ -286,15 +294,17 @@ describe('release catalog cache', () => {
         await loader({
             cacheKey: 'catalog',
             fetchCatalog: async () => ['v2'],
-            isUsableCatalog: catalog => catalog.length > 0,
+            isUsableCatalog: (catalog) => catalog.length > 0,
         });
         now = 11;
 
-        await expect(loader({
-            cacheKey: 'catalog',
-            fetchCatalog: async () => [],
-            isUsableCatalog: catalog => catalog.length > 0,
-        })).resolves.toEqual({
+        await expect(
+            loader({
+                cacheKey: 'catalog',
+                fetchCatalog: async () => [],
+                isUsableCatalog: (catalog) => catalog.length > 0,
+            }),
+        ).resolves.toEqual({
             catalog: ['v2'],
             stale: true,
         });

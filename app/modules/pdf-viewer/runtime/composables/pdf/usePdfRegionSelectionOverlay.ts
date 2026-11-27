@@ -1,6 +1,6 @@
-import type { ILocalRect } from '@app/modules/document-viewer/public';
-import type { ISnipPointerPayload } from '@app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload';
-import { getEventCurrentTarget } from '@app/utils/getEventCurrentTarget';
+import type {ILocalRect} from '@app/modules/document-viewer/public';
+import type {ISnipPointerPayload} from '@app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload';
+import {getEventCurrentTarget} from '@app/utils/getEventCurrentTarget';
 
 interface IRegionSelectionOverlayOptions {
     isActive: () => boolean;

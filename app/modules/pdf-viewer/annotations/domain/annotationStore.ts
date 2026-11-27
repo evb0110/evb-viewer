@@ -1,13 +1,8 @@
-import {
-    admitsAnnotationReadback, keepsReplies,
-} from './annotationReadbackGuards';
+import {admitsAnnotationReadback, keepsReplies} from './annotationReadbackGuards';
 import {isEqual} from 'es-toolkit/predicate';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
-import {
-    requirePageIndex,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
+import {requirePageIndex, requirePageNumber} from '@contracts/pageNumbers';
 import type {IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type {IAnnotationMarkerRect} from '@app/types/annotations';
@@ -80,9 +75,12 @@ function estimateAnnotationValueBytes(value: unknown, depth: number, seen: WeakS
         return ANNOTATION_OBJECT_BYTES + value.byteLength;
     }
     if (Array.isArray(value)) {
-        return ANNOTATION_OBJECT_BYTES + Array.from(value as readonly unknown[]).reduce<number>(
-            (total, entry) => total + ANNOTATION_SLOT_BYTES + estimateAnnotationValueBytes(entry, depth + 1, seen),
-            0,
+        return (
+            ANNOTATION_OBJECT_BYTES +
+            Array.from(value as readonly unknown[]).reduce<number>(
+                (total, entry) => total + ANNOTATION_SLOT_BYTES + estimateAnnotationValueBytes(entry, depth + 1, seen),
+                0,
+            )
         );
     }
     if (value instanceof Map) {
@@ -101,11 +99,7 @@ function estimateAnnotationValueBytes(value: unknown, depth: number, seen: WeakS
         return total;
     }
     return Object.entries(value).reduce(
-        (total, [
-            key,
-            entry,
-        ]) => total + ANNOTATION_SLOT_BYTES + key.length * 2
-            + estimateAnnotationValueBytes(entry, depth + 1, seen),
+        (total, [key, entry]) => total + ANNOTATION_SLOT_BYTES + key.length * 2 + estimateAnnotationValueBytes(entry, depth + 1, seen),
         ANNOTATION_OBJECT_BYTES,
     );
 }
@@ -157,7 +151,9 @@ export interface IAnnotationSaveFrontier {
     readonly revisions: ReadonlyMap<AnnotationId, number>;
 }
 
-interface IBulkImportState {canUseFastPath: boolean;}
+interface IBulkImportState {
+    canUseFastPath: boolean;
+}
 
 type TListener = (entities: readonly AnnotationEntity[]) => void;
 
@@ -174,8 +170,14 @@ function isDirty(entity: AnnotationEntity) {
 }
 
 function sameSemanticEntry(left: ISavedSemanticEntry | undefined, right: ISavedSemanticEntry | undefined) {
-    return left === right || (left !== undefined && right !== undefined
-        && left.kind === right.kind && left.deleted === right.deleted && left.fingerprint === right.fingerprint);
+    return (
+        left === right ||
+        (left !== undefined &&
+            right !== undefined &&
+            left.kind === right.kind &&
+            left.deleted === right.deleted &&
+            left.fingerprint === right.fingerprint)
+    );
 }
 
 /**
@@ -185,11 +187,13 @@ function sameSemanticEntry(left: ISavedSemanticEntry | undefined, right: ISavedS
  */
 function semanticChangesSince(entity: AnnotationEntity, working: ISavedSemanticEntry | undefined) {
     const holdsNone = working === undefined || working.deleted;
-    if (entity.deleted && holdsNone) return {changedFields: [], heldFields: null};
+    if (entity.deleted && holdsNone) {
+        return {changedFields: [], heldFields: null};
+    }
     const current = JSON.parse(fingerprintOf(entity)) as Record<string, unknown>;
-    const base = holdsNone ? null : JSON.parse(working.fingerprint) as Record<string, unknown>;
-    const changedFields = Object.keys(current).filter(key => !base || JSON.stringify(current[key]) !== JSON.stringify(base[key]));
-    return {changedFields, heldFields: base && Object.fromEntries(changedFields.map(key => [key, base[key]]))};
+    const base = holdsNone ? null : (JSON.parse(working.fingerprint) as Record<string, unknown>);
+    const changedFields = Object.keys(current).filter((key) => !base || JSON.stringify(current[key]) !== JSON.stringify(base[key]));
+    return {changedFields, heldFields: base && Object.fromEntries(changedFields.map((key) => [key, base[key]]))};
 }
 
 /**
@@ -202,15 +206,22 @@ export function takeParsedFields(current: AnnotationEntity, parsed: AnnotationEn
     const fields: Record<string, unknown> = merged;
     const read: Record<string, unknown> = {...parsed};
     if (current.kind === 'text-box') {
-        if (!unchanged.has('rect') || !unchanged.has('rotation')) ['rect', 'rotation'].forEach(key => unchanged.delete(key));
-        ['frame', 'readOnly'].forEach(key => unchanged.add(key));
+        if (!unchanged.has('rect') || !unchanged.has('rotation')) {
+            ['rect', 'rotation'].forEach((key) => unchanged.delete(key));
+        }
+        ['frame', 'readOnly'].forEach((key) => unchanged.add(key));
     }
-    if (current.kind === 'text-markup' && unchanged.has('quadPoints') && read.selectedText) unchanged.add('selectedText');
+    if (current.kind === 'text-markup' && unchanged.has('quadPoints') && read.selectedText) {
+        unchanged.add('selectedText');
+    }
     // Replies and a note's recovery graph are the parser's, read from the same bytes, pages included.
-    ['replies', 'recoveryData'].forEach(key => unchanged.add(key));
+    ['replies', 'recoveryData'].forEach((key) => unchanged.add(key));
     unchanged.forEach((key) => {
-        if (key in read) fields[key] = read[key];
-        else delete fields[key];
+        if (key in read) {
+            fields[key] = read[key];
+        } else {
+            delete fields[key];
+        }
     });
     return merged;
 }
@@ -221,7 +232,9 @@ export function takeParsedFields(current: AnnotationEntity, parsed: AnnotationEn
  * since keeps the edit. A tombstone merges the same way.
  */
 function mergeReread(current: AnnotationEntity, parsed: AnnotationEntity, base: ISavedSemanticEntry | undefined) {
-    if (!base || base.kind !== current.kind || parsed.kind !== current.kind) return current;
+    if (!base || base.kind !== current.kind || parsed.kind !== current.kind) {
+        return current;
+    }
     return takeParsedFields(current, parsed, new Set(semanticFieldsUnchangedSince(current, base.fingerprint)));
 }
 
@@ -231,15 +244,22 @@ function mergeReread(current: AnnotationEntity, parsed: AnnotationEntity, base: 
  */
 function replayOnto(live: AnnotationEntity | undefined, entry: IHistoryEntry, side: 'before' | 'after') {
     const target = entry[side];
-    if (!live || !target || !entry.before || !entry.after) return target;
+    if (!live || !target || !entry.before || !entry.after) {
+        return target;
+    }
     const merged = {...live};
     const fields: Record<string, unknown> = merged;
     const pair: Record<string, unknown>[] = [{...entry.before}, {...entry.after}];
     const captured = side === 'before' ? pair[0]! : pair[1]!;
     new Set(pair.flatMap(Object.keys)).forEach((key) => {
-        if (isEqual(pair[0]![key], pair[1]![key])) return;
-        if (key in captured) fields[key] = captured[key];
-        else delete fields[key];
+        if (isEqual(pair[0]![key], pair[1]![key])) {
+            return;
+        }
+        if (key in captured) {
+            fields[key] = captured[key];
+        } else {
+            delete fields[key];
+        }
     });
     return merged;
 }
@@ -258,15 +278,13 @@ function cloneCanonicalEntity<T extends AnnotationEntity>(entity: T): T {
                 ...cloned,
                 contents: normalizeAnnotationText(cloned.contents),
                 position: structuredClone(cloned.position),
-                ...(cloned.replies === undefined
-                    ? {}
-                    : {replies: cloned.replies.map(reply => structuredClone(reply))}),
+                ...(cloned.replies === undefined ? {} : {replies: cloned.replies.map((reply) => structuredClone(reply))}),
             };
         case 'text-markup':
             return {
                 ...cloned,
                 contents: normalizeAnnotationText(cloned.contents),
-                quadPoints: cloned.quadPoints.map(rect => structuredClone(rect)),
+                quadPoints: cloned.quadPoints.map((rect) => structuredClone(rect)),
             };
         case 'placed-image':
             return {
@@ -278,46 +296,46 @@ function cloneCanonicalEntity<T extends AnnotationEntity>(entity: T): T {
             return {
                 ...cloned,
                 rect: structuredClone(cloned.rect),
-                points: cloned.points?.map(point => ({...point})),
-                strokes: cloned.strokes?.map(stroke => stroke.map(point => ({...point}))),
+                points: cloned.points?.map((point) => ({...point})),
+                strokes: cloned.strokes?.map((stroke) => stroke.map((point) => ({...point}))),
             };
     }
 }
 
-function sameTextMarkupGeometry(
-    left: ITextMarkupEntity['quadPoints'],
-    right: ITextMarkupEntity['quadPoints'],
-) {
-    return left.length === right.length && left.every((rect, index) => {
-        const candidate = right[index];
-        return candidate?.left === rect.left
-            && candidate.top === rect.top
-            && candidate.width === rect.width
-            && candidate.height === rect.height;
-    });
+function sameTextMarkupGeometry(left: ITextMarkupEntity['quadPoints'], right: ITextMarkupEntity['quadPoints']) {
+    return (
+        left.length === right.length &&
+        left.every((rect, index) => {
+            const candidate = right[index];
+            return (
+                candidate?.left === rect.left &&
+                candidate.top === rect.top &&
+                candidate.width === rect.width &&
+                candidate.height === rect.height
+            );
+        })
+    );
 }
 
-function sameTextMarkupGeometryAfterRoundTrip(
-    left: ITextMarkupEntity['quadPoints'],
-    right: ITextMarkupEntity['quadPoints'],
-) {
+function sameTextMarkupGeometryAfterRoundTrip(left: ITextMarkupEntity['quadPoints'], right: ITextMarkupEntity['quadPoints']) {
     const epsilon = 0.0001;
-    const order = (first: IAnnotationMarkerRect, second: IAnnotationMarkerRect) => (
-        first.top - second.top
-        || first.left - second.left
-        || first.width - second.width
-        || first.height - second.height
-    );
+    const order = (first: IAnnotationMarkerRect, second: IAnnotationMarkerRect) =>
+        first.top - second.top || first.left - second.left || first.width - second.width || first.height - second.height;
     const sortedLeft = [...left].sort(order);
     const sortedRight = [...right].sort(order);
-    return sortedLeft.length === sortedRight.length && sortedLeft.every((rect, index) => {
-        const candidate = sortedRight[index];
-        return candidate !== undefined
-            && Math.abs(candidate.left - rect.left) <= epsilon
-            && Math.abs(candidate.top - rect.top) <= epsilon
-            && Math.abs(candidate.width - rect.width) <= epsilon
-            && Math.abs(candidate.height - rect.height) <= epsilon;
-    });
+    return (
+        sortedLeft.length === sortedRight.length &&
+        sortedLeft.every((rect, index) => {
+            const candidate = sortedRight[index];
+            return (
+                candidate !== undefined &&
+                Math.abs(candidate.left - rect.left) <= epsilon &&
+                Math.abs(candidate.top - rect.top) <= epsilon &&
+                Math.abs(candidate.width - rect.width) <= epsilon &&
+                Math.abs(candidate.height - rect.height) <= epsilon
+            );
+        })
+    );
 }
 
 function identityWithPdfRef(identity: IAnnotationIdentity, pdfRef: string | undefined) {
@@ -333,31 +351,24 @@ function nativeBindingAliasesForEntity(entity: AnnotationEntity): readonly strin
     if (entity.kind !== 'shape') {
         return [entity.identity.id];
     }
-    return [
-        entity.identity.id,
-        toLegacyShapeStableKey(entity.identity.id),
-    ];
+    return [entity.identity.id, toLegacyShapeStableKey(entity.identity.id)];
 }
 
 function hasRectLineEndpoints(entity: IShapeEntity) {
     if ((entity.tool !== 'line' && entity.tool !== 'arrow') || entity.points?.length !== 2) {
         return false;
     }
-    const [
-        start,
-        end,
-    ] = entity.points;
+    const [start, end] = entity.points;
     const epsilon = 1e-6;
     const left = entity.rect.left;
     const top = entity.rect.top;
     const right = left + entity.rect.width;
     const bottom = top + entity.rect.height;
-    const matches = (first: typeof start, last: typeof end) => (
-        Math.abs(first!.x - left) <= epsilon
-        && Math.abs(first!.y - top) <= epsilon
-        && Math.abs(last!.x - right) <= epsilon
-        && Math.abs(last!.y - bottom) <= epsilon
-    );
+    const matches = (first: typeof start, last: typeof end) =>
+        Math.abs(first!.x - left) <= epsilon &&
+        Math.abs(first!.y - top) <= epsilon &&
+        Math.abs(last!.x - right) <= epsilon &&
+        Math.abs(last!.y - bottom) <= epsilon;
     return matches(start, end) || matches(end, start);
 }
 
@@ -370,10 +381,7 @@ function saveReconciliationFingerprint(entity: AnnotationEntity) {
         if (!hasRectLineEndpoints(entity)) {
             return semanticEntityFingerprint(withoutDeletion);
         }
-        const {
-            points: _points,
-            ...withoutPoints
-        } = withoutDeletion;
+        const {points: _points, ...withoutPoints} = withoutDeletion;
         return semanticEntityFingerprint(withoutPoints);
     }
     return semanticEntityFingerprint(entity);
@@ -426,7 +434,7 @@ export class AnnotationStore {
     deletedAnnotationIds(): readonly AnnotationId[] {
         return [
             ...this.#entities.tombstoneIds(),
-            ...Array.from(this.#retainedHistoryTargets.keys()).filter(id => !this.#entities.has(id)),
+            ...Array.from(this.#retainedHistoryTargets.keys()).filter((id) => !this.#entities.has(id)),
         ];
     }
 
@@ -476,8 +484,7 @@ export class AnnotationStore {
     import(entity: AnnotationEntity, options: {preserveSavedBaseline?: boolean} = {}) {
         const bulkImportState = this.#bulkImportState;
         const canUseFastPath = bulkImportState?.canUseFastPath === true;
-        const shouldUpdateSavedBaseline = entity.persistedRevision >= 0
-            && options.preserveSavedBaseline !== true;
+        const shouldUpdateSavedBaseline = entity.persistedRevision >= 0 && options.preserveSavedBaseline !== true;
         const wasSemanticallyClean = shouldUpdateSavedBaseline
             ? bulkImportState
                 ? canUseFastPath || !this.hasChangesSinceSavedBaseline()
@@ -488,11 +495,13 @@ export class AnnotationStore {
             return current;
         }
         const imported = cloneCanonicalEntity(entity);
-        this.#replaceEntities([{
-            id: imported.identity.id,
-            before: current ?? null,
-            after: imported,
-        }]);
+        this.#replaceEntities([
+            {
+                id: imported.identity.id,
+                before: current ?? null,
+                after: imported,
+            },
+        ]);
         if (shouldUpdateSavedBaseline) {
             // The working bytes hold what was read from them; so does the saved file while nothing was unsaved.
             const entry = semanticEntryOf(imported);
@@ -500,12 +509,11 @@ export class AnnotationStore {
             if (wasSemanticallyClean) {
                 this.#entities.setSaved(imported.identity.id, entry);
                 // Outside a bulk import the saved file is then the store's annotations, tombstones included.
-                if (!canUseFastPath) this.#entities.adoptCurrentAsSaved();
+                if (!canUseFastPath) {
+                    this.#entities.adoptCurrentAsSaved();
+                }
             }
-        } else if (
-            canUseFastPath
-            && (!current || fingerprintOf(current) !== fingerprintOf(imported))
-        ) {
+        } else if (canUseFastPath && (!current || fingerprintOf(current) !== fingerprintOf(imported))) {
             this.#disableBulkImportFastPath();
         }
         this.#mutationEpoch += 1;
@@ -514,7 +522,7 @@ export class AnnotationStore {
     }
 
     get foreign(): readonly IPdfForeignAnnotationRecord[] {
-        return this.#foreign.map(record => structuredClone(record));
+        return this.#foreign.map((record) => structuredClone(record));
     }
 
     getForeignAnnotations() {
@@ -546,22 +554,16 @@ export class AnnotationStore {
         return this.#create(entity, 'shape');
     }
 
-    updateTextBox(
-        id: AnnotationId,
-        patch: Partial<Pick<ITextBoxEntity, 'text' | 'rect' | 'rotation' | 'fontSize' | 'color'>>,
-    ) {
-        return this.#update<ITextBoxEntity>(id, 'text-box', entity => ({
+    updateTextBox(id: AnnotationId, patch: Partial<Pick<ITextBoxEntity, 'text' | 'rect' | 'rotation' | 'fontSize' | 'color'>>) {
+        return this.#update<ITextBoxEntity>(id, 'text-box', (entity) => ({
             ...entity,
             ...structuredClone(patch),
             ...(patch.text === undefined ? {} : {text: normalizeAnnotationText(patch.text)}),
         }));
     }
 
-    updateNote(
-        id: AnnotationId,
-        patch: Partial<Pick<INoteEntity, 'contents' | 'position' | 'color' | 'open'>>,
-    ) {
-        return this.#update<INoteEntity>(id, 'note', entity => ({
+    updateNote(id: AnnotationId, patch: Partial<Pick<INoteEntity, 'contents' | 'position' | 'color' | 'open'>>) {
+        return this.#update<INoteEntity>(id, 'note', (entity) => ({
             ...entity,
             ...structuredClone(patch),
             ...(patch.contents === undefined ? {} : {contents: normalizeAnnotationText(patch.contents)}),
@@ -593,24 +595,27 @@ export class AnnotationStore {
             throw new Error(`Stale identity binding for ${event.annotationId}`);
         }
         const pdfRef = event.bindings.pdfRef;
-        const identity = pdfRef === undefined
-            ? entity.identity
-            : {
-                ...entity.identity,
-                pdfRef,
-            };
+        const identity =
+            pdfRef === undefined
+                ? entity.identity
+                : {
+                      ...entity.identity,
+                      pdfRef,
+                  };
         const identityChanged = entity.identity.pdfRef !== identity.pdfRef;
         if (identityChanged) {
             this.#disableBulkImportFastPath();
         }
-        this.#replaceEntities([{
-            id: entity.identity.id,
-            before: entity,
-            after: {
-                ...entity,
-                identity,
+        this.#replaceEntities([
+            {
+                id: entity.identity.id,
+                before: entity,
+                after: {
+                    ...entity,
+                    identity,
+                },
             },
-        }]);
+        ]);
         this.#mutationEpoch += 1;
         this.#emit(Boolean(this.#bulkImportState) && !identityChanged);
     }
@@ -619,22 +624,16 @@ export class AnnotationStore {
         id: AnnotationId,
         patch: Partial<Pick<ITextMarkupEntity, 'subtype' | 'contents' | 'quadPoints' | 'color' | 'opacity'>>,
     ) {
-        return this.#update<ITextMarkupEntity>(id, 'text-markup', entity => ({
+        return this.#update<ITextMarkupEntity>(id, 'text-markup', (entity) => ({
             ...entity,
             ...structuredClone(patch),
             ...(patch.contents === undefined ? {} : {contents: normalizeAnnotationText(patch.contents)}),
-            ...(patch.quadPoints === undefined || sameTextMarkupGeometry(entity.quadPoints, patch.quadPoints)
-                ? {}
-                : {selectedText: null}),
+            ...(patch.quadPoints === undefined || sameTextMarkupGeometry(entity.quadPoints, patch.quadPoints) ? {} : {selectedText: null}),
         }));
     }
 
     /** Updates parser-derived preview text without creating an authored revision. */
-    updateTextMarkupSelectedText(
-        id: AnnotationId,
-        selectedText: string | null,
-        expectedQuadPoints?: ITextMarkupEntity['quadPoints'],
-    ) {
+    updateTextMarkupSelectedText(id: AnnotationId, selectedText: string | null, expectedQuadPoints?: ITextMarkupEntity['quadPoints']) {
         const entity = this.#entities.get(id);
         if (!entity || entity.deleted || entity.kind !== 'text-markup') {
             return false;
@@ -660,11 +659,8 @@ export class AnnotationStore {
         return true;
     }
 
-    updatePlacedImage(
-        id: AnnotationId,
-        patch: Partial<Pick<IPlacedImageEntity, 'rect' | 'rotation' | 'image'>>,
-    ) {
-        return this.#update<IPlacedImageEntity>(id, 'placed-image', entity => ({
+    updatePlacedImage(id: AnnotationId, patch: Partial<Pick<IPlacedImageEntity, 'rect' | 'rotation' | 'image'>>) {
+        return this.#update<IPlacedImageEntity>(id, 'placed-image', (entity) => ({
             ...entity,
             ...structuredClone(patch),
         }));
@@ -672,16 +668,31 @@ export class AnnotationStore {
 
     updateShape(
         id: AnnotationId,
-        patch: Partial<Pick<IShapeEntity, 'tool' | 'pdfSubtype' | 'lineStartStyle' | 'lineEndStyle' | 'rect' | 'points' | 'strokes' | 'strokeColor' | 'strokeWidth' | 'fill' | 'opacity'>>,
+        patch: Partial<
+            Pick<
+                IShapeEntity,
+                | 'tool'
+                | 'pdfSubtype'
+                | 'lineStartStyle'
+                | 'lineEndStyle'
+                | 'rect'
+                | 'points'
+                | 'strokes'
+                | 'strokeColor'
+                | 'strokeWidth'
+                | 'fill'
+                | 'opacity'
+            >
+        >,
     ) {
-        return this.#update<IShapeEntity>(id, 'shape', entity => ({
+        return this.#update<IShapeEntity>(id, 'shape', (entity) => ({
             ...entity,
             ...structuredClone(patch),
         }));
     }
 
     delete(id: AnnotationId) {
-        return this.#update(id, undefined, entity => ({
+        return this.#update(id, undefined, (entity) => ({
             ...entity,
             deleted: true,
         }));
@@ -712,10 +723,12 @@ export class AnnotationStore {
     ) {
         const scope = pageIndices === undefined ? null : new Set(pageIndices);
         const inScope = (entry: {pageIndex: number}) => scope === null || scope.has(entry.pageIndex);
-        if (!admitsAnnotationReadback(entities, foreign, scope, expectedUpserts)) return false;
+        if (!admitsAnnotationReadback(entities, foreign, scope, expectedUpserts)) {
+            return false;
+        }
         // The read pages' entities, tombstones included. A parse leaves a live entity on another page as it is.
         const scopedIds = scope === null ? [...this.#entities.keys()] : this.#entities.idsOnPages(scope);
-        const scopedEntities = () => scopedIds.map(id => [id, this.#entities.get(id)!] as const);
+        const scopedEntities = () => scopedIds.map((id) => [id, this.#entities.get(id)!] as const);
         const confirmedDeletedReplies = new Set(deletedReplyRefs);
         const usedCurrentIds = new Set<AnnotationId>();
         const fingerprintMatchedIds = new Set<AnnotationId>();
@@ -734,7 +747,9 @@ export class AnnotationStore {
                 baselineCandidates = new Map();
                 scopedEntities().forEach(([id]) => {
                     const base = this.#workingSemanticSnapshot.get(id);
-                    if (!base || base.deleted || usedCurrentIds.has(id)) return;
+                    if (!base || base.deleted || usedCurrentIds.has(id)) {
+                        return;
+                    }
                     const bucket = baselineCandidates!.get(base.fingerprint) ?? new Set<AnnotationId>();
                     bucket.add(id);
                     baselineCandidates!.set(base.fingerprint, bucket);
@@ -748,8 +763,7 @@ export class AnnotationStore {
             if (!fingerprintCandidates) {
                 fingerprintCandidates = new Map();
                 scopedEntities().forEach(([id, current]) => {
-                    if (current.deleted || usedCurrentIds.has(id)
-                        || !(current.persistedRevision >= 0 || current.kind === 'shape')) {
+                    if (current.deleted || usedCurrentIds.has(id) || !(current.persistedRevision >= 0 || current.kind === 'shape')) {
                         return;
                     }
                     // The semantic key includes kind and page. Keep every
@@ -773,8 +787,9 @@ export class AnnotationStore {
                 const current = id ? this.#entities.get(id) : undefined;
                 // The external index normalizes refs; this reconciliation has
                 // always required raw equality, even for dirty local entities.
-                return current && !current.deleted && !usedCurrentIds.has(current.identity.id)
-                    && current.identity.pdfRef === pdfRef ? current.identity.id : undefined;
+                return current && !current.deleted && !usedCurrentIds.has(current.identity.id) && current.identity.pdfRef === pdfRef
+                    ? current.identity.id
+                    : undefined;
             }
             // Blank refs are not indexed external bindings, but raw equality
             // previously admitted them. Derive their candidates only if needed.
@@ -802,18 +817,24 @@ export class AnnotationStore {
             }
             return baselineId;
         });
-        for (let [index, entity] of entities.entries()) {
+        for (const [index, rawEntity] of entities.entries()) {
+            let entity = rawEntity;
             let id = entity.identity.id;
             const baselineId = baselineIds[index];
             const collidingExisting = this.#entities.get(id);
-            if (renumbered && baselineId === undefined && collidingExisting
-                && (usedCurrentIds.has(id) || collidingExisting.deleted || collidingExisting.kind !== entity.kind)) {
+            if (
+                renumbered &&
+                baselineId === undefined &&
+                collidingExisting &&
+                (usedCurrentIds.has(id) || collidingExisting.deleted || collidingExisting.kind !== entity.kind)
+            ) {
                 // Its minted id names another annotation or a tombstone from before renumbering.
                 id = asAnnotationId(crypto.randomUUID());
                 entity = {...entity, identity: {...entity.identity, id}};
             }
             if (baselineId !== undefined ? baselineId !== id : !this.#entities.has(id)) {
-                const matchedId = baselineId ?? (renumbered ? undefined : referenceId(entity.identity.pdfRef)) ?? uniqueFingerprintId(entity);
+                const matchedId =
+                    baselineId ?? (renumbered ? undefined : referenceId(entity.identity.pdfRef)) ?? uniqueFingerprintId(entity);
                 if (matchedId !== undefined) {
                     id = matchedId;
                     fingerprintMatchedIds.add(id);
@@ -847,7 +868,7 @@ export class AnnotationStore {
         // annotations the store no longer holds do not outlive a read.
         const nextEntities = new Map<AnnotationId, AnnotationEntity>();
         const nextSaved = new Map<AnnotationId, ISavedSemanticEntry | undefined>(
-            this.#entities.orphanedSavedIds().map(id => [id, undefined]),
+            this.#entities.orphanedSavedIds().map((id) => [id, undefined]),
         );
         const keep = (id: AnnotationId, entity: AnnotationEntity, saved: ISavedSemanticEntry | undefined) => {
             nextEntities.set(id, entity);
@@ -860,7 +881,9 @@ export class AnnotationStore {
         };
         // The bytes still hold these objects, but the editor can no longer own
         // them, e.g. a FreeText after its page rotated. The writer preserves them.
-        const nowForeign = new Set(foreign.map(record => this.#identities.resolve({pdfRef: `${record.objectNumber} ${record.generationNumber} R`})));
+        const nowForeign = new Set(
+            foreign.map((record) => this.#identities.resolve({pdfRef: `${record.objectNumber} ${record.generationNumber} R`})),
+        );
         const saved = this.#entities.saved;
         // A tombstone on any page reaches the read: the parse holds no deletion.
         const reached = scope === null ? scopedIds : this.#entities.idsOnPages(scope, true);
@@ -877,33 +900,37 @@ export class AnnotationStore {
                 const reconciled = !parsed
                     ? current
                     : !current.deleted && !isDirty(current)
-                        ? {
+                      ? {
                             ...parsed,
                             revision: current.revision,
                         }
-                        : mergeReread(current, parsed, this.#workingSemanticSnapshot.get(id));
+                      : mergeReread(current, parsed, this.#workingSemanticSnapshot.get(id));
                 const represented = parsed && semanticEntityFingerprint(parsed) === fingerprintOf(reconciled);
-                keep(id, {
-                    ...reconciled,
-                    // A pending edit to a now-foreign object stays bound to it, so Save targets that object.
-                    identity: identityWithPdfRef(current.identity, parsed?.identity.pdfRef ?? (nowForeign.has(id) ? current.identity.pdfRef : undefined)),
-                    persistedRevision: represented || (!parsed && current.deleted && saved.get(id)?.deleted) ? current.revision : -1,
-                }, saved.get(id));
+                keep(
+                    id,
+                    {
+                        ...reconciled,
+                        // A pending edit to a now-foreign object stays bound to it, so Save targets that object.
+                        identity: identityWithPdfRef(
+                            current.identity,
+                            parsed?.identity.pdfRef ?? (nowForeign.has(id) ? current.identity.pdfRef : undefined),
+                        ),
+                        persistedRevision: represented || (!parsed && current.deleted && saved.get(id)?.deleted) ? current.revision : -1,
+                    },
+                    saved.get(id),
+                );
                 return;
             }
             if (!parsed) {
                 // A committed deletion is absent from the parse by design.
                 // Keep its command target so undo can recreate it without a
                 // retired PDF ref, including after repeated saves.
-                if (current.deleted && current.persistedRevision >= 0 && !isDirty(current)
-                    && this.#retainedHistoryTargets.has(id)) {
+                if (current.deleted && current.persistedRevision >= 0 && !isDirty(current) && this.#retainedHistoryTargets.has(id)) {
                     keep(id, current, semanticEntryOf(current));
                     return;
                 }
-                const materializedLocalShapeTombstone = current.kind === 'shape'
-                    && current.deleted
-                    && current.identity.pdfRef === undefined
-                    && current.materialized === true;
+                const materializedLocalShapeTombstone =
+                    current.kind === 'shape' && current.deleted && current.identity.pdfRef === undefined && current.materialized === true;
                 if (isDirty(current) && !materializedLocalShapeTombstone) {
                     keep(id, current, saved.get(id));
                 } else {
@@ -918,41 +945,49 @@ export class AnnotationStore {
                 fingerprint: semanticEntityFingerprint(parsed),
             };
             if (isDirty(current)) {
-                keep(id, {
-                    ...mergeReread(current, parsed, this.#workingSemanticSnapshot.get(id)),
-                    identity: current.kind === 'shape'
-                        && fingerprintMatchedIds.has(id)
-                        && current.persistedRevision < 0
-                        && current.identity.pdfRef === undefined
-                        ? current.identity
-                        : identityWithPdfRef(current.identity, parsed.identity.pdfRef),
-                    ...(current.kind === 'shape'
-                        && fingerprintMatchedIds.has(id)
-                        && current.identity.pdfRef === undefined
-                        ? {materialized: true}
-                        : {}),
-                }, parsedEntry);
+                keep(
+                    id,
+                    {
+                        ...mergeReread(current, parsed, this.#workingSemanticSnapshot.get(id)),
+                        identity:
+                            current.kind === 'shape' &&
+                            fingerprintMatchedIds.has(id) &&
+                            current.persistedRevision < 0 &&
+                            current.identity.pdfRef === undefined
+                                ? current.identity
+                                : identityWithPdfRef(current.identity, parsed.identity.pdfRef),
+                        ...(current.kind === 'shape' && fingerprintMatchedIds.has(id) && current.identity.pdfRef === undefined
+                            ? {materialized: true}
+                            : {}),
+                    },
+                    parsedEntry,
+                );
                 return;
             }
-            const parsedCanonical = current.kind === 'text-markup'
-                && parsed.kind === 'text-markup'
-                && (parsed.selectedText === undefined || parsed.selectedText === null)
-                && current.selectedText?.trim()
-                && sameTextMarkupGeometryAfterRoundTrip(current.quadPoints, parsed.quadPoints)
-                ? {
-                    ...parsed,
-                    selectedText: current.selectedText,
-                }
-                : parsed;
-            keep(id, {
-                ...parsedCanonical,
-                identity: {
-                    ...parsedCanonical.identity,
-                    id,
+            const parsedCanonical =
+                current.kind === 'text-markup' &&
+                parsed.kind === 'text-markup' &&
+                (parsed.selectedText === undefined || parsed.selectedText === null) &&
+                current.selectedText?.trim() &&
+                sameTextMarkupGeometryAfterRoundTrip(current.quadPoints, parsed.quadPoints)
+                    ? {
+                          ...parsed,
+                          selectedText: current.selectedText,
+                      }
+                    : parsed;
+            keep(
+                id,
+                {
+                    ...parsedCanonical,
+                    identity: {
+                        ...parsedCanonical.identity,
+                        id,
+                    },
+                    revision: current.revision,
+                    persistedRevision: current.revision,
                 },
-                revision: current.revision,
-                persistedRevision: current.revision,
-            }, parsedEntry);
+                parsedEntry,
+            );
         });
 
         parsedById.forEach((parsed, id) => {
@@ -962,12 +997,16 @@ export class AnnotationStore {
             if (preserveSavedBaseline && this.#retainedHistoryTargets.has(id)) {
                 // A creation undone out of the store stays absent even if an
                 // older checkpoint still contains its PDF object.
-                keep(id, {
-                    ...parsed,
-                    deleted: true,
-                    revision: 1,
-                    persistedRevision: 0,
-                }, saved.get(id));
+                keep(
+                    id,
+                    {
+                        ...parsed,
+                        deleted: true,
+                        revision: 1,
+                        persistedRevision: 0,
+                    },
+                    saved.get(id),
+                );
                 return;
             }
             const inserted = {
@@ -983,7 +1022,7 @@ export class AnnotationStore {
         const parsedWorking = semanticSnapshot(parsedById.values());
         this.#history.forgetCommands(forgotten);
         this.#replaceEntities([
-            ...Array.from(forgotten, id => ({
+            ...Array.from(forgotten, (id) => ({
                 id,
                 before: this.#entities.get(id) ?? null,
                 after: null,
@@ -992,20 +1031,26 @@ export class AnnotationStore {
                 id,
                 before: this.#entities.get(id) ?? null,
                 after,
-            })).filter(entry => entry.before !== entry.after),
+            })).filter((entry) => entry.before !== entry.after),
         ]);
-        forgotten.forEach(id => this.#persistenceIdentities.forget(id));
+        forgotten.forEach((id) => this.#persistenceIdentities.forget(id));
         nextSaved.forEach((entry, id) => this.#entities.setSaved(id, entry));
-        if (scope === null) this.#workingSemanticSnapshot.clear();
-        else scopedIds.forEach(id => this.#workingSemanticSnapshot.delete(id));
+        if (scope === null) {
+            this.#workingSemanticSnapshot.clear();
+        } else {
+            scopedIds.forEach((id) => this.#workingSemanticSnapshot.delete(id));
+        }
         parsedWorking.forEach((entry, id) => this.#workingSemanticSnapshot.set(id, entry));
-        if (preserveSavedBaseline) this.#persistenceIdentities.clear();
-        this.#foreign = [
-            ...this.#foreign.filter(record => !inScope(record)),
-            ...foreign.map(record => structuredClone(record)),
-        ].sort((left, right) => left.pageIndex - right.pageIndex);
+        if (preserveSavedBaseline) {
+            this.#persistenceIdentities.clear();
+        }
+        this.#foreign = [...this.#foreign.filter((record) => !inScope(record)), ...foreign.map((record) => structuredClone(record))].sort(
+            (left, right) => left.pageIndex - right.pageIndex,
+        );
         this.#readWholeDocument ||= !scope;
-        if (!scope) this.#objectsRenumbered = false;
+        if (!scope) {
+            this.#objectsRenumbered = false;
+        }
         this.#readRevision = readRevision;
         this.#mutationEpoch += 1;
         this.#emit();
@@ -1015,9 +1060,7 @@ export class AnnotationStore {
     applyTextMarkupSelection(
         created: ITextMarkupEntity,
         overlapCandidates: readonly ITextMarkupOverlapCandidate[],
-        resolveSelectedText?: (
-            quadPoints: readonly IAnnotationMarkerRect[],
-        ) => string | null | undefined,
+        resolveSelectedText?: (quadPoints: readonly IAnnotationMarkerRect[]) => string | null | undefined,
     ): ITextMarkupSelectionProjection {
         if (this.#entities.has(created.identity.id)) {
             throw new Error(`Duplicate AnnotationId ${created.identity.id}`);
@@ -1029,30 +1072,29 @@ export class AnnotationStore {
             // The plan reads only annotations on the created markup's page, in store order.
             entities: this.#entities.onPage(created.pageIndex),
         });
-        const shouldResolveSelectedText = initialPlan.replacements.length > 0
-            || !initialPlan.projection.created.selectedText?.trim();
+        const shouldResolveSelectedText = initialPlan.replacements.length > 0 || !initialPlan.projection.created.selectedText?.trim();
         const resolvedSelectedText = shouldResolveSelectedText
             ? resolveSelectedText?.(initialPlan.projection.created.quadPoints)
             : undefined;
         let plan = initialPlan;
         if (resolvedSelectedText !== undefined) {
-            const selectedText = resolvedSelectedText === null
-                && initialPlan.projection.created.selectedText?.trim()
-                ? initialPlan.projection.created.selectedText
-                : resolvedSelectedText;
+            const selectedText =
+                resolvedSelectedText === null && initialPlan.projection.created.selectedText?.trim()
+                    ? initialPlan.projection.created.selectedText
+                    : resolvedSelectedText;
             plan = {
                 ...initialPlan,
-                replacements: initialPlan.replacements.map(replacement => (
+                replacements: initialPlan.replacements.map((replacement) =>
                     replacement.after.identity.id === initialPlan.projection.created.identity.id
                         ? {
-                            ...replacement,
-                            after: {
-                                ...replacement.after,
-                                selectedText,
-                            },
-                        }
-                        : replacement
-                )),
+                              ...replacement,
+                              after: {
+                                  ...replacement.after,
+                                  selectedText,
+                              },
+                          }
+                        : replacement,
+                ),
                 projection: {
                     ...initialPlan.projection,
                     created: {
@@ -1062,7 +1104,7 @@ export class AnnotationStore {
                 },
             };
         }
-        const entries: IHistoryEntry[] = plan.replacements.map(replacement => ({
+        const entries: IHistoryEntry[] = plan.replacements.map((replacement) => ({
             id: replacement.before.identity.id,
             before: replacement.before,
             // Its geometry can hold the caller's rects.
@@ -1106,23 +1148,29 @@ export class AnnotationStore {
         this.#entities.forEach((entity, id) => {
             const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(delta, requirePageNumber(entity.pageIndex + 1));
             const nextPageIndex = mappedPageNumber === null ? undefined : requirePageIndex(mappedPageNumber - 1);
-            const remap = (saved: ISavedSemanticEntry | undefined) => saved && {
-                kind: saved.kind,
-                deleted: saved.deleted || nextPageIndex === undefined,
-                fingerprint: remapSavedSemanticFingerprint(saved.fingerprint, nextPageIndex),
-            };
+            const remap = (saved: ISavedSemanticEntry | undefined) =>
+                saved && {
+                    kind: saved.kind,
+                    deleted: saved.deleted || nextPageIndex === undefined,
+                    fingerprint: remapSavedSemanticFingerprint(saved.fingerprint, nextPageIndex),
+                };
             this.#entities.setSaved(id, remap(this.#entities.saved.get(id)));
             const working = remap(this.#workingSemanticSnapshot.get(id));
-            if (working !== undefined) this.#workingSemanticSnapshot.set(id, working);
-            this.#entities.set(id, nextPageIndex === undefined
-                ? {
-                    ...entity,
-                    deleted: true,
-                }
-                : {
-                    ...entity,
-                    pageIndex: nextPageIndex,
-                });
+            if (working !== undefined) {
+                this.#workingSemanticSnapshot.set(id, working);
+            }
+            this.#entities.set(
+                id,
+                nextPageIndex === undefined
+                    ? {
+                          ...entity,
+                          deleted: true,
+                      }
+                    : {
+                          ...entity,
+                          pageIndex: nextPageIndex,
+                      },
+            );
         });
         this.#objectsRenumbered = true;
         this.#rebindIdentities();
@@ -1159,12 +1207,9 @@ export class AnnotationStore {
             documentRevisionToken,
             epoch: this.#mutationEpoch,
             entityBaselineHash: saveFrontierEntityBaseline(entities),
-            revisions: new Map(entities.map(entity => [
-                entity.identity.id,
-                entity.revision,
-            ])),
+            revisions: new Map(entities.map((entity) => [entity.identity.id, entity.revision])),
         };
-        this.#saveFrontiers.set(frontier, new Map(entities.map(entity => [entity.identity.id, semanticEntryOf(entity)])));
+        this.#saveFrontiers.set(frontier, new Map(entities.map((entity) => [entity.identity.id, semanticEntryOf(entity)])));
         return frontier;
     }
 
@@ -1217,24 +1262,26 @@ export class AnnotationStore {
             }
             const nextIdentity = saved.get(id)?.deleted
                 ? identityWithPdfRef(entity.identity, undefined)
-                : identityWithPdfRef(
-                    entity.identity,
-                    bindingById.get(id) ?? entity.identity.pdfRef,
-                );
+                : identityWithPdfRef(entity.identity, bindingById.get(id) ?? entity.identity.pdfRef);
             updates.push({
                 id,
                 before: entity,
                 // An annotation the save left as it was keeps its object.
-                after: nextIdentity === entity.identity && entity.persistedRevision === revision ? entity : {
-                    ...entity,
-                    identity: nextIdentity,
-                    persistedRevision: revision,
-                },
+                after:
+                    nextIdentity === entity.identity && entity.persistedRevision === revision
+                        ? entity
+                        : {
+                              ...entity,
+                              identity: nextIdentity,
+                              persistedRevision: revision,
+                          },
             });
         });
         this.#replaceEntities(updates);
         saved.forEach((entry, id) => this.#workingSemanticSnapshot.set(id, entry));
-        if (!preserveSavedBaseline) saved.forEach((entry, id) => this.#entities.setSaved(id, entry));
+        if (!preserveSavedBaseline) {
+            saved.forEach((entry, id) => this.#entities.setSaved(id, entry));
+        }
         frontier.revisions.forEach((_revision, id) => this.#persistenceIdentities.forget(id));
         this.#saveFrontiers.delete(frontier);
         this.#pruneUnretainedSavedDeletions();
@@ -1264,17 +1311,19 @@ export class AnnotationStore {
         const changes: IPendingAnnotationChange[] = [];
         this.#entities.forEach((entity, id) => {
             const working = this.#workingSemanticSnapshot.get(id);
-            if (!isDirty(entity) && working !== undefined && sameSemanticEntry(working, this.#entities.saved.get(id))) return;
+            if (!isDirty(entity) && working !== undefined && sameSemanticEntry(working, this.#entities.saved.get(id))) {
+                return;
+            }
             const {changedFields, heldFields} = semanticChangesSince(entity, working);
-            if (isDirty(entity) || changedFields.length > 0) changes.push({entity, changedFields, heldFields});
+            if (isDirty(entity) || changedFields.length > 0) {
+                changes.push({entity, changedFields, heldFields});
+            }
         });
         return changes;
     }
 
     countDirtyPersistedDeletions() {
-        return this.dirtyEntities()
-            .filter(entity => entity.deleted && entity.persistedRevision >= 0)
-            .length;
+        return this.dirtyEntities().filter((entity) => entity.deleted && entity.persistedRevision >= 0).length;
     }
 
     assertSaveFrontierCurrent(
@@ -1287,22 +1336,17 @@ export class AnnotationStore {
         if (frontier.documentRevisionToken !== currentDocumentRevisionToken) {
             throw new Error('staleRevisionError: document revision changed after the annotation save frontier was captured');
         }
-        const current = new Map(this.list({includeDeleted: true}).map(entity => [
-            entity.identity.id,
-            entity,
-        ]));
-        const capturedEntities = Array.from(frontier.revisions, ([id]) => current.get(id))
-            .filter((entity): entity is AnnotationEntity => entity !== undefined);
-        const capturedEntityChanged = capturedEntities.length !== frontier.revisions.size
-            || saveFrontierEntityBaseline(capturedEntities) !== frontier.entityBaselineHash
-            || Array.from(frontier.revisions).some(([
-                id,
-                revision,
-            ]) => current.get(id)?.revision !== revision);
-        const unsavedEntityCreatedAfterFrontier = Array.from(current.values()).some(entity => (
-            !frontier.revisions.has(entity.identity.id)
-            && entity.persistedRevision < 0
-        ));
+        const current = new Map(this.list({includeDeleted: true}).map((entity) => [entity.identity.id, entity]));
+        const capturedEntities = Array.from(frontier.revisions, ([id]) => current.get(id)).filter(
+            (entity): entity is AnnotationEntity => entity !== undefined,
+        );
+        const capturedEntityChanged =
+            capturedEntities.length !== frontier.revisions.size ||
+            saveFrontierEntityBaseline(capturedEntities) !== frontier.entityBaselineHash ||
+            Array.from(frontier.revisions).some(([id, revision]) => current.get(id)?.revision !== revision);
+        const unsavedEntityCreatedAfterFrontier = Array.from(current.values()).some(
+            (entity) => !frontier.revisions.has(entity.identity.id) && entity.persistedRevision < 0,
+        );
         if (capturedEntityChanged || unsavedEntityCreatedAfterFrontier) {
             throw new Error('staleRevisionError: annotations changed after the save frontier was captured');
         }
@@ -1313,18 +1357,30 @@ export class AnnotationStore {
         return Array.from(this.#entities.values()).filter(isDirty);
     }
 
-    undo() { return this.#history.undo(); }
-    redo() { return this.#history.redo(); }
-    get canUndo() { return this.#history.canUndo; }
-    get canRedo() { return this.#history.canRedo; }
+    undo() {
+        return this.#history.undo();
+    }
+    redo() {
+        return this.#history.redo();
+    }
+    get canUndo() {
+        return this.#history.canUndo;
+    }
+    get canRedo() {
+        return this.#history.canRedo;
+    }
     /** A parse of the whole document has fed this store, not only of some pages. */
-    get readWholeDocument() { return this.#readWholeDocument; }
+    get readWholeDocument() {
+        return this.#readWholeDocument;
+    }
 
     /**
      * The byte revision whose read last committed here, which the geometry reflects. It stays through a page
      * operation that publishes new bytes until their read commits; null before a read or when one was unnamed.
      */
-    get readRevision() { return this.#readRevision; }
+    get readRevision() {
+        return this.#readRevision;
+    }
 
     #assertNewEntity(entity: AnnotationEntity) {
         if (entity.revision !== 0 || entity.persistedRevision !== -1) {
@@ -1342,19 +1398,17 @@ export class AnnotationStore {
         this.#assertNewEntity(entity);
         // History keeps it as the command's target; frozen, a caller cannot rewrite that.
         const created = freezeStoredEntity(cloneCanonicalEntity(entity));
-        this.#commit([{
-            id: entity.identity.id,
-            before: null,
-            after: created,
-        }]);
+        this.#commit([
+            {
+                id: entity.identity.id,
+                before: null,
+                after: created,
+            },
+        ]);
         return created;
     }
 
-    #update<T extends AnnotationEntity>(
-        id: AnnotationId,
-        expectedKind: T['kind'] | undefined,
-        update: (entity: T) => T,
-    ): T {
+    #update<T extends AnnotationEntity>(id: AnnotationId, expectedKind: T['kind'] | undefined, update: (entity: T) => T): T {
         const before = this.#require(id);
         if (before.deleted || isReadOnlyAnnotation(before)) {
             throw new Error(`Annotation ${id} is ${before.deleted ? 'deleted' : 'read-only'}`);
@@ -1371,24 +1425,26 @@ export class AnnotationStore {
             revision: before.revision + 1,
             modifiedAt: Date.now(),
         } as T);
-        this.#commit([{
-            id,
-            before,
-            after,
-        }]);
+        this.#commit([
+            {
+                id,
+                before,
+                after,
+            },
+        ]);
         return after;
     }
 
-    retainHistoryTargets(ids: readonly AnnotationId[] = [...new Set([
-        ...this.#entities.keys(),
-        ...this.#retainedHistoryTargets.keys(),
-    ])]) {
-        ids.forEach(id => this.#retainedHistoryTargets.set(id, (this.#retainedHistoryTargets.get(id) ?? 0) + 1));
+    retainHistoryTargets(ids: readonly AnnotationId[] = [...new Set([...this.#entities.keys(), ...this.#retainedHistoryTargets.keys()])]) {
+        ids.forEach((id) => this.#retainedHistoryTargets.set(id, (this.#retainedHistoryTargets.get(id) ?? 0) + 1));
         return () => {
-            ids.forEach(id => {
+            ids.forEach((id) => {
                 const remaining = (this.#retainedHistoryTargets.get(id) ?? 1) - 1;
-                if (remaining > 0) this.#retainedHistoryTargets.set(id, remaining);
-                else this.#retainedHistoryTargets.delete(id);
+                if (remaining > 0) {
+                    this.#retainedHistoryTargets.set(id, remaining);
+                } else {
+                    this.#retainedHistoryTargets.delete(id);
+                }
             });
             if (this.#pruneUnretainedSavedDeletions()) {
                 this.#mutationEpoch += 1;
@@ -1404,19 +1460,23 @@ export class AnnotationStore {
             registerFailureRollback?: TRegisterAnnotationHistoryFailureRollback,
         ) => {
             const ordered = side === 'before' ? [...entries].reverse() : entries;
-            this.#applyHistoryEntries(ordered.map(entry => ({
-                id: entry.id,
-                before: this.#entities.get(entry.id) ?? null,
-                after: mode === 'replay' ? replayOnto(this.#entities.get(entry.id), entry, side) : entry[side],
-            })), mode, registerFailureRollback);
+            this.#applyHistoryEntries(
+                ordered.map((entry) => ({
+                    id: entry.id,
+                    before: this.#entities.get(entry.id) ?? null,
+                    after: mode === 'replay' ? replayOnto(this.#entities.get(entry.id), entry, side) : entry[side],
+                })),
+                mode,
+                registerFailureRollback,
+            );
         };
         apply('after', 'commit');
-        const releaseTargets = this.retainHistoryTargets(entries.map(entry => entry.id));
+        const releaseTargets = this.retainHistoryTargets(entries.map((entry) => entry.id));
         this.#history.registerCommand({
-            cmd: register => apply('after', 'replay', register),
-            undo: register => apply('before', 'replay', register),
+            cmd: (register) => apply('after', 'replay', register),
+            undo: (register) => apply('before', 'replay', register),
             estimatedBytes: estimateRetainedAnnotationBytes(entries),
-            annotationIds: entries.map(entry => entry.id),
+            annotationIds: entries.map((entry) => entry.id),
             onDiscard: releaseTargets,
         });
     }
@@ -1442,18 +1502,18 @@ export class AnnotationStore {
         registerFailureRollback?: TRegisterAnnotationHistoryFailureRollback,
     ) {
         const previousEpoch = this.#mutationEpoch;
-        const rebased = mode === 'commit'
-            ? entries
-            : this.#persistenceIdentities.rebaseReplay(entries, id => this.#entities.get(id));
-        const applied = rebased.map(entry => {
+        const rebased = mode === 'commit' ? entries : this.#persistenceIdentities.rebaseReplay(entries, (id) => this.#entities.get(id));
+        const applied = rebased.map((entry) => {
             if (!entry.after) {
                 return entry;
             }
-            const revision = mode === 'commit'
-                ? entry.after.revision
-                : Math.max(entry.before?.revision ?? -1, entry.after.revision, entry.after.persistedRevision) + 1;
-            const matchesSaved = (entry.after.persistedRevision >= 0 || (entry.after.deleted && !('pdfRef' in entry.after.identity)))
-                && this.#entities.saved.get(entry.id)?.fingerprint === fingerprintOf(entry.after);
+            const revision =
+                mode === 'commit'
+                    ? entry.after.revision
+                    : Math.max(entry.before?.revision ?? -1, entry.after.revision, entry.after.persistedRevision) + 1;
+            const matchesSaved =
+                (entry.after.persistedRevision >= 0 || (entry.after.deleted && !('pdfRef' in entry.after.identity))) &&
+                this.#entities.saved.get(entry.id)?.fingerprint === fingerprintOf(entry.after);
             return {
                 ...entry,
                 after: {
@@ -1462,21 +1522,25 @@ export class AnnotationStore {
                     // Replaying intent can require writing even when it equals
                     // the saved document: the loaded checkpoint is independent.
                     persistedRevision: matchesSaved ? revision : entry.after.persistedRevision,
-                    ...(!this.#entities.has(entry.id) && this.#readWholeDocument ? {
-                        identity: identityWithPdfRef(entry.after.identity, undefined),
-                        persistedRevision: -1,
-                    } : {}),
+                    ...(!this.#entities.has(entry.id) && this.#readWholeDocument
+                        ? {
+                              identity: identityWithPdfRef(entry.after.identity, undefined),
+                              persistedRevision: -1,
+                          }
+                        : {}),
                 },
             };
         });
         this.#replaceEntities(applied);
         this.#mutationEpoch += 1;
         registerFailureRollback?.(() => {
-            this.#replaceEntities([...applied].reverse().map(entry => ({
-                id: entry.id,
-                before: entry.after,
-                after: entry.before,
-            })));
+            this.#replaceEntities(
+                [...applied].reverse().map((entry) => ({
+                    id: entry.id,
+                    before: entry.after,
+                    after: entry.before,
+                })),
+            );
             this.#mutationEpoch = previousEpoch;
             this.#emit();
         });
@@ -1484,10 +1548,12 @@ export class AnnotationStore {
     }
 
     #replaceEntities(entries: readonly IHistoryEntry[]) {
-        this.#identities.replace(entries.map(entry => ({
-            before: liveIdentityOf(entry.before),
-            after: liveIdentityOf(entry.after),
-        })));
+        this.#identities.replace(
+            entries.map((entry) => ({
+                before: liveIdentityOf(entry.before),
+                after: liveIdentityOf(entry.after),
+            })),
+        );
         // Each `after` is the store's own object: stored, it is frozen in place.
         entries.forEach((entry) => {
             if (entry.after) {
@@ -1502,11 +1568,11 @@ export class AnnotationStore {
         // A state this store captured holds its frozen entities; any other entity is copied before it is frozen.
         const owned = new Map(Array.from(next, ([id, entity]) => [id, isStoredEntity(entity) ? entity : cloneEntity(entity)] as const));
         const changes = [
-            ...Array.from(this.#entities.values(), entity => ({
+            ...Array.from(this.#entities.values(), (entity) => ({
                 before: liveIdentityOf(entity),
                 after: null,
             })),
-            ...Array.from(owned.values(), entity => ({
+            ...Array.from(owned.values(), (entity) => ({
                 before: null,
                 after: liveIdentityOf(entity),
             })),
@@ -1551,6 +1617,6 @@ export class AnnotationStore {
 
     #emitNow() {
         const snapshotIncludingDeleted = this.#entities.publish();
-        this.#listeners.forEach(listener => listener(snapshotIncludingDeleted));
+        this.#listeners.forEach((listener) => listener(snapshotIncludingDeleted));
     }
 }

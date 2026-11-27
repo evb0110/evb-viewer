@@ -1,30 +1,21 @@
 #!/usr/bin/env node
 
-import { getCliErrorMessage } from './lib/cli-error.mjs';
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
+import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
-import {
-    dirname,
-    join,
-    resolve,
-} from 'node:path';
+import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const projectRoot = resolve(import.meta.dirname, '..');
-const SCENARIOS = [{
-    mode: 'native-freetext',
-    tier: 'high',
-}];
+const SCENARIOS = [
+    {
+        mode: 'native-freetext',
+        tier: 'high',
+    },
+];
 
 function readOptionValue(argument, value) {
     if (!value || value.startsWith('--')) {
@@ -116,7 +107,7 @@ async function hashFile(path) {
     const hash = createHash('sha256');
     await new Promise((resolvePromise, rejectPromise) => {
         const stream = createReadStream(path);
-        stream.on('data', chunk => hash.update(chunk));
+        stream.on('data', (chunk) => hash.update(chunk));
         stream.on('error', rejectPromise);
         stream.on('end', resolvePromise);
     });
@@ -124,52 +115,49 @@ async function hashFile(path) {
 }
 
 async function runScenario(options, scenario, temporaryDirectory) {
-    const outputPath = join(
-        temporaryDirectory,
-        `${scenario.mode}-${scenario.tier}.json`,
+    const outputPath = join(temporaryDirectory, `${scenario.mode}-${scenario.tier}.json`);
+    run(
+        pnpmCommand(),
+        [
+            'exec',
+            'vitest',
+            'run',
+            '--project',
+            'e2e-save',
+            'tests/e2e/electron/save/savePipelineBenchmark.e2e.test.ts',
+            '--retry',
+            '0',
+            '--reporter',
+            'verbose',
+        ],
+        {
+            ...process.env,
+            EVB_SAVE_PIPELINE_BENCHMARK_FIXTURE: options.fixture,
+            EVB_SAVE_PIPELINE_BENCHMARK_ITERATIONS: String(options.iterations),
+            EVB_SAVE_PIPELINE_BENCHMARK_OUTPUT: outputPath,
+            EVB_SAVE_PIPELINE_BENCHMARK_TIER: scenario.tier,
+            EVB_SAVE_PIPELINE_BENCHMARK_WARMUPS: String(options.warmups),
+        },
     );
-    run(pnpmCommand(), [
-        'exec',
-        'vitest',
-        'run',
-        '--project',
-        'e2e-save',
-        'tests/e2e/electron/save/savePipelineBenchmark.e2e.test.ts',
-        '--retry',
-        '0',
-        '--reporter',
-        'verbose',
-    ], {
-        ...process.env,
-        EVB_SAVE_PIPELINE_BENCHMARK_FIXTURE: options.fixture,
-        EVB_SAVE_PIPELINE_BENCHMARK_ITERATIONS: String(options.iterations),
-        EVB_SAVE_PIPELINE_BENCHMARK_OUTPUT: outputPath,
-        EVB_SAVE_PIPELINE_BENCHMARK_TIER: scenario.tier,
-        EVB_SAVE_PIPELINE_BENCHMARK_WARMUPS: String(options.warmups),
-    });
     return JSON.parse(await readFile(outputPath, 'utf8'));
 }
 
 export function normalizeSemanticReopenSummary(summary) {
     if (
-        !summary
-        || !Number.isSafeInteger(summary.total)
-        || summary.total < 0
-        || !summary.bySubtype
-        || typeof summary.bySubtype !== 'object'
-        || Array.isArray(summary.bySubtype)
+        !summary ||
+        !Number.isSafeInteger(summary.total) ||
+        summary.total < 0 ||
+        !summary.bySubtype ||
+        typeof summary.bySubtype !== 'object' ||
+        Array.isArray(summary.bySubtype)
     ) {
         throw new Error('Invalid semantic reopen summary');
     }
     const subtypeEntries = Object.entries(summary.bySubtype);
-    if (subtypeEntries.some(([
-        , count,
-    ]) => !Number.isSafeInteger(count) || count < 0)) {
+    if (subtypeEntries.some(([, count]) => !Number.isSafeInteger(count) || count < 0)) {
         throw new Error('Invalid semantic reopen subtype count');
     }
-    const rawTotal = subtypeEntries.reduce((sum, [
-        , count,
-    ]) => sum + count, 0);
+    const rawTotal = subtypeEntries.reduce((sum, [, count]) => sum + count, 0);
     if (rawTotal !== summary.total) {
         throw new Error('Semantic reopen total does not match subtype counts');
     }
@@ -178,7 +166,7 @@ export function normalizeSemanticReopenSummary(summary) {
             // A Popup is the structural companion of a user-visible annotation,
             // not an independently authored semantic annotation.
             .filter(([subtype]) => subtype !== 'Popup')
-            .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0),
+            .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
     );
     return {
         total: Object.values(bySubtype).reduce((sum, count) => sum + count, 0),
@@ -193,10 +181,7 @@ function expectedAuthoredFreeTextSummary(sourceSummary) {
     };
     return {
         total: sourceSummary.total + 1,
-        bySubtype: Object.fromEntries(
-            Object.entries(bySubtype)
-                .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0),
-        ),
+        bySubtype: Object.fromEntries(Object.entries(bySubtype).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))),
     };
 }
 
@@ -218,7 +203,7 @@ export function assertSemanticParity(results) {
         }
     });
     const baseline = summaries[0];
-    if (summaries.some(summary => summary !== baseline)) {
+    if (summaries.some((summary) => summary !== baseline)) {
         throw new Error('Save benchmark scenarios produced different semantic reopen summaries');
     }
     return baseline ? JSON.parse(baseline) : null;
@@ -254,19 +239,14 @@ export async function runSavePipelineBenchmark(rawOptions) {
     }
     const temporaryDirectory = await mkdtemp(join(tmpdir(), 'evb-save-pipeline-benchmark-'));
     try {
-        run(process.execPath, [
-            'scripts/ensure-wasm-artifacts.mjs',
-        ]);
-        run(pnpmCommand(), [
-            'run',
-            'build:electron',
-        ]);
+        run(process.execPath, ['scripts/ensure-wasm-artifacts.mjs']);
+        run(pnpmCommand(), ['run', 'build:electron']);
         const results = [];
         for (const scenario of SCENARIOS) {
             results.push(await runScenario(options, scenario, temporaryDirectory));
         }
         const semanticParitySummary = assertSemanticParity(results);
-        const scenarios = results.map(result => ({
+        const scenarios = results.map((result) => ({
             ...result,
             semanticReopenComparable: normalizeSemanticReopenSummary(result.semanticReopen),
         }));
@@ -297,9 +277,7 @@ function printUsage() {
     );
 }
 
-const isMain = process.argv[1]
-    ? fileURLToPath(import.meta.url) === resolve(process.argv[1])
-    : false;
+const isMain = process.argv[1] ? fileURLToPath(import.meta.url) === resolve(process.argv[1]) : false;
 if (isMain) {
     const options = parseSavePipelineBenchmarkArgs(process.argv.slice(2));
     if (options.help) {

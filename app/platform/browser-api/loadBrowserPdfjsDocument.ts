@@ -7,9 +7,7 @@ import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-sou
  * caller disposes the document through `document.loadingTask.destroy()`.
  */
 export async function loadBrowserPdfjsDocument(stored: string | Blob): Promise<IPdfDocument> {
-    const {
-        createPdfjsDocumentInitFromBrowserDocument, getPdfjsLib,
-    } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
+    const {createPdfjsDocumentInitFromBrowserDocument, getPdfjsLib} = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
     const pdfjsLib = await getPdfjsLib();
     let rejectRangeReadFailure: ((error: Error) => void) | null = null;
     let loadingTask: ReturnType<typeof pdfjsLib.getDocument> | null = null;
@@ -18,17 +16,18 @@ export async function loadBrowserPdfjsDocument(stored: string | Blob): Promise<I
     const rangeReadFailure = new Promise<never>((_resolve, reject) => {
         rejectRangeReadFailure = reject;
     });
-    const task = loadingTask = pdfjsLib.getDocument(await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, stored, {onRangeReadFailure: (error) => {
-        const reject = rejectRangeReadFailure;
-        reject?.(error);
-        void destroyTask?.().catch(() => {});
-    }}));
-    destroyTask = () => destroyPromise ??= loadingTask.destroy();
+    const task = (loadingTask = pdfjsLib.getDocument(
+        await createPdfjsDocumentInitFromBrowserDocument(pdfjsLib, stored, {
+            onRangeReadFailure: (error) => {
+                const reject = rejectRangeReadFailure;
+                reject?.(error);
+                void destroyTask?.().catch(() => {});
+            },
+        }),
+    ));
+    destroyTask = () => (destroyPromise ??= loadingTask.destroy());
     try {
-        return await Promise.race([
-            task.promise,
-            rangeReadFailure,
-        ]);
+        return await Promise.race([task.promise, rangeReadFailure]);
     } catch (error) {
         try {
             await destroyTask();

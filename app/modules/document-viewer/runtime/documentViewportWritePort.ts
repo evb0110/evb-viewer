@@ -1,5 +1,5 @@
-import type { Ref } from 'vue';
-import type { TDocumentWheelIntent } from '@app/modules/document-viewer/input/documentWheelInteraction';
+import type {Ref} from 'vue';
+import type {TDocumentWheelIntent} from '@app/modules/document-viewer/input/documentWheelInteraction';
 import {
     createWheelGestureStream,
     WHEEL_GESTURE_IDLE_MS,
@@ -70,8 +70,7 @@ export interface IDocumentViewportWritePortOptions {
  */
 export type TDocumentWheelPacketOwner = 'command-residue' | 'user-input' | 'adopted-user-input';
 
-const DOCUMENT_VIEWPORT_PANE_RELOCATION_SCROLL_FENCE_ATTRIBUTE =
-    'data-document-viewport-pane-relocation-scroll-fence';
+const DOCUMENT_VIEWPORT_PANE_RELOCATION_SCROLL_FENCE_ATTRIBUTE = 'data-document-viewport-pane-relocation-scroll-fence';
 
 /**
  * Marks a pane before its persistent DOM subtree is moved by Teleport.
@@ -87,9 +86,7 @@ export function clearDocumentViewportPaneRelocationScrollFence(element: HTMLElem
 }
 
 export function consumeDocumentViewportPaneRelocationScrollFence(element: HTMLElement) {
-    const fence = element.closest<HTMLElement>(
-        `[${DOCUMENT_VIEWPORT_PANE_RELOCATION_SCROLL_FENCE_ATTRIBUTE}]`,
-    );
+    const fence = element.closest<HTMLElement>(`[${DOCUMENT_VIEWPORT_PANE_RELOCATION_SCROLL_FENCE_ATTRIBUTE}]`);
     if (!fence) {
         return false;
     }
@@ -97,12 +94,7 @@ export function consumeDocumentViewportPaneRelocationScrollFence(element: HTMLEl
     return true;
 }
 
-function resolveAuthoredOffset(
-    value: number | undefined,
-    current: number,
-    scrollSize: number,
-    clientSize: number,
-) {
+function resolveAuthoredOffset(value: number | undefined, current: number, scrollSize: number, clientSize: number) {
     if (value === undefined) {
         return current;
     }
@@ -138,9 +130,7 @@ export function isObservedWheelPacketSequenceOpen(packet: object): boolean {
     return observedWheelPacketSequenceReaders.get(packet)?.() ?? false;
 }
 
-export function createDocumentViewportWritePort(
-    options: IDocumentViewportWritePortOptions = {},
-): IDocumentViewportWritePort {
+export function createDocumentViewportWritePort(options: IDocumentViewportWritePortOptions = {}): IDocumentViewportWritePort {
     const readSource = options.readSource ?? (() => null);
     let retired = false;
     let interactionEpoch = 0;
@@ -148,11 +138,14 @@ export function createDocumentViewportWritePort(
     const interactionEpochSignal = shallowRef(0);
     let sequence = 0;
     let activeIntent: IDocumentViewportIntentFence | null = null;
-    const authorityWrites = new WeakMap<HTMLElement, {
-        intentId: string;
-        left: number;
-        top: number;
-    }>();
+    const authorityWrites = new WeakMap<
+        HTMLElement,
+        {
+            intentId: string;
+            left: number;
+            top: number;
+        }
+    >();
     // Intent is ordered by when the user expressed it, not by when its packets
     // arrive. A fling is expressed at finger lift, so a command issued during
     // its inertial tail is the newer intent even though tail packets keep
@@ -160,10 +153,7 @@ export function createDocumentViewportWritePort(
     // of a sequence, so the tail cannot be swallowed; suppressing user
     // scrolling is the only way to stop it from displacing the command.
     const wheelGestures = createWheelGestureStream({
-        isSequenceOpen: sequenceId => (
-            isSequenceOpen(sequenceId)
-            && performance.now() - lastWheelActivityAtMs < HOST_SEQUENCE_STALL_MS
-        ),
+        isSequenceOpen: (sequenceId) => isSequenceOpen(sequenceId) && performance.now() - lastWheelActivityAtMs < HOST_SEQUENCE_STALL_MS,
     });
     const userScrollSuppressed = ref(false);
     // Ownership: packets of this gesture are residue of a superseded intent.
@@ -209,7 +199,7 @@ export function createDocumentViewportWritePort(
     let endedThroughSequenceId = 0;
     const unclaimedSequenceStarts: Array<{
         sequenceId: number;
-        packet: IWheelGesturePacket
+        packet: IWheelGesturePacket;
     }> = [];
     let currentSequenceHasNonCancelable = false;
     // A local sequence joined by timing spans several browser sequences, so
@@ -223,9 +213,7 @@ export function createDocumentViewportWritePort(
     }
 
     function isSequenceKnownEnded(sequenceId: number) {
-        return hostReportsSequences
-            && sequenceId <= endedThroughSequenceId
-            && !isHostSilentAbout(sequenceId);
+        return hostReportsSequences && sequenceId <= endedThroughSequenceId && !isHostSilentAbout(sequenceId);
     }
 
     /**
@@ -238,12 +226,12 @@ export function createDocumentViewportWritePort(
         if (!hostReportsSequences || sequenceId <= endedThroughSequenceId || isHostSilentAbout(sequenceId)) {
             return false;
         }
-        return hostOpenSequenceId === sequenceId
-            || (
-                currentSequenceHasNonCancelable
-                && sequenceId === wheelGestures.getSequenceId()
-                && unclaimedSequenceStarts.some(start => start.sequenceId === sequenceId)
-            );
+        return (
+            hostOpenSequenceId === sequenceId ||
+            (currentSequenceHasNonCancelable &&
+                sequenceId === wheelGestures.getSequenceId() &&
+                unclaimedSequenceStarts.some((start) => start.sequenceId === sequenceId))
+        );
     }
 
     function isHostWheelSequenceOpen() {
@@ -251,9 +239,9 @@ export function createDocumentViewportWritePort(
             return false;
         }
         const currentSequenceId = wheelGestures.getSequenceId();
-        return currentSequenceId > 0
-            && isSequenceOpen(currentSequenceId)
-            && performance.now() - lastWheelActivityAtMs < HOST_SEQUENCE_STALL_MS;
+        return (
+            currentSequenceId > 0 && isSequenceOpen(currentSequenceId) && performance.now() - lastWheelActivityAtMs < HOST_SEQUENCE_STALL_MS
+        );
     }
 
     function suppressUserScroll() {
@@ -334,9 +322,7 @@ export function createDocumentViewportWritePort(
      * user's again even though ownership of late packets continues.
      */
     function isCommandResidueLive() {
-        return fencedGestureId !== null
-            && wheelGestures.getGestureId() === fencedGestureId
-            && userScrollSuppressed.value;
+        return fencedGestureId !== null && wheelGestures.getGestureId() === fencedGestureId && userScrollSuppressed.value;
     }
 
     /**
@@ -353,9 +339,9 @@ export function createDocumentViewportWritePort(
         residueReleaseTimer = setTimeout(() => {
             residueReleaseTimer = null;
             if (
-                fencedSequenceId !== null
-                && isSequenceOpen(fencedSequenceId)
-                && performance.now() - lastWheelActivityAtMs < HOST_SEQUENCE_STALL_MS
+                fencedSequenceId !== null &&
+                isSequenceOpen(fencedSequenceId) &&
+                performance.now() - lastWheelActivityAtMs < HOST_SEQUENCE_STALL_MS
             ) {
                 restoreUserScrollOnceGestureIdle();
                 return;
@@ -405,10 +391,10 @@ export function createDocumentViewportWritePort(
         },
         apply(container, write) {
             if (
-                retired
-                || write.intent !== activeIntent
-                || write.intent.source !== readSource()
-                || write.intent.interactionEpoch !== interactionEpoch
+                retired ||
+                write.intent !== activeIntent ||
+                write.intent.source !== readSource() ||
+                write.intent.interactionEpoch !== interactionEpoch
             ) {
                 return false;
             }
@@ -416,18 +402,8 @@ export function createDocumentViewportWritePort(
             // Browsers can dispatch a scroll event while a setter is still on
             // the stack, before the assignment returns. The event must see
             // the same authority fence as the write that caused it.
-            const targetLeft = resolveAuthoredOffset(
-                write.left,
-                container.scrollLeft,
-                container.scrollWidth,
-                container.clientWidth,
-            );
-            const targetTop = resolveAuthoredOffset(
-                write.top,
-                container.scrollTop,
-                container.scrollHeight,
-                container.clientHeight,
-            );
+            const targetLeft = resolveAuthoredOffset(write.left, container.scrollLeft, container.scrollWidth, container.clientWidth);
+            const targetTop = resolveAuthoredOffset(write.top, container.scrollTop, container.scrollHeight, container.clientHeight);
             if (write.left !== undefined) {
                 authorityWrites.set(container, {
                     intentId: write.intent.intentId,
@@ -524,12 +500,7 @@ export function createDocumentViewportWritePort(
             observedWheelPacketSequenceReaders.set(packet, isHostWheelSequenceOpen);
             const nativeScrollUnavailable = userScrollSuppressed.value || scrollRestoreSettling;
             const previousGestureId = wheelGestures.getGestureId();
-            const {
-                gestureId,
-                sequenceId,
-                startsSequence,
-                joinedByTiming,
-            } = wheelGestures.observe(packet);
+            const {gestureId, sequenceId, startsSequence, joinedByTiming} = wheelGestures.observe(packet);
             lastWheelActivityAtMs = performance.now();
             currentSequenceJoinedByTiming ||= joinedByTiming;
             if (startsSequence) {
@@ -568,9 +539,7 @@ export function createDocumentViewportWritePort(
             }
             // A non-cancelable packet belongs to a sequence Chromium scrolls
             // natively, so adopting it would scroll twice.
-            return gestureId === adoptedGestureId && packet.cancelable
-                ? 'adopted-user-input'
-                : 'user-input';
+            return gestureId === adoptedGestureId && packet.cancelable ? 'adopted-user-input' : 'user-input';
         },
         observeWheelScrollSequence(boundary) {
             if (retired) {
@@ -584,8 +553,8 @@ export function createDocumentViewportWritePort(
                 return;
             }
             const currentSequenceId = wheelGestures.getSequenceId();
-            const endedSequenceId = hostOpenSequenceId
-                ?? (!declinedHostBegin && isSequenceOpen(currentSequenceId) ? currentSequenceId : null);
+            const endedSequenceId =
+                hostOpenSequenceId ?? (!declinedHostBegin && isSequenceOpen(currentSequenceId) ? currentSequenceId : null);
             hostOpenSequenceId = null;
             declinedHostBegin = false;
             if (endedSequenceId === null) {
@@ -627,7 +596,7 @@ export function observeDocumentViewportWheelInteraction(
     interaction: {
         readonly intent: TDocumentWheelIntent;
         readonly deltaPx: number;
-        readonly event: IWheelGesturePacket & { preventDefault(): void };
+        readonly event: IWheelGesturePacket & {preventDefault(): void};
     },
     container?: HTMLElement,
 ): TDocumentWheelPacketOwner {

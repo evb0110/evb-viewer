@@ -1,11 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type { IAnnotationEditorState } from '@app/types/annotations';
-import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
+import {describe, expect, it, vi} from 'vitest';
+import type {IAnnotationEditorState} from '@app/types/annotations';
+import {usePageAnnotationTools} from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 
 function createEditorState(overrides: Partial<IAnnotationEditorState> = {}): IAnnotationEditorState {
     return {
@@ -53,16 +48,16 @@ describe('usePageAnnotationTools', () => {
     });
 
     it('tracks dirty state across editor undo transitions and save/reset', () => {
-        const { tools } = createHarness();
+        const {tools} = createHarness();
 
-        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: true }));
+        tools.handleAnnotationState(createEditorState({hasSomethingToUndo: true}));
 
         expect(tools.annotationDirty.value).toBe(true);
 
         tools.markAnnotationSaved();
         expect(tools.annotationDirty.value).toBe(false);
 
-        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: false }));
+        tools.handleAnnotationState(createEditorState({hasSomethingToUndo: false}));
         expect(tools.annotationDirty.value).toBe(false);
 
         tools.markAnnotationDirty();
@@ -75,49 +70,40 @@ describe('usePageAnnotationTools', () => {
     });
 
     it('clears annotation storage markers when undo stack becomes empty', () => {
-        const {
-            deps,
-            tools,
-        } = createHarness();
+        const {deps, tools} = createHarness();
 
         deps.hasAnnotationChanges.mockReturnValue(false);
 
-        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: true }));
+        tools.handleAnnotationState(createEditorState({hasSomethingToUndo: true}));
         expect(tools.annotationDirty.value).toBe(true);
 
-        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: false }));
+        tools.handleAnnotationState(createEditorState({hasSomethingToUndo: false}));
 
         expect(deps.clearAnnotationChanges).toHaveBeenCalledOnce();
         expect(tools.annotationDirty.value).toBe(false);
     });
 
     it('keeps annotation dirty when changes still exist after undo stack is empty', () => {
-        const {
-            deps,
-            tools,
-        } = createHarness();
+        const {deps, tools} = createHarness();
 
         deps.hasAnnotationChanges.mockReturnValue(true);
 
-        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: true }));
-        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: false }));
+        tools.handleAnnotationState(createEditorState({hasSomethingToUndo: true}));
+        tools.handleAnnotationState(createEditorState({hasSomethingToUndo: false}));
 
         expect(deps.clearAnnotationChanges).toHaveBeenCalledOnce();
         expect(tools.annotationDirty.value).toBe(true);
     });
 
     it('keeps add-then-undo clean when a late modified signal follows the empty undo stack state', () => {
-        const {
-            deps,
-            tools,
-        } = createHarness();
+        const {deps, tools} = createHarness();
 
         deps.hasAnnotationChanges.mockReturnValue(false);
 
-        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: true }));
+        tools.handleAnnotationState(createEditorState({hasSomethingToUndo: true}));
         expect(tools.annotationDirty.value).toBe(true);
 
-        tools.handleAnnotationState(createEditorState({ hasSomethingToUndo: false }));
+        tools.handleAnnotationState(createEditorState({hasSomethingToUndo: false}));
         tools.handleAnnotationModified();
 
         expect(deps.clearAnnotationChanges).toHaveBeenCalledOnce();
@@ -125,23 +111,17 @@ describe('usePageAnnotationTools', () => {
     });
 
     it('marks dirty from a forced modified signal even when PDF.js reports no live changes', () => {
-        const {
-            deps,
-            tools,
-        } = createHarness();
+        const {deps, tools} = createHarness();
 
         deps.hasAnnotationChanges.mockReturnValue(false);
 
-        tools.handleAnnotationModified({ forceDirty: true });
+        tools.handleAnnotationModified({forceDirty: true});
 
         expect(tools.annotationDirty.value).toBe(true);
     });
 
     it('marks dirty from a modified signal when the editor stack is empty but live annotation changes remain', () => {
-        const {
-            deps,
-            tools,
-        } = createHarness();
+        const {deps, tools} = createHarness();
 
         deps.hasAnnotationChanges.mockReturnValue(true);
 

@@ -1,8 +1,4 @@
-import {
-    createBrandedId,
-    isBrandedString,
-    parseBranded,
-} from '@contracts/brand';
+import {createBrandedId, isBrandedString, parseBranded} from '@contracts/brand';
 import type {TBrand} from '@contracts/brand';
 import type {TTabId} from '@contracts/windowTabs';
 

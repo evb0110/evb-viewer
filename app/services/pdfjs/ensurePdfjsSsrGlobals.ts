@@ -58,12 +58,7 @@ class DOMMatrixSsrStub {
         return this;
     }
 
-    public transformPoint(point?: {
-        x?: number;
-        y?: number;
-        z?: number;
-        w?: number;
-    }) {
+    public transformPoint(point?: {x?: number; y?: number; z?: number; w?: number}) {
         return {
             x: point?.x ?? 0,
             y: point?.y ?? 0,
@@ -73,7 +68,9 @@ class DOMMatrixSsrStub {
     }
 }
 
-interface IPdfjsSsrGlobalScope {DOMMatrix?: new () => DOMMatrixSsrStub;}
+interface IPdfjsSsrGlobalScope {
+    DOMMatrix?: new () => DOMMatrixSsrStub;
+}
 
 function isBrowserDocumentRuntime() {
     return typeof window !== 'undefined' && typeof document !== 'undefined';

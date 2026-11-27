@@ -1,17 +1,14 @@
-import { stat } from 'node:fs/promises';
-import { join } from 'node:path';
-import { clamp } from 'es-toolkit/math';
-import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
-import { HOST_TIER_LOW_RAM_MAX_GIB } from '@contracts/hostResourceProfile';
-import {
-    type TOcrModelCode,
-    withOcrModelSublanguages,
-} from '@contracts/ocrLanguages';
-import { parseBoundedEnvInt } from '@contracts/resourcePolicies';
-import { readPnmSize } from '@ocr-core/ppmRaster';
-import type { TOcrEngineImageInput } from '@electron/features/ocr/main/ocrEngineHostProtocol';
-import type { IJobResourceVector } from '@electron/resources/jobBroker';
-import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
+import {stat} from 'node:fs/promises';
+import {join} from 'node:path';
+import {clamp} from 'es-toolkit/math';
+import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
+import {HOST_TIER_LOW_RAM_MAX_GIB} from '@contracts/hostResourceProfile';
+import {type TOcrModelCode, withOcrModelSublanguages} from '@contracts/ocrLanguages';
+import {parseBoundedEnvInt} from '@contracts/resourcePolicies';
+import {readPnmSize} from '@ocr-core/ppmRaster';
+import type {TOcrEngineImageInput} from '@electron/features/ocr/main/ocrEngineHostProtocol';
+import type {IJobResourceVector} from '@electron/resources/jobBroker';
+import {getHostResourceProfileSnapshot} from '@electron/resources/hostResourceProfile';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 const MIB = 1024 * 1024;
@@ -46,38 +43,26 @@ function getMemorySlotCount(memoryBytes: number) {
         return BASE_NORMAL_PAGE_SLOTS;
     }
 
-    const memoryBudgetRatio = memoryBytes >= 32 * GIB
-        ? 0.18
-        : memoryBytes >= 16 * GIB
-            ? 0.12
-            : 0.08;
+    const memoryBudgetRatio = memoryBytes >= 32 * GIB ? 0.18 : memoryBytes >= 16 * GIB ? 0.12 : 0.08;
     return Math.max(1, Math.floor((memoryBytes * memoryBudgetRatio) / NORMAL_RENDERED_PAGE_BYTES));
 }
 
 function getLaneCeiling(profile: IHostResourceProfileSnapshot) {
-    return profile.totalRamBytes > 0 && profile.totalRamBytes <= SINGLE_LANE_MAX_MEMORY_BYTES
-        ? 1
-        : Math.max(1, profile.logicalCpus);
+    return profile.totalRamBytes > 0 && profile.totalRamBytes <= SINGLE_LANE_MAX_MEMORY_BYTES ? 1 : Math.max(1, profile.logicalCpus);
 }
 
 /**
  * Page lanes scale with cores and memory alone; the job broker then charges
  * each lane what its engine really holds, so lanes that do not fit wait.
  */
-export function resolveOcrRuntimePolicy(
-    profile: IHostResourceProfileSnapshot,
-    env: NodeJS.ProcessEnv,
-): IOcrRuntimePolicy {
+export function resolveOcrRuntimePolicy(profile: IHostResourceProfileSnapshot, env: NodeJS.ProcessEnv): IOcrRuntimePolicy {
     const isLowTier = profile.tier === 'low';
     const laneCeiling = getLaneCeiling(profile);
     const defaultGlobalPageSlots = isLowTier
         ? 1
         : profile.totalRamBytes > 0 && profile.totalRamBytes < LOW_MEMORY_BYTES
-            ? LOW_MEMORY_PAGE_SLOTS
-            : Math.min(
-                getCpuSlotCount(profile.logicalCpus),
-                getMemorySlotCount(profile.totalRamBytes),
-            );
+          ? LOW_MEMORY_PAGE_SLOTS
+          : Math.min(getCpuSlotCount(profile.logicalCpus), getMemorySlotCount(profile.totalRamBytes));
     const globalPageSlots = parseBoundedEnvInt(env.OCR_GLOBAL_PAGE_SLOTS, {
         fallback: clamp(defaultGlobalPageSlots, 1, laneCeiling),
         min: 1,
@@ -93,10 +78,7 @@ export function resolveOcrRuntimePolicy(
 }
 
 export function getOcrRuntimePolicy() {
-    return resolveOcrRuntimePolicy(
-        getHostResourceProfileSnapshot(),
-        process.env,
-    );
+    return resolveOcrRuntimePolicy(getHostResourceProfileSnapshot(), process.env);
 }
 
 function readRasterPixelCount(image: TOcrEngineImageInput) {
@@ -104,10 +86,7 @@ function readRasterPixelCount(image: TOcrEngineImageInput) {
         return image.width * image.height;
     }
     try {
-        const {
-            width,
-            height,
-        } = readPnmSize(image);
+        const {width, height} = readPnmSize(image);
         return width * height;
     } catch {
         return image.byteLength;
@@ -125,8 +104,7 @@ export function resolveOcrLaneResources(
     image: TOcrEngineImageInput,
     capacity: Readonly<IJobResourceVector>,
 ): IJobResourceVector {
-    const wasmHeapBytes = OCR_LANE_BASE_WASM_HEAP_BYTES
-        + readRasterPixelCount(image) * OCR_LANE_WASM_HEAP_BYTES_PER_PIXEL;
+    const wasmHeapBytes = OCR_LANE_BASE_WASM_HEAP_BYTES + readRasterPixelCount(image) * OCR_LANE_WASM_HEAP_BYTES_PER_PIXEL;
     return {
         cpuTokens: Math.min(1, capacity.cpuTokens),
         estimatedResidentBytes: Math.min(
@@ -148,7 +126,7 @@ export function createOcrModelBytesReader(tessdataDir: string) {
     const readSize = (code: TOcrModelCode) => {
         let size = sizes.get(code);
         if (size === undefined) {
-            size = stat(join(tessdataDir, `${code}.traineddata`)).then(model => model.size);
+            size = stat(join(tessdataDir, `${code}.traineddata`)).then((model) => model.size);
             size.catch(() => sizes.delete(code));
             sizes.set(code, size);
         }
@@ -157,15 +135,14 @@ export function createOcrModelBytesReader(tessdataDir: string) {
     return async (models: readonly TOcrModelCode[]): Promise<ReadonlyMap<TOcrModelCode, number>> => {
         const codes = withOcrModelSublanguages(models);
         const sizes = await Promise.all(codes.map(readSize));
-        return new Map(codes.map((code, index) => [
-            code,
-            sizes[index]!,
-        ]));
+        return new Map(codes.map((code, index) => [code, sizes[index]!]));
     };
 }
 
 export function sumOcrModelBytes(sizes: ReadonlyMap<TOcrModelCode, number>) {
     let total = 0;
-    for (const size of sizes.values()) total += size;
+    for (const size of sizes.values()) {
+        total += size;
+    }
     return total;
 }

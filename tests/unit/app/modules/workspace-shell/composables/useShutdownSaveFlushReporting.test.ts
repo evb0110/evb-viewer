@@ -1,20 +1,7 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    effectScope,
-    nextTick,
-    ref,
-} from 'vue';
-import type { IShutdownSaveFlushResponse } from '@contracts/systemPlatformFeature';
-import {
-    requireDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {effectScope, nextTick, ref} from 'vue';
+import type {IShutdownSaveFlushResponse} from '@contracts/systemPlatformFeature';
+import {requireDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import {
     preventBrowserUnloadWhenDirty,
     useBrowserDirtyUnloadGuard,
@@ -27,11 +14,13 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {info: mocks.info}}))
 
 type TShutdownSaveFlushCallback = () => Promise<IShutdownSaveFlushResponse> | IShutdownSaveFlushResponse;
 
-function createHarness(options: {
-    dirty?: boolean;
-    workingCopyPath?: string | null;
-    flushAdditionalState?: () => Promise<void> | void;
-} = {}) {
+function createHarness(
+    options: {
+        dirty?: boolean;
+        workingCopyPath?: string | null;
+        flushAdditionalState?: () => Promise<void> | void;
+    } = {},
+) {
     let callback: TShutdownSaveFlushCallback | null = null;
     const unsubscribe = vi.fn();
     const onShutdownSaveFlushRequest = vi.fn((nextCallback: TShutdownSaveFlushCallback) => {
@@ -43,8 +32,8 @@ function createHarness(options: {
         options.workingCopyPath === undefined
             ? requireDocumentRef('/tmp/document-working-copy.pdf')
             : options.workingCopyPath === null
-                ? null
-                : requireDocumentRef(options.workingCopyPath),
+              ? null
+              : requireDocumentRef(options.workingCopyPath),
     );
     const hasPendingUnsavedChanges = ref(options.dirty ?? true);
     const scope = effectScope();
@@ -53,9 +42,7 @@ function createHarness(options: {
         useShutdownSaveFlushReporting({
             workingCopyPath,
             hasPendingUnsavedChanges,
-            ...(options.flushAdditionalState === undefined
-                ? {}
-                : {flushAdditionalState: options.flushAdditionalState}),
+            ...(options.flushAdditionalState === undefined ? {} : {flushAdditionalState: options.flushAdditionalState}),
             systemCapability,
         });
     });

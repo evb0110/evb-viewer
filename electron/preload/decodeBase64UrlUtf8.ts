@@ -16,16 +16,13 @@ export function decodeBase64UrlUtf8(value: string) {
         return null;
     }
 
-    const canonicalValue = btoa(binary)
-        .replace(/\+/gu, '-')
-        .replace(/\//gu, '_')
-        .replace(/=+$/u, '');
+    const canonicalValue = btoa(binary).replace(/\+/gu, '-').replace(/\//gu, '_').replace(/=+$/u, '');
     if (canonicalValue !== value) {
         return null;
     }
 
     try {
-        const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+        const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
         return new TextDecoder('utf-8', {fatal: true}).decode(bytes);
     } catch {
         return null;

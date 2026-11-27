@@ -1,17 +1,9 @@
-import {
-    createAbortError,
-    isAbortError,
-} from '@contracts/isAbortError';
+import {createAbortError, isAbortError} from '@contracts/isAbortError';
 
-export {
-    createAbortError,
-    isAbortError,
-};
+export {createAbortError, isAbortError};
 
 export function abortErrorFromSignal(signal: AbortSignal) {
-    return signal.reason instanceof Error
-        ? signal.reason
-        : createAbortError();
+    return signal.reason instanceof Error ? signal.reason : createAbortError();
 }
 
 export function raceWithAbortSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -29,11 +21,11 @@ export function raceWithAbortSignal<T>(promise: Promise<T>, signal?: AbortSignal
         };
         signal.addEventListener('abort', onAbort, {once: true});
         promise.then(
-            value => {
+            (value) => {
                 signal.removeEventListener('abort', onAbort);
                 resolve(value);
             },
-            error => {
+            (error) => {
                 signal.removeEventListener('abort', onAbort);
                 reject(error);
             },

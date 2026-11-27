@@ -1,15 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    DEFAULT_SETTINGS,
-    migrateSettings,
-    normalizeLocale,
-    normalizeTheme,
-    sanitizeSettings,
-} from '@contracts/settings';
+import {describe, expect, it} from 'vitest';
+import {DEFAULT_SETTINGS, migrateSettings, normalizeLocale, normalizeTheme, sanitizeSettings} from '@contracts/settings';
 
 describe('settings-sanitizer', () => {
     it('returns defaults when settings payload is missing', () => {
@@ -21,12 +11,14 @@ describe('settings-sanitizer', () => {
     });
 
     it('preserves valid locale and dark theme', () => {
-        expect(sanitizeSettings({
-            version: 3,
-            authorName: 'Alice',
-            theme: 'dark',
-            locale: 'fr',
-        })).toEqual({
+        expect(
+            sanitizeSettings({
+                version: 3,
+                authorName: 'Alice',
+                theme: 'dark',
+                locale: 'fr',
+            }),
+        ).toEqual({
             ...DEFAULT_SETTINGS,
             version: 3,
             authorName: 'Alice',
@@ -44,11 +36,13 @@ describe('settings-sanitizer', () => {
     });
 
     it('migrates version one settings and preserves unknown storage fields', () => {
-        expect(migrateSettings({
-            version: 1,
-            authorName: 'Alice',
-            futureSetting: {enabled: true},
-        })).toMatchObject({
+        expect(
+            migrateSettings({
+                version: 1,
+                authorName: 'Alice',
+                futureSetting: {enabled: true},
+            }),
+        ).toMatchObject({
             version: DEFAULT_SETTINGS.version,
             authorName: 'Alice',
             futureSetting: {enabled: true},
@@ -56,14 +50,16 @@ describe('settings-sanitizer', () => {
     });
 
     it('normalizes invalid locale/theme and trims skipped update version', () => {
-        expect(sanitizeSettings({
-            version: 1,
-            authorName: 'Bob',
-            theme: 'midnight' as 'light',
-            locale: 'xx' as 'en',
-            skippedUpdateVersion: '  1.2.3  ',
-            suppressDefaultViewerPrompt: true,
-        })).toEqual({
+        expect(
+            sanitizeSettings({
+                version: 1,
+                authorName: 'Bob',
+                theme: 'midnight' as 'light',
+                locale: 'xx' as 'en',
+                skippedUpdateVersion: '  1.2.3  ',
+                suppressDefaultViewerPrompt: true,
+            }),
+        ).toEqual({
             ...DEFAULT_SETTINGS,
             version: 1,
             authorName: 'Bob',
@@ -85,12 +81,7 @@ describe('settings-sanitizer', () => {
     });
 
     it('normalizes every valid performance mode', () => {
-        for (const mode of [
-            'auto',
-            'low',
-            'medium',
-            'high',
-        ] as const) {
+        for (const mode of ['auto', 'low', 'medium', 'high'] as const) {
             expect(sanitizeSettings({performanceMode: mode}).performanceMode).toBe(mode);
         }
     });
@@ -115,12 +106,7 @@ describe('settings-sanitizer', () => {
 
     it('only enables closed-document restoration for an explicit boolean opt-in', () => {
         expect(DEFAULT_SETTINGS.rememberDocumentView).toBe(false);
-        for (const raw of [
-            undefined,
-            {},
-            {rememberDocumentView: false},
-            {rememberDocumentView: 'true'},
-        ]) {
+        for (const raw of [undefined, {}, {rememberDocumentView: false}, {rememberDocumentView: 'true'}]) {
             expect(sanitizeSettings(raw).rememberDocumentView).toBe(false);
         }
         expect(migrateSettings({version: 1}).rememberDocumentView).toBe(false);
@@ -151,10 +137,12 @@ describe('settings-sanitizer', () => {
     });
 
     it('trims and clamps unbounded string settings', () => {
-        expect(sanitizeSettings({
-            authorName: `  ${'A'.repeat(300)}  `,
-            skippedUpdateVersion: `  ${'1'.repeat(160)}  `,
-        })).toMatchObject({
+        expect(
+            sanitizeSettings({
+                authorName: `  ${'A'.repeat(300)}  `,
+                skippedUpdateVersion: `  ${'1'.repeat(160)}  `,
+            }),
+        ).toMatchObject({
             authorName: 'A'.repeat(256),
             skippedUpdateVersion: '1'.repeat(128),
         });

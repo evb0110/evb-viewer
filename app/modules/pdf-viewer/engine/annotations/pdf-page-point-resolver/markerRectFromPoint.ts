@@ -1,6 +1,6 @@
-import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import { clamp01 } from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
-import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
+import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import {clamp01} from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
+import {normalizeMarkerRect} from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 
 const DEFAULT_POINT_MARKER_SIZE = 0.0016;
 

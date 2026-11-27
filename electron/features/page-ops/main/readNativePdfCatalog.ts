@@ -1,7 +1,7 @@
-import { isRecord } from '@contracts/runtimeGuards';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { QPDF_TIMEOUT_MS } from '@electron/pdf/pdfPageCount';
-import { createLogger } from '@electron/utils/createLogger';
+import {isRecord} from '@contracts/runtimeGuards';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {QPDF_TIMEOUT_MS} from '@electron/pdf/pdfPageCount';
+import {createLogger} from '@electron/utils/createLogger';
 
 const log = createLogger('page-ops-catalog');
 
@@ -14,18 +14,8 @@ interface INativePdfCatalogReadOptions {
     cancelGroup?: string;
 }
 
-async function readCatalogJson(
-    binaryPath: string,
-    inputPath: string,
-    options: INativePdfCatalogReadOptions,
-): Promise<unknown> {
-    const {
-        stdout, stderr,
-    } = await runNativeToolCommand(binaryPath, [
-        'read-document-catalog',
-        '--input',
-        inputPath,
-    ], {
+async function readCatalogJson(binaryPath: string, inputPath: string, options: INativePdfCatalogReadOptions): Promise<unknown> {
+    const {stdout, stderr} = await runNativeToolCommand(binaryPath, ['read-document-catalog', '--input', inputPath], {
         timeoutMs: QPDF_TIMEOUT_MS,
         maxStdoutBytes: PDF_CATALOG_MAX_BYTES,
         rejectOnStdoutTruncation: true,
@@ -34,7 +24,9 @@ async function readCatalogJson(
     // The reader reports, one JSON line each, what it read but could not keep,
     // such as an outline action it leaves without a target.
     for (const line of stderr.split(/\r?\n/u)) {
-        if (line.trim()) log.warn(line);
+        if (line.trim()) {
+            log.warn(line);
+        }
     }
     return JSON.parse(stdout);
 }

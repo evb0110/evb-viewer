@@ -1,12 +1,9 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import { SerializableError } from '@contracts/serializableError';
-import {
-    isIndirectDjvuHeader,
-    type IDjvuComponentFiles,
-} from '@app/platform/browser-api/browserDjvuSource';
-import { getExtension } from '@app/platform/browser-api/browserFileName';
-import { isSupportedOpenExtension } from '@pdf-core/documentOpenFileTypes';
-import { browserDocumentStore } from '@app/platform/browserDocumentStore';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {SerializableError} from '@contracts/serializableError';
+import {isIndirectDjvuHeader, type IDjvuComponentFiles} from '@app/platform/browser-api/browserDjvuSource';
+import {getExtension} from '@app/platform/browser-api/browserFileName';
+import {isSupportedOpenExtension} from '@pdf-core/documentOpenFileTypes';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 
 /**
  * The sibling files of indirect DjVu documents opened in this session.
@@ -18,7 +15,7 @@ import { browserDocumentStore } from '@app/platform/browserDocumentStore';
  */
 const componentFilesByIndex = new Map<string, IDjvuComponentFiles>();
 // An index whose record leaves the store cannot reopen; its files go with it.
-browserDocumentStore.onDocumentRecordRemoved(ref => componentFilesByIndex.delete(ref));
+browserDocumentStore.onDocumentRecordRemoved((ref) => componentFilesByIndex.delete(ref));
 
 const DJVU_FILE_NAME_PATTERN = /\.djvu?$/iu;
 const DJVU_HEADER_BYTES = 25;
@@ -34,19 +31,21 @@ function createComponentFiles(files: readonly File[]): IDjvuComponentFiles {
             filesByName.set(file.name, file);
         }
     }
-    return {async readComponent(name, length) {
-        // An index may name a component by a relative path; the picked
-        // file carries only its own name.
-        const file = filesByName.get(name) ?? filesByName.get(baseName(name));
-        if (!file) {
-            throw new SerializableError({
-                code: 'djvu-components-required',
-                message: `The DjVu page file ${name} was not selected with its index.`,
-            });
-        }
-        const part = length === undefined ? file : file.slice(0, length);
-        return new Uint8Array(await part.arrayBuffer());
-    }};
+    return {
+        async readComponent(name, length) {
+            // An index may name a component by a relative path; the picked
+            // file carries only its own name.
+            const file = filesByName.get(name) ?? filesByName.get(baseName(name));
+            if (!file) {
+                throw new SerializableError({
+                    code: 'djvu-components-required',
+                    message: `The DjVu page file ${name} was not selected with its index.`,
+                });
+            }
+            const part = length === undefined ? file : file.slice(0, length);
+            return new Uint8Array(await part.arrayBuffer());
+        },
+    };
 }
 
 export function getBrowserDjvuComponentFiles(indexRef: TDocumentRef) {
@@ -58,9 +57,11 @@ export function setBrowserDjvuComponentFiles(indexRef: TDocumentRef, files: read
 }
 
 async function isIndirectDjvuIndexFile(file: File) {
-    return DJVU_FILE_NAME_PATTERN.test(file.name)
-        && file.size >= DJVU_HEADER_BYTES
-        && isIndirectDjvuHeader(new Uint8Array(await file.slice(0, DJVU_HEADER_BYTES).arrayBuffer()));
+    return (
+        DJVU_FILE_NAME_PATTERN.test(file.name) &&
+        file.size >= DJVU_HEADER_BYTES &&
+        isIndirectDjvuHeader(new Uint8Array(await file.slice(0, DJVU_HEADER_BYTES).arrayBuffer()))
+    );
 }
 
 /** A selected PDF or image is a document of its own, never a DjVu component. */
@@ -75,7 +76,7 @@ function isOtherOpenDocument(file: File) {
  * name. A selection that also holds a PDF or image is a batch of documents.
  */
 export async function findIndirectDjvuSelection<T extends {file: File}>(picked: readonly T[]) {
-    if (picked.length < 2 || picked.some(entry => isOtherOpenDocument(entry.file))) {
+    if (picked.length < 2 || picked.some((entry) => isOtherOpenDocument(entry.file))) {
         return null;
     }
     const indexes: T[] = [];
@@ -87,8 +88,8 @@ export async function findIndirectDjvuSelection<T extends {file: File}>(picked: 
     const index = indexes.length === 1 ? indexes[0] : undefined;
     return index
         ? {
-            index,
-            components: picked.filter(entry => entry !== index).map(entry => entry.file),
-        }
+              index,
+              components: picked.filter((entry) => entry !== index).map((entry) => entry.file),
+          }
         : null;
 }

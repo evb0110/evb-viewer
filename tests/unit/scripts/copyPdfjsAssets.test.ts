@@ -1,34 +1,16 @@
-import {
-    mkdir,
-    mkdtemp,
-    readdir,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path, { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {mkdir, mkdtemp, readdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path, {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {describe, expect, it, vi} from 'vitest';
 
 interface ICopyPdfjsAssetsModule {
-    copyPdfjsAssets: (options?: {
-        root?: string;
-        targetRoot?: string;
-    }) => Promise<void>;
+    copyPdfjsAssets: (options?: {root?: string; targetRoot?: string}) => Promise<void>;
     minifyPdfjsWorker: (source: string) => Promise<string>;
     PDFJS_WORKER_MAX_BYTES: number;
     PDFJS_WORKER_MAX_LINES: number;
     readPdfjsPackageVersion: (root?: string) => Promise<string>;
-    writePdfjsVersionStamp: (options?: {
-        root?: string;
-        targetRoot?: string;
-    }) => Promise<string>;
+    writePdfjsVersionStamp: (options?: {root?: string; targetRoot?: string}) => Promise<string>;
 }
 
 const {
@@ -38,9 +20,7 @@ const {
     PDFJS_WORKER_MAX_LINES,
     readPdfjsPackageVersion,
     writePdfjsVersionStamp,
-} = await import(
-    pathToFileURL(resolve(process.cwd(), 'scripts/copy-pdfjs-assets.mjs')).href
-) as ICopyPdfjsAssetsModule;
+} = (await import(pathToFileURL(resolve(process.cwd(), 'scripts/copy-pdfjs-assets.mjs')).href)) as ICopyPdfjsAssetsModule;
 
 describe('copy-pdfjs-assets', () => {
     it('minifies the patched worker without dropping its sparse-read behavior', async () => {
@@ -127,10 +107,7 @@ export {
 };
 `;
         const minifiedSource = await minifyPdfjsWorker(source);
-        const minifiedBody = minifiedSource.replace(
-            /^(?:\/\*\*[\s\S]*?\*\/\s*)+/u,
-            '',
-        );
+        const minifiedBody = minifiedSource.replace(/^(?:\/\*\*[\s\S]*?\*\/\s*)+/u, '');
 
         for (const marker of [
             'ChunkedStreamClone',
@@ -194,18 +171,10 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
 `;
         try {
             await mkdir(path.join(pdfjsRoot, 'build'), {recursive: true});
-            await writeFile(
-                path.join(pdfjsRoot, 'package.json'),
-                JSON.stringify({version: '9.8.7'}),
-            );
+            await writeFile(path.join(pdfjsRoot, 'package.json'), JSON.stringify({version: '9.8.7'}));
             await writeFile(path.join(pdfjsRoot, 'build', 'pdf.worker.mjs'), workerSource);
             await writeFile(path.join(pdfjsRoot, 'LICENSE_BROTLI'), 'Brotli copyright and MIT permission notice\n');
-            for (const directory of [
-                'standard_fonts',
-                'cmaps',
-                'wasm',
-                'iccs',
-            ]) {
+            for (const directory of ['standard_fonts', 'cmaps', 'wasm', 'iccs']) {
                 await mkdir(path.join(pdfjsRoot, directory), {recursive: true});
             }
             await writeFile(
@@ -223,16 +192,15 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
                 targetRoot,
             });
 
-            const publicWorkerSource = await readFile(
-                path.join(targetRoot, 'pdf.worker.min.mjs'),
-                'utf8',
-            );
+            const publicWorkerSource = await readFile(path.join(targetRoot, 'pdf.worker.min.mjs'), 'utf8');
             const readIds = async (): Promise<string[]> => JSON.parse(await readFile(path.join(targetRoot, 'assets.json'), 'utf8'));
             const [firstId = ''] = await readIds();
             expect(await readIds()).toEqual([firstId]);
             expect(firstId).toMatch(/^[a-f0-9]{64}$/u);
             expect(await readFile(path.join(targetRoot, 'LICENSE_BROTLI'), 'utf8')).toBe('Brotli copyright and MIT permission notice\n');
-            expect(await readFile(path.join(targetRoot, firstId, 'LICENSE_BROTLI'), 'utf8')).toBe('Brotli copyright and MIT permission notice\n');
+            expect(await readFile(path.join(targetRoot, firstId, 'LICENSE_BROTLI'), 'utf8')).toBe(
+                'Brotli copyright and MIT permission notice\n',
+            );
             expect(await readFile(path.join(targetRoot, firstId, 'pdf.worker.min.mjs'), 'utf8')).toBe(publicWorkerSource);
             expect(await readFile(path.join(targetRoot, firstId, '.pdfjs-version'), 'utf8')).toBe('9.8.7\n');
             expect(await readFile(path.join(targetRoot, firstId, 'images', 'annotation-note.svg'), 'utf8')).toBe('<svg/>');
@@ -250,10 +218,7 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
             });
             const [secondId = ''] = await readIds();
             expect(secondId).not.toBe(firstId);
-            expect(await readIds()).toEqual([
-                secondId,
-                firstId,
-            ]);
+            expect(await readIds()).toEqual([secondId, firstId]);
             expect(await readFile(path.join(targetRoot, firstId, 'wasm', 'jbig2.wasm'), 'utf8')).toBe('original wasm');
             expect(await readFile(path.join(targetRoot, secondId, 'wasm', 'jbig2.wasm'), 'utf8')).toBe('next wasm');
             await writeFile(path.join(pdfjsRoot, 'package.json'), JSON.stringify({version: '9.8.8'}));
@@ -263,30 +228,17 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
                 targetRoot,
             });
             const [thirdId = ''] = await readIds();
-            expect(new Set([
-                firstId,
-                secondId,
-                thirdId,
-            ]).size).toBe(3);
+            expect(new Set([firstId, secondId, thirdId]).size).toBe(3);
             expect(await readFile(path.join(targetRoot, firstId, 'pdf.worker.min.mjs'), 'utf8')).toBe(publicWorkerSource);
             expect(await readFile(path.join(targetRoot, thirdId, '.pdfjs-version'), 'utf8')).toBe('9.8.8\n');
-            expect(await readIds()).toEqual([
-                thirdId,
-                secondId,
-                firstId,
-            ]);
+            expect(await readIds()).toEqual([thirdId, secondId, firstId]);
             await writeFile(path.join(pdfjsRoot, 'wasm', 'jbig2.wasm'), 'fourth wasm');
             await copyPdfjsAssets({
                 root: pdfjsRoot,
                 targetRoot,
             });
             const [fourthId = ''] = await readIds();
-            expect(await readIds()).toEqual([
-                fourthId,
-                thirdId,
-                secondId,
-                firstId,
-            ]);
+            expect(await readIds()).toEqual([fourthId, thirdId, secondId, firstId]);
 
             const unknownId = 'f'.repeat(64);
             await mkdir(path.join(targetRoot, unknownId));
@@ -302,17 +254,12 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
                     targetRoot,
                 });
                 const [fifthId = ''] = await readIds();
-                expect(await readIds()).toEqual([
-                    fifthId,
-                    fourthId,
-                    thirdId,
-                    secondId,
-                ]);
-                await expect(readdir(path.join(targetRoot, firstId)))
-                    .rejects.toMatchObject({code: 'ENOENT'});
+                expect(await readIds()).toEqual([fifthId, fourthId, thirdId, secondId]);
+                await expect(readdir(path.join(targetRoot, firstId))).rejects.toMatchObject({code: 'ENOENT'});
                 for (const id of await readIds()) {
-                    expect(await readFile(path.join(targetRoot, id, '.pdfjs-version'), 'utf8'))
-                        .toBe(id === secondId ? '9.8.7\n' : '9.8.8\n');
+                    expect(await readFile(path.join(targetRoot, id, '.pdfjs-version'), 'utf8')).toBe(
+                        id === secondId ? '9.8.7\n' : '9.8.8\n',
+                    );
                 }
                 // A rollback promotes the oldest retained identity to current;
                 // pruning must not delete it based on its former position.
@@ -323,12 +270,7 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
                     root: pdfjsRoot,
                     targetRoot,
                 });
-                expect(await readIds()).toEqual([
-                    secondId,
-                    fifthId,
-                    fourthId,
-                    thirdId,
-                ]);
+                expect(await readIds()).toEqual([secondId, fifthId, fourthId, thirdId]);
                 expect(await readFile(path.join(targetRoot, secondId, 'pdf.worker.min.mjs'), 'utf8')).toBe(publicWorkerSource);
                 expect(await readFile(path.join(targetRoot, secondId, 'wasm', 'jbig2.wasm'), 'utf8')).toBe('next wasm');
                 expect(await readFile(path.join(targetRoot, unknownId, 'manual.txt'), 'utf8')).toBe('manual copy');
@@ -340,41 +282,37 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
                 warning.mockRestore();
             }
             expect(publicWorkerSource).toContain('ChunkedStreamClone');
-            expect(await readFile(
-                path.join(targetRoot, 'standard_fonts', 'LICENSE_LIBERATION'),
-                'utf8',
-            )).toBe('license line with spaces\nlicense line without spaces\n');
+            expect(await readFile(path.join(targetRoot, 'standard_fonts', 'LICENSE_LIBERATION'), 'utf8')).toBe(
+                'license line with spaces\nlicense line without spaces\n',
+            );
             expect(publicWorkerSource).toContain('_storedChunks');
             expect(publicWorkerSource).toContain('discardChunksBefore');
             expect(publicWorkerSource).toContain('indexObjectsBounded');
             expect(publicWorkerSource).toContain('receivedBytes');
-            expect(publicWorkerSource).not.toContain(
-                'PDF.js xref recovery is disabled for range-backed documents above 16 MiB',
-            );
-            expect(publicWorkerSource.split(/\r?\n/u).length)
-                .toBeLessThanOrEqual(PDFJS_WORKER_MAX_LINES);
-            expect(Buffer.byteLength(publicWorkerSource, 'utf8'))
-                .toBeLessThan(PDFJS_WORKER_MAX_BYTES);
+            expect(publicWorkerSource).not.toContain('PDF.js xref recovery is disabled for range-backed documents above 16 MiB');
+            expect(publicWorkerSource.split(/\r?\n/u).length).toBeLessThanOrEqual(PDFJS_WORKER_MAX_LINES);
+            expect(Buffer.byteLength(publicWorkerSource, 'utf8')).toBeLessThan(PDFJS_WORKER_MAX_BYTES);
             expect(publicWorkerSource).not.toContain('\n    class ChunkedStream');
-            await expect(readFile(path.join(targetRoot, 'wasm', 'README.md')))
-                .rejects
-                .toMatchObject({code: 'ENOENT'});
-            await expect(readFile(path.join(targetRoot, 'wasm', 'CHANGELOG.md')))
-                .rejects
-                .toMatchObject({code: 'ENOENT'});
+            await expect(readFile(path.join(targetRoot, 'wasm', 'README.md'))).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(readFile(path.join(targetRoot, 'wasm', 'CHANGELOG.md'))).rejects.toMatchObject({code: 'ENOENT'});
 
-            const publicWorkerModule = await import(
-                `${pathToFileURL(path.join(targetRoot, 'pdf.worker.min.mjs')).href}?asset-contract`
-            );
+            const publicWorkerModule = await import(`${pathToFileURL(path.join(targetRoot, 'pdf.worker.min.mjs')).href}?asset-contract`);
             const stream = new publicWorkerModule.ChunkedStream();
             expect(stream._storedChunks).toBeInstanceOf(Map);
             expect(stream.clone().constructor.name).toBe('ChunkedStreamClone');
             stream.end = 1024;
             expect(publicWorkerModule.indexObjectsBounded(stream, 1024)).toBe(1024);
-            await expect(publicWorkerModule.sendRange({read: async () => ({
-                value: new Uint8Array(4),
-                done: false,
-            })}, 16)).resolves.toEqual({
+            await expect(
+                publicWorkerModule.sendRange(
+                    {
+                        read: async () => ({
+                            value: new Uint8Array(4),
+                            done: false,
+                        }),
+                    },
+                    16,
+                ),
+            ).resolves.toEqual({
                 nextBegin: 20,
                 receivedBytes: 4,
             });
@@ -392,19 +330,16 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
         const targetRoot = path.join(tempRoot, 'public', 'pdf');
         try {
             await mkdir(pdfjsRoot, {recursive: true});
-            await writeFile(
-                path.join(pdfjsRoot, 'package.json'),
-                JSON.stringify({version: '9.8.7'}),
-            );
+            await writeFile(path.join(pdfjsRoot, 'package.json'), JSON.stringify({version: '9.8.7'}));
 
-            await expect(writePdfjsVersionStamp({
-                root: pdfjsRoot,
-                targetRoot,
-            })).resolves.toBe('9.8.7');
+            await expect(
+                writePdfjsVersionStamp({
+                    root: pdfjsRoot,
+                    targetRoot,
+                }),
+            ).resolves.toBe('9.8.7');
 
-            await expect(readFile(path.join(targetRoot, '.pdfjs-version'), 'utf8'))
-                .resolves
-                .toBe('9.8.7\n');
+            await expect(readFile(path.join(targetRoot, '.pdfjs-version'), 'utf8')).resolves.toBe('9.8.7\n');
         } finally {
             await rm(tempRoot, {
                 force: true,
@@ -415,10 +350,7 @@ export { ChunkedStream, indexObjectsBounded, sendRange };
 
     it('keeps the committed public stamp aligned with pdfjs-dist', async () => {
         const installedVersion = await readPdfjsPackageVersion();
-        const committedStamp = await readFile(
-            path.join(process.cwd(), 'public', 'pdf', '.pdfjs-version'),
-            'utf8',
-        );
+        const committedStamp = await readFile(path.join(process.cwd(), 'public', 'pdf', '.pdfjs-version'), 'utf8');
 
         expect(committedStamp.trim()).toBe(installedVersion);
     });

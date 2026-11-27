@@ -6,11 +6,7 @@ export class BrowserDocumentReadError extends Error {
     public readonly code: TBrowserDocumentReadErrorCode;
     public readonly maxBytes: number | undefined;
 
-    public constructor(
-        code: TBrowserDocumentReadErrorCode,
-        message: string,
-        options?: ErrorOptions & {maxBytes?: number},
-    ) {
+    public constructor(code: TBrowserDocumentReadErrorCode, message: string, options?: ErrorOptions & {maxBytes?: number}) {
         super(message, options);
         this.name = 'BrowserDocumentReadError';
         this.code = code;

@@ -1,12 +1,11 @@
-import type { ILogger } from '@electron/utils/createLogger';
-import { randomUUID } from 'node:crypto';
+import type {ILogger} from '@electron/utils/createLogger';
+import {randomUUID} from 'node:crypto';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 export function createStartupTrace(logger: ILogger) {
     const startupStartedAt = Date.now();
     const startupSessionId = `${startupStartedAt}-${randomUUID()}`;
-    const enabled = runtimeConfig.startupTrace
-        || process.argv.includes('--evb-startup-trace');
+    const enabled = runtimeConfig.startupTrace || process.argv.includes('--evb-startup-trace');
 
     function log(phase: string) {
         if (!enabled) {

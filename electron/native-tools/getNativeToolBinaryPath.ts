@@ -1,5 +1,5 @@
-import { existsSync } from 'fs';
-import { join } from 'path';
+import {existsSync} from 'fs';
+import {join} from 'path';
 
 interface INativeToolBinaryPathOptions {
     dir: string;
@@ -22,27 +22,18 @@ class MissingNativeToolBinaryError extends Error {
     }
 }
 
-function getNativeToolExecutableName(
-    name: string,
-    platform: NodeJS.Platform = process.platform,
-) {
+function getNativeToolExecutableName(name: string, platform: NodeJS.Platform = process.platform) {
     const ext = platform === 'win32' ? '.exe' : '';
     return `${name}${ext}`;
 }
 
-function findNativeToolOnSystemPath(
-    name: string,
-    options: IFindNativeToolOnSystemPathOptions = {},
-) {
+function findNativeToolOnSystemPath(name: string, options: IFindNativeToolOnSystemPathOptions = {}) {
     const platform = options.platform ?? process.platform;
     const pathExists = options.exists ?? existsSync;
     const fullName = getNativeToolExecutableName(name, platform);
 
     if (platform === 'darwin') {
-        const brewPaths = [
-            join('/opt/homebrew/bin', fullName),
-            join('/usr/local/bin', fullName),
-        ];
+        const brewPaths = [join('/opt/homebrew/bin', fullName), join('/usr/local/bin', fullName)];
         for (const candidate of brewPaths) {
             if (pathExists(candidate)) {
                 return candidate;
@@ -56,11 +47,7 @@ function findNativeToolOnSystemPath(
 export function getNativeToolBinaryPath(options: INativeToolBinaryPathOptions) {
     const platform = options.platform ?? process.platform;
     const pathExists = options.exists ?? existsSync;
-    const binPath = join(
-        options.dir,
-        'bin',
-        getNativeToolExecutableName(options.name, platform),
-    );
+    const binPath = join(options.dir, 'bin', getNativeToolExecutableName(options.name, platform));
 
     if (pathExists(binPath)) {
         return binPath;

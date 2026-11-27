@@ -1,26 +1,14 @@
 #!/usr/bin/env node
-import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import {
-    delimiter,
-    dirname,
-    join,
-} from 'node:path';
-import {
-    fileURLToPath,
-    pathToFileURL,
-} from 'node:url';
+import {spawnSync} from 'node:child_process';
+import {existsSync} from 'node:fs';
+import {delimiter, dirname, join} from 'node:path';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const userHome = process.env.HOME ?? process.env.USERPROFILE ?? '';
-const cargoBin = process.env.CARGO_HOME
-    ? join(process.env.CARGO_HOME, 'bin')
-    : userHome ? join(userHome, '.cargo', 'bin') : '';
-const PATH = [
-    cargoBin,
-    process.env.PATH ?? '',
-].filter(Boolean).join(delimiter);
+const cargoBin = process.env.CARGO_HOME ? join(process.env.CARGO_HOME, 'bin') : userHome ? join(userHome, '.cargo', 'bin') : '';
+const PATH = [cargoBin, process.env.PATH ?? ''].filter(Boolean).join(delimiter);
 
 function run(command, commandArgs = [], options = {}) {
     const result = spawnSync(command, commandArgs, {
@@ -34,10 +22,7 @@ function run(command, commandArgs = [], options = {}) {
     });
 
     return {
-        command: [
-            command,
-            ...commandArgs,
-        ].join(' '),
+        command: [command, ...commandArgs].join(' '),
         error: result.error ? result.error.message : null,
         ok: result.status === 0,
         status: result.status,
@@ -47,20 +32,15 @@ function run(command, commandArgs = [], options = {}) {
 }
 
 function commandPath(command) {
-    const result = process.platform === 'win32'
-        ? run('where', [command], { timeout: 5_000 })
-        : run('sh', [
-            '-lc',
-            `command -v ${command}`,
-        ], { timeout: 5_000 });
+    const result =
+        process.platform === 'win32'
+            ? run('where', [command], {timeout: 5_000})
+            : run('sh', ['-lc', `command -v ${command}`], {timeout: 5_000});
     return result.ok ? (result.stdout.split('\n')[0] ?? '').trim() || null : null;
 }
 
 function nodeProbe(source) {
-    return run(process.execPath, [
-        '-e',
-        source,
-    ]);
+    return run(process.execPath, ['-e', source]);
 }
 
 function isDir(path) {
@@ -87,9 +67,10 @@ export function resolveHostTag() {
 }
 
 function resolveDisplay() {
-    const nativeDisplay = process.platform === 'linux'
-        ? Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY)
-        : process.platform === 'darwin' || process.platform === 'win32';
+    const nativeDisplay =
+        process.platform === 'linux'
+            ? Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY)
+            : process.platform === 'darwin' || process.platform === 'win32';
     const xvfbPath = commandPath('Xvfb');
     const xvfbRunPath = commandPath('xvfb-run');
 
@@ -152,7 +133,7 @@ Options:
         status: isNode26(nodeVersion) ? 'ok' : 'fail',
     });
 
-    const pnpmResult = run('pnpm', ['--version'], { timeout: 10_000 });
+    const pnpmResult = run('pnpm', ['--version'], {timeout: 10_000});
     addCheck({
         detail: pnpmResult.ok ? pnpmResult.stdout : pnpmResult.stderr || pnpmResult.error,
         name: 'pnpm',
@@ -215,16 +196,9 @@ console.log(executablePath);
         status: rustcResult.ok ? 'ok' : 'missing',
     });
 
-    const wasmTargetResult = run('rustup', [
-        'target',
-        'list',
-        '--installed',
-    ]);
+    const wasmTargetResult = run('rustup', ['target', 'list', '--installed']);
     const installedTargets = wasmTargetResult.ok ? wasmTargetResult.stdout.split('\n') : [];
-    const hasWasmTarget = [
-        'wasm32-unknown-unknown',
-        'wasm32-wasip1-threads',
-    ].every(target => installedTargets.includes(target));
+    const hasWasmTarget = ['wasm32-unknown-unknown', 'wasm32-wasip1-threads'].every((target) => installedTargets.includes(target));
     addCheck({
         detail: wasmTargetResult.ok ? installedTargets.join(', ') : wasmTargetResult.stderr || wasmTargetResult.error,
         name: 'Rust wasm32 targets',
@@ -248,11 +222,7 @@ console.log(executablePath);
                 join(projectRoot, 'resources', 'poppler', hostTag, 'bin', process.platform === 'win32' ? 'pdftotext.exe' : 'pdftotext'),
             ],
         ];
-        const missingNativeResources = nativeResourcePaths
-            .filter(([
-                , path,
-            ]) => !existsSync(path))
-            .map(([label]) => label);
+        const missingNativeResources = nativeResourcePaths.filter(([, path]) => !existsSync(path)).map(([label]) => label);
         addCheck({
             detail: missingNativeResources.length === 0 ? hostTag : `${hostTag}: missing ${missingNativeResources.join(', ')}`,
             name: 'Bundled native document tools',
@@ -263,13 +233,7 @@ console.log(executablePath);
     }
 
     if (process.platform === 'linux') {
-        const missingSystemTools = [
-            'pdfinfo',
-            'pdftoppm',
-            'pdftotext',
-            'patchelf',
-        ]
-            .filter(command => !commandPath(command));
+        const missingSystemTools = ['pdfinfo', 'pdftoppm', 'pdftotext', 'patchelf'].filter((command) => !commandPath(command));
         addCheck({
             detail: missingSystemTools.length === 0 ? 'apt native tools available' : `missing ${missingSystemTools.join(', ')}`,
             name: 'Linux native-tool bundling prerequisites',
@@ -278,7 +242,7 @@ console.log(executablePath);
             status: missingSystemTools.length === 0 ? 'ok' : 'missing',
         });
 
-        const fpmResult = run('fpm', ['--version'], { timeout: 10_000 });
+        const fpmResult = run('fpm', ['--version'], {timeout: 10_000});
         addCheck({
             detail: fpmResult.ok ? fpmResult.stdout : fpmResult.stderr || fpmResult.error,
             name: 'Linux packaging fpm',
@@ -288,14 +252,11 @@ console.log(executablePath);
         });
     }
 
-    for (const command of [
-        'codex',
-        'claude',
-    ]) {
+    for (const command of ['codex', 'claude']) {
         const path = commandPath(command);
-        const version = path ? run(command, ['--version'], { timeout: 10_000 }) : null;
+        const version = path ? run(command, ['--version'], {timeout: 10_000}) : null;
         addCheck({
-            detail: version?.ok ? `${path} (${version.stdout || version.stderr})` : path ?? '',
+            detail: version?.ok ? `${path} (${version.stdout || version.stderr})` : (path ?? ''),
             name: `${command} CLI`,
             remedy: `Install ${command} if this host should run agent sessions directly.`,
             required: false,
@@ -303,7 +264,7 @@ console.log(executablePath);
         });
     }
 
-    const requiredFailures = checks.filter(check => check.required && check.status !== 'ok');
+    const requiredFailures = checks.filter((check) => check.required && check.status !== 'ok');
     const report = {
         checks,
         display,
@@ -323,13 +284,16 @@ console.log(executablePath);
         process.stdout.write(`Host: ${process.platform} ${process.arch}${hostTag ? ` (${hostTag})` : ''}\n`);
         if (display.mode === 'headless') {
             process.stdout.write('Display: headless (DISPLAY and WAYLAND_DISPLAY are empty)\n');
-            process.stdout.write(display.wrapper
-                ? `Electron wrapper: ${display.wrapper}\n`
-                : 'Electron/browser wrapper: unavailable until xvfb-run is installed\n');
+            process.stdout.write(
+                display.wrapper
+                    ? `Electron wrapper: ${display.wrapper}\n`
+                    : 'Electron/browser wrapper: unavailable until xvfb-run is installed\n',
+            );
         } else {
-            const displayDetail = process.platform === 'linux'
-                ? `DISPLAY=${display.display || '(empty)'} WAYLAND_DISPLAY=${display.waylandDisplay || '(empty)'}`
-                : 'native desktop session expected';
+            const displayDetail =
+                process.platform === 'linux'
+                    ? `DISPLAY=${display.display || '(empty)'} WAYLAND_DISPLAY=${display.waylandDisplay || '(empty)'}`
+                    : 'native desktop session expected';
             process.stdout.write(`Display: headed (${displayDetail})\n`);
         }
         process.stdout.write('\nChecks:\n');
@@ -348,8 +312,7 @@ console.log(executablePath);
     }
 }
 
-const isDirectCliRun = process.argv[1]
-    && import.meta.url === pathToFileURL(process.argv[1]).href;
+const isDirectCliRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isDirectCliRun) {
     main();

@@ -1,12 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    beforeSendSentryEvent,
-    scrubSentryEvent,
-} from '@contracts/diagnostics/scrubSentryEvent';
+import {describe, expect, it} from 'vitest';
+import {beforeSendSentryEvent, scrubSentryEvent} from '@contracts/diagnostics/scrubSentryEvent';
 
 // Shaped like what @sentry/electron 7 builds in main for a logger.error with an
 // ENOENT cause, before beforeSend runs.
@@ -22,19 +15,18 @@ const mainEvent = {
         diagnostic_code: 'MAIN_SAVE_FAILED',
         'event.process': 'browser',
     },
-    fingerprint: [
-        '{{ default }}',
-        'MAIN_SAVE_FAILED',
-    ],
+    fingerprint: ['{{ default }}', 'MAIN_SAVE_FAILED'],
     user: {
         ip_address: '{{auto}}',
         username: 'jane',
     },
     extra: {path: '/Users/jane/Documents/Contract with Acme.pdf'},
-    breadcrumbs: [{
-        category: 'console',
-        message: 'Opened /Users/jane/Documents/Contract with Acme.pdf',
-    }],
+    breadcrumbs: [
+        {
+            category: 'console',
+            message: 'Opened /Users/jane/Documents/Contract with Acme.pdf',
+        },
+    ],
     request: {url: 'evb-viewer://app/electron?open=%2FUsers%2Fjane%2Fsecret.pdf'},
     contexts: {
         os: {
@@ -61,39 +53,49 @@ const mainEvent = {
             timezone: 'Europe/Berlin',
         },
     },
-    exception: {values: [{
-        type: 'Error',
-        value: 'ENOENT: no such file or directory, open \'/Users/jane/Documents/Contract with Acme.pdf\'',
-        mechanism: {
-            type: 'generic',
-            handled: true,
-            data: {path: '/Users/jane/Documents'},
-        },
-        stacktrace: {frames: [
+    exception: {
+        values: [
             {
-                filename: '/Applications/EVB Viewer.app/Contents/Resources/app.asar/dist-electron/main-chunk-save.js',
-                abs_path: '/Applications/EVB Viewer.app/Contents/Resources/app.asar/dist-electron/main-chunk-save.js',
-                function: 'persistDocument',
-                lineno: 1,
-                colno: 48210,
-                in_app: true,
-                vars: {documentText: 'Confidential terms of the agreement'},
-                pre_context: ['const text = document.text;'],
-                context_line: 'await writeFile(path, text);',
+                type: 'Error',
+                value: "ENOENT: no such file or directory, open '/Users/jane/Documents/Contract with Acme.pdf'",
+                mechanism: {
+                    type: 'generic',
+                    handled: true,
+                    data: {path: '/Users/jane/Documents'},
+                },
+                stacktrace: {
+                    frames: [
+                        {
+                            filename: '/Applications/EVB Viewer.app/Contents/Resources/app.asar/dist-electron/main-chunk-save.js',
+                            abs_path: '/Applications/EVB Viewer.app/Contents/Resources/app.asar/dist-electron/main-chunk-save.js',
+                            function: 'persistDocument',
+                            lineno: 1,
+                            colno: 48210,
+                            in_app: true,
+                            vars: {documentText: 'Confidential terms of the agreement'},
+                            pre_context: ['const text = document.text;'],
+                            context_line: 'await writeFile(path, text);',
+                        },
+                        {
+                            filename: 'node:internal/fs/promises',
+                            function: 'open',
+                            lineno: 639,
+                            in_app: false,
+                        },
+                    ],
+                },
             },
+        ],
+    },
+    debug_meta: {
+        images: [
             {
-                filename: 'node:internal/fs/promises',
-                function: 'open',
-                lineno: 639,
-                in_app: false,
+                type: 'sourcemap',
+                debug_id: '6f3c2c1a-8b0e-4f2d-9b7e-0a1b2c3d4e5f',
+                code_file: '/Applications/EVB Viewer.app/Contents/Resources/app.asar/dist-electron/main-chunk-save.js',
             },
-        ]},
-    }]},
-    debug_meta: {images: [{
-        type: 'sourcemap',
-        debug_id: '6f3c2c1a-8b0e-4f2d-9b7e-0a1b2c3d4e5f',
-        code_file: '/Applications/EVB Viewer.app/Contents/Resources/app.asar/dist-electron/main-chunk-save.js',
-    }]},
+        ],
+    },
     modules: {electron: '44.3.0'},
 };
 
@@ -104,20 +106,30 @@ const rendererEvent = {
     platform: 'javascript',
     tags: {diagnostic_code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED'},
     message: {formatted: 'Search failed for "quarterly revenue" in C:\\Users\\Jane\\Desktop\\Report 2026.pdf'},
-    contexts: {browser: {
-        name: 'Chrome',
-        version: '140.0.7339.41',
-    }},
-    exception: {values: [{
-        type: 'TypeError',
-        value: 'Cannot read properties of undefined (reading \'Report 2026.pdf\')',
-        stacktrace: {frames: [{
-            filename: 'evb-viewer://app/_nuxt/usePdfSearch.BwB4a1.js',
-            function: 'performSearch',
-            lineno: 3,
-            colno: 1022,
-        }]},
-    }]},
+    contexts: {
+        browser: {
+            name: 'Chrome',
+            version: '140.0.7339.41',
+        },
+    },
+    exception: {
+        values: [
+            {
+                type: 'TypeError',
+                value: "Cannot read properties of undefined (reading 'Report 2026.pdf')",
+                stacktrace: {
+                    frames: [
+                        {
+                            filename: 'evb-viewer://app/_nuxt/usePdfSearch.BwB4a1.js',
+                            function: 'performSearch',
+                            lineno: 3,
+                            colno: 1022,
+                        },
+                    ],
+                },
+            },
+        ],
+    },
 };
 
 describe('scrubSentryEvent', () => {
@@ -156,10 +168,7 @@ describe('scrubSentryEvent', () => {
 
     it('rewrites app frames to app-relative paths and drops local variables and source context', () => {
         const scrubbed = scrubSentryEvent(mainEvent);
-        const [
-            appFrame,
-            nodeFrame,
-        ] = scrubbed.exception.values[0]!.stacktrace.frames;
+        const [appFrame, nodeFrame] = scrubbed.exception.values[0]!.stacktrace.frames;
 
         expect(appFrame).toEqual({
             filename: 'app:///app.asar/dist-electron/main-chunk-save.js',
@@ -178,10 +187,7 @@ describe('scrubSentryEvent', () => {
     });
 
     it('never lets a local path, file name, user name or document text through', () => {
-        for (const event of [
-            mainEvent,
-            rendererEvent,
-        ]) {
+        for (const event of [mainEvent, rendererEvent]) {
             const serialized = JSON.stringify(scrubSentryEvent(event));
             for (const secret of [
                 'jane',
@@ -206,19 +212,30 @@ describe('scrubSentryEvent', () => {
         expect(main.exception.values[0]?.value).toBe('Application error');
         expect(renderer.message).toBe('Application error');
         expect(rendererEvent.exception.values[0]!.stacktrace.frames[0]!.filename).toContain('evb-viewer://');
-        expect(scrubSentryEvent(rendererEvent).exception.values[0]?.stacktrace.frames[0]?.filename)
-            .toBe('app:///_nuxt/usePdfSearch.BwB4a1.js');
+        expect(scrubSentryEvent(rendererEvent).exception.values[0]?.stacktrace.frames[0]?.filename).toBe(
+            'app:///_nuxt/usePdfSearch.BwB4a1.js',
+        );
     });
 
     it('removes every part of a multiword document path from exception text', () => {
-        const event = {exception: {values: [{
-            type: 'Error',
-            value: 'Source PDF does not exist: /tmp/Report Confidential Acquisition.pdf',
-            stacktrace: {frames: [{
-                filename: '/tmp/Report Confidential Acquisition.pdf',
-                abs_path: '/tmp/Report Confidential Acquisition.pdf',
-            }]},
-        }]}};
+        const event = {
+            exception: {
+                values: [
+                    {
+                        type: 'Error',
+                        value: 'Source PDF does not exist: /tmp/Report Confidential Acquisition.pdf',
+                        stacktrace: {
+                            frames: [
+                                {
+                                    filename: '/tmp/Report Confidential Acquisition.pdf',
+                                    abs_path: '/tmp/Report Confidential Acquisition.pdf',
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        };
 
         const scrubbed = scrubSentryEvent(event);
         expect(JSON.stringify(scrubbed)).not.toContain('Confidential');
@@ -227,19 +244,22 @@ describe('scrubSentryEvent', () => {
     });
 
     it('drops attachments such as minidumps before the envelope is built', () => {
-        const hint = {attachments: [{
-            filename: 'minidump.dmp',
-            data: new Uint8Array([
-                1,
-                2,
-                3,
-            ]),
-        }]};
+        const hint = {
+            attachments: [
+                {
+                    filename: 'minidump.dmp',
+                    data: new Uint8Array([1, 2, 3]),
+                },
+            ],
+        };
 
-        beforeSendSentryEvent({
-            event_id: mainEvent.event_id,
-            level: 'fatal',
-        }, hint);
+        beforeSendSentryEvent(
+            {
+                event_id: mainEvent.event_id,
+                level: 'fatal',
+            },
+            hint,
+        );
 
         expect(hint.attachments).toEqual([]);
     });

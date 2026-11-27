@@ -1,9 +1,8 @@
-import type { IPoint2D } from '@app/types/point2D';
+import type {IPoint2D} from '@app/types/point2D';
 import type {
     IImagePlacementRectPx,
     TImagePlacementResizeHandle,
 } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
-
 
 const IMAGE_PLACEMENT_HANDLE_VECTORS: Record<TImagePlacementResizeHandle, IPoint2D> = {
     n: {
@@ -50,15 +49,15 @@ function rotateLocalVector(point: IPoint2D, rotationDegrees: number): IPoint2D {
     const sin = Math.sin(radians);
 
     return {
-        x: (point.x * cos) - (point.y * sin),
-        y: (point.x * sin) + (point.y * cos),
+        x: point.x * cos - point.y * sin,
+        y: point.x * sin + point.y * cos,
     };
 }
 
 function getRectCenter(rect: IImagePlacementRectPx): IPoint2D {
     return {
-        x: rect.left + (rect.width / 2),
-        y: rect.top + (rect.height / 2),
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
     };
 }
 
@@ -66,11 +65,7 @@ function getHandleVector(handle: TImagePlacementResizeHandle) {
     return IMAGE_PLACEMENT_HANDLE_VECTORS[handle];
 }
 
-function getHandleWorldPoint(
-    rectPx: IImagePlacementRectPx,
-    handle: TImagePlacementResizeHandle,
-    rotationDegrees: number,
-) {
+function getHandleWorldPoint(rectPx: IImagePlacementRectPx, handle: TImagePlacementResizeHandle, rotationDegrees: number) {
     const center = getRectCenter(rectPx);
     const handleVector = getHandleVector(handle);
     const localOffset = {

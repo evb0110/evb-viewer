@@ -8,14 +8,14 @@ interface IStorageLike {
 
 export type TLocalStorageReadResult =
     | {
-        status: 'present';
-        value: string
-    }
+          status: 'present';
+          value: string;
+      }
     | {status: 'absent'}
     | {
-        status: 'unavailable';
-        error: Error
-    };
+          status: 'unavailable';
+          error: Error;
+      };
 
 function getLocalStorageSafe(): IStorageLike | null {
     if (typeof window === 'undefined') {
@@ -24,9 +24,7 @@ function getLocalStorageSafe(): IStorageLike | null {
 
     try {
         const storage: unknown = Reflect.get(window, 'localStorage');
-        return typeof storage === 'object' && storage !== null
-            ? storage
-            : null;
+        return typeof storage === 'object' && storage !== null ? storage : null;
     } catch {
         return null;
     }
@@ -46,9 +44,9 @@ export function readLocalStorageItem(key: string): TLocalStorageReadResult {
         return value === null
             ? {status: 'absent'}
             : {
-                status: 'present',
-                value,
-            };
+                  status: 'present',
+                  value,
+              };
     } catch (error) {
         return {
             status: 'unavailable',
@@ -111,10 +109,10 @@ export const safeLocalStorage: StorageLike = {
 /** Use the native object when available so browser storage events retain identity. */
 export function getLocalStorageForVueUse(): StorageLike {
     const storage = getLocalStorageSafe();
-    return storage !== null
-        && typeof storage.getItem === 'function'
-        && typeof storage.setItem === 'function'
-        && typeof storage.removeItem === 'function'
-        ? storage as StorageLike
+    return storage !== null &&
+        typeof storage.getItem === 'function' &&
+        typeof storage.setItem === 'function' &&
+        typeof storage.removeItem === 'function'
+        ? (storage as StorageLike)
         : safeLocalStorage;
 }

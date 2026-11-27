@@ -1,9 +1,11 @@
 import type {
-    IDocumentNavigationRequest, IDocumentNavigationTicket, TDocumentNavigationReport,
+    IDocumentNavigationRequest,
+    IDocumentNavigationTicket,
+    TDocumentNavigationReport,
 } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
-import type { Ref } from 'vue';
-import type { IDocumentOpenSurfaceDiagnosticEntry } from '@app/modules/document-viewer/runtime/createDocumentOpenSurfaceDiagnostics';
-import type { IDocumentViewportSessionState } from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
+import type {Ref} from 'vue';
+import type {IDocumentOpenSurfaceDiagnosticEntry} from '@app/modules/document-viewer/runtime/createDocumentOpenSurfaceDiagnostics';
+import type {IDocumentViewportSessionState} from '@app/modules/document-viewer/runtime/documentOpenSurfaceReducer';
 import type {
     IDocumentOpenSurfaceGeometry,
     IDocumentOpenSurfacePageFrame,
@@ -11,8 +13,8 @@ import type {
     TDocumentOpenSurfacePresentation,
 } from '@app/modules/document-viewer/runtime/retargetDocumentOpeningShell';
 
-export type TDocumentOpenSurfacePhase = 'idle' | 'pending' | 'geometry-committed'
-    | 'canvas-committed' | 'viewport-committed' | 'ready' | 'failed';
+export type TDocumentOpenSurfacePhase =
+    'idle' | 'pending' | 'geometry-committed' | 'canvas-committed' | 'viewport-committed' | 'ready' | 'failed';
 
 export interface IDocumentOpenSurfaceIdentity {
     readonly documentId: string;
@@ -29,7 +31,9 @@ export interface IDocumentOpenSurfaceRenderFence {
     readonly pageNumber: number;
 }
 
-export interface IDocumentOpenSurfaceRenderOwner {readonly renderVersion: number;}
+export interface IDocumentOpenSurfaceRenderOwner {
+    readonly renderVersion: number;
+}
 
 export interface IDocumentOpenSurfaceViewportCommit {
     readonly generation: number;
@@ -69,24 +73,15 @@ export interface IDocumentOpenSurfaceSession {
         openingPageGeometry?: IDocumentOpenSurfacePageGeometry | null,
         initialPage?: number,
     ): number;
-    commitOpeningPageGeometry(
-        generation: number,
-        geometry: IDocumentOpenSurfacePageGeometry,
-    ): boolean;
-    prepareRevisionSwap(
-        identity: IDocumentOpenSurfaceIdentity,
-        pageNumber: number,
-        invalidatedPages: readonly number[],
-    ): boolean;
+    commitOpeningPageGeometry(generation: number, geometry: IDocumentOpenSurfacePageGeometry): boolean;
+    prepareRevisionSwap(identity: IDocumentOpenSurfaceIdentity, pageNumber: number, invalidatedPages: readonly number[]): boolean;
     completeRevisionSwap(generation: number, documentRevision: string): boolean;
     cancelRevisionSwap(generation: number, documentRevision: string): boolean;
     acquireSource(identity: IDocumentOpenSurfaceIdentity, expectedGeneration: number): number | null;
     commitOpeningPageFrame(generation: number, frame: IDocumentOpenSurfacePageFrame): boolean;
     commitGeometry(generation: number, geometry: IDocumentOpenSurfaceGeometry): boolean;
     claimRenderOwner(): IDocumentOpenSurfaceRenderOwner;
-    createRenderFence(
-        input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId'>,
-    ): IDocumentOpenSurfaceRenderFence | null;
+    createRenderFence(input: Omit<IDocumentOpenSurfaceRenderFence, 'viewportIntentId'>): IDocumentOpenSurfaceRenderFence | null;
     /** `requestId` is the renderer's attempt identity, carried as is. */
     createOwnedRenderFence(
         owner: IDocumentOpenSurfaceRenderOwner,

@@ -6,18 +6,15 @@ import * as v from 'valibot';
 const pdfObjectRefPattern = /^\d+\s+\d+\s+R$/u;
 const documentRevisionTokenSchema = v.pipe(
     v.string(),
-    v.check(value => parseDocumentRevisionToken(value) !== null, 'invalid document revision options'),
+    v.check((value) => parseDocumentRevisionToken(value) !== null, 'invalid document revision options'),
     // Brand the normalized token returned at this persistence boundary.
-    v.transform(value => parseDocumentRevisionToken(value) as NonNullable<ReturnType<typeof parseDocumentRevisionToken>>),
+    v.transform((value) => parseDocumentRevisionToken(value) as NonNullable<ReturnType<typeof parseDocumentRevisionToken>>),
 );
 const changedObjectRefsSchema = v.pipe(
     v.unknown(),
-    v.check(
-        value => Array.isArray(value) && value.length <= 128,
-        'invalid changed PDF object references',
-    ),
+    v.check((value) => Array.isArray(value) && value.length <= 128, 'invalid changed PDF object references'),
     v.array(v.pipe(v.string(), v.regex(pdfObjectRefPattern)), 'invalid changed PDF object references'),
-    v.transform(refs => [...new Set(refs)]),
+    v.transform((refs) => [...new Set(refs)]),
 );
 
 const revisionOptionsShape = {
@@ -28,9 +25,7 @@ const revisionOptionsShape = {
 
 export const PDF_REVISION_OPTIONS_SCHEMA = v.pipe(
     v.object(revisionOptionsShape),
-    v.transform(({
-        expectedDocumentRevisionToken, changedObjectRefs, workingCopyOnly,
-    }) => ({
+    v.transform(({expectedDocumentRevisionToken, changedObjectRefs, workingCopyOnly}) => ({
         expectedDocumentRevisionToken,
         ...(changedObjectRefs?.length ? {changedObjectRefs} : {}),
         ...(workingCopyOnly === true ? {workingCopyOnly: true as const} : {}),
@@ -45,11 +40,7 @@ export const PDF_SAVE_AS_OPTIONS_SCHEMA = v.object({
 const identityBindingsSchema = v.pipe(
     v.unknown(),
     // Native mutation identity bindings require canonical identity and reference checks.
-    v.transform(value => normalizePdfNativeAnnotationIdentityBindings(
-        value,
-        'revisionOptions.identityBindings',
-        {errorKind: 'error'},
-    )),
+    v.transform((value) => normalizePdfNativeAnnotationIdentityBindings(value, 'revisionOptions.identityBindings', {errorKind: 'error'})),
 );
 
 export const PDF_NATIVE_STAGED_COMMIT_OPTIONS_SCHEMA = v.pipe(
@@ -57,9 +48,7 @@ export const PDF_NATIVE_STAGED_COMMIT_OPTIONS_SCHEMA = v.pipe(
         ...revisionOptionsShape,
         identityBindings: v.exactOptional(identityBindingsSchema),
     }),
-    v.transform(({
-        expectedDocumentRevisionToken, changedObjectRefs, workingCopyOnly, identityBindings,
-    }) => ({
+    v.transform(({expectedDocumentRevisionToken, changedObjectRefs, workingCopyOnly, identityBindings}) => ({
         expectedDocumentRevisionToken,
         ...(changedObjectRefs?.length ? {changedObjectRefs} : {}),
         ...(workingCopyOnly === true ? {workingCopyOnly: true as const} : {}),

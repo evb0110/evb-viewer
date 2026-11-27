@@ -1,26 +1,19 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {ref} from 'vue';
-import {
-    LOCALE_MESSAGES, type TLocale,
-} from '@i18n-app';
-import {
-    formatTranslationLeaf, getNestedTranslationLeaf,
-} from '@i18n-core';
-import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
+import {LOCALE_MESSAGES, type TLocale} from '@i18n-app';
+import {formatTranslationLeaf, getNestedTranslationLeaf} from '@i18n-core';
+import type {IAppUpdateStatus} from '@contracts/updatesPlatformFeature';
 import type {IPlatformApi} from '@contracts/platformApi';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { createPlatformApiFixture } from '@tests/helpers/createPlatformApiFixture';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {createPlatformApiFixture} from '@tests/helpers/createPlatformApiFixture';
 
 const locale = ref<TLocale>('en');
-vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string, params?: Record<string, string>) => formatTranslationLeaf(
-    getNestedTranslationLeaf(LOCALE_MESSAGES[locale.value], key) ?? key, params, locale.value,
-)})}));
+vi.mock('@app/composables/useTypedI18n', () => ({
+    useTypedI18n: () => ({
+        t: (key: string, params?: Record<string, string>) =>
+            formatTranslationLeaf(getNestedTranslationLeaf(LOCALE_MESSAGES[locale.value], key) ?? key, params, locale.value),
+    }),
+}));
 
 const browserLoggerErrorMock = vi.hoisted(() => vi.fn());
 
@@ -30,13 +23,15 @@ const browserPlatformApi = createPlatformApiFixture({
 });
 let platformApi: IPlatformApi = createElectronPlatformApiFixture();
 
-vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => platformApi }));
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
-vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: {
-    diagnostic: vi.fn(),
-    diagnosticThrottled: vi.fn(),
-    error: browserLoggerErrorMock,
-} }));
+vi.mock('@app/utils/browserLogger', () => ({
+    BrowserLogger: {
+        diagnostic: vi.fn(),
+        diagnosticThrottled: vi.fn(),
+        error: browserLoggerErrorMock,
+    },
+}));
 
 function requireStatusListener(listener: ((status: IAppUpdateStatus) => void) | null) {
     if (!listener) {
@@ -56,7 +51,7 @@ describe('useAppUpdates', () => {
     it('keeps browser state idle when the optional updates capability is absent', async () => {
         platformApi = browserPlatformApi;
 
-        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const {useAppUpdates} = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
 
         await expect(updates.ensureInitialized()).resolves.toBe(false);
@@ -74,25 +69,27 @@ describe('useAppUpdates', () => {
             percent: null,
             message: null,
         };
-        const updatesCapability = createElectronPlatformApiFixture({updates: {
-            getState: vi.fn(async () => idleStatus),
-            check: vi.fn(async () => {
-                statusListener?.({
-                    ...idleStatus,
-                    phase: 'unsupported',
-                    origin: 'manual',
-                    requestedHere: true,
-                });
-                return {started: false};
-            }),
-            onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
-                statusListener = callback;
-                return () => {};
-            }),
-        }}).updates;
+        const updatesCapability = createElectronPlatformApiFixture({
+            updates: {
+                getState: vi.fn(async () => idleStatus),
+                check: vi.fn(async () => {
+                    statusListener?.({
+                        ...idleStatus,
+                        phase: 'unsupported',
+                        origin: 'manual',
+                        requestedHere: true,
+                    });
+                    return {started: false};
+                }),
+                onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                    statusListener = callback;
+                    return () => {};
+                }),
+            },
+        }).updates;
         platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
-        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const {useAppUpdates} = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
 
         await updates.checkForUpdates();
@@ -131,16 +128,18 @@ describe('useAppUpdates', () => {
             percent: 100,
             message: null,
         };
-        const updatesCapability = createElectronPlatformApiFixture({updates: {
-            getState: vi.fn(() => initialState.promise),
-            onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
-                statusListener = callback;
-                return () => {};
-            }),
-        }}).updates;
+        const updatesCapability = createElectronPlatformApiFixture({
+            updates: {
+                getState: vi.fn(() => initialState.promise),
+                onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                    statusListener = callback;
+                    return () => {};
+                }),
+            },
+        }).updates;
         platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
-        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const {useAppUpdates} = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
         const initializedPromise = updates.ensureInitialized();
 
@@ -164,13 +163,17 @@ describe('useAppUpdates', () => {
 
     it('keeps a progress dialog the person closed closed until the download finishes', async () => {
         let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
-        const updatesCapability = createElectronPlatformApiFixture({updates: {onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
-            statusListener = callback;
-            return () => {};
-        })}}).updates;
+        const updatesCapability = createElectronPlatformApiFixture({
+            updates: {
+                onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                    statusListener = callback;
+                    return () => {};
+                }),
+            },
+        }).updates;
         platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
-        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const {useAppUpdates} = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
         await updates.ensureInitialized();
         const pushToAskingWindow = (status: Pick<IAppUpdateStatus, 'phase'> & Partial<IAppUpdateStatus>) => {
@@ -223,17 +226,19 @@ describe('useAppUpdates', () => {
 
     it('opens an automatic offer only on request and starts the download only on request', async () => {
         let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
-        const download = vi.fn(async () => ({ started: true }));
-        const updatesCapability = createElectronPlatformApiFixture({updates: {
-            download,
-            onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
-                statusListener = callback;
-                return () => {};
-            }),
-        }}).updates;
+        const download = vi.fn(async () => ({started: true}));
+        const updatesCapability = createElectronPlatformApiFixture({
+            updates: {
+                download,
+                onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                    statusListener = callback;
+                    return () => {};
+                }),
+            },
+        }).updates;
         platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
-        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const {useAppUpdates} = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
         await updates.ensureInitialized();
 
@@ -262,13 +267,17 @@ describe('useAppUpdates', () => {
 
     it('keeps the dialog closed after Later or Skip publish a manual idle status', async () => {
         let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
-        const updatesCapability = createElectronPlatformApiFixture({updates: {onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
-            statusListener = callback;
-            return () => {};
-        })}}).updates;
+        const updatesCapability = createElectronPlatformApiFixture({
+            updates: {
+                onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                    statusListener = callback;
+                    return () => {};
+                }),
+            },
+        }).updates;
         platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
-        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const {useAppUpdates} = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
         await updates.ensureInitialized();
         const offer: IAppUpdateStatus = {
@@ -280,10 +289,7 @@ describe('useAppUpdates', () => {
             requestedHere: true,
         };
 
-        for (const choose of [
-            updates.deferUpdate,
-            updates.skipUpdateVersion,
-        ]) {
+        for (const choose of [updates.deferUpdate, updates.skipUpdateVersion]) {
             requireStatusListener(statusListener)(offer);
             expect(updates.dialog.value).toMatchObject({
                 open: true,
@@ -301,13 +307,17 @@ describe('useAppUpdates', () => {
 
     it('opens a failure dialog only for a check the user asked for', async () => {
         let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
-        const updatesCapability = createElectronPlatformApiFixture({updates: {onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
-            statusListener = callback;
-            return () => {};
-        })}}).updates;
+        const updatesCapability = createElectronPlatformApiFixture({
+            updates: {
+                onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                    statusListener = callback;
+                    return () => {};
+                }),
+            },
+        }).updates;
         platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
-        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const {useAppUpdates} = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
         await updates.ensureInitialized();
         const failedStatus: IAppUpdateStatus = {
@@ -349,10 +359,14 @@ describe('useAppUpdates', () => {
 
     it('derives every primary reason from the live locale while keeping raw details', async () => {
         let listener: ((status: IAppUpdateStatus) => void) | null = null;
-        platformApi = createElectronPlatformApiFixture({updates: {onStatus: vi.fn(callback => {
-            listener = callback;
-            return () => {};
-        })}});
+        platformApi = createElectronPlatformApiFixture({
+            updates: {
+                onStatus: vi.fn((callback) => {
+                    listener = callback;
+                    return () => {};
+                }),
+            },
+        });
         const {useAppUpdates} = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
         await updates.ensureInitialized();
@@ -369,14 +383,11 @@ describe('useAppUpdates', () => {
             'install-failed': 'installFailed',
             'install-permission-denied': 'installPermissionDenied',
         } as const;
-        for (const [
-            reason,
-            key,
-        ] of Object.entries(reasons)) {
+        for (const [reason, key] of Object.entries(reasons)) {
             const raw = 'Raw English technical fault';
             requireStatusListener(listener)({
-                phase: reason.includes('updates') || reason.includes('required') || reason.includes('unsupported')
-                    ? 'unsupported' : 'error',
+                phase:
+                    reason.includes('updates') || reason.includes('required') || reason.includes('unsupported') ? 'unsupported' : 'error',
                 origin: 'manual',
                 version: '9.9.9',
                 percent: null,
@@ -386,10 +397,13 @@ describe('useAppUpdates', () => {
             });
             for (const language of Object.keys(LOCALE_MESSAGES)) {
                 locale.value = language as TLocale;
-                expect(updates.dialog.value.message).toBe(formatTranslationLeaf(
-                    getNestedTranslationLeaf(LOCALE_MESSAGES[locale.value], `updates.${key}`) ?? '',
-                    {version: '9.9.9'}, locale.value,
-                ));
+                expect(updates.dialog.value.message).toBe(
+                    formatTranslationLeaf(
+                        getNestedTranslationLeaf(LOCALE_MESSAGES[locale.value], `updates.${key}`) ?? '',
+                        {version: '9.9.9'},
+                        locale.value,
+                    ),
+                );
                 expect(updates.dialog.value.message).not.toContain(raw);
                 expect(updates.status.value.message).toBe(raw);
                 if (reason === 'install-permission-denied') {
@@ -416,19 +430,16 @@ describe('useAppUpdates', () => {
             percent: null,
             message: null,
         };
-        const getState = vi.fn()
-            .mockRejectedValueOnce(new Error('first failure'))
-            .mockResolvedValueOnce(unsupportedStatus);
+        const getState = vi.fn().mockRejectedValueOnce(new Error('first failure')).mockResolvedValueOnce(unsupportedStatus);
         const updatesCapability = createElectronPlatformApiFixture({updates: {getState}}).updates;
         platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
-        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const {useAppUpdates} = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
 
         await expect(updates.ensureInitialized()).resolves.toBe(false);
         expect(browserLoggerErrorMock).toHaveBeenCalledOnce();
-        expect(browserLoggerErrorMock.mock.calls[0]?.[3]?.eventId)
-            .toBe(updates.dialog.value.failure?.failure.eventId);
+        expect(browserLoggerErrorMock.mock.calls[0]?.[3]?.eventId).toBe(updates.dialog.value.failure?.failure.eventId);
         expect(updates.dialog.value.failure?.failure.code).toBe('UPDATE_OPERATION_FAILED');
         await expect(updates.ensureInitialized()).resolves.toBe(true);
 
@@ -436,28 +447,16 @@ describe('useAppUpdates', () => {
         expect(updates.status.value.phase).toBe('unsupported');
     });
 
-    const RESTORED_PHASES = [
-        'idle',
-        'checking',
-        'available',
-        'downloading',
-        'downloaded',
-        'no-update',
-        'error',
-        'unsupported',
-    ] as const;
-    const RESTORED_ORIGINS = [
-        'auto',
-        'manual',
-    ] as const;
-    const RESTORED_STATUS_CASES = RESTORED_PHASES.flatMap(phase => RESTORED_ORIGINS.map(origin => ({
-        phase,
-        origin,
-    })));
+    const RESTORED_PHASES = ['idle', 'checking', 'available', 'downloading', 'downloaded', 'no-update', 'error', 'unsupported'] as const;
+    const RESTORED_ORIGINS = ['auto', 'manual'] as const;
+    const RESTORED_STATUS_CASES = RESTORED_PHASES.flatMap((phase) =>
+        RESTORED_ORIGINS.map((origin) => ({
+            phase,
+            origin,
+        })),
+    );
 
-    it.each(RESTORED_STATUS_CASES)('restores $phase status from $origin origin without opening the modal', async ({
-        phase, origin,
-    }) => {
+    it.each(RESTORED_STATUS_CASES)('restores $phase status from $origin origin without opening the modal', async ({phase, origin}) => {
         const restoredStatus: IAppUpdateStatus = {
             phase,
             origin,
@@ -468,7 +467,7 @@ describe('useAppUpdates', () => {
         const updatesCapability = createElectronPlatformApiFixture({updates: {getState: vi.fn(async () => restoredStatus)}}).updates;
         platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
-        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const {useAppUpdates} = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
         await expect(updates.ensureInitialized()).resolves.toBe(true);
 
@@ -487,7 +486,7 @@ describe('useAppUpdates', () => {
         const updatesCapability = createElectronPlatformApiFixture({updates: {getState: vi.fn(async () => restoredReady)}}).updates;
         platformApi = createElectronPlatformApiFixture({updates: updatesCapability});
 
-        const { useAppUpdates } = await import('@app/composables/useAppUpdates');
+        const {useAppUpdates} = await import('@app/composables/useAppUpdates');
         const updates = useAppUpdates();
         await updates.ensureInitialized();
 
@@ -508,10 +507,15 @@ describe('useAppUpdates', () => {
     it('presents an unreceived startup failure even when a newer push precedes its hydration reply', async () => {
         const hydration = Promise.withResolvers<IAppUpdateStatus>();
         let listener: ((status: IAppUpdateStatus) => void) | null = null;
-        platformApi = createElectronPlatformApiFixture({updates: {
-            getState: () => hydration.promise,
-            onStatus: callback => {listener = callback; return () => {};},
-        }});
+        platformApi = createElectronPlatformApiFixture({
+            updates: {
+                getState: () => hydration.promise,
+                onStatus: (callback) => {
+                    listener = callback;
+                    return () => {};
+                },
+            },
+        });
         const {useAppUpdates} = await import('@app/composables/useAppUpdates');
         const ui = useAppUpdates();
         const initialized = ui.ensureInitialized();
@@ -542,47 +546,39 @@ describe('useAppUpdates', () => {
     });
 
     it('isolates shell-provided updater owners and disposes the platform subscription cleanly', async () => {
-        const {
-            createSSRApp,
-            defineComponent,
-            h,
-        } = await import('vue');
-        const { renderToString } = await import('vue/server-renderer');
-        const unsubscribers = [
-            vi.fn(),
-            vi.fn(),
-        ];
+        const {createSSRApp, defineComponent, h} = await import('vue');
+        const {renderToString} = await import('vue/server-renderer');
+        const unsubscribers = [vi.fn(), vi.fn()];
         const listeners: Array<(status: IAppUpdateStatus) => void> = [];
         const pendingGetState = Promise.withResolvers<IAppUpdateStatus>();
         let getStateCallCount = 0;
         let onStatusCallCount = 0;
-        platformApi = createElectronPlatformApiFixture({updates: {
-            getState: vi.fn((): Promise<IAppUpdateStatus> => {
-                const index = getStateCallCount;
-                getStateCallCount += 1;
-                if (index === 0) {
-                    return pendingGetState.promise;
-                }
-                return Promise.resolve({
-                    phase: 'idle',
-                    origin: 'auto',
-                    version: null,
-                    percent: null,
-                    message: null,
-                });
-            }),
-            onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
-                listeners.push(callback);
-                const unsubscribe = unsubscribers[onStatusCallCount] ?? vi.fn();
-                onStatusCallCount += 1;
-                return unsubscribe;
-            }),
-        }});
+        platformApi = createElectronPlatformApiFixture({
+            updates: {
+                getState: vi.fn((): Promise<IAppUpdateStatus> => {
+                    const index = getStateCallCount;
+                    getStateCallCount += 1;
+                    if (index === 0) {
+                        return pendingGetState.promise;
+                    }
+                    return Promise.resolve({
+                        phase: 'idle',
+                        origin: 'auto',
+                        version: null,
+                        percent: null,
+                        message: null,
+                    });
+                }),
+                onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                    listeners.push(callback);
+                    const unsubscribe = unsubscribers[onStatusCallCount] ?? vi.fn();
+                    onStatusCallCount += 1;
+                    return unsubscribe;
+                }),
+            },
+        });
 
-        const {
-            provideAppUpdates,
-            useAppUpdates,
-        } = await import('@app/composables/useAppUpdates');
+        const {provideAppUpdates, useAppUpdates} = await import('@app/composables/useAppUpdates');
 
         let ownerA!: ReturnType<typeof provideAppUpdates>;
         let childA!: ReturnType<typeof useAppUpdates>;
@@ -594,18 +590,26 @@ describe('useAppUpdates', () => {
                 return () => null;
             },
         });
-        await renderToString(createSSRApp(defineComponent({
-            setup() {
-                ownerA = provideAppUpdates();
-                return () => h(ChildA);
-            },
-        })));
-        await renderToString(createSSRApp(defineComponent({
-            setup() {
-                ownerB = provideAppUpdates();
-                return () => null;
-            },
-        })));
+        await renderToString(
+            createSSRApp(
+                defineComponent({
+                    setup() {
+                        ownerA = provideAppUpdates();
+                        return () => h(ChildA);
+                    },
+                }),
+            ),
+        );
+        await renderToString(
+            createSSRApp(
+                defineComponent({
+                    setup() {
+                        ownerB = provideAppUpdates();
+                        return () => null;
+                    },
+                }),
+            ),
+        );
 
         const initA = ownerA.ensureInitialized();
         await ownerB.ensureInitialized();
@@ -644,18 +648,17 @@ describe('useAppUpdates', () => {
         const skipDeferred = Promise.withResolvers<void>();
         const unsubscribe = vi.fn();
         let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
-        platformApi = createElectronPlatformApiFixture({updates: {
-            onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
-                statusListener = callback;
-                return unsubscribe;
-            }),
-            skipVersion: vi.fn(() => skipDeferred.promise),
-        }});
+        platformApi = createElectronPlatformApiFixture({
+            updates: {
+                onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                    statusListener = callback;
+                    return unsubscribe;
+                }),
+                skipVersion: vi.fn(() => skipDeferred.promise),
+            },
+        });
 
-        const {
-            createAppUpdatesOwner,
-            useAppUpdates,
-        } = await import('@app/composables/useAppUpdates');
+        const {createAppUpdatesOwner, useAppUpdates} = await import('@app/composables/useAppUpdates');
 
         const owner = createAppUpdatesOwner();
         await owner.ensureInitialized();
@@ -676,12 +679,14 @@ describe('useAppUpdates', () => {
         expect(browserLoggerErrorMock).not.toHaveBeenCalled();
 
         const standaloneUnsubscribe = vi.fn();
-        platformApi = createElectronPlatformApiFixture({updates: {
-            onStatus: vi.fn(() => standaloneUnsubscribe),
-        }});
+        platformApi = createElectronPlatformApiFixture({
+            updates: {
+                onStatus: vi.fn(() => standaloneUnsubscribe),
+            },
+        });
         const onUnmountCleanups: Array<() => void> = [];
         vi.stubGlobal('tryUseNuxtApp', () => ({
-            vueApp: { onUnmount: (cleanup: () => void) => onUnmountCleanups.push(cleanup) },
+            vueApp: {onUnmount: (cleanup: () => void) => onUnmountCleanups.push(cleanup)},
         }));
         try {
             const standaloneUpdates = useAppUpdates();
@@ -695,5 +700,4 @@ describe('useAppUpdates', () => {
             vi.unstubAllGlobals();
         }
     });
-
 });

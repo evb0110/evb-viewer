@@ -1,17 +1,10 @@
-import type { Ref } from 'vue';
-import { useEventListener } from '@vueuse/core';
-import type {
-    IBookmarkItem,
-    IBookmarkMenuPayload,
-} from '@app/types/pdfOutline';
-import { findBookmarkById } from '@app/utils/pdfOutlineHelpers';
-import { usePositionedMenu } from '@app/composables/usePositionedMenu';
+import type {Ref} from 'vue';
+import {useEventListener} from '@vueuse/core';
+import type {IBookmarkItem, IBookmarkMenuPayload} from '@app/types/pdfOutline';
+import {findBookmarkById} from '@app/utils/pdfOutlineHelpers';
+import {usePositionedMenu} from '@app/composables/usePositionedMenu';
 
-export const usePdfOutlineContextMenu = (
-    bookmarks: Ref<IBookmarkItem[]>,
-    isEditMode: Ref<boolean>,
-    onEscape: () => void,
-) => {
+export const usePdfOutlineContextMenu = (bookmarks: Ref<IBookmarkItem[]>, isEditMode: Ref<boolean>, onEscape: () => void) => {
     const windowTarget = typeof window === 'undefined' ? undefined : window;
 
     interface IBookmarkContextMenuState {
@@ -33,15 +26,13 @@ export const usePdfOutlineContextMenu = (
         menu: bookmarkContextMenu,
         showPositionedMenu,
         resetMenu,
-    } = usePositionedMenu<IBookmarkContextMenuState>(
-        '.bookmarks-context-menu',
-        createInitialBookmarkContextMenuState,
-        { autoDismiss: {
+    } = usePositionedMenu<IBookmarkContextMenuState>('.bookmarks-context-menu', createInitialBookmarkContextMenuState, {
+        autoDismiss: {
             onOutsideClick: true,
             onResize: true,
             onScroll: true,
-        } },
-    );
+        },
+    });
 
     const selectedContextBookmark = computed(() => {
         const id = bookmarkContextMenu.value.itemId;
@@ -64,7 +55,7 @@ export const usePdfOutlineContextMenu = (
             y: payload.y,
             fallbackWidth,
             fallbackHeight,
-            buildState: position => ({
+            buildState: (position) => ({
                 visible: true,
                 x: position.x,
                 y: position.y,

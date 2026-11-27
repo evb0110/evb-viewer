@@ -1,4 +1,4 @@
-import { emitAutomationEvent } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
+import {emitAutomationEvent} from '@app/modules/workspace-shell/automation/automationReadinessEvents';
 
 interface IDocumentWorkspaceAutomationContext extends Record<string, unknown> {
     currentPage: number;
@@ -13,9 +13,7 @@ interface ICreateDocumentWorkspaceAutomationHandlersOptions {
     handleSave: () => Promise<boolean>;
 }
 
-export function createDocumentWorkspaceAutomationHandlers(
-    options: ICreateDocumentWorkspaceAutomationHandlersOptions,
-) {
+export function createDocumentWorkspaceAutomationHandlers(options: ICreateDocumentWorkspaceAutomationHandlersOptions) {
     function handleInitialVisualReady() {
         emitAutomationEvent('first-page-rendered', options.getContext());
     }
@@ -23,11 +21,7 @@ export function createDocumentWorkspaceAutomationHandlers(
     async function handleSave() {
         const saved = await options.handleSave();
         if (saved) {
-            const {
-                documentRevisionToken,
-                path,
-                tabId,
-            } = options.getContext();
+            const {documentRevisionToken, path, tabId} = options.getContext();
             emitAutomationEvent('save-committed', {
                 documentRevisionToken,
                 path,

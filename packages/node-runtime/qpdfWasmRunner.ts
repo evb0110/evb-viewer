@@ -1,33 +1,9 @@
-import {
-    closeSync,
-    existsSync,
-    fsyncSync,
-    ftruncateSync,
-    openSync,
-    readSync,
-    renameSync,
-    statSync,
-    unlinkSync,
-    writeSync,
-} from 'node:fs';
+import {closeSync, existsSync, fsyncSync, ftruncateSync, openSync, readSync, renameSync, statSync, unlinkSync, writeSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {devNull} from 'node:os';
-import {
-    basename,
-    dirname,
-    isAbsolute,
-    join,
-    resolve,
-} from 'node:path';
-import {
-    fileURLToPath,
-    pathToFileURL,
-} from 'node:url';
-import {
-    createTempSiblingPath,
-    PdfPageOpsNativeError,
-    type IPageOpsProcessResult,
-} from '@node-runtime/pdfPageOpsWasmRunner';
+import {basename, dirname, isAbsolute, join, resolve} from 'node:path';
+import {fileURLToPath, pathToFileURL} from 'node:url';
+import {createTempSiblingPath, PdfPageOpsNativeError, type IPageOpsProcessResult} from '@node-runtime/pdfPageOpsWasmRunner';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -47,8 +23,10 @@ const ERRNO_EINVAL = 28;
 const ERRNO_EIO = 29;
 
 const QPDF_PAGE_RANGE_PATTERN = /^(?:r?\d+|z)(?:-(?:r?\d+|z))?(?:,(?:r?\d+|z)(?:-(?:r?\d+|z))?)*(?::(?:even|odd))?$/u;
-const WASM_TOO_LARGE_ERROR_PATTERN = /\b(?:cannot enlarge memory|out of memory|abort\(oom\)|std::bad_alloc|bad_alloc|std::length_error|length_error|memory growth|unable to grow)\b/iu;
-const QPDF_STREAM_LIMIT_STDERR_PATTERN = /error decoding stream data for object \d+ \d+:\s*(?:std::)?(?:basic_string|bad_alloc|length_error|vector)\b/iu;
+const WASM_TOO_LARGE_ERROR_PATTERN =
+    /\b(?:cannot enlarge memory|out of memory|abort\(oom\)|std::bad_alloc|bad_alloc|std::length_error|length_error|memory growth|unable to grow)\b/iu;
+const QPDF_STREAM_LIMIT_STDERR_PATTERN =
+    /error decoding stream data for object \d+ \d+:\s*(?:std::)?(?:basic_string|bad_alloc|length_error|vector)\b/iu;
 const QPDF_VIRTUAL_NULL_PATH = '/dev/null';
 
 interface IQpdfFsNode {
@@ -122,18 +100,17 @@ export function resolveDesktopQpdfWasmPath(options: IResolveQpdfWasmPathOptions 
     const currentDir = options.currentDir ?? __dirname;
     const isPackaged = options.isPackaged ?? currentDir.includes('app.asar');
     if (isPackaged) {
-        const resourcesPath = options.resourcesPath
-            ?? (process as NodeJS.Process & {resourcesPath?: string}).resourcesPath;
+        const resourcesPath = options.resourcesPath ?? (process as NodeJS.Process & {resourcesPath?: string}).resourcesPath;
         const candidates = [
             ...(resourcesPath
                 ? [
-                    join(resourcesPath, 'app.asar.unpacked', 'nuxt-output', 'public', 'wasm', QPDF_WASM_FILE_NAME),
-                    join(resourcesPath, 'app.asar', 'nuxt-output', 'public', 'wasm', QPDF_WASM_FILE_NAME),
-                ]
+                      join(resourcesPath, 'app.asar.unpacked', 'nuxt-output', 'public', 'wasm', QPDF_WASM_FILE_NAME),
+                      join(resourcesPath, 'app.asar', 'nuxt-output', 'public', 'wasm', QPDF_WASM_FILE_NAME),
+                  ]
                 : []),
             join(currentDir, '..', 'nuxt-output', 'public', 'wasm', QPDF_WASM_FILE_NAME),
         ];
-        return candidates.find(candidate => existsSync(candidate)) ?? null;
+        return candidates.find((candidate) => existsSync(candidate)) ?? null;
     }
     const candidates = [
         join(currentDir, '..', 'public', 'wasm', QPDF_WASM_FILE_NAME),
@@ -141,7 +118,7 @@ export function resolveDesktopQpdfWasmPath(options: IResolveQpdfWasmPathOptions 
         join(currentDir, '..', '..', '..', 'public', 'wasm', QPDF_WASM_FILE_NAME),
         join(process.cwd(), 'public', 'wasm', QPDF_WASM_FILE_NAME),
     ];
-    return candidates.find(candidate => existsSync(candidate)) ?? null;
+    return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
 export function resolveDesktopQpdfMjsPath(wasmPath: string) {
@@ -154,16 +131,14 @@ const cachedFactories = new Map<string, Promise<TQpdfEmscriptenFactory>>();
 export function loadQpdfWasmModule(wasmPath?: string): Promise<WebAssembly.Module> {
     const resolvedPath = wasmPath ?? resolveDesktopQpdfWasmPath();
     if (!resolvedPath) {
-        return Promise.reject(
-            new PdfPageOpsNativeError('native-failure', `${QPDF_WASM_FILE_NAME} was not found`),
-        );
+        return Promise.reject(new PdfPageOpsNativeError('native-failure', `${QPDF_WASM_FILE_NAME} was not found`));
     }
     const existing = cachedModules.get(resolvedPath);
     if (existing) {
         return existing;
     }
     const pending = readFile(resolvedPath)
-        .then(bytes => WebAssembly.compile(bytes))
+        .then((bytes) => WebAssembly.compile(bytes))
         .catch((error: unknown) => {
             if (cachedModules.get(resolvedPath) === pending) {
                 cachedModules.delete(resolvedPath);
@@ -225,9 +200,7 @@ export function rewriteQpdfArgsToVirtualPaths(
     const inputs: IVirtualQpdfInput[] = [];
     let outputHostPath: string | null = null;
 
-    const resolveHostPath = (rawPath: string) => (
-        cwd !== undefined && !isAbsolute(rawPath) ? resolve(cwd, rawPath) : rawPath
-    );
+    const resolveHostPath = (rawPath: string) => (cwd !== undefined && !isAbsolute(rawPath) ? resolve(cwd, rawPath) : rawPath);
 
     const registerInput = (rawHostPath: string, extension = '.pdf') => {
         const hostPath = resolveHostPath(rawHostPath);
@@ -388,10 +361,7 @@ export function rewriteQpdfArgsToVirtualPaths(
     }
 
     if (positionals.length > 2) {
-        throw new PdfPageOpsNativeError(
-            'invalid-request',
-            `qpdf expected at most two positional paths, received ${positionals.length}`,
-        );
+        throw new PdfPageOpsNativeError('invalid-request', `qpdf expected at most two positional paths, received ${positionals.length}`);
     }
 
     const virtualPositionals: string[] = [];
@@ -402,19 +372,13 @@ export function rewriteQpdfArgsToVirtualPaths(
     }
 
     return {
-        virtualArgs: [
-            ...flagTokens,
-            ...virtualPositionals,
-        ],
+        virtualArgs: [...flagTokens, ...virtualPositionals],
         inputs,
         outputHostPath,
     };
 }
 
-export function inspectDesktopQpdfWriteTarget(
-    args: readonly string[],
-    cwd?: string,
-): {outputPath: string} | null {
+export function inspectDesktopQpdfWriteTarget(args: readonly string[], cwd?: string): {outputPath: string} | null {
     try {
         const rewritten = rewriteQpdfArgsToVirtualPaths(args, cwd);
         return rewritten.outputHostPath === null ? null : {outputPath: rewritten.outputHostPath};
@@ -568,21 +532,11 @@ function mountHostInputs(fs: IQpdfEmscriptenModule['FS'], inputs: readonly IVirt
         unlink: refuse(ERRNO_EPERM),
         rmdir: refuse(ERRNO_EPERM),
         symlink: refuse(ERRNO_EPERM),
-        readdir: () => [
-            '.',
-            '..',
-            ...nodes.keys(),
-        ],
+        readdir: () => ['.', '..', ...nodes.keys()],
     };
 
     const createStreamOps = (entry: IOpenedHostInput) => ({
-        read(
-            _stream: IQpdfFileStream,
-            buffer: Uint8Array,
-            offset: number,
-            length: number,
-            rawPosition: number | bigint,
-        ) {
+        read(_stream: IQpdfFileStream, buffer: Uint8Array, offset: number, length: number, rawPosition: number | bigint) {
             const position = toSafePosition(rawPosition);
             if (position < 0) {
                 throw new fs.ErrnoError(ERRNO_EINVAL);
@@ -629,26 +583,27 @@ function mountHostInputs(fs: IQpdfEmscriptenModule['FS'], inputs: readonly IVirt
     if (opened.length > 0) {
         try {
             fs.mkdirTree('/in');
-            fs.mount({
-                mount() {
-                    const root = Object.assign(fs.createNode(null, '/', S_IFDIR | 0o555, 0), {
-                        node_ops: nodeOps,
-                        stream_ops: {},
-                    });
-                    for (const entry of opened) {
-                        const fileNode = Object.assign(
-                            fs.createNode(root, entry.virtualName, S_IFREG | 0o444, 0),
-                            {
+            fs.mount(
+                {
+                    mount() {
+                        const root = Object.assign(fs.createNode(null, '/', S_IFDIR | 0o555, 0), {
+                            node_ops: nodeOps,
+                            stream_ops: {},
+                        });
+                        for (const entry of opened) {
+                            const fileNode = Object.assign(fs.createNode(root, entry.virtualName, S_IFREG | 0o444, 0), {
                                 node_ops: nodeOps,
                                 stream_ops: createStreamOps(entry),
-                            },
-                        );
-                        entryByNode.set(fileNode, entry);
-                        nodes.set(entry.virtualName, fileNode);
-                    }
-                    return root;
+                            });
+                            entryByNode.set(fileNode, entry);
+                            nodes.set(entry.virtualName, fileNode);
+                        }
+                        return root;
+                    },
                 },
-            }, {}, '/in');
+                {},
+                '/in',
+            );
         } catch (error) {
             for (const entry of opened) {
                 entry.blocks.clear();
@@ -686,13 +641,7 @@ function mountHostOutput(fs: IQpdfEmscriptenModule['FS'], stagedOutputPath: stri
     };
 
     const streamOps = {
-        read(
-            _stream: IQpdfFileStream,
-            buffer: Uint8Array,
-            offset: number,
-            length: number,
-            rawPosition: number | bigint,
-        ) {
+        read(_stream: IQpdfFileStream, buffer: Uint8Array, offset: number, length: number, rawPosition: number | bigint) {
             const position = toSafePosition(rawPosition);
             if (position < 0) {
                 throw new fs.ErrnoError(ERRNO_EINVAL);
@@ -706,13 +655,7 @@ function mountHostOutput(fs: IQpdfEmscriptenModule['FS'], stagedOutputPath: stri
                 throw new fs.ErrnoError(ERRNO_EIO);
             }
         },
-        write(
-            _stream: IQpdfFileStream,
-            buffer: Uint8Array,
-            offset: number,
-            length: number,
-            rawPosition: number | bigint,
-        ) {
+        write(_stream: IQpdfFileStream, buffer: Uint8Array, offset: number, length: number, rawPosition: number | bigint) {
             const position = toSafePosition(rawPosition);
             if (position < 0) {
                 throw new fs.ErrnoError(ERRNO_EINVAL);
@@ -812,23 +755,23 @@ function mountHostOutput(fs: IQpdfEmscriptenModule['FS'], stagedOutputPath: stri
         rename: refuse(ERRNO_EPERM),
         rmdir: refuse(ERRNO_EPERM),
         symlink: refuse(ERRNO_EPERM),
-        readdir: () => [
-            '.',
-            '..',
-            ...nodes.keys(),
-        ],
+        readdir: () => ['.', '..', ...nodes.keys()],
     };
 
     try {
         fs.mkdirTree('/out');
-        fs.mount({
-            mount() {
-                return Object.assign(fs.createNode(null, '/', S_IFDIR | 0o755, 0), {
-                    node_ops: nodeOps,
-                    stream_ops: {},
-                });
+        fs.mount(
+            {
+                mount() {
+                    return Object.assign(fs.createNode(null, '/', S_IFDIR | 0o755, 0), {
+                        node_ops: nodeOps,
+                        stream_ops: {},
+                    });
+                },
             },
-        }, {}, '/out');
+            {},
+            '/out',
+        );
     } catch (error) {
         closed = true;
         try {
@@ -915,9 +858,9 @@ class BoundedByteCapture {
         if (this.bytes === 0) {
             return '';
         }
-        const slices = this.chunks.map((chunk, index) => (
-            index === this.chunks.length - 1 ? chunk.subarray(0, this.currentOffset) : chunk
-        ));
+        const slices = this.chunks.map((chunk, index) =>
+            index === this.chunks.length - 1 ? chunk.subarray(0, this.currentOffset) : chunk,
+        );
         return Buffer.concat(slices, this.bytes).toString('utf8');
     }
 }
@@ -933,10 +876,7 @@ class BoundedStderrCapture {
     }
 
     private inspectLine(line: string) {
-        if (this.tooLargeDetail === null && (
-            QPDF_STREAM_LIMIT_STDERR_PATTERN.test(line)
-            || WASM_TOO_LARGE_ERROR_PATTERN.test(line)
-        )) {
+        if (this.tooLargeDetail === null && (QPDF_STREAM_LIMIT_STDERR_PATTERN.test(line) || WASM_TOO_LARGE_ERROR_PATTERN.test(line))) {
             this.tooLargeDetail = line.trim();
         }
     }
@@ -1015,7 +955,7 @@ function isWasmTooLargeFailure(error: unknown, stderr: string) {
 function extractFirstStderrSummary(stderr: string) {
     const lines = stderr
         .split(/\r?\n/u)
-        .map(line => line.trim())
+        .map((line) => line.trim())
         .filter(Boolean);
     return lines.slice(0, 3).join(' | ');
 }
@@ -1055,8 +995,8 @@ export async function executeDesktopQpdfCommand(
             factory({
                 instantiateWasm(imports, receive) {
                     WebAssembly.instantiate(wasmModule, imports).then(
-                        created => receive(created, wasmModule),
-                        error => rejectInstantiate(error),
+                        (created) => receive(created, wasmModule),
+                        (error) => rejectInstantiate(error),
                     );
                     return {};
                 },
@@ -1089,15 +1029,11 @@ export async function executeDesktopQpdfCommand(
     }
 
     if (options.deferPublish && rewritten.outputHostPath !== null && !options.stagedOutputPath) {
-        throw new PdfPageOpsNativeError(
-            'invalid-request',
-            `${label} requires stagedOutputPath when deferPublish is enabled`,
-        );
+        throw new PdfPageOpsNativeError('invalid-request', `${label} requires stagedOutputPath when deferPublish is enabled`);
     }
 
-    const stagedOutputPath = rewritten.outputHostPath === null
-        ? null
-        : (options.stagedOutputPath ?? createTempSiblingPath(rewritten.outputHostPath));
+    const stagedOutputPath =
+        rewritten.outputHostPath === null ? null : (options.stagedOutputPath ?? createTempSiblingPath(rewritten.outputHostPath));
     let outputCommitted = false;
 
     const inputMount = mountHostInputs(instance.FS, rewritten.inputs);
@@ -1113,10 +1049,8 @@ export async function executeDesktopQpdfCommand(
             }
             for (const entry of inputMount.entries) {
                 const samePath = resolve(entry.hostPath) === normalizedOutput;
-                const sameInode = outputStat !== null
-                    && outputStat.ino !== 0
-                    && outputStat.dev === entry.dev
-                    && outputStat.ino === entry.ino;
+                const sameInode =
+                    outputStat !== null && outputStat.ino !== 0 && outputStat.dev === entry.dev && outputStat.ino === entry.ino;
                 if (samePath || sameInode) {
                     throw new PdfPageOpsNativeError(
                         'invalid-request',
@@ -1136,7 +1070,8 @@ export async function executeDesktopQpdfCommand(
             const stderr = stderrCapture.toString();
             const tooLargeDetail = stderrCapture.getTooLargeDetail();
             if (tooLargeDetail !== null || isWasmTooLargeFailure(error, stderr)) {
-                const detail = tooLargeDetail || extractFirstStderrSummary(stderr) || (error instanceof Error ? error.message : String(error));
+                const detail =
+                    tooLargeDetail || extractFirstStderrSummary(stderr) || (error instanceof Error ? error.message : String(error));
                 throw new PdfPageOpsNativeError(
                     'too-large',
                     `${label} exceeded qpdf WebAssembly memory or single-stream limits: ${detail}`,
@@ -1159,25 +1094,17 @@ export async function executeDesktopQpdfCommand(
         // even if earlier warnings filled the stderr capture buffer.
         if (tooLargeDetail !== null || isWasmTooLargeFailure(null, stderr)) {
             const detail = tooLargeDetail || extractFirstStderrSummary(stderr);
-            throw new PdfPageOpsNativeError(
-                'too-large',
-                `${label} exceeded qpdf WebAssembly single-stream or memory limits: ${detail}`,
-            );
+            throw new PdfPageOpsNativeError('too-large', `${label} exceeded qpdf WebAssembly single-stream or memory limits: ${detail}`);
         }
 
         if (options.rejectOnStdoutTruncation && stdoutCapture.isTruncated()) {
-            throw new PdfPageOpsNativeError(
-                'too-large',
-                `${label} stdout exceeded ${maxStdoutBytes} bytes`,
-            );
+            throw new PdfPageOpsNativeError('too-large', `${label} stdout exceeded ${maxStdoutBytes} bytes`);
         }
 
         if (!allowedExitCodes.includes(exitCode)) {
             const detail = extractFirstStderrSummary(stderr);
             const failure = new Error(
-                detail
-                    ? `${label} exited with code ${exitCode}: ${detail}`
-                    : `${label} exited with code ${exitCode}`,
+                detail ? `${label} exited with code ${exitCode}: ${detail}` : `${label} exited with code ${exitCode}`,
             ) as Error & {
                 exitCode?: number;
                 stdout?: string;

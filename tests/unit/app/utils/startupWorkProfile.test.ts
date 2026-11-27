@@ -1,10 +1,4 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 const mocks = vi.hoisted(() => ({getPerformanceProfile: vi.fn(() => ({tier: 'medium' as const}))}));
 
@@ -43,17 +37,14 @@ describe('resolveStartupWorkProfile', () => {
                 recentGeometryConcurrency: 2,
             },
         },
-    ])('maps the canonical $tier tier', async ({
-        tier,
-        expected,
-    }) => {
-        const { resolveStartupWorkProfile } = await import('@app/utils/startupWorkProfile');
+    ])('maps the canonical $tier tier', async ({tier, expected}) => {
+        const {resolveStartupWorkProfile} = await import('@app/utils/startupWorkProfile');
 
         expect(resolveStartupWorkProfile({tier})).toEqual(expected);
     });
 
     it('uses the cached canonical performance profile by default', async () => {
-        const { resolveStartupWorkProfile } = await import('@app/utils/startupWorkProfile');
+        const {resolveStartupWorkProfile} = await import('@app/utils/startupWorkProfile');
 
         expect(resolveStartupWorkProfile()).toMatchObject({
             tier: 'medium',

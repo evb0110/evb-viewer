@@ -1,11 +1,7 @@
-import { isBrowserDocumentRef } from '@app/utils/documentRef';
-import { parseDocumentRef } from '@contracts/documentRef';
-import {
-    getDocumentFilesCapability,
-    getDocumentPickerCapability,
-    getDocumentWorkingCopyCapability,
-} from '@app/utils/platformDocuments';
-import { PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS } from '@app/platform/browser-api/public';
+import {isBrowserDocumentRef} from '@app/utils/documentRef';
+import {parseDocumentRef} from '@contracts/documentRef';
+import {getDocumentFilesCapability, getDocumentPickerCapability, getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
+import {PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS} from '@app/platform/browser-api/public';
 
 function mimeTypeFromPath(path: string) {
     const normalized = path.toLowerCase();
@@ -88,7 +84,9 @@ export async function pickPageAnnotationImageFile() {
         return file;
     } finally {
         if (isBrowserDocumentRef(imagePath)) {
-            await getDocumentWorkingCopyCapability().cleanupFile(imagePath).catch(() => {});
+            await getDocumentWorkingCopyCapability()
+                .cleanupFile(imagePath)
+                .catch(() => {});
         }
     }
 }

@@ -65,7 +65,6 @@
             box-shadow: none !important;
             background: transparent !important;
         }
-
     }
 
     /* Suppress highlight editor chrome — the floating note indicator is the
@@ -352,7 +351,7 @@
     .comment::before,
     .deleteButton.basic::before,
     .highlightButton.basic::before {
-        content: "" !important;
+        content: '' !important;
         display: block !important;
         width: var(--app-pdfjs-editor-icon-size) !important;
         height: var(--app-pdfjs-editor-icon-size) !important;

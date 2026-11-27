@@ -1,16 +1,7 @@
-import type { TBrand } from '@contracts/brand';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
-import {
-    isEpochMs,
-    type TEpochMs,
-} from '@contracts/timestamps';
+import type {TBrand} from '@contracts/brand';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {isOneOf, isRecord} from '@contracts/runtimeGuards';
+import {isEpochMs, type TEpochMs} from '@contracts/timestamps';
 
 export type TDocumentRevisionToken = TBrand<string, 'DocumentRevisionToken'>;
 /** Receives a revision the operation itself committed. */
@@ -62,7 +53,9 @@ export function requireDocumentRevisionToken(value: unknown): TDocumentRevisionT
     return parsed;
 }
 
-export interface IDocumentRevisionStamp {readonly token: TDocumentRevisionToken;}
+export interface IDocumentRevisionStamp {
+    readonly token: TDocumentRevisionToken;
+}
 
 export interface IDocumentRevisionInfo extends IDocumentRevisionStamp {
     readonly version: 1;
@@ -79,31 +72,31 @@ export interface IDocumentRevisionChangedEvent extends IDocumentRevisionInfo {
 
 export function isDocumentRevisionInfo(value: unknown): value is IDocumentRevisionInfo {
     const documentRef = isRecord(value) ? parseDocumentRef(value.documentRef) : null;
-    return isRecord(value)
-        && value.version === 1
-        && parseDocumentRevisionToken(value.token) !== null
-        && documentRef !== null
-        && documentRef.length > 0
-        && documentRef.length <= DOCUMENT_REVISION_REF_MAX_LENGTH
-        && (value.authority === 'electron-working-copy' || value.authority === 'browser-document-store')
-        && typeof value.contentRevision === 'number'
-        && Number.isSafeInteger(value.contentRevision)
-        && value.contentRevision >= 0
-        && isEpochMs(value.mintedAt)
-        && value.mintedAt > 0;
+    return (
+        isRecord(value) &&
+        value.version === 1 &&
+        parseDocumentRevisionToken(value.token) !== null &&
+        documentRef !== null &&
+        documentRef.length > 0 &&
+        documentRef.length <= DOCUMENT_REVISION_REF_MAX_LENGTH &&
+        (value.authority === 'electron-working-copy' || value.authority === 'browser-document-store') &&
+        typeof value.contentRevision === 'number' &&
+        Number.isSafeInteger(value.contentRevision) &&
+        value.contentRevision >= 0 &&
+        isEpochMs(value.mintedAt) &&
+        value.mintedAt > 0
+    );
 }
 
 export function decodeDocumentRevisionChangedEvent(value: unknown): IDocumentRevisionChangedEvent | null {
     const candidate = isRecord(value) ? value : null;
-    const previousToken = candidate?.previousToken === undefined
-        ? undefined
-        : parseDocumentRevisionToken(candidate.previousToken);
+    const previousToken = candidate?.previousToken === undefined ? undefined : parseDocumentRevisionToken(candidate.previousToken);
     if (
-        candidate === null
-        || !isDocumentRevisionInfo(candidate)
-        || typeof candidate.reason !== 'string'
-        || !isOneOf(DOCUMENT_REVISION_CHANGE_REASONS, candidate.reason)
-        || previousToken === null
+        candidate === null ||
+        !isDocumentRevisionInfo(candidate) ||
+        typeof candidate.reason !== 'string' ||
+        !isOneOf(DOCUMENT_REVISION_CHANGE_REASONS, candidate.reason) ||
+        previousToken === null
     ) {
         return null;
     }

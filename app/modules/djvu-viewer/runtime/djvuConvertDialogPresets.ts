@@ -24,14 +24,10 @@ export interface IDjvuConvertDialogSelection {
 }
 
 function normalizePositiveInteger(value: number, fallback: number) {
-    return Number.isFinite(value) && value > 0
-        ? Math.max(1, Math.trunc(value))
-        : fallback;
+    return Number.isFinite(value) && value > 0 ? Math.max(1, Math.trunc(value)) : fallback;
 }
 
-export function createDirectDjvuConvertDialogPresetValue(
-    subsample: number,
-): TDjvuConvertDialogDirectPresetValue {
+export function createDirectDjvuConvertDialogPresetValue(subsample: number): TDjvuConvertDialogDirectPresetValue {
     return `direct-${normalizeDjvuPdfSubsample(subsample)}`;
 }
 
@@ -39,14 +35,14 @@ export function resolveDjvuConvertDialogSelection(
     value: TDjvuConvertDialogPresetValue,
     fallbackSubsample = 1,
 ): IDjvuConvertDialogSelection {
-    if (value === DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE
-        || value === DJVU_COMPACT_SMALL_PRESET_VALUE
-        || value === DJVU_COMPACT_BALANCED_PRESET_VALUE
-        || value === DJVU_COMPACT_ARCHIVAL_PRESET_VALUE) {
+    if (
+        value === DJVU_COMPACT_DJVU_AWARE_PRESET_VALUE ||
+        value === DJVU_COMPACT_SMALL_PRESET_VALUE ||
+        value === DJVU_COMPACT_BALANCED_PRESET_VALUE ||
+        value === DJVU_COMPACT_ARCHIVAL_PRESET_VALUE
+    ) {
         return {
-            subsample: value === DJVU_COMPACT_SMALL_PRESET_VALUE
-                ? 4
-                : value === DJVU_COMPACT_BALANCED_PRESET_VALUE ? 2 : 1,
+            subsample: value === DJVU_COMPACT_SMALL_PRESET_VALUE ? 4 : value === DJVU_COMPACT_BALANCED_PRESET_VALUE ? 2 : 1,
             pdfStrategy: 'compact-djvu-aware',
         };
     }
@@ -75,8 +71,7 @@ export function resolveRecommendedAdvancedDirectPresetValue(
     pageCount: number,
     source: IDjvuPdfConversionSourceEstimate,
 ): TDjvuConvertDialogDirectPresetValue {
-    return createDirectDjvuConvertDialogPresetValue(Math.max(
-        resolvePageCountDefaultDjvuPdfSubsample(pageCount),
-        source.recommendedSubsample,
-    ));
+    return createDirectDjvuConvertDialogPresetValue(
+        Math.max(resolvePageCountDefaultDjvuPdfSubsample(pageCount), source.recommendedSubsample),
+    );
 }

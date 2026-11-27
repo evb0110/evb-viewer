@@ -1,12 +1,9 @@
-import { getErrorMessage } from '@electron/utils/error';
-import { uniq } from 'es-toolkit/array';
-import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/features/ocr/availableLanguages';
-import { isOneOf } from '@contracts/runtimeGuards';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    requireRequestId,
-    type TRequestId,
-} from '@contracts/shared';
+import {getErrorMessage} from '@electron/utils/error';
+import {uniq} from 'es-toolkit/array';
+import {AVAILABLE_OCR_LANGUAGE_CODES} from '@electron/features/ocr/availableLanguages';
+import {isOneOf} from '@contracts/runtimeGuards';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {requireRequestId, type TRequestId} from '@contracts/shared';
 import {createEpochMs} from '@contracts/timestamps';
 import type {
     IOcrErrorEnvelope,
@@ -18,10 +15,7 @@ import type {
     TOcrErrorCode,
     TOcrQualityProfile,
 } from '@contracts/electronApiOcr';
-import {
-    AGENT_OCR_PAGE_SEGMENTATION_MODES,
-    isSupportedPageSegmentationMode,
-} from '@contracts/agentOcr';
+import {AGENT_OCR_PAGE_SEGMENTATION_MODES, isSupportedPageSegmentationMode} from '@contracts/agentOcr';
 
 interface IOcrCreateSearchablePdfPayload {
     sourcePdfPath: string;
@@ -35,15 +29,8 @@ const MAX_SELECTION_RANGES = 100_000;
 const MAX_EXPLICIT_PAGE_REQUESTS = 100_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
-const OCR_QUALITY_PROFILES = [
-    'balanced',
-    'accurate',
-    'poor-scan',
-] as const satisfies readonly TOcrQualityProfile[];
-const OCR_PREPROCESSING_MODES = [
-    'off',
-    'clean',
-] as const satisfies readonly TOcrPreprocessingMode[];
+const OCR_QUALITY_PROFILES = ['balanced', 'accurate', 'poor-scan'] as const satisfies readonly TOcrQualityProfile[];
+const OCR_PREPROCESSING_MODES = ['off', 'clean'] as const satisfies readonly TOcrPreprocessingMode[];
 
 export class OcrPayloadValidationError extends Error {
     readonly code: TOcrErrorCode;
@@ -251,10 +238,7 @@ function asSelectionKind(payload: Record<string, unknown>, fieldName: string) {
     return rawKind;
 }
 
-function asSearchablePdfPageSelection(
-    pagesPayload: unknown,
-    fieldName: string,
-): TOcrSearchablePdfPages {
+function asSearchablePdfPageSelection(pagesPayload: unknown, fieldName: string): TOcrSearchablePdfPages {
     if (Array.isArray(pagesPayload)) {
         if (pagesPayload.length === 0) {
             throw new OcrPayloadValidationError(`${fieldName} must be a non-empty array`);
@@ -262,8 +246,7 @@ function asSearchablePdfPageSelection(
         if (pagesPayload.length > MAX_EXPLICIT_PAGE_REQUESTS) {
             throw new OcrPayloadValidationError(`${fieldName} exceeds maximum size (${MAX_EXPLICIT_PAGE_REQUESTS})`);
         }
-        const pages = pagesPayload.map((page, index) =>
-            asCreatePdfPageRequest(page, `${fieldName}[${index}]`));
+        const pages = pagesPayload.map((page, index) => asCreatePdfPageRequest(page, `${fieldName}[${index}]`));
         return pages;
     }
 
@@ -279,7 +262,12 @@ function asSearchablePdfPageSelection(
         return asSearchablePdfPageSelection(wrappedSelection, `${fieldName}.selection`);
     }
     const wrappedPages = pagesPayload.pages;
-    if (wrappedPages !== undefined && pagesPayload.kind === undefined && pagesPayload.mode === undefined && pagesPayload.type === undefined) {
+    if (
+        wrappedPages !== undefined &&
+        pagesPayload.kind === undefined &&
+        pagesPayload.mode === undefined &&
+        pagesPayload.type === undefined
+    ) {
         return asSearchablePdfPageSelection(wrappedPages, `${fieldName}.pages`);
     }
 
@@ -313,8 +301,7 @@ function asSearchablePdfPageSelection(
     if (rawRanges.length > MAX_SELECTION_RANGES) {
         throw new OcrPayloadValidationError(`${fieldName}.ranges exceeds maximum size (${MAX_SELECTION_RANGES})`);
     }
-    const ranges = rawRanges.map((pageRange, index) =>
-        asPageRange(pageRange, `${fieldName}.ranges[${index}]`));
+    const ranges = rawRanges.map((pageRange, index) => asPageRange(pageRange, `${fieldName}.ranges[${index}]`));
     ranges.sort((left, right) => left.firstPage - right.firstPage || left.lastPage - right.lastPage);
     const mergedRanges: IOcrSearchablePdfPageRange[] = [];
     for (const pageRange of ranges) {
@@ -351,9 +338,13 @@ function requireSingleOcrLanguage(selection: TOcrSearchablePdfPages) {
         }
     };
     if (Array.isArray(selection)) {
-        for (const page of selection) addLanguages(page.languages);
+        for (const page of selection) {
+            addLanguages(page.languages);
+        }
     } else if (selection.kind === 'pages') {
-        for (const page of selection.pages) addLanguages(page.languages);
+        for (const page of selection.pages) {
+            addLanguages(page.languages);
+        }
     } else {
         addLanguages(selection.languages);
     }
@@ -407,7 +398,7 @@ export function toOcrErrorEnvelope(
         return buildOcrErrorEnvelope(error.code, error.message, {retryable: false});
     }
     if (error instanceof Error) {
-        return buildOcrErrorEnvelope(fallbackCode, getErrorMessage(error) || 'Unknown OCR error', { retryable });
+        return buildOcrErrorEnvelope(fallbackCode, getErrorMessage(error) || 'Unknown OCR error', {retryable});
     }
-    return buildOcrErrorEnvelope(fallbackCode, 'Unknown OCR error', { retryable });
+    return buildOcrErrorEnvelope(fallbackCode, 'Unknown OCR error', {retryable});
 }

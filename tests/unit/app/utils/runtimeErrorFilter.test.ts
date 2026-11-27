@@ -1,12 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    getIgnorableRuntimeErrorMessage,
-    isIgnorableRuntimeErrorMessage,
-} from '@app/utils/runtimeErrorFilter';
+import {describe, expect, it} from 'vitest';
+import {getIgnorableRuntimeErrorMessage, isIgnorableRuntimeErrorMessage} from '@app/utils/runtimeErrorFilter';
 
 describe('runtime error filter', () => {
     it('ignores known ResizeObserver browser warnings', () => {
@@ -23,8 +16,10 @@ describe('runtime error filter', () => {
     });
 
     it('does not suppress real errors that merely mention ResizeObserver text', () => {
-        expect(isIgnorableRuntimeErrorMessage(
-            'TypeError: Cannot read properties of undefined. ResizeObserver loop completed with undelivered notifications.',
-        )).toBe(false);
+        expect(
+            isIgnorableRuntimeErrorMessage(
+                'TypeError: Cannot read properties of undefined. ResizeObserver loop completed with undelivered notifications.',
+            ),
+        ).toBe(false);
     });
 });

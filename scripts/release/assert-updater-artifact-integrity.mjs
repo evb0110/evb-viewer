@@ -1,12 +1,7 @@
-import { createHash } from 'node:crypto';
-import {
-    closeSync,
-    openSync,
-    readSync,
-    statSync,
-} from 'node:fs';
-import { resolve } from 'node:path';
-import { getUpdaterMetadataFileNames } from './policy.mjs';
+import {createHash} from 'node:crypto';
+import {closeSync, openSync, readSync, statSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {getUpdaterMetadataFileNames} from './policy.mjs';
 
 const HASH_BUFFER_BYTES = 1024 * 1024;
 
@@ -66,13 +61,14 @@ function readMetadataEntries(metadataFileName, metadataText) {
         const size = line.match(/^size:\s*(\d+)\s*$/u)?.[1];
         topLevelSize ??= size === undefined ? undefined : Number(size);
     }
-    const topLevelEntry = topLevelPath === undefined
-        ? null
-        : {
-            sha512: topLevelSha512,
-            size: topLevelSize,
-            url: topLevelPath,
-        };
+    const topLevelEntry =
+        topLevelPath === undefined
+            ? null
+            : {
+                  sha512: topLevelSha512,
+                  size: topLevelSize,
+                  url: topLevelPath,
+              };
     if (entries.length === 0 && topLevelEntry) {
         entries.push(topLevelEntry);
     }
@@ -86,22 +82,16 @@ function readMetadataEntries(metadataFileName, metadataText) {
 }
 
 /** @param {IUpdaterArtifactIntegrityOptions} options */
-export function assertUpdaterArtifactIntegrity({
-    artifactNames,
-    artifactsDir,
-    readArtifactInfo,
-    readMetadataText,
-}) {
+export function assertUpdaterArtifactIntegrity({artifactNames, artifactsDir, readArtifactInfo, readMetadataText}) {
     for (const metadataFileName of getUpdaterMetadataFileNames(artifactNames)) {
-        const {
-            entries,
-            topLevelEntry,
-        } = readMetadataEntries(metadataFileName, readMetadataText(metadataFileName));
+        const {entries, topLevelEntry} = readMetadataEntries(metadataFileName, readMetadataText(metadataFileName));
         if (topLevelEntry) {
-            const matchingEntry = entries.find(entry => entry.url === topLevelEntry.url);
-            if (!matchingEntry
-                || matchingEntry.sha512 !== topLevelEntry.sha512
-                || (topLevelEntry.size !== undefined && matchingEntry.size !== topLevelEntry.size)) {
+            const matchingEntry = entries.find((entry) => entry.url === topLevelEntry.url);
+            if (
+                !matchingEntry ||
+                matchingEntry.sha512 !== topLevelEntry.sha512 ||
+                (topLevelEntry.size !== undefined && matchingEntry.size !== topLevelEntry.size)
+            ) {
                 throw new Error(`Updater top-level artifact metadata is inconsistent with files[] in ${metadataFileName}`);
             }
         }
@@ -112,9 +102,9 @@ export function assertUpdaterArtifactIntegrity({
             const info = readArtifactInfo
                 ? readArtifactInfo(entry.url)
                 : {
-                    sha512: calculateArtifactSha512(resolve(artifactsDir, entry.url)),
-                    size: statSync(resolve(artifactsDir, entry.url)).size,
-                };
+                      sha512: calculateArtifactSha512(resolve(artifactsDir, entry.url)),
+                      size: statSync(resolve(artifactsDir, entry.url)).size,
+                  };
             if (info.sha512 !== entry.sha512) {
                 throw new Error(`Updater SHA-512 mismatch in ${metadataFileName} for ${entry.url}`);
             }

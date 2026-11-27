@@ -10,13 +10,16 @@
         @dblclick.stop
         @contextmenu.prevent.stop
     >
-        <div class="pdf-image-placement__transform" :style="transformStyle">
+        <div
+            class="pdf-image-placement__transform"
+            :style="transformStyle"
+        >
             <img
                 class="pdf-image-placement__preview"
                 :src="placement.previewUrl"
                 :alt="placement.fileName"
                 draggable="false"
-            >
+            />
             <button
                 type="button"
                 class="pdf-image-placement__surface"
@@ -72,30 +75,24 @@
 </template>
 
 <script setup lang="ts">
-import { isReleasedMouseCapture } from '@app/modules/pdf-viewer/annotations/editor/isReleasedMouseCapture';
-import { useEventListener } from '@vueuse/core';
-import { annotationEditorSurfaceKey } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
-import type {
-    IPdfImagePlacementDraft,
-    IPdfImagePlacementRectUpdate,
-} from '@app/types/pdfImagePlacement';
-import { getImagePlacementResizeCursorStyle } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursorStyle';
-import { getImagePlacementResizeHandleViewportPosition } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeHandleViewportPosition';
-import { getImagePlacementRotateHandleViewportPosition } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementRotateHandleViewportPosition';
-import { moveImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/moveImagePlacementRect';
+import {isReleasedMouseCapture} from '@app/modules/pdf-viewer/annotations/editor/isReleasedMouseCapture';
+import {useEventListener} from '@vueuse/core';
+import {annotationEditorSurfaceKey} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import type {IPdfImagePlacementDraft, IPdfImagePlacementRectUpdate} from '@app/types/pdfImagePlacement';
+import {getImagePlacementResizeCursorStyle} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursorStyle';
+import {getImagePlacementResizeHandleViewportPosition} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeHandleViewportPosition';
+import {getImagePlacementRotateHandleViewportPosition} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementRotateHandleViewportPosition';
+import {moveImagePlacementRect} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/moveImagePlacementRect';
 import type {
     IImagePlacementContainerRect,
     IImagePlacementRectPx,
     TImagePlacementResizeHandle,
 } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
-import { resizeImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/resizeImagePlacementRect';
-import { rotateImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/rotateImagePlacementRect';
-import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
+import {resizeImagePlacementRect} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/resizeImagePlacementRect';
+import {rotateImagePlacementRect} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/rotateImagePlacementRect';
+import {createRafCoalescedCallback} from '@app/utils/createRafCoalescedCallback';
 
-const {
-    placement,
-    busy = false,
-} = defineProps<{
+const {placement, busy = false} = defineProps<{
     placement: IPdfImagePlacementDraft | null;
     busy?: boolean;
 }>();
@@ -106,27 +103,16 @@ const emit = defineEmits<{
     cancel: [];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const frameRef = ref<HTMLElement | null>(null);
 const GLOBAL_CURSOR_ATTRIBUTE = 'data-pdf-image-placement-cursor';
 // Only the active viewer's placement takes the keyboard: another pane may
 // hold a placement of its own.
 const surface = inject(annotationEditorSurfaceKey, null);
-const placementKeyboardTarget = computed(() => (
-    placement && !busy && surface?.isActive.value !== false && typeof window !== 'undefined'
-        ? window
-        : null
-));
-const resizeHandles: TImagePlacementResizeHandle[] = [
-    'nw',
-    'n',
-    'ne',
-    'e',
-    'se',
-    's',
-    'sw',
-    'w',
-];
+const placementKeyboardTarget = computed(() =>
+    placement && !busy && surface?.isActive.value !== false && typeof window !== 'undefined' ? window : null,
+);
+const resizeHandles: TImagePlacementResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 
 const frameStyle = computed((): Record<string, string> => {
     if (!placement) {
@@ -141,10 +127,12 @@ const frameStyle = computed((): Record<string, string> => {
     };
 });
 
-const transformStyle = computed((): Record<string, string> => ({ '--pdf-image-placement-rotation': `${placement?.rotationDegrees ?? 0}deg` }));
+const transformStyle = computed((): Record<string, string> => ({
+    '--pdf-image-placement-rotation': `${placement?.rotationDegrees ?? 0}deg`,
+}));
 
 function getResizeHandleStyle(handle: TImagePlacementResizeHandle) {
-    return { cursor: getImagePlacementResizeCursorStyle(handle, placement?.rotationDegrees ?? 0) };
+    return {cursor: getImagePlacementResizeCursorStyle(handle, placement?.rotationDegrees ?? 0)};
 }
 
 interface IActiveInteraction {
@@ -218,10 +206,7 @@ function resolveCursorThemeColors() {
 }
 
 function buildVirtualCursorSvg(mode: IActiveInteraction['mode'], handle?: TImagePlacementResizeHandle) {
-    const {
-        fill,
-        outline,
-    } = resolveCursorThemeColors();
+    const {fill, outline} = resolveCursorThemeColors();
     if (mode === 'rotate') {
         return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z" fill="${fill}" stroke="${outline}" stroke-width="0.5"/></svg>`;
     }
@@ -243,10 +228,7 @@ const IMAGE_PLACEMENT_HANDLE_ANGLES_FOR_CURSOR: Record<TImagePlacementResizeHand
     nw: 225,
 };
 
-function getInteractionCursor(
-    mode: IActiveInteraction['mode'],
-    handle?: TImagePlacementResizeHandle,
-) {
+function getInteractionCursor(mode: IActiveInteraction['mode'], handle?: TImagePlacementResizeHandle) {
     if (mode === 'move' || mode === 'rotate') {
         return 'grabbing';
     }
@@ -301,11 +283,7 @@ function toNormalizedRect(
     return update;
 }
 
-function startInteraction(
-    mode: IActiveInteraction['mode'],
-    event: PointerEvent,
-    handle?: TImagePlacementResizeHandle,
-) {
+function startInteraction(mode: IActiveInteraction['mode'], event: PointerEvent, handle?: TImagePlacementResizeHandle) {
     if (!placement || busy || event.button !== 0) {
         return;
     }
@@ -317,16 +295,14 @@ function startInteraction(
 
     stopInteraction();
 
-    const captureElement = event.currentTarget instanceof HTMLElement
-        ? event.currentTarget
-        : null;
+    const captureElement = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
     const activeCursor = getInteractionCursor(mode, handle);
 
     captureElement?.setPointerCapture(event.pointerId);
 
     activeInteraction = {
         mode,
-        ...(handle !== undefined ? { handle } : {}),
+        ...(handle !== undefined ? {handle} : {}),
         pointerId: event.pointerId,
         captureElement,
         originRectPx: getOriginRectPx(containerRect, placement),
@@ -346,10 +322,7 @@ function stopInteraction() {
     imagePlacementMove.cancel();
     const interaction = activeInteraction;
     activeInteraction = null;
-    if (
-        interaction?.captureElement
-        && interaction.captureElement.hasPointerCapture(interaction.pointerId)
-    ) {
+    if (interaction?.captureElement && interaction.captureElement.hasPointerCapture(interaction.pointerId)) {
         interaction.captureElement.releasePointerCapture(interaction.pointerId);
     }
 
@@ -406,12 +379,7 @@ function applyResizeInteraction(interaction: IActiveInteraction, event: PointerE
         x: interaction.containerRect.left,
         y: interaction.containerRect.top,
     };
-    const handlePos = getImagePlacementResizeHandleViewportPosition(
-        rectPx,
-        handle,
-        interaction.originRotationDegrees,
-        containerOrigin,
-    );
+    const handlePos = getImagePlacementResizeHandleViewportPosition(rectPx, handle, interaction.originRotationDegrees, containerOrigin);
     updateVirtualCursorPosition(handlePos.x, handlePos.y);
 
     emit('updateRect', toNormalizedRect(interaction.containerRect, rectPx));
@@ -422,7 +390,7 @@ function applyRotateInteraction(interaction: IActiveInteraction, event: PointerE
         x: interaction.containerRect.left,
         y: interaction.containerRect.top,
     };
-    const { rotationDegrees } = rotateImagePlacementRect({
+    const {rotationDegrees} = rotateImagePlacementRect({
         originRectPx: interaction.originRectPx,
         containerOrigin,
         originRotationDegrees: interaction.originRotationDegrees,
@@ -441,11 +409,7 @@ function applyRotateInteraction(interaction: IActiveInteraction, event: PointerE
     );
     updateVirtualCursorPosition(handlePos.x, handlePos.y);
 
-    emit('updateRect', toNormalizedRect(
-        interaction.containerRect,
-        interaction.originRectPx,
-        rotationDegrees,
-    ));
+    emit('updateRect', toNormalizedRect(interaction.containerRect, interaction.originRectPx, rotationDegrees));
 }
 
 function handleWindowPointerMove(event: PointerEvent) {
@@ -485,11 +449,7 @@ function handleWindowPointerCancel(event: PointerEvent) {
         return;
     }
     stopInteraction();
-    emit('updateRect', toNormalizedRect(
-        interaction.containerRect,
-        interaction.originRectPx,
-        interaction.originRotationDegrees,
-    ));
+    emit('updateRect', toNormalizedRect(interaction.containerRect, interaction.originRectPx, interaction.originRotationDegrees));
 }
 
 useEventListener(interactionWindowTarget, 'pointercancel', handleWindowPointerCancel);
@@ -501,12 +461,7 @@ useEventListener(interactionWindowTarget, 'lostpointercapture', (event: PointerE
     }
 });
 
-watch([
-    () => placement?.stableKey,
-    () => placement?.previewUrl,
-    () => placement?.viewRotation,
-    () => busy,
-], () => {
+watch([() => placement?.stableKey, () => placement?.previewUrl, () => placement?.viewRotation, () => busy], () => {
     stopInteraction();
 });
 
@@ -519,11 +474,7 @@ function isEditableTarget(target: EventTarget | null) {
         return true;
     }
 
-    return [
-        'INPUT',
-        'TEXTAREA',
-        'SELECT',
-    ].includes(target.tagName);
+    return ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
 }
 
 function handlePlacementKeydown(event: KeyboardEvent) {
@@ -541,11 +492,11 @@ function handlePlacementKeydown(event: KeyboardEvent) {
     // Enter on any other control, such as Cancel, does what that control does.
     const control = event.target instanceof Element ? event.target.closest('button, summary, a[href], [role="button"]') : null;
     if (
-        (event.key === 'Enter' || event.key === 'NumpadEnter')
-        && (control === null || control.closest('.pdf-image-placement__transform') !== null)
-        && !event.metaKey
-        && !event.ctrlKey
-        && !event.altKey
+        (event.key === 'Enter' || event.key === 'NumpadEnter') &&
+        (control === null || control.closest('.pdf-image-placement__transform') !== null) &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey
     ) {
         event.preventDefault();
         stopInteraction();

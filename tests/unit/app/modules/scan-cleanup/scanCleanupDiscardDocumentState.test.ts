@@ -1,12 +1,5 @@
 // @vitest-environment happy-dom
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import {discardScanCleanupDocumentState} from '@app/modules/scan-cleanup/runtime/discardScanCleanupDocumentState';
@@ -61,12 +54,14 @@ describe('discardScanCleanupDocumentState', () => {
         scanCleanupDetectionSessionCache.set(AUTHORITATIVE_LIFECYCLE_KEY, cacheEntry());
         scanCleanupAutoDetectionCanceledDocuments.add(LIFECYCLE_KEY);
         scanCleanupAutoDetectionCanceledDocuments.add(AUTHORITATIVE_LIFECYCLE_KEY);
-        await saveScanCleanupDocumentOverrides(DOCUMENT_KEY, {'1': {
-            rotationDegrees: 90,
-            layoutOverride: 'spread',
-            excluded: false,
-            manualSplit: null,
-        }});
+        await saveScanCleanupDocumentOverrides(DOCUMENT_KEY, {
+            '1': {
+                rotationDegrees: 90,
+                layoutOverride: 'spread',
+                excluded: false,
+                manualSplit: null,
+            },
+        });
         await saveScanCleanupDocumentMargins(DOCUMENT_KEY, {
             leftMm: 19,
             topMm: 6,

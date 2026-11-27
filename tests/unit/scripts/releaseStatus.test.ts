@@ -1,9 +1,5 @@
-import {
-    describe, expect, it,
-} from 'vitest';
-import {
-    formatReleaseStatus, summarizeReleaseStatus,
-} from '@scripts/release/release-status.mjs';
+import {describe, expect, it} from 'vitest';
+import {formatReleaseStatus, summarizeReleaseStatus} from '@scripts/release/release-status.mjs';
 
 import {verifyMirrorObjects} from '@scripts/release/verifyReleaseMirror.mjs';
 
@@ -26,23 +22,28 @@ const servedMirror = async ({tag}: {tag: string}) => ({
     publicRoute: true,
     tag,
 });
-const deps = (releaseAssets: string[], isDraft = false, {
-    conclusion = 'success',
-    verifyMirrorObjectsFn = servedMirror,
-}: {
-    conclusion?: string;
-    verifyMirrorObjectsFn?: (options: {tag: string}) => Promise<{
-        publicRoute: boolean;
-        tag: string
-    }>;
-} = {}) => ({
+const deps = (
+    releaseAssets: string[],
+    isDraft = false,
+    {
+        conclusion = 'success',
+        verifyMirrorObjectsFn = servedMirror,
+    }: {
+        conclusion?: string;
+        verifyMirrorObjectsFn?: (options: {tag: string}) => Promise<{
+            publicRoute: boolean;
+            tag: string;
+        }>;
+    } = {},
+) => ({
     env: {},
-    runCommand: () => JSON.stringify({
-        assets: releaseAssets.map(name => ({name})),
-        isDraft,
-        publishedAt: null,
-        tagName: 'v1.2.3',
-    }),
+    runCommand: () =>
+        JSON.stringify({
+            assets: releaseAssets.map((name) => ({name})),
+            isDraft,
+            publishedAt: null,
+            tagName: 'v1.2.3',
+        }),
     listWorkflowRunsFn: () => [
         {
             displayTitle: 'Release v1.2.30',
@@ -82,16 +83,16 @@ describe('release status', () => {
     });
 
     it('keeps a public release incomplete until the updater mirror is shown to serve it', async () => {
-        for (const conclusion of [
-            'failure',
-            'success',
-        ]) {
-            const status = await summarizeReleaseStatus('v1.2.3', deps(assets, false, {
-                conclusion,
-                verifyMirrorObjectsFn: async () => {
-                    throw new Error('Mirror channel points to v1.2.2, expected v1.2.3');
-                },
-            }));
+        for (const conclusion of ['failure', 'success']) {
+            const status = await summarizeReleaseStatus(
+                'v1.2.3',
+                deps(assets, false, {
+                    conclusion,
+                    verifyMirrorObjectsFn: async () => {
+                        throw new Error('Mirror channel points to v1.2.2, expected v1.2.3');
+                    },
+                }),
+            );
             expect(status.complete, `${conclusion} run, mirror on the previous tag`).toBe(false);
             expect(status.mirror).toContain('v1.2.2');
         }
@@ -105,34 +106,43 @@ describe('release status', () => {
 
     it('keeps status incomplete when the manifest serves only its first asset', async () => {
         const status = await summarizeReleaseStatus('v1.2.3', {
-            ...deps(assets, false, {verifyMirrorObjectsFn: options => verifyMirrorObjects({
-                ...options,
-                fetchFn: async (url) => {
-                    const requestUrl = String(url);
-                    if (requestUrl.endsWith('/stable.json')) return Response.json({release: {tag: 'v1.2.3'}});
-                    if (requestUrl.endsWith('/manifest.json')) return Response.json({
-                        release: {tag: 'v1.2.3'},
-                        assets: assets.map(name => ({name})),
-                    });
-                    return new Response(null, {status: requestUrl.endsWith(`/${assets[0]}`) ? 200 : 404});
-                },
-            })}),
+            ...deps(assets, false, {
+                verifyMirrorObjectsFn: (options) =>
+                    verifyMirrorObjects({
+                        ...options,
+                        fetchFn: async (url) => {
+                            const requestUrl = String(url);
+                            if (requestUrl.endsWith('/stable.json')) {
+                                return Response.json({release: {tag: 'v1.2.3'}});
+                            }
+                            if (requestUrl.endsWith('/manifest.json')) {
+                                return Response.json({
+                                    release: {tag: 'v1.2.3'},
+                                    assets: assets.map((name) => ({name})),
+                                });
+                            }
+                            return new Response(null, {status: requestUrl.endsWith(`/${assets[0]}`) ? 200 : 404});
+                        },
+                    }),
+            }),
             env: {
                 MIRROR_S3_ENDPOINT: 'fixture',
                 MIRROR_S3_BUCKET: 'fixture',
                 MIRROR_S3_ACCESS_KEY_ID: 'fixture',
                 MIRROR_S3_SECRET_KEY: 'fixture',
             },
-            runCommand: (command: string) => JSON.stringify(command === 'aws'
-                ? {release: {tag: 'v1.2.3'}}
-                : {
-                    assets: assets.map(name => ({name})),
-                    isDraft: false,
-                }),
+            runCommand: (command: string) =>
+                JSON.stringify(
+                    command === 'aws'
+                        ? {release: {tag: 'v1.2.3'}}
+                        : {
+                              assets: assets.map((name) => ({name})),
+                              isDraft: false,
+                          },
+                ),
         });
         expect(status.missing).toEqual([]);
         expect(status.complete).toBe(false);
         expect(status.mirror).toContain(`${assets[1]} returned HTTP 404`);
     });
-
 });

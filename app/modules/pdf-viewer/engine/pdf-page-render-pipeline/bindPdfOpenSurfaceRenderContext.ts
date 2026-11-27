@@ -1,8 +1,4 @@
-import type {
-    IPdfPage,
-    IPdfDocument,
-    IPdfAnnotation,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfPage, IPdfDocument, IPdfAnnotation} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import type {TPdfPageOperationSettlementCapture} from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import type {NativeAnnotationAppearance} from 'pdfjs-dist';
@@ -12,32 +8,37 @@ export interface IPdfAnnotationRenderInput {
     readonly document: IPdfDocument;
     readonly original: IPdfAnnotationParseResult | null;
     readonly annotations: readonly IPdfAnnotation[];
-    readonly semanticInputs: ReadonlyArray<Readonly<{
-        id?: string;
-        ref: string | null;
-        fingerprint: string
-    }>>;
+    readonly semanticInputs: ReadonlyArray<
+        Readonly<{
+            id?: string;
+            ref: string | null;
+            fingerprint: string;
+        }>
+    >;
     readonly excludedIds: ReadonlySet<string>;
     readonly signature: string;
     readonly nativeAnnotationAppearance?: NativeAnnotationAppearance;
-    readonly nativeTextBoxInputs?: ReadonlyArray<Readonly<{
-        id: string;
-        key: string;
-        appearanceIndex: number;
-        appearanceDocument: number
-    }>>;
+    readonly nativeTextBoxInputs?: ReadonlyArray<
+        Readonly<{
+            id: string;
+            key: string;
+            appearanceIndex: number;
+            appearanceDocument: number;
+        }>
+    >;
 }
 
-export type TPdfPageRenderContentIntent =
-    | 'full-visible'
-    | 'canvas-only-buffer'
-    | 'canvas-only-refine'
-    | 'layers-only-promotion';
+export type TPdfPageRenderContentIntent = 'full-visible' | 'canvas-only-buffer' | 'canvas-only-refine' | 'layers-only-promotion';
 
 export interface IRenderVisiblePagesOptions {
     annotationCommit?: {
         signature: string;
-        prepare(page: IPdfPage, captureSettlement: TPdfPageOperationSettlementCapture, signal: AbortSignal, reserveAppearanceBytes: (bytes: number) => void): Promise<IPdfAnnotationRenderInput>;
+        prepare(
+            page: IPdfPage,
+            captureSettlement: TPdfPageOperationSettlementCapture,
+            signal: AbortSignal,
+            reserveAppearanceBytes: (bytes: number) => void,
+        ): Promise<IPdfAnnotationRenderInput>;
         isCurrent(): boolean;
         commit(): void;
     };
@@ -60,10 +61,7 @@ export interface IRenderVisiblePagesOptions {
     bufferMaxCanvasPixels?: number;
 }
 
-export type TPdfOpenSurfaceRenderContext = Pick<
-    Required<IRenderVisiblePagesOptions>,
-    'openSurfaceGeneration' | 'openSurfaceRevision'
->;
+export type TPdfOpenSurfaceRenderContext = Pick<Required<IRenderVisiblePagesOptions>, 'openSurfaceGeneration' | 'openSurfaceRevision'>;
 
 export function bindPdfOpenSurfaceRenderContext(
     renderOptions: IRenderVisiblePagesOptions | undefined,
@@ -71,8 +69,8 @@ export function bindPdfOpenSurfaceRenderContext(
 ) {
     return context
         ? {
-            ...renderOptions,
-            ...context,
-        }
+              ...renderOptions,
+              ...context,
+          }
         : renderOptions;
 }

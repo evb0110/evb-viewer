@@ -7,12 +7,24 @@
 if (typeof globalThis.DOMMatrix === 'undefined') {
     Object.defineProperty(globalThis, 'DOMMatrix', {
         value: class {
-            preMultiplySelf() { return this; }
-            multiply() { return this; }
-            invertSelf() { return this; }
-            inverse() { return this; }
-            translate() { return this; }
-            scale() { return this; }
+            preMultiplySelf() {
+                return this;
+            }
+            multiply() {
+                return this;
+            }
+            invertSelf() {
+                return this;
+            }
+            inverse() {
+                return this;
+            }
+            translate() {
+                return this;
+            }
+            scale() {
+                return this;
+            }
         },
         configurable: true,
         writable: true,

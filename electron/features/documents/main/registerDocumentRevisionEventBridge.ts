@@ -1,19 +1,18 @@
-import { BrowserWindow } from 'electron';
-import type { IDocumentRevisionChangedEvent } from '@contracts/documentRevision';
-import type { DOCUMENT_FILES_PLATFORM_FEATURE } from '@contracts/documentsPlatformFeature';
-import type { TFeatureEventMap } from '@contracts/platformFeature';
-import { DOCUMENTS_EVENT_CHANNELS } from '@electron/features/documents/contract';
-import {
-    onDocumentRevisionChanged,
-} from '@electron/file-access/documentStore';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
+import {BrowserWindow} from 'electron';
+import type {IDocumentRevisionChangedEvent} from '@contracts/documentRevision';
+import type {DOCUMENT_FILES_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
+import type {TFeatureEventMap} from '@contracts/platformFeature';
+import {DOCUMENTS_EVENT_CHANNELS} from '@electron/features/documents/contract';
+import {onDocumentRevisionChanged} from '@electron/file-access/documentStore';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
 
 const logger = createLogger('document-revision-events');
 let unsubscribeRevisionBridge: (() => void) | null = null;
 
-type TDocumentRevisionChangedPayload =
-    TFeatureEventMap<typeof DOCUMENT_FILES_PLATFORM_FEATURE>[typeof DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged];
+type TDocumentRevisionChangedPayload = TFeatureEventMap<
+    typeof DOCUMENT_FILES_PLATFORM_FEATURE
+>[typeof DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged];
 
 export function registerDocumentRevisionEventBridge(): void {
     if (unsubscribeRevisionBridge) {
@@ -26,10 +25,7 @@ export function registerDocumentRevisionEventBridge(): void {
                 continue;
             }
             try {
-                window.webContents.send(
-                    DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged,
-                    event satisfies TDocumentRevisionChangedPayload,
-                );
+                window.webContents.send(DOCUMENTS_EVENT_CHANNELS.documentRevisionChanged, event satisfies TDocumentRevisionChangedPayload);
             } catch (error) {
                 logger.debug(`Failed to send document revision event: ${getErrorMessage(error)}`);
             }

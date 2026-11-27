@@ -21,27 +21,25 @@
 </template>
 
 <script setup lang="ts">
-import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
+import type {IDocumentSearchMatch} from '@app/modules/document-viewer/search/documentSearch';
 import {
     resolveDocumentPageSourceSearchHighlights,
     type IDocumentPageSourceSearchHighlight,
 } from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceSearchHighlights';
 
-const {
-    currentResultIndex,
-    pageNumber,
-    results,
-} = defineProps<{
+const {currentResultIndex, pageNumber, results} = defineProps<{
     currentResultIndex: number;
     pageNumber: number;
     results: readonly IDocumentSearchMatch[];
 }>();
 
-const highlights = computed(() => resolveDocumentPageSourceSearchHighlights({
-    currentResultIndex,
-    pageNumber,
-    results,
-}));
+const highlights = computed(() =>
+    resolveDocumentPageSourceSearchHighlights({
+        currentResultIndex,
+        pageNumber,
+        results,
+    }),
+);
 
 function getHighlightStyle(highlight: IDocumentPageSourceSearchHighlight) {
     return {

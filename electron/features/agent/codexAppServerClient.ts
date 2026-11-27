@@ -1,21 +1,15 @@
 import {sanitizeAssistantProviderText} from '@electron/features/agent/assistantErrorEnvelope';
-import {
-    spawn,
-    type ChildProcess,
-} from 'child_process';
-import { app } from 'electron';
-import { isRecord } from '@contracts/runtimeGuards';
-import { getErrorMessage } from '@electron/utils/error';
+import {spawn, type ChildProcess} from 'child_process';
+import {app} from 'electron';
+import {isRecord} from '@contracts/runtimeGuards';
+import {getErrorMessage} from '@electron/utils/error';
 import {te} from '@electron/te';
-import { createLogger } from '@electron/utils/createLogger';
-import { createTextChunkAccumulator } from '@electron/native-tools/createTextChunkAccumulator';
-import {
-    createDetachedChildProcessSpawnOptions,
-    terminateDetachedChildProcess,
-} from '@electron/utils/nativeChildProcess';
-import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {createLogger} from '@electron/utils/createLogger';
+import {createTextChunkAccumulator} from '@electron/native-tools/createTextChunkAccumulator';
+import {createDetachedChildProcessSpawnOptions, terminateDetachedChildProcess} from '@electron/utils/nativeChildProcess';
+import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
-import { resolveCodexProcessLaunch } from '@electron/features/agent/codexProcessLaunch';
+import {resolveCodexProcessLaunch} from '@electron/features/agent/codexProcessLaunch';
 
 const logger = createLogger('agent-codex-assistant');
 const APP_SERVER_REQUEST_TIMEOUT_MS = 30_000;
@@ -97,8 +91,10 @@ export class CodexAppServerClient {
     private readonly lifecycleOperation = registerMainOperation({
         kind: 'resource-cleanup',
         cancel: () => {
-            void this.shutdown().catch(error => {
-                logger.warn(`Failed to shut down Codex app-server during lifecycle cancellation: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
+            void this.shutdown().catch((error) => {
+                logger.warn(
+                    `Failed to shut down Codex app-server during lifecycle cancellation: ${sanitizeAssistantProviderText(getErrorMessage(error))}`,
+                );
             });
         },
     });
@@ -111,23 +107,22 @@ export class CodexAppServerClient {
         private readonly onNotification: (notification: ICodexAppServerNotification) => void,
         private readonly onExit: (message: string) => void,
     ) {
-        this.closePromise = new Promise(resolve => {
+        this.closePromise = new Promise((resolve) => {
             this.resolveClosePromise = resolve;
         });
         let child: ReturnType<typeof spawn>;
         try {
-            const launch = resolveCodexProcessLaunch(codexPath, [
-                'app-server',
-                ...extraArgs,
-                '--listen',
-                'stdio://',
-            ]);
-            child = spawn(launch.command, launch.args, createDetachedChildProcessSpawnOptions({
-                cwd,
-                env,
-                shell: launch.shell,
-                windowsHide: true,
-            }));
+            const launch = resolveCodexProcessLaunch(codexPath, ['app-server', ...extraArgs, '--listen', 'stdio://']);
+            child = spawn(
+                launch.command,
+                launch.args,
+                createDetachedChildProcessSpawnOptions({
+                    cwd,
+                    env,
+                    shell: launch.shell,
+                    windowsHide: true,
+                }),
+            );
         } catch (error) {
             this.lifecycleOperation.complete();
             throw error;
@@ -145,8 +140,12 @@ export class CodexAppServerClient {
         this.stderr.setEncoding('utf8');
         this.stdout.on('data', (chunk: string | Buffer) => this.handleStdout(String(chunk)));
         this.stderr.on('data', (chunk: string | Buffer) => this.handleStderr(String(chunk)));
-        this.stdin.on('error', error => this.failAll(`Codex app-server stdin failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`));
-        this.child.on('error', error => this.failAll(`Codex app-server failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`));
+        this.stdin.on('error', (error) =>
+            this.failAll(`Codex app-server stdin failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`),
+        );
+        this.child.on('error', (error) =>
+            this.failAll(`Codex app-server failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`),
+        );
         this.child.on('close', (exitCode) => {
             this.resolveClosePromise();
             if (!this.terminationRequested) {
@@ -163,32 +162,47 @@ export class CodexAppServerClient {
 
     async initialize(timeoutMs = CODEX_INITIALIZE_TIMEOUT_MS) {
         try {
-            await this.request('initialize', {
-                clientInfo: {
-                    name: 'evb-viewer',
-                    title: 'EVB Viewer',
-                    version: app.getVersion(),
+            await this.request(
+                'initialize',
+                {
+                    clientInfo: {
+                        name: 'evb-viewer',
+                        title: 'EVB Viewer',
+                        version: app.getVersion(),
+                    },
+                    capabilities: {experimentalApi: true},
                 },
-                capabilities: { experimentalApi: true },
-            }, timeoutMs);
+                timeoutMs,
+            );
         } catch (error) {
             if (!isCodexAppServerRequestTimeoutError(error)) {
                 throw error;
             }
             const detail = this.diagnostic();
             const message = te('dialogs.agentAssistant.startTimeout', {seconds: Math.round(timeoutMs / 1000)});
-            throw new Error(detail ? `${message} ${te('dialogs.agentAssistant.providerReported', {
-                provider: 'Codex',
-                detail,
-            })}` : message, {cause: error});
+            throw new Error(
+                detail
+                    ? `${message} ${te('dialogs.agentAssistant.providerReported', {
+                          provider: 'Codex',
+                          detail,
+                      })}`
+                    : message,
+                {cause: error},
+            );
         }
         this.notify('initialized');
     }
 
     /** The last lines Codex wrote to stderr, without terminal colors. */
     diagnostic(maxLength = 400) {
-        // eslint-disable-next-line no-control-regex
-        const text = sanitizeAssistantProviderText(this.stderrBuffer.text().replace(/\u001B\[[0-9;]*m/gu, '').trim(), Infinity);
+        const text = sanitizeAssistantProviderText(
+            this.stderrBuffer
+                .text()
+                // eslint-disable-next-line no-control-regex
+                .replace(/\u001B\[[0-9;]*m/gu, '')
+                .trim(),
+            Infinity,
+        );
         return text.length > maxLength ? `…${text.slice(-maxLength)}` : text;
     }
 
@@ -261,19 +275,22 @@ export class CodexAppServerClient {
             return;
         }
 
-        const payload = params === undefined
-            ? {
-                jsonrpc: '2.0',
-                method,
-            }
-            : {
-                jsonrpc: '2.0',
-                method,
-                params,
-            };
+        const payload =
+            params === undefined
+                ? {
+                      jsonrpc: '2.0',
+                      method,
+                  }
+                : {
+                      jsonrpc: '2.0',
+                      method,
+                      params,
+                  };
         this.writeLine(payload, (error) => {
             if (error) {
-                this.failAll(`Codex app-server stdin failed while sending ${method}: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
+                this.failAll(
+                    `Codex app-server stdin failed while sending ${method}: ${sanitizeAssistantProviderText(getErrorMessage(error))}`,
+                );
             }
         });
     }
@@ -283,15 +300,20 @@ export class CodexAppServerClient {
             return;
         }
 
-        this.writeLine({
-            jsonrpc: '2.0',
-            id,
-            result,
-        }, (error) => {
-            if (error) {
-                this.failAll(`Codex app-server stdin failed while sending response: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
-            }
-        });
+        this.writeLine(
+            {
+                jsonrpc: '2.0',
+                id,
+                result,
+            },
+            (error) => {
+                if (error) {
+                    this.failAll(
+                        `Codex app-server stdin failed while sending response: ${sanitizeAssistantProviderText(getErrorMessage(error))}`,
+                    );
+                }
+            },
+        );
     }
 
     async shutdown() {
@@ -304,10 +326,7 @@ export class CodexAppServerClient {
         }
 
         this.closed = true;
-        for (const [
-            id,
-            pending,
-        ] of this.pending) {
+        for (const [id, pending] of this.pending) {
             clearTimeout(pending.timeout);
             pending.reject(new Error('Codex app-server is shutting down.'));
             this.pending.delete(id);
@@ -324,21 +343,21 @@ export class CodexAppServerClient {
     private async terminateChild() {
         this.terminationRequested = true;
         const treeTerminated = await terminateDetachedChildProcess(this.child, APP_SERVER_SHUTDOWN_GRACE_MS);
-        const childClosed = await waitForBoundedOperation(this.closePromise.then(() => true), {
-            timeoutMs: APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS,
-            timeoutResult: false,
-            unref: true,
-        });
+        const childClosed = await waitForBoundedOperation(
+            this.closePromise.then(() => true),
+            {
+                timeoutMs: APP_SERVER_SHUTDOWN_CLOSE_TIMEOUT_MS,
+                timeoutResult: false,
+                unref: true,
+            },
+        );
         if (!treeTerminated || !childClosed) {
             throw new Error('Codex app-server process tree did not terminate cleanly.');
         }
         this.completeLifecycleOperation();
     }
 
-    private writeLine(
-        payload: unknown,
-        callback: (error: Error | null) => void,
-    ) {
+    private writeLine(payload: unknown, callback: (error: Error | null) => void) {
         try {
             this.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
                 callback(error ?? null);
@@ -384,8 +403,9 @@ export class CodexAppServerClient {
 
     private handleStderr(chunk: string) {
         this.stderrBuffer.append(Buffer.from(chunk));
-        const lines = chunk.split(/\r?\n/u)
-            .map(line => line.trim())
+        const lines = chunk
+            .split(/\r?\n/u)
+            .map((line) => line.trim())
             .filter(Boolean);
         for (const line of lines) {
             logger.info(`[app-server] ${sanitizeAssistantProviderText(line)}`);
@@ -398,9 +418,7 @@ export class CodexAppServerClient {
             return '';
         }
 
-        return this.stderrBuffer.truncated
-            ? `[stderr truncated to ${APP_SERVER_MAX_STDERR_BYTES} bytes]\n${detail}`
-            : detail;
+        return this.stderrBuffer.truncated ? `[stderr truncated to ${APP_SERVER_MAX_STDERR_BYTES} bytes]\n${detail}` : detail;
     }
 
     private handleMessage(line: string) {
@@ -445,9 +463,14 @@ export class CodexAppServerClient {
         clearTimeout(pending.timeout);
         this.pending.delete(id);
         if (response.error) {
-            pending.reject(Object.assign(new Error(response.error.message && response.error.message.length > 0
-                ? response.error.message
-                : `${pending.method} failed.`), {cause: response.error}));
+            pending.reject(
+                Object.assign(
+                    new Error(
+                        response.error.message && response.error.message.length > 0 ? response.error.message : `${pending.method} failed.`,
+                    ),
+                    {cause: response.error},
+                ),
+            );
             return;
         }
         pending.resolve(response.result);
@@ -457,25 +480,27 @@ export class CodexAppServerClient {
         const method = typeof request.method === 'string' ? request.method : '';
         logger.warn(`Denying unexpected Codex app-server request: ${sanitizeAssistantProviderText(method)}`);
         if (method === 'item/commandExecution/requestApproval') {
-            this.respond(request.id, { decision: 'denied' });
+            this.respond(request.id, {decision: 'denied'});
             return;
         }
         if (method === 'item/fileChange/requestApproval') {
-            this.respond(request.id, { decision: 'denied' });
+            this.respond(request.id, {decision: 'denied'});
             return;
         }
         if (method === 'item/tool/call') {
             this.respond(request.id, {
-                contentItems: [{
-                    type: 'text',
-                    text: 'EVB Assistant does not expose dynamic tools.',
-                }],
+                contentItems: [
+                    {
+                        type: 'text',
+                        text: 'EVB Assistant does not expose dynamic tools.',
+                    },
+                ],
                 success: false,
             });
             return;
         }
         if (method === 'mcpServer/elicitation/request') {
-            this.respond(request.id, { action: 'decline' });
+            this.respond(request.id, {action: 'decline'});
             return;
         }
         this.respond(request.id, null);
@@ -487,10 +512,7 @@ export class CodexAppServerClient {
         }
 
         this.closed = true;
-        for (const [
-            id,
-            pending,
-        ] of this.pending) {
+        for (const [id, pending] of this.pending) {
             clearTimeout(pending.timeout);
             pending.reject(error ?? new Error(message));
             this.pending.delete(id);
@@ -505,8 +527,10 @@ export class CodexAppServerClient {
                 });
                 this.shutdownPromise = shutdownPromise;
             }
-            void this.shutdownPromise.catch(terminationError => {
-                logger.warn(`Failed to terminate Codex app-server after an error: ${sanitizeAssistantProviderText(getErrorMessage(terminationError))}`);
+            void this.shutdownPromise.catch((terminationError) => {
+                logger.warn(
+                    `Failed to terminate Codex app-server after an error: ${sanitizeAssistantProviderText(getErrorMessage(terminationError))}`,
+                );
             });
         }
     }

@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     mapScanCleanupRasterPages,
     readAvailableScratchBytes,
@@ -19,14 +14,16 @@ vi.mock('fs/promises', () => ({statfs: mocks.statfs}));
 
 const MIB = 1024 * 1024;
 
-const plans = [{
-    renderDpi: 300,
-    raster: {
-        dpi: 300,
-        height: 10_000,
-        width: 10_000,
+const plans = [
+    {
+        renderDpi: 300,
+        raster: {
+            dpi: 300,
+            height: 10_000,
+            width: 10_000,
+        },
     },
-}];
+];
 
 describe('scan-cleanup raster handoff scratch budget', () => {
     it('preserves a known zero-byte statfs result', async () => {
@@ -36,11 +33,7 @@ describe('scan-cleanup raster handoff scratch budget', () => {
         });
 
         await expect(readAvailableScratchBytes('/scratch')).resolves.toBe(0);
-        await expect(resolveRasterHandoff(
-            plans,
-            '/scratch',
-            readAvailableScratchBytes,
-        )).resolves.toMatchObject({
+        await expect(resolveRasterHandoff(plans, '/scratch', readAvailableScratchBytes)).resolves.toMatchObject({
             budgetBytes: 0,
             format: 'png',
         });
@@ -86,63 +79,78 @@ describe('scan-cleanup raster handoff scratch budget', () => {
     });
 
     it('includes conservative per-file overhead above the raw RGB payload', async () => {
-        const result = await resolveRasterHandoff([{
-            renderDpi: 300,
-            raster: {
-                dpi: 300,
-                height: 100,
-                width: 100,
-            },
-        }], '/scratch', vi.fn(async () => null));
+        const result = await resolveRasterHandoff(
+            [
+                {
+                    renderDpi: 300,
+                    raster: {
+                        dpi: 300,
+                        height: 100,
+                        width: 100,
+                    },
+                },
+            ],
+            '/scratch',
+            vi.fn(async () => null),
+        );
 
         expect(result.estimatedBytes).toBe(100 * 100 * 3 + 64 * 1024);
     });
 
     it('budgets the largest simultaneous producer and native scratch copies', async () => {
-        const result = await resolveRasterHandoff([
-            {
-                renderDpi: 300,
-                raster: {
-                    dpi: 300,
-                    height: 100,
-                    width: 100,
+        const result = await resolveRasterHandoff(
+            [
+                {
+                    renderDpi: 300,
+                    raster: {
+                        dpi: 300,
+                        height: 100,
+                        width: 100,
+                    },
                 },
-            },
-            {
-                renderDpi: 300,
-                raster: {
-                    dpi: 300,
-                    height: 200,
-                    width: 200,
+                {
+                    renderDpi: 300,
+                    raster: {
+                        dpi: 300,
+                        height: 200,
+                        width: 200,
+                    },
                 },
-            },
-            {
-                renderDpi: 300,
-                raster: {
-                    dpi: 300,
-                    height: 300,
-                    width: 300,
+                {
+                    renderDpi: 300,
+                    raster: {
+                        dpi: 300,
+                        height: 300,
+                        width: 300,
+                    },
                 },
-            },
-        ], '/scratch', vi.fn(async () => null), 2);
-
-        expect(result.estimatedBytes).toBe(
-            300 * 300 * 3 + 64 * 1024
-            + 200 * 200 * 3 + 64 * 1024,
+            ],
+            '/scratch',
+            vi.fn(async () => null),
+            2,
         );
+
+        expect(result.estimatedBytes).toBe(300 * 300 * 3 + 64 * 1024 + 200 * 200 * 3 + 64 * 1024);
     });
 
     it('counts canonical analysis scratch and primary raster copies per resident page', async () => {
-        const result = await resolveRasterHandoff([{
-            renderDpi: 300,
-            additionalRenderDpis: [150],
-            renderCopies: 2,
-            raster: {
-                dpi: 300,
-                height: 400,
-                width: 200,
-            },
-        }], '/scratch', vi.fn(async () => null), 1);
+        const result = await resolveRasterHandoff(
+            [
+                {
+                    renderDpi: 300,
+                    additionalRenderDpis: [150],
+                    renderCopies: 2,
+                    raster: {
+                        dpi: 300,
+                        height: 400,
+                        width: 200,
+                    },
+                },
+            ],
+            '/scratch',
+            vi.fn(async () => null),
+            1,
+        );
 
         const workingBytes = 200 * 400 * 3 + 64 * 1024;
         const canonicalBytes = 100 * 200 * 3 + 64 * 1024;
@@ -150,15 +158,21 @@ describe('scan-cleanup raster handoff scratch budget', () => {
     });
 
     it('includes retained native output rasters in each page estimate', async () => {
-        const result = await resolveRasterHandoff([{
-            renderDpi: 300,
-            additionalScratchBytes: 123_456,
-            raster: {
-                dpi: 300,
-                height: 100,
-                width: 100,
-            },
-        }], '/scratch', vi.fn(async () => null));
+        const result = await resolveRasterHandoff(
+            [
+                {
+                    renderDpi: 300,
+                    additionalScratchBytes: 123_456,
+                    raster: {
+                        dpi: 300,
+                        height: 100,
+                        width: 100,
+                    },
+                },
+            ],
+            '/scratch',
+            vi.fn(async () => null),
+        );
 
         expect(result.estimatedBytes).toBe(100 * 100 * 3 + 64 * 1024 + 123_456);
     });
@@ -167,21 +181,23 @@ describe('scan-cleanup raster handoff scratch budget', () => {
         // 3,000 × 3,000 pages, each staged beside the copy its render publishes
         // from: 54 MiB of scratch per resident page.
         const pageBytes = 3_000 * 3_000 * 3 + Math.ceil(3_000 * 3_000 * 3 * 0.01);
-        const plansOf = (pages: number) => Array.from({length: pages}, () => ({
-            renderDpi: 150,
-            renderCopies: 2,
-            raster: {
-                dpi: 150,
-                height: 3_000,
-                width: 3_000,
-            },
-        }));
-        const admit = (pages: number, availableBytes: number | null) => resolveStagedRasterWindow(
-            plansOf(pages),
-            4,
-            '/scratch',
-            vi.fn(async () => availableBytes),
-        );
+        const plansOf = (pages: number) =>
+            Array.from({length: pages}, () => ({
+                renderDpi: 150,
+                renderCopies: 2,
+                raster: {
+                    dpi: 150,
+                    height: 3_000,
+                    width: 3_000,
+                },
+            }));
+        const admit = (pages: number, availableBytes: number | null) =>
+            resolveStagedRasterWindow(
+                plansOf(pages),
+                4,
+                '/scratch',
+                vi.fn(async () => availableBytes),
+            );
 
         await expect(admit(30, 4_096 * MIB)).resolves.toMatchObject({
             admitted: true,
@@ -239,12 +255,14 @@ describe('scan-cleanup raster handoff scratch budget', () => {
             },
         ];
 
-        await expect(resolveStagedRasterWindow(
-            unmeasurable,
-            4,
-            '/scratch',
-            vi.fn(async () => 8 * MIB),
-        )).resolves.toEqual({
+        await expect(
+            resolveStagedRasterWindow(
+                unmeasurable,
+                4,
+                '/scratch',
+                vi.fn(async () => 8 * MIB),
+            ),
+        ).resolves.toEqual({
             admitted: true,
             windowPages: 1,
             windowBytes: null,
@@ -254,12 +272,14 @@ describe('scan-cleanup raster handoff scratch budget', () => {
             requiredBytes: null,
         });
         // Unknown free space is a separate unknown and keeps the same answer.
-        await expect(resolveStagedRasterWindow(
-            unmeasurable,
-            4,
-            '/scratch',
-            vi.fn(async () => null),
-        )).resolves.toMatchObject({
+        await expect(
+            resolveStagedRasterWindow(
+                unmeasurable,
+                4,
+                '/scratch',
+                vi.fn(async () => null),
+            ),
+        ).resolves.toMatchObject({
             admitted: true,
             windowPages: 1,
             windowBytes: null,
@@ -267,12 +287,14 @@ describe('scan-cleanup raster handoff scratch budget', () => {
         });
         // A measurable page that does not fit is still refused, with the
         // shortfall a user can act on.
-        await expect(resolveStagedRasterWindow(
-            [unmeasurable[0]!],
-            4,
-            '/scratch',
-            vi.fn(async () => 520 * MIB),
-        )).resolves.toMatchObject({
+        await expect(
+            resolveStagedRasterWindow(
+                [unmeasurable[0]!],
+                4,
+                '/scratch',
+                vi.fn(async () => 520 * MIB),
+            ),
+        ).resolves.toMatchObject({
             admitted: false,
             windowPages: 1,
             requiredBytes: expect.any(Number),
@@ -290,22 +312,26 @@ describe('scan-cleanup raster handoff scratch budget', () => {
     it('admits a fitting batch only after reserving the final merge working set', async () => {
         const batchBytes = 64 * MIB;
         const mergeWorkingSetBytes = 512 * MIB;
-        await expect(resolveScanCleanupScratchAdmission(
-            batchBytes,
-            mergeWorkingSetBytes,
-            '/scratch',
-            vi.fn(async () => 4 * 1024 * MIB),
-        )).resolves.toMatchObject({
+        await expect(
+            resolveScanCleanupScratchAdmission(
+                batchBytes,
+                mergeWorkingSetBytes,
+                '/scratch',
+                vi.fn(async () => 4 * 1024 * MIB),
+            ),
+        ).resolves.toMatchObject({
             admitted: true,
             estimatedBytes: batchBytes + mergeWorkingSetBytes,
             requiredBytes: null,
         });
-        await expect(resolveScanCleanupScratchAdmission(
-            batchBytes,
-            mergeWorkingSetBytes,
-            '/scratch',
-            vi.fn(async () => 700 * MIB),
-        )).resolves.toMatchObject({
+        await expect(
+            resolveScanCleanupScratchAdmission(
+                batchBytes,
+                mergeWorkingSetBytes,
+                '/scratch',
+                vi.fn(async () => 700 * MIB),
+            ),
+        ).resolves.toMatchObject({
             admitted: false,
             estimatedBytes: batchBytes + mergeWorkingSetBytes,
             requiredBytes: 2_304 * MIB,
@@ -316,10 +342,7 @@ describe('scan-cleanup raster handoff scratch budget', () => {
         const siblingStarted = Promise.withResolvers<undefined>();
         const releaseSibling = Promise.withResolvers<undefined>();
         let settled = false;
-        const run = mapScanCleanupRasterPages([
-            1,
-            2,
-        ], 2, async (_value, index) => {
+        const run = mapScanCleanupRasterPages([1, 2], 2, async (_value, index) => {
             if (index === 0) {
                 await Promise.resolve();
                 throw new Error('first raster failed');

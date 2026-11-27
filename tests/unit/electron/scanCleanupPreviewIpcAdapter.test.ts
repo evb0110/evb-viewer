@@ -1,24 +1,19 @@
-import {
-    describe, it, expect, vi, afterEach,
-} from 'vitest';
+import {describe, it, expect, vi, afterEach} from 'vitest';
 import type {IpcMainInvokeEvent} from 'electron';
 import type {TFeatureMainBindings} from '@contracts/platformFeature';
 import {SCAN_CLEANUP_PLATFORM_FEATURE} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {registerPlatformFeatureHandlers} from '@electron/platform-ipc/validatedIpcRegistrar';
 import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 import {
-    createFeatureRegistrarCases, createValidatedRegistrarHarness, getCapturedIpcHandler, createHarnessEvent,
+    createFeatureRegistrarCases,
+    createValidatedRegistrarHarness,
+    getCapturedIpcHandler,
+    createHarnessEvent,
 } from '@tests/unit/electron/helpers/validatedIpcRegistrarHarness';
-import {
-    mkdtemp, readFile, rm, writeFile,
-} from 'fs/promises';
+import {mkdtemp, readFile, rm, writeFile} from 'fs/promises';
 import {tmpdir} from 'os';
 import {join} from 'path';
-import {
-    discardOpenDocument,
-    openDocumentFromFile,
-    setDocumentStoreRootForTests,
-} from '@electron/file-access/documentStore';
+import {discardOpenDocument, openDocumentFromFile, setDocumentStoreRootForTests} from '@electron/file-access/documentStore';
 import {reactive} from 'vue';
 import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -26,9 +21,7 @@ import {requireRequestId} from '@contracts/shared';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {SCAN_CLEANUP_ERROR_ENVELOPE_SCHEMA} from '@contracts/scan-cleanup/ipc';
 import {toPlainScanCleanupOptions} from '@contracts/scan-cleanup/scanCleanupSettings';
-import {
-    defaultDependencies, scanCleanupPreviewLifecycle,
-} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
+import {defaultDependencies, scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {NativeScanCleanupError} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 import type {TScanCleanupPreviewWireResult} from '@contracts/scan-cleanup/ipc';
 import {
@@ -41,8 +34,6 @@ import {
     sender,
     waitForRelease,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
-
-
 
 const trustedSender = vi.hoisted(() => ({
     isTrustedIpcInvokeSender: vi.fn(() => true),
@@ -82,33 +73,43 @@ function platformPreviewResultFixture(): TScanCleanupPreviewWireResult {
 }
 
 afterEach(async () => {
-    await Promise.all(dirs.splice(0).map(dir => rm(dir, {
-        recursive: true,
-        force: true,
-    })));
+    await Promise.all(
+        dirs.splice(0).map((dir) =>
+            rm(dir, {
+                recursive: true,
+                force: true,
+            }),
+        ),
+    );
 });
 
 export async function scenarioPreservesFoldClippingThroughNativeArtifactAndIPCCodecBoundaries(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const originalSidecar = deps.runSidecar;
     deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress) => {
         await originalSidecar(binary, manifestPath, signal, log, onProgress);
-        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{outputs: Array<{
-            metadataPath: string;
-            outputPath: string;
-        }>;}>};
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+            pages: Array<{
+                outputs: Array<{
+                    metadataPath: string;
+                    outputPath: string;
+                }>;
+            }>;
+        };
         const output = manifest.pages[0]!.outputs[0]!;
         const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as Record<string, unknown>;
         await writeFile(output.outputPath, pngWithDimensions(4, 1));
-        await writeFile(output.metadataPath, JSON.stringify({
-            ...metadata,
-            outputWidthPx: 4,
-            canvasWidthPx: 4,
-            matchedCanvasContentWidthPx: 4,
-            foldClipLeftPx: 1,
-            foldClipRightPx: 1,
-        }));
+        await writeFile(
+            output.metadataPath,
+            JSON.stringify({
+                ...metadata,
+                outputWidthPx: 4,
+                canvasWidthPx: 4,
+                matchedCanvasContentWidthPx: 4,
+                foldClipLeftPx: 1,
+                foldClipRightPx: 1,
+            }),
+        );
     });
 
     const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
@@ -116,11 +117,9 @@ export async function scenarioPreservesFoldClippingThroughNativeArtifactAndIPCCo
         foldClipLeftPx: 1,
         foldClipRightPx: 1,
     });
-
 }
 
 export async function scenarioAcceptsFourInRangeMarginsAndRejectsInvalidOrIncompleteMarginShapes(): Promise<void> {
-
     const validRequest = {
         ...request,
         options: {
@@ -131,18 +130,20 @@ export async function scenarioAcceptsFourInRangeMarginsAndRejectsInvalidOrIncomp
                 rightMm: 12,
                 bottomMm: 25,
             },
-            pageOverrides: {'1': {
-                rotationDegrees: 0,
-                layoutOverride: 'auto',
-                excluded: false,
-                manualSplit: null,
-                marginsMm: {
-                    leftMm: 1,
-                    topMm: 2,
-                    rightMm: 3,
-                    bottomMm: 4,
+            pageOverrides: {
+                '1': {
+                    rotationDegrees: 0,
+                    layoutOverride: 'auto',
+                    excluded: false,
+                    manualSplit: null,
+                    marginsMm: {
+                        leftMm: 1,
+                        topMm: 2,
+                        rightMm: 3,
+                        bottomMm: 4,
+                    },
                 },
-            }},
+            },
         },
     };
     const codec = SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview];
@@ -174,152 +175,157 @@ export async function scenarioAcceptsFourInRangeMarginsAndRejectsInvalidOrIncomp
         },
     ];
     for (const marginsMm of invalidMargins) {
-        expect(() => codec.decodeArgs([{
-            ...request,
-            options: {
-                ...request.options,
-                marginsMm,
-            },
-        }])).toThrow('invalid scan-cleanup margins');
+        expect(() =>
+            codec.decodeArgs([
+                {
+                    ...request,
+                    options: {
+                        ...request.options,
+                        marginsMm,
+                    },
+                },
+            ]),
+        ).toThrow('invalid scan-cleanup margins');
     }
 
     const legacyMarginKey = `margin${'Mm'}`;
-    const {
-        marginsMm: _marginsMm,
-        ...optionsWithoutMargins
-    } = request.options;
-    expect(() => codec.decodeArgs([{
-        ...request,
-        options: {
-            ...optionsWithoutMargins,
-            [legacyMarginKey]: 5,
-        },
-    }])).toThrow('invalid scan-cleanup margins');
-
+    const {marginsMm: _marginsMm, ...optionsWithoutMargins} = request.options;
+    expect(() =>
+        codec.decodeArgs([
+            {
+                ...request,
+                options: {
+                    ...optionsWithoutMargins,
+                    [legacyMarginKey]: 5,
+                },
+            },
+        ]),
+    ).toThrow('invalid scan-cleanup margins');
 }
 
 export async function scenarioRoundTripsNormalizedOverrideGeometryThroughTheIPCCodec(): Promise<void> {
-
     const normalizedRequest: IScanCleanupPreviewRequest = {
         ...request,
         outputModeRecommendation: 'bw',
         options: {
             ...request.options,
-            pageOverrides: {'2': {
-                rotationDegrees: 270,
-                layoutOverride: 'spread',
-                excluded: false,
-                manualSplit: {
-                    xNormalized: 0.375,
+            pageOverrides: {
+                '2': {
                     rotationDegrees: 270,
-                },
-                manualContentBoxes: {right: {
-                    xNormalized: 0.04,
-                    yNormalized: 0.12,
-                    widthNormalized: 0.42,
-                    heightNormalized: 0.7,
-                    rotationDegrees: 270,
-                }},
-                manualZones: {
-                    picture: [{
-                        polygon: {
-                            points: [
-                                {
-                                    xNormalized: 0.1,
-                                    yNormalized: 0.2,
-                                },
-                                {
-                                    xNormalized: 0.8,
-                                    yNormalized: 0.2,
-                                },
-                                {
-                                    xNormalized: 0.8,
-                                    yNormalized: 0.9,
-                                },
-                            ],
+                    layoutOverride: 'spread',
+                    excluded: false,
+                    manualSplit: {
+                        xNormalized: 0.375,
+                        rotationDegrees: 270,
+                    },
+                    manualContentBoxes: {
+                        right: {
+                            xNormalized: 0.04,
+                            yNormalized: 0.12,
+                            widthNormalized: 0.42,
+                            heightNormalized: 0.7,
                             rotationDegrees: 270,
                         },
-                        layer: 'painter2',
-                    }],
-                    fill: [],
+                    },
+                    manualZones: {
+                        picture: [
+                            {
+                                polygon: {
+                                    points: [
+                                        {
+                                            xNormalized: 0.1,
+                                            yNormalized: 0.2,
+                                        },
+                                        {
+                                            xNormalized: 0.8,
+                                            yNormalized: 0.2,
+                                        },
+                                        {
+                                            xNormalized: 0.8,
+                                            yNormalized: 0.9,
+                                        },
+                                    ],
+                                    rotationDegrees: 270,
+                                },
+                                layer: 'painter2',
+                            },
+                        ],
+                        fill: [],
+                    },
                 },
-            }},
+            },
         },
     };
 
-    expect(SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([normalizedRequest]))
-        .toEqual([normalizedRequest]);
-
+    expect(SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([normalizedRequest])).toEqual([normalizedRequest]);
 }
 
 export async function scenarioValidatesHighDetailViewportRequests(): Promise<void> {
-
     const detailRequest: IScanCleanupPreviewRequest = {
         ...request,
         detail: {
-            viewports: {left: {
-                xNormalized: 0.125,
-                yNormalized: 0.25,
-                widthNormalized: 0.5,
-                heightNormalized: 0.4,
-                rotationDegrees: 0,
-            }},
+            viewports: {
+                left: {
+                    xNormalized: 0.125,
+                    yNormalized: 0.25,
+                    widthNormalized: 0.5,
+                    heightNormalized: 0.4,
+                    rotationDegrees: 0,
+                },
+            },
             outputMode: 'bw',
         },
     };
 
-    expect(SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([detailRequest]))
-        .toEqual([detailRequest]);
-    expect(() => SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([{
-        ...detailRequest,
-        detail: {
-            ...detailRequest.detail!,
-            viewports: {},
-        },
-    }])).toThrow('invalid scan-cleanup detail preview request');
-    expect(() => SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([{
-        ...detailRequest,
-        detail: {
-            ...detailRequest.detail!,
-            viewports: {left: undefined},
-        },
-    }])).toThrow('invalid scan-cleanup detail preview request');
-
+    expect(SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([detailRequest])).toEqual([detailRequest]);
+    expect(() =>
+        SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([
+            {
+                ...detailRequest,
+                detail: {
+                    ...detailRequest.detail!,
+                    viewports: {},
+                },
+            },
+        ]),
+    ).toThrow('invalid scan-cleanup detail preview request');
+    expect(() =>
+        SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([
+            {
+                ...detailRequest,
+                detail: {
+                    ...detailRequest.detail!,
+                    viewports: {left: undefined},
+                },
+            },
+        ]),
+    ).toThrow('invalid scan-cleanup detail preview request');
 }
 
 export async function scenarioValidatesTheRetainedNavigationWindowOnAPreviewCancellation(): Promise<void> {
-
     const codec = SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.cancelPreview];
     const cancelRequest = {
         sourcePdfPath: request.sourcePdfPath,
         ownerId: request.ownerId,
         documentRevision: request.documentRevision,
         invalidateRawCache: false,
-        retainPages: [
-            199,
-            200,
-            201,
-        ],
+        retainPages: [199, 200, 201],
     };
 
     expect(codec.decodeArgs([cancelRequest])).toEqual([cancelRequest]);
-    for (const retainPages of [
-        [0],
-        [1.5],
-        ['200'],
-        Array.from({length: 17}, (_unused, index) => index + 1),
-        'all',
-    ]) {
-        expect(() => codec.decodeArgs([{
-            ...cancelRequest,
-            retainPages,
-        }])).toThrow('invalid scan-cleanup retained preview pages');
+    for (const retainPages of [[0], [1.5], ['200'], Array.from({length: 17}, (_unused, index) => index + 1), 'all']) {
+        expect(() =>
+            codec.decodeArgs([
+                {
+                    ...cancelRequest,
+                    retainPages,
+                },
+            ]),
+        ).toThrow('invalid scan-cleanup retained preview pages');
     }
-
 }
 
 export async function scenarioSerializesNestedReactivePageOverridesForEveryIPCRequest(): Promise<void> {
-
     const reactiveOptions = reactive({
         ...request.options,
         outputMode: 'auto' as const,
@@ -333,13 +339,15 @@ export async function scenarioSerializesNestedReactivePageOverridesForEveryIPCRe
                     xNormalized: 0.4,
                     rotationDegrees: 90 as const,
                 },
-                manualContentBoxes: {left: {
-                    xNormalized: 0.01,
-                    yNormalized: 0.02,
-                    widthNormalized: 0.32,
-                    heightNormalized: 0.54,
-                    rotationDegrees: 90 as const,
-                }},
+                manualContentBoxes: {
+                    left: {
+                        xNormalized: 0.01,
+                        yNormalized: 0.02,
+                        widthNormalized: 0.32,
+                        heightNormalized: 0.54,
+                        rotationDegrees: 90 as const,
+                    },
+                },
                 placementOverrides: {left: 'bottom-right' as const},
             },
             '3': {
@@ -365,45 +373,50 @@ export async function scenarioSerializesNestedReactivePageOverridesForEveryIPCRe
         documentRevision: request.documentRevision,
         sourcePdfPath: request.sourcePdfPath,
         options,
-        sourcePageNumbers: [
-            1,
-            3,
-        ],
+        sourcePageNumbers: [1, 3],
     };
 
     expect(() => structuredClone(previewRequest)).not.toThrow();
     expect(() => structuredClone(startRequest)).not.toThrow();
-    expect(SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([previewRequest]))
-        .toEqual([previewRequest]);
-    expect(SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.cancelPreview].decodeArgs([{
-        ownerId: request.ownerId,
-        documentRevision: request.documentRevision,
-        sourcePdfPath: request.sourcePdfPath,
-        invalidateRawCache: false,
-    }])).toEqual([{
-        ownerId: request.ownerId,
-        documentRevision: request.documentRevision,
-        sourcePdfPath: request.sourcePdfPath,
-        invalidateRawCache: false,
-    }]);
-    expect(SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.start].decodeArgs([startRequest]))
-        .toEqual([startRequest]);
-    expect(SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.detectAll].decodeArgs([{
-        ownerId: request.ownerId,
-        documentRevision: request.documentRevision,
-        sourcePdfPath: request.sourcePdfPath,
-        options,
-    }])).toEqual([{
-        ownerId: request.ownerId,
-        documentRevision: request.documentRevision,
-        sourcePdfPath: request.sourcePdfPath,
-        options,
-    }]);
-
+    expect(SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.preview].decodeArgs([previewRequest])).toEqual([previewRequest]);
+    expect(
+        SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.cancelPreview].decodeArgs([
+            {
+                ownerId: request.ownerId,
+                documentRevision: request.documentRevision,
+                sourcePdfPath: request.sourcePdfPath,
+                invalidateRawCache: false,
+            },
+        ]),
+    ).toEqual([
+        {
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+            invalidateRawCache: false,
+        },
+    ]);
+    expect(SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.start].decodeArgs([startRequest])).toEqual([startRequest]);
+    expect(
+        SCAN_CLEANUP_IPC_CODECS[SCAN_CLEANUP_CHANNELS.detectAll].decodeArgs([
+            {
+                ownerId: request.ownerId,
+                documentRevision: request.documentRevision,
+                sourcePdfPath: request.sourcePdfPath,
+                options,
+            },
+        ]),
+    ).toEqual([
+        {
+            ownerId: request.ownerId,
+            documentRevision: request.documentRevision,
+            sourcePdfPath: request.sourcePdfPath,
+            options,
+        },
+    ]);
 }
 
 export async function scenarioDemandMaterializesLazyOriginalInputBeforeScanCleanupPreview(): Promise<void> {
-
     const {deps} = await previewDependencies();
     vi.mocked(deps.materializeWorkingCopy).mockResolvedValue({physicalWorkingCopyPath: '/managed/document.pdf'});
 
@@ -431,11 +444,9 @@ export async function scenarioDemandMaterializesLazyOriginalInputBeforeScanClean
         'cropbox',
         'exclude',
     );
-
 }
 
 export async function scenarioCancelsPreviewWorkWhoseWorkingCopyRegistrationWasRetired(): Promise<void> {
-
     // The document was closed: the ref the store gave it names no open document any more.
     const storeRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-closed-source-'));
     await setDocumentStoreRootForTests(join(storeRoot, 'store'));
@@ -451,11 +462,9 @@ export async function scenarioCancelsPreviewWorkWhoseWorkingCopyRegistrationWasR
         await setDocumentStoreRootForTests(null);
         await rm(storeRoot, {recursive: true, force: true});
     }
-
 }
 
 export async function scenarioReportsPreviewWorkForASourceThisOwnerNeverHeldAsAFailure(): Promise<void> {
-
     const service = scanCleanupPreviewLifecycle(defaultDependencies);
 
     // A path nothing registered is not a page the user navigated away from:
@@ -468,11 +477,9 @@ export async function scenarioReportsPreviewWorkForASourceThisOwnerNeverHeldAsAF
         code: 'internal',
         message: expect.stringMatching(/not managed by this owner/u),
     });
-
 }
 
 export async function scenarioSerializesNativePreviewErrorCodesThroughTheMessageOnlyIPCBoundary(): Promise<void> {
-
     const {deps} = await previewDependencies();
     deps.runSidecar = vi.fn(async () => {
         throw new NativeScanCleanupError('too-large', 'Preview exceeds native limits');
@@ -485,11 +492,9 @@ export async function scenarioSerializesNativePreviewErrorCodesThroughTheMessage
         code: 'too-large',
         message: 'Preview exceeds native limits',
     });
-
 }
 
 export async function scenarioSkipsMaterializationForQueuedPreviewWorkCanceledBeforeItDequeues(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const originalRenderPage = deps.renderPage;
     const firstEntered = Promise.withResolvers<undefined>();
@@ -518,11 +523,9 @@ export async function scenarioSkipsMaterializationForQueuedPreviewWorkCanceledBe
     await expect(first).rejects.toMatchObject({name: 'AbortError'});
     await expect(queued).rejects.toMatchObject({name: 'AbortError'});
     expect(deps.materializeWorkingCopy).toHaveBeenCalledTimes(1);
-
 }
 
 export async function scenarioKeepsEagerScanCleanupPreviewPathsUnchanged(): Promise<void> {
-
     const {deps} = await previewDependencies();
 
     await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
@@ -544,42 +547,26 @@ export async function scenarioKeepsEagerScanCleanupPreviewPathsUnchanged(): Prom
         'cropbox',
         'exclude',
     );
-
 }
 
 export async function scenarioAcceptsUnboundedNonnegativeSkewEvidence(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const result = await previewOf(scanCleanupPreviewLifecycle(deps), sender(), request);
     expect(result).toMatchObject({
         outputs: [{metadata: {skewConfidence: 2.4}}],
         pageMetadata: {skewConfidence: 2.4},
     });
-
 }
 
 export async function scenarioKeepsTheOwnerListenersUntilItsLastPreviewJobEnds(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const entered = new Map<number, PromiseWithResolvers<undefined>>([
-        [
-            1,
-            Promise.withResolvers<undefined>(),
-        ],
-        [
-            2,
-            Promise.withResolvers<undefined>(),
-        ],
+        [1, Promise.withResolvers<undefined>()],
+        [2, Promise.withResolvers<undefined>()],
     ]);
     const releases = new Map<number, PromiseWithResolvers<undefined>>([
-        [
-            1,
-            Promise.withResolvers<undefined>(),
-        ],
-        [
-            2,
-            Promise.withResolvers<undefined>(),
-        ],
+        [1, Promise.withResolvers<undefined>()],
+        [2, Promise.withResolvers<undefined>()],
     ]);
     const originalSidecar = deps.runSidecar;
     deps.runWithPreviewLease = vi.fn((_ownerId, _visibility, _signal, _options, _rasterMaxPixels, work) => work());
@@ -602,10 +589,7 @@ export async function scenarioKeepsTheOwnerListenersUntilItsLastPreviewJobEnds()
         requestId: requireRequestId('preview-page-2'),
         pageNumber: requirePageNumber(2),
     });
-    await Promise.all([
-        entered.get(1)!.promise,
-        entered.get(2)!.promise,
-    ]);
+    await Promise.all([entered.get(1)!.promise, entered.get(2)!.promise]);
 
     expect(owner.listenerCount('destroyed')).toBe(1);
     expect(owner.listenerCount('render-process-gone')).toBe(1);
@@ -623,11 +607,9 @@ export async function scenarioKeepsTheOwnerListenersUntilItsLastPreviewJobEnds()
     owner.emit('destroyed');
     expect(owner.listenerCount('destroyed')).toBe(0);
     expect(owner.listenerCount('render-process-gone')).toBe(0);
-
 }
 
 export async function scenarioCancelsAPreviewImmediatelyWhenItsWebContentsIsAlreadyDestroyed(): Promise<void> {
-
     const deps = createScanCleanupPreviewDependencies('/unused', dependenciesOverride);
     const service = scanCleanupPreviewLifecycle(deps);
     const owner = lifecycleSender();
@@ -637,19 +619,22 @@ export async function scenarioCancelsAPreviewImmediatelyWhenItsWebContentsIsAlre
     expect(deps.materializeWorkingCopy).not.toHaveBeenCalled();
     expect(owner.listenerCount('destroyed')).toBe(0);
     expect(owner.listenerCount('render-process-gone')).toBe(0);
-
 }
 describe('scanCleanupPreviewIpcAdapterTest', () => {
     it('crosses the descriptor-built Electron platform fixture with scan-cleanup methods', async () => {
         const preview = vi.fn();
         const cancelPreview = vi.fn();
-        const api = createElectronPlatformApiFixture({scanCleanup: {
-            preview,
-            cancelPreview,
-        }});
+        const api = createElectronPlatformApiFixture({
+            scanCleanup: {
+                preview,
+                cancelPreview,
+            },
+        });
         const cases = createFeatureRegistrarCases(SCAN_CLEANUP_PLATFORM_FEATURE);
-        const previewArgs = cases.find(testCase => testCase.channel === SCAN_CLEANUP_PLATFORM_FEATURE.methods.preview.channel)!.validArgs;
-        const cancelArgs = cases.find(testCase => testCase.channel === SCAN_CLEANUP_PLATFORM_FEATURE.methods.cancelPreview.channel)!.validArgs;
+        const previewArgs = cases.find((testCase) => testCase.channel === SCAN_CLEANUP_PLATFORM_FEATURE.methods.preview.channel)!.validArgs;
+        const cancelArgs = cases.find(
+            (testCase) => testCase.channel === SCAN_CLEANUP_PLATFORM_FEATURE.methods.cancelPreview.channel,
+        )!.validArgs;
         const expectedPreview = platformPreviewResultFixture();
         preview.mockResolvedValue(expectedPreview);
         cancelPreview.mockResolvedValue(true);
@@ -689,12 +674,11 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
             channels: SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels,
             codecs: SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs,
             register: (registrar, service) => {
-                const registrarAdapter: Parameters<typeof registerPlatformFeatureHandlers>[0] = {handle: (channel, handler) => {
-                    Reflect.apply(registrar.handle, registrar, [
-                        channel,
-                        handler,
-                    ]);
-                }};
+                const registrarAdapter: Parameters<typeof registerPlatformFeatureHandlers>[0] = {
+                    handle: (channel, handler) => {
+                        Reflect.apply(registrar.handle, registrar, [channel, handler]);
+                    },
+                };
                 registerPlatformFeatureHandlers(registrarAdapter, SCAN_CLEANUP_PLATFORM_FEATURE, service);
             },
             service: bindings,
@@ -706,10 +690,12 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
         const cancelHandler = getCapturedIpcHandler(handlers, cancelChannel);
         expect(previewHandler).toBeTypeOf('function');
         expect(cancelHandler).toBeTypeOf('function');
-        const previewCase = createFeatureRegistrarCases(SCAN_CLEANUP_PLATFORM_FEATURE)
-            .find(testCase => testCase.channel === previewChannel)!;
-        const cancelCase = createFeatureRegistrarCases(SCAN_CLEANUP_PLATFORM_FEATURE)
-            .find(testCase => testCase.channel === cancelChannel)!;
+        const previewCase = createFeatureRegistrarCases(SCAN_CLEANUP_PLATFORM_FEATURE).find(
+            (testCase) => testCase.channel === previewChannel,
+        )!;
+        const cancelCase = createFeatureRegistrarCases(SCAN_CLEANUP_PLATFORM_FEATURE).find(
+            (testCase) => testCase.channel === cancelChannel,
+        )!;
         const event = createHarnessEvent(41);
         trustedSender.isTrustedIpcInvokeSender.mockReturnValue(true);
         await expect(previewHandler(event, ...previewCase.validArgs)).resolves.toEqual(previewResult);
@@ -733,12 +719,8 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
 
         preview.mockClear();
         cancelPreview.mockClear();
-        await expect(previewHandler(event, Symbol('malformed'))).rejects.toThrow(
-            `Invalid IPC arguments for ${previewChannel}`,
-        );
-        await expect(cancelHandler(event, Symbol('malformed'))).rejects.toThrow(
-            `Invalid IPC arguments for ${cancelChannel}`,
-        );
+        await expect(previewHandler(event, Symbol('malformed'))).rejects.toThrow(`Invalid IPC arguments for ${previewChannel}`);
+        await expect(cancelHandler(event, Symbol('malformed'))).rejects.toThrow(`Invalid IPC arguments for ${cancelChannel}`);
         await expect(previewHandler(event, ...previewCase.validArgs, Symbol('trailing'))).rejects.toThrow(
             `Invalid IPC arguments for ${previewChannel}`,
         );
@@ -749,20 +731,14 @@ describe('scanCleanupPreviewIpcAdapterTest', () => {
         expect(cancelPreview).not.toHaveBeenCalled();
 
         trustedSender.isTrustedIpcInvokeSender.mockReturnValue(false);
-        await expect(previewHandler(createHarnessEvent(99), ...previewCase.validArgs)).rejects.toThrow(
-            'IPC sender is not trusted',
-        );
-        await expect(cancelHandler(createHarnessEvent(99), ...cancelCase.validArgs)).rejects.toThrow(
-            'IPC sender is not trusted',
-        );
+        await expect(previewHandler(createHarnessEvent(99), ...previewCase.validArgs)).rejects.toThrow('IPC sender is not trusted');
+        await expect(cancelHandler(createHarnessEvent(99), ...cancelCase.validArgs)).rejects.toThrow('IPC sender is not trusted');
         expect(preview).not.toHaveBeenCalled();
         expect(cancelPreview).not.toHaveBeenCalled();
     });
 
     it('preserves fold clipping through native artifact and IPC codec boundaries', async () => {
-
         await scenarioPreservesFoldClippingThroughNativeArtifactAndIPCCodecBoundaries();
-
     });
     it('accepts four in-range margins and rejects invalid or incomplete margin shapes', async () => {
         await scenarioAcceptsFourInRangeMarginsAndRejectsInvalidOrIncompleteMarginShapes();

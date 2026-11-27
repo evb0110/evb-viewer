@@ -1,5 +1,5 @@
-import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
-import { resolveMacOsPdfPrintDialogBinary } from '@electron/utils/resolveMacOsPdfPrintDialogBinary';
+import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
+import {resolveMacOsPdfPrintDialogBinary} from '@electron/utils/resolveMacOsPdfPrintDialogBinary';
 
 const MACOS_PRINT_DIALOG_TIMEOUT_MS = 30 * 60_000;
 
@@ -18,10 +18,7 @@ export async function openMacOsPdfPrintDialog(
 ): Promise<IMacOsPdfPrintDialogResult> {
     const binary = resolveMacOsPdfPrintDialogBinary();
     const result = await runNativeCommand(binary, [pdfPath], {
-        allowedExitCodes: [
-            0,
-            2,
-        ],
+        allowedExitCodes: [0, 2],
         commandLabel: 'pdf-print-dialog',
         maxStderrBytes: 64 * 1024,
         maxStdoutBytes: 64 * 1024,
@@ -32,8 +29,8 @@ export async function openMacOsPdfPrintDialog(
     return result.exitCode === 0
         ? {success: true}
         : {
-            success: false,
-            canceled: true,
-            error: 'Print dialog canceled',
-        };
+              success: false,
+              canceled: true,
+              error: 'Print dialog canceled',
+          };
 }

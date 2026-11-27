@@ -1,15 +1,8 @@
-import {
-    mkdtemp,
-    open,
-    rm,
-} from 'fs/promises';
+import {mkdtemp, open, rm} from 'fs/promises';
 import type {FileHandle} from 'fs/promises';
 import {join} from 'path';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
-import type {
-    IScanCleanupDetectionResultStore,
-    IScanCleanupResultStore,
-} from '@evb/scan-cleanup/core/types';
+import type {IScanCleanupDetectionResultStore, IScanCleanupResultStore} from '@evb/scan-cleanup/core/types';
 import type {IScanCleanupDetectionResult} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     assertMaxReadPages,
@@ -35,10 +28,7 @@ export interface IFileBackedScanCleanupResultStoreOptions<TRecord> {
     maxReadPages?: number;
     fileSystem?: {
         mkdtemp: (prefix: string) => Promise<string>;
-        open: (
-            path: string,
-            flags: 'r' | 'w+',
-        ) => Promise<FileHandle>;
+        open: (path: string, flags: 'r' | 'w+') => Promise<FileHandle>;
         rm: (
             path: string,
             options: {
@@ -49,12 +39,12 @@ export interface IFileBackedScanCleanupResultStoreOptions<TRecord> {
     };
 }
 
-type TFileBackedScanCleanupFileSystem = NonNullable<
-    IFileBackedScanCleanupResultStoreOptions<unknown>['fileSystem']
->;
+type TFileBackedScanCleanupFileSystem = NonNullable<IFileBackedScanCleanupResultStoreOptions<unknown>['fileSystem']>;
 
-export interface IOpenFileBackedScanCleanupResultStoreOptions<TRecord>
-    extends Omit<IFileBackedScanCleanupResultStoreOptions<TRecord>, 'rootDir' | 'fileSystem'> {
+export interface IOpenFileBackedScanCleanupResultStoreOptions<TRecord> extends Omit<
+    IFileBackedScanCleanupResultStoreOptions<TRecord>,
+    'rootDir' | 'fileSystem'
+> {
     recordsPath: string;
     indexPath: string;
     resultCount: number;
@@ -88,11 +78,7 @@ function checkedOffset(value: bigint) {
  * A file write may store fewer bytes than it was given. Publishing an offset
  * or a count before every byte is down would point at a torn record.
  */
-export async function writeFully(
-    handle: Pick<FileHandle, 'write'>,
-    data: Buffer,
-    position?: number,
-) {
+export async function writeFully(handle: Pick<FileHandle, 'write'>, data: Buffer, position?: number) {
     let offset = 0;
     while (offset < data.byteLength) {
         const {bytesWritten} = await handle.write(
@@ -120,9 +106,7 @@ function serializeRecord<TRecord>(record: TRecord) {
     const line = Buffer.from(`${JSON.stringify(record)}\n`, 'utf8');
     const bytes = line.byteLength;
     if (bytes > RESULT_STORE_MAX_RECORD_BYTES) {
-        throw new RangeError(
-            `Scan cleanup result record exceeds ${String(RESULT_STORE_MAX_RECORD_BYTES)} bytes`,
-        );
+        throw new RangeError(`Scan cleanup result record exceeds ${String(RESULT_STORE_MAX_RECORD_BYTES)} bytes`);
     }
     return {
         bytes,
@@ -157,8 +141,8 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         directory: string,
         recordsFile: Awaited<ReturnType<typeof open>>,
         indexFile: Awaited<ReturnType<typeof open>>,
-        options: Pick<IFileBackedScanCleanupResultStoreOptions<TRecord>, 'pageCount' | 'pageNumberOf' | 'maxReadPages'>
-            & Partial<Pick<IOpenFileBackedScanCleanupResultStoreOptions<TRecord>, 'resultCount'>>,
+        options: Pick<IFileBackedScanCleanupResultStoreOptions<TRecord>, 'pageCount' | 'pageNumberOf' | 'maxReadPages'> &
+            Partial<Pick<IOpenFileBackedScanCleanupResultStoreOptions<TRecord>, 'resultCount'>>,
         fileSystem: TFileBackedScanCleanupFileSystem,
         writable = true,
         removeDirectoryOnClose = true,
@@ -188,26 +172,28 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
 
     private enqueue<T>(task: () => Promise<T>) {
         const next = this.operation.then(task);
-        this.operation = next.then(() => undefined, () => undefined);
+        this.operation = next.then(
+            () => undefined,
+            () => undefined,
+        );
         return next;
     }
 
     private assertOpen() {
-        if (this.closed) throw new Error('Scan cleanup result store is closed');
+        if (this.closed) {
+            throw new Error('Scan cleanup result store is closed');
+        }
     }
 
     private assertWritable() {
-        if (!this.writable) throw new Error('Scan cleanup result store is read-only');
+        if (!this.writable) {
+            throw new Error('Scan cleanup result store is read-only');
+        }
     }
 
     private async readOffset(pageNumber: number) {
         const bytes = Buffer.alloc(RESULT_STORE_INDEX_BYTES);
-        const {bytesRead} = await this.indexFile.read(
-            bytes,
-            0,
-            bytes.byteLength,
-            checkedIndexPosition(pageNumber),
-        );
+        const {bytesRead} = await this.indexFile.read(bytes, 0, bytes.byteLength, checkedIndexPosition(pageNumber));
         if (bytesRead !== bytes.byteLength) {
             return undefined;
         }
@@ -231,13 +217,10 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         let totalBytes = 0;
         let position = offset;
         while (totalBytes <= RESULT_STORE_MAX_RECORD_BYTES) {
-            const {bytesRead} = await this.recordsFile.read(
-                chunk,
-                0,
-                chunk.byteLength,
-                position,
-            );
-            if (bytesRead === 0) break;
+            const {bytesRead} = await this.recordsFile.read(chunk, 0, chunk.byteLength, position);
+            if (bytesRead === 0) {
+                break;
+            }
             // `recordsFile.read` reuses `chunk` on the next iteration. Copy the
             // bytes before retaining them so a record that spans reads cannot
             // have its earlier chunks overwritten by the final read.
@@ -259,18 +242,11 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         return offset === undefined ? undefined : this.readRecordAt(offset);
     }
 
-    private async writeRecord(
-        pageNumber: number,
-        record: TRecord,
-        requireExisting: boolean,
-        skipExistingCheck = false,
-    ) {
+    private async writeRecord(pageNumber: number, record: TRecord, requireExisting: boolean, skipExistingCheck = false) {
         this.assertOpen();
         this.assertWritable();
         assertPageNumber(pageNumber, this.pageCount);
-        const existingOffset = skipExistingCheck
-            ? undefined
-            : await this.readOffset(pageNumber);
+        const existingOffset = skipExistingCheck ? undefined : await this.readOffset(pageNumber);
         assertRecordWrite(pageNumber, this.pageNumberOf(record), existingOffset !== undefined, requireExisting);
         const serialized = serializeRecord(record);
         const offset = this.nextOffset;
@@ -281,7 +257,9 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         await writeFully(this.recordsFile, serialized.line, offset);
         this.nextOffset = Number(nextOffset);
         await this.writeOffset(pageNumber, offset);
-        if (existingOffset === undefined) this._resultCount += 1;
+        if (existingOffset === undefined) {
+            this._resultCount += 1;
+        }
     }
 
     public append(record: TRecord) {
@@ -289,8 +267,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
             this.assertOpen();
             const pageNumber = this.pageNumberOf(record);
             assertPageNumber(pageNumber, this.pageCount);
-            const sequentialAppend = this.appendFastPathAvailable
-                && pageNumber === this.nextAppendPageNumber;
+            const sequentialAppend = this.appendFastPathAvailable && pageNumber === this.nextAppendPageNumber;
             if (sequentialAppend) {
                 await this.writeRecord(pageNumber, record, false, true);
                 this.nextAppendPageNumber += 1;
@@ -319,12 +296,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
     private async readOffsets(firstPageNumber: number, lastPageNumberExclusive: number) {
         const count = lastPageNumberExclusive - firstPageNumber;
         const bytes = Buffer.alloc(count * RESULT_STORE_INDEX_BYTES);
-        const {bytesRead} = await this.indexFile.read(
-            bytes,
-            0,
-            bytes.byteLength,
-            checkedIndexPosition(firstPageNumber),
-        );
+        const {bytesRead} = await this.indexFile.read(bytes, 0, bytes.byteLength, checkedIndexPosition(firstPageNumber));
         return Array.from({length: count}, (_, index) => {
             const start = index * RESULT_STORE_INDEX_BYTES;
             if (start + RESULT_STORE_INDEX_BYTES > bytesRead) {
@@ -342,31 +314,27 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
      * or a far one, is read on its own.
      */
     private async readRangeInternal(firstPageNumber: number, lastPageNumberExclusive: number) {
-        assertReadWindow(
-            firstPageNumber,
-            lastPageNumberExclusive,
-            this.pageCount,
-            this.maxReadPages,
-        );
+        assertReadWindow(firstPageNumber, lastPageNumberExclusive, this.pageCount, this.maxReadPages);
         const offsets = await this.readOffsets(firstPageNumber, lastPageNumberExclusive);
         const records: Array<TRecord | undefined> = Array.from({length: offsets.length});
         const block = Buffer.allocUnsafe(RESULT_STORE_BULK_READ_BYTES);
         let blockStart = 0;
         let blockLength = 0;
         const byOffset = offsets
-            .flatMap((offset, index) => offset === undefined ? [] : [{
-                index,
-                offset,
-            }])
+            .flatMap((offset, index) =>
+                offset === undefined
+                    ? []
+                    : [
+                          {
+                              index,
+                              offset,
+                          },
+                      ],
+            )
             .sort((left, right) => left.offset - right.offset);
-        for (const {
-            index,
-            offset,
-        } of byOffset) {
+        for (const {index, offset} of byOffset) {
             let start = offset - blockStart;
-            let newline = start >= 0 && start < blockLength
-                ? block.subarray(0, blockLength).indexOf(0x0a, start)
-                : -1;
+            let newline = start >= 0 && start < blockLength ? block.subarray(0, blockLength).indexOf(0x0a, start) : -1;
             if (newline < 0) {
                 const {bytesRead} = await this.recordsFile.read(block, 0, block.byteLength, offset);
                 blockStart = offset;
@@ -374,9 +342,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
                 start = 0;
                 newline = block.subarray(0, blockLength).indexOf(0x0a);
             }
-            records[index] = newline < 0
-                ? await this.readRecordAt(offset)
-                : parseRecordLine<TRecord>(block.subarray(start, newline));
+            records[index] = newline < 0 ? await this.readRecordAt(offset) : parseRecordLine<TRecord>(block.subarray(start, newline));
         }
         return records.filter((record): record is TRecord => record !== undefined);
     }
@@ -395,19 +361,9 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
      */
     public async forEachChunk(onChunk: (results: readonly TRecord[], firstPageNumber: number) => Promise<void> | void) {
         this.assertOpen();
-        for (
-            let firstPageNumber = 1;
-            firstPageNumber <= this.pageCount;
-            firstPageNumber += this.maxReadPages
-        ) {
-            const lastPageNumberExclusive = Math.min(
-                this.pageCount + 1,
-                firstPageNumber + this.maxReadPages,
-            );
-            await onChunk(
-                await this.readRange(firstPageNumber, lastPageNumberExclusive),
-                firstPageNumber,
-            );
+        for (let firstPageNumber = 1; firstPageNumber <= this.pageCount; firstPageNumber += this.maxReadPages) {
+            const lastPageNumberExclusive = Math.min(this.pageCount + 1, firstPageNumber + this.maxReadPages);
+            await onChunk(await this.readRange(firstPageNumber, lastPageNumberExclusive), firstPageNumber);
         }
     }
 
@@ -417,10 +373,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
                 return;
             }
             this.closed = true;
-            await Promise.allSettled([
-                this.recordsFile.close(),
-                this.indexFile.close(),
-            ]);
+            await Promise.allSettled([this.recordsFile.close(), this.indexFile.close()]);
             if (this.removeDirectoryOnClose) {
                 await this.fileSystem.rm(this.directory, {
                     force: true,
@@ -457,28 +410,18 @@ export async function createFileBackedScanCleanupResultStore<TRecord>(
         const indexPath = join(directory, 'index.bin');
         recordsFile = await fileSystem.open(recordsPath, 'w+');
         indexFile = await fileSystem.open(indexPath, 'w+');
-        return new FileBackedScanCleanupResultStore(
-            directory,
-            recordsFile,
-            indexFile,
-            options,
-            fileSystem,
-            true,
-            true,
-            {
-                recordsPath,
-                indexPath,
-            },
-        );
+        return new FileBackedScanCleanupResultStore(directory, recordsFile, indexFile, options, fileSystem, true, true, {
+            recordsPath,
+            indexPath,
+        });
     } catch (error) {
-        await Promise.allSettled([
-            recordsFile?.close(),
-            indexFile?.close(),
-        ]);
-        await fileSystem.rm(directory, {
-            force: true,
-            recursive: true,
-        }).catch(() => undefined);
+        await Promise.allSettled([recordsFile?.close(), indexFile?.close()]);
+        await fileSystem
+            .rm(directory, {
+                force: true,
+                recursive: true,
+            })
+            .catch(() => undefined);
         throw error;
     }
 }
@@ -510,20 +453,9 @@ export async function openFileBackedScanCleanupResultStore<TRecord>(
         if (indexStats.size < checkedIndexLength(options.pageCount)) {
             throw new Error('Scan cleanup result store index is truncated');
         }
-        return new FileBackedScanCleanupResultStore(
-            options.recordsPath,
-            recordsFile,
-            indexFile,
-            options,
-            fileSystem,
-            false,
-            false,
-        );
+        return new FileBackedScanCleanupResultStore(options.recordsPath, recordsFile, indexFile, options, fileSystem, false, false);
     } catch (error) {
-        await Promise.allSettled([
-            recordsFile?.close(),
-            indexFile?.close(),
-        ]);
+        await Promise.allSettled([recordsFile?.close(), indexFile?.close()]);
         throw error;
     }
 }
@@ -534,11 +466,11 @@ export function createFileBackedScanCleanupDetectionResultStore(
 ): Promise<IScanCleanupDetectionResultStore> {
     return createFileBackedScanCleanupResultStore<IScanCleanupDetectionResult>({
         ...options,
-        pageNumberOf: result => result.pageNumber,
-    }).then(store => {
+        pageNumberOf: (result) => result.pageNumber,
+    }).then((store) => {
         return {
             close: () => store.close(),
-            forEachChunk: onChunk => store.forEachChunk(onChunk),
+            forEachChunk: (onChunk) => store.forEachChunk(onChunk),
             get pageCount() {
                 return store.pageCount;
             },
@@ -546,11 +478,9 @@ export function createFileBackedScanCleanupDetectionResultStore(
                 return store.resultCount;
             },
             persistedFiles: store.persistedFiles,
-            getPage: pageNumber => store.getPage(pageNumber),
-            readRange: (firstPageNumber, lastPageNumberExclusive) => (
-                store.readRange(firstPageNumber, lastPageNumberExclusive)
-            ),
-            append: result => store.append(toPersistedDetectionResult(result)),
+            getPage: (pageNumber) => store.getPage(pageNumber),
+            readRange: (firstPageNumber, lastPageNumberExclusive) => store.readRange(firstPageNumber, lastPageNumberExclusive),
+            append: (result) => store.append(toPersistedDetectionResult(result)),
             replace: (pageNumber, result) => store.replace(pageNumber, toPersistedDetectionResult(result)),
         };
     });

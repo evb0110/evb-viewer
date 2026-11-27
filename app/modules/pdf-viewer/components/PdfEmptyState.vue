@@ -5,46 +5,74 @@
             :progress="openBatchProgress"
         />
 
-        <div v-else class="start-shell">
-            <aside class="start-rail" :aria-label="t('emptyState.start')">
-                <nav class="rail-section" :aria-label="t('emptyState.start')">
+        <div
+            v-else
+            class="start-shell"
+        >
+            <aside
+                class="start-rail"
+                :aria-label="t('emptyState.start')"
+            >
+                <nav
+                    class="rail-section"
+                    :aria-label="t('emptyState.start')"
+                >
                     <button
                         type="button"
                         class="rail-item"
-                        :class="{ 'is-active': activeSection === 'recent' }"
+                        :class="{'is-active': activeSection === 'recent'}"
                         :aria-current="activeSection === 'recent' ? 'page' : undefined"
                         @click="activeSection = 'recent'"
                     >
-                        <UIcon name="i-ph-clock" class="rail-item-icon" />
+                        <UIcon
+                            name="i-ph-clock"
+                            class="rail-item-icon"
+                        />
                         <span>{{ t('emptyState.recentFiles') }}</span>
-                        <span v-if="recentFiles.length > 0" class="rail-count">{{ recentFiles.length }}</span>
+                        <span
+                            v-if="recentFiles.length > 0"
+                            class="rail-count"
+                            >{{ recentFiles.length }}</span
+                        >
                     </button>
                 </nav>
 
-                <nav class="rail-section" :aria-label="t('menu.file')">
+                <nav
+                    class="rail-section"
+                    :aria-label="t('menu.file')"
+                >
                     <button
                         v-if="canCombineFiles"
                         type="button"
                         class="rail-item"
-                        :class="{ 'is-active': activeSection === 'combine' }"
+                        :class="{'is-active': activeSection === 'combine'}"
                         :aria-current="activeSection === 'combine' ? 'page' : undefined"
                         :disabled="openInProgress"
                         @click="activeSection = 'combine'"
                     >
-                        <UIcon name="i-ph-stack-plus" class="rail-item-icon" />
+                        <UIcon
+                            name="i-ph-stack-plus"
+                            class="rail-item-icon"
+                        />
                         <span>{{ t('dialogs.combineFiles') }}</span>
                     </button>
                 </nav>
 
-                <nav class="rail-section" :aria-label="t('emptyState.workspace')">
+                <nav
+                    class="rail-section"
+                    :aria-label="t('emptyState.workspace')"
+                >
                     <button
                         type="button"
                         class="rail-item"
-                        :class="{ 'is-active': activeSection === 'settings' }"
+                        :class="{'is-active': activeSection === 'settings'}"
                         :aria-current="activeSection === 'settings' ? 'page' : undefined"
                         @click="activeSection = 'settings'"
                     >
-                        <UIcon name="i-ph-gear" class="rail-item-icon" />
+                        <UIcon
+                            name="i-ph-gear"
+                            class="rail-item-icon"
+                        />
                         <span>{{ t('toolbar.settings') }}</span>
                     </button>
                 </nav>
@@ -52,9 +80,18 @@
 
             <main class="start-main">
                 <template v-if="activeSection === 'recent'">
-                    <section class="start-open-panel" :aria-labelledby="openPanelButtonId">
-                        <span class="open-panel-art" aria-hidden="true">
-                            <FileTypeIcon kind="document" class="open-panel-art-icon" />
+                    <section
+                        class="start-open-panel"
+                        :aria-labelledby="openPanelButtonId"
+                    >
+                        <span
+                            class="open-panel-art"
+                            aria-hidden="true"
+                        >
+                            <FileTypeIcon
+                                kind="document"
+                                class="open-panel-art-icon"
+                            />
                         </span>
                         <span class="open-panel-copy">
                             <span>{{ t('emptyState.openSubtitle') }}</span>
@@ -107,25 +144,22 @@
                 />
             </main>
         </div>
-
     </div>
 </template>
 
 <script setup lang="ts">
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { IRecentFile } from '@contracts/shared';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {IRecentFile} from '@contracts/shared';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import SettingsPage from '@app/components/settings/SettingsPage.vue';
-import type { TStartSection } from '@app/types/startSection';
+import type {TStartSection} from '@app/types/startSection';
 import PdfOpenBatchProgress from '@app/modules/pdf-viewer/components/PdfOpenBatchProgress.vue';
 import StartRecentFiles from '@app/modules/pdf-viewer/components/StartRecentFiles.vue';
-import type { IPdfOpenBatchProgress } from '@app/modules/pdf-viewer/runtime/contracts/pdfOpenBatchProgress.types';
+import type {IPdfOpenBatchProgress} from '@app/modules/pdf-viewer/runtime/contracts/pdfOpenBatchProgress.types';
 
 // User-initiated surface: stays out of the startup chunk and loads on first open,
 // matching the split policy documented in warmupDesktopViewerChunks.ts.
-const CombinePdfPage = defineAsyncComponent(
-    () => import('@app/modules/combine/public').then(module => module.CombinePdfPage),
-);
+const CombinePdfPage = defineAsyncComponent(() => import('@app/modules/combine/public').then((module) => module.CombinePdfPage));
 
 const {
     recentFiles,
@@ -161,7 +195,7 @@ const emit = defineEmits<{
     'clear-recent': [];
     'retry-recent': [];
 }>();
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const openPanelButtonId = useId();
 // The shell owns the chosen section per tab; this view reads and requests it.
 const activeSection = computed({
@@ -173,7 +207,6 @@ const recentSearch = ref('');
 function openFile() {
     emit('open-file');
 }
-
 </script>
 
 <style lang="scss" scoped>

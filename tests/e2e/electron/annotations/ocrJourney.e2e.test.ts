@@ -4,48 +4,20 @@ import {createServer} from 'node:http';
 import {existsSync} from 'node:fs';
 import {delay} from 'es-toolkit/promise';
 import {tmpdir} from 'node:os';
-import {
-    join,
-} from 'node:path';
-import {
-    copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile,
-} from 'node:fs/promises';
-import {
-    GlobalFonts, createCanvas,
-} from '@napi-rs/canvas';
-import {
-    PDFDocument,
-    PDFDict,
-    PDFArray,
-    PDFString,
-    PDFName,
-    StandardFonts,
-} from 'pdf-lib';
-import type {
-    ElementHandle,
-    Page,
-} from 'puppeteer-core';
-import {
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
+import {join} from 'node:path';
+import {copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile} from 'node:fs/promises';
+import {GlobalFonts, createCanvas} from '@napi-rs/canvas';
+import {PDFDocument, PDFDict, PDFArray, PDFString, PDFName, StandardFonts} from 'pdf-lib';
+import type {ElementHandle, Page} from 'puppeteer-core';
+import {describe, expect, it, onTestFinished, vi} from 'vitest';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
 import type {IOcrCompleteResult} from '@contracts/electronApiOcr';
 import {OCR_LANGUAGE_MODEL_SHA256} from '@contracts/ocrLanguages';
 import {decodeWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
-import {
-    readAnnotationRecoveryDraft,
-    readWorkspaceRecoveryRecords,
-} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
+import {readAnnotationRecoveryDraft, readWorkspaceRecoveryRecords} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import {
-    activateMenuItemAsUser,
-    clickAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
+import {activateMenuItemAsUser, clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
     createFixturePath,
     createScannedTextFixturePdf,
@@ -54,7 +26,9 @@ import {
     readPdfTextAnnotationRecords,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
-    assertOcrPdfSemanticOutput, getActiveWorkspaceWorkingCopyPath, readDocumentBytes,
+    assertOcrPdfSemanticOutput,
+    getActiveWorkspaceWorkingCopyPath,
+    readDocumentBytes,
 } from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {createStickyNoteWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {extractTextWithPdfjs} from '@electron/features/search/pdfjsPageTexts';
@@ -77,15 +51,9 @@ import {
     getWorkspaceToolbarSnapshot,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import {
-    activatePaneByTab,
-    splitActiveTabFromTabMenu,
-} from '@tests/e2e/electron/helpers/workspaceTabs';
+import {activatePaneByTab, splitActiveTabFromTabMenu} from '@tests/e2e/electron/helpers/workspaceTabs';
 
-GlobalFonts.registerFromPath(
-    join(process.cwd(), 'scripts/fixtures/ocr-language-fonts/NotoSans-Regular.ttf'),
-    'EvbOcrJourneySans',
-);
+GlobalFonts.registerFromPath(join(process.cwd(), 'scripts/fixtures/ocr-language-fonts/NotoSans-Regular.ttf'), 'EvbOcrJourneySans');
 
 const SCANNED_TEXT = 'Harbor lantern signal';
 const SEARCHED_WORD = 'lantern';
@@ -130,19 +98,31 @@ const sessionFixture = createElectronE2ESessionFixture({
 
 /** Clicks, with real pointer input, the visible enabled button whose label or text is `name`. */
 async function clickVisibleButton(page: Page, scope: string, name: string, timeoutMs = 30_000) {
-    const handle = await page.waitForFunction((selector: string, label: string) => (
-        Array.from(document.querySelectorAll<HTMLButtonElement>(`${selector} button`)).find(button => (
-            (button.getAttribute('aria-label') ?? button.textContent ?? '').trim() === label
-            && !button.disabled
-            && button.checkVisibility()
-        ))
-    ), {timeout: timeoutMs}, scope, name);
+    const handle = await page.waitForFunction(
+        (selector: string, label: string) =>
+            Array.from(document.querySelectorAll<HTMLButtonElement>(`${selector} button`)).find(
+                (button) =>
+                    (button.getAttribute('aria-label') ?? button.textContent ?? '').trim() === label &&
+                    !button.disabled &&
+                    button.checkVisibility(),
+            ),
+        {timeout: timeoutMs},
+        scope,
+        name,
+    );
     await clickAsUser(page, handle.asElement() as ElementHandle<HTMLButtonElement>);
 }
 
 async function waitForBookmarkRow(page: Page, title: string) {
-    await waitForFunctionInPage(page, (expected: string) => Array.from(document.querySelectorAll<HTMLElement>('.pdf-bookmark-item-row, .document-bookmark-item__row'))
-        .some(row => row.checkVisibility() && row.textContent?.trim() === expected), {timeout: 30_000}, title);
+    await waitForFunctionInPage(
+        page,
+        (expected: string) =>
+            Array.from(document.querySelectorAll<HTMLElement>('.pdf-bookmark-item-row, .document-bookmark-item__row')).some(
+                (row) => row.checkVisibility() && row.textContent?.trim() === expected,
+            ),
+        {timeout: 30_000},
+        title,
+    );
 }
 
 async function acceptBookmarkAndPageLabel(page: Page) {
@@ -156,40 +136,53 @@ async function acceptBookmarkAndPageLabel(page: Page) {
 
     await openDocumentSidebarTab(page, 'Pages');
     const disclosure = `${ACTIVE_HOST} .pdf-sidebar-pages-disclosure`;
-    if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+    if ((await page.$eval(disclosure, (button) => button.getAttribute('aria-expanded'))) !== 'true') {
         await clickAsUser(page, disclosure);
     }
     await clickAsUser(page, '#page-label-prefix-input');
     await page.keyboard.type(ACCEPTED_LABEL_PREFIX);
     await clickAsUser(page, `${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
-    await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000})
-        .toBe(`${ACCEPTED_LABEL_PREFIX}1`);
+    await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000}).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
 }
 
 async function completeOcrFromMenu(page: Page) {
     await clickVisibleButton(page, '.editor-global-toolbar-shell', 'More tools');
-    const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
-        item.textContent?.trim() === 'OCR'
-        && !item.hasAttribute('data-disabled')
-        && item.getAttribute('aria-disabled') !== 'true'
-        && item.checkVisibility()
-    )), {timeout: 30_000});
+    const ocrItem = await page.waitForFunction(
+        () =>
+            Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                (item) =>
+                    item.textContent?.trim() === 'OCR' &&
+                    !item.hasAttribute('data-disabled') &&
+                    item.getAttribute('aria-disabled') !== 'true' &&
+                    item.checkVisibility(),
+            ),
+        {timeout: 30_000},
+    );
     await clickAsUser(page, ocrItem.asElement() as ElementHandle<HTMLElement>);
     await page.waitForSelector('[role="dialog"]', {visible: true});
     await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
-    await waitForFunctionInPage(page, () => (
-        document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
-    ), {timeout: OCR_TIMEOUT_MS});
+    await waitForFunctionInPage(
+        page,
+        () => document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true,
+        {timeout: OCR_TIMEOUT_MS},
+    );
     await clickVisibleButton(page, '[role="dialog"]', 'Close');
     await page.waitForSelector('[role="dialog"]', {hidden: true});
     await waitForViewerInteractive(page, 90_000);
 }
 
 async function waitForTextLayerWord(page: Page) {
-    await waitForFunctionInPage(page, (host: string, word: string) => (
-        document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
-            ?.textContent?.toLocaleLowerCase().includes(word) === true
-    ), {timeout: 30_000}, ACTIVE_HOST, SEARCHED_WORD);
+    await waitForFunctionInPage(
+        page,
+        (host: string, word: string) =>
+            document
+                .querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
+                ?.textContent?.toLocaleLowerCase()
+                .includes(word) === true,
+        {timeout: 30_000},
+        ACTIVE_HOST,
+        SEARCHED_WORD,
+    );
 }
 
 /** A scanned document long enough that its OCR run is still going when the user moves on. */
@@ -208,10 +201,7 @@ async function createScannedPagesFixturePdf(filename: string, pageCount: number)
             context.fillText(`${SCANNED_TEXT} page ${pageNumber} line ${line + 1}`, 90, 140 + line * 56);
         }
         const image = await doc.embedPng(canvas.toBuffer('image/png'));
-        doc.addPage([
-            612,
-            792,
-        ]).drawImage(image, {
+        doc.addPage([612, 792]).drawImage(image, {
             x: 0,
             y: 0,
             width: 612,
@@ -247,10 +237,7 @@ async function createExistingTextVisibilityFixturePdf(filename: string) {
         'q 612 0 0 792 0 0 cm /Im0 Do Q\nBT /F1 32 Tf 3 Tr 60 392 Td (Qu1et rneadow anc) Tj ET',
     ];
     for (const content of pageContents) {
-        const page = doc.addPage([
-            612,
-            792,
-        ]);
+        const page = doc.addPage([612, 792]);
         page.node.setFontDictionary(PDFName.of('F1'), font.ref);
         page.node.setXObject(PDFName.of('Im0'), scan.ref);
         page.node.set(PDFName.of('Contents'), doc.context.register(doc.context.stream(content)));
@@ -264,10 +251,7 @@ async function createExistingTextVisibilityFixturePdf(filename: string) {
 async function createEarlyPrintFixturePdf(filename: string) {
     const doc = await PDFDocument.create();
     const scan = await doc.embedJpg(await readFile(join(process.cwd(), 'tests/fixtures/electron/early-print/breviary-1677-rubrics.jpg')));
-    doc.addPage([
-        scan.width,
-        scan.height,
-    ]).drawImage(scan, {
+    doc.addPage([scan.width, scan.height]).drawImage(scan, {
         x: 0,
         y: 0,
         width: scan.width,
@@ -280,18 +264,26 @@ async function createEarlyPrintFixturePdf(filename: string) {
 
 /** Picks a recognition language by clicking its chip in the OCR dialog. */
 async function chooseOcrLanguage(page: Page, code: string) {
-    const chip = await page.waitForFunction((languageCode: string) => (
-        Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] [data-slot="item"]')).find(item => (
-            item.querySelector('.chip-code')?.textContent?.trim() === languageCode && item.checkVisibility()
-        ))
-    ), {timeout: 30_000}, code);
+    const chip = await page.waitForFunction(
+        (languageCode: string) =>
+            Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] [data-slot="item"]')).find(
+                (item) => item.querySelector('.chip-code')?.textContent?.trim() === languageCode && item.checkVisibility(),
+            ),
+        {timeout: 30_000},
+        code,
+    );
     await clickAsUser(page, chip.asElement() as ElementHandle<HTMLElement>);
-    await waitForFunctionInPage(page, (languageCode: string) => (
-        Array.from(document.querySelectorAll('[role="dialog"] [data-slot="item"]')).some(item => (
-            item.querySelector('.chip-code')?.textContent?.trim() === languageCode
-            && item.querySelector('[role="radio"]')?.getAttribute('aria-checked') === 'true'
-        ))
-    ), {timeout: 10_000}, code);
+    await waitForFunctionInPage(
+        page,
+        (languageCode: string) =>
+            Array.from(document.querySelectorAll('[role="dialog"] [data-slot="item"]')).some(
+                (item) =>
+                    item.querySelector('.chip-code')?.textContent?.trim() === languageCode &&
+                    item.querySelector('[role="radio"]')?.getAttribute('aria-checked') === 'true',
+            ),
+        {timeout: 10_000},
+        code,
+    );
 }
 
 function countWord(text: string, word: string) {
@@ -303,7 +295,9 @@ async function delayOcrToolCompletion(scratch: string, toolName: string, require
     const commandPath = join(scratch, 'real-command.cjs');
     const receiptPath = join(scratch, 'real-command-completed.txt');
     // Let the real command produce its output before holding the forwarding process open.
-    await writeFile(commandPath, `
+    await writeFile(
+        commandPath,
+        `
 const {spawn} = require('node:child_process');
 const {existsSync, watch, writeFileSync} = require('node:fs');
 const [command, ...args] = process.argv.slice(2);
@@ -311,9 +305,12 @@ const child = spawn(command, args, {stdio: 'inherit', windowsHide: true});
 child.once('error', () => process.exit(1));
 child.once('close', async code => {
     writeFileSync(${JSON.stringify(receiptPath)}, String(code));
-    ${releasePath === undefined ? `
+    ${
+        releasePath === undefined
+            ? `
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
-    ` : `
+    `
+            : `
     const releasePath = ${JSON.stringify(releasePath)};
     await new Promise(resolve => {
         const checkRelease = () => {
@@ -325,11 +322,15 @@ child.once('close', async code => {
         const watcher = watch(${JSON.stringify(scratch)}, checkRelease);
         checkRelease();
     });
-    `}
+    `
+    }
     process.exit(code ?? 1);
 });
-`);
-    await writeFile(hookPath, `
+`,
+    );
+    await writeFile(
+        hookPath,
+        `
 if (process.versions.electron && process.type === 'browser') {
     const cp = require('node:child_process');
     const {basename} = require('node:path');
@@ -363,7 +364,8 @@ if (process.versions.electron && process.type === 'browser') {
     };
     require('node:module').syncBuiltinESMExports();
 }
-`);
+`,
+    );
     return {
         extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${JSON.stringify(hookPath)}`},
         receiptPath,
@@ -389,12 +391,12 @@ async function installLateOcrCompletionControl(page: Page) {
         stopObserving = ocr.onComplete((result) => {
             if (result.success && result.requiresCleanupAck === true && result.pdfPath) {
                 control.result = result;
-                const cancelButton = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                    .find(button => (
-                        (button.getAttribute('aria-label') ?? button.textContent ?? '').trim() === 'Cancel OCR'
-                        && !button.disabled
-                        && button.checkVisibility()
-                    ));
+                const cancelButton = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                    (button) =>
+                        (button.getAttribute('aria-label') ?? button.textContent ?? '').trim() === 'Cancel OCR' &&
+                        !button.disabled &&
+                        button.checkVisibility(),
+                );
                 if (cancelButton) {
                     control.cancelClicked = true;
                     cancelButton.click();
@@ -419,12 +421,12 @@ describe('Electron E2E - OCR journey', () => {
         const transportEvents: Array<{
             at: number;
             event: string;
-            attempt: number
+            attempt: number;
         }> = [];
         const samples: Array<{
             at: number;
             run: string;
-            text: string
+            text: string;
         }> = [];
         const transport = createServer((request, response) => {
             response.writeHead(200, {'Content-Length': modelBytes.length});
@@ -444,8 +446,11 @@ describe('Electron E2E - OCR journey', () => {
                 offset += 262_144;
                 // The first run is cancelled by the user; the next loses its
                 // connection and must expose the existing automatic retry.
-                if (currentAttempt === 2 && offset >= 2_097_152) response.destroy();
-                else if (offset >= modelBytes.length) response.end();
+                if (currentAttempt === 2 && offset >= 2_097_152) {
+                    response.destroy();
+                } else if (offset >= modelBytes.length) {
+                    response.end();
+                }
             }, 250);
             response.once('close', () => {
                 clearInterval(stream);
@@ -459,11 +464,15 @@ describe('Electron E2E - OCR journey', () => {
         await sessionFixture.stop({preserveArtifacts: true});
         try {
             await rename(modelPath, backupPath);
-            await new Promise<void>(resolve => transport.listen(0, '127.0.0.1', resolve));
+            await new Promise<void>((resolve) => transport.listen(0, '127.0.0.1', resolve));
             const address = transport.address();
-            if (!address || typeof address === 'string') throw new Error('Model transport has no TCP address');
+            if (!address || typeof address === 'string') {
+                throw new Error('Model transport has no TCP address');
+            }
             const hookPath = join(scratch, 'model-transport.cjs');
-            await writeFile(hookPath, `
+            await writeFile(
+                hookPath,
+                `
 if (process.versions.electron && process.type === 'browser') {
     const fetch = globalThis.fetch;
     globalThis.fetch = (url, options) => {
@@ -472,26 +481,28 @@ if (process.versions.electron && process.type === 'browser') {
         return fetch('http://127.0.0.1:${address.port}/deu.traineddata', options);
     };
 }
-`);
+`,
+            );
             const session = await sessionFixture.start({
                 sessionName: () => `e2e-ocr-download-progress-${Date.now()}`,
                 extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${hookPath}`},
             });
             const {page} = session;
-            const sourcePath = await createScannedTextFixturePdf('ocr-download-progress.pdf', 'Hafen Laterne Signal', '60px EvbOcrJourneySans');
+            const sourcePath = await createScannedTextFixturePdf(
+                'ocr-download-progress.pdf',
+                'Hafen Laterne Signal',
+                '60px EvbOcrJourneySans',
+            );
             await copyFile(sourcePath, join(evidence, 'input.pdf'));
             await openPdfInApp(page, sourcePath, 90_000);
             await waitForViewerInteractive(page, 90_000);
-            await session.command('windowResize', [
-                1440,
-                900,
-            ]);
+            await session.command('windowResize', [1440, 900]);
             await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
             await page.waitForSelector('[role="dialog"]', {visible: true});
             await chooseOcrLanguage(page, 'deu');
 
             async function sample(run: string) {
-                const text = await page.$eval('[role="dialog"]', dialog => (dialog as HTMLElement).innerText);
+                const text = await page.$eval('[role="dialog"]', (dialog) => (dialog as HTMLElement).innerText);
                 samples.push({
                     at: Date.now(),
                     run,
@@ -506,9 +517,12 @@ if (process.versions.electron && process.type === 'browser') {
             }
             await page.screenshot({path: join(evidence, 'downloading.png')});
             await clickVisibleButton(page, '[role="dialog"]', 'Cancel OCR');
-            await vi.waitFor(async () => {
-                expect((await readdir(modelDirectory)).filter(file => file.startsWith('deu.traineddata'))).toEqual([]);
-            }, {timeout: 10_000});
+            await vi.waitFor(
+                async () => {
+                    expect((await readdir(modelDirectory)).filter((file) => file.startsWith('deu.traineddata'))).toEqual([]);
+                },
+                {timeout: 10_000},
+            );
             await page.screenshot({path: join(evidence, 'cancelled.png')});
             // Reopening refreshes the inventory after the cancelled shared
             // download has released its final waiter.
@@ -526,38 +540,46 @@ if (process.versions.electron && process.type === 'browser') {
                     completed = true;
                     break;
                 }
-                if (text.includes('Copy logs')) break;
+                if (text.includes('Copy logs')) {
+                    break;
+                }
                 await delay(500);
             }
             await page.screenshot({path: join(evidence, 'complete.png')});
             expect(completed, 'recognition completes after model preparation').toBe(true);
             expect((await readFile(modelPath)).equals(modelBytes)).toBe(true);
             await clickVisibleButton(page, '[role="dialog"]', 'Close');
-            await waitForFunctionInPage(page, () => (
-                document.querySelector('.text-layer')?.textContent?.includes('Laterne') === true
-            ), {timeout: 30_000});
+            await waitForFunctionInPage(page, () => document.querySelector('.text-layer')?.textContent?.includes('Laterne') === true, {
+                timeout: 30_000,
+            });
             await page.screenshot({path: join(evidence, 'recognized.png')});
 
-            const downloadSamples = samples.filter(item => /Downloading German:.*\(\d+%\)/u.test(item.text));
+            const downloadSamples = samples.filter((item) => /Downloading German:.*\(\d+%\)/u.test(item.text));
             expect(downloadSamples.length, 'I1: the dialog shows numerical download progress').toBeGreaterThan(4);
-            const firstStart = transportEvents.find(event => event.event === 'start')!.at;
-            expect(downloadSamples.find(item => item.run === 'cancel')!.at - firstStart).toBeLessThanOrEqual(1_000);
-            for (const run of [
-                'cancel',
-                'complete',
-            ]) {
-                const values = downloadSamples.filter(item => item.run === run);
+            const firstStart = transportEvents.find((event) => event.event === 'start')!.at;
+            expect(downloadSamples.find((item) => item.run === 'cancel')!.at - firstStart).toBeLessThanOrEqual(1_000);
+            for (const run of ['cancel', 'complete']) {
+                const values = downloadSamples.filter((item) => item.run === run);
                 const changes = values.filter((item, index) => index === 0 || item.text !== values[index - 1]!.text);
                 expect(changes.length).toBeGreaterThan(2);
                 for (let index = 1; index < changes.length; index++) {
                     const previous = changes[index - 1]!;
                     const current = changes[index]!;
-                    if (samples.some(item => item.at > previous.at && item.at < current.at
-                        && item.text.includes('Retrying German') && !item.text.includes('Downloading German:'))) continue;
+                    if (
+                        samples.some(
+                            (item) =>
+                                item.at > previous.at &&
+                                item.at < current.at &&
+                                item.text.includes('Retrying German') &&
+                                !item.text.includes('Downloading German:'),
+                        )
+                    ) {
+                        continue;
+                    }
                     expect(current.at - previous.at, 'progress increases at least once a second').toBeLessThanOrEqual(1_000);
                 }
             }
-            expect(samples.some(item => item.text.includes('Retrying German download (attempt 2 of 3)'))).toBe(true);
+            expect(samples.some((item) => item.text.includes('Retrying German download (attempt 2 of 3)'))).toBe(true);
         } finally {
             await writeFile(join(evidence, 'samples.json'), JSON.stringify(samples, null, 2));
             await writeFile(join(evidence, 'transport.json'), JSON.stringify(transportEvents, null, 2));
@@ -565,7 +587,9 @@ if (process.versions.electron && process.type === 'browser') {
                 await sessionFixture.stop({preserveArtifacts: true});
             } finally {
                 transport.closeAllConnections();
-                if (transport.listening) await new Promise<void>(resolve => transport.close(() => resolve()));
+                if (transport.listening) {
+                    await new Promise<void>((resolve) => transport.close(() => resolve()));
+                }
                 if (existsSync(backupPath)) {
                     await rm(modelPath, {force: true});
                     await rename(backupPath, modelPath);
@@ -584,73 +608,92 @@ if (process.versions.electron && process.type === 'browser') {
         await copyFile(sourcePath, join(evidence, 'input.pdf'));
         await openPdfInApp(session.page, sourcePath, 90_000);
         await waitForViewerInteractive(session.page, 90_000);
-        await session.command('windowResize', [
-            1440,
-            900,
-        ]);
+        await session.command('windowResize', [1440, 900]);
         const marker = 'Accepted note survives cancelled and resumed OCR';
-        await createStickyNoteWithPointer(session.page, marker, {
-            x: 0.8,
-            y: 0.1,
-        }, 1, {allowClearPointSearch: true});
+        await createStickyNoteWithPointer(
+            session.page,
+            marker,
+            {
+                x: 0.8,
+                y: 0.1,
+            },
+            1,
+            {allowClearPointSearch: true},
+        );
         const workingPath = await getActiveWorkspaceWorkingCopyPath(session.page);
         await writeFile(join(evidence, 'before-ocr.pdf'), await readDocumentBytes(session.page, workingPath));
 
         async function startAllPagesOcr(page: Page) {
             await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
-            const allPages = await page.waitForFunction(() => (
-                Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label'))
-                    .find(label => label.textContent?.trim() === 'All pages (6)' && label.checkVisibility())
-            ), {timeout: 30_000});
+            const allPages = await page.waitForFunction(
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label')).find(
+                        (label) => label.textContent?.trim() === 'All pages (6)' && label.checkVisibility(),
+                    ),
+                {timeout: 30_000},
+            );
             await clickAsUser(page, allPages.asElement() as ElementHandle<HTMLElement>);
             await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
         }
 
         await startAllPagesOcr(session.page);
         await clickVisibleButton(session.page, '[role="dialog"]', 'Cancel OCR');
-        await session.page.waitForFunction(() => (
-            Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                .some(button => button.textContent?.trim() === 'Start OCR' && !button.disabled)
-        ), {timeout: 30_000});
+        await session.page.waitForFunction(
+            () =>
+                Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).some(
+                    (button) => button.textContent?.trim() === 'Start OCR' && !button.disabled,
+                ),
+            {timeout: 30_000},
+        );
         await clickVisibleButton(session.page, '[role="dialog"]', 'Close');
         expect(await readFile(sourcePath)).toEqual(originalBytes);
 
-        await expect.poll(async () => {
-            const checkpoint = readWorkspaceRecoveryRecords(session.name)
-                .map(record => decodeWorkspaceCheckpoint(record.checkpoint)).find(Boolean);
-            const recovery = checkpoint?.tabs.find(tab => tab.workingCopyRef === workingPath)?.annotationRecovery;
-            if (!recovery) return false;
-            const payload = JSON.parse(readAnnotationRecoveryDraft(session.name, recovery.artifactId) ?? '{}') as {payload?: {entities?: Array<{contents?: string}>}};
-            const notePresent = payload.payload?.entities?.some(entity => entity.contents === marker) ?? false;
-            if (notePresent) {
-                await writeFile(join(evidence, 'workspace-before-crash.json'), JSON.stringify(checkpoint, null, 2));
-                await writeFile(join(evidence, 'annotation-recovery.json'), JSON.stringify(payload));
-            }
-            return notePresent;
-        }, {timeout: 30_000}).toBe(true);
+        await expect
+            .poll(
+                async () => {
+                    const checkpoint = readWorkspaceRecoveryRecords(session.name)
+                        .map((record) => decodeWorkspaceCheckpoint(record.checkpoint))
+                        .find(Boolean);
+                    const recovery = checkpoint?.tabs.find((tab) => tab.workingCopyRef === workingPath)?.annotationRecovery;
+                    if (!recovery) {
+                        return false;
+                    }
+                    const payload = JSON.parse(readAnnotationRecoveryDraft(session.name, recovery.artifactId) ?? '{}') as {
+                        payload?: {entities?: Array<{contents?: string}>};
+                    };
+                    const notePresent = payload.payload?.entities?.some((entity) => entity.contents === marker) ?? false;
+                    if (notePresent) {
+                        await writeFile(join(evidence, 'workspace-before-crash.json'), JSON.stringify(checkpoint, null, 2));
+                        await writeFile(join(evidence, 'annotation-recovery.json'), JSON.stringify(payload));
+                    }
+                    return notePresent;
+                },
+                {timeout: 30_000},
+            )
+            .toBe(true);
 
         session = await sessionFixture.restart({
             clean: false,
             hard: true,
         });
         await waitForViewerInteractive(session.page, 90_000);
-        await session.command('windowResize', [
-            1440,
-            900,
-        ]);
+        await session.command('windowResize', [1440, 900]);
         expect(await getActiveWorkspaceWorkingCopyPath(session.page)).toBe(workingPath);
         await openDocumentSidebarTab(session.page, 'Annotations');
-        await session.page.waitForFunction((text: string) => (
-            Array.from(document.querySelectorAll('.notes-panel .note-item'))
-                .some(item => item.textContent?.includes(text))
-        ), {timeout: 30_000}, marker);
+        await session.page.waitForFunction(
+            (text: string) =>
+                Array.from(document.querySelectorAll('.notes-panel .note-item')).some((item) => item.textContent?.includes(text)),
+            {timeout: 30_000},
+            marker,
+        );
         await writeFile(join(evidence, 'after-recovery.pdf'), await readDocumentBytes(session.page, workingPath));
         await session.page.screenshot({path: join(evidence, 'recovered-note.png')});
 
         await startAllPagesOcr(session.page);
-        await session.page.waitForFunction(() => (
-            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable')
-        ), {timeout: OCR_TIMEOUT_MS});
+        await session.page.waitForFunction(
+            () => document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable'),
+            {timeout: OCR_TIMEOUT_MS},
+        );
         await clickVisibleButton(session.page, '[role="dialog"]', 'Close');
         await waitForViewerInteractive(session.page, 90_000);
         await writeFile(join(evidence, 'after-resumed-ocr.pdf'), await readDocumentBytes(session.page, workingPath));
@@ -662,7 +705,9 @@ if (process.versions.electron && process.type === 'browser') {
         expect(records).toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
         const pages = await extractTextWithPdfjs(sourcePath);
         expect(pages).toHaveLength(6);
-        for (const page of pages) expect(page.text.toLocaleLowerCase()).toContain(SEARCHED_WORD);
+        for (const page of pages) {
+            expect(page.text.toLocaleLowerCase()).toContain(SEARCHED_WORD);
+        }
         await sessionFixture.resetForE2E();
     }, 420_000);
 
@@ -675,89 +720,97 @@ if (process.versions.electron && process.type === 'browser') {
             probe: 'timed-out',
             delayProbe: true,
         },
-    ])('makes a scanned page searchable, saves it, and finds a recognized word after reopening with a $probe DPI probe', async ({delayProbe}) => {
-        const scratch = await mkdtemp(join(tmpdir(), 'ocr-dpi-probe-'));
-        // Hold the real query past the app's optional-probe deadline.
-        const delayedProbe = delayProbe ? await delayOcrToolCompletion(scratch, 'pdfimages', ['-list']) : undefined;
-        const session = delayedProbe
-            ? await sessionFixture.restart({
-                sessionName: () => `e2e-ocr-dpi-timeout-${Date.now()}`,
-                extraEnv: delayedProbe.extraEnv,
-            })
-            : sessionFixture.getSession();
-        try {
-            const {page} = session;
-            const sourcePath = await createScannedTextFixturePdf(
-                'ocr-journey-scan.pdf',
-                SCANNED_TEXT,
-                '60px EvbOcrJourneySans',
-            );
-            await openPdfInApp(page, sourcePath, 90_000);
-            await waitForViewerInteractive(page, 90_000);
+    ])(
+        'makes a scanned page searchable, saves it, and finds a recognized word after reopening with a $probe DPI probe',
+        async ({delayProbe}) => {
+            const scratch = await mkdtemp(join(tmpdir(), 'ocr-dpi-probe-'));
+            // Hold the real query past the app's optional-probe deadline.
+            const delayedProbe = delayProbe ? await delayOcrToolCompletion(scratch, 'pdfimages', ['-list']) : undefined;
+            const session = delayedProbe
+                ? await sessionFixture.restart({
+                      sessionName: () => `e2e-ocr-dpi-timeout-${Date.now()}`,
+                      extraEnv: delayedProbe.extraEnv,
+                  })
+                : sessionFixture.getSession();
+            try {
+                const {page} = session;
+                const sourcePath = await createScannedTextFixturePdf('ocr-journey-scan.pdf', SCANNED_TEXT, '60px EvbOcrJourneySans');
+                await openPdfInApp(page, sourcePath, 90_000);
+                await waitForViewerInteractive(page, 90_000);
 
-            await session.command('windowResize', [
-                1180,
-                700,
-            ]);
-            // English is the preselected recognition language.
-            await clickVisibleToolbarButton(page, 'OCR');
-            await page.waitForSelector('[role="dialog"]', {visible: true});
-            const dialogLayout = await page.$eval('[role="dialog"]', (dialog) => {
-                const scrollableElements = Array.from(dialog.querySelectorAll<HTMLElement>('*')).filter((element) => {
-                    const overflowY = window.getComputedStyle(element).overflowY;
-                    return element.scrollHeight > element.clientHeight
-                        && (overflowY === 'auto' || overflowY === 'scroll');
+                await session.command('windowResize', [1180, 700]);
+                // English is the preselected recognition language.
+                await clickVisibleToolbarButton(page, 'OCR');
+                await page.waitForSelector('[role="dialog"]', {visible: true});
+                const dialogLayout = await page.$eval('[role="dialog"]', (dialog) => {
+                    const scrollableElements = Array.from(dialog.querySelectorAll<HTMLElement>('*')).filter((element) => {
+                        const overflowY = window.getComputedStyle(element).overflowY;
+                        return element.scrollHeight > element.clientHeight && (overflowY === 'auto' || overflowY === 'scroll');
+                    });
+                    return {
+                        width: dialog.getBoundingClientRect().width,
+                        hasNestedScrollRegions: scrollableElements.some((element) =>
+                            scrollableElements.some((parent) => parent !== element && parent.contains(element)),
+                        ),
+                    };
                 });
-                return {
-                    width: dialog.getBoundingClientRect().width,
-                    hasNestedScrollRegions: scrollableElements.some(element => (
-                        scrollableElements.some(parent => parent !== element && parent.contains(element))
-                    )),
-                };
-            });
-            expect(dialogLayout.width).toBeGreaterThanOrEqual(900);
-            expect(dialogLayout.hasNestedScrollRegions).toBe(false);
+                expect(dialogLayout.width).toBeGreaterThanOrEqual(900);
+                expect(dialogLayout.hasNestedScrollRegions).toBe(false);
 
-            await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
-            await waitForFunctionInPage(page, () => (
-                document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
-                || Boolean(document.querySelector('[role="dialog"] .error-text')?.textContent?.trim())
-            ), {timeout: OCR_TIMEOUT_MS});
-            expect(await page.$eval('[role="dialog"]', dialog => dialog.textContent))
-                .toContain('OCR complete - PDF is now searchable');
-            if (delayedProbe) expect(await readFile(delayedProbe.receiptPath, 'utf8')).toBe('0');
-            await clickVisibleButton(page, '[role="dialog"]', 'Close');
-            await page.waitForSelector('[role="dialog"]', {hidden: true});
-            await waitForTextLayerWord(page);
+                await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
+                await waitForFunctionInPage(
+                    page,
+                    () =>
+                        document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true ||
+                        Boolean(document.querySelector('[role="dialog"] .error-text')?.textContent?.trim()),
+                    {timeout: OCR_TIMEOUT_MS},
+                );
+                expect(await page.$eval('[role="dialog"]', (dialog) => dialog.textContent)).toContain(
+                    'OCR complete - PDF is now searchable',
+                );
+                if (delayedProbe) {
+                    expect(await readFile(delayedProbe.receiptPath, 'utf8')).toBe('0');
+                }
+                await clickVisibleButton(page, '[role="dialog"]', 'Close');
+                await page.waitForSelector('[role="dialog"]', {hidden: true});
+                await waitForTextLayerWord(page);
 
-            await saveViaVisibleToolbar(page, 90_000);
-            expect(await assertOcrPdfSemanticOutput(sourcePath, SCANNED_TEXT)).toContain(SEARCHED_WORD);
+                await saveViaVisibleToolbar(page, 90_000);
+                expect(await assertOcrPdfSemanticOutput(sourcePath, SCANNED_TEXT)).toContain(SEARCHED_WORD);
 
-            await clickVisibleButton(page, 'body', 'Close Tab');
-            await page.waitForSelector(`${ACTIVE_HOST} .page_container`, {hidden: true});
-            await openPdfInApp(page, sourcePath, 90_000);
-            await waitForViewerInteractive(page, 90_000);
+                await clickVisibleButton(page, 'body', 'Close Tab');
+                await page.waitForSelector(`${ACTIVE_HOST} .page_container`, {hidden: true});
+                await openPdfInApp(page, sourcePath, 90_000);
+                await waitForViewerInteractive(page, 90_000);
 
-            await openDocumentSidebarTab(page, 'Search');
-            await clickAsUser(page, `${ACTIVE_HOST} .document-search-bar input`);
-            await page.keyboard.type(SEARCHED_WORD);
-            await page.keyboard.press('Enter');
-            await waitForFunctionInPage(page, (host: string, word: string) => (
-                Array.from(document.querySelectorAll(`${host} .document-search-result`))
-                    .some(result => result.textContent?.toLocaleLowerCase().includes(word))
-            ), {timeout: 30_000}, ACTIVE_HOST, SEARCHED_WORD);
-            await clickAsUser(page, `${ACTIVE_HOST} .document-search-result`);
-            await page.waitForSelector(`${ACTIVE_HOST} .pdf-search-highlight--current`, {visible: true});
-        } finally {
-            if (delayProbe) {
-                await sessionFixture.restart({extraEnv: {NODE_OPTIONS: process.env.NODE_OPTIONS ?? ''}});
+                await openDocumentSidebarTab(page, 'Search');
+                await clickAsUser(page, `${ACTIVE_HOST} .document-search-bar input`);
+                await page.keyboard.type(SEARCHED_WORD);
+                await page.keyboard.press('Enter');
+                await waitForFunctionInPage(
+                    page,
+                    (host: string, word: string) =>
+                        Array.from(document.querySelectorAll(`${host} .document-search-result`)).some((result) =>
+                            result.textContent?.toLocaleLowerCase().includes(word),
+                        ),
+                    {timeout: 30_000},
+                    ACTIVE_HOST,
+                    SEARCHED_WORD,
+                );
+                await clickAsUser(page, `${ACTIVE_HOST} .document-search-result`);
+                await page.waitForSelector(`${ACTIVE_HOST} .pdf-search-highlight--current`, {visible: true});
+            } finally {
+                if (delayProbe) {
+                    await sessionFixture.restart({extraEnv: {NODE_OPTIONS: process.env.NODE_OPTIONS ?? ''}});
+                }
+                await rm(scratch, {
+                    recursive: true,
+                    force: true,
+                });
             }
-            await rm(scratch, {
-                recursive: true,
-                force: true,
-            });
-        }
-    }, 300_000);
+        },
+        300_000,
+    );
 
     // Accepted bookmark and page-label edits are renderer state until Save. An
     // OCR run replaces the working copy, so these edits must travel with the
@@ -765,17 +818,10 @@ if (process.versions.electron && process.type === 'browser') {
     it('keeps accepted bookmark and page-label edits through OCR, on screen and in the saved file', async () => {
         const session = await sessionFixture.resetForE2E();
         const {page} = session;
-        const sourcePath = await createScannedTextFixturePdf(
-            'ocr-metadata-scan.pdf',
-            SCANNED_TEXT,
-            '60px EvbOcrJourneySans',
-        );
+        const sourcePath = await createScannedTextFixturePdf('ocr-metadata-scan.pdf', SCANNED_TEXT, '60px EvbOcrJourneySans');
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        await session.command('windowResize', [
-            1200,
-            700,
-        ]);
+        await session.command('windowResize', [1200, 700]);
 
         await acceptBookmarkAndPageLabel(page);
 
@@ -790,7 +836,7 @@ if (process.versions.electron && process.type === 'browser') {
         const catalog = await readPdfCatalogWithPdfjs(sourcePath);
         expect(catalog.pageLabels?.[0]).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
         const {outlines} = await readPdfMetadataWithQpdf(sourcePath);
-        expect(outlines.map(item => item.title)).toEqual([ACCEPTED_BOOKMARK]);
+        expect(outlines.map((item) => item.title)).toEqual([ACCEPTED_BOOKMARK]);
         expect(await assertOcrPdfSemanticOutput(sourcePath, SCANNED_TEXT)).toContain(SEARCHED_WORD);
         await clickVisibleButton(page, 'body', 'Close Tab');
         await page.waitForSelector(`${ACTIVE_HOST} .page_container`, {hidden: true});
@@ -808,14 +854,10 @@ if (process.versions.electron && process.type === 'browser') {
     // Other readers (Acrobat, Chrome's PDFium, Preview) select the saved hidden
     // text by its own glyph boxes. Line-wide ActualText over separately placed
     // glyphs used to collapse each line into one box at its left edge.
-    it('saves each recognized word\'s selection box on its scanned ink', async () => {
+    it("saves each recognized word's selection box on its scanned ink", async () => {
         const session = await sessionFixture.resetForE2E();
         const {page} = session;
-        const sourcePath = await createScannedTextFixturePdf(
-            'ocr-word-geometry-scan.pdf',
-            SCANNED_TEXT,
-            '60px EvbOcrJourneySans',
-        );
+        const sourcePath = await createScannedTextFixturePdf('ocr-word-geometry-scan.pdf', SCANNED_TEXT, '60px EvbOcrJourneySans');
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
         await completeOcrFromMenu(page);
@@ -823,11 +865,7 @@ if (process.versions.electron && process.type === 'browser') {
         await saveViaVisibleToolbar(page, 90_000, sourcePath);
 
         const tools = getPdfNativeToolPaths();
-        const bbox = execFileSync(tools.pdftotext, [
-            '-bbox',
-            sourcePath,
-            '-',
-        ], {
+        const bbox = execFileSync(tools.pdftotext, ['-bbox', sourcePath, '-'], {
             encoding: 'utf8',
             env: {
                 ...process.env,
@@ -835,30 +873,19 @@ if (process.versions.electron && process.type === 'browser') {
             },
         });
         const boxes = Array.from(bbox.matchAll(/<word ([^>]+)>(.*?)<\/word>/gu));
-        expect(boxes.map(match => match[2])).toEqual(SCANNED_TEXT.split(' '));
+        expect(boxes.map((match) => match[2])).toEqual(SCANNED_TEXT.split(' '));
         const context = createCanvas(1200, 500).getContext('2d');
         context.font = '60px EvbOcrJourneySans';
         let scanX = 60;
-        for (const [
-            index,
-            word,
-        ] of SCANNED_TEXT.split(' ').entries()) {
+        for (const [index, word] of SCANNED_TEXT.split(' ').entries()) {
             const metrics = context.measureText(word);
             const expected = [
                 scanX - metrics.actualBoundingBoxLeft,
                 270 - metrics.actualBoundingBoxAscent,
                 scanX + metrics.actualBoundingBoxRight,
                 270 + metrics.actualBoundingBoxDescent,
-            ].map(value => value / 2);
-            for (const [
-                coordinate,
-                key,
-            ] of [
-                    'xMin',
-                    'yMin',
-                    'xMax',
-                    'yMax',
-                ].entries()) {
+            ].map((value) => value / 2);
+            for (const [coordinate, key] of ['xMin', 'yMin', 'xMax', 'yMax'].entries()) {
                 const actual = Number(new RegExp(`${key}="([^"]+)"`, 'u').exec(boxes[index]![1]!)?.[1]);
                 expect(Math.abs(actual - expected[coordinate]!), `${word} ${key}`).toBeLessThan(2);
             }
@@ -894,26 +921,29 @@ if (process.versions.electron && process.type === 'browser') {
                 Dest: PDFString.of('chapter'),
             },
         ];
-        const nodes = definitions.map(definition => {const node = pdf.context.obj({
-            ...definition,
-            Parent: outlinesRef,
-        }); return {
-            node,
-            ref: pdf.context.register(node),
-        };});
+        const nodes = definitions.map((definition) => {
+            const node = pdf.context.obj({
+                ...definition,
+                Parent: outlinesRef,
+            });
+            return {
+                node,
+                ref: pdf.context.register(node),
+            };
+        });
         nodes.forEach(({node}, index) => {
-            if (index > 0) node.set(PDFName.of('Prev'), nodes[index - 1]!.ref);
-            if (index + 1 < nodes.length) node.set(PDFName.of('Next'), nodes[index + 1]!.ref);
+            if (index > 0) {
+                node.set(PDFName.of('Prev'), nodes[index - 1]!.ref);
+            }
+            if (index + 1 < nodes.length) {
+                node.set(PDFName.of('Next'), nodes[index + 1]!.ref);
+            }
         });
         outlines.set(PDFName.of('First'), nodes[0]!.ref);
         outlines.set(PDFName.of('Last'), nodes.at(-1)!.ref);
         outlines.set(PDFName.of('Count'), pdf.context.obj(3));
         pdf.catalog.set(PDFName.of('Outlines'), outlinesRef);
-        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({chapter: [
-            pdf.getPages()[0]!.ref,
-            PDFName.of('FitH'),
-            null,
-        ]}));
+        pdf.catalog.set(PDFName.of('Dests'), pdf.context.obj({chapter: [pdf.getPages()[0]!.ref, PDFName.of('FitH'), null]}));
         await writeFile(sourcePath, await pdf.save());
         const readIntent = async () => {
             const document = await PDFDocument.load(await readFile(sourcePath));
@@ -923,7 +953,9 @@ if (process.versions.electron && process.type === 'browser') {
                     action: node.get(PDFName.of('A'))?.toString(),
                     dest: node.get(PDFName.of('Dest'))?.toString(),
                 };
-                if (index < 2) node = node.lookup(PDFName.of('Next'), PDFDict);
+                if (index < 2) {
+                    node = node.lookup(PDFName.of('Next'), PDFDict);
+                }
                 return intent;
             });
         };
@@ -931,17 +963,23 @@ if (process.versions.electron && process.type === 'browser') {
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
         await openDocumentSidebarTab(page, 'Bookmarks');
-        for (const title of [
-            'Remote',
-            'Launch',
-            'Named',
-        ]) await waitForBookmarkRow(page, title);
+        for (const title of ['Remote', 'Launch', 'Named']) {
+            await waitForBookmarkRow(page, title);
+        }
         await clickVisibleButton(page, '.editor-global-toolbar-shell', 'More tools');
-        const item = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.trim() === 'OCR' && item.checkVisibility()));
+        const item = await page.waitForFunction(() =>
+            Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                (item) => item.textContent?.trim() === 'OCR' && item.checkVisibility(),
+            ),
+        );
         await clickAsUser(page, item.asElement() as ElementHandle<HTMLElement>);
         await page.waitForSelector('[role="dialog"]', {visible: true});
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
-        await waitForFunctionInPage(page, () => document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true, {timeout: OCR_TIMEOUT_MS});
+        await waitForFunctionInPage(
+            page,
+            () => document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true,
+            {timeout: OCR_TIMEOUT_MS},
+        );
         await clickVisibleButton(page, '[role="dialog"]', 'Close');
         await page.waitForSelector('[role="dialog"]', {hidden: true});
         await waitForViewerInteractive(page, 90_000);
@@ -949,20 +987,15 @@ if (process.versions.electron && process.type === 'browser') {
         expect(await readIntent()).toEqual(expected);
         const saved = await PDFDocument.load(await readFile(sourcePath));
         const destination = saved.catalog.lookup(PDFName.of('Dests'), PDFDict).lookup(PDFName.of('chapter'), PDFArray).asArray();
-        expect(destination.slice(1).map(value => value.toString())).toEqual([
-            '/FitH',
-            'null',
-        ]);
+        expect(destination.slice(1).map((value) => value.toString())).toEqual(['/FitH', 'null']);
         await clickVisibleButton(page, 'body', 'Close Tab');
         await page.waitForSelector(`${ACTIVE_HOST} .page_container`, {hidden: true});
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
         await openDocumentSidebarTab(page, 'Bookmarks');
-        for (const title of [
-            'Remote',
-            'Launch',
-            'Named',
-        ]) await waitForBookmarkRow(page, title);
+        for (const title of ['Remote', 'Launch', 'Named']) {
+            await waitForBookmarkRow(page, title);
+        }
         const evidence = join(process.cwd(), '.devkit/core3-r3/media/ocr-source-intent');
         await mkdir(evidence, {recursive: true});
         await copyFile(sourcePath, join(evidence, 'saved.pdf'));
@@ -975,93 +1008,97 @@ if (process.versions.electron && process.type === 'browser') {
         const sourcePath = await createScannedPagesFixturePdf('ocr-live-metadata.pdf', 20);
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        await session.command('windowResize', [
-            1200,
-            700,
-        ]);
+        await session.command('windowResize', [1200, 700]);
 
         await acceptBookmarkAndPageLabel(page);
 
-        const running=callWorkspaceCommand(page,'runAgentAction',[
+        const running = callWorkspaceCommand(page, 'runAgentAction', [
             'ocr.start',
             {
-                pageRange:'all',
-                open:false,
+                pageRange: 'all',
+                open: false,
             },
         ]);
-        const settled=running.then(value=>value,error=>({error:String(error)}));
-        await vi.waitFor(async()=>{
-            const status=await callWorkspaceCommand<{ocr?:{
-                isRunning?:boolean;
-                processedCount?:number;
-                totalPages?:number
-            }}>(page,'runAgentAction',[
-                'ocr.status',
-                {},
-            ]);
-            expect(status.value?.ocr?.isRunning).toBe(true);
-            expect(status.value?.ocr?.processedCount ?? 0).toBeGreaterThan(0);
-            expect(status.value?.ocr?.processedCount ?? 0).toBeLessThan((status.value?.ocr?.totalPages ?? 0)-3);
-            console.info('REVIEW_PROCESSING '+JSON.stringify(status.value?.ocr));
-        },{timeout:30_000});
-        expect(await page.$$eval('[role="dialog"]',dialogs=>dialogs.some(dialog=>(dialog as HTMLElement).checkVisibility()))).toBe(false);
-        await clickAsUser(page,'#page-label-prefix-input');
+        const settled = running.then(
+            (value) => value,
+            (error) => ({error: String(error)}),
+        );
+        await vi.waitFor(
+            async () => {
+                const status = await callWorkspaceCommand<{
+                    ocr?: {
+                        isRunning?: boolean;
+                        processedCount?: number;
+                        totalPages?: number;
+                    };
+                }>(page, 'runAgentAction', ['ocr.status', {}]);
+                expect(status.value?.ocr?.isRunning).toBe(true);
+                expect(status.value?.ocr?.processedCount ?? 0).toBeGreaterThan(0);
+                expect(status.value?.ocr?.processedCount ?? 0).toBeLessThan((status.value?.ocr?.totalPages ?? 0) - 3);
+                console.info('REVIEW_PROCESSING ' + JSON.stringify(status.value?.ocr));
+            },
+            {timeout: 30_000},
+        );
+        expect(await page.$$eval('[role="dialog"]', (dialogs) => dialogs.some((dialog) => (dialog as HTMLElement).checkVisibility()))).toBe(
+            false,
+        );
+        await clickAsUser(page, '#page-label-prefix-input');
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+A'});
         // Menu activation acknowledges the request before selection reaches the field.
         await waitForFunctionInPage(page, () => {
             const input = document.activeElement;
-            return input instanceof HTMLInputElement && input.id === 'page-label-prefix-input'
-                && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+            return (
+                input instanceof HTMLInputElement &&
+                input.id === 'page-label-prefix-input' &&
+                input.selectionStart === 0 &&
+                input.selectionEnd === input.value.length
+            );
         });
         await page.keyboard.type('Late-');
-        await clickAsUser(page,`${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
-        await expect.poll(async()=>(await readToolbarPageIndicator(page)).primaryText,{timeout:15_000}).toBe('Late-1');
+        await clickAsUser(page, `${ACTIVE_HOST} .pdf-sidebar-pages-primary-button`);
+        await expect.poll(async () => (await readToolbarPageIndicator(page)).primaryText, {timeout: 15_000}).toBe('Late-1');
         console.info('REVIEW_LATE_ACCEPTED Late-1');
         await settled;
-        await vi.waitFor(async()=>{
-            const status=await callWorkspaceCommand<{ocr?:{isRunning?:boolean}}>(page,'runAgentAction',[
-                'ocr.status',
-                {},
-            ]);
-            expect(status.value?.ocr?.isRunning).toBe(false);
-        },{timeout:OCR_TIMEOUT_MS});
-        await waitForViewerInteractive(page,90_000);
+        await vi.waitFor(
+            async () => {
+                const status = await callWorkspaceCommand<{ocr?: {isRunning?: boolean}}>(page, 'runAgentAction', ['ocr.status', {}]);
+                expect(status.value?.ocr?.isRunning).toBe(false);
+            },
+            {timeout: OCR_TIMEOUT_MS},
+        );
+        await waitForViewerInteractive(page, 90_000);
         await waitForTextLayerWord(page);
-        const displayed=(await readToolbarPageIndicator(page)).primaryText;
-        await saveViaVisibleToolbar(page,90_000,sourcePath);
-        const labels=(await readPdfCatalogWithPdfjs(sourcePath)).pageLabels;
+        const displayed = (await readToolbarPageIndicator(page)).primaryText;
+        await saveViaVisibleToolbar(page, 90_000, sourcePath);
+        const labels = (await readPdfCatalogWithPdfjs(sourcePath)).pageLabels;
         await mkdir(join(process.cwd(), '.devkit/core3-r3'), {recursive: true});
-        await copyFile(sourcePath,join(process.cwd(),'.devkit/core3-r3/late-ocr-saved.pdf'));
-        await page.screenshot({path:join(process.cwd(),'.devkit/core3-r3/late-ocr.png')});
-        await clickVisibleButton(page,'body','Close Tab');
-        await page.waitForSelector(`${ACTIVE_HOST} .page_container`,{hidden:true});
-        await openPdfInApp(page,sourcePath,90_000);
-        await waitForViewerInteractive(page,90_000);
-        const reopened=(await readToolbarPageIndicator(page)).primaryText;
-        await page.screenshot({path:join(process.cwd(),'.devkit/core3-r3/late-ocr-reopened.png')});
-        console.info('REVIEW_LATE_RESULT '+JSON.stringify({
-            displayed,
-            labels,
-            reopened,
-        }));
-        expect(displayed,'OCR must retain an edit accepted while it was recognizing pages').toBe('Late-1');
+        await copyFile(sourcePath, join(process.cwd(), '.devkit/core3-r3/late-ocr-saved.pdf'));
+        await page.screenshot({path: join(process.cwd(), '.devkit/core3-r3/late-ocr.png')});
+        await clickVisibleButton(page, 'body', 'Close Tab');
+        await page.waitForSelector(`${ACTIVE_HOST} .page_container`, {hidden: true});
+        await openPdfInApp(page, sourcePath, 90_000);
+        await waitForViewerInteractive(page, 90_000);
+        const reopened = (await readToolbarPageIndicator(page)).primaryText;
+        await page.screenshot({path: join(process.cwd(), '.devkit/core3-r3/late-ocr-reopened.png')});
+        console.info(
+            'REVIEW_LATE_RESULT ' +
+                JSON.stringify({
+                    displayed,
+                    labels,
+                    reopened,
+                }),
+        );
+        expect(displayed, 'OCR must retain an edit accepted while it was recognizing pages').toBe('Late-1');
         expect(labels?.[0]).toBe('Late-1');
-    },420_000);
+    }, 420_000);
 
     it('review-b6zk preserves accepted metadata when undoing OCR', async () => {
         const session = await sessionFixture.resetForE2E();
         const {page} = session;
-        const sourcePath = await createScannedTextFixturePdf(
-            'ocr-metadata-scan.pdf',
-            SCANNED_TEXT,
-            '60px EvbOcrJourneySans',
-        );
+        const sourcePath = await createScannedTextFixturePdf('ocr-metadata-scan.pdf', SCANNED_TEXT, '60px EvbOcrJourneySans');
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        await session.command('windowResize', [
-            1200,
-            700,
-        ]);
+        await session.command('windowResize', [1200, 700]);
 
         await acceptBookmarkAndPageLabel(page);
 
@@ -1073,30 +1110,44 @@ if (process.versions.electron && process.type === 'browser') {
         await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
 
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
-        await expect.poll(async () => {
-            return (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false;
-        }, {timeout: 60_000}).toBe(false);
+        await expect
+            .poll(
+                async () => {
+                    return (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false;
+                },
+                {timeout: 60_000},
+            )
+            .toBe(false);
         await waitForWorkspaceHistorySettled(page);
         await waitForViewerInteractive(page, 90_000);
         const afterUndo = (await readToolbarPageIndicator(page)).primaryText;
-        const rows = await page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', rows => rows.filter(row => (row as HTMLElement).checkVisibility()).map(row => row.textContent?.trim()));
+        const rows = await page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', (rows) =>
+            rows.filter((row) => (row as HTMLElement).checkVisibility()).map((row) => row.textContent?.trim()),
+        );
         await mkdir(join(process.cwd(), '.devkit/core3-r3'), {recursive: true});
         await page.screenshot({path: join(process.cwd(), '.devkit/core3-r3/undo-ocr.png')});
-        console.info('REVIEW_UNDO '+JSON.stringify({
-            afterUndo,
-            rows,
-        }));
+        console.info(
+            'REVIEW_UNDO ' +
+                JSON.stringify({
+                    afterUndo,
+                    rows,
+                }),
+        );
         expect(afterUndo, 'Undo OCR must preserve metadata accepted before OCR').toBe(`${ACCEPTED_LABEL_PREFIX}1`);
         expect(rows).toContain(ACCEPTED_BOOKMARK);
         await activateMenuItemAsUser(page, {accelerator: process.platform === 'darwin' ? 'CmdOrCtrl+Shift+Z' : 'Ctrl+Y'});
-        await expect.poll(async () => (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false, {timeout: 60_000}).toBe(true);
+        await expect
+            .poll(async () => (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false, {timeout: 60_000})
+            .toBe(true);
         await waitForWorkspaceHistorySettled(page);
         await waitForViewerInteractive(page, 90_000);
         await waitForTextLayerWord(page);
         expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
         await waitForBookmarkRow(page, ACCEPTED_BOOKMARK);
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
-        await expect.poll(async () => (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false, {timeout: 60_000}).toBe(false);
+        await expect
+            .poll(async () => (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false, {timeout: 60_000})
+            .toBe(false);
         await waitForWorkspaceHistorySettled(page);
         await waitForViewerInteractive(page, 90_000);
         expect((await readToolbarPageIndicator(page)).primaryText).toBe(`${ACCEPTED_LABEL_PREFIX}1`);
@@ -1109,17 +1160,10 @@ if (process.versions.electron && process.type === 'browser') {
     it('review-b6yh preserves accepted metadata after OCR Save Undo Save', async () => {
         const session = await sessionFixture.resetForE2E();
         const {page} = session;
-        const sourcePath = await createScannedTextFixturePdf(
-            'ocr-save-undo-metadata-scan.pdf',
-            SCANNED_TEXT,
-            '60px EvbOcrJourneySans',
-        );
+        const sourcePath = await createScannedTextFixturePdf('ocr-save-undo-metadata-scan.pdf', SCANNED_TEXT, '60px EvbOcrJourneySans');
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        await session.command('windowResize', [
-            1200,
-            700,
-        ]);
+        await session.command('windowResize', [1200, 700]);
 
         await acceptBookmarkAndPageLabel(page);
 
@@ -1132,32 +1176,45 @@ if (process.versions.electron && process.type === 'browser') {
 
         await saveViaVisibleToolbar(page, 90_000, sourcePath);
         await activateMenuItemAsUser(page, {accelerator: 'CmdOrCtrl+Z'});
-        await expect.poll(async () => {
-            return (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false;
-        }, {timeout: 60_000}).toBe(false);
+        await expect
+            .poll(
+                async () => {
+                    return (await readCurrentDocumentText(page))[0]?.text.includes(SEARCHED_WORD) ?? false;
+                },
+                {timeout: 60_000},
+            )
+            .toBe(false);
         await waitForWorkspaceHistorySettled(page);
         await waitForViewerInteractive(page, 90_000);
         const evidence = await mkdtemp(join(tmpdir(), 'evb-save-undo-save-'));
         console.info(`Save Undo Save evidence: ${evidence}`);
         const afterUndo = (await readToolbarPageIndicator(page)).primaryText;
-        const rows = await page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', rows => rows.filter(row => (row as HTMLElement).checkVisibility()).map(row => row.textContent?.trim()));
+        const rows = await page.$$eval('.pdf-bookmark-item-row, .document-bookmark-item__row', (rows) =>
+            rows.filter((row) => (row as HTMLElement).checkVisibility()).map((row) => row.textContent?.trim()),
+        );
         await page.screenshot({path: join(evidence, 'after-undo.png')});
-        console.info('REVIEW_UNDO '+JSON.stringify({
-            afterUndo,
-            rows,
-        }));
+        console.info(
+            'REVIEW_UNDO ' +
+                JSON.stringify({
+                    afterUndo,
+                    rows,
+                }),
+        );
         expect(afterUndo, 'Undo OCR must preserve metadata accepted before OCR').toBe(`${ACCEPTED_LABEL_PREFIX}1`);
         expect(rows).toContain(ACCEPTED_BOOKMARK);
         await saveViaVisibleToolbar(page, 90_000, sourcePath);
         const saved = await readPdfCatalogWithPdfjs(sourcePath);
         const {outlines} = await readPdfMetadataWithQpdf(sourcePath);
-        console.info('REVIEW_SAVE_UNDO_SAVE '+JSON.stringify({
-            labels:saved.pageLabels,
-            titles:outlines.map(item=>item.title),
-        }));
+        console.info(
+            'REVIEW_SAVE_UNDO_SAVE ' +
+                JSON.stringify({
+                    labels: saved.pageLabels,
+                    titles: outlines.map((item) => item.title),
+                }),
+        );
         await copyFile(sourcePath, join(evidence, 'saved.pdf'));
         expect(saved.pageLabels?.[0], 'Save after Undo OCR must persist the retained accepted label').toBe(`${ACCEPTED_LABEL_PREFIX}1`);
-        expect(outlines.map(item=>item.title)).toEqual([ACCEPTED_BOOKMARK]);
+        expect(outlines.map((item) => item.title)).toEqual([ACCEPTED_BOOKMARK]);
     }, 420_000);
 
     // Owner report 2026-10-10: after OCR of the current page, the page under
@@ -1169,10 +1226,7 @@ if (process.versions.electron && process.type === 'browser') {
         const sourcePath = await createScannedPagesFixturePdf('ocr-reading-point-scan.pdf', 8);
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        await session.command('windowResize', [
-            1440,
-            900,
-        ]);
+        await session.command('windowResize', [1440, 900]);
         await callWorkspaceCommand(page, 'handleGoToPage', [6]);
         await waitForWorkspaceToolbarSnapshot(page, {currentPage: 6});
         await callWorkspaceCommand(page, 'setCustomZoomFromDisplay', [2.5]);
@@ -1181,26 +1235,28 @@ if (process.versions.electron && process.type === 'browser') {
             effectiveZoom: 2.5,
         });
         await waitForVisibleMountedPdfCanvases(page, 90_000);
-        const readCentre = () => page.evaluate((host: string) => {
-            const viewport = document.querySelector<HTMLElement>(`${host} #pdf-viewer`);
-            if (!viewport) {
-                return null;
-            }
-            const viewportRect = viewport.getBoundingClientRect();
-            const x = viewportRect.left + viewport.clientWidth / 2;
-            const y = viewportRect.top + viewport.clientHeight / 2;
-            const shown = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container[data-page]:not(.page_container--buffered)'))
-                .find((element) => {
+        const readCentre = () =>
+            page.evaluate((host: string) => {
+                const viewport = document.querySelector<HTMLElement>(`${host} #pdf-viewer`);
+                if (!viewport) {
+                    return null;
+                }
+                const viewportRect = viewport.getBoundingClientRect();
+                const x = viewportRect.left + viewport.clientWidth / 2;
+                const y = viewportRect.top + viewport.clientHeight / 2;
+                const shown = Array.from(
+                    viewport.querySelectorAll<HTMLElement>('.page_container[data-page]:not(.page_container--buffered)'),
+                ).find((element) => {
                     const rect = element.getBoundingClientRect();
                     return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
                 });
-            const rect = shown?.getBoundingClientRect();
-            return {
-                page: Number(shown?.dataset.page) || null,
-                pageXFraction: rect ? (x - rect.left) / rect.width : null,
-                pageYFraction: rect ? (y - rect.top) / rect.height : null,
-            };
-        }, ACTIVE_HOST);
+                const rect = shown?.getBoundingClientRect();
+                return {
+                    page: Number(shown?.dataset.page) || null,
+                    pageXFraction: rect ? (x - rect.left) / rect.width : null,
+                    pageYFraction: rect ? (y - rect.top) / rect.height : null,
+                };
+            }, ACTIVE_HOST);
         // The reader scrolls into the text in the middle of the page.
         await wheelPdfViewportAndWaitForSettlement(page, 800);
         const before = await readCentre();
@@ -1209,21 +1265,32 @@ if (process.versions.electron && process.type === 'browser') {
 
         await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
         await page.waitForSelector('[role="dialog"]', {visible: true});
-        const currentPageOption = await page.waitForFunction(() => (
-            Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label'))
-                .find(label => label.textContent?.trim() === 'Current page (6)' && label.checkVisibility())
-        ), {timeout: 30_000});
+        const currentPageOption = await page.waitForFunction(
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label')).find(
+                    (label) => label.textContent?.trim() === 'Current page (6)' && label.checkVisibility(),
+                ),
+            {timeout: 30_000},
+        );
         await clickAsUser(page, currentPageOption.asElement() as ElementHandle<HTMLElement>);
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
-        await waitForFunctionInPage(page, () => (
-            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
-        ), {timeout: OCR_TIMEOUT_MS});
+        await waitForFunctionInPage(
+            page,
+            () => document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true,
+            {timeout: OCR_TIMEOUT_MS},
+        );
         await clickVisibleButton(page, '[role="dialog"]', 'Close');
         await page.waitForSelector('[role="dialog"]', {hidden: true});
-        await waitForFunctionInPage(page, (host: string) => (
-            document.querySelector(`${host} .page_container[data-page="6"] .text-layer[data-pdf-text-layer-ready="true"]`)
-                ?.textContent?.toLocaleLowerCase().includes('page 6') === true
-        ), {timeout: 30_000}, ACTIVE_HOST);
+        await waitForFunctionInPage(
+            page,
+            (host: string) =>
+                document
+                    .querySelector(`${host} .page_container[data-page="6"] .text-layer[data-pdf-text-layer-ready="true"]`)
+                    ?.textContent?.toLocaleLowerCase()
+                    .includes('page 6') === true,
+            {timeout: 30_000},
+            ACTIVE_HOST,
+        );
 
         const after = await readCentre();
         const toolbar = await getWorkspaceToolbarSnapshot(page);
@@ -1251,42 +1318,43 @@ if (process.versions.electron && process.type === 'browser') {
         const sourcePath = await createExistingTextVisibilityFixturePdf('ocr-existing-text-visibility.pdf');
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        await session.command('windowResize', [
-            1440,
-            900,
-        ]);
+        await session.command('windowResize', [1440, 900]);
 
         await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
         await page.waitForSelector('[role="dialog"]', {visible: true});
         // The user changes nothing: the whole document and a fresh recognition are the defaults.
         // Each checked option by its accessible name: card options carry it as
         // aria-label, list options in their label.
-        const checkedOptions = await page.$$eval('[role="dialog"] [role="radio"][aria-checked="true"]', radios => radios.map(radio => (
-            radio.getAttribute('aria-label') ?? document.querySelector(`label[for="${CSS.escape(radio.id)}"]`)?.textContent?.trim() ?? ''
-        )));
-        expect(checkedOptions).toEqual(expect.arrayContaining([
-            'All pages (3)',
-            'Recognize scanned text again',
-        ]));
+        const checkedOptions = await page.$$eval('[role="dialog"] [role="radio"][aria-checked="true"]', (radios) =>
+            radios.map(
+                (radio) =>
+                    radio.getAttribute('aria-label') ??
+                    document.querySelector(`label[for="${CSS.escape(radio.id)}"]`)?.textContent?.trim() ??
+                    '',
+            ),
+        );
+        expect(checkedOptions).toEqual(expect.arrayContaining(['All pages (3)', 'Recognize scanned text again']));
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
-        await waitForFunctionInPage(page, () => (
-            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete') === true
-        ), {timeout: OCR_TIMEOUT_MS});
+        await waitForFunctionInPage(page, () => document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete') === true, {
+            timeout: OCR_TIMEOUT_MS,
+        });
         // Preserving a page's own text is the outcome asked for, not a failure.
-        expect(await page.$eval('[role="dialog"]', dialog => dialog.textContent ?? ''))
-            .toContain('OCR complete - PDF is now searchable');
+        expect(await page.$eval('[role="dialog"]', (dialog) => dialog.textContent ?? '')).toContain('OCR complete - PDF is now searchable');
         await clickVisibleButton(page, '[role="dialog"]', 'Close');
         await page.waitForSelector('[role="dialog"]', {hidden: true});
         await saveViaVisibleToolbar(page, 90_000);
 
         const savedPages = await extractTextWithPdfjs(sourcePath);
-        expect({
-            restoredVisibleHeading: countWord(savedPages[0]?.text ?? '', 'lantern'),
-            restoredPageHiddenNote: countWord(savedPages[0]?.text ?? '', 'stale hidden note'),
-            commentedPageHeading: countWord(savedPages[1]?.text ?? '', 'beacon'),
-            repairedScanWord: countWord(savedPages[2]?.text ?? '', 'meadow'),
-            repairedScanStaleWord: countWord(savedPages[2]?.text ?? '', 'rneadow'),
-        }, JSON.stringify(savedPages)).toEqual({
+        expect(
+            {
+                restoredVisibleHeading: countWord(savedPages[0]?.text ?? '', 'lantern'),
+                restoredPageHiddenNote: countWord(savedPages[0]?.text ?? '', 'stale hidden note'),
+                commentedPageHeading: countWord(savedPages[1]?.text ?? '', 'beacon'),
+                repairedScanWord: countWord(savedPages[2]?.text ?? '', 'meadow'),
+                repairedScanStaleWord: countWord(savedPages[2]?.text ?? '', 'rneadow'),
+            },
+            JSON.stringify(savedPages),
+        ).toEqual({
             restoredVisibleHeading: 1,
             restoredPageHiddenNote: 1,
             commentedPageHeading: 1,
@@ -1302,65 +1370,76 @@ if (process.versions.electron && process.type === 'browser') {
             sessionName: () => `e2e-ocr-late-result-${Date.now()}`,
         });
         const {page} = session;
-        const sourcePath = await createScannedTextFixturePdf(
-            'ocr-late-result-scan.pdf',
-            LATE_RESULT_TEXT,
-            '60px EvbOcrJourneySans',
-        );
+        const sourcePath = await createScannedTextFixturePdf('ocr-late-result-scan.pdf', LATE_RESULT_TEXT, '60px EvbOcrJourneySans');
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        await session.command('windowResize', [
-            1440,
-            900,
-        ]);
+        await session.command('windowResize', [1440, 900]);
         await installLateOcrCompletionControl(page);
 
         try {
             await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
             await page.waitForSelector('[role="dialog"]', {visible: true});
             await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
-            await waitForFunctionInPage(page, () => {
-                const control = (window as TOcrControlWindow).__lateOcrCompletionControl;
-                return control?.result?.success === true;
-            }, {timeout: 30_000});
+            await waitForFunctionInPage(
+                page,
+                () => {
+                    const control = (window as TOcrControlWindow).__lateOcrCompletionControl;
+                    return control?.result?.success === true;
+                },
+                {timeout: 30_000},
+            );
             const completionControl = await page.evaluate(() => {
                 const control = (window as TOcrControlWindow).__lateOcrCompletionControl;
                 return control?.cancelClicked ?? false;
             });
             expect(completionControl).toBe(true);
 
-            const stagedResult = await page.evaluate(() => (
-                (window as TOcrControlWindow).__lateOcrCompletionControl?.result ?? null
-            ));
+            const stagedResult = await page.evaluate(() => (window as TOcrControlWindow).__lateOcrCompletionControl?.result ?? null);
             expect(stagedResult).toMatchObject({
                 success: true,
                 requiresCleanupAck: true,
             });
             expect(stagedResult?.pdfPath).toBeTruthy();
 
-            await waitForFunctionInPage(page, () => (
-                Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                    .some(button => (
-                        (button.getAttribute('aria-label') ?? button.textContent ?? '').trim() === 'Start OCR'
-                        && !button.disabled
-                        && button.checkVisibility()
-                    ))
-            ), {timeout: 30_000});
+            await waitForFunctionInPage(
+                page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).some(
+                        (button) =>
+                            (button.getAttribute('aria-label') ?? button.textContent ?? '').trim() === 'Start OCR' &&
+                            !button.disabled &&
+                            button.checkVisibility(),
+                    ),
+                {timeout: 30_000},
+            );
 
-            const stagedTextWasApplied = await page.evaluate((host: string, word: string) => (
-                document.querySelector(`${host} .page_container[data-page="1"] .text-layer`)
-                    ?.textContent?.toLocaleLowerCase().includes(word) === true
-            ), ACTIVE_HOST, LATE_RESULT_WORD);
+            const stagedTextWasApplied = await page.evaluate(
+                (host: string, word: string) =>
+                    document
+                        .querySelector(`${host} .page_container[data-page="1"] .text-layer`)
+                        ?.textContent?.toLocaleLowerCase()
+                        .includes(word) === true,
+                ACTIVE_HOST,
+                LATE_RESULT_WORD,
+            );
             expect(stagedTextWasApplied).toBe(false);
 
-            await vi.waitFor(async () => {
-                await expect(stat(stagedResult!.pdfPath!)).rejects.toMatchObject({code: 'ENOENT'});
-            }, {timeout: 30_000});
+            await vi.waitFor(
+                async () => {
+                    await expect(stat(stagedResult!.pdfPath!)).rejects.toMatchObject({code: 'ENOENT'});
+                },
+                {timeout: 30_000},
+            );
 
-            const textAfterLateCompletion = await page.evaluate((host: string, word: string) => (
-                document.querySelector(`${host} .page_container[data-page="1"] .text-layer`)
-                    ?.textContent?.toLocaleLowerCase().includes(word) === true
-            ), ACTIVE_HOST, LATE_RESULT_WORD);
+            const textAfterLateCompletion = await page.evaluate(
+                (host: string, word: string) =>
+                    document
+                        .querySelector(`${host} .page_container[data-page="1"] .text-layer`)
+                        ?.textContent?.toLocaleLowerCase()
+                        .includes(word) === true,
+                ACTIVE_HOST,
+                LATE_RESULT_WORD,
+            );
             expect(textAfterLateCompletion).toBe(false);
         } finally {
             await page.evaluate(() => {
@@ -1379,19 +1458,18 @@ if (process.versions.electron && process.type === 'browser') {
         const sourcePath = await createScannedPagesFixturePdf('ocr-linked-views-scan.pdf', 24);
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        await session.command('windowResize', [
-            1440,
-            900,
-        ]);
+        await session.command('windowResize', [1440, 900]);
         await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId ?? ''));
+        const [leftPane, rightPane] = await page.$$eval('.editor-pane', (panes) =>
+            panes.map((pane) => (pane as HTMLElement).dataset.editorPaneId ?? ''),
+        );
         const paneHost = (paneId: string) => `.editor-pane[data-editor-pane-id="${paneId}"]`;
-        await waitForFunctionInPage(page, (host: string) => (
-            document.querySelector(`${host} .page_container--rendered`) !== null
-        ), {timeout: 30_000}, paneHost(rightPane!));
+        await waitForFunctionInPage(
+            page,
+            (host: string) => document.querySelector(`${host} .page_container--rendered`) !== null,
+            {timeout: 30_000},
+            paneHost(rightPane!),
+        );
 
         // An agent connected to EVB starts OCR of every page in the right
         // view without opening the OCR dialog, so the window stays usable.
@@ -1407,54 +1485,68 @@ if (process.versions.electron && process.type === 'browser') {
             },
         ]);
         // Whatever happens next, the run must not outlive the test unobserved.
-        const agentRunSettled = agentRun.then(() => undefined, () => undefined);
+        const agentRunSettled = agentRun.then(
+            () => undefined,
+            () => undefined,
+        );
         try {
-        // The agent's status read is the sync point: the run is under way
-        // and has pages left.
-            await vi.waitFor(async () => {
-                const status = await callWorkspaceCommand<{ocr?: {
-                    isRunning?: boolean;
-                    processedCount?: number;
-                    totalPages?: number
-                }}>(page, 'runAgentAction', [
-                    'ocr.status',
-                    {},
-                ]);
-                const ocr = status.value?.ocr;
-                if (!ocr?.isRunning || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0) - 4) {
-                    throw new Error(`OCR is not under way with pages left: ${JSON.stringify(ocr)}`);
-                }
-            }, {timeout: 30_000});
+            // The agent's status read is the sync point: the run is under way
+            // and has pages left.
+            await vi.waitFor(
+                async () => {
+                    const status = await callWorkspaceCommand<{
+                        ocr?: {
+                            isRunning?: boolean;
+                            processedCount?: number;
+                            totalPages?: number;
+                        };
+                    }>(page, 'runAgentAction', ['ocr.status', {}]);
+                    const ocr = status.value?.ocr;
+                    if (!ocr?.isRunning || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0) - 4) {
+                        throw new Error(`OCR is not under way with pages left: ${JSON.stringify(ocr)}`);
+                    }
+                },
+                {timeout: 30_000},
+            );
 
             // Meanwhile the user goes on reading in the left view.
             await activatePaneByTab(page, leftPane!);
 
             // The run continues and the document becomes searchable in the view in use.
             const outcome = await agentRun;
-            const recognized = await page.waitForFunction((host: string, word: string) => (
-                document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
-                    ?.textContent?.toLocaleLowerCase().includes(word) === true
-            ), {timeout: 30_000}, paneHost(leftPane!), SEARCHED_WORD).then(() => true, () => false);
-            const {
-                ok, error, ocr,
-            } = outcome.value ?? {};
-            expect({
-                agentResult: outcome.value,
-                leftViewShowsRecognizedText: recognized,
-            }, JSON.stringify({
-                ok,
-                error,
-                ocr,
-            })).toMatchObject({
+            const recognized = await page
+                .waitForFunction(
+                    (host: string, word: string) =>
+                        document
+                            .querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
+                            ?.textContent?.toLocaleLowerCase()
+                            .includes(word) === true,
+                    {timeout: 30_000},
+                    paneHost(leftPane!),
+                    SEARCHED_WORD,
+                )
+                .then(
+                    () => true,
+                    () => false,
+                );
+            const {ok, error, ocr} = outcome.value ?? {};
+            expect(
+                {
+                    agentResult: outcome.value,
+                    leftViewShowsRecognizedText: recognized,
+                },
+                JSON.stringify({
+                    ok,
+                    error,
+                    ocr,
+                }),
+            ).toMatchObject({
                 agentResult: {ok: true},
                 leftViewShowsRecognizedText: true,
             });
         } finally {
             await activatePaneByTab(page, rightPane!).catch(() => undefined);
-            await callWorkspaceCommand(page, 'runAgentAction', [
-                'ocr.cancel',
-                {},
-            ]).catch(() => undefined);
+            await callWorkspaceCommand(page, 'runAgentAction', ['ocr.cancel', {}]).catch(() => undefined);
             await agentRunSettled;
         }
     }, 300_000);
@@ -1472,117 +1564,151 @@ if (process.versions.electron && process.type === 'browser') {
             height: 672,
             viaOverflow: true,
         },
-    ])('keeps an OCR run going when the view that started it is closed, and shows it in the other view at $width px', async ({
-        width, height, viaOverflow,
-    }) => {
-        const pageCount = 2;
-        const scratch = await mkdtemp(join(tmpdir(), 'ocr-closed-view-'));
-        onTestFinished(() => rm(scratch, {recursive: true, force: true}));
-        const releasePath = join(scratch, 'release');
-        const heldPage = await delayOcrToolCompletion(scratch, 'pdftoppm', ['-f', String(pageCount)], releasePath);
-        const session = await sessionFixture.restart({
-            clean: true,
-            hard: true,
-            sessionName: () => `e2e-ocr-closed-view-${Date.now()}`,
-            extraEnv: heldPage.extraEnv,
-        });
-        const {page} = session;
-        const sourcePath = await createScannedPagesFixturePdf('ocr-closed-view-scan.pdf', pageCount);
-        await openPdfInApp(page, sourcePath, 90_000);
-        await waitForViewerInteractive(page, 90_000);
-        await session.command('windowResize', [
-            width,
-            height,
-        ]);
-        await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId ?? ''));
-        const paneHost = (paneId: string) => `.editor-pane[data-editor-pane-id="${paneId}"]`;
-        await waitForFunctionInPage(page, (host: string) => (
-            document.querySelector(`${host} .page_container--rendered`) !== null
-        ), {timeout: 30_000}, paneHost(rightPane!));
+    ])(
+        'keeps an OCR run going when the view that started it is closed, and shows it in the other view at $width px',
+        async ({width, height, viaOverflow}) => {
+            const pageCount = 2;
+            const scratch = await mkdtemp(join(tmpdir(), 'ocr-closed-view-'));
+            onTestFinished(() => rm(scratch, {recursive: true, force: true}));
+            const releasePath = join(scratch, 'release');
+            const heldPage = await delayOcrToolCompletion(scratch, 'pdftoppm', ['-f', String(pageCount)], releasePath);
+            const session = await sessionFixture.restart({
+                clean: true,
+                hard: true,
+                sessionName: () => `e2e-ocr-closed-view-${Date.now()}`,
+                extraEnv: heldPage.extraEnv,
+            });
+            const {page} = session;
+            const sourcePath = await createScannedPagesFixturePdf('ocr-closed-view-scan.pdf', pageCount);
+            await openPdfInApp(page, sourcePath, 90_000);
+            await waitForViewerInteractive(page, 90_000);
+            await session.command('windowResize', [width, height]);
+            await splitActiveTabFromTabMenu(page, 'right');
+            const [leftPane, rightPane] = await page.$$eval('.editor-pane', (panes) =>
+                panes.map((pane) => (pane as HTMLElement).dataset.editorPaneId ?? ''),
+            );
+            const paneHost = (paneId: string) => `.editor-pane[data-editor-pane-id="${paneId}"]`;
+            await waitForFunctionInPage(
+                page,
+                (host: string) => document.querySelector(`${host} .page_container--rendered`) !== null,
+                {timeout: 30_000},
+                paneHost(rightPane!),
+            );
 
-        const agentRun = callWorkspaceCommand<{ok?: boolean}>(page, 'runAgentAction', [
-            'ocr.start',
-            {
-                pageRange: 'all',
-                open: false,
-            },
-        ]);
-        const agentRunSettled = agentRun.then(() => undefined, () => undefined);
-        try {
-            // Page 1 can finish, but page 2 stays in flight across the view change.
-            await vi.waitFor(async () => {
-                expect(await readFile(heldPage.receiptPath, 'utf8')).toBe('0');
-            }, {timeout: 30_000});
-            await vi.waitFor(async () => {
-                const status = await callWorkspaceCommand<{ocr?: {
-                    isRunning?: boolean;
-                    processedCount?: number;
-                    totalPages?: number
-                }}>(page, 'runAgentAction', [
-                    'ocr.status',
-                    {},
-                ]);
-                const ocr = status.value?.ocr;
-                if (!ocr?.isRunning || (ocr.processedCount ?? 0) <= 0 || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0)) {
-                    throw new Error(`OCR is not under way with pages left: ${JSON.stringify(ocr)}`);
+            const agentRun = callWorkspaceCommand<{ok?: boolean}>(page, 'runAgentAction', [
+                'ocr.start',
+                {
+                    pageRange: 'all',
+                    open: false,
+                },
+            ]);
+            const agentRunSettled = agentRun.then(
+                () => undefined,
+                () => undefined,
+            );
+            try {
+                // Page 1 can finish, but page 2 stays in flight across the view change.
+                await vi.waitFor(
+                    async () => {
+                        expect(await readFile(heldPage.receiptPath, 'utf8')).toBe('0');
+                    },
+                    {timeout: 30_000},
+                );
+                await vi.waitFor(
+                    async () => {
+                        const status = await callWorkspaceCommand<{
+                            ocr?: {
+                                isRunning?: boolean;
+                                processedCount?: number;
+                                totalPages?: number;
+                            };
+                        }>(page, 'runAgentAction', ['ocr.status', {}]);
+                        const ocr = status.value?.ocr;
+                        if (!ocr?.isRunning || (ocr.processedCount ?? 0) <= 0 || (ocr.processedCount ?? 0) >= (ocr.totalPages ?? 0)) {
+                            throw new Error(`OCR is not under way with pages left: ${JSON.stringify(ocr)}`);
+                        }
+                    },
+                    {timeout: 30_000},
+                );
+
+                // The user closes the view that started the run; the left view stays.
+                await clickAsUser(page, `${paneHost(rightPane!)} .tab.is-active .tab-close`);
+                await waitForFunctionInPage(page, () => document.querySelectorAll('.editor-pane').length === 1, {timeout: 20_000});
+
+                // The left view shows the run under way.
+                if (viaOverflow) {
+                    await clickVisibleButton(page, '.editor-global-toolbar-shell', 'More tools');
+                    const ocrItem = await page.waitForFunction(
+                        () =>
+                            Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                                (item) =>
+                                    item.textContent?.trim() === 'OCR' &&
+                                    !item.hasAttribute('data-disabled') &&
+                                    item.getAttribute('aria-disabled') !== 'true' &&
+                                    item.checkVisibility(),
+                            ),
+                        {timeout: 30_000},
+                    );
+                    await clickAsUser(page, ocrItem.asElement() as ElementHandle<HTMLElement>);
+                } else {
+                    await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
                 }
-            }, {timeout: 30_000});
-
-            // The user closes the view that started the run; the left view stays.
-            await clickAsUser(page, `${paneHost(rightPane!)} .tab.is-active .tab-close`);
-            await waitForFunctionInPage(page, () => document.querySelectorAll('.editor-pane').length === 1, {timeout: 20_000});
-
-            // The left view shows the run under way.
-            if (viaOverflow) {
-                await clickVisibleButton(page, '.editor-global-toolbar-shell', 'More tools');
-                const ocrItem = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => (
-                    item.textContent?.trim() === 'OCR'
-                    && !item.hasAttribute('data-disabled')
-                    && item.getAttribute('aria-disabled') !== 'true'
-                    && item.checkVisibility()
-                )), {timeout: 30_000});
-                await clickAsUser(page, ocrItem.asElement() as ElementHandle<HTMLElement>);
-            } else {
-                await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
+                await page.waitForSelector('[role="dialog"]', {visible: true});
+                await waitForFunctionInPage(
+                    page,
+                    (total: number) => {
+                        const text = document.querySelector('[role="dialog"] .progress-text')?.textContent?.trim() ?? '';
+                        const match = /^Processing pages: (\d+)\/(\d+) completed$/u.exec(text);
+                        return match !== null && Number(match[2]) === total && Number(match[1]) > 0 && Number(match[1]) < total;
+                    },
+                    {timeout: 30_000},
+                    pageCount,
+                );
+                if (viaOverflow) {
+                    // The user cancels the run from the narrow window, and OCR can be started again.
+                    await clickVisibleButton(page, '[role="dialog"]', 'Cancel OCR');
+                    await waitForFunctionInPage(
+                        page,
+                        () =>
+                            Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).some(
+                                (button) => button.textContent?.trim() === 'Start OCR' && !button.disabled && button.checkVisibility(),
+                            ),
+                        {timeout: 30_000},
+                    );
+                    return;
+                }
+                await writeFile(releasePath, 'release');
+                await waitForFunctionInPage(
+                    page,
+                    () => document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true,
+                    {timeout: OCR_TIMEOUT_MS},
+                );
+                await clickVisibleButton(page, '[role="dialog"]', 'Close');
+                await page.waitForSelector('[role="dialog"]', {hidden: true});
+                const recognized = await page
+                    .waitForFunction(
+                        (host: string, word: string) =>
+                            document
+                                .querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
+                                ?.textContent?.toLocaleLowerCase()
+                                .includes(word) === true,
+                        {timeout: 30_000},
+                        paneHost(leftPane!),
+                        SEARCHED_WORD,
+                    )
+                    .then(
+                        () => true,
+                        () => false,
+                    );
+                expect(recognized).toBe(true);
+            } finally {
+                await writeFile(releasePath, 'release');
+                await callWorkspaceCommand(page, 'runAgentAction', ['ocr.cancel', {}]).catch(() => undefined);
+                await agentRunSettled;
             }
-            await page.waitForSelector('[role="dialog"]', {visible: true});
-            await waitForFunctionInPage(page, (total: number) => {
-                const text = document.querySelector('[role="dialog"] .progress-text')?.textContent?.trim() ?? '';
-                const match = /^Processing pages: (\d+)\/(\d+) completed$/u.exec(text);
-                return match !== null && Number(match[2]) === total && Number(match[1]) > 0 && Number(match[1]) < total;
-            }, {timeout: 30_000}, pageCount);
-            if (viaOverflow) {
-                // The user cancels the run from the narrow window, and OCR can be started again.
-                await clickVisibleButton(page, '[role="dialog"]', 'Cancel OCR');
-                await waitForFunctionInPage(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).some(button => (
-                    button.textContent?.trim() === 'Start OCR' && !button.disabled && button.checkVisibility()
-                )), {timeout: 30_000});
-                return;
-            }
-            await writeFile(releasePath, 'release');
-            await waitForFunctionInPage(page, () => (
-                document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
-            ), {timeout: OCR_TIMEOUT_MS});
-            await clickVisibleButton(page, '[role="dialog"]', 'Close');
-            await page.waitForSelector('[role="dialog"]', {hidden: true});
-            const recognized = await page.waitForFunction((host: string, word: string) => (
-                document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
-                    ?.textContent?.toLocaleLowerCase().includes(word) === true
-            ), {timeout: 30_000}, paneHost(leftPane!), SEARCHED_WORD).then(() => true, () => false);
-            expect(recognized).toBe(true);
-        } finally {
-            await writeFile(releasePath, 'release');
-            await callWorkspaceCommand(page, 'runAgentAction', [
-                'ocr.cancel',
-                {},
-            ]).catch(() => undefined);
-            await agentRunSettled;
-        }
-    }, 300_000);
+        },
+        300_000,
+    );
 
     // #969: closing the last document while OCR runs leaves an empty, usable New Tab.
     it('leaves no OCR dialog over New Tab when the final document closes during OCR', async () => {
@@ -1596,24 +1722,28 @@ if (process.versions.electron && process.type === 'browser') {
         await copyFile(join(process.cwd(), 'tests/fixtures/release/scan-cleanup-four-page-grayscale.pdf'), sourcePath);
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        await session.command('windowResize', [
-            1440,
-            900,
-        ]);
+        await session.command('windowResize', [1440, 900]);
 
         await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
         await page.waitForSelector('[role="dialog"]', {visible: true});
-        const allPagesOption = await page.waitForFunction(() => (
-            Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label'))
-                .find(label => label.textContent?.trim() === 'All pages (4)' && label.checkVisibility())
-        ), {timeout: 30_000});
+        const allPagesOption = await page.waitForFunction(
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] label')).find(
+                    (label) => label.textContent?.trim() === 'All pages (4)' && label.checkVisibility(),
+                ),
+            {timeout: 30_000},
+        );
         await clickAsUser(page, allPagesOption.asElement() as ElementHandle<HTMLElement>);
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
         await page.waitForSelector('xpath///*[@role="dialog"]//button[normalize-space()="Cancel OCR"]', {visible: true});
-        await waitForFunctionInPage(page, () => {
-            const text = document.querySelector('[role="dialog"] .ocr-progress-panel .progress-text')?.textContent?.trim() ?? '';
-            return /^Processing pages: \d+\/4 completed$/u.test(text);
-        }, {timeout: OCR_TIMEOUT_MS});
+        await waitForFunctionInPage(
+            page,
+            () => {
+                const text = document.querySelector('[role="dialog"] .ocr-progress-panel .progress-text')?.textContent?.trim() ?? '';
+                return /^Processing pages: \d+\/4 completed$/u.test(text);
+            },
+            {timeout: OCR_TIMEOUT_MS},
+        );
 
         // Once the tab shows no document, no frame until the run ends, or after, may show a dialog.
         await page.evaluate((host: string) => {
@@ -1625,8 +1755,9 @@ if (process.versions.electron && process.type === 'browser') {
             };
             let frame = 0;
             const sample = () => {
-                watch.dialogSeen ||= document.querySelector(`${host} .page_container`) === null
-                    && Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).some(dialog => dialog.checkVisibility());
+                watch.dialogSeen ||=
+                    document.querySelector(`${host} .page_container`) === null &&
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).some((dialog) => dialog.checkVisibility());
                 frame = requestAnimationFrame(sample);
             };
             const stopObserving = window.electronAPI!.ocr.onComplete(() => {
@@ -1645,10 +1776,10 @@ if (process.versions.electron && process.type === 'browser') {
                 hidden: true,
                 timeout: 30_000,
             });
-            await waitForFunctionInPage(page, () => (
-                (window as TOcrControlWindow).__closedDocumentOcrWatch?.terminal === true
-            ), {timeout: OCR_TIMEOUT_MS});
-            await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+            await waitForFunctionInPage(page, () => (window as TOcrControlWindow).__closedDocumentOcrWatch?.terminal === true, {
+                timeout: OCR_TIMEOUT_MS,
+            });
+            await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
             const dialogSeen = await page.evaluate(() => (window as TOcrControlWindow).__closedDocumentOcrWatch?.dialogSeen);
             expect(dialogSeen, 'an OCR dialog showed over New Tab after its document closed').toBe(false);
         } finally {
@@ -1666,10 +1797,12 @@ if (process.versions.electron && process.type === 'browser') {
         const goodPath = await createScannedTextFixturePdf('ocr-close-final-tab-next.pdf', SCANNED_TEXT, '60px EvbOcrJourneySans');
         await openPdfInApp(page, goodPath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        expect(await page.$$eval('[role="dialog"]', dialogs => dialogs.some(dialog => (dialog as HTMLElement).checkVisibility()))).toBe(false);
+        expect(await page.$$eval('[role="dialog"]', (dialogs) => dialogs.some((dialog) => (dialog as HTMLElement).checkVisibility()))).toBe(
+            false,
+        );
         await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
         await page.waitForSelector('xpath///*[@role="dialog"]//button[normalize-space()="Start OCR" and not(@disabled)]', {visible: true});
-        expect(await page.$eval('[role="dialog"]', dialog => dialog.textContent ?? '')).not.toContain('OCR complete');
+        expect(await page.$eval('[role="dialog"]', (dialog) => dialog.textContent ?? '')).not.toContain('OCR complete');
     }, 300_000);
 
     // The OCR dialog belongs to the view that opened it (T4); only the run is shared.
@@ -1679,72 +1812,48 @@ if (process.versions.electron && process.type === 'browser') {
         const sourcePath = await createEarlyPrintFixturePdf('ocr-journey-early-print.pdf');
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        await session.command('windowResize', [
-            1440,
-            900,
-        ]);
+        await session.command('windowResize', [1440, 900]);
 
         await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
         await page.waitForSelector('[role="dialog"]', {visible: true});
         await chooseOcrLanguage(page, 'lat');
         await clickVisibleButton(page, '[role="dialog"]', 'Start OCR');
-        await waitForFunctionInPage(page, () => (
-            document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true
-        ), {timeout: OCR_TIMEOUT_MS});
+        await waitForFunctionInPage(
+            page,
+            () => document.querySelector('[role="dialog"]')?.textContent?.includes('OCR complete - PDF is now searchable') === true,
+            {timeout: OCR_TIMEOUT_MS},
+        );
         await clickVisibleButton(page, '[role="dialog"]', 'Close');
         await page.waitForSelector('[role="dialog"]', {hidden: true});
-        await waitForFunctionInPage(page, (host: string) => (
-            (document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)
-                ?.textContent?.length ?? 0) > 200
-        ), {timeout: 30_000}, ACTIVE_HOST);
-        const text = await page.$eval(
-            `${ACTIVE_HOST} .page_container[data-page="1"] .text-layer`,
-            layer => layer.textContent ?? '',
+        await waitForFunctionInPage(
+            page,
+            (host: string) =>
+                (document.querySelector(`${host} .page_container[data-page="1"] .text-layer[data-pdf-text-layer-ready="true"]`)?.textContent
+                    ?.length ?? 0) > 200,
+            {timeout: 30_000},
+            ACTIVE_HOST,
         );
+        const text = await page.$eval(`${ACTIVE_HOST} .page_container[data-page="1"] .text-layer`, (layer) => layer.textContent ?? '');
         console.log('ocr-early-print-text-layer', JSON.stringify(text));
 
         // Latin's own model reads this page's long s as f, its æ as z or x,
         // and its ct ligature as é or &.
         const printed = {
-            longS: [
-                'uſque',
-                'ſequentibus',
-                'feſto',
-                'Chriſti',
-                'Feſtis',
-                'quaſdam',
-                'ſolemniter',
-                'Feſtum',
-            ],
-            ligatures: [
-                'Paſchæ',
-                'Eccleſiæ',
-                'hæc',
-                'propriæ',
-                'Cœna',
-            ],
-            ct: [
-                'Sanctorum',
-                'Defunctorum',
-                'Defuncti',
-                'Octavam',
-                'prædicta',
-            ],
+            longS: ['uſque', 'ſequentibus', 'feſto', 'Chriſti', 'Feſtis', 'quaſdam', 'ſolemniter', 'Feſtum'],
+            ligatures: ['Paſchæ', 'Eccleſiæ', 'hæc', 'propriæ', 'Cœna'],
+            ct: ['Sanctorum', 'Defunctorum', 'Defuncti', 'Octavam', 'prædicta'],
         };
-        for (const [
-            kind,
-            words,
-        ] of Object.entries(printed)) {
-            const read = words.filter(word => text.includes(word));
+        for (const [kind, words] of Object.entries(printed)) {
+            const read = words.filter((word) => text.includes(word));
             expect(read.length, `${kind} words read: ${read.join(', ')}`).toBeGreaterThanOrEqual(words.length - 1);
         }
         const misread = [
-            ...printed.longS.map(word => word.replaceAll('ſ', 'f')),
+            ...printed.longS.map((word) => word.replaceAll('ſ', 'f')),
             'Pafchz',
             'Ecclefix',
             'Defun&torum',
             'San&torum',
-        ].filter(word => text.includes(word));
+        ].filter((word) => text.includes(word));
         expect(misread).toEqual([]);
     }, 300_000);
 
@@ -1758,21 +1867,22 @@ if (process.versions.electron && process.type === 'browser') {
         const sourcePath = await createScannedPagesFixturePdf('ocr-dialog-per-view-scan.pdf', 3);
         await openPdfInApp(page, sourcePath, 90_000);
         await waitForViewerInteractive(page, 90_000);
-        await session.command('windowResize', [
-            1440,
-            900,
-        ]);
+        await session.command('windowResize', [1440, 900]);
         await splitActiveTabFromTabMenu(page, 'right');
-        const [
-            leftPane,
-            rightPane,
-        ] = await page.$$eval('.editor-pane', panes => panes.map(pane => (pane as HTMLElement).dataset.editorPaneId ?? ''));
+        const [leftPane, rightPane] = await page.$$eval('.editor-pane', (panes) =>
+            panes.map((pane) => (pane as HTMLElement).dataset.editorPaneId ?? ''),
+        );
         const paneHost = (paneId: string) => `.editor-pane[data-editor-pane-id="${paneId}"]`;
-        await waitForFunctionInPage(page, (host: string) => (
-            document.querySelector(`${host} .page_container--rendered`) !== null
-        ), {timeout: 30_000}, paneHost(rightPane!));
-        const dialogIsOpen = () => page.$$eval('[role="dialog"]', dialogs => dialogs.some(dialog => dialog.getBoundingClientRect().width > 0));
-        const settleFrames = () => page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await waitForFunctionInPage(
+            page,
+            (host: string) => document.querySelector(`${host} .page_container--rendered`) !== null,
+            {timeout: 30_000},
+            paneHost(rightPane!),
+        );
+        const dialogIsOpen = () =>
+            page.$$eval('[role="dialog"]', (dialogs) => dialogs.some((dialog) => dialog.getBoundingClientRect().width > 0));
+        const settleFrames = () =>
+            page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 
         // The dialog is modal, so the other view is activated the way a shortcut or
         // an agent does it, not with a click on the tab.
@@ -1780,9 +1890,12 @@ if (process.versions.electron && process.type === 'browser') {
             await page.evaluate((id: string) => {
                 document.querySelector<HTMLElement>(`.editor-pane[data-editor-pane-id="${id}"] .tab.is-active[data-tab-id]`)?.click();
             }, paneId);
-            await waitForFunctionInPage(page, (id: string) => (
-                document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === id
-            ), {timeout: 20_000}, paneId);
+            await waitForFunctionInPage(
+                page,
+                (id: string) => document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === id,
+                {timeout: 20_000},
+                paneId,
+            );
             await settleFrames();
         };
 
@@ -1809,7 +1922,7 @@ if (process.versions.electron && process.type === 'browser') {
         const transportEvents: Array<{
             at: number;
             event: string;
-            method: string | undefined
+            method: string | undefined;
         }> = [];
         let firstAttempt = true;
         const transport = createServer((request, response) => {
@@ -1818,11 +1931,13 @@ if (process.versions.electron && process.type === 'browser') {
                 event: 'request',
                 method: request.method,
             });
-            response.once('close', () => transportEvents.push({
-                at: Date.now(),
-                event: 'close',
-                method: request.method,
-            }));
+            response.once('close', () =>
+                transportEvents.push({
+                    at: Date.now(),
+                    event: 'close',
+                    method: request.method,
+                }),
+            );
             response.writeHead(200, {'Content-Length': modelBytes.length});
             if (request.method === 'HEAD') {
                 response.end();
@@ -1839,20 +1954,27 @@ if (process.versions.electron && process.type === 'browser') {
             const stream = setInterval(() => {
                 response.write(modelBytes.subarray(offset, offset + 65_536));
                 offset += 65_536;
-                if (offset >= modelBytes.length) response.end();
+                if (offset >= modelBytes.length) {
+                    response.end();
+                }
             }, 320);
             response.once('close', () => clearInterval(stream));
         });
         await sessionFixture.stop({preserveArtifacts: true});
         try {
             await rename(modelPath, backupPath);
-            await new Promise<void>(resolve => transport.listen(0, '127.0.0.1', resolve));
+            await new Promise<void>((resolve) => transport.listen(0, '127.0.0.1', resolve));
             const address = transport.address();
-            if (!address || typeof address === 'string') throw new Error('Model transport has no TCP address');
+            if (!address || typeof address === 'string') {
+                throw new Error('Model transport has no TCP address');
+            }
             const transportUrl = `http://127.0.0.1:${address.port}/deu.traineddata`;
-            const sourceUrl = 'https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/deu.traineddata';
+            const sourceUrl =
+                'https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/deu.traineddata';
             const hookPath = join(scratch, 'model-transport.cjs');
-            await writeFile(hookPath, `
+            await writeFile(
+                hookPath,
+                `
 if (process.versions.electron && process.type === 'browser') {
     const fetch = globalThis.fetch;
     globalThis.fetch = (url, options) => {
@@ -1861,7 +1983,8 @@ if (process.versions.electron && process.type === 'browser') {
         return fetch(${JSON.stringify(transportUrl)}, options);
     };
 }
-`);
+`,
+            );
             const session = await sessionFixture.start({
                 sessionName: () => `e2e-ocr-model-preparation-${Date.now()}`,
                 extraEnv: {NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --require=${hookPath}`},
@@ -1871,10 +1994,7 @@ if (process.versions.electron && process.type === 'browser') {
             doc.setCreationDate(new Date('2026-10-07T00:00:00Z'));
             doc.setModificationDate(new Date('2026-10-07T00:00:00Z'));
             const font = await doc.embedFont(StandardFonts.Helvetica);
-            doc.addPage([
-                612,
-                792,
-            ]).drawText('Hafen Laterne Signal. Dieser Text bleibt unveraendert.', {
+            doc.addPage([612, 792]).drawText('Hafen Laterne Signal. Dieser Text bleibt unveraendert.', {
                 x: 60,
                 y: 400,
                 size: 24,
@@ -1884,31 +2004,41 @@ if (process.versions.electron && process.type === 'browser') {
             await writeFile(sourcePath, await doc.save());
             await openPdfInApp(page, sourcePath, 90_000);
             await waitForViewerInteractive(page, 90_000);
-            await session.command('windowResize', [
-                1440,
-                900,
-            ]);
+            await session.command('windowResize', [1440, 900]);
             await clickVisibleButton(page, '#editor-global-toolbar-host', 'OCR');
             await page.waitForSelector('[role="dialog"]', {visible: true});
-            const german = await page.waitForFunction(() => (
-                Array.from(document.querySelectorAll('[role="dialog"] .chip-code'))
-                    .find(code => code.textContent?.trim() === 'deu')?.closest('label')
-            ), {timeout: 30_000});
+            const german = await page.waitForFunction(
+                () =>
+                    Array.from(document.querySelectorAll('[role="dialog"] .chip-code'))
+                        .find((code) => code.textContent?.trim() === 'deu')
+                        ?.closest('label'),
+                {timeout: 30_000},
+            );
             await clickAsUser(page, german.asElement() as ElementHandle<HTMLLabelElement>);
             await page.screenshot({path: join(scratch, 'before.png')});
             const startedAt = Date.now();
             await clickVisibleButton(page, '[role="dialog"]', 'Download and start OCR');
-            await waitForFunctionInPage(page, () => (
-                document.body.innerText.includes('No pages needed OCR')
-                || document.body.innerText.includes('operation was aborted due to timeout')
-            ), {timeout: OCR_TIMEOUT_MS});
-            const text = await page.$eval('body', body => body.innerText);
+            await waitForFunctionInPage(
+                page,
+                () =>
+                    document.body.innerText.includes('No pages needed OCR') ||
+                    document.body.innerText.includes('operation was aborted due to timeout'),
+                {timeout: OCR_TIMEOUT_MS},
+            );
+            const text = await page.$eval('body', (body) => body.innerText);
             await page.screenshot({path: join(scratch, 'terminal.png')});
-            await writeFile(join(scratch, 'result.json'), JSON.stringify({
-                session: session.name,
-                elapsedMs: Date.now() - startedAt,
-                text,
-            }, null, 2));
+            await writeFile(
+                join(scratch, 'result.json'),
+                JSON.stringify(
+                    {
+                        session: session.name,
+                        elapsedMs: Date.now() - startedAt,
+                        text,
+                    },
+                    null,
+                    2,
+                ),
+            );
             expect(text).toContain('No pages needed OCR');
             expect(text).toContain('Page 1: existing text was preserved.');
             expect(text).toContain('Hafen Laterne Signal.');
@@ -1920,7 +2050,7 @@ if (process.versions.electron && process.type === 'browser') {
                 try {
                     transport.closeAllConnections();
                     if (transport.listening) {
-                        await new Promise<void>((resolve, reject) => transport.close(error => error ? reject(error) : resolve()));
+                        await new Promise<void>((resolve, reject) => transport.close((error) => (error ? reject(error) : resolve())));
                     }
                     await writeFile(join(scratch, 'transport.json'), JSON.stringify(transportEvents, null, 2));
                 } finally {

@@ -1,9 +1,6 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/public';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import type {ComputedRef, Ref} from 'vue';
+import type {IDocumentOpenSurfaceSnapshot} from '@app/modules/document-viewer/public';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
@@ -26,19 +23,16 @@ interface IUseWorkspaceSidebarOpenGenerationOptions {
  * previous document, its page, and its sidebar exactly as they were. The
  * persisted `showSidebar` preference is never written here.
  */
-export const useWorkspaceSidebarOpenGeneration = (
-    options: IUseWorkspaceSidebarOpenGenerationOptions,
-) => {
+export const useWorkspaceSidebarOpenGeneration = (options: IUseWorkspaceSidebarOpenGenerationOptions) => {
     const sidebarSuspendedForDocumentOpen = ref(false);
     let activeOpeningGeneration: number | null = null;
     let wasOpening = false;
 
     watch(
         () => ({
-            failed: options.hasDocumentOpenError.value
-                || options.openSurfaceSnapshot.value.phase === 'failed',
-            generationVisualReady: options.openSurfaceSnapshot.value.phase === 'viewport-committed'
-                || options.openSurfaceSnapshot.value.phase === 'ready',
+            failed: options.hasDocumentOpenError.value || options.openSurfaceSnapshot.value.phase === 'failed',
+            generationVisualReady:
+                options.openSurfaceSnapshot.value.phase === 'viewport-committed' || options.openSurfaceSnapshot.value.phase === 'ready',
             idle: options.openSurfaceSnapshot.value.phase === 'idle',
             opening: options.isOpeningDocumentForToolbar.value,
             presentationEnabled: options.sidebarPresentationEnabled.value,
@@ -46,13 +40,8 @@ export const useWorkspaceSidebarOpenGeneration = (
             generation: options.openSurfaceSnapshot.value.generation,
         }),
         (next, previous) => {
-            const resumedViewableGeneration = previous === undefined
-                && next.opening
-                && next.generationVisualReady;
-            const startsOpeningGeneration = next.opening && (
-                !wasOpening
-                || activeOpeningGeneration !== next.generation
-            );
+            const resumedViewableGeneration = previous === undefined && next.opening && next.generationVisualReady;
+            const startsOpeningGeneration = next.opening && (!wasOpening || activeOpeningGeneration !== next.generation);
             wasOpening = next.opening;
             if (!next.opening) {
                 activeOpeningGeneration = null;
@@ -62,8 +51,7 @@ export const useWorkspaceSidebarOpenGeneration = (
                     sidebarSuspendedForDocumentOpen.value = true;
                 }
             }
-            const explicitlyOpenedSidebar = previous?.presentationEnabled === false
-                && next.presentationEnabled;
+            const explicitlyOpenedSidebar = previous?.presentationEnabled === false && next.presentationEnabled;
             if (explicitlyOpenedSidebar) {
                 sidebarSuspendedForDocumentOpen.value = false;
             }
@@ -73,11 +61,7 @@ export const useWorkspaceSidebarOpenGeneration = (
             // The claiming generation either committed its own pixels, failed
             // and handed the surface back to the previous document, or was
             // abandoned before it ever owned one.
-            if (
-                next.ready && !next.opening
-                || next.failed
-                || next.idle
-            ) {
+            if ((next.ready && !next.opening) || next.failed || next.idle) {
                 sidebarSuspendedForDocumentOpen.value = false;
             }
         },
@@ -87,21 +71,22 @@ export const useWorkspaceSidebarOpenGeneration = (
         },
     );
 
-    const toolbarShowSidebarForDisplay = computed(() => (
-        options.sidebarPresentationEnabled.value
-        && !sidebarSuspendedForDocumentOpen.value
-    ));
-    watch(toolbarShowSidebarForDisplay, (shown) => {
-        logPdfRenderTrace('workspace-sidebar-presentation', () => ({
-            shown,
-            presentationEnabled: options.sidebarPresentationEnabled.value,
-            suspendedForDocumentOpen: sidebarSuspendedForDocumentOpen.value,
-            opening: options.isOpeningDocumentForToolbar.value,
-            phase: options.openSurfaceSnapshot.value.phase,
-            generation: options.openSurfaceSnapshot.value.generation,
-            ready: options.initialDocumentVisualReady.value,
-        }));
-    }, {flush: 'sync'});
+    const toolbarShowSidebarForDisplay = computed(() => options.sidebarPresentationEnabled.value && !sidebarSuspendedForDocumentOpen.value);
+    watch(
+        toolbarShowSidebarForDisplay,
+        (shown) => {
+            logPdfRenderTrace('workspace-sidebar-presentation', () => ({
+                shown,
+                presentationEnabled: options.sidebarPresentationEnabled.value,
+                suspendedForDocumentOpen: sidebarSuspendedForDocumentOpen.value,
+                opening: options.isOpeningDocumentForToolbar.value,
+                phase: options.openSurfaceSnapshot.value.phase,
+                generation: options.openSurfaceSnapshot.value.generation,
+                ready: options.initialDocumentVisualReady.value,
+            }));
+        },
+        {flush: 'sync'},
+    );
 
     return {
         sidebarSuspendedForDocumentOpen,

@@ -100,12 +100,16 @@ export function createNativeWasmThreadImports({
         },
         wasi_snapshot_preview1: {
             clock_time_get(clockId: number, _precision: bigint, timePointer: number) {
-                if (clockId !== WASI_CLOCK_REALTIME && clockId !== WASI_CLOCK_MONOTONIC) return WASI_EINVAL;
+                if (clockId !== WASI_CLOCK_REALTIME && clockId !== WASI_CLOCK_MONOTONIC) {
+                    return WASI_EINVAL;
+                }
                 view().setBigUint64(unsigned(timePointer), nowNanoseconds(), true);
                 return WASI_ESUCCESS;
             },
             fd_write(fd: number, iovecs: number, iovecCount: number, writtenPointer: number) {
-                if (fd !== 1 && fd !== 2) return WASI_EBADF;
+                if (fd !== 1 && fd !== 2) {
+                    return WASI_EBADF;
+                }
                 const data = view();
                 let written = 0;
                 let text = '';
@@ -116,7 +120,9 @@ export function createNativeWasmThreadImports({
                     text += decoder.decode(new Uint8Array(memory.buffer, pointer, length).slice(), {stream: true});
                     written += length;
                 }
-                if (text) writeOutput(text);
+                if (text) {
+                    writeOutput(text);
+                }
                 data.setUint32(unsigned(writtenPointer), written, true);
                 return WASI_ESUCCESS;
             },
@@ -164,7 +170,9 @@ export function createNativeWasmLineWriter(writeLine: (line: string) => void) {
     return (text: string) => {
         const lines = (pending + text).split('\n');
         pending = lines.pop() ?? '';
-        for (const line of lines) writeLine(line);
+        for (const line of lines) {
+            writeLine(line);
+        }
     };
 }
 
@@ -188,19 +196,13 @@ export interface INativeWasmThreadStart {
  * or a failed instantiation marks the engine faulted before it is rethrown,
  * so a request waiting on this thread fails instead of hanging.
  */
-export function runNativeWasmThread({
-    module,
-    imports,
-    memory,
-    faultPointer,
-    threadId,
-    startArg,
-    onTrap,
-}: INativeWasmThreadStart) {
+export function runNativeWasmThread({module, imports, memory, faultPointer, threadId, startArg, onTrap}: INativeWasmThreadStart) {
     try {
         const instance = new WebAssembly.Instance(module, imports);
         const start = instance.exports.wasi_thread_start;
-        if (typeof start !== 'function') throw new Error('The threaded WASM engine has no wasi_thread_start export');
+        if (typeof start !== 'function') {
+            throw new Error('The threaded WASM engine has no wasi_thread_start export');
+        }
         start(threadId, startArg);
     } catch (error) {
         try {

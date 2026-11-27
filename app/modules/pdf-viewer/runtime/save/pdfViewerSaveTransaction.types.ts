@@ -1,9 +1,5 @@
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
-import type {
-    IPdfBookmarkEntry,
-    IPdfPageLabelRange,
-    TPdfSaveMode,
-} from '@app/types/pdfContracts';
+import type {IPdfBookmarkEntry, IPdfPageLabelRange, TPdfSaveMode} from '@app/types/pdfContracts';
 import type {ISerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import type {
     IPdfNativeAnnotationIdentityBinding,
@@ -16,25 +12,12 @@ import type {
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import type {TDocumentRef} from '@contracts/documentRef';
-export type TPdfViewerSaveTransactionMode =
-    | 'persist'
-    | 'print'
-    | 'snapshot'
-    | 'embedded-mutation'
-    | 'writer-save';
+export type TPdfViewerSaveTransactionMode = 'persist' | 'print' | 'snapshot' | 'embedded-mutation' | 'writer-save';
 
 export type TPdfViewerSaveTransactionSource =
-    | 'source-clean'
-    | 'loaded-source'
-    | 'writer-save'
-    | 'serialized-rewrite'
-    | 'native-mutation-projection'
-    | 'native-required-failure';
+    'source-clean' | 'loaded-source' | 'writer-save' | 'serialized-rewrite' | 'native-mutation-projection' | 'native-required-failure';
 
-export type TPdfViewerAnnotationSaveRoute =
-    | 'source-clean'
-    | 'loaded-source'
-    | 'writer-save';
+export type TPdfViewerAnnotationSaveRoute = 'source-clean' | 'loaded-source' | 'writer-save';
 
 export type TPdfViewerAnnotationSaveReason =
     | 'pending-embedded-annotation-operations'
@@ -91,11 +74,7 @@ export type TNativeSaveRouteRejection =
     | 'no-native-mutations-projected';
 
 export type TNativeRequiredSaveFailureReason =
-    | 'missing-native-projection'
-    | 'missing-native-capability'
-    | 'classifier-rejection'
-    | 'native-decline'
-    | 'native-error';
+    'missing-native-projection' | 'missing-native-capability' | 'classifier-rejection' | 'native-decline' | 'native-error';
 
 export interface IPdfViewerNativeRequiredFailure {
     readonly code: 'native-save-required';

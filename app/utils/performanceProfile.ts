@@ -1,5 +1,5 @@
-import { getRawElectronPlatformApi } from '@app/utils/electronPlatformBridge';
-import { readBrowserPerformanceModeSnapshot } from '@app/utils/browserSettingsPersistence';
+import {getRawElectronPlatformApi} from '@app/utils/electronPlatformBridge';
+import {readBrowserPerformanceModeSnapshot} from '@app/utils/browserSettingsPersistence';
 import {
     HOST_TIER_HIGH_CPU_MIN,
     HOST_TIER_LOW_CPU_MAX,
@@ -37,7 +37,9 @@ export const MOBILE_RASTER_BUDGET_MAX_BYTES = 384 * 1024 ** 2;
 // keeps two side-by-side visible RGBA pages inside the mobile ceiling.
 const MOBILE_MAX_CANVAS_PIXELS = MOBILE_RASTER_BUDGET_MAX_BYTES / (2 * 4);
 
-interface IPerformanceProfileNavigator extends Navigator {deviceMemory?: number;}
+interface IPerformanceProfileNavigator extends Navigator {
+    deviceMemory?: number;
+}
 
 export interface IPerformanceProfileEnvironment {
     deviceMemory?: number;
@@ -82,7 +84,7 @@ function readNavigatorPerformanceEnvironment(): IPerformanceProfileEnvironment {
     const performanceMode = readBrowserPerformanceModeSnapshot();
     // Node also defines navigator, so server rendering would read its own CPUs.
     if (typeof window === 'undefined' || typeof document === 'undefined' || typeof navigator === 'undefined') {
-        return { performanceMode };
+        return {performanceMode};
     }
 
     const runtimeNavigator = navigator as IPerformanceProfileNavigator;
@@ -90,8 +92,7 @@ function readNavigatorPerformanceEnvironment(): IPerformanceProfileEnvironment {
     const environment: IPerformanceProfileEnvironment = {
         performanceMode,
         // iPadOS Safari reports a Macintosh user agent; touch input tells it apart.
-        mobile: /Android|iPhone|iPad|iPod|Mobi/u.test(userAgent)
-            || (/Macintosh/u.test(userAgent) && runtimeNavigator.maxTouchPoints > 1),
+        mobile: /Android|iPhone|iPad|iPod|Mobi/u.test(userAgent) || (/Macintosh/u.test(userAgent) && runtimeNavigator.maxTouchPoints > 1),
     };
     if (typeof runtimeNavigator.deviceMemory === 'number') {
         environment.deviceMemory = runtimeNavigator.deviceMemory;
@@ -108,9 +109,7 @@ function readNavigatorPerformanceEnvironment(): IPerformanceProfileEnvironment {
 }
 
 function normalizePositiveNumber(value: number | undefined) {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0
-        ? value
-        : null;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 // The `workstation` super-profile (high tier + >=32 GiB + >=12 CPU) is a
@@ -118,16 +117,8 @@ function normalizePositiveNumber(value: number | undefined) {
 // on genuinely large desktops. It is intentionally NOT a `THostResourceTier`
 // case — the canonical host classifier stops at low/medium/high — so it must
 // never be treated as a missing tier branch elsewhere in the codebase.
-function resolveWorkstationProfile(
-    tier: THostResourceTier,
-    hardwareConcurrency: number | null,
-    totalMemoryGiB: number | null,
-) {
-    return tier === 'high'
-        && totalMemoryGiB !== null
-        && totalMemoryGiB >= 32
-        && hardwareConcurrency !== null
-        && hardwareConcurrency >= 12;
+function resolveWorkstationProfile(tier: THostResourceTier, hardwareConcurrency: number | null, totalMemoryGiB: number | null) {
+    return tier === 'high' && totalMemoryGiB !== null && totalMemoryGiB >= 32 && hardwareConcurrency !== null && hardwareConcurrency >= 12;
 }
 
 function resolveCanonicalPerformanceProfile(
@@ -137,11 +128,7 @@ function resolveCanonicalPerformanceProfile(
     performanceMode: TPerformanceMode,
     mobile: boolean,
 ): IPerformanceProfile {
-    const workstationProfile = resolveWorkstationProfile(
-        tier,
-        hardwareConcurrency,
-        totalMemoryGiB,
-    );
+    const workstationProfile = resolveWorkstationProfile(tier, hardwareConcurrency, totalMemoryGiB);
     const lowTier = tier === 'low';
     const canvasPixelCeiling = mobile ? MOBILE_MAX_CANVAS_PIXELS : Number.POSITIVE_INFINITY;
 
@@ -154,48 +141,48 @@ function resolveCanonicalPerformanceProfile(
         pdfBufferPages: workstationProfile
             ? PDF_BUFFER_PAGES_WORKSTATION
             : lowTier
-                ? PDF_BUFFER_PAGES_LOW_MEMORY
-                : PDF_BUFFER_PAGES_DEFAULT,
+              ? PDF_BUFFER_PAGES_LOW_MEMORY
+              : PDF_BUFFER_PAGES_DEFAULT,
         concurrentPdfRenders: workstationProfile
             ? Math.min(
-                PDF_RENDER_CONCURRENCY_WORKSTATION_MAX,
-                Math.max(
-                    PDF_RENDER_CONCURRENCY_DEFAULT + 1,
-                    Math.floor((hardwareConcurrency ?? 0) / 4),
-                ),
-            )
+                  PDF_RENDER_CONCURRENCY_WORKSTATION_MAX,
+                  Math.max(PDF_RENDER_CONCURRENCY_DEFAULT + 1, Math.floor((hardwareConcurrency ?? 0) / 4)),
+              )
             : lowTier
-                ? PDF_RENDER_CONCURRENCY_LOW_CPU
-                : PDF_RENDER_CONCURRENCY_DEFAULT,
+              ? PDF_RENDER_CONCURRENCY_LOW_CPU
+              : PDF_RENDER_CONCURRENCY_DEFAULT,
         maxCachedPdfPages: workstationProfile
             ? PDF_PAGE_PROXY_CACHE_WORKSTATION
             : lowTier
-                ? PDF_PAGE_PROXY_CACHE_LOW_MEMORY
-                : PDF_PAGE_PROXY_CACHE_DEFAULT,
+              ? PDF_PAGE_PROXY_CACHE_LOW_MEMORY
+              : PDF_PAGE_PROXY_CACHE_DEFAULT,
         thumbnailBaseConcurrency: workstationProfile
             ? PDF_THUMBNAIL_CONCURRENCY_WORKSTATION
             : lowTier
-                ? PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE
-                : PDF_THUMBNAIL_CONCURRENCY_DEFAULT,
-        settledMaxCanvasPixels: Math.min(canvasPixelCeiling, workstationProfile
-            ? PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION
-            : tier === 'high'
-                ? PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY
-                : lowTier
+              ? PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE
+              : PDF_THUMBNAIL_CONCURRENCY_DEFAULT,
+        settledMaxCanvasPixels: Math.min(
+            canvasPixelCeiling,
+            workstationProfile
+                ? PDF_SETTLED_MAX_CANVAS_PIXELS_WORKSTATION
+                : tier === 'high'
+                  ? PDF_SETTLED_MAX_CANVAS_PIXELS_HIGH_MEMORY
+                  : lowTier
                     ? PDF_SETTLED_MAX_CANVAS_PIXELS_LOW_TIER
-                    : PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT),
-        maxBufferCanvasPixels: Math.min(canvasPixelCeiling, workstationProfile
-            ? PDF_BUFFER_MAX_CANVAS_PIXELS_WORKSTATION
-            : lowTier
-                ? PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY
-                : PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT),
+                    : PDF_SETTLED_MAX_CANVAS_PIXELS_DEFAULT,
+        ),
+        maxBufferCanvasPixels: Math.min(
+            canvasPixelCeiling,
+            workstationProfile
+                ? PDF_BUFFER_MAX_CANVAS_PIXELS_WORKSTATION
+                : lowTier
+                  ? PDF_BUFFER_MAX_CANVAS_PIXELS_LOW_MEMORY
+                  : PDF_BUFFER_MAX_CANVAS_PIXELS_DEFAULT,
+        ),
     };
 }
 
-function applySoftwareCanvasConstraint(
-    profile: IPerformanceProfile,
-    gpuStatus: IHostGpuStatusSnapshot | undefined,
-): IPerformanceProfile {
+function applySoftwareCanvasConstraint(profile: IPerformanceProfile, gpuStatus: IHostGpuStatusSnapshot | undefined): IPerformanceProfile {
     if (!usesSoftwareCanvasRendering(gpuStatus)) {
         return profile;
     }
@@ -206,10 +193,7 @@ function applySoftwareCanvasConstraint(
         thumbnailBaseConcurrency: PDF_THUMBNAIL_CONCURRENCY_LOW_PROFILE,
         // Software rasterization pays for every deep-zoom pixel on the CPU, so the
         // settled canvas keeps the low-tier cap regardless of installed RAM.
-        settledMaxCanvasPixels: Math.min(
-            profile.settledMaxCanvasPixels,
-            PDF_SETTLED_MAX_CANVAS_PIXELS_LOW_TIER,
-        ),
+        settledMaxCanvasPixels: Math.min(profile.settledMaxCanvasPixels, PDF_SETTLED_MAX_CANVAS_PIXELS_LOW_TIER),
     };
 }
 
@@ -233,15 +217,13 @@ function resolveDetectedTier(
     }
     const deviceMemory = normalizePositiveNumber(environment.deviceMemory);
     if (
-        environment.mobile === true
-        || (hardwareConcurrency !== null && hardwareConcurrency <= HOST_TIER_LOW_CPU_MAX)
-        || (deviceMemory !== null && deviceMemory < HOST_TIER_LOW_RAM_MAX_GIB)
+        environment.mobile === true ||
+        (hardwareConcurrency !== null && hardwareConcurrency <= HOST_TIER_LOW_CPU_MAX) ||
+        (deviceMemory !== null && deviceMemory < HOST_TIER_LOW_RAM_MAX_GIB)
     ) {
         return 'low';
     }
-    return deviceMemory !== null && hardwareConcurrency !== null && hardwareConcurrency >= HOST_TIER_HIGH_CPU_MIN
-        ? 'high'
-        : 'medium';
+    return deviceMemory !== null && hardwareConcurrency !== null && hardwareConcurrency >= HOST_TIER_HIGH_CPU_MIN ? 'high' : 'medium';
 }
 
 export function resolvePerformanceProfile(
@@ -250,16 +232,15 @@ export function resolvePerformanceProfile(
     const hardwareConcurrency = normalizePositiveNumber(environment.hardwareConcurrency);
     const totalMemoryBytes = normalizePositiveNumber(environment.totalMemoryBytes);
     const performanceMode = environment.performanceMode ?? 'auto';
-    const tier = environment.tier
-        ?? (performanceMode === 'auto'
-            ? resolveDetectedTier(environment, hardwareConcurrency, totalMemoryBytes)
-            : performanceMode);
+    const tier =
+        environment.tier ??
+        (performanceMode === 'auto' ? resolveDetectedTier(environment, hardwareConcurrency, totalMemoryBytes) : performanceMode);
 
     return applySoftwareCanvasConstraint(
         resolveCanonicalPerformanceProfile(
             tier,
             hardwareConcurrency,
-            totalMemoryBytes === null ? null : totalMemoryBytes / (1024 ** 3),
+            totalMemoryBytes === null ? null : totalMemoryBytes / 1024 ** 3,
             performanceMode,
             environment.mobile === true,
         ),

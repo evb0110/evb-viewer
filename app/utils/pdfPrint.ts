@@ -1,12 +1,6 @@
-import type {
-    IPdfDocument,
-    IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import { range } from 'es-toolkit/math';
-import pdfjsLib, {
-    createPdfjsDocumentOptions,
-    preparePdfjsBrowserRuntime,
-} from '@app/services/pdfjs/runtimeLib';
+import type {IPdfDocument, IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {range} from 'es-toolkit/math';
+import pdfjsLib, {createPdfjsDocumentOptions, preparePdfjsBrowserRuntime} from '@app/services/pdfjs/runtimeLib';
 import {
     BROWSER_PRINT_ROOT_SELECTOR,
     normalizePrintPageNumbers,
@@ -16,9 +10,11 @@ import {
     type IBrowserPrintRoot,
     type IBrowserPrintStyleElement,
 } from '@app/utils/pdfPrintShared';
-export { shouldPrintPageMetricsDirectly } from '@pdf-core';
+export {shouldPrintPageMetricsDirectly} from '@pdf-core';
 
-interface IRenderPdfPagesForBrowserPrintOptions {signal?: AbortSignal;}
+interface IRenderPdfPagesForBrowserPrintOptions {
+    signal?: AbortSignal;
+}
 
 const BROWSER_PRINT_RESOLUTION_DPI = 300;
 const PDF_POINTS_PER_INCH = 72;
@@ -71,13 +67,15 @@ function createBrowserPrintPageContainer(targetDocument: IBrowserPrintDocument) 
 }
 
 function isBrowserPrintCanvas(element: unknown): element is IBrowserPrintCanvas {
-    return typeof element === 'object'
-        && element !== null
-        && 'getContext' in element
-        && typeof element.getContext === 'function'
-        && 'style' in element
-        && typeof element.style === 'object'
-        && element.style !== null;
+    return (
+        typeof element === 'object' &&
+        element !== null &&
+        'getContext' in element &&
+        typeof element.getContext === 'function' &&
+        'style' in element &&
+        typeof element.style === 'object' &&
+        element.style !== null
+    );
 }
 
 function requireBrowserPrintCanvas(element: unknown) {
@@ -98,10 +96,7 @@ function createBrowserPrintImage(targetDocument: IBrowserPrintDocument): IBrowse
 }
 
 function createBrowserPrintCanvas(targetDocument: IBrowserPrintDocument) {
-    if (
-        typeof document !== 'undefined'
-        && document !== targetDocument
-    ) {
+    if (typeof document !== 'undefined' && document !== targetDocument) {
         return requireBrowserPrintCanvas(document.createElement('canvas'));
     }
 
@@ -115,10 +110,7 @@ function browserPrintCanvasHoldsPixels(context: CanvasRenderingContext2D, width:
     try {
         context.fillStyle = '#ff0000';
         context.fillRect(width - 1, height - 1, 1, 1);
-        const [
-            red,
-            green,
-        ] = context.getImageData(width - 1, height - 1, 1, 1).data;
+        const [red, green] = context.getImageData(width - 1, height - 1, 1, 1).data;
         return red === 255 && green === 0;
     } catch {
         return false;
@@ -132,13 +124,13 @@ function releaseBrowserPrintCanvas(canvas: IBrowserPrintCanvas) {
 
 function allocateBrowserPrintCanvas(targetDocument: IBrowserPrintDocument, page: IPdfPage) {
     for (let scale = BROWSER_PRINT_RENDER_SCALE; ; scale *= BROWSER_PRINT_CANVAS_RETRY_SCALE) {
-        const viewport = page.getViewport({ scale });
+        const viewport = page.getViewport({scale});
         const width = Math.max(1, Math.ceil(viewport.width));
         const height = Math.max(1, Math.ceil(viewport.height));
         const canvas = createBrowserPrintCanvas(targetDocument);
         canvas.width = width;
         canvas.height = height;
-        const context = canvas.getContext('2d', { alpha: false });
+        const context = canvas.getContext('2d', {alpha: false});
         if (context && browserPrintCanvasHoldsPixels(context, width, height)) {
             return {
                 canvas,
@@ -156,8 +148,11 @@ function allocateBrowserPrintCanvas(targetDocument: IBrowserPrintDocument, page:
 function encodeBrowserPrintCanvas(canvas: IBrowserPrintCanvas) {
     return new Promise<Blob>((resolve, reject) => {
         canvas.toBlob((blob) => {
-            if (blob) resolve(blob);
-            else reject(new Error('Failed to encode a browser print page'));
+            if (blob) {
+                resolve(blob);
+            } else {
+                reject(new Error('Failed to encode a browser print page'));
+            }
         }, 'image/png');
     });
 }
@@ -185,13 +180,9 @@ function formatPdfPointSizeAsCssPoints(sizeInPoints: number) {
     return `${Number(Math.max(1, sizeInPoints).toFixed(2))}pt`;
 }
 
-function setBrowserPrintPageSize(
-    targetDocument: IBrowserPrintDocument,
-    pageNumber: number,
-    width: number,
-    height: number,
-) {
-    const head = (targetDocument as IBrowserPrintDocument & {head?: { appendChild?: (node: IBrowserPrintStyleElement) => unknown } | null;}).head;
+function setBrowserPrintPageSize(targetDocument: IBrowserPrintDocument, pageNumber: number, width: number, height: number) {
+    const head = (targetDocument as IBrowserPrintDocument & {head?: {appendChild?: (node: IBrowserPrintStyleElement) => unknown} | null})
+        .head;
     if (!head || typeof head.appendChild !== 'function') {
         return;
     }
@@ -220,9 +211,7 @@ export async function renderPdfPagesForBrowserPrint(
     root.replaceChildren();
 
     const pdfjsLib = await getPdfjsPrintLib();
-    const pdfData = printablePdf instanceof Blob
-        ? new Uint8Array(await printablePdf.arrayBuffer())
-        : clonePdfBytes(printablePdf);
+    const pdfData = printablePdf instanceof Blob ? new Uint8Array(await printablePdf.arrayBuffer()) : clonePdfBytes(printablePdf);
     const loadingTask = pdfjsLib.getDocument({
         data: pdfData,
         ...createPdfjsDocumentOptions(pdfjsLib),
@@ -243,7 +232,7 @@ export async function renderPdfPagesForBrowserPrint(
             targetDocument,
             root,
             range(1, pdfDocument.numPages + 1),
-            pageNumber => pdfDocument.getPage(pageNumber),
+            (pageNumber) => pdfDocument.getPage(pageNumber),
             options,
         );
     } finally {
@@ -265,7 +254,7 @@ export async function renderPdfDocumentPagesForBrowserPrint(
         targetDocument,
         root,
         normalizePrintPageNumbers(pageNumbers, pdfDocument.numPages),
-        pageNumber => pdfDocument.getPage(pageNumber),
+        (pageNumber) => pdfDocument.getPage(pageNumber),
         options,
     );
 }
@@ -287,13 +276,8 @@ async function renderPdfPageNumbersForBrowserPrint(
 
             try {
                 throwIfBrowserPrintAborted(options.signal);
-                const displayViewport = page.getViewport({ scale: 1 });
-                setBrowserPrintPageSize(
-                    targetDocument,
-                    pageNumber,
-                    displayViewport.width,
-                    displayViewport.height,
-                );
+                const displayViewport = page.getViewport({scale: 1});
+                setBrowserPrintPageSize(targetDocument, pageNumber, displayViewport.width, displayViewport.height);
 
                 const pageContainer = createBrowserPrintPageContainer(targetDocument);
                 pageContainer.className = `browser-print-page browser-print-page-${String(pageNumber)}`;
@@ -308,7 +292,7 @@ async function renderPdfPageNumbersForBrowserPrint(
                     intent: 'print',
                 });
                 const abortRender = () => renderTask.cancel();
-                options.signal?.addEventListener('abort', abortRender, { once: true });
+                options.signal?.addEventListener('abort', abortRender, {once: true});
                 try {
                     throwIfBrowserPrintAborted(options.signal);
                     await renderTask.promise;
@@ -349,9 +333,7 @@ async function renderPdfPageNumbersForBrowserPrint(
 
 export function waitForPrintPaint(targetWindow: Window) {
     return new Promise<void>((resolve) => {
-        const raf = typeof targetWindow.requestAnimationFrame === 'function'
-            ? targetWindow.requestAnimationFrame.bind(targetWindow)
-            : null;
+        const raf = typeof targetWindow.requestAnimationFrame === 'function' ? targetWindow.requestAnimationFrame.bind(targetWindow) : null;
 
         if (!raf) {
             resolve();

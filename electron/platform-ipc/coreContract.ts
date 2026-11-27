@@ -5,14 +5,8 @@ import {
     type IDiagnosticsStartupPolicy,
 } from '@contracts/diagnostics/diagnosticsPreference';
 import {isRecord} from '@contracts/runtimeGuards';
-import type {
-    IWindowCloseRequest,
-    IWindowCloseResponse,
-} from '@contracts/systemPlatformFeature';
-import {
-    parseRequestId,
-    type TRequestId,
-} from '@contracts/shared';
+import type {IWindowCloseRequest, IWindowCloseResponse} from '@contracts/systemPlatformFeature';
+import {parseRequestId, type TRequestId} from '@contracts/shared';
 
 export const CORE_IPC_CHANNELS = {
     rendererReady: 'app:rendererReady',
@@ -62,16 +56,14 @@ export function decodeIpcInvokeCancelPayload(value: unknown): {
     const keys = Object.keys(value);
     if (keys.length === 1) {
         const requestId = parseRequestId(value[IPC_INVOKE_REQUEST_ID_FIELD]);
-        return requestId === null ? null : {
-            requestId,
-            kind: 'abort',
-        };
+        return requestId === null
+            ? null
+            : {
+                  requestId,
+                  kind: 'abort',
+              };
     }
-    if (
-        keys.length === 2
-        && Object.hasOwn(value, IPC_INVOKE_REQUEST_ID_FIELD)
-        && Object.hasOwn(value, IPC_INVOKE_CANCEL_REASON_FIELD)
-    ) {
+    if (keys.length === 2 && Object.hasOwn(value, IPC_INVOKE_REQUEST_ID_FIELD) && Object.hasOwn(value, IPC_INVOKE_CANCEL_REASON_FIELD)) {
         const requestId = parseRequestId(value[IPC_INVOKE_REQUEST_ID_FIELD]);
         const reason = value[IPC_INVOKE_CANCEL_REASON_FIELD];
         if (requestId !== null && (reason === 'abort' || reason === 'timeout')) {
@@ -101,13 +93,13 @@ export function createDiagnosticsStartupPolicy(value: unknown): Readonly<IDiagno
 }
 
 export function encodeDiagnosticsPolicyArgument(value: unknown) {
-    const encoded = Buffer
-        .from(JSON.stringify(createDiagnosticsStartupPolicy(value)), 'utf8')
-        .toString('base64url');
+    const encoded = Buffer.from(JSON.stringify(createDiagnosticsStartupPolicy(value)), 'utf8').toString('base64url');
     return `${DIAGNOSTICS_POLICY_ARGUMENT_PREFIX}${encoded}`;
 }
 
-export interface IShutdownSaveFlushRequest { requestId: TRequestId; }
+export interface IShutdownSaveFlushRequest {
+    requestId: TRequestId;
+}
 
 export interface IShutdownSaveFlushResult {
     callbackCount: number;
@@ -124,23 +116,21 @@ function decodeShutdownPathList(value: unknown) {
     if (!Array.isArray(value) || value.length > 1_024) {
         return null;
     }
-    const paths = value.filter((path): path is string => (
-        typeof path === 'string'
-        && path.trim().length > 0
-        && path.length <= 16_384
-    ));
+    const paths = value.filter((path): path is string => typeof path === 'string' && path.trim().length > 0 && path.length <= 16_384);
     return paths.length === value.length ? paths : null;
 }
 
 export function decodeShutdownSaveFlushResult(value: unknown): IShutdownSaveFlushResult | null {
     const requestId = isRecord(value) ? parseRequestId(value.requestId) : null;
-    if (!isRecord(value)
-        || requestId === null
-        || requestId.length > 256
-        || !Number.isSafeInteger(value.callbackCount)
-        || (value.callbackCount as number) < 0
-        || (value.callbackCount as number) > 1_024
-        || (value.error !== undefined && (typeof value.error !== 'string' || value.error.length > 16_384))) {
+    if (
+        !isRecord(value) ||
+        requestId === null ||
+        requestId.length > 256 ||
+        !Number.isSafeInteger(value.callbackCount) ||
+        (value.callbackCount as number) < 0 ||
+        (value.callbackCount as number) > 1_024 ||
+        (value.error !== undefined && (typeof value.error !== 'string' || value.error.length > 16_384))
+    ) {
         return null;
     }
     const dirtyWorkingCopyPaths = decodeShutdownPathList(value.dirtyWorkingCopyPaths);
@@ -172,11 +162,7 @@ export function decodeWindowCloseResponse(value: unknown): IWindowCloseResponse 
         return null;
     }
 
-    if (
-        value.decision === 'save'
-        || value.decision === 'discard'
-        || value.decision === 'cancel'
-    ) {
+    if (value.decision === 'save' || value.decision === 'discard' || value.decision === 'cancel') {
         return {
             decision: value.decision,
             requestId,
@@ -191,13 +177,11 @@ export function decodeWindowCloseResponse(value: unknown): IWindowCloseResponse 
     }
 
     if (
-        value.status !== 'unavailable'
-        || (
-            value.reason !== 'no-handler'
-            && value.reason !== 'multiple-handlers'
-            && value.reason !== 'handler-error'
-            && value.reason !== 'invalid-decision'
-        )
+        value.status !== 'unavailable' ||
+        (value.reason !== 'no-handler' &&
+            value.reason !== 'multiple-handlers' &&
+            value.reason !== 'handler-error' &&
+            value.reason !== 'invalid-decision')
     ) {
         return null;
     }

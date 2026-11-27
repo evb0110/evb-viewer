@@ -12,7 +12,10 @@
         @keydown="handleKeydown"
     >
         <div class="app-progress-overlay-card">
-            <AppSpinner size="lg" tone="primary" />
+            <AppSpinner
+                size="lg"
+                tone="primary"
+            />
             <div
                 :id="titleId"
                 class="app-progress-overlay-title"
@@ -59,7 +62,7 @@
 </template>
 
 <script setup lang="ts">
-import { clamp } from 'es-toolkit/math';
+import {clamp} from 'es-toolkit/math';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 import AppSpinner from '@app/components/AppSpinner.vue';
 
@@ -87,15 +90,14 @@ const {
     value,
 } = defineProps<IAppProgressOverlayProps>();
 
-const emit = defineEmits<{cancel: [];}>();
+const emit = defineEmits<{cancel: []}>();
 const overlayElement = ref<HTMLElement | null>(null);
 const titleId = useId();
 const detailId = useId();
 const subDetailId = useId();
-const descriptionIds = computed(() => [
-    detail ? detailId : null,
-    subDetail ? subDetailId : null,
-].filter((id): id is string => id !== null).join(' ') || undefined);
+const descriptionIds = computed(
+    () => [detail ? detailId : null, subDetail ? subDetailId : null].filter((id): id is string => id !== null).join(' ') || undefined,
+);
 
 let previouslyFocusedElement: HTMLElement | null = null;
 // Only an overlay that took the focus gives it back. One that mounts closed,
@@ -105,13 +107,9 @@ const inertSiblings = new Map<HTMLElement, boolean>();
 
 function getFocusableElements() {
     return Array.from(
-        overlayElement.value?.querySelectorAll<HTMLElement>(
-            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-        ) ?? [],
-    ).filter(element => (
-        !element.hasAttribute('disabled')
-        && element.getAttribute('aria-hidden') !== 'true'
-    ));
+        overlayElement.value?.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') ??
+            [],
+    ).filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true');
 }
 
 function applyModalInert() {
@@ -132,10 +130,7 @@ function applyModalInert() {
 }
 
 function restoreModalInert() {
-    for (const [
-        element,
-        wasInert,
-    ] of inertSiblings) {
+    for (const [element, wasInert] of inertSiblings) {
         element.inert = wasInert;
     }
     inertSiblings.clear();
@@ -155,22 +150,21 @@ function containOverlayFocus(event: FocusEvent) {
 
 function isFocusableFallback(element: HTMLElement) {
     const style = window.getComputedStyle(element);
-    return !element.hasAttribute('disabled')
-        && element.getAttribute('aria-hidden') !== 'true'
-        && element.closest('[aria-hidden="true"], [hidden], [inert]') === null
-        && !element.inert
-        && style.display !== 'none'
-        && style.visibility !== 'hidden'
-        && element.getClientRects().length > 0;
+    return (
+        !element.hasAttribute('disabled') &&
+        element.getAttribute('aria-hidden') !== 'true' &&
+        element.closest('[aria-hidden="true"], [hidden], [inert]') === null &&
+        !element.inert &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        element.getClientRects().length > 0
+    );
 }
 
 // A control marked as the place to return to wins over the first control in
 // document order (the toolbar), whichever comes first on the page.
 function findFocusFallback() {
-    for (const selector of [
-        '[data-focus-restore]',
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    ]) {
+    for (const selector of ['[data-focus-restore]', 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])']) {
         const target = Array.from(document.querySelectorAll<HTMLElement>(selector)).find(isFocusableFallback);
         if (target) {
             return target;
@@ -225,23 +219,18 @@ function handleKeydown(event: KeyboardEvent) {
 
     event.preventDefault();
     const activeIndex = focusableElements.indexOf(document.activeElement as HTMLElement);
-    const nextIndex = activeIndex < 0
-        ? event.shiftKey
-            ? focusableElements.length - 1
-            : 0
-        : (activeIndex + (event.shiftKey ? -1 : 1) + focusableElements.length) % focusableElements.length;
+    const nextIndex =
+        activeIndex < 0
+            ? event.shiftKey
+                ? focusableElements.length - 1
+                : 0
+            : (activeIndex + (event.shiftKey ? -1 : 1) + focusableElements.length) % focusableElements.length;
     focusableElements[nextIndex]?.focus({preventScroll: true});
 }
 
 watch(
-    [
-        () => open,
-        () => modal,
-    ],
-    ([
-        isOpen,
-        isModal,
-    ]) => {
+    [() => open, () => modal],
+    ([isOpen, isModal]) => {
         if (!isOpen || !isModal) {
             releaseModal();
             return;
@@ -269,9 +258,9 @@ watch(
 
 onBeforeUnmount(releaseModal);
 
-const formattedPercent = computed(() => typeof value === 'number' && Number.isFinite(value)
-    ? `${clamp(Math.round(value), 0, 100)}%`
-    : '');
+const formattedPercent = computed(() =>
+    typeof value === 'number' && Number.isFinite(value) ? `${clamp(Math.round(value), 0, 100)}%` : '',
+);
 </script>
 
 <style scoped>
@@ -296,10 +285,7 @@ const formattedPercent = computed(() => typeof value === 'number' && Number.isFi
     background: var(--ui-bg);
     border: 1px solid var(--ui-border);
     box-shadow: var(--ui-shadow-lg);
-    inline-size: min(
-        var(--app-content-width-xs),
-        calc(100% - (2 * var(--app-space-9xl)))
-    );
+    inline-size: min(var(--app-content-width-xs), calc(100% - (2 * var(--app-space-9xl))));
     max-inline-size: calc(100% - (2 * var(--app-space-9xl)));
     box-sizing: border-box;
 }

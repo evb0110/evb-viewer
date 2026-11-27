@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import {app} from 'electron';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 export function getDocumentsDialogDefaultPath() {

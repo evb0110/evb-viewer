@@ -1,28 +1,14 @@
-import { getErrorMessage } from '@app/utils/error';
-import type { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
-import type {
-    IDjvuConvertResult,
-    IDjvuOpenResult,
-} from '@contracts/electronApiDjvu';
-import type { TDocumentRef } from '@contracts/documentRef';
-import { DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA } from '@contracts/documentOpenErrors';
-import {
-    findSerializableErrorEnvelope,
-    SerializableError,
-} from '@contracts/serializableError';
-import {
-    createJobId,
-    createRequestId,
-    requireJobId,
-    type TJobId,
-} from '@contracts/shared';
-import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import { createEpochMs } from '@contracts/timestamps';
-import {
-    browserDocumentStore,
-    isBrowserDocumentRef,
-} from '@app/platform/browserDocumentStore';
+import {getErrorMessage} from '@app/utils/error';
+import type {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
+import type {IDjvuConvertResult, IDjvuOpenResult} from '@contracts/electronApiDjvu';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
+import {findSerializableErrorEnvelope, SerializableError} from '@contracts/serializableError';
+import {createJobId, createRequestId, requireJobId, type TJobId} from '@contracts/shared';
+import type {TFeatureBrowserBindings} from '@contracts/platformFeature';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {createEpochMs} from '@contracts/timestamps';
+import {browserDocumentStore, isBrowserDocumentRef} from '@app/platform/browserDocumentStore';
 import {
     releaseBrowserDjvuViewingWorker,
     resolveDjvuPreviewTargetWidth,
@@ -30,13 +16,11 @@ import {
     getBrowserDjvuWorkerSource,
     getDjvuWorkerPageSizes,
 } from '@app/platform/browser-api/createDjvuWorkerFromPath';
-import { renderDjvuPagePreviewPng } from '@app/platform/browser-api/browserDjvuRasterizer';
-import {
-    cancelBrowserDjvuPrint, prepareBrowserDjvuPrint, 
-} from '@app/platform/browser-api/prepareBrowserDjvuPrint';
-import { browserDjvuTextSearchCapability } from '@app/platform/browser-api/browserDjvuTextSearchCapability';
-import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
-import { browserDurableDjvuJobs } from '@app/platform/browser-api/browserDurableDjvuJobs';
+import {renderDjvuPagePreviewPng} from '@app/platform/browser-api/browserDjvuRasterizer';
+import {cancelBrowserDjvuPrint, prepareBrowserDjvuPrint} from '@app/platform/browser-api/prepareBrowserDjvuPrint';
+import {browserDjvuTextSearchCapability} from '@app/platform/browser-api/browserDjvuTextSearchCapability';
+import {noopUnsubscribe} from '@app/platform/browser-api/browserMenuHelpers';
+import {browserDurableDjvuJobs} from '@app/platform/browser-api/browserDurableDjvuJobs';
 import {
     cancelBrowserDjvuConversion,
     estimateBrowserDjvuSizes,
@@ -67,13 +51,17 @@ async function openBrowserDjvuForViewing(djvuPath: TDocumentRef): Promise<IDjvuO
         return {
             success: true,
             pageCount: pageSizes.length,
-            ...(source ? {pageSourceInfo: {
-                pageCount: pageSizes.length,
-                pageNumber: requirePageNumber(1, pageSizes.length),
-                pageSize: pageSizes[0]!,
-                sourceSize: source.size,
-                sourceModifiedAt: createEpochMs(source.modifiedAt),
-            }} : {}),
+            ...(source
+                ? {
+                      pageSourceInfo: {
+                          pageCount: pageSizes.length,
+                          pageNumber: requirePageNumber(1, pageSizes.length),
+                          pageSize: pageSizes[0]!,
+                          sourceSize: source.size,
+                          sourceModifiedAt: createEpochMs(source.modifiedAt),
+                      },
+                  }
+                : {}),
         };
     } catch (error: unknown) {
         if (browserRef) {
@@ -94,11 +82,7 @@ const convertCompleteListeners = new Set<(result: IDjvuConvertResult) => void>()
 export const browserDjvuCapability = {
     startOpenForViewing(djvuPath, requestId) {
         const jobId = createJobId('djvu-open');
-        const handle = browserDurableDjvuJobs.startOpen(
-            jobId,
-            requestId,
-            () => openBrowserDjvuForViewing(djvuPath),
-        );
+        const handle = browserDurableDjvuJobs.startOpen(jobId, requestId, () => openBrowserDjvuForViewing(djvuPath));
         void browserDurableDjvuJobs.awaitOpen(jobId).then((result) => {
             for (const listener of openCompleteListeners) {
                 listener({
@@ -110,20 +94,20 @@ export const browserDjvuCapability = {
         return Promise.resolve(handle);
     },
     releaseViewingPath(djvuPath) {
-        if (isBrowserDocumentRef(djvuPath)) releaseBrowserDjvuViewingWorker(djvuPath);
+        if (isBrowserDocumentRef(djvuPath)) {
+            releaseBrowserDjvuViewingWorker(djvuPath);
+        }
         return Promise.resolve();
     },
     cancelPagePreview(_requestId) {
-        return Promise.resolve({ canceled: false });
+        return Promise.resolve({canceled: false});
     },
     ...browserDjvuTextSearchCapability,
     startConvertToPdf(djvuPath, outputPath, options) {
         const requestId = options.requestId ?? createRequestId('djvu-convert');
         const jobId: TJobId = options.jobId ?? createJobId('djvu-convert');
-        const handle = browserDurableDjvuJobs.startConvert(
-            jobId,
-            requestId,
-            () => runBrowserDjvuConversion(djvuPath, outputPath, {
+        const handle = browserDurableDjvuJobs.startConvert(jobId, requestId, () =>
+            runBrowserDjvuConversion(djvuPath, outputPath, {
                 ...options,
                 jobId,
                 requestId,
@@ -154,38 +138,41 @@ export const browserDjvuCapability = {
     },
     getInfo: getBrowserDjvuInfo,
     getPageSourceInfo(djvuPath, pageNumber) {
-        return withBrowserDjvuWorker(djvuPath, async (worker) => {
-            const pageSizes = await getDjvuWorkerPageSizes(worker);
-            const effectivePageNumber = requirePageNumber(
-                Math.min(pageNumber, pageSizes.length),
-                pageSizes.length,
-            );
-            const pageSize = pageSizes[effectivePageNumber - 1];
-            if (!pageSize) {
-                throw new RangeError(`DjVu page ${pageNumber} is outside 1..${pageSizes.length}`);
-            }
-            return {
-                pageCount: pageSizes.length,
-                pageNumber: effectivePageNumber,
-                pageSize,
-            };
-        }, 'page-source-info');
+        return withBrowserDjvuWorker(
+            djvuPath,
+            async (worker) => {
+                const pageSizes = await getDjvuWorkerPageSizes(worker);
+                const effectivePageNumber = requirePageNumber(Math.min(pageNumber, pageSizes.length), pageSizes.length);
+                const pageSize = pageSizes[effectivePageNumber - 1];
+                if (!pageSize) {
+                    throw new RangeError(`DjVu page ${pageNumber} is outside 1..${pageSizes.length}`);
+                }
+                return {
+                    pageCount: pageSizes.length,
+                    pageNumber: effectivePageNumber,
+                    pageSize,
+                };
+            },
+            'page-source-info',
+        );
     },
     getPageSizes(djvuPath) {
-        return withBrowserDjvuWorker(djvuPath, worker => getDjvuWorkerPageSizes(worker), 'page-sizes');
+        return withBrowserDjvuWorker(djvuPath, (worker) => getDjvuWorkerPageSizes(worker), 'page-sizes');
     },
     renderPagePreview(djvuPath, pageNumber, options) {
-        return withBrowserDjvuWorker(djvuPath, async (worker) => {
-            const pageSizes = await getDjvuWorkerPageSizes(worker);
-            const requestedPageNumber = requirePageNumber(pageNumber, pageSizes.length);
-            const pageSize = pageSizes[requestedPageNumber - 1];
-            if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
-            return renderDjvuPagePreviewPng(
-                worker,
-                requestedPageNumber,
-                resolveDjvuPreviewTargetWidth(pageSize, options),
-            );
-        }, 'preview');
+        return withBrowserDjvuWorker(
+            djvuPath,
+            async (worker) => {
+                const pageSizes = await getDjvuWorkerPageSizes(worker);
+                const requestedPageNumber = requirePageNumber(pageNumber, pageSizes.length);
+                const pageSize = pageSizes[requestedPageNumber - 1];
+                if (!pageSize) {
+                    throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+                }
+                return renderDjvuPagePreviewPng(worker, requestedPageNumber, resolveDjvuPreviewTargetWidth(pageSize, options));
+            },
+            'preview',
+        );
     },
     estimateSizes: estimateBrowserDjvuSizes,
     async cleanupTemp(tempPdfPath) {

@@ -10,9 +10,7 @@
 export const BASE_ROOT_FONT_SIZE_PX = 16;
 
 export function normalizeRootFontSizePx(rootFontSizePx: number) {
-    return Number.isFinite(rootFontSizePx) && rootFontSizePx > 0
-        ? rootFontSizePx
-        : BASE_ROOT_FONT_SIZE_PX;
+    return Number.isFinite(rootFontSizePx) && rootFontSizePx > 0 ? rootFontSizePx : BASE_ROOT_FONT_SIZE_PX;
 }
 
 export function readRootFontSizePx() {
@@ -20,7 +18,5 @@ export function readRootFontSizePx() {
         return BASE_ROOT_FONT_SIZE_PX;
     }
 
-    return normalizeRootFontSizePx(
-        Number.parseFloat(globalThis.getComputedStyle(document.documentElement).fontSize),
-    );
+    return normalizeRootFontSizePx(Number.parseFloat(globalThis.getComputedStyle(document.documentElement).fontSize));
 }

@@ -1,9 +1,9 @@
-import type { BrowserWindow } from 'electron';
-import type { ISearchMatchOptions } from '@pdf-core';
-import { validateSearchQuery } from '@pdf-core';
-import type { IAgentTabSnapshot } from '@contracts/agent';
-import { normalizeOptionalSearchPageCount } from '@contracts/search';
-import type { ISearchIndexCoverage } from '@contracts/searchIndexWire';
+import type {BrowserWindow} from 'electron';
+import type {ISearchMatchOptions} from '@pdf-core';
+import {validateSearchQuery} from '@pdf-core';
+import type {IAgentTabSnapshot} from '@contracts/agent';
+import {normalizeOptionalSearchPageCount} from '@contracts/search';
+import type {ISearchIndexCoverage} from '@contracts/searchIndexWire';
 import {
     ensureSearchIndex,
     pdfSearchDocument,
@@ -12,9 +12,7 @@ import {
     searchIndexedDocument,
     type IPageText,
 } from '@electron/features/search/public';
-import {
-    getWorkingCopyRevision,
-} from '@electron/file-access/documentStore';
+import {getWorkingCopyRevision} from '@electron/file-access/documentStore';
 
 export interface IAgentDocumentSearchOptions extends ISearchMatchOptions {
     query: string;
@@ -46,9 +44,7 @@ function normalizePositiveInteger(value: number | null | undefined, fallback: nu
 }
 
 function getTabPageCount(tab: IAgentTabSnapshot) {
-    return typeof tab.totalPages === 'number' && tab.totalPages > 0
-        ? normalizeOptionalSearchPageCount(tab.totalPages)
-        : undefined;
+    return typeof tab.totalPages === 'number' && tab.totalPages > 0 ? normalizeOptionalSearchPageCount(tab.totalPages) : undefined;
 }
 
 function getAgentTabPdfPath(tab: IAgentTabSnapshot) {
@@ -81,11 +77,14 @@ function buildTextStatus(coverage: ISearchIndexCoverage) {
     const textPageCount = Math.min(pageCount, coverage.pagesWritten);
     const scanComplete = !coverage.truncated && coverage.pagesScanned >= pageCount;
     return {
-        status: pageCount === 0
-            ? 'unknown' as const
-            : textPageCount === pageCount
-                ? 'complete' as const
-                : textPageCount === 0 ? 'none' as const : 'partial' as const,
+        status:
+            pageCount === 0
+                ? ('unknown' as const)
+                : textPageCount === pageCount
+                  ? ('complete' as const)
+                  : textPageCount === 0
+                    ? ('none' as const)
+                    : ('partial' as const),
         pageCount,
         textPageCount,
         missingTextPageCount: pageCount - textPageCount,
@@ -101,14 +100,17 @@ function createTextRecommendations(textStatus: ReturnType<typeof buildTextStatus
     if (textStatus.status !== 'partial' && textStatus.status !== 'none') {
         return [];
     }
-    return [{
-        id: 'ocr_all_pages',
-        title: 'OCR all pages',
-        reason: textStatus.status === 'none'
-            ? 'No searchable page text was found, so document search and page reading will be unreliable until OCR is run.'
-            : 'Some pages lack searchable text; OCRing all pages gives agents consistent page text.',
-        toolName: 'ocr.start',
-    }];
+    return [
+        {
+            id: 'ocr_all_pages',
+            title: 'OCR all pages',
+            reason:
+                textStatus.status === 'none'
+                    ? 'No searchable page text was found, so document search and page reading will be unreliable until OCR is run.'
+                    : 'Some pages lack searchable text; OCRing all pages gives agents consistent page text.',
+            toolName: 'ocr.start',
+        },
+    ];
 }
 
 export async function inspectAgentDocumentText(
@@ -116,11 +118,7 @@ export async function inspectAgentDocumentText(
     input: IAgentDocumentTextOperationInput<Record<never, never>>,
     signal?: AbortSignal,
 ) {
-    const {
-        requestedPath,
-        resolvedPdfPath,
-        document,
-    } = await resolveAgentDocument(window, input.tab, signal);
+    const {requestedPath, resolvedPdfPath, document} = await resolveAgentDocument(window, input.tab, signal);
     const textStatus = buildTextStatus(await ensureSearchIndex(document, signal === undefined ? {} : {signal}));
     return {
         tabId: input.tab.tabId,
@@ -148,17 +146,9 @@ export async function searchAgentDocument(
         useRegex: Boolean(input.options.useRegex),
     };
     validateSearchQuery(query, options);
-    const maxResults = normalizePositiveInteger(
-        input.options.maxResults,
-        DEFAULT_SEARCH_RESULT_LIMIT,
-        MAX_SEARCH_RESULT_LIMIT,
-    );
-    const pages = input.options.pages?.filter(page => Number.isSafeInteger(page) && page > 0);
-    const {
-        requestedPath,
-        resolvedPdfPath,
-        document,
-    } = await resolveAgentDocument(window, input.tab, signal);
+    const maxResults = normalizePositiveInteger(input.options.maxResults, DEFAULT_SEARCH_RESULT_LIMIT, MAX_SEARCH_RESULT_LIMIT);
+    const pages = input.options.pages?.filter((page) => Number.isSafeInteger(page) && page > 0);
+    const {requestedPath, resolvedPdfPath, document} = await resolveAgentDocument(window, input.tab, signal);
     const response = await searchIndexedDocument(
         document,
         query,
@@ -208,34 +198,25 @@ export async function readAgentDocumentPages(
     input: IAgentDocumentTextOperationInput<IAgentDocumentPageReadOptions>,
     signal?: AbortSignal,
 ) {
-    const {
-        requestedPath,
-        resolvedPdfPath,
-    } = await resolveAgentDocument(window, input.tab, signal);
+    const {requestedPath, resolvedPdfPath} = await resolveAgentDocument(window, input.tab, signal);
     const pageCount = getTabPageCount(input.tab);
-    const maxCharsPerPage = normalizePositiveInteger(
-        input.options.maxCharsPerPage,
-        DEFAULT_PAGE_TEXT_CHARS,
-        MAX_PAGE_TEXT_CHARS,
-    );
-    const requestedPages = Array.from(new Set(input.options.pages.map(page => Math.trunc(page))))
-        .filter(page => page >= 1 && (pageCount === undefined || page <= pageCount))
+    const maxCharsPerPage = normalizePositiveInteger(input.options.maxCharsPerPage, DEFAULT_PAGE_TEXT_CHARS, MAX_PAGE_TEXT_CHARS);
+    const requestedPages = Array.from(new Set(input.options.pages.map((page) => Math.trunc(page))))
+        .filter((page) => page >= 1 && (pageCount === undefined || page <= pageCount))
         .sort((left, right) => left - right);
     if (requestedPages.length === 0) {
-        throw new Error(pageCount === undefined
-            ? 'No requested pages were positive integers.'
-            : `No requested pages are within the document's 1-${pageCount} page range.`);
+        throw new Error(
+            pageCount === undefined
+                ? 'No requested pages were positive integers.'
+                : `No requested pages are within the document's 1-${pageCount} page range.`,
+        );
     }
-    const texts = new Map((await readPdfPageTexts(resolvedPdfPath, requestedPages, signal))
-        .map(page => [
-            page.pageNumber,
-            page.text,
-        ]));
-    const pageTexts = requestedPages.map(pageNumber => ({
+    const texts = new Map((await readPdfPageTexts(resolvedPdfPath, requestedPages, signal)).map((page) => [page.pageNumber, page.text]));
+    const pageTexts = requestedPages.map((pageNumber) => ({
         pageNumber,
         text: texts.get(pageNumber) ?? '',
     }));
-    const missingTextPages = pageTexts.filter(page => page.text.trim().length === 0).map(page => page.pageNumber);
+    const missingTextPages = pageTexts.filter((page) => page.text.trim().length === 0).map((page) => page.pageNumber);
     const textPageCount = pageTexts.length - missingTextPages.length;
     return {
         tabId: input.tab.tabId,
@@ -245,11 +226,10 @@ export async function readAgentDocumentPages(
         resolvedPdfPath,
         pageCount: pageCount ?? requestedPages.at(-1) ?? 0,
         source: 'direct-pdfjs' as const,
-        pages: pageTexts.map(page => buildPageTextResponse(page, maxCharsPerPage)),
+        pages: pageTexts.map((page) => buildPageTextResponse(page, maxCharsPerPage)),
         textStatus: {
-            status: textPageCount === pageTexts.length
-                ? 'complete' as const
-                : textPageCount === 0 ? 'none' as const : 'partial' as const,
+            status:
+                textPageCount === pageTexts.length ? ('complete' as const) : textPageCount === 0 ? ('none' as const) : ('partial' as const),
             textPageCount,
             missingTextPages,
             missingTextPageSample: missingTextPages.slice(0, MAX_MISSING_PAGE_SAMPLE),

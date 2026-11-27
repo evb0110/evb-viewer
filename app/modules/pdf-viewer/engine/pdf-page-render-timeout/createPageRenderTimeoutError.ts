@@ -1,4 +1,4 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
 import type {
     IPageRenderTimeoutError,
@@ -10,9 +10,7 @@ export function createPageRenderTimeoutError(
     stage: TPageRenderStallStage,
     timeoutMs: number,
 ): IPageRenderTimeoutError {
-    const error = new Error(
-        `Timed out waiting for ${stage} on page ${pageNumber} after ${timeoutMs}ms`,
-    ) as IPageRenderTimeoutError;
+    const error = new Error(`Timed out waiting for ${stage} on page ${pageNumber} after ${timeoutMs}ms`) as IPageRenderTimeoutError;
     error.name = 'PdfPageRenderTimeoutError';
     error.pageNumber = pageNumber;
     error.stage = stage;

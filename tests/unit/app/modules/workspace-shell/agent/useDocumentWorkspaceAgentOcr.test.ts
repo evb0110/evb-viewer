@@ -1,10 +1,5 @@
 import {ref} from 'vue';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import type {TPdfViewMode} from '@contracts/shared';
@@ -25,16 +20,16 @@ import type {
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import {createDefaultWorkspaceViewerCapabilities} from '@app/types/workspaceExpose';
 
-function createAgentOptions(
-    overrides: Partial<IUseDocumentWorkspaceAgentOptions> = {},
-): IUseDocumentWorkspaceAgentOptions {
+function createAgentOptions(overrides: Partial<IUseDocumentWorkspaceAgentOptions> = {}): IUseDocumentWorkspaceAgentOptions {
     const bookmarkItems = ref<IPdfBookmarkEntry[]>([]);
-    const pageLabelRanges = ref([{
-        startPage: 1,
-        style: 'D' as const,
-        prefix: '',
-        startNumber: 1,
-    }]);
+    const pageLabelRanges = ref([
+        {
+            startPage: 1,
+            style: 'D' as const,
+            prefix: '',
+            startNumber: 1,
+        },
+    ]);
     const showSidebar = ref(false);
     const sidebarTab = ref<'annotations' | 'bookmarks' | 'thumbnails' | 'search'>('annotations');
 
@@ -135,20 +130,24 @@ describe('createDocumentWorkspaceAgent', () => {
             cancelOcrForAgent: vi.fn(async () => ({ok: true})),
             getAgentOcrSnapshot: vi.fn(() => ({})),
         };
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            handleDropdownOpen,
-            ocr,
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                handleDropdownOpen,
+                ocr,
+            }),
+        );
 
-        await expect(agent.runAgentAction('ocr.start', {
-            pageRange: 'all',
-            languages: ['rus'],
-            qualityProfile: 'poor-scan',
-            preprocessingMode: 'clean',
-            pageSegmentationMode: 11,
-            supersessionPolicy: 'replace-all',
-            replaceAllAcknowledged: true,
-        })).resolves.toMatchObject({
+        await expect(
+            agent.runAgentAction('ocr.start', {
+                pageRange: 'all',
+                languages: ['rus'],
+                qualityProfile: 'poor-scan',
+                preprocessingMode: 'clean',
+                pageSegmentationMode: 11,
+                supersessionPolicy: 'replace-all',
+                replaceAllAcknowledged: true,
+            }),
+        ).resolves.toMatchObject({
             ok: true,
             actionId: 'ocr.start',
             tabId: 'tab-1',
@@ -170,14 +169,16 @@ describe('createDocumentWorkspaceAgent', () => {
     it('keeps a contract-requested OCR run in the background', async () => {
         const runOcrForAgent = vi.fn<IOcrPopupAgentExpose['runOcrForAgent']>(async () => ({ok: true}));
         const handleDropdownOpen = vi.fn();
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({
-            handleDropdownOpen,
-            ocr: {
-                runOcrForAgent,
-                cancelOcrForAgent: vi.fn(async () => ({ok: true})),
-                getAgentOcrSnapshot: vi.fn(() => ({})),
-            },
-        }));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                handleDropdownOpen,
+                ocr: {
+                    runOcrForAgent,
+                    cancelOcrForAgent: vi.fn(async () => ({ok: true})),
+                    getAgentOcrSnapshot: vi.fn(() => ({})),
+                },
+            }),
+        );
 
         await agent.runAgentAction('ocr.start', {
             languages: ['eng'],
@@ -212,24 +213,22 @@ describe('createDocumentWorkspaceAgent', () => {
 
     it('passes a multi-language OCR request to the popup', async () => {
         const runOcrForAgent = vi.fn<IOcrPopupAgentExpose['runOcrForAgent']>(async () => ({ok: true}));
-        const agent = createDocumentWorkspaceAgent(createAgentOptions({ocr: {
-            runOcrForAgent,
-            cancelOcrForAgent: vi.fn(async () => ({ok: true})),
-            getAgentOcrSnapshot: vi.fn(() => ({})),
-        }}));
+        const agent = createDocumentWorkspaceAgent(
+            createAgentOptions({
+                ocr: {
+                    runOcrForAgent,
+                    cancelOcrForAgent: vi.fn(async () => ({ok: true})),
+                    getAgentOcrSnapshot: vi.fn(() => ({})),
+                },
+            }),
+        );
 
-        await expect(agent.runAgentAction('ocr.start', {languages: [
-            'eng',
-            'rus',
-        ]})).resolves.toMatchObject({
+        await expect(agent.runAgentAction('ocr.start', {languages: ['eng', 'rus']})).resolves.toMatchObject({
             ok: true,
             actionId: 'ocr.start',
         });
         expect(runOcrForAgent.mock.lastCall?.[0]).toEqual({
-            languages: [
-                'eng',
-                'rus',
-            ],
+            languages: ['eng', 'rus'],
             open: true,
         });
     });

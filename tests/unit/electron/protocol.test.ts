@@ -1,15 +1,7 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
-import {
-    resolve, sep,
-} from 'node:path';
-import { pathToFileURL } from 'node:url';
+import {resolve, sep} from 'node:path';
+import {pathToFileURL} from 'node:url';
 
 const mocks = vi.hoisted(() => ({
     readdirSync: vi.fn(),
@@ -36,19 +28,13 @@ function useStaticFiles(files: string[]) {
             if (!file.startsWith(`${directory}${sep}`)) {
                 continue;
             }
-            const [
-                name,
-                ...rest
-            ] = file.slice(directory.length + 1).split(sep);
+            const [name, ...rest] = file.slice(directory.length + 1).split(sep);
             entries.set(name!, rest.length > 0);
         }
         if (entries.size === 0) {
             throw Object.assign(new Error(`ENOENT: ${directory}`), {code: 'ENOENT'});
         }
-        return [...entries].map(([
-            name,
-            isDirectory,
-        ]) => ({
+        return [...entries].map(([name, isDirectory]) => ({
             name,
             isFile: () => !isDirectory,
             isDirectory: () => isDirectory,
@@ -79,34 +65,39 @@ describe('app protocol', () => {
         mocks.config.renderer.staticRoot = resolve('/app/dist');
         mocks.isReady.mockReturnValue(true);
         useStaticFiles([]);
-        mocks.fetch.mockImplementation(async () => new Response('asset', {
-            status: 200,
-            headers: {'content-type': 'application/octet-stream'},
-        }));
+        mocks.fetch.mockImplementation(
+            async () =>
+                new Response('asset', {
+                    status: 200,
+                    headers: {'content-type': 'application/octet-stream'},
+                }),
+        );
     });
 
     it('registers the production scheme with exact privileged options once', async () => {
-        const { registerAppProtocolScheme } = await import('@electron/protocol');
+        const {registerAppProtocolScheme} = await import('@electron/protocol');
 
         registerAppProtocolScheme();
         registerAppProtocolScheme();
 
         expect(mocks.registerSchemesAsPrivileged).toHaveBeenCalledOnce();
-        expect(mocks.registerSchemesAsPrivileged).toHaveBeenCalledWith([{
-            scheme: 'evb-viewer',
-            privileges: {
-                bypassCSP: false,
-                corsEnabled: true,
-                secure: true,
-                standard: true,
-                supportFetchAPI: true,
-                codeCache: true,
+        expect(mocks.registerSchemesAsPrivileged).toHaveBeenCalledWith([
+            {
+                scheme: 'evb-viewer',
+                privileges: {
+                    bypassCSP: false,
+                    corsEnabled: true,
+                    secure: true,
+                    standard: true,
+                    supportFetchAPI: true,
+                    codeCache: true,
+                },
             },
-        }]);
+        ]);
     });
 
     it('skips handler registration in development and rejects registration before app readiness', async () => {
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
 
         mocks.config.isDev = true;
         setupAppProtocolHandler();
@@ -116,13 +107,12 @@ describe('app protocol', () => {
         mocks.config.isDev = false;
         mocks.isReady.mockReturnValue(false);
         const fresh = await import('@electron/protocol');
-        expect(() => fresh.setupAppProtocolHandler())
-            .toThrow('App protocol handler must be registered after Electron app readiness');
+        expect(() => fresh.setupAppProtocolHandler()).toThrow('App protocol handler must be registered after Electron app readiness');
     });
 
     it('serves known assets through net.fetch with a MIME override', async () => {
         useStaticFiles(['/app/dist/assets/app.js']);
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
 
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
@@ -136,7 +126,7 @@ describe('app protocol', () => {
 
     it('serves a directory request from its index.html', async () => {
         useStaticFiles(['/app/dist/electron/index.html']);
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
 
@@ -148,7 +138,7 @@ describe('app protocol', () => {
 
     it('caches path resolution across repeated and query-string requests', async () => {
         useStaticFiles(['/app/dist/assets/app.js']);
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
 
@@ -160,7 +150,7 @@ describe('app protocol', () => {
     });
 
     it('negatively caches missing URLs and resolves different paths independently', async () => {
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
 
@@ -173,7 +163,7 @@ describe('app protocol', () => {
     });
 
     it('bounds the path-resolution cache and evicts the oldest request', async () => {
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
         const paths = Array.from({length: 4_097}, (_, index) => `evb-viewer://app/assets/cache-${index}.js`);
@@ -187,44 +177,40 @@ describe('app protocol', () => {
     });
 
     it('validates the extensionless Electron fallback before caching it', async () => {
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
 
-        await expect(handler(new Request('evb-viewer://app/electron')))
-            .resolves.toMatchObject({status: 404});
+        await expect(handler(new Request('evb-viewer://app/electron'))).resolves.toMatchObject({status: 404});
 
         expect(mocks.readdirSync).toHaveBeenCalledWith(resolve('/app/dist/electron'), {withFileTypes: true});
         expect(mocks.fetch).not.toHaveBeenCalled();
     });
 
     it('rejects other hosts and encoded traversal', async () => {
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
 
-        await expect(handler(new Request('evb-viewer://evil/assets/app.js')))
-            .resolves.toMatchObject({status: 404});
-        await expect(handler(new Request('evb-viewer://app/%2e%2e/secret.txt')))
-            .resolves.toMatchObject({status: 404});
+        await expect(handler(new Request('evb-viewer://evil/assets/app.js'))).resolves.toMatchObject({status: 404});
+        await expect(handler(new Request('evb-viewer://app/%2e%2e/secret.txt'))).resolves.toMatchObject({status: 404});
         expect(mocks.fetch).not.toHaveBeenCalled();
     });
 
     it('caches directory entries across sibling files and misses in packaged mode while preserving CSP headers', async () => {
         mocks.isPackaged = true;
-        useStaticFiles([
-            '/app/dist/assets/app.js',
-            '/app/dist/assets/chunk.js',
-            '/app/dist/fonts/inter.woff2',
-        ]);
-        mocks.fetch.mockImplementation(async () => new Response('asset', {
-            status: 200,
-            headers: {
-                'content-type': 'application/octet-stream',
-                'content-security-policy': "default-src 'self'",
-            },
-        }));
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        useStaticFiles(['/app/dist/assets/app.js', '/app/dist/assets/chunk.js', '/app/dist/fonts/inter.woff2']);
+        mocks.fetch.mockImplementation(
+            async () =>
+                new Response('asset', {
+                    status: 200,
+                    headers: {
+                        'content-type': 'application/octet-stream',
+                        'content-security-policy': "default-src 'self'",
+                    },
+                }),
+        );
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
 
@@ -247,14 +233,12 @@ describe('app protocol', () => {
 
     it('negatively caches missing directories in packaged mode', async () => {
         mocks.isPackaged = true;
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
 
-        await expect(handler(new Request('evb-viewer://app/missing-dir/a.js')))
-            .resolves.toMatchObject({status: 404});
-        await expect(handler(new Request('evb-viewer://app/missing-dir/b.js')))
-            .resolves.toMatchObject({status: 404});
+        await expect(handler(new Request('evb-viewer://app/missing-dir/a.js'))).resolves.toMatchObject({status: 404});
+        await expect(handler(new Request('evb-viewer://app/missing-dir/b.js'))).resolves.toMatchObject({status: 404});
 
         expect(mocks.readdirSync).toHaveBeenCalledOnce();
         expect(mocks.fetch).not.toHaveBeenCalled();
@@ -262,7 +246,7 @@ describe('app protocol', () => {
 
     it('bounds the packaged directory-entry cache with LRU eviction', async () => {
         mocks.isPackaged = true;
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
 
@@ -289,7 +273,7 @@ describe('app protocol', () => {
     it('does not cache directory entries in unpacked mode', async () => {
         const files = ['/app/dist/assets/app.js'];
         useStaticFiles(files);
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
 
@@ -305,20 +289,14 @@ describe('app protocol', () => {
 
     it('blocks traversal before reading or caching directory entries in packaged mode', async () => {
         mocks.isPackaged = true;
-        useStaticFiles([
-            '/app/dist/assets/app.js',
-            '/app/secret.txt',
-        ]);
-        const { setupAppProtocolHandler } = await import('@electron/protocol');
+        useStaticFiles(['/app/dist/assets/app.js', '/app/secret.txt']);
+        const {setupAppProtocolHandler} = await import('@electron/protocol');
         setupAppProtocolHandler();
         const handler = mocks.handle.mock.calls[0]?.[1] as (request: Request) => Promise<Response>;
 
-        await expect(handler(new Request('evb-viewer://app/..%2fsecret.txt')))
-            .resolves.toMatchObject({status: 404});
-        await expect(handler(new Request('evb-viewer://app/assets/..%2f..%2fsecret.txt')))
-            .resolves.toMatchObject({status: 404});
-        await expect(handler(new Request('evb-viewer://evil/assets/app.js')))
-            .resolves.toMatchObject({status: 404});
+        await expect(handler(new Request('evb-viewer://app/..%2fsecret.txt'))).resolves.toMatchObject({status: 404});
+        await expect(handler(new Request('evb-viewer://app/assets/..%2f..%2fsecret.txt'))).resolves.toMatchObject({status: 404});
+        await expect(handler(new Request('evb-viewer://evil/assets/app.js'))).resolves.toMatchObject({status: 404});
 
         expect(mocks.readdirSync).not.toHaveBeenCalled();
         expect(mocks.fetch).not.toHaveBeenCalled();

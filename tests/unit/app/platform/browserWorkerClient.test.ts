@@ -1,11 +1,4 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
     BrowserWorkerBudget,
     BrowserWorkerClient,
@@ -64,7 +57,7 @@ function createWorkerClient() {
         idleTtlMs: 15_000,
         requestTimeoutMs: 1_000,
         createWorker: () => new FakeWorker(),
-        createError: event => new Error(event.message),
+        createError: (event) => new Error(event.message),
         handleMessage: () => {},
     });
 }
@@ -86,9 +79,9 @@ describe('BrowserWorkerClient', () => {
         const firstReject = vi.fn();
         const secondReject = vi.fn();
 
-        client.registerPendingRequest(1, { reject: firstReject }, () => new Error('first timed out'));
+        client.registerPendingRequest(1, {reject: firstReject}, () => new Error('first timed out'));
         await vi.advanceTimersByTimeAsync(500);
-        client.registerPendingRequest(2, { reject: secondReject }, () => new Error('second timed out'));
+        client.registerPendingRequest(2, {reject: secondReject}, () => new Error('second timed out'));
 
         await vi.advanceTimersByTimeAsync(500);
 
@@ -106,7 +99,7 @@ describe('BrowserWorkerClient', () => {
         client.getWorker();
         const reject = vi.fn();
 
-        client.registerPendingRequest(1, { reject }, () => new Error('request timed out'));
+        client.registerPendingRequest(1, {reject}, () => new Error('request timed out'));
 
         await vi.advanceTimersByTimeAsync(1_000);
 
@@ -120,12 +113,7 @@ describe('BrowserWorkerClient', () => {
         client.getWorker();
         const reject = vi.fn();
 
-        client.registerPendingRequest(
-            1,
-            { reject },
-            () => new Error('large request timed out'),
-            2_000,
-        );
+        client.registerPendingRequest(1, {reject}, () => new Error('large request timed out'), 2_000);
 
         await vi.advanceTimersByTimeAsync(1_000);
         expect(reject).not.toHaveBeenCalled();
@@ -165,7 +153,7 @@ describe('BrowserWorkerClient', () => {
         const client = new BrowserWorkerClient<IPendingTestRequest>({
             idleTtlMs: 15_000,
             createWorker: () => new FakeWorker(),
-            createError: event => new Error(event.message),
+            createError: (event) => new Error(event.message),
             handleMessage,
         });
         const firstWorker = client.getWorker();
@@ -232,30 +220,39 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
 
     function createOwner(slots: number, budget?: BrowserWorkerBudget) {
         const started: string[] = [];
-        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
-            idleTtlMs: 60_000,
-            ...(budget ? {budget} : {}),
-            createWorker: (key) => {
-                started.push(key ?? '');
-                return new FakeWorker(key);
-            },
-            createError: event => new Error(event.message),
-            handleMessage: () => {},
-        }), slots, budget);
+        const owner = new BrowserWorkerRequestOwner(
+            () =>
+                new BrowserWorkerClient<IPendingTestRequest>({
+                    idleTtlMs: 60_000,
+                    ...(budget ? {budget} : {}),
+                    createWorker: (key) => {
+                        started.push(key ?? '');
+                        return new FakeWorker(key);
+                    },
+                    createError: (event) => new Error(event.message),
+                    handleMessage: () => {},
+                }),
+            slots,
+            budget,
+        );
         let nextId = 1;
         /** Runs a request until `finish` is called, reporting the worker it ran on. */
         const hold = (key?: string, budgetReserve = 0) => {
             let finish!: () => void;
-            const finished = new Promise<void>(resolve => void (finish = resolve));
+            const finished = new Promise<void>((resolve) => void (finish = resolve));
             let ranOn!: (name: string) => void;
-            const worker = new Promise<string>(resolve => void (ranOn = resolve));
-            const done = owner.run(nextId++, async (client, _isAdmitted, workerKey) => {
-                ranOn((client.getWorker(workerKey) as FakeWorker).name);
-                await finished;
-            }, {
-                ...(key === undefined ? {} : {workerKey: () => key}),
-                budgetReserve,
-            });
+            const worker = new Promise<string>((resolve) => void (ranOn = resolve));
+            const done = owner.run(
+                nextId++,
+                async (client, _isAdmitted, workerKey) => {
+                    ranOn((client.getWorker(workerKey) as FakeWorker).name);
+                    await finished;
+                },
+                {
+                    ...(key === undefined ? {} : {workerKey: () => key}),
+                    budgetReserve,
+                },
+            );
             return {
                 worker,
                 finish: async () => {
@@ -326,28 +323,36 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
         try {
             const started: FakeWorker[] = [];
             const drainedMessages: unknown[] = [];
-            const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
-                idleTtlMs: 60_000,
-                createWorker: (key) => {
-                    const worker = new FakeWorker(key);
-                    started.push(worker);
-                    return worker;
-                },
-                createError: event => new Error(event.message),
-                handleMessage: () => {},
-                onDrainedMessage: data => drainedMessages.push(data),
-            }), 2);
+            const owner = new BrowserWorkerRequestOwner(
+                () =>
+                    new BrowserWorkerClient<IPendingTestRequest>({
+                        idleTtlMs: 60_000,
+                        createWorker: (key) => {
+                            const worker = new FakeWorker(key);
+                            started.push(worker);
+                            return worker;
+                        },
+                        createError: (event) => new Error(event.message),
+                        handleMessage: () => {},
+                        onDrainedMessage: (data) => drainedMessages.push(data),
+                    }),
+                2,
+            );
 
-            const first = owner.run(1, (client, _isAdmitted, workerKey) => {
-                client.getWorker(workerKey);
-                return new Promise<string>((_resolve, reject) => {
-                    client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
-                });
-            }, {
-                workerKey: () => 'threads-6',
-                keepWarmOnCancel: true,
-                drainTimeoutMs: 5_000,
-            });
+            const first = owner.run(
+                1,
+                (client, _isAdmitted, workerKey) => {
+                    client.getWorker(workerKey);
+                    return new Promise<string>((_resolve, reject) => {
+                        client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
+                    });
+                },
+                {
+                    workerKey: () => 'threads-6',
+                    keepWarmOnCancel: true,
+                    drainTimeoutMs: 5_000,
+                },
+            );
             await vi.advanceTimersByTimeAsync(0);
             expect(started).toHaveLength(1);
             const warmWorker = started[0]!;
@@ -356,14 +361,18 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
             await expect(first).rejects.toThrow('preview superseded');
 
             const secondStarted = Promise.withResolvers<FakeWorker>();
-            const second = owner.run(2, (client, _isAdmitted, workerKey) => {
-                const worker = client.getWorker(workerKey) as FakeWorker;
-                secondStarted.resolve(worker);
-                return Promise.resolve('second-ok');
-            }, {
-                workerKey: () => 'threads-6',
-                waitForDrainingSameKey: true,
-            });
+            const second = owner.run(
+                2,
+                (client, _isAdmitted, workerKey) => {
+                    const worker = client.getWorker(workerKey) as FakeWorker;
+                    secondStarted.resolve(worker);
+                    return Promise.resolve('second-ok');
+                },
+                {
+                    workerKey: () => 'threads-6',
+                    waitForDrainingSameKey: true,
+                },
+            );
 
             // Worker is draining, NOT terminated, and no duplicate threads-6 worker was spawned.
             expect(FakeWorker.terminateCount).toBe(0);
@@ -386,31 +395,37 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
         try {
             const started: FakeWorker[] = [];
             const drainedMessages: unknown[] = [];
-            const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
-                idleTtlMs: 60_000,
-                createWorker: (key) => {
-                    const worker = new FakeWorker(key);
-                    started.push(worker);
-                    return worker;
-                },
-                createError: event => new Error(event.message),
-                handleMessage: () => {},
-                onDrainedMessage: data => drainedMessages.push(data),
-                isProgressMessage: data => typeof data === 'object'
-                    && data !== null
-                    && Reflect.get(data, 'type') === 'progress',
-            }), 2);
+            const owner = new BrowserWorkerRequestOwner(
+                () =>
+                    new BrowserWorkerClient<IPendingTestRequest>({
+                        idleTtlMs: 60_000,
+                        createWorker: (key) => {
+                            const worker = new FakeWorker(key);
+                            started.push(worker);
+                            return worker;
+                        },
+                        createError: (event) => new Error(event.message),
+                        handleMessage: () => {},
+                        onDrainedMessage: (data) => drainedMessages.push(data),
+                        isProgressMessage: (data) => typeof data === 'object' && data !== null && Reflect.get(data, 'type') === 'progress',
+                    }),
+                2,
+            );
 
-            const first = owner.run(1, (client, _isAdmitted, workerKey) => {
-                client.getWorker(workerKey);
-                return new Promise<string>((_resolve, reject) => {
-                    client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
-                });
-            }, {
-                workerKey: () => 'threads-6',
-                keepWarmOnCancel: true,
-                drainTimeoutMs: 5_000,
-            });
+            const first = owner.run(
+                1,
+                (client, _isAdmitted, workerKey) => {
+                    client.getWorker(workerKey);
+                    return new Promise<string>((_resolve, reject) => {
+                        client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
+                    });
+                },
+                {
+                    workerKey: () => 'threads-6',
+                    keepWarmOnCancel: true,
+                    drainTimeoutMs: 5_000,
+                },
+            );
             await vi.advanceTimersByTimeAsync(0);
             const warmWorker = started[0]!;
 
@@ -419,39 +434,53 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
 
             let secondRan = false;
             let secondWorker: FakeWorker | null = null;
-            const second = owner.run(2, (client, _isAdmitted, workerKey) => {
-                secondRan = true;
-                secondWorker = client.getWorker(workerKey) as FakeWorker;
-                return Promise.resolve('second-ok');
-            }, {
-                workerKey: () => 'threads-6',
-                waitForDrainingSameKey: true,
-            });
+            const second = owner.run(
+                2,
+                (client, _isAdmitted, workerKey) => {
+                    secondRan = true;
+                    secondWorker = client.getWorker(workerKey) as FakeWorker;
+                    return Promise.resolve('second-ok');
+                },
+                {
+                    workerKey: () => 'threads-6',
+                    waitForDrainingSameKey: true,
+                },
+            );
 
             // A progress frame carrying the cancelled request ID must NOT release the worker.
-            warmWorker.dispatchEvent(new MessageEvent('message', {data: {
-                id: 1,
-                type: 'progress',
-                stage: 4,
-            }}));
+            warmWorker.dispatchEvent(
+                new MessageEvent('message', {
+                    data: {
+                        id: 1,
+                        type: 'progress',
+                        stage: 4,
+                    },
+                }),
+            );
             await vi.advanceTimersByTimeAsync(0);
             expect(secondRan).toBe(false);
             expect(drainedMessages).toEqual([]);
             expect(FakeWorker.terminateCount).toBe(0);
 
             // Only the terminal reply exits draining and hands the warm worker to request 2.
-            warmWorker.dispatchEvent(new MessageEvent('message', {data: {
-                id: 1,
-                ok: true,
-            }}));
+            warmWorker.dispatchEvent(
+                new MessageEvent('message', {
+                    data: {
+                        id: 1,
+                        ok: true,
+                    },
+                }),
+            );
             await expect(second).resolves.toBe('second-ok');
             expect(secondRan).toBe(true);
             expect(secondWorker).toBe(warmWorker);
             expect(started).toHaveLength(1);
-            expect(drainedMessages).toEqual([{
-                id: 1,
-                ok: true,
-            }]);
+            expect(drainedMessages).toEqual([
+                {
+                    id: 1,
+                    ok: true,
+                },
+            ]);
             expect(FakeWorker.terminateCount).toBe(0);
         } finally {
             vi.useRealTimers();
@@ -462,32 +491,44 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
         vi.useFakeTimers();
         try {
             const started: FakeWorker[] = [];
-            const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
-                idleTtlMs: 60_000,
-                createWorker: (key) => {
-                    const worker = new FakeWorker(key);
-                    started.push(worker);
-                    return worker;
-                },
-                createError: event => new Error(event.message),
-                handleMessage: () => {},
-            }), 1);
+            const owner = new BrowserWorkerRequestOwner(
+                () =>
+                    new BrowserWorkerClient<IPendingTestRequest>({
+                        idleTtlMs: 60_000,
+                        createWorker: (key) => {
+                            const worker = new FakeWorker(key);
+                            started.push(worker);
+                            return worker;
+                        },
+                        createError: (event) => new Error(event.message),
+                        handleMessage: () => {},
+                    }),
+                1,
+            );
 
-            const first = owner.run(1, (client, _isAdmitted, workerKey) => {
-                client.getWorker(workerKey);
-                return new Promise<string>((_resolve, reject) => {
-                    client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
-                });
-            }, {
-                workerKey: () => 'threads-6',
-                keepWarmOnCancel: true,
-                drainTimeoutMs: 500,
-            });
+            const first = owner.run(
+                1,
+                (client, _isAdmitted, workerKey) => {
+                    client.getWorker(workerKey);
+                    return new Promise<string>((_resolve, reject) => {
+                        client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
+                    });
+                },
+                {
+                    workerKey: () => 'threads-6',
+                    keepWarmOnCancel: true,
+                    drainTimeoutMs: 500,
+                },
+            );
             await vi.advanceTimersByTimeAsync(0);
-            const second = owner.run(2, (client, _isAdmitted, workerKey) => {
-                client.getWorker(workerKey);
-                return Promise.resolve('recovered');
-            }, {workerKey: () => 'threads-6'});
+            const second = owner.run(
+                2,
+                (client, _isAdmitted, workerKey) => {
+                    client.getWorker(workerKey);
+                    return Promise.resolve('recovered');
+                },
+                {workerKey: () => 'threads-6'},
+            );
 
             owner.cancel(1, new Error('stuck'));
             await expect(first).rejects.toThrow('stuck');
@@ -506,38 +547,54 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
         vi.useFakeTimers();
         try {
             const started: FakeWorker[] = [];
-            const budget = new BrowserWorkerBudget(() => 2, key => key?.startsWith('threads') === true);
-            const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
-                idleTtlMs: 60_000,
+            const budget = new BrowserWorkerBudget(
+                () => 2,
+                (key) => key?.startsWith('threads') === true,
+            );
+            const owner = new BrowserWorkerRequestOwner(
+                () =>
+                    new BrowserWorkerClient<IPendingTestRequest>({
+                        idleTtlMs: 60_000,
+                        budget,
+                        createWorker: (key) => {
+                            const worker = new FakeWorker(key);
+                            started.push(worker);
+                            return worker;
+                        },
+                        createError: (event) => new Error(event.message),
+                        handleMessage: () => {},
+                    }),
+                2,
                 budget,
-                createWorker: (key) => {
-                    const worker = new FakeWorker(key);
-                    started.push(worker);
-                    return worker;
-                },
-                createError: event => new Error(event.message),
-                handleMessage: () => {},
-            }), 2, budget);
+            );
 
-            const analysis = owner.run(1, (client, _isAdmitted, workerKey) => {
-                client.getWorker(workerKey);
-                return new Promise<string>((_resolve, reject) => {
-                    client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
-                });
-            }, {
-                workerKey: () => 'single',
-                keepWarmOnCancel: true,
-                drainTimeoutMs: 5_000,
-            });
+            const analysis = owner.run(
+                1,
+                (client, _isAdmitted, workerKey) => {
+                    client.getWorker(workerKey);
+                    return new Promise<string>((_resolve, reject) => {
+                        client.registerPendingRequest(1, {reject}, () => new Error('timeout'));
+                    });
+                },
+                {
+                    workerKey: () => 'single',
+                    keepWarmOnCancel: true,
+                    drainTimeoutMs: 5_000,
+                },
+            );
             await vi.advanceTimersByTimeAsync(0);
             owner.cancel(1, new Error('analysis canceled'));
             await expect(analysis).rejects.toThrow('analysis canceled');
 
             // Unrelated preview on single-threaded engine must start immediately on the second lane.
-            const preview = owner.run(2, (client, _isAdmitted, workerKey) => {
-                client.getWorker(workerKey);
-                return Promise.resolve('preview-ok');
-            }, {workerKey: () => 'single'});
+            const preview = owner.run(
+                2,
+                (client, _isAdmitted, workerKey) => {
+                    client.getWorker(workerKey);
+                    return Promise.resolve('preview-ok');
+                },
+                {workerKey: () => 'single'},
+            );
             await expect(preview).resolves.toBe('preview-ok');
             expect(started).toHaveLength(2);
             expect(FakeWorker.terminateCount).toBe(0);
@@ -548,37 +605,49 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
 
     it('routes requests with an affinityKey to the idle worker that last served that key', async () => {
         const workers: FakeWorker[] = [];
-        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
-            idleTtlMs: 60_000,
-            createWorker: () => {
-                const worker = new FakeWorker(`w${workers.length}`);
-                workers.push(worker);
-                return worker;
-            },
-            createError: event => new Error(event.message),
-            handleMessage: () => {},
-        }), 2);
+        const owner = new BrowserWorkerRequestOwner(
+            () =>
+                new BrowserWorkerClient<IPendingTestRequest>({
+                    idleTtlMs: 60_000,
+                    createWorker: () => {
+                        const worker = new FakeWorker(`w${workers.length}`);
+                        workers.push(worker);
+                        return worker;
+                    },
+                    createError: (event) => new Error(event.message),
+                    handleMessage: () => {},
+                }),
+            2,
+        );
 
         const releaseA = Promise.withResolvers<void>();
         const releaseB = Promise.withResolvers<void>();
         let workerA = '';
         let workerB = '';
-        const runA = owner.run(1, async (client) => {
-            workerA = (client.getWorker() as FakeWorker).name;
-            await releaseA.promise;
-        }, {affinityKey: 'doc-a'});
-        const runB = owner.run(2, async (client) => {
-            workerB = (client.getWorker() as FakeWorker).name;
-            await releaseB.promise;
-        }, {affinityKey: 'doc-b'});
+        const runA = owner.run(
+            1,
+            async (client) => {
+                workerA = (client.getWorker() as FakeWorker).name;
+                await releaseA.promise;
+            },
+            {affinityKey: 'doc-a'},
+        );
+        const runB = owner.run(
+            2,
+            async (client) => {
+                workerB = (client.getWorker() as FakeWorker).name;
+                await releaseB.promise;
+            },
+            {affinityKey: 'doc-b'},
+        );
         await Promise.resolve();
         releaseA.resolve();
         releaseB.resolve();
         await Promise.all([runA, runB]);
 
         expect(workerA).not.toBe(workerB);
-        const followB = await owner.run(3, async client => (client.getWorker() as FakeWorker).name, {affinityKey: 'doc-b'});
-        const followA = await owner.run(4, async client => (client.getWorker() as FakeWorker).name, {affinityKey: 'doc-a'});
+        const followB = await owner.run(3, async (client) => (client.getWorker() as FakeWorker).name, {affinityKey: 'doc-b'});
+        const followA = await owner.run(4, async (client) => (client.getWorker() as FakeWorker).name, {affinityKey: 'doc-a'});
         expect(followB).toBe(workerB);
         expect(followA).toBe(workerA);
     });
@@ -590,12 +659,16 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
                 posted.push(message as {id: number; label: string});
             }
         }
-        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
-            idleTtlMs: 60_000,
-            createWorker: () => new RecordingWorker(),
-            createError: event => new Error(event.message),
-            handleMessage: () => {},
-        }), 1);
+        const owner = new BrowserWorkerRequestOwner(
+            () =>
+                new BrowserWorkerClient<IPendingTestRequest>({
+                    idleTtlMs: 60_000,
+                    createWorker: () => new RecordingWorker(),
+                    createError: (event) => new Error(event.message),
+                    handleMessage: () => {},
+                }),
+            1,
+        );
 
         const heldYield = Promise.withResolvers<void>();
         let aEntered = false;
@@ -604,7 +677,9 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
             aEntered = true;
             await heldYield.promise;
             aAdmittedAfterYield = isAdmitted();
-            if (!aAdmittedAfterYield) return 'stale-a';
+            if (!aAdmittedAfterYield) {
+                return 'stale-a';
+            }
             const worker = client.getWorker();
             client.registerPendingRequest(1, {reject: () => {}}, () => new Error('timeout'));
             worker.postMessage({id: 1, label: 'A'});
@@ -638,18 +713,24 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
     it('schedules idle termination when hard-canceled after getWorker but before pending registration', async () => {
         vi.useFakeTimers();
         try {
-            const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
-                idleTtlMs: 1_000,
-                createWorker: () => new FakeWorker(),
-                createError: event => new Error(event.message),
-                handleMessage: () => {},
-            }), 1);
+            const owner = new BrowserWorkerRequestOwner(
+                () =>
+                    new BrowserWorkerClient<IPendingTestRequest>({
+                        idleTtlMs: 1_000,
+                        createWorker: () => new FakeWorker(),
+                        createError: (event) => new Error(event.message),
+                        handleMessage: () => {},
+                    }),
+                1,
+            );
 
             const heldYield = Promise.withResolvers<void>();
             const requestA = owner.run(1, async (client, isAdmitted) => {
                 client.getWorker();
                 await heldYield.promise;
-                if (!isAdmitted()) return 'stale-a';
+                if (!isAdmitted()) {
+                    return 'stale-a';
+                }
                 return 'done-a';
             });
 
@@ -669,16 +750,20 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
 
     it('terminates the worker on hard cancel of an already-posted request and unblocks waiting siblings', async () => {
         const started: FakeWorker[] = [];
-        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
-            idleTtlMs: 60_000,
-            createWorker: () => {
-                const worker = new FakeWorker();
-                started.push(worker);
-                return worker;
-            },
-            createError: event => new Error(event.message),
-            handleMessage: () => {},
-        }), 1);
+        const owner = new BrowserWorkerRequestOwner(
+            () =>
+                new BrowserWorkerClient<IPendingTestRequest>({
+                    idleTtlMs: 60_000,
+                    createWorker: () => {
+                        const worker = new FakeWorker();
+                        started.push(worker);
+                        return worker;
+                    },
+                    createError: (event) => new Error(event.message),
+                    handleMessage: () => {},
+                }),
+            1,
+        );
 
         const requestA = owner.run(1, (client) => {
             client.getWorker();
@@ -704,26 +789,34 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
 
     it('still terminates the worker and rejects the request if a pending reject callback throws on hard cancel', async () => {
         const started: FakeWorker[] = [];
-        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
-            idleTtlMs: 60_000,
-            createWorker: () => {
-                const worker = new FakeWorker();
-                started.push(worker);
-                return worker;
-            },
-            createError: event => new Error(event.message),
-            handleMessage: () => {},
-        }), 1);
+        const owner = new BrowserWorkerRequestOwner(
+            () =>
+                new BrowserWorkerClient<IPendingTestRequest>({
+                    idleTtlMs: 60_000,
+                    createWorker: () => {
+                        const worker = new FakeWorker();
+                        started.push(worker);
+                        return worker;
+                    },
+                    createError: (event) => new Error(event.message),
+                    handleMessage: () => {},
+                }),
+            1,
+        );
 
         const requestA = owner.run(1, (client) => {
             client.getWorker();
             return new Promise<string>((_resolve, reject) => {
-                client.registerPendingRequest(1, {
-                    reject: (error) => {
-                        Object.defineProperty(error, 'failure', {value: 'diagnostics'});
-                        reject(error);
+                client.registerPendingRequest(
+                    1,
+                    {
+                        reject: (error) => {
+                            Object.defineProperty(error, 'failure', {value: 'diagnostics'});
+                            reject(error);
+                        },
                     },
-                }, () => new Error('timeout'));
+                    () => new Error('timeout'),
+                );
             });
         });
 
@@ -750,28 +843,37 @@ describe('BrowserWorkerBudget across pools', () => {
 
     function createPool(slots: number, budget: BrowserWorkerBudget) {
         const started: string[] = [];
-        const owner = new BrowserWorkerRequestOwner(() => new BrowserWorkerClient<IPendingTestRequest>({
-            idleTtlMs: 60_000,
+        const owner = new BrowserWorkerRequestOwner(
+            () =>
+                new BrowserWorkerClient<IPendingTestRequest>({
+                    idleTtlMs: 60_000,
+                    budget,
+                    createWorker: (key) => {
+                        started.push(key ?? '');
+                        return new FakeWorker(key);
+                    },
+                    createError: (event) => new Error(event.message),
+                    handleMessage: () => {},
+                }),
+            slots,
             budget,
-            createWorker: (key) => {
-                started.push(key ?? '');
-                return new FakeWorker(key);
-            },
-            createError: event => new Error(event.message),
-            handleMessage: () => {},
-        }), slots, budget);
+        );
         let nextId = 1;
         const hold = (key: string, budgetReserve = 0) => {
             let finish!: () => void;
-            const finished = new Promise<void>(resolve => void (finish = resolve));
+            const finished = new Promise<void>((resolve) => void (finish = resolve));
             let ranOn: string | null = null;
-            const done = owner.run(nextId++, async (client, _isAdmitted, workerKey) => {
-                ranOn = (client.getWorker(workerKey) as FakeWorker).name;
-                await finished;
-            }, {
-                workerKey: () => key,
-                budgetReserve,
-            });
+            const done = owner.run(
+                nextId++,
+                async (client, _isAdmitted, workerKey) => {
+                    ranOn = (client.getWorker(workerKey) as FakeWorker).name;
+                    await finished;
+                },
+                {
+                    workerKey: () => key,
+                    budgetReserve,
+                },
+            );
             return {
                 ranOn: () => ranOn,
                 finish: async () => {
@@ -788,11 +890,16 @@ describe('BrowserWorkerBudget across pools', () => {
 
     /** Lets admission run: owners admit again in a microtask after a place frees. */
     const settle = async () => {
-        for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 10; turn += 1) {
+            await Promise.resolve();
+        }
     };
 
     it('starts no counted worker past the budget; a waiting request starts once a place frees, in any pool', async () => {
-        const budget = new BrowserWorkerBudget(() => 2, key => key?.startsWith('threads') === true);
+        const budget = new BrowserWorkerBudget(
+            () => 2,
+            (key) => key?.startsWith('threads') === true,
+        );
         const cleanup = createPool(4, budget);
         const ocr = createPool(4, budget);
         const first = cleanup.hold('threads-2');
@@ -815,7 +922,10 @@ describe('BrowserWorkerBudget across pools', () => {
     });
 
     it('replaces an idle counted worker of its own pool when the budget is full', async () => {
-        const budget = new BrowserWorkerBudget(() => 1, key => key?.startsWith('threads') === true);
+        const budget = new BrowserWorkerBudget(
+            () => 1,
+            (key) => key?.startsWith('threads') === true,
+        );
         const pool = createPool(3, budget);
         const preview = pool.hold('threads-6');
         await settle();
@@ -828,11 +938,14 @@ describe('BrowserWorkerBudget across pools', () => {
     });
 
     it('keeps a place free for an interactive request while a batch fills the rest', async () => {
-        const budget = new BrowserWorkerBudget(() => 3, key => key?.startsWith('threads') === true);
+        const budget = new BrowserWorkerBudget(
+            () => 3,
+            (key) => key?.startsWith('threads') === true,
+        );
         const pool = createPool(5, budget);
         const pages = [pool.hold('threads-2', 1), pool.hold('threads-2', 1), pool.hold('threads-2', 1)];
         await settle();
-        expect(pages.map(page => page.ranOn())).toEqual(['threads-2', 'threads-2', null]);
+        expect(pages.map((page) => page.ranOn())).toEqual(['threads-2', 'threads-2', null]);
         const preview = pool.hold('threads-6');
         await settle();
         expect(preview.ranOn()).toBe('threads-6');
@@ -843,14 +956,17 @@ describe('BrowserWorkerBudget across pools', () => {
         const nextPreview = pool.hold('threads-6');
         await settle();
         expect(nextPreview.ranOn()).toBe('threads-6');
-        await Promise.all([...pages.slice(0, 2), nextPreview].map(request => request.finish()));
+        await Promise.all([...pages.slice(0, 2), nextPreview].map((request) => request.finish()));
         await settle();
         expect(pages[2]!.ranOn()).toBe('threads-2');
         await pages[2]!.finish();
     });
 
     it('ends no idle worker of another pool when busy workers leave no place to take', async () => {
-        const budget = new BrowserWorkerBudget(() => 2, key => key?.startsWith('threads') === true);
+        const budget = new BrowserWorkerBudget(
+            () => 2,
+            (key) => key?.startsWith('threads') === true,
+        );
         const cleanup = createPool(3, budget);
         const ocr = createPool(3, budget);
         const preview = cleanup.hold('threads-6');
@@ -905,7 +1021,11 @@ describe('scan cleanup engine threads', () => {
 
     it('runs no queued request on a threaded worker once a threaded start failed, in either pool', async () => {
         vi.stubGlobal('crossOriginIsolated', true);
-        vi.stubGlobal('navigator', {hardwareConcurrency: 11, userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'});
+        vi.stubGlobal('navigator', {
+            hardwareConcurrency: 11,
+            userAgent:
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+        });
         vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         vi.resetModules();
         const variant = await import('@app/platform/browser-api/scanCleanupEngineVariant');
@@ -916,10 +1036,15 @@ describe('scan cleanup engine threads', () => {
         const threadedWorkers: Array<{terminated: boolean}> = [];
         class EngineWorker extends EventTarget {
             private readonly record = {terminated: false};
-            public constructor(_url: URL, private readonly options: {name: string}) {
+            public constructor(
+                _url: URL,
+                private readonly options: {name: string},
+            ) {
                 super();
                 events.push({kind: 'started', worker: options.name});
-                if (readScanCleanupEngineWorkerThreads(options.name) !== null) threadedWorkers.push(this.record);
+                if (readScanCleanupEngineWorkerThreads(options.name) !== null) {
+                    threadedWorkers.push(this.record);
+                }
             }
 
             public postMessage(message: {id: number; type: string; payload: {label: string}}) {
@@ -927,23 +1052,27 @@ describe('scan cleanup engine threads', () => {
                 queueMicrotask(() => {
                     const threaded = readScanCleanupEngineWorkerThreads(this.options.name) !== null;
                     events.push({kind: threaded ? 'failed' : 'ran', worker: this.options.name, payload: message.payload.label});
-                    this.dispatchEvent(new MessageEvent('message', {data: threaded
-                        ? {
-                            id: message.id,
-                            ok: false,
-                            error: 'its threads did not start',
-                            errorEnvelope: {
-                                code: SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE,
-                                message: 'its threads did not start',
-                                details: {payload: {label: `${message.payload.label} returned`}},
-                            },
-                        }
-                        : {
-                            id: message.id,
-                            ok: true,
-                            type: message.type,
-                            data: {status: 'succeeded', result: {}},
-                        }}));
+                    this.dispatchEvent(
+                        new MessageEvent('message', {
+                            data: threaded
+                                ? {
+                                      id: message.id,
+                                      ok: false,
+                                      error: 'its threads did not start',
+                                      errorEnvelope: {
+                                          code: SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE,
+                                          message: 'its threads did not start',
+                                          details: {payload: {label: `${message.payload.label} returned`}},
+                                      },
+                                  }
+                                : {
+                                      id: message.id,
+                                      ok: true,
+                                      type: message.type,
+                                      data: {status: 'succeeded', result: {}},
+                                  },
+                        }),
+                    );
                 });
             }
 
@@ -956,31 +1085,38 @@ describe('scan cleanup engine threads', () => {
 
         // A 4-page batch and a preview queue at once, more than the pool's places.
         const signal = new AbortController().signal;
-        const requests = Array.from({length: 12}, (_unused, index) => runBrowserScanCleanupWorkerRequest(
-            'plan-analysis',
-            {label: `page ${String(index + 1)}`} as never,
-            signal,
-            undefined,
-            index === 11 ? 1 : 4,
-        ));
+        const requests = Array.from({length: 12}, (_unused, index) =>
+            runBrowserScanCleanupWorkerRequest(
+                'plan-analysis',
+                {label: `page ${String(index + 1)}`} as never,
+                signal,
+                undefined,
+                index === 11 ? 1 : 4,
+            ),
+        );
         await expect(Promise.all(requests)).resolves.toHaveLength(12);
 
-        const firstFailure = events.findIndex(event => event.kind === 'failed');
+        const firstFailure = events.findIndex((event) => event.kind === 'failed');
         expect(firstFailure).toBeGreaterThanOrEqual(0);
         // After the first failure no request reaches a threaded worker, new or already running.
         const afterSwitch = events.slice(firstFailure + 1);
-        expect(afterSwitch.filter(event => (event.kind === 'started' || event.kind === 'sent')
-            && readScanCleanupEngineWorkerThreads(event.worker) !== null)).toEqual([]);
+        expect(
+            afterSwitch.filter(
+                (event) => (event.kind === 'started' || event.kind === 'sent') && readScanCleanupEngineWorkerThreads(event.worker) !== null,
+            ),
+        ).toEqual([]);
         // Requests admitted before the switch ran again with the page they handed back; none ran threaded.
-        const ran = events.filter(event => event.kind === 'ran');
-        expect(ran.every(event => readScanCleanupEngineWorkerThreads(event.worker) === null)).toBe(true);
+        const ran = events.filter((event) => event.kind === 'ran');
+        expect(ran.every((event) => readScanCleanupEngineWorkerThreads(event.worker) === null)).toBe(true);
         // Each page ran once, and a page a threaded worker refused ran with the payload it handed back.
         const labels = Array.from({length: 12}, (_unused, index) => `page ${String(index + 1)}`);
-        const failed = new Set(events.filter(event => event.kind === 'failed').map(event => event.payload));
-        expect(ran.map(event => event.payload).sort()).toEqual(labels.map(label => (failed.has(label) ? `${label} returned` : label)).sort());
+        const failed = new Set(events.filter((event) => event.kind === 'failed').map((event) => event.payload));
+        expect(ran.map((event) => event.payload).sort()).toEqual(
+            labels.map((label) => (failed.has(label) ? `${label} returned` : label)).sort(),
+        );
         // No threaded worker outlives the switch, busy or idle when it came.
         expect(threadedWorkers.length).toBeGreaterThan(0);
-        expect(threadedWorkers.every(worker => worker.terminated)).toBe(true);
+        expect(threadedWorkers.every((worker) => worker.terminated)).toBe(true);
         expect(otherPool).toHaveBeenCalledOnce();
         expect(variant.usesThreadedScanCleanupEngine()).toBe(false);
     });
@@ -994,7 +1130,12 @@ describe('scan cleanup engine threads', () => {
         expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: null})).toBe(false);
         // A 32-bit Chrome on 64-bit Windows reports the platform's bitness and wow64.
         expect(isSixtyFourBitBrowser({userAgent: chromeLinux, bitness: '64', wow64: true})).toBe(false);
-        expect(isSixtyFourBitBrowser({userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'})).toBe(true);
+        expect(
+            isSixtyFourBitBrowser({
+                userAgent:
+                    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+            }),
+        ).toBe(true);
         expect(isSixtyFourBitBrowser({userAgent: firefox('Macintosh; Intel Mac OS X 10.15')})).toBe(true);
         expect(isSixtyFourBitBrowser({userAgent: firefox('Windows NT 10.0; Win64; x64')})).toBe(true);
         expect(isSixtyFourBitBrowser({userAgent: firefox('X11; Linux x86_64')})).toBe(true);
@@ -1008,7 +1149,10 @@ describe('scan cleanup engine threads', () => {
 
     it('runs the single-threaded engine in a 32-bit browser even when the page is isolated', async () => {
         vi.stubGlobal('crossOriginIsolated', true);
-        vi.stubGlobal('navigator', {hardwareConcurrency: 11, userAgent: 'Mozilla/5.0 (Windows NT 10.0; WOW64; rv:140.0) Gecko/20100101 Firefox/140.0'});
+        vi.stubGlobal('navigator', {
+            hardwareConcurrency: 11,
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; WOW64; rv:140.0) Gecko/20100101 Firefox/140.0',
+        });
         vi.resetModules();
         const variant = await import('@app/platform/browser-api/scanCleanupEngineVariant');
         expect(await variant.prepareScanCleanupEngine()).toBe(false);
@@ -1017,7 +1161,11 @@ describe('scan cleanup engine threads', () => {
 
     it('starts no threaded worker for requests that run no engine', async () => {
         vi.stubGlobal('crossOriginIsolated', true);
-        vi.stubGlobal('navigator', {hardwareConcurrency: 11, userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'});
+        vi.stubGlobal('navigator', {
+            hardwareConcurrency: 11,
+            userAgent:
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+        });
         vi.resetModules();
         const started: string[] = [];
         class PixelWorker extends EventTarget {
@@ -1027,12 +1175,18 @@ describe('scan cleanup engine threads', () => {
             }
 
             public postMessage(message: {id: number; type: string}) {
-                queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', {data: {
-                    id: message.id,
-                    ok: true,
-                    type: message.type,
-                    data: {png: new Uint8Array(1)},
-                }})));
+                queueMicrotask(() =>
+                    this.dispatchEvent(
+                        new MessageEvent('message', {
+                            data: {
+                                id: message.id,
+                                ok: true,
+                                type: message.type,
+                                data: {png: new Uint8Array(1)},
+                            },
+                        }),
+                    ),
+                );
             }
 
             public terminate() {}
@@ -1041,9 +1195,11 @@ describe('scan cleanup engine threads', () => {
         const {runBrowserScanCleanupWorkerRequest} = await import('@app/platform/browser-api/browserScanCleanupWorkerClient');
         const signal = new AbortController().signal;
         // A batch's pages encode their originals at once, one worker each.
-        await Promise.all(Array.from({length: 9}, () => runBrowserScanCleanupWorkerRequest('encode-png', {ppm: new Uint8Array(1)}, signal)));
+        await Promise.all(
+            Array.from({length: 9}, () => runBrowserScanCleanupWorkerRequest('encode-png', {ppm: new Uint8Array(1)}, signal)),
+        );
         expect(started).toHaveLength(9);
-        expect(started.filter(name => readScanCleanupEngineWorkerThreads(name) !== null)).toEqual([]);
+        expect(started.filter((name) => readScanCleanupEngineWorkerThreads(name) !== null)).toEqual([]);
     });
 
     it('does not retry a request that failed for any other reason', async () => {
@@ -1067,7 +1223,8 @@ describe('scan cleanup engine threads', () => {
         vi.stubGlobal('crossOriginIsolated', true);
         vi.stubGlobal('navigator', {
             hardwareConcurrency: 11,
-            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+            userAgent:
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
         });
         vi.resetModules();
 
@@ -1087,12 +1244,16 @@ describe('scan cleanup engine threads', () => {
                     terminated: false,
                     posted: [],
                     reply: (id, type) => {
-                        this.dispatchEvent(new MessageEvent('message', {data: {
-                            id,
-                            ok: true,
-                            type,
-                            data: {status: 'succeeded', result: {}},
-                        }}));
+                        this.dispatchEvent(
+                            new MessageEvent('message', {
+                                data: {
+                                    id,
+                                    ok: true,
+                                    type,
+                                    data: {status: 'succeeded', result: {}},
+                                },
+                            }),
+                        );
                     },
                 };
                 workers.push(this.record);
@@ -1158,7 +1319,8 @@ describe('scan cleanup engine threads', () => {
         vi.stubGlobal('navigator', {
             hardwareConcurrency: 2,
             deviceMemory: 2,
-            userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
+            userAgent:
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
         });
         vi.resetModules();
 
@@ -1176,16 +1338,20 @@ describe('scan cleanup engine threads', () => {
                     terminated: false,
                     posted: [],
                     replyAssemble: (id) => {
-                        this.dispatchEvent(new MessageEvent('message', {data: {
-                            id,
-                            ok: true,
-                            type: 'assemble-raster',
-                            data: {
-                                width: 1,
-                                height: 1,
-                                ppm: new Uint8Array([0]),
-                            },
-                        }}));
+                        this.dispatchEvent(
+                            new MessageEvent('message', {
+                                data: {
+                                    id,
+                                    ok: true,
+                                    type: 'assemble-raster',
+                                    data: {
+                                        width: 1,
+                                        height: 1,
+                                        ppm: new Uint8Array([0]),
+                                    },
+                                },
+                            }),
+                        );
                     },
                 };
                 workers.push(this.record);

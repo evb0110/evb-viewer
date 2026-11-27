@@ -1,13 +1,12 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import {AsyncLocalStorage} from 'node:async_hooks';
 
-interface IWorkingCopyMutationCommitSignal {markCommitStarted: () => void;}
+interface IWorkingCopyMutationCommitSignal {
+    markCommitStarted: () => void;
+}
 
 const activeWorkingCopyMutationCommitSignal = new AsyncLocalStorage<IWorkingCopyMutationCommitSignal>();
 
-export function runWithWorkingCopyMutationCommitSignal<T>(
-    signal: IWorkingCopyMutationCommitSignal,
-    callback: () => T,
-) {
+export function runWithWorkingCopyMutationCommitSignal<T>(signal: IWorkingCopyMutationCommitSignal, callback: () => T) {
     return activeWorkingCopyMutationCommitSignal.run(signal, callback);
 }
 

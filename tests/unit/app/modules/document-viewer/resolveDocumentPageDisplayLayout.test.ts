@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     resolveDocumentPageDisplayLayouts,
     resolveDocumentPageDisplayScale,
@@ -45,14 +41,16 @@ describe('document page display layout', () => {
     });
 
     it('fits the widest page in continuous scroll, one scale for every page', () => {
-        expect(resolveDocumentPageDisplayLayouts({
-            availableHeight: 500,
-            availableWidth: 600,
-            manualZoom: 1,
-            pageSizes: variablePageSizes,
-            zoomMode: 'fit-width',
-            continuousScroll: true,
-        })).toEqual([
+        expect(
+            resolveDocumentPageDisplayLayouts({
+                availableHeight: 500,
+                availableWidth: 600,
+                manualZoom: 1,
+                pageSizes: variablePageSizes,
+                zoomMode: 'fit-width',
+                continuousScroll: true,
+            }),
+        ).toEqual([
             {
                 height: 750,
                 scale: 0.75,
@@ -67,14 +65,16 @@ describe('document page display layout', () => {
     });
 
     it('shares fit-height and custom semantics across renderers', () => {
-        expect(resolveDocumentPageDisplayLayouts({
-            availableHeight: 600,
-            availableWidth: 1_000,
-            manualZoom: 1,
-            pageSizes: variablePageSizes,
-            zoomMode: 'fit-height',
-            continuousScroll: true,
-        })).toEqual([
+        expect(
+            resolveDocumentPageDisplayLayouts({
+                availableHeight: 600,
+                availableWidth: 1_000,
+                manualZoom: 1,
+                pageSizes: variablePageSizes,
+                zoomMode: 'fit-height',
+                continuousScroll: true,
+            }),
+        ).toEqual([
             {
                 height: 600,
                 scale: 0.6,
@@ -86,14 +86,16 @@ describe('document page display layout', () => {
                 width: 300,
             },
         ]);
-        expect(resolveDocumentPageDisplayLayouts({
-            availableHeight: 600,
-            availableWidth: 1_000,
-            manualZoom: 1.25,
-            pageSizes: variablePageSizes,
-            zoomMode: 'custom',
-            continuousScroll: true,
-        })).toEqual([
+        expect(
+            resolveDocumentPageDisplayLayouts({
+                availableHeight: 600,
+                availableWidth: 1_000,
+                manualZoom: 1.25,
+                pageSizes: variablePageSizes,
+                zoomMode: 'custom',
+                continuousScroll: true,
+            }),
+        ).toEqual([
             {
                 height: 1_250,
                 scale: 1.25,
@@ -108,12 +110,14 @@ describe('document page display layout', () => {
     });
 
     it('falls back to clamped manual zoom without page geometry', () => {
-        expect(resolveDocumentPageDisplayScale({
-            availableHeight: 500,
-            availableWidth: 600,
-            manualZoom: 1.5,
-            pageSize: null,
-            zoomMode: 'fit-width',
-        })).toBe(1.5);
+        expect(
+            resolveDocumentPageDisplayScale({
+                availableHeight: 500,
+                availableWidth: 600,
+                manualZoom: 1.5,
+                pageSize: null,
+                zoomMode: 'fit-width',
+            }),
+        ).toBe(1.5);
     });
 });

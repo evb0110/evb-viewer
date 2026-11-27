@@ -1,5 +1,5 @@
-import type { Page } from 'puppeteer-core';
-import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
+import type {Page} from 'puppeteer-core';
+import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
 
 // Everything here is read the way a person reads the window: the text the
 // toolbar renders and the layout rectangles the pages actually occupy. No
@@ -44,12 +44,11 @@ export function isToolbarPageVisible(sample: IViewportPageSample) {
     if (!Number.isSafeInteger(named)) {
         return false;
     }
-    const coverage = sample.pages.find(entry => entry.page === named);
+    const coverage = sample.pages.find((entry) => entry.page === named);
     if (!coverage) {
         return false;
     }
-    return coverage.coveredHeight
-        >= VISIBLE_PAGE_MIN_COVERAGE_RATIO * Math.min(coverage.height, sample.viewportHeight);
+    return coverage.coveredHeight >= VISIBLE_PAGE_MIN_COVERAGE_RATIO * Math.min(coverage.height, sample.viewportHeight);
 }
 
 export interface IViewportPageSamplerHandle {
@@ -62,7 +61,9 @@ interface IViewportPageSamplerState {
     stop: () => void;
 }
 
-interface IViewportPageSamplerWindow extends Window {__evbViewportPageSampler?: IViewportPageSamplerState;}
+interface IViewportPageSamplerWindow extends Window {
+    __evbViewportPageSampler?: IViewportPageSamplerState;
+}
 
 const SAMPLER_SOURCE = () => {
     const samplerWindow = window as IViewportPageSamplerWindow;
@@ -70,25 +71,20 @@ const SAMPLER_SOURCE = () => {
 
     const isVisible = (element: HTMLElement) => {
         const style = window.getComputedStyle(element);
-        return style.display !== 'none'
-            && style.visibility !== 'hidden'
-            && Number(style.opacity || '1') > 0;
+        return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0;
     };
     const resolveViewport = () => {
-        const host = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        return host?.querySelector<HTMLElement>(
-            '[data-document-viewer-chassis-viewport], #pdf-viewer',
-        ) ?? null;
+        const host =
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        return host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer') ?? null;
     };
     const readToolbarText = () => {
-        const element = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
-            .find((candidate) => {
-                const controls = candidate.closest<HTMLElement>('.page-controls') ?? candidate;
-                const rect = controls.getBoundingClientRect();
-                return rect.width > 8 && rect.height > 8 && isVisible(controls);
-            });
+        const element = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary')).find((candidate) => {
+            const controls = candidate.closest<HTMLElement>('.page-controls') ?? candidate;
+            const rect = controls.getBoundingClientRect();
+            return rect.width > 8 && rect.height > 8 && isVisible(controls);
+        });
         return element?.textContent?.trim() ?? null;
     };
 
@@ -109,8 +105,7 @@ const SAMPLER_SOURCE = () => {
                     continue;
                 }
                 const rect = container.getBoundingClientRect();
-                const coveredHeight = Math.min(rect.bottom, viewportRect.bottom)
-                    - Math.max(rect.top, viewportRect.top);
+                const coveredHeight = Math.min(rect.bottom, viewportRect.bottom) - Math.max(rect.top, viewportRect.top);
                 if (coveredHeight > 0 && rect.right > viewportRect.left && rect.left < viewportRect.right) {
                     pages.push({
                         page: pageNumber,
@@ -159,9 +154,9 @@ export async function installViewportPageSampler(page: Page): Promise<IViewportP
 }
 
 async function readViewportPageSamples(page: Page) {
-    return evaluateInPage(page, () => (
-        (window as IViewportPageSamplerWindow).__evbViewportPageSampler?.samples ?? []
-    )) as Promise<IViewportPageSample[]>;
+    return evaluateInPage(page, () => (window as IViewportPageSamplerWindow).__evbViewportPageSampler?.samples ?? []) as Promise<
+        IViewportPageSample[]
+    >;
 }
 
 /**
@@ -169,9 +164,13 @@ async function readViewportPageSamples(page: Page) {
  */
 export async function readViewportPageObservation(page: Page): Promise<IViewportPageSample> {
     const handle = await installViewportPageSampler(page);
-    await evaluateInPage(page, () => new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
-    }));
+    await evaluateInPage(
+        page,
+        () =>
+            new Promise<void>((resolve) => {
+                window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+            }),
+    );
     const samples = await handle.read();
     await handle.stop();
     const last = samples.at(-1);
@@ -185,34 +184,33 @@ export async function readViewportPageObservation(page: Page): Promise<IViewport
  * Waits until the viewport scroll offset and the dominant page stop changing.
  */
 export async function waitForViewportQuiet(page: Page, quietMs = 600, timeoutMs = 20_000) {
-    await evaluateInPage(page, async (input: {
-        quietMs: number;
-        timeoutMs: number;
-    }) => {
-        const resolveViewport = () => {
-            const host = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-            ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            return host?.querySelector<HTMLElement>(
-                '[data-document-viewer-chassis-viewport], #pdf-viewer',
-            ) ?? null;
-        };
-        const deadline = performance.now() + input.timeoutMs;
-        let previousScrollTop = Number.NaN;
-        let quietSince = performance.now();
-        while (performance.now() < deadline) {
-            await new Promise<void>(resolve => window.requestAnimationFrame(() => resolve()));
-            const scrollTop = resolveViewport()?.scrollTop ?? -1;
-            if (scrollTop !== previousScrollTop) {
-                previousScrollTop = scrollTop;
-                quietSince = performance.now();
-            } else if (performance.now() - quietSince >= input.quietMs) {
-                return;
+    await evaluateInPage(
+        page,
+        async (input: {quietMs: number; timeoutMs: number}) => {
+            const resolveViewport = () => {
+                const host =
+                    document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+                    document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                return host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer') ?? null;
+            };
+            const deadline = performance.now() + input.timeoutMs;
+            let previousScrollTop = Number.NaN;
+            let quietSince = performance.now();
+            while (performance.now() < deadline) {
+                await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+                const scrollTop = resolveViewport()?.scrollTop ?? -1;
+                if (scrollTop !== previousScrollTop) {
+                    previousScrollTop = scrollTop;
+                    quietSince = performance.now();
+                } else if (performance.now() - quietSince >= input.quietMs) {
+                    return;
+                }
             }
-        }
-        throw new Error(`The viewport kept moving for ${String(input.timeoutMs)}ms`);
-    }, {
-        quietMs,
-        timeoutMs,
-    });
+            throw new Error(`The viewport kept moving for ${String(input.timeoutMs)}ms`);
+        },
+        {
+            quietMs,
+            timeoutMs,
+        },
+    );
 }

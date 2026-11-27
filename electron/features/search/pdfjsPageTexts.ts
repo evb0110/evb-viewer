@@ -1,29 +1,17 @@
 // The legacy build evaluates `new DOMMatrix()` for canvas code that text
 // extraction never runs, so the stub must load before PDF.js.
 import '@electron/features/search/domPolyfill';
-import { existsSync } from 'fs';
-import {
-    join,
-    sep,
-} from 'path';
-import {
-    getDocument,
-    VerbosityLevel,
-} from 'pdfjs-dist/legacy/build/pdf.mjs';
+import {existsSync} from 'fs';
+import {join, sep} from 'path';
+import {getDocument, VerbosityLevel} from 'pdfjs-dist/legacy/build/pdf.mjs';
 // PDF.js in Node runs its worker code in the calling thread. Handing it the
 // bundled module keeps it from importing a separate pdf.worker.mjs file.
 import * as pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
-import type {
-    DocumentInitParameters,
-    PDFDocumentLoadingTask,
-} from 'pdfjs-dist/types/src/display/api';
-import { abortErrorFromSignal } from '@electron/utils/abort';
-import { assembleSearchablePageTextItems } from '@pdf-core/pdfSearchCore';
-import {
-    mergePositionedPdfjsGlyphItems,
-    type IPdfjsTextItem,
-} from '@pdf-core/pdfjsTextItems';
-import type { IPageText } from '@electron/features/search/pageText';
+import type {DocumentInitParameters, PDFDocumentLoadingTask} from 'pdfjs-dist/types/src/display/api';
+import {abortErrorFromSignal} from '@electron/utils/abort';
+import {assembleSearchablePageTextItems} from '@pdf-core/pdfSearchCore';
+import {mergePositionedPdfjsGlyphItems, type IPdfjsTextItem} from '@pdf-core/pdfjsTextItems';
+import type {IPageText} from '@electron/features/search/pageText';
 
 (globalThis as typeof globalThis & {pdfjsWorker?: unknown}).pdfjsWorker = pdfjsWorker;
 
@@ -39,17 +27,14 @@ function getPdfjsAssetRootCandidates() {
             join(resourcesPath, 'app', 'nuxt-output', 'public', 'pdf'),
         );
     }
-    candidates.push(
-        join(process.cwd(), 'nuxt-output', 'public', 'pdf'),
-        join(process.cwd(), 'public', 'pdf'),
-    );
+    candidates.push(join(process.cwd(), 'nuxt-output', 'public', 'pdf'), join(process.cwd(), 'public', 'pdf'));
     return candidates;
 }
 
 let pdfjsAssetRoot: string | null = null;
 
 function resolvePdfjsAssetRoot() {
-    pdfjsAssetRoot ??= getPdfjsAssetRootCandidates().find(candidate => existsSync(join(candidate, 'standard_fonts'))) ?? null;
+    pdfjsAssetRoot ??= getPdfjsAssetRootCandidates().find((candidate) => existsSync(join(candidate, 'standard_fonts'))) ?? null;
     if (pdfjsAssetRoot === null) {
         throw new Error(`PDF.js asset root is missing. Checked: ${getPdfjsAssetRootCandidates().join(', ')}`);
     }
@@ -152,6 +137,6 @@ export async function extractPdfjsPageTexts(
 /** Every page's text, collected in one array; for tests and bounded reads. */
 export async function extractTextWithPdfjs(pdfPath: string, range: IPdfPageRange = {}) {
     const pages: IPageText[] = [];
-    await extractPdfjsPageTexts(pdfPath, range, page => pages.push(page));
+    await extractPdfjsPageTexts(pdfPath, range, (page) => pages.push(page));
     return pages;
 }

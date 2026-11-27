@@ -1,14 +1,11 @@
+import {resolveQpdfValidationTimeoutMs, shouldKeepPdfOptimizationCandidate} from '@pdf-core/qpdfCommands';
 import {
-    resolveQpdfValidationTimeoutMs, shouldKeepPdfOptimizationCandidate,
-} from '@pdf-core/qpdfCommands';
-import {
-    getPdfLosslessOptimizationSkipReason, scanPdfMarkerEvidence, PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES, createPdfConformanceProfile,
+    getPdfLosslessOptimizationSkipReason,
+    scanPdfMarkerEvidence,
+    PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES,
+    createPdfConformanceProfile,
 } from '@pdf-core/pdfConformanceHelpers';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     buildPdfSaveRestrictions,
     createDefaultPdfConformanceProfile,
@@ -18,26 +15,9 @@ import {
 
 describe('PDF conformance contract helpers', () => {
     it('scales the shared full-check timeout and clamps unknown or huge sizes', () => {
-        expect([
-            undefined,
-            NaN,
-            Infinity,
-            -1,
-            64 * 1024 ** 2,
-            256 * 1024 ** 2,
-            1024 ** 3,
-            2n ** 64n,
-        ].map(resolveQpdfValidationTimeoutMs))
-            .toEqual([
-                30000,
-                30000,
-                30000,
-                30000,
-                30000,
-                42000,
-                90000,
-                600000,
-            ]);
+        expect(
+            [undefined, NaN, Infinity, -1, 64 * 1024 ** 2, 256 * 1024 ** 2, 1024 ** 3, 2n ** 64n].map(resolveQpdfValidationTimeoutMs),
+        ).toEqual([30000, 30000, 30000, 30000, 30000, 42000, 90000, 600000]);
     });
 
     it('keeps only a nonempty, valid and strictly smaller optimization candidate', () => {
@@ -58,13 +38,7 @@ describe('PDF conformance contract helpers', () => {
             shouldKeepPdfOptimizationCandidate(100, 101, valid),
             shouldKeepPdfOptimizationCandidate(100, 0, valid),
             shouldKeepPdfOptimizationCandidate(100, 99, invalid),
-        ]).toEqual([
-            true,
-            false,
-            false,
-            false,
-            false,
-        ]);
+        ]).toEqual([true, false, false, false, false]);
     });
 
     it('keeps ordered exclusions and permits tagged PDFs and ordinary forms', () => {
@@ -139,10 +113,12 @@ describe('PDF conformance contract helpers', () => {
             canIncrementalSave: true,
             saveRestrictions: ['tagged_pdf_requires_structure_preservation'],
         });
-        expect(createPdfConformanceProfile(structuralFacts, {
-            isEncrypted: true,
-            pdfaLevel: 'PDF/A-2B',
-        })).toEqual({
+        expect(
+            createPdfConformanceProfile(structuralFacts, {
+                isEncrypted: true,
+                pdfaLevel: 'PDF/A-2B',
+            }),
+        ).toEqual({
             ...structuralFacts,
             isEncrypted: true,
             pdfaLevel: 'PDF/A-2B',
@@ -158,13 +134,16 @@ describe('PDF conformance contract helpers', () => {
 
     it('reads an empty signature field as unsigned for Save and Optimize alike', () => {
         const emptySignatureField = new TextEncoder().encode('<< /FT /Sig /T (Signature1) >> << /Type /Sig >>');
-        const profile = createPdfConformanceProfile({
-            isSigned: false,
-            isEncrypted: false,
-            isTagged: false,
-            hasAcroForm: true,
-            hasXfa: false,
-        }, scanPdfMarkerEvidence(emptySignatureField));
+        const profile = createPdfConformanceProfile(
+            {
+                isSigned: false,
+                isEncrypted: false,
+                isTagged: false,
+                hasAcroForm: true,
+                hasXfa: false,
+            },
+            scanPdfMarkerEvidence(emptySignatureField),
+        );
 
         expect(profile.isSigned).toBe(false);
         expect(profile.saveRestrictions).toEqual([]);

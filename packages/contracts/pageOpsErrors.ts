@@ -1,11 +1,6 @@
-const _PDF_PAGE_OPS_CAPABILITY_ERROR_CODES = [
-    'native-unavailable',
-    'native-failure',
-    'too-large',
-] as const;
+const _PDF_PAGE_OPS_CAPABILITY_ERROR_CODES = ['native-unavailable', 'native-failure', 'too-large'] as const;
 
-export type TPdfPageOpsCapabilityErrorCode =
-    typeof _PDF_PAGE_OPS_CAPABILITY_ERROR_CODES[number];
+export type TPdfPageOpsCapabilityErrorCode = (typeof _PDF_PAGE_OPS_CAPABILITY_ERROR_CODES)[number];
 
 export interface IPdfPageOpsCapabilityErrorOptions {
     cause?: unknown;
@@ -38,8 +33,6 @@ export class PdfPageOpsCapabilityError extends Error {
     }
 }
 
-export function isPdfPageOpsCapabilityError(
-    error: unknown,
-): error is PdfPageOpsCapabilityError {
+export function isPdfPageOpsCapabilityError(error: unknown): error is PdfPageOpsCapabilityError {
     return error instanceof PdfPageOpsCapabilityError;
 }

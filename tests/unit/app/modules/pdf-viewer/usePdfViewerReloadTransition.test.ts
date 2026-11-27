@@ -1,9 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { usePdfViewerReloadTransition } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerReloadTransition';
+import {describe, expect, it} from 'vitest';
+import {usePdfViewerReloadTransition} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerReloadTransition';
 
 describe('usePdfViewerReloadTransition', () => {
     it('keeps the visual reload transition active until it ends', () => {

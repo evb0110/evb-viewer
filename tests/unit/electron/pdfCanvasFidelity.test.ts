@@ -1,22 +1,9 @@
-import { resolve } from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    DOMMatrix,
-    ImageData,
-    Path2D,
-    createCanvas,
-} from '@napi-rs/canvas';
-import {
-    PDFDocument,
-    PDFName,
-    PDFNumber,
-} from 'pdf-lib';
+import {resolve} from 'node:path';
+import {describe, expect, it} from 'vitest';
+import {DOMMatrix, ImageData, Path2D, createCanvas} from '@napi-rs/canvas';
+import {PDFDocument, PDFName, PDFNumber} from 'pdf-lib';
 import {isRecord} from '@contracts/runtimeGuards';
-import { renderPdfCanvasFidelityMetrics } from '@tests/helpers/renderPdfCanvasFidelityMetrics';
+import {renderPdfCanvasFidelityMetrics} from '@tests/helpers/renderPdfCanvasFidelityMetrics';
 
 const fixtures = [
     {
@@ -48,7 +35,7 @@ const fixtures = [
     {
         file: 'test-scanned.pdf',
         expected: {
-            dark: 0.01040,
+            dark: 0.0104,
             ink: 0.01284,
             luminance: {
                 max: 252.259,
@@ -62,11 +49,7 @@ const fixtures = [
 describe('PDF canvas fidelity corpus', () => {
     for (const fixture of fixtures) {
         it(`renders ${fixture.file} at its matched physical scale`, async () => {
-            const metrics = await renderPdfCanvasFidelityMetrics(resolve(
-                process.cwd(),
-                'tests/fixtures/electron',
-                fixture.file,
-            ));
+            const metrics = await renderPdfCanvasFidelityMetrics(resolve(process.cwd(), 'tests/fixtures/electron', fixture.file));
 
             expect(metrics.width).toBe(612);
             expect(metrics.height).toBe(792);
@@ -81,58 +64,31 @@ describe('PDF canvas fidelity corpus', () => {
 
 const SQUARES = {
     // Drawn by the EVB editor layer, so the renderer must leave it out.
-    editable: [
-        60,
-        600,
-        260,
-        700,
-    ],
+    editable: [60, 600, 260, 700],
     // A foreign appearance the renderer keeps.
-    foreign: [
-        320,
-        600,
-        520,
-        700,
-    ],
+    foreign: [320, 600, 520, 700],
 } as const;
 
 async function createTwoSquarePdf() {
     const pdf = await PDFDocument.create();
-    const page = pdf.addPage([
-        612,
-        792,
-    ]);
-    const annotations = Object.values(SQUARES).map(([
-        x1,
-        y1,
-        x2,
-        y2,
-    ]) => {
-        const appearance = pdf.context.register(pdf.context.stream(
-            `0 0 1 rg 0 0 ${x2 - x1} ${y2 - y1} re f`,
-            {
+    const page = pdf.addPage([612, 792]);
+    const annotations = Object.values(SQUARES).map(([x1, y1, x2, y2]) => {
+        const appearance = pdf.context.register(
+            pdf.context.stream(`0 0 1 rg 0 0 ${x2 - x1} ${y2 - y1} re f`, {
                 Type: 'XObject',
                 Subtype: 'Form',
-                BBox: [
-                    0,
-                    0,
-                    x2 - x1,
-                    y2 - y1,
-                ],
-            },
-        ));
-        return pdf.context.register(pdf.context.obj({
-            Type: PDFName.of('Annot'),
-            Subtype: PDFName.of('Square'),
-            F: PDFNumber.of(4),
-            Rect: [
-                x1,
-                y1,
-                x2,
-                y2,
-            ],
-            AP: pdf.context.obj({N: appearance}),
-        }));
+                BBox: [0, 0, x2 - x1, y2 - y1],
+            }),
+        );
+        return pdf.context.register(
+            pdf.context.obj({
+                Type: PDFName.of('Annot'),
+                Subtype: PDFName.of('Square'),
+                F: PDFNumber.of(4),
+                Rect: [x1, y1, x2, y2],
+                AP: pdf.context.obj({N: appearance}),
+            }),
+        );
     });
     page.node.set(PDFName.of('Annots'), pdf.context.obj(annotations));
     return pdf.save();
@@ -151,21 +107,10 @@ function isPdfjsCanvasRenderingContext(value: unknown): value is CanvasRendering
 function blueInk(
     context: CanvasRenderingContext2D,
     viewport: {convertToViewportPoint(x: number, y: number): number[]},
-    [
-        x1,
-        y1,
-        x2,
-        y2]: readonly number[
-    ],
+    [x1, y1, x2, y2]: readonly number[],
 ) {
-    const [
-        left = 0,
-        top = 0,
-    ] = viewport.convertToViewportPoint(x1!, y2!);
-    const [
-        right = 0,
-        bottom = 0,
-    ] = viewport.convertToViewportPoint(x2!, y1!);
+    const [left = 0, top = 0] = viewport.convertToViewportPoint(x1!, y2!);
+    const [right = 0, bottom = 0] = viewport.convertToViewportPoint(x2!, y1!);
     const {data} = context.getImageData(left + 10, top + 10, right - left - 20, bottom - top - 20);
     let excess = 0;
     for (let offset = 0; offset < data.length; offset += 4) {
@@ -191,7 +136,7 @@ describe('PDF canvas annotation suppression', () => {
             const document = await task.promise;
             const page = await document.getPage(1);
             const annotations = await page.getAnnotations();
-            const editableId = annotations.find(annotation => annotation.rect[0] === SQUARES.editable[0])?.id;
+            const editableId = annotations.find((annotation) => annotation.rect[0] === SQUARES.editable[0])?.id;
             expect(editableId).toEqual(expect.any(String));
             const viewport = page.getViewport({scale: 1});
 

@@ -1,36 +1,16 @@
-import {
-    copyFile,
-    mkdir,
-    mkdtemp,
-    open,
-    readdir,
-    rename,
-    readFile,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
+import {copyFile, mkdir, mkdtemp, open, readdir, rename, readFile, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {existsSync} from 'node:fs';
-import {
-    afterAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {afterAll, describe, expect, it} from 'vitest';
 import {PDFDocument} from 'pdf-lib';
 import {
     runScanCleanupDetection,
     type IScanCleanupDetectionDependencies,
     type IScanCleanupDetectionRetention,
 } from '@evb/scan-cleanup/core/detection';
-import {
-    createArrayBackedPdfPageSizeStore,
-    readPdfPageSizeChunks,
-    type IPdfPageSize,
-} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {createArrayBackedPdfPageSizeStore, readPdfPageSizeChunks, type IPdfPageSize} from '@evb/scan-cleanup/core/pdfPageSizes';
 import {
     createCliRenderers,
     resolveCliNativeToolPath,
@@ -51,9 +31,9 @@ const fileSystem: NonNullable<IScanCleanupDetectionDependencies['fileSystem']> =
         await mkdir(path, options);
         return undefined;
     },
-    mkdtemp: prefix => mkdtemp(prefix),
+    mkdtemp: (prefix) => mkdtemp(prefix),
     open: (path, flags) => open(path, flags),
-    readFile: async path => readFile(path, 'utf8'),
+    readFile: async (path) => readFile(path, 'utf8'),
     readdir: (path, options) => readdir(path, options),
     rename: (source, destination) => rename(source, destination),
     rm: (path, options) => rm(path, options),
@@ -61,15 +41,12 @@ const fileSystem: NonNullable<IScanCleanupDetectionDependencies['fileSystem']> =
     writeFile: (path, data) => writeFile(path, data),
 };
 
-const scanCleanupBinary = resolveCliNativeToolPath(
-    'evb-scan-cleanup',
-    'scan-cleanup',
-    process.cwd(),
-    process.env.EVB_SCAN_CLEANUP_PATH,
-) ?? (() => {
-    const debugBuild = join(process.cwd(), 'native', 'target', 'debug', 'evb-scan-cleanup');
-    return existsSync(debugBuild) ? debugBuild : null;
-})();
+const scanCleanupBinary =
+    resolveCliNativeToolPath('evb-scan-cleanup', 'scan-cleanup', process.cwd(), process.env.EVB_SCAN_CLEANUP_PATH) ??
+    (() => {
+        const debugBuild = join(process.cwd(), 'native', 'target', 'debug', 'evb-scan-cleanup');
+        return existsSync(debugBuild) ? debugBuild : null;
+    })();
 const pdftoppmBinary = resolveCliNativeToolPath('pdftoppm', 'poppler', process.cwd());
 const pdfPageOpsBinary = resolveCliNativeToolPath('evb-pdf-page-ops', 'pdf-page-ops', process.cwd(), process.env.EVB_PDF_PAGE_OPS_PATH);
 const missingNativeTools = [
@@ -85,14 +62,20 @@ const dirs: string[] = [];
 const resultStores: Array<{close: () => Promise<void>}> = [];
 
 afterAll(async () => {
-    await Promise.all(resultStores.splice(0).map(store => store.close()));
-    await Promise.all(dirs.splice(0).map(dir => rm(dir, {
-        force: true,
-        recursive: true,
-    })));
+    await Promise.all(resultStores.splice(0).map((store) => store.close()));
+    await Promise.all(
+        dirs.splice(0).map((dir) =>
+            rm(dir, {
+                force: true,
+                recursive: true,
+            }),
+        ),
+    );
 });
 
-interface ICliDocument {directory: string;}
+interface ICliDocument {
+    directory: string;
+}
 
 /**
  * A short document with varying crop sizes and real ink on every page, so the
@@ -102,12 +85,9 @@ interface ICliDocument {directory: string;}
 async function writeVariableGeometryPdf(path: string) {
     const pdf = await PDFDocument.create();
     for (let index = 0; index < PAGE_COUNT; index += 1) {
-        const widthPoints = 400 - index % 3 * 16;
-        const heightPoints = 300 - index % 2 * 12;
-        const page = pdf.addPage([
-            widthPoints,
-            heightPoints,
-        ]);
+        const widthPoints = 400 - (index % 3) * 16;
+        const heightPoints = 300 - (index % 2) * 12;
+        const page = pdf.addPage([widthPoints, heightPoints]);
         for (let line = 0; line < 12; line += 1) {
             page.drawRectangle({
                 x: 40,
@@ -120,161 +100,157 @@ async function writeVariableGeometryPdf(path: string) {
     await writeFile(path, await pdf.save());
 }
 
-describe.skipIf(
-    scanCleanupBinary === null || pdftoppmBinary === null || pdfPageOpsBinary === null,
-)(`scan cleanup detection against the real sidecar under a bounded window${missingNativeTools.length ? ` (skipped: missing ${missingNativeTools.join(', ')})` : ''}`, () => {
-    it('analyzes every page of a document that does not fit the scratch budget whole', async () => {
-        const temporaryRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-window-e2e-'));
-        dirs.push(temporaryRoot);
-        const sourcePdfPath = join(temporaryRoot, 'source.pdf');
-        await writeVariableGeometryPdf(sourcePdfPath);
-        const pageSizes: IPdfPageSize[] = [];
-        for await (const chunk of readPdfPageSizeChunks(sourcePdfPath, {
-            pdfPageOpsBinary: pdfPageOpsBinary!,
-            tempDir: temporaryRoot,
-            runCommand: runCliNativeToolCommand,
-            log: () => undefined,
-        })) {
-            pageSizes.push(...chunk.pages);
-        }
-        expect(pageSizes).toHaveLength(PAGE_COUNT);
+describe.skipIf(scanCleanupBinary === null || pdftoppmBinary === null || pdfPageOpsBinary === null)(
+    `scan cleanup detection against the real sidecar under a bounded window${missingNativeTools.length ? ` (skipped: missing ${missingNativeTools.join(', ')})` : ''}`,
+    () => {
+        it('analyzes every page of a document that does not fit the scratch budget whole', async () => {
+            const temporaryRoot = await mkdtemp(join(tmpdir(), 'scan-cleanup-window-e2e-'));
+            dirs.push(temporaryRoot);
+            const sourcePdfPath = join(temporaryRoot, 'source.pdf');
+            await writeVariableGeometryPdf(sourcePdfPath);
+            const pageSizes: IPdfPageSize[] = [];
+            for await (const chunk of readPdfPageSizeChunks(sourcePdfPath, {
+                pdfPageOpsBinary: pdfPageOpsBinary!,
+                tempDir: temporaryRoot,
+                runCommand: runCliNativeToolCommand,
+                log: () => undefined,
+            })) {
+                pageSizes.push(...chunk.pages);
+            }
+            expect(pageSizes).toHaveLength(PAGE_COUNT);
 
-        const documentDirectory = join(temporaryRoot, 'document');
-        const stagedPath = (pageNumber: number, dpi: number) =>
-            join(documentDirectory, `page-${String(pageNumber)}-${String(dpi)}.png`);
-        // Keyed by the file the run actually holds, so a page released twice
-        // or released without ever being retained cannot lower the peak the
-        // window bound is asserted against.
-        const residentRasters = new Set<string>();
-        const rasterKey = (pageNumber: number, dpi: number) => `${String(pageNumber)}-${String(dpi)}`;
-        let peakResidentPages = 0;
-        const retention: IScanCleanupDetectionRetention<ICliDocument> = {
-            async openDocument() {
-                await rm(documentDirectory, {
-                    force: true,
-                    recursive: true,
-                });
-                await mkdir(documentDirectory, {recursive: true});
-                return {directory: documentDirectory};
-            },
-            pageCount: () => Promise.resolve(PAGE_COUNT),
-            pageSizeStore: () => Promise.resolve(createArrayBackedPdfPageSizeStore(pageSizes)),
-            rasterPages: () => Promise.resolve({
-                detected: false,
-                getPageRaster: () => undefined,
-            }),
-            retainedPaths: () => Promise.resolve(new Map()),
-            // Private to one render: the sidecar polls for the staged path, so
-            // it may only ever observe a complete raster there.
-            // pdftoppm derives its own output name by dropping the extension,
-            // so a private scratch path still has to end in .png.
-            rasterScratchPath: (_document, pageNumber, dpi) => Promise.resolve(join(
-                documentDirectory,
-                `page-${String(pageNumber)}-${String(dpi)}.${randomUUID()}.part.png`,
-            )),
-            stagedRasterPath: (_document, pageNumber, dpi) => Promise.resolve(stagedPath(pageNumber, dpi)),
-            async retain(input) {
-                const path = stagedPath(input.pageNumber, input.dpi);
-                await rename(input.scratchPath, path);
-                residentRasters.add(rasterKey(input.pageNumber, input.dpi));
-                peakResidentPages = Math.max(peakResidentPages, residentRasters.size);
-                return {
-                    dpi: input.dpi,
-                    height: input.height,
-                    pageNumber: input.pageNumber,
-                    path,
-                    sizeBytes: input.sizeBytes,
-                    width: input.width,
-                };
-            },
-            async releaseRaster(_document, pageNumber, dpi) {
-                residentRasters.delete(rasterKey(pageNumber, dpi));
-                await rm(stagedPath(pageNumber, dpi), {force: true});
-            },
-            release: () => Promise.resolve(),
-        };
-        const renderers = createCliRenderers(runCliNativeToolCommand);
-        const diagnostics: string[] = [];
-
-        const detection = await runScanCleanupDetection(
-            {
-                ownerId: 'scan-cleanup-window-e2e',
-                documentRevision: 'revision',
-                sourcePdfPath,
-                options: {
-                    preserveOriginalQuality: false,
-                    layoutMode: 'auto',
-                    outputMode: 'auto',
-                    readingOrder: 'ltr',
-                    thickness: 0,
-                    crop: true,
-                    matchPageSize: false,
-                    pageAlignment: 'top-center',
-                    marginsMm: {
-                        leftMm: 0,
-                        topMm: 0,
-                        rightMm: 0,
-                        bottomMm: 0,
-                    },
-                    skipBlankPages: false,
-                    pageOverrides: {},
+            const documentDirectory = join(temporaryRoot, 'document');
+            const stagedPath = (pageNumber: number, dpi: number) =>
+                join(documentDirectory, `page-${String(pageNumber)}-${String(dpi)}.png`);
+            // Keyed by the file the run actually holds, so a page released twice
+            // or released without ever being retained cannot lower the peak the
+            // window bound is asserted against.
+            const residentRasters = new Set<string>();
+            const rasterKey = (pageNumber: number, dpi: number) => `${String(pageNumber)}-${String(dpi)}`;
+            let peakResidentPages = 0;
+            const retention: IScanCleanupDetectionRetention<ICliDocument> = {
+                async openDocument() {
+                    await rm(documentDirectory, {
+                        force: true,
+                        recursive: true,
+                    });
+                    await mkdir(documentDirectory, {recursive: true});
+                    return {directory: documentDirectory};
                 },
-            },
-            new AbortController().signal,
-            retention,
-            {
-                fileSystem,
-                getTempDir: () => temporaryRoot,
-                getAvailableScratchBytes: () => Promise.resolve(AVAILABLE_SCRATCH_BYTES),
-                getPdftoppmBinary: () => pdftoppmBinary!,
-                resolveBinary: () => scanCleanupBinary,
-                renderPage: renderers.renderPage,
-                renderPagePpm: renderers.renderPagePpm,
-                runSidecar: runCliScanCleanupSidecar,
-            },
-            {rasterConcurrency: 2},
-            () => undefined,
-            (_level, message) => {
-                diagnostics.push(message);
-            },
-        );
-        resultStores.push(detection.resultStore);
+                pageCount: () => Promise.resolve(PAGE_COUNT),
+                pageSizeStore: () => Promise.resolve(createArrayBackedPdfPageSizeStore(pageSizes)),
+                rasterPages: () =>
+                    Promise.resolve({
+                        detected: false,
+                        getPageRaster: () => undefined,
+                    }),
+                retainedPaths: () => Promise.resolve(new Map()),
+                // Private to one render: the sidecar polls for the staged path, so
+                // it may only ever observe a complete raster there.
+                // pdftoppm derives its own output name by dropping the extension,
+                // so a private scratch path still has to end in .png.
+                rasterScratchPath: (_document, pageNumber, dpi) =>
+                    Promise.resolve(join(documentDirectory, `page-${String(pageNumber)}-${String(dpi)}.${randomUUID()}.part.png`)),
+                stagedRasterPath: (_document, pageNumber, dpi) => Promise.resolve(stagedPath(pageNumber, dpi)),
+                async retain(input) {
+                    const path = stagedPath(input.pageNumber, input.dpi);
+                    await rename(input.scratchPath, path);
+                    residentRasters.add(rasterKey(input.pageNumber, input.dpi));
+                    peakResidentPages = Math.max(peakResidentPages, residentRasters.size);
+                    return {
+                        dpi: input.dpi,
+                        height: input.height,
+                        pageNumber: input.pageNumber,
+                        path,
+                        sizeBytes: input.sizeBytes,
+                        width: input.width,
+                    };
+                },
+                async releaseRaster(_document, pageNumber, dpi) {
+                    residentRasters.delete(rasterKey(pageNumber, dpi));
+                    await rm(stagedPath(pageNumber, dpi), {force: true});
+                },
+                release: () => Promise.resolve(),
+            };
+            const renderers = createCliRenderers(runCliNativeToolCommand);
+            const diagnostics: string[] = [];
 
-        expect(detection.results.map(result => result.pageNumber))
-            .toEqual(Array.from({length: PAGE_COUNT}, (_, index) => index + 1));
-        const admissionDiagnostic = diagnostics
-            .find(message => message.startsWith('Scan cleanup detection staged raster admission'));
-        // Named up front: without it the assertions below fail as a property
-        // read on undefined instead of saying the run published no admission.
-        expect(admissionDiagnostic, 'detection published no staged raster admission diagnostic')
-            .toBeDefined();
-        const admission = JSON.parse(admissionDiagnostic!
-            .replace('Scan cleanup detection staged raster admission ', '')) as {
-            admitted: boolean;
-            budgetBytes: number;
-            windowPages: number;
-            wholeDocumentBytes: number;
-        };
-        // These two assertions fail when the fixture's real per-page cost has
-        // drifted away from the scratch figure the test hands the run, which is
-        // only diagnosable against the numbers admission actually measured.
-        const admissionDetail = `${admissionDiagnostic!}, `
-            + `${String(Math.round(admission.wholeDocumentBytes / PAGE_COUNT / MIB))} MiB per page measured, `
-            + `${String(Math.round(AVAILABLE_SCRATCH_BYTES / MIB))} MiB free scratch declared`;
-        expect(admission.admitted, `staged raster admission refused the run: ${admissionDetail}`).toBe(true);
-        expect(
-            admission.windowPages,
-            `staged raster window did not narrow below the ${String(PAGE_COUNT)}-page document: ${admissionDetail}`,
-        ).toBeLessThan(PAGE_COUNT);
-        // The document could not be staged whole; the window is what fits.
-        expect(admission.wholeDocumentBytes).toBeGreaterThan(admission.budgetBytes);
-        expect(peakResidentPages).toBeLessThanOrEqual(admission.windowPages);
-        // Whatever the run kept is inside the window, and nothing else is left
-        // behind in the document directory.
-        const remaining = await readdir(documentDirectory);
-        expect(remaining.filter(name => !name.includes('.part.')).length)
-            .toBeLessThanOrEqual(admission.windowPages);
-        // No private render scratch outlives the run.
-        expect(remaining.filter(name => name.includes('.part.'))).toEqual([]);
-    }, 300_000);
-});
+            const detection = await runScanCleanupDetection(
+                {
+                    ownerId: 'scan-cleanup-window-e2e',
+                    documentRevision: 'revision',
+                    sourcePdfPath,
+                    options: {
+                        preserveOriginalQuality: false,
+                        layoutMode: 'auto',
+                        outputMode: 'auto',
+                        readingOrder: 'ltr',
+                        thickness: 0,
+                        crop: true,
+                        matchPageSize: false,
+                        pageAlignment: 'top-center',
+                        marginsMm: {
+                            leftMm: 0,
+                            topMm: 0,
+                            rightMm: 0,
+                            bottomMm: 0,
+                        },
+                        skipBlankPages: false,
+                        pageOverrides: {},
+                    },
+                },
+                new AbortController().signal,
+                retention,
+                {
+                    fileSystem,
+                    getTempDir: () => temporaryRoot,
+                    getAvailableScratchBytes: () => Promise.resolve(AVAILABLE_SCRATCH_BYTES),
+                    getPdftoppmBinary: () => pdftoppmBinary!,
+                    resolveBinary: () => scanCleanupBinary,
+                    renderPage: renderers.renderPage,
+                    renderPagePpm: renderers.renderPagePpm,
+                    runSidecar: runCliScanCleanupSidecar,
+                },
+                {rasterConcurrency: 2},
+                () => undefined,
+                (_level, message) => {
+                    diagnostics.push(message);
+                },
+            );
+            resultStores.push(detection.resultStore);
+
+            expect(detection.results.map((result) => result.pageNumber)).toEqual(Array.from({length: PAGE_COUNT}, (_, index) => index + 1));
+            const admissionDiagnostic = diagnostics.find((message) => message.startsWith('Scan cleanup detection staged raster admission'));
+            // Named up front: without it the assertions below fail as a property
+            // read on undefined instead of saying the run published no admission.
+            expect(admissionDiagnostic, 'detection published no staged raster admission diagnostic').toBeDefined();
+            const admission = JSON.parse(admissionDiagnostic!.replace('Scan cleanup detection staged raster admission ', '')) as {
+                admitted: boolean;
+                budgetBytes: number;
+                windowPages: number;
+                wholeDocumentBytes: number;
+            };
+            // These two assertions fail when the fixture's real per-page cost has
+            // drifted away from the scratch figure the test hands the run, which is
+            // only diagnosable against the numbers admission actually measured.
+            const admissionDetail =
+                `${admissionDiagnostic!}, ` +
+                `${String(Math.round(admission.wholeDocumentBytes / PAGE_COUNT / MIB))} MiB per page measured, ` +
+                `${String(Math.round(AVAILABLE_SCRATCH_BYTES / MIB))} MiB free scratch declared`;
+            expect(admission.admitted, `staged raster admission refused the run: ${admissionDetail}`).toBe(true);
+            expect(
+                admission.windowPages,
+                `staged raster window did not narrow below the ${String(PAGE_COUNT)}-page document: ${admissionDetail}`,
+            ).toBeLessThan(PAGE_COUNT);
+            // The document could not be staged whole; the window is what fits.
+            expect(admission.wholeDocumentBytes).toBeGreaterThan(admission.budgetBytes);
+            expect(peakResidentPages).toBeLessThanOrEqual(admission.windowPages);
+            // Whatever the run kept is inside the window, and nothing else is left
+            // behind in the document directory.
+            const remaining = await readdir(documentDirectory);
+            expect(remaining.filter((name) => !name.includes('.part.')).length).toBeLessThanOrEqual(admission.windowPages);
+            // No private render scratch outlives the run.
+            expect(remaining.filter((name) => name.includes('.part.'))).toEqual([]);
+        }, 300_000);
+    },
+);

@@ -38,10 +38,7 @@ function clampScanCleanupMarginMm(value: number) {
  * the patch so callers can mutate their reactive margins object in place —
  * untouched sides keep their reactive identity and never re-render.
  */
-export function resolveScanCleanupMarginPatch(
-    target: TScanCleanupMarginTarget,
-    value: number,
-): Partial<IScanCleanupMarginsMm> {
+export function resolveScanCleanupMarginPatch(target: TScanCleanupMarginTarget, value: number): Partial<IScanCleanupMarginsMm> {
     if (!Number.isFinite(value)) {
         return {};
     }
@@ -58,7 +55,5 @@ export function resolveScanCleanupMarginPatch(
 }
 
 export function scanCleanupMarginsUniform(margins: IScanCleanupMarginsMm) {
-    return margins.leftMm === margins.topMm
-        && margins.topMm === margins.rightMm
-        && margins.rightMm === margins.bottomMm;
+    return margins.leftMm === margins.topMm && margins.topMm === margins.rightMm && margins.rightMm === margins.bottomMm;
 }

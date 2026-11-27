@@ -15,6 +15,12 @@ export type TDocumentOperationKind =
     | 'close';
 
 /** The live operation owner lends its lease to work that is part of that operation. */
-export interface IDocumentOperationOwnership {assertCurrent: () => void;}
+export interface IDocumentOperationOwnership {
+    assertCurrent: () => void;
+}
 /** Runs work as the next turn of the document's lease, or inside the turn its holder already owns. */
-export type TRunWithDocumentOperationLease = <T>(kind: TDocumentOperationKind, operation: (ownership: IDocumentOperationOwnership) => Promise<T>, holder?: IDocumentOperationOwnership) => Promise<T>;
+export type TRunWithDocumentOperationLease = <T>(
+    kind: TDocumentOperationKind,
+    operation: (ownership: IDocumentOperationOwnership) => Promise<T>,
+    holder?: IDocumentOperationOwnership,
+) => Promise<T>;

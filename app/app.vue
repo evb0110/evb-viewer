@@ -17,7 +17,10 @@
             <NuxtPage />
             <DevOnly>
                 <ClientOnly>
-                    <component :is="AgentationWidget" v-if="AgentationWidget" />
+                    <component
+                        :is="AgentationWidget"
+                        v-if="AgentationWidget"
+                    />
                 </ClientOnly>
             </DevOnly>
         </AppFatalRuntimeDialog>
@@ -25,27 +28,22 @@
 </template>
 
 <script setup lang="ts">
-import {
-    useClipboard,
-    useEventListener,
-} from '@vueuse/core';
+import {useClipboard, useEventListener} from '@vueuse/core';
 import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
-import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
+import {setRendererDiagnosticsPreference} from '@app/utils/failureReporter';
 import type {IRuntimeErrorReport} from '@app/composables/useRuntimeErrorReports';
-import {
-    useFailureToast, type IFailurePresentation,
-} from '@app/composables/useFailureToast';
-import { applyUiScaleToDocument } from '@app/composables/useUiScale';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
-import { waitForVisualFrames } from '@app/utils/asyncHelpers';
-import { markStartupMetricOnce } from '@app/utils/startupMetrics';
-import { traceRendererStartup } from '@app/utils/traceRendererStartup';
+import {useFailureToast, type IFailurePresentation} from '@app/composables/useFailureToast';
+import {applyUiScaleToDocument} from '@app/composables/useUiScale';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getOrCaptureRendererBootstrapFailure} from '@app/utils/getOrCaptureRendererBootstrapFailure';
+import {waitForVisualFrames} from '@app/utils/asyncHelpers';
+import {markStartupMetricOnce} from '@app/utils/startupMetrics';
+import {traceRendererStartup} from '@app/utils/traceRendererStartup';
 import {onBrowserDocumentPersistenceWarning} from '@app/platform/browser/browserDocumentPersistenceWarnings';
-import { shouldPreferDesktopPlatform } from '@app/utils/platform';
-import { getSettingsCapability } from '@app/utils/getSettingsCapability';
-import { hasElectronPlatformBridge } from '@app/utils/electronPlatformBridge';
-import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
+import {shouldPreferDesktopPlatform} from '@app/utils/platform';
+import {getSettingsCapability} from '@app/utils/getSettingsCapability';
+import {hasElectronPlatformBridge} from '@app/utils/electronPlatformBridge';
+import {getWindowTabsCapability} from '@app/utils/platformWindowTabs';
 
 // Every failure and notice is a toast, stacked upward from the bottom-right
 // corner, at most three at a time.
@@ -58,9 +56,7 @@ const DIAGNOSTICS_CONSENT_TOAST_PREFIX = 'diagnostics-consent:';
 
 // The <DevOnly> template block is stripped from production builds, but a static
 // import would still pull agentation-vue3 into the production entry chunk.
-const AgentationWidget = import.meta.dev
-    ? defineAsyncComponent(() => import('@app/components/AgentationWidget.vue'))
-    : null;
+const AgentationWidget = import.meta.dev ? defineAsyncComponent(() => import('@app/components/AgentationWidget.vue')) : null;
 
 const {
     loadOrThrow: loadSettings,
@@ -83,17 +79,8 @@ const hostEnvironmentUnsubscribers: Array<() => void> = [];
 const toast = useToast();
 let themeRepaintRevision = 0;
 const {isDesktopRuntime} = useRuntimeEnvironment();
-const {
-    locale,
-    t,
-    loadLocaleMessages,
-    setLocale,
-} = useTypedI18n();
-const {
-    fatalRuntimeError,
-    setFatalRuntimeError,
-    reloadAfterFatalRuntimeError,
-} = useFatalRuntimeError();
+const {locale, t, loadLocaleMessages, setLocale} = useTypedI18n();
+const {fatalRuntimeError, setFatalRuntimeError, reloadAfterFatalRuntimeError} = useFatalRuntimeError();
 const {
     reports: runtimeErrorReports,
     clearRuntimeErrorReports,
@@ -111,38 +98,38 @@ const settingsSaveFailurePresentation = computed<IFailurePresentation | null>(()
     return {
         ...capture,
         title: t('status.saveFailed'),
-        description: settingsSaveError.value?.name === 'QuotaExceededError'
-            ? t('errors.settings.storageFull')
-            : settingsSaveError.value?.name === 'SecurityError'
-                || settingsSaveError.value?.name === 'NotAllowedError'
-                ? t('errors.settings.storageUnavailable')
-                : t('errors.settings.save'),
+        description:
+            settingsSaveError.value?.name === 'QuotaExceededError'
+                ? t('errors.settings.storageFull')
+                : settingsSaveError.value?.name === 'SecurityError' || settingsSaveError.value?.name === 'NotAllowedError'
+                  ? t('errors.settings.storageUnavailable')
+                  : t('errors.settings.save'),
         ...(settingsSaveError.value ? {technicalDetails: `${settingsSaveError.value.name}: ${settingsSaveError.value.message}`} : {}),
     };
 });
 
 // Every save that ends failed is told, a retried one too; its receipt keeps
 // it one toast while it is still showing.
-watch([
-    settingsSaveFailurePresentation,
-    settingsSaveStatus,
-], ([
-    presentation,
-    status,
-]) => {
-    if (presentation && status === 'failed') {
-        presentFailureToast({
-            ...presentation,
-            actions: [{
-                label: t('common.retry'),
-                color: 'primary',
-                onClick: () => {
-                    void saveSettings();
-                },
-            }],
-        });
-    }
-}, {immediate: true});
+watch(
+    [settingsSaveFailurePresentation, settingsSaveStatus],
+    ([presentation, status]) => {
+        if (presentation && status === 'failed') {
+            presentFailureToast({
+                ...presentation,
+                actions: [
+                    {
+                        label: t('common.retry'),
+                        color: 'primary',
+                        onClick: () => {
+                            void saveSettings();
+                        },
+                    },
+                ],
+            });
+        }
+    },
+    {immediate: true},
+);
 
 const route = useRoute();
 const colorMode = useColorMode();
@@ -152,55 +139,54 @@ const localeHead = useLocaleHead({
     seo: true,
 });
 const DEV_RELOAD_EVENT_KEY = 'evb-viewer:dev:last-vite-reload-event';
-const fatalRuntimeTitle = computed(() => fatalRuntimeError.value?.kind === 'startup'
-    ? t('errors.runtime.startupTitle')
-    : t('errors.runtime.title'));
-const fatalRuntimeDescription = computed(() => fatalRuntimeError.value?.kind === 'startup'
-    ? t('errors.runtime.startupDescription')
-    : t('errors.runtime.description'));
-const pendingDiagnosticConsentReport = computed(() => isLoaded.value
-    && settings.value.clientDiagnosticsPreference === 'unknown'
-    ? runtimeErrorReports.value.find(report => report.pendingDiagnostic?.isLive) ?? null
-    : null);
+const fatalRuntimeTitle = computed(() =>
+    fatalRuntimeError.value?.kind === 'startup' ? t('errors.runtime.startupTitle') : t('errors.runtime.title'),
+);
+const fatalRuntimeDescription = computed(() =>
+    fatalRuntimeError.value?.kind === 'startup' ? t('errors.runtime.startupDescription') : t('errors.runtime.description'),
+);
+const pendingDiagnosticConsentReport = computed(() =>
+    isLoaded.value && settings.value.clientDiagnosticsPreference === 'unknown'
+        ? (runtimeErrorReports.value.find((report) => report.pendingDiagnostic?.isLive) ?? null)
+        : null,
+);
 const {
     copied: recentlyCopiedFatalDetail,
     copy: copyFatalDetailToClipboard,
     isSupported: isFatalDetailClipboardSupported,
-} = useClipboard({ copiedDuring: 1500 });
+} = useClipboard({copiedDuring: 1500});
 let appReadyDispatched = false;
 
 // A runtime error is told like any other failure: once when it first
 // happens, and again (the toast pulses) each time it repeats.
 const toldRuntimeReportCounts = new Map<string, number>();
-watch(runtimeErrorReports, (reports) => {
-    for (const report of reports) {
-        if (!report.failure || toldRuntimeReportCounts.get(report.id) === report.count) {
-            continue;
+watch(
+    runtimeErrorReports,
+    (reports) => {
+        for (const report of reports) {
+            if (!report.failure || toldRuntimeReportCounts.get(report.id) === report.count) {
+                continue;
+            }
+            toldRuntimeReportCounts.set(report.id, report.count);
+            presentFailureToast({
+                failure: report.failure,
+                title: report.title,
+                description: report.detail || t('errors.runtime.reportDescription'),
+                ...(report.technicalDetails ? {technicalDetails: report.technicalDetails} : {}),
+            });
         }
-        toldRuntimeReportCounts.set(report.id, report.count);
-        presentFailureToast({
-            failure: report.failure,
-            title: report.title,
-            description: report.detail || t('errors.runtime.reportDescription'),
-            ...(report.technicalDetails ? {technicalDetails: report.technicalDetails} : {}),
-        });
-    }
-    if (reports.length === 0) {
-        toldRuntimeReportCounts.clear();
-    }
-}, {immediate: true});
+        if (reports.length === 0) {
+            toldRuntimeReportCounts.clear();
+        }
+    },
+    {immediate: true},
+);
 
 // The first report the user may send asks beside its failure toast and
 // stays until they answer or decide in Settings; a newer toast that pushes it
 // out of the stack does not end the question, so it comes back.
 const consentToastId = (report: IRuntimeErrorReport) => `${DIAGNOSTICS_CONSENT_TOAST_PREFIX}${report.id}`;
-watch([
-    pendingDiagnosticConsentReport,
-    () => toast.toasts.value.map(entry => entry.id),
-], ([
-    report,
-    shownIds,
-], previous) => {
+watch([pendingDiagnosticConsentReport, () => toast.toasts.value.map((entry) => entry.id)], ([report, shownIds], previous) => {
     const previousReport = previous?.[0];
     if (previousReport && previousReport.id !== report?.id) {
         toast.remove(consentToastId(previousReport));
@@ -235,11 +221,7 @@ watch([
     });
 });
 
-async function copyText(
-    value: string,
-    copyToClipboard: (value: string) => Promise<void>,
-    isClipboardSupported: boolean,
-) {
+async function copyText(value: string, copyToClipboard: (value: string) => Promise<void>, isClipboardSupported: boolean) {
     if (!import.meta.client || !isClipboardSupported) {
         return false;
     }
@@ -260,14 +242,9 @@ async function handleCopyFatalRuntimeDetail() {
     await copyText(detail, copyFatalDetailToClipboard, isFatalDetailClipboardSupported.value);
 }
 
-
 async function grantDiagnosticsConsent(report: IRuntimeErrorReport) {
     const lease = report.pendingDiagnostic;
-    if (
-        diagnosticsConsentBusy.value !== null
-        || !lease?.isLive
-        || settings.value.clientDiagnosticsPreference !== 'unknown'
-    ) {
+    if (diagnosticsConsentBusy.value !== null || !lease?.isLive || settings.value.clientDiagnosticsPreference !== 'unknown') {
         return;
     }
 
@@ -285,12 +262,9 @@ async function grantDiagnosticsConsent(report: IRuntimeErrorReport) {
     } else {
         const preferenceAfterSave: string = settings.value.clientDiagnosticsPreference;
         if (
-            preferenceAfterSave === 'granted'
-        && route.fullPath === presentationRoute
-        && runtimeErrorReports.value.some(candidate => (
-            candidate.id === report.id
-            && candidate.pendingDiagnostic?.isLive
-        ))
+            preferenceAfterSave === 'granted' &&
+            route.fullPath === presentationRoute &&
+            runtimeErrorReports.value.some((candidate) => candidate.id === report.id && candidate.pendingDiagnostic?.isLive)
         ) {
             resendPendingDiagnosticOnce();
         }
@@ -311,23 +285,26 @@ function denyDiagnosticsConsent(report: IRuntimeErrorReport) {
     });
 }
 
-watch(() => colorMode.value, async () => {
-    if (!import.meta.client) {
-        return;
-    }
-    const revision = ++themeRepaintRevision;
-    await nextTick();
-    await waitForVisualFrames();
-    if (revision !== themeRepaintRevision) {
-        return;
-    }
+watch(
+    () => colorMode.value,
+    async () => {
+        if (!import.meta.client) {
+            return;
+        }
+        const revision = ++themeRepaintRevision;
+        await nextTick();
+        await waitForVisualFrames();
+        if (revision !== themeRepaintRevision) {
+            return;
+        }
 
-    // Hidden workspace tabs are retained with v-show. Some Chromium builds can
-    // leave their composited layers painted in the prior color scheme until a
-    // layout event occurs, so make the theme commit an explicit layout epoch.
-    document.documentElement.getBoundingClientRect();
-    window.dispatchEvent(new Event('resize'));
-});
+        // Hidden workspace tabs are retained with v-show. Some Chromium builds can
+        // leave their composited layers painted in the prior color scheme until a
+        // layout event occurs, so make the theme commit an explicit layout epoch.
+        document.documentElement.getBoundingClientRect();
+        window.dispatchEvent(new Event('resize'));
+    },
+);
 
 onBeforeUnmount(() => {
     clearRuntimeErrorReports();
@@ -342,9 +319,13 @@ onBeforeUnmount(() => {
     }
 });
 
-watch(() => route.fullPath, () => {
-    clearRuntimeErrorReports();
-}, {flush: 'sync'});
+watch(
+    () => route.fullPath,
+    () => {
+        clearRuntimeErrorReports();
+    },
+    {flush: 'sync'},
+);
 
 colorMode.preference = settings.value.theme;
 
@@ -445,7 +426,7 @@ function prefetchPersistedLocaleMessages() {
         return;
     }
 
-    void loadLocaleMessages(settings.value.locale).catch(error => {
+    void loadLocaleMessages(settings.value.locale).catch((error) => {
         BrowserLogger.debug('i18n', 'Speculative locale message prefetch failed', error);
     });
 }
@@ -454,20 +435,19 @@ onMounted(async () => {
     useEventListener(window, 'pagehide', clearRuntimeErrorReports);
     prefetchPersistedLocaleMessages();
     try {
-        hostEnvironmentUnsubscribers.push(onBrowserDocumentPersistenceWarning(({
-            fileName,
-            error,
-        }) => {
-            BrowserLogger.warn('browser-storage', 'Document remains available only in memory', {
-                fileName,
-                error,
-            });
-            toast.add({
-                color: 'warning',
-                title: t('errors.file.browserStorageTitle'),
-                description: t('errors.file.browserStorageDescription', {name: fileName}),
-            });
-        }));
+        hostEnvironmentUnsubscribers.push(
+            onBrowserDocumentPersistenceWarning(({fileName, error}) => {
+                BrowserLogger.warn('browser-storage', 'Document remains available only in memory', {
+                    fileName,
+                    error,
+                });
+                toast.add({
+                    color: 'warning',
+                    title: t('errors.file.browserStorageTitle'),
+                    description: t('errors.file.browserStorageDescription', {name: fileName}),
+                });
+            }),
+        );
         if (shouldPreferDesktopPlatform(route.path, isDesktopRuntime.value) && !hasElectronPlatformBridge()) {
             const presentation = getOrCaptureRendererBootstrapFailure({
                 error: new Error('Electron preload bridge is unavailable during app bootstrap.'),
@@ -494,8 +474,8 @@ onMounted(async () => {
                 description: settingsRecoveryNotice.quarantinePath
                     ? t('errors.settings.recoveredWithPath', {path: settingsRecoveryNotice.quarantinePath})
                     : settingsRecoveryNotice.reason === 'unsupported' && !hasElectronPlatformBridge()
-                        ? t('errors.settings.newerVersion')
-                        : t('errors.settings.recovered'),
+                      ? t('errors.settings.newerVersion')
+                      : t('errors.settings.recovered'),
             });
         }
         setPreferenceFromSettings(settings.value);

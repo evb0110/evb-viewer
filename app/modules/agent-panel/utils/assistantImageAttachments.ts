@@ -1,4 +1,4 @@
-import type { IAgentAssistantImageAttachment } from '@contracts/agent';
+import type {IAgentAssistantImageAttachment} from '@contracts/agent';
 import {
     ASSISTANT_IMAGE_RESOURCE_LIMITS,
     createStaticBrowserImagePreview,
@@ -7,7 +7,7 @@ import {
     type IProbedBrowserImage,
 } from '@app/platform/browser-api/public';
 
-export type TAssistantComposerImage = IAgentAssistantImageAttachment & {previewDataUrl?: string;};
+export type TAssistantComposerImage = IAgentAssistantImageAttachment & {previewDataUrl?: string};
 
 export const ASSISTANT_MAX_IMAGE_ATTACHMENTS = 8;
 export const ASSISTANT_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -25,22 +25,22 @@ export interface IExpandedImagePreview {
 
 export type TAssistantComposerImageError =
     | {
-        type: 'unsupported';
-        name: string 
-    }
+          type: 'unsupported';
+          name: string;
+      }
     | {
-        type: 'too-large';
-        name: string;
-        size: string 
-    }
+          type: 'too-large';
+          name: string;
+          size: string;
+      }
     | {
-        type: 'limit';
-        count: number 
-    }
+          type: 'limit';
+          count: number;
+      }
     | {
-        type: 'read-failed';
-        name: string 
-    };
+          type: 'read-failed';
+          name: string;
+      };
 
 interface IBuildComposerImageAttachmentsOptions {
     files: readonly File[];
@@ -71,11 +71,7 @@ export function getClipboardImageFiles(dataTransfer: DataTransfer | null) {
     }
 
     return Array.from(dataTransfer.items)
-        .flatMap(item => (
-            item.kind === 'file' && item.type.toLowerCase().startsWith('image/')
-                ? [item.getAsFile()]
-                : []
-        ))
+        .flatMap((item) => (item.kind === 'file' && item.type.toLowerCase().startsWith('image/') ? [item.getAsFile()] : []))
         .filter(isAssistantImageFile);
 }
 
@@ -123,7 +119,7 @@ export async function buildComposerImageAttachments({
         if (!isAssistantImageFile(file)) {
             error = {
                 type: 'unsupported',
-                name, 
+                name,
             };
             continue;
         }
@@ -159,7 +155,7 @@ export async function buildComposerImageAttachments({
         } catch {
             error = {
                 type: 'read-failed',
-                name, 
+                name,
             };
         }
     }
@@ -175,8 +171,8 @@ export function buildExpandedImagePreview(
     selectedImageId: string,
 ): IExpandedImagePreview | null {
     const previewableImages = images
-        .filter(image => getAssistantImagePreviewUrl(image).startsWith('data:image/'))
-        .map(image => ({
+        .filter((image) => getAssistantImagePreviewUrl(image).startsWith('data:image/'))
+        .map((image) => ({
             id: image.id,
             src: getAssistantImagePreviewUrl(image),
             name: image.name,
@@ -184,12 +180,12 @@ export function buildExpandedImagePreview(
     if (previewableImages.length === 0) {
         return null;
     }
-    const selectedIndex = previewableImages.findIndex(image => image.id === selectedImageId);
+    const selectedIndex = previewableImages.findIndex((image) => image.id === selectedImageId);
     if (selectedIndex < 0) {
         return null;
     }
     return {
-        images: previewableImages.map(image => ({
+        images: previewableImages.map((image) => ({
             src: image.src,
             name: image.name,
         })),
@@ -201,10 +197,7 @@ export function getAssistantImagePreviewUrl(image: TAssistantComposerImage) {
     return image.previewDataUrl ?? image.dataUrl;
 }
 
-export function navigateExpandedImagePreview(
-    preview: IExpandedImagePreview | null,
-    direction: -1 | 1,
-) {
+export function navigateExpandedImagePreview(preview: IExpandedImagePreview | null, direction: -1 | 1) {
     if (!preview || preview.images.length <= 1) {
         return preview;
     }

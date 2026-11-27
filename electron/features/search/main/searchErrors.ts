@@ -1,10 +1,6 @@
-import type {
-    ISearchErrorEnvelope,
-    ISearchErrorEnvelopeCarrier,
-    TSearchErrorCode,
-} from '@contracts/search';
+import type {ISearchErrorEnvelope, ISearchErrorEnvelopeCarrier, TSearchErrorCode} from '@contracts/search';
 import {createEpochMs} from '@contracts/timestamps';
-import { getErrorMessage } from '@electron/utils/error';
+import {getErrorMessage} from '@electron/utils/error';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
 
@@ -50,29 +46,22 @@ export function buildSearchErrorEnvelope(
     };
 }
 
-export function toSearchIpcError(
-    error: unknown,
-    fallbackCode: TSearchErrorCode = 'SEARCH_INTERNAL',
-    retryable = false,
-) {
+export function toSearchIpcError(error: unknown, fallbackCode: TSearchErrorCode = 'SEARCH_INTERNAL', retryable = false) {
     if (error instanceof SearchIpcError) {
         return error;
     }
     if (hasNativeErrorCode(error)) {
-        const code: TSearchErrorCode = error.code === 'invalid-request'
-            ? 'SEARCH_INVALID_PAYLOAD'
-            : error.code === 'too-large'
-                ? 'SEARCH_WORKER_LIMIT'
-                : 'SEARCH_WORKER_ERROR';
-        return new SearchIpcError(buildSearchErrorEnvelope(
-            code,
-            getErrorMessage(error) || 'Native search failed',
-            {retryable: error.code === 'io' || error.code === 'native-failure'},
-        ));
+        const code: TSearchErrorCode =
+            error.code === 'invalid-request'
+                ? 'SEARCH_INVALID_PAYLOAD'
+                : error.code === 'too-large'
+                  ? 'SEARCH_WORKER_LIMIT'
+                  : 'SEARCH_WORKER_ERROR';
+        return new SearchIpcError(
+            buildSearchErrorEnvelope(code, getErrorMessage(error) || 'Native search failed', {
+                retryable: error.code === 'io' || error.code === 'native-failure',
+            }),
+        );
     }
-    return new SearchIpcError(buildSearchErrorEnvelope(
-        fallbackCode,
-        getErrorMessage(error) || 'Search failed',
-        {retryable},
-    ));
+    return new SearchIpcError(buildSearchErrorEnvelope(fallbackCode, getErrorMessage(error) || 'Search failed', {retryable}));
 }

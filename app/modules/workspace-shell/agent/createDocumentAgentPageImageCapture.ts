@@ -1,32 +1,16 @@
-import type { Ref } from 'vue';
-import { delay } from 'es-toolkit/promise';
-import {
-    findPdfPageContainer,
-    pdfViewerDomSelectors, 
-} from '@app/modules/pdf-viewer/public';
-import {
-    getRectHeight, getRectWidth , toClientRect,  
-} from '@app/modules/document-viewer/public';
-import type { IClientRect } from '@app/modules/document-viewer/public';
-import type { IWorkspacePdfViewerAgentPageImageCapturePort } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import {
-    getAgentNumberInput,
-    getAgentStringInput,
-    hasAgentInputKey,
-} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
-import { getAgentOptionalPageNumberInput } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPages';
-import { isOneOf } from '@contracts/runtimeGuards';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {Ref} from 'vue';
+import {delay} from 'es-toolkit/promise';
+import {findPdfPageContainer, pdfViewerDomSelectors} from '@app/modules/pdf-viewer/public';
+import {getRectHeight, getRectWidth, toClientRect} from '@app/modules/document-viewer/public';
+import type {IClientRect} from '@app/modules/document-viewer/public';
+import type {IWorkspacePdfViewerAgentPageImageCapturePort} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import {getAgentNumberInput, getAgentStringInput, hasAgentInputKey} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
+import {getAgentOptionalPageNumberInput} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPages';
+import {isOneOf} from '@contracts/runtimeGuards';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-const AGENT_PAGE_IMAGE_REGIONS = [
-    'full',
-    'top',
-    'bottom',
-    'left',
-    'right',
-    'center',
-] as const;
+const AGENT_PAGE_IMAGE_REGIONS = ['full', 'top', 'bottom', 'left', 'right', 'center'] as const;
 
 const AGENT_PAGE_IMAGE_RENDER_TIMEOUT_MS = 3_000;
 const AGENT_PAGE_IMAGE_RENDER_POLL_MS = 50;
@@ -38,14 +22,12 @@ interface ICreateDocumentAgentPageImageCaptureOptions {
     totalPages: Ref<number>;
 }
 
-function isAgentPageImageRegion(value: unknown): value is typeof AGENT_PAGE_IMAGE_REGIONS[number] {
+function isAgentPageImageRegion(value: unknown): value is (typeof AGENT_PAGE_IMAGE_REGIONS)[number] {
     return isOneOf(AGENT_PAGE_IMAGE_REGIONS, value);
 }
 
 function normalizeAgentUnit(value: number | null | undefined, fallback: number) {
-    const normalizedValue = typeof value === 'number' && Number.isFinite(value)
-        ? value
-        : fallback;
+    const normalizedValue = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
     return Math.min(1, Math.max(0, normalizedValue));
 }
 
@@ -57,12 +39,7 @@ function normalizeAgentPositiveUnit(value: number | null | undefined, fallback: 
 function getAgentPageImageSelection(input: Record<string, unknown>, pageRect: IClientRect) {
     const pageWidth = getRectWidth(pageRect);
     const pageHeight = getRectHeight(pageRect);
-    const hasExplicitCrop = [
-        'x',
-        'y',
-        'width',
-        'height',
-    ].some(key => hasAgentInputKey(input, key));
+    const hasExplicitCrop = ['x', 'y', 'width', 'height'].some((key) => hasAgentInputKey(input, key));
 
     if (hasExplicitCrop) {
         const x = normalizeAgentUnit(getAgentNumberInput(input, 'x'), 0);
@@ -172,20 +149,13 @@ function createAgentCaptureRectMetadata(rect: IClientRect, pageRect: IClientRect
 }
 
 export function createDocumentAgentPageImageCapture(options: ICreateDocumentAgentPageImageCaptureOptions) {
-    const {
-        currentPage,
-        handleGoToPage,
-        pdfViewerRef,
-        totalPages,
-    } = options;
+    const {currentPage, handleGoToPage, pdfViewerRef, totalPages} = options;
 
     async function captureAgentPageImage(input: Record<string, unknown>, actionId: string, assertRequestCurrent: () => void = () => {}) {
-        const pageNumber = requirePageNumber(getAgentOptionalPageNumberInput(
-            input,
+        const pageNumber = requirePageNumber(
+            getAgentOptionalPageNumberInput(input, totalPages.value, currentPage.value, actionId),
             totalPages.value,
-            currentPage.value,
-            actionId,
-        ), totalPages.value);
+        );
         const viewer = pdfViewerRef.value;
         const viewerContainer = viewer?.getViewerContainer() ?? null;
         if (!viewer || !viewerContainer) {
@@ -194,7 +164,9 @@ export function createDocumentAgentPageImageCapture(options: ICreateDocumentAgen
 
         const assertCurrent = () => {
             assertRequestCurrent();
-            if (pdfViewerRef.value !== viewer || viewer.getViewerContainer() !== viewerContainer || !viewerContainer.isConnected) throw new DOMException('The initiating capture view changed', 'AbortError');
+            if (pdfViewerRef.value !== viewer || viewer.getViewerContainer() !== viewerContainer || !viewerContainer.isConnected) {
+                throw new DOMException('The initiating capture view changed', 'AbortError');
+            }
         };
         assertCurrent();
         handleGoToPage(pageNumber);
@@ -209,7 +181,9 @@ export function createDocumentAgentPageImageCapture(options: ICreateDocumentAgen
         assertCurrent();
         const pageRect = toClientRect(pageElement.getBoundingClientRect());
         const selectionRect = getAgentPageImageSelection(input, pageRect);
-        if (!viewer.captureVisibleRegionAsPng) throw new Error('Current-view composed capture is unavailable');
+        if (!viewer.captureVisibleRegionAsPng) {
+            throw new Error('Current-view composed capture is unavailable');
+        }
         const capture = await viewer.captureVisibleRegionAsPng(selectionRect, assertCurrent);
         assertCurrent();
         if (!capture) {
@@ -229,5 +203,5 @@ export function createDocumentAgentPageImageCapture(options: ICreateDocumentAgen
         };
     }
 
-    return { captureAgentPageImage };
+    return {captureAgentPageImage};
 }

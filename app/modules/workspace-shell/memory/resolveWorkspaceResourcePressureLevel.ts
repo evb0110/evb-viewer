@@ -1,5 +1,5 @@
-import type { ISystemMemoryInfo } from '@contracts/systemPlatformFeature';
-import type { TMemoryPressureLevel } from '@app/modules/document-viewer/public';
+import type {ISystemMemoryInfo} from '@contracts/systemPlatformFeature';
+import type {TMemoryPressureLevel} from '@app/modules/document-viewer/public';
 
 export interface IWorkspaceMemoryPressureSample {
     memoryInfo: ISystemMemoryInfo | null;
@@ -11,9 +11,7 @@ export interface IWorkspaceMemoryPressureSample {
  * an input: shrinking the budget on a full ledger evicted surfaces, the emptier
  * ledger then read as healthy, and the next sample refilled it.
  */
-export function resolveWorkspaceResourcePressureLevel(
-    sample: IWorkspaceMemoryPressureSample,
-): TMemoryPressureLevel {
+export function resolveWorkspaceResourcePressureLevel(sample: IWorkspaceMemoryPressureSample): TMemoryPressureLevel {
     if (!sample.memoryInfo || sample.systemFreeReserveBytes <= 0) {
         return 'none';
     }

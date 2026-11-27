@@ -1,29 +1,31 @@
-import {
-    describe, expect, it,
-} from 'vitest';
-import { ref } from 'vue';
-import {
-    runSettingsAssistantAction, type TSettingsAssistantAction,
-} from '@app/modules/workspace-shell/agent/runSettingsAssistantAction';
+import {describe, expect, it} from 'vitest';
+import {ref} from 'vue';
+import {runSettingsAssistantAction, type TSettingsAssistantAction} from '@app/modules/workspace-shell/agent/runSettingsAssistantAction';
 
 describe('settings assistant operation feedback', () => {
     it('retains the original error as inline feedback and allows the next action', async () => {
         const activeAction = ref<TSettingsAssistantAction | null>(null);
         const error = ref('');
-        expect(await runSettingsAssistantAction({
-            action: 'save',
-            activeAction,
-            error,
-            run: async () => { throw new Error('Cannot encrypt stored secret'); },
-        })).toBe(false);
+        expect(
+            await runSettingsAssistantAction({
+                action: 'save',
+                activeAction,
+                error,
+                run: async () => {
+                    throw new Error('Cannot encrypt stored secret');
+                },
+            }),
+        ).toBe(false);
         expect(error.value).toBe('Cannot encrypt stored secret');
         expect(activeAction.value).toBeNull();
-        expect(await runSettingsAssistantAction({
-            action: 'save',
-            activeAction,
-            error,
-            run: async () => {},
-        })).toBe(true);
+        expect(
+            await runSettingsAssistantAction({
+                action: 'save',
+                activeAction,
+                error,
+                run: async () => {},
+            }),
+        ).toBe(true);
         expect(error.value).toBe('');
     });
     it('does not publish a late error after settings is closed', async () => {

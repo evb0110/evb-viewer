@@ -1,6 +1,7 @@
 const HTTP_URL_PATTERN = /\bhttps?:\/\/[^\s]+/giu;
 const DATA_URL_PATTERN = /\bdata:[^\s]+/giu;
-const SECRET_ASSIGNMENT_PATTERN = /(?<![\w-])["']?(?:x[-_])?(?:authorization|auth[-_]?token|api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|private[-_]?key|password|passwd|pwd|secret|token)\b["']?\s*[:=]\s*/giu;
+const SECRET_ASSIGNMENT_PATTERN =
+    /(?<![\w-])["']?(?:x[-_])?(?:authorization|auth[-_]?token|api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|private[-_]?key|password|passwd|pwd|secret|token)\b["']?\s*[:=]\s*/giu;
 interface IRedaction {
     pattern: RegExp;
     replacement: (match: string) => string;
@@ -23,10 +24,7 @@ function pathRedactions(
     quotedTail = QUOTED_PATH_TAIL,
 ): IRedaction[] {
     const start = `${prefix}(?!\\[redacted\\])`;
-    return [
-        `${QUOTED_PATH_START}${start}${quotedTail}`,
-        `${start}${plainTail}`,
-    ].map(source => ({
+    return [`${QUOTED_PATH_START}${start}${quotedTail}`, `${start}${plainTail}`].map((source) => ({
         pattern: new RegExp(source, 'giu'),
         replacement,
     }));
@@ -35,11 +33,7 @@ function pathRedactions(
 const HOME_PATH_REDACTION_PATTERNS: readonly IRedaction[] = [
     ...pathRedactions(String.raw`\/Users\/`, String.raw`[^/\s"',)]+(?:\/[^\s"',)]+)*`, () => '/Users/[redacted]'),
     // JSON-escaped Windows paths (doubled separators), then raw ones.
-    ...pathRedactions(
-        String.raw`[A-Za-z]:\\\\Users\\\\`,
-        String.raw`[^\\\s"',)]+(?:\\[^\s"',)]+)*`,
-        () => 'C:\\\\Users\\\\[redacted]',
-    ),
+    ...pathRedactions(String.raw`[A-Za-z]:\\\\Users\\\\`, String.raw`[^\\\s"',)]+(?:\\[^\s"',)]+)*`, () => 'C:\\\\Users\\\\[redacted]'),
     ...pathRedactions(
         String.raw`[A-Za-z]:\\Users\\`,
         String.raw`[^\\\s"',)]+(?:\\[^\s"',)]+)*`,
@@ -58,7 +52,7 @@ const NON_URL_REDACTION_PATTERNS: readonly IRedaction[] = [
     ...pathRedactions(
         String.raw`browser:\/\/documents\/[^/\s"',)]+\/`,
         String.raw`[^\s"',)]+`,
-        match => `${match.slice(0, match.indexOf('/', 'browser://documents/'.length) + 1)}[redacted]`,
+        (match) => `${match.slice(0, match.indexOf('/', 'browser://documents/'.length) + 1)}[redacted]`,
     ),
 ];
 
@@ -80,7 +74,7 @@ function findCompositeValueEnd(value: string, start: number) {
     const stack: string[] = [];
     for (let index = start; index < value.length; index += 1) {
         const character = value[index];
-        if (character === '"' || character === '\'') {
+        if (character === '"' || character === "'") {
             index = findQuotedValueEnd(value, index) - 1;
             continue;
         }
@@ -107,7 +101,7 @@ function findSecretValueEnd(value: string, start: number) {
         return start + '"[redacted-secret]"'.length;
     }
     const firstCharacter = value[start];
-    if (firstCharacter === '"' || firstCharacter === '\'') {
+    if (firstCharacter === '"' || firstCharacter === "'") {
         return findQuotedValueEnd(value, start);
     }
     if (firstCharacter === '{' || firstCharacter === '[') {
@@ -145,10 +139,7 @@ function redactNamedSecrets(value: string) {
 
 function redactHomePaths(value: string) {
     let redacted = value;
-    for (const {
-        pattern,
-        replacement,
-    } of HOME_PATH_REDACTION_PATTERNS) {
+    for (const {pattern, replacement} of HOME_PATH_REDACTION_PATTERNS) {
         redacted = redacted.replace(pattern, replacement);
     }
     return redacted;
@@ -156,10 +147,7 @@ function redactHomePaths(value: string) {
 
 function redactNonOpaqueText(value: string) {
     let redacted = redactNamedSecrets(value);
-    for (const {
-        pattern,
-        replacement,
-    } of NON_URL_REDACTION_PATTERNS) {
+    for (const {pattern, replacement} of NON_URL_REDACTION_PATTERNS) {
         redacted = redacted.replace(pattern, replacement);
     }
     return redactHomePaths(redacted);
@@ -189,38 +177,19 @@ function splitRedactableSpan(value: string, precedingCharacter: string | undefin
     let spanEnd = value.length;
     let foundContextualQuote = false;
     const pairedDelimiters = [
-        [
-            '(',
-            ')',
-        ],
-        [
-            '[',
-            ']',
-        ],
-        [
-            '{',
-            '}',
-        ],
-        [
-            '<',
-            '>',
-        ],
+        ['(', ')'],
+        ['[', ']'],
+        ['{', '}'],
+        ['<', '>'],
     ] as const;
 
-    if (
-        precedingCharacter === '"'
-        || precedingCharacter === '\''
-        || precedingCharacter === '`'
-    ) {
+    if (precedingCharacter === '"' || precedingCharacter === "'" || precedingCharacter === '`') {
         for (let index = 0; index < spanEnd; index += 1) {
             if (value[index] !== precedingCharacter || value[index - 1] === '\\') {
                 continue;
             }
             const followingCharacter = value[index + 1];
-            if (
-                followingCharacter === undefined
-                || /[\s,;.!?)}\]]/u.test(followingCharacter)
-            ) {
+            if (followingCharacter === undefined || /[\s,;.!?)}\]]/u.test(followingCharacter)) {
                 spanEnd = index;
                 foundContextualQuote = true;
                 break;
@@ -233,7 +202,7 @@ function splitRedactableSpan(value: string, precedingCharacter: string | undefin
             spanEnd -= 1;
         }
     }
-    const wrapper = pairedDelimiters.find(pair => pair[0] === precedingCharacter);
+    const wrapper = pairedDelimiters.find((pair) => pair[0] === precedingCharacter);
     const removedWrapper = wrapper?.[1] === value[spanEnd - 1];
     if (removedWrapper) {
         spanEnd -= 1;
@@ -251,10 +220,7 @@ function redactNonUrlText(value: string) {
 
     for (const match of value.matchAll(DATA_URL_PATTERN)) {
         const index = match.index;
-        const {
-            redactedSpan,
-            trailingText,
-        } = splitRedactableSpan(match[0], value[index - 1]);
+        const {redactedSpan, trailingText} = splitRedactableSpan(match[0], value[index - 1]);
         result += redactNonOpaqueText(value.slice(cursor, index));
         result += redactedSpan.length > 0 ? 'data:[redacted]' : '';
         result += redactNonOpaqueText(trailingText);
@@ -269,26 +235,16 @@ function redactHttpUrl(value: string) {
     const authorityStart = value.indexOf('://') + 3;
     const authoritySuffix = value.slice(authorityStart);
     const authorityEndOffset = authoritySuffix.search(/[/?#]/u);
-    const authorityEnd = authorityEndOffset === -1
-        ? value.length
-        : authorityStart + authorityEndOffset;
+    const authorityEnd = authorityEndOffset === -1 ? value.length : authorityStart + authorityEndOffset;
     const authority = value.slice(authorityStart, authorityEnd);
     const userInfoEnd = authority.lastIndexOf('@');
-    const redactedAuthority = userInfoEnd === -1
-        ? authority
-        : `[redacted]@${authority.slice(userInfoEnd + 1)}`;
+    const redactedAuthority = userInfoEnd === -1 ? authority : `[redacted]@${authority.slice(userInfoEnd + 1)}`;
     const suffix = value.slice(authorityEnd);
     const fragmentStart = suffix.indexOf('#');
-    const suffixWithoutFragment = fragmentStart === -1
-        ? suffix
-        : suffix.slice(0, fragmentStart);
+    const suffixWithoutFragment = fragmentStart === -1 ? suffix : suffix.slice(0, fragmentStart);
     const queryStart = suffixWithoutFragment.indexOf('?');
-    const path = queryStart === -1
-        ? suffixWithoutFragment
-        : suffixWithoutFragment.slice(0, queryStart);
-    const query = queryStart === -1
-        ? ''
-        : `?${redactUrlQuery(suffixWithoutFragment.slice(queryStart + 1))}`;
+    const path = queryStart === -1 ? suffixWithoutFragment : suffixWithoutFragment.slice(0, queryStart);
+    const query = queryStart === -1 ? '' : `?${redactUrlQuery(suffixWithoutFragment.slice(queryStart + 1))}`;
     const fragment = fragmentStart === -1 ? '' : '#[redacted]';
 
     return `${value.slice(0, authorityStart)}${redactedAuthority}${redactHomePaths(path)}${query}${fragment}`;
@@ -305,10 +261,7 @@ export function redactLogText(value: string) {
 
     for (const match of value.matchAll(HTTP_URL_PATTERN)) {
         const index = match.index;
-        const {
-            redactedSpan,
-            trailingText,
-        } = splitRedactableSpan(match[0], value[index - 1]);
+        const {redactedSpan, trailingText} = splitRedactableSpan(match[0], value[index - 1]);
         result += redactNonUrlText(value.slice(cursor, index));
         result += redactHttpUrl(redactedSpan);
         result += redactNonUrlText(trailingText);

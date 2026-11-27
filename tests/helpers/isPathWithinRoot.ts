@@ -1,8 +1,4 @@
-import {
-    isAbsolute,
-    relative,
-    sep,
-} from 'node:path';
+import {isAbsolute, relative, sep} from 'node:path';
 
 /**
  * Strict-descendant containment expressed through the path API rather than a
@@ -12,8 +8,5 @@ import {
  */
 export function isPathWithinRoot(candidatePath: string, rootPath: string) {
     const relativePath = relative(rootPath, candidatePath);
-    return relativePath !== ''
-        && relativePath !== '..'
-        && !relativePath.startsWith(`..${sep}`)
-        && !isAbsolute(relativePath);
+    return relativePath !== '' && relativePath !== '..' && !relativePath.startsWith(`..${sep}`) && !isAbsolute(relativePath);
 }

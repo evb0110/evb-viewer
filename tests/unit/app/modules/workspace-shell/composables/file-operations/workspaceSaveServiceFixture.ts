@@ -1,110 +1,85 @@
-import {
-    expect,
-    vi,
-} from 'vitest';
-import {
-    ref,
-    shallowRef,
-    type Ref,
-    type ShallowRef,
-} from 'vue';
-import type {
-    IAnnotationCommentSummary,
-    IShapeAnnotation,
-} from '@app/types/annotations';
-import type { IPdfDocument } from '@app/modules/pdf-viewer/public';
+import {expect, vi} from 'vitest';
+import {ref, shallowRef, type Ref, type ShallowRef} from 'vue';
+import type {IAnnotationCommentSummary, IShapeAnnotation} from '@app/types/annotations';
+import type {IPdfDocument} from '@app/modules/pdf-viewer/public';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
-import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
+import {usePdfViewerSaveTransaction} from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import {
     asAnnotationId,
     deriveAnnotationId,
     type AnnotationEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
-import { cast } from '@tests/helpers/cast';
-import type { IPdfPersistResult } from '@app/types/pdfUi';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {cast} from '@tests/helpers/cast';
+import type {IPdfPersistResult} from '@app/types/pdfUi';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
 
 export const toastAddMock = vi.fn();
 const TEST_BROWSER_SOURCE_REF = 'browser://documents/source.pdf';
 const TEST_BROWSER_WORKING_COPY_REF = 'browser://documents/work.pdf';
-type TFileOperationsSaveControllerTestDeps =
-    IWorkspaceSaveDependencies['status']
-    & {
-        workingCopyPath: IWorkspaceSaveDependencies['document']['workingCopyPath'];
-        originalPath: IWorkspaceSaveDependencies['document']['originalPath'];
-        documentSessionKey: IWorkspaceSaveDependencies['document']['sessionKey'];
-        documentRevisionToken: IWorkspaceSaveDependencies['document']['revisionToken'];
-        wasEncrypted?: NonNullable<IWorkspaceSaveDependencies['document']['wasEncrypted']>;
-        hasPendingUnsavedChanges?: IWorkspaceSaveDependencies['hasPendingUnsavedChanges'];
-        suppressUnencryptedSaveNotice?: NonNullable<
-            IWorkspaceSaveDependencies['unencryptedSaveNotice']
-        >['suppress'];
-        requestUnencryptedSaveNotice?: NonNullable<
-            IWorkspaceSaveDependencies['unencryptedSaveNotice']
-        >['request'];
-        updateSuppressUnencryptedSaveNotice?: NonNullable<
-            IWorkspaceSaveDependencies['unencryptedSaveNotice']
-        >['updateSuppress'];
-        resetSuppressUnencryptedSaveNotice?: NonNullable<
-            IWorkspaceSaveDependencies['unencryptedSaveNotice']
-        >['resetSuppress'];
-        flushSettings?: NonNullable<
-            IWorkspaceSaveDependencies['unencryptedSaveNotice']
-        >['flushSettings'];
-        annotationDirty: IWorkspaceSaveDependencies['annotations']['dirty'];
-        markAnnotationSaved: IWorkspaceSaveDependencies['annotations']['markSaved'];
-        getAnnotationSaveStateToken?: IWorkspaceSaveDependencies['annotations']['getSaveStateToken'];
-        hasAnnotationChanges: IWorkspaceSaveDependencies['annotations']['hasChanges'];
-        hasPendingAnnotationDeletes?: IWorkspaceSaveDependencies['annotations']['hasPendingDeletes'];
-        annotationNoteWindowsCount: IWorkspaceSaveDependencies['annotations']['openNoteCount'];
-        persistAllAnnotationNotes: IWorkspaceSaveDependencies['annotations']['persistOpenNotes'];
-        totalPages: IWorkspaceSaveDependencies['metadata']['totalPages'];
-        pageLabelsDirty: IWorkspaceSaveDependencies['metadata']['pageLabelsDirty'];
-        pageLabelRanges: IWorkspaceSaveDependencies['metadata']['pageLabelRanges'];
-        bookmarksDirty: IWorkspaceSaveDependencies['metadata']['bookmarksDirty'];
-        bookmarkItems: IWorkspaceSaveDependencies['metadata']['bookmarkItems'];
-        untitledBookmarkLabel: string;
-        markPageLabelsSaved: IWorkspaceSaveDependencies['metadata']['markPageLabelsSaved'];
-        getPageLabelsSaveStateToken?: IWorkspaceSaveDependencies['metadata']['getPageLabelsSaveStateToken'];
-        markBookmarksSaved: IWorkspaceSaveDependencies['metadata']['markBookmarksSaved'];
-        getBookmarksSaveStateToken?: IWorkspaceSaveDependencies['metadata']['getBookmarksSaveStateToken'];
-        pdfDocument: ShallowRef<IPdfDocument | null>;
-        pdfViewerRef?: IWorkspaceSaveDependencies['pdf']['viewer'];
-        commitPdfEditorsForSave?: IWorkspaceSaveDependencies['pdf']['commitEditorsForSave'];
-        runSaveTransaction: IWorkspaceSaveDependencies['pdf']['runSaveTransaction'];
-        getSourcePdfData: IWorkspaceSaveDependencies['pdf']['getSourceData'];
-        validatePdfPath: IWorkspaceSaveDependencies['persistence']['validatePdfPath'];
-        saveWorkingCopy: IWorkspaceSaveDependencies['persistence']['saveWorkingCopy'];
-        saveWorkingCopyAs: IWorkspaceSaveDependencies['persistence']['saveAs'];
-        repairWorkingCopy?: IWorkspaceSaveDependencies['persistence']['repairWorkingCopy'];
-        optimizeWorkingCopy?: IWorkspaceSaveDependencies['persistence']['optimizeWorkingCopy'];
-        optimizeWorkingCopyAsCopy?: IWorkspaceSaveDependencies['persistence']['optimizeWorkingCopyAsCopy'];
-        optimizePdfOnSaveAs?: Ref<boolean>;
-        trySavePdfNativeMutations: IWorkspaceSaveDependencies['persistence']['trySavePdfNativeMutations'];
-        getWorkingCopySize?: IWorkspaceSaveDependencies['persistence']['getWorkingCopySize'];
-        hasShapeChanges?: () => boolean;
-        hasManagedShapes?: () => boolean;
-        getAllShapes?: () => IShapeAnnotation[];
-        getDeletedEmbeddedShapeAnnotationIds?: () => string[];
-        getDeletedEmbeddedShapeStableKeys?: () => string[];
-        loadRecentFiles: IWorkspaceSaveDependencies['lifecycle']['loadRecentFiles'];
-        acceptAdoption?: IWorkspaceSaveDependencies['lifecycle']['acceptAdoption'];
-        commitDrafts?: IWorkspaceSaveDependencies['lifecycle']['commitDrafts'];
-        runWithDocumentOperationLease?: IWorkspaceSaveDependencies['runWithDocumentOperationLease'];
-        canonicalAnnotationComments: Ref<IAnnotationCommentSummary[]>;
-        captureCanonicalPendingTextUpdates: () => Map<string, string> | null;
-        captureCanonicalPendingAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
-    };
-export type TPdfNativeMutationSave = NonNullable<
-    IWorkspaceSaveDependencies['persistence']['trySavePdfNativeMutations']
->;
+type TFileOperationsSaveControllerTestDeps = IWorkspaceSaveDependencies['status'] & {
+    workingCopyPath: IWorkspaceSaveDependencies['document']['workingCopyPath'];
+    originalPath: IWorkspaceSaveDependencies['document']['originalPath'];
+    documentSessionKey: IWorkspaceSaveDependencies['document']['sessionKey'];
+    documentRevisionToken: IWorkspaceSaveDependencies['document']['revisionToken'];
+    wasEncrypted?: NonNullable<IWorkspaceSaveDependencies['document']['wasEncrypted']>;
+    hasPendingUnsavedChanges?: IWorkspaceSaveDependencies['hasPendingUnsavedChanges'];
+    suppressUnencryptedSaveNotice?: NonNullable<IWorkspaceSaveDependencies['unencryptedSaveNotice']>['suppress'];
+    requestUnencryptedSaveNotice?: NonNullable<IWorkspaceSaveDependencies['unencryptedSaveNotice']>['request'];
+    updateSuppressUnencryptedSaveNotice?: NonNullable<IWorkspaceSaveDependencies['unencryptedSaveNotice']>['updateSuppress'];
+    resetSuppressUnencryptedSaveNotice?: NonNullable<IWorkspaceSaveDependencies['unencryptedSaveNotice']>['resetSuppress'];
+    flushSettings?: NonNullable<IWorkspaceSaveDependencies['unencryptedSaveNotice']>['flushSettings'];
+    annotationDirty: IWorkspaceSaveDependencies['annotations']['dirty'];
+    markAnnotationSaved: IWorkspaceSaveDependencies['annotations']['markSaved'];
+    getAnnotationSaveStateToken?: IWorkspaceSaveDependencies['annotations']['getSaveStateToken'];
+    hasAnnotationChanges: IWorkspaceSaveDependencies['annotations']['hasChanges'];
+    hasPendingAnnotationDeletes?: IWorkspaceSaveDependencies['annotations']['hasPendingDeletes'];
+    annotationNoteWindowsCount: IWorkspaceSaveDependencies['annotations']['openNoteCount'];
+    persistAllAnnotationNotes: IWorkspaceSaveDependencies['annotations']['persistOpenNotes'];
+    totalPages: IWorkspaceSaveDependencies['metadata']['totalPages'];
+    pageLabelsDirty: IWorkspaceSaveDependencies['metadata']['pageLabelsDirty'];
+    pageLabelRanges: IWorkspaceSaveDependencies['metadata']['pageLabelRanges'];
+    bookmarksDirty: IWorkspaceSaveDependencies['metadata']['bookmarksDirty'];
+    bookmarkItems: IWorkspaceSaveDependencies['metadata']['bookmarkItems'];
+    untitledBookmarkLabel: string;
+    markPageLabelsSaved: IWorkspaceSaveDependencies['metadata']['markPageLabelsSaved'];
+    getPageLabelsSaveStateToken?: IWorkspaceSaveDependencies['metadata']['getPageLabelsSaveStateToken'];
+    markBookmarksSaved: IWorkspaceSaveDependencies['metadata']['markBookmarksSaved'];
+    getBookmarksSaveStateToken?: IWorkspaceSaveDependencies['metadata']['getBookmarksSaveStateToken'];
+    pdfDocument: ShallowRef<IPdfDocument | null>;
+    pdfViewerRef?: IWorkspaceSaveDependencies['pdf']['viewer'];
+    commitPdfEditorsForSave?: IWorkspaceSaveDependencies['pdf']['commitEditorsForSave'];
+    runSaveTransaction: IWorkspaceSaveDependencies['pdf']['runSaveTransaction'];
+    getSourcePdfData: IWorkspaceSaveDependencies['pdf']['getSourceData'];
+    validatePdfPath: IWorkspaceSaveDependencies['persistence']['validatePdfPath'];
+    saveWorkingCopy: IWorkspaceSaveDependencies['persistence']['saveWorkingCopy'];
+    saveWorkingCopyAs: IWorkspaceSaveDependencies['persistence']['saveAs'];
+    repairWorkingCopy?: IWorkspaceSaveDependencies['persistence']['repairWorkingCopy'];
+    optimizeWorkingCopy?: IWorkspaceSaveDependencies['persistence']['optimizeWorkingCopy'];
+    optimizeWorkingCopyAsCopy?: IWorkspaceSaveDependencies['persistence']['optimizeWorkingCopyAsCopy'];
+    optimizePdfOnSaveAs?: Ref<boolean>;
+    trySavePdfNativeMutations: IWorkspaceSaveDependencies['persistence']['trySavePdfNativeMutations'];
+    getWorkingCopySize?: IWorkspaceSaveDependencies['persistence']['getWorkingCopySize'];
+    hasShapeChanges?: () => boolean;
+    hasManagedShapes?: () => boolean;
+    getAllShapes?: () => IShapeAnnotation[];
+    getDeletedEmbeddedShapeAnnotationIds?: () => string[];
+    getDeletedEmbeddedShapeStableKeys?: () => string[];
+    loadRecentFiles: IWorkspaceSaveDependencies['lifecycle']['loadRecentFiles'];
+    acceptAdoption?: IWorkspaceSaveDependencies['lifecycle']['acceptAdoption'];
+    commitDrafts?: IWorkspaceSaveDependencies['lifecycle']['commitDrafts'];
+    runWithDocumentOperationLease?: IWorkspaceSaveDependencies['runWithDocumentOperationLease'];
+    canonicalAnnotationComments: Ref<IAnnotationCommentSummary[]>;
+    captureCanonicalPendingTextUpdates: () => Map<string, string> | null;
+    captureCanonicalPendingAnnotationDeletes: () => IAnnotationCommentSummary[] | null;
+};
+export type TPdfNativeMutationSave = NonNullable<IWorkspaceSaveDependencies['persistence']['trySavePdfNativeMutations']>;
 
-vi.stubGlobal('useTypedI18n', () => ({ t: (key: string) => key }));
-vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
+vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+vi.stubGlobal('useToast', () => ({add: toastAddMock}));
 
 export function createDeferred<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;
@@ -120,17 +95,15 @@ export function createDeferred<T>() {
     };
 }
 
-function createSaveDependencies(
-    deps: TFileOperationsSaveControllerTestDeps,
-): IWorkspaceSaveDependencies {
+function createSaveDependencies(deps: TFileOperationsSaveControllerTestDeps): IWorkspaceSaveDependencies {
     const unencryptedSaveNotice = deps.requestUnencryptedSaveNotice
         ? {
-            request: deps.requestUnencryptedSaveNotice,
-            suppress: deps.suppressUnencryptedSaveNotice ?? ref(false),
-            updateSuppress: deps.updateSuppressUnencryptedSaveNotice ?? (() => undefined),
-            resetSuppress: deps.resetSuppressUnencryptedSaveNotice ?? (() => undefined),
-            flushSettings: deps.flushSettings ?? (async () => true),
-        }
+              request: deps.requestUnencryptedSaveNotice,
+              suppress: deps.suppressUnencryptedSaveNotice ?? ref(false),
+              updateSuppress: deps.updateSuppressUnencryptedSaveNotice ?? (() => undefined),
+              resetSuppress: deps.resetSuppressUnencryptedSaveNotice ?? (() => undefined),
+              flushSettings: deps.flushSettings ?? (async () => true),
+          }
         : undefined;
 
     return {
@@ -143,19 +116,13 @@ function createSaveDependencies(
             ...(deps.wasEncrypted ? {wasEncrypted: deps.wasEncrypted} : {}),
         },
         ...(unencryptedSaveNotice ? {unencryptedSaveNotice} : {}),
-        ...(deps.hasPendingUnsavedChanges
-            ? {hasPendingUnsavedChanges: deps.hasPendingUnsavedChanges}
-            : {}),
+        ...(deps.hasPendingUnsavedChanges ? {hasPendingUnsavedChanges: deps.hasPendingUnsavedChanges} : {}),
         annotations: {
             dirty: deps.annotationDirty,
             markSaved: deps.markAnnotationSaved,
-            ...(deps.getAnnotationSaveStateToken
-                ? {getSaveStateToken: deps.getAnnotationSaveStateToken}
-                : {}),
+            ...(deps.getAnnotationSaveStateToken ? {getSaveStateToken: deps.getAnnotationSaveStateToken} : {}),
             hasChanges: deps.hasAnnotationChanges,
-            ...(deps.hasPendingAnnotationDeletes
-                ? {hasPendingDeletes: deps.hasPendingAnnotationDeletes}
-                : {}),
+            ...(deps.hasPendingAnnotationDeletes ? {hasPendingDeletes: deps.hasPendingAnnotationDeletes} : {}),
             openNoteCount: deps.annotationNoteWindowsCount,
             persistOpenNotes: deps.persistAllAnnotationNotes,
         },
@@ -167,20 +134,14 @@ function createSaveDependencies(
             bookmarkItems: deps.bookmarkItems,
             untitledBookmarkLabel: deps.untitledBookmarkLabel,
             markPageLabelsSaved: deps.markPageLabelsSaved,
-            ...(deps.getPageLabelsSaveStateToken
-                ? {getPageLabelsSaveStateToken: deps.getPageLabelsSaveStateToken}
-                : {}),
+            ...(deps.getPageLabelsSaveStateToken ? {getPageLabelsSaveStateToken: deps.getPageLabelsSaveStateToken} : {}),
             markBookmarksSaved: deps.markBookmarksSaved,
-            ...(deps.getBookmarksSaveStateToken
-                ? {getBookmarksSaveStateToken: deps.getBookmarksSaveStateToken}
-                : {}),
+            ...(deps.getBookmarksSaveStateToken ? {getBookmarksSaveStateToken: deps.getBookmarksSaveStateToken} : {}),
         },
         pdf: {
             document: deps.pdfDocument,
             viewer: deps.pdfViewerRef ?? ref({runSaveTransaction: deps.runSaveTransaction}),
-            ...(deps.commitPdfEditorsForSave
-                ? {commitEditorsForSave: deps.commitPdfEditorsForSave}
-                : {}),
+            ...(deps.commitPdfEditorsForSave ? {commitEditorsForSave: deps.commitPdfEditorsForSave} : {}),
             runSaveTransaction: deps.runSaveTransaction,
             getSourceData: deps.getSourcePdfData,
         },
@@ -190,13 +151,9 @@ function createSaveDependencies(
             saveAs: deps.saveWorkingCopyAs,
             ...(deps.repairWorkingCopy ? {repairWorkingCopy: deps.repairWorkingCopy} : {}),
             ...(deps.optimizeWorkingCopy ? {optimizeWorkingCopy: deps.optimizeWorkingCopy} : {}),
-            ...(deps.optimizeWorkingCopyAsCopy
-                ? {optimizeWorkingCopyAsCopy: deps.optimizeWorkingCopyAsCopy}
-                : {}),
+            ...(deps.optimizeWorkingCopyAsCopy ? {optimizeWorkingCopyAsCopy: deps.optimizeWorkingCopyAsCopy} : {}),
             trySavePdfNativeMutations: deps.trySavePdfNativeMutations,
-            ...(deps.getWorkingCopySize
-                ? {getWorkingCopySize: deps.getWorkingCopySize}
-                : {}),
+            ...(deps.getWorkingCopySize ? {getWorkingCopySize: deps.getWorkingCopySize} : {}),
         },
         shapes: {
             hasChanges: () => deps.hasShapeChanges?.() ?? false,
@@ -205,12 +162,10 @@ function createSaveDependencies(
         lifecycle: {
             loadRecentFiles: deps.loadRecentFiles,
             commitDrafts: deps.commitDrafts ?? (async () => {}),
-            ...(deps.acceptAdoption
-                ? {acceptAdoption: deps.acceptAdoption}
-                : {}),
+            ...(deps.acceptAdoption ? {acceptAdoption: deps.acceptAdoption} : {}),
         },
-        runWithDocumentOperationLease: deps.runWithDocumentOperationLease
-            ?? createWorkspaceDocumentController({tabId: 'save-tab'}).operationLease.runExclusive,
+        runWithDocumentOperationLease:
+            deps.runWithDocumentOperationLease ?? createWorkspaceDocumentController({tabId: 'save-tab'}).operationLease.runExclusive,
     };
 }
 
@@ -218,9 +173,7 @@ export function useWorkspaceSaveServiceForTest(deps: TFileOperationsSaveControll
     const service = useWorkspaceSaveService(createSaveDependencies(deps));
     return {
         ...service,
-        handleSaveAs: () => service.handleSaveAs(
-            deps.optimizePdfOnSaveAs?.value === true,
-        ),
+        handleSaveAs: () => service.handleSaveAs(deps.optimizePdfOnSaveAs?.value === true),
     };
 }
 
@@ -243,19 +196,15 @@ function canonicalEntityFromSummary(
         revision: 1,
         persistedRevision: 0,
         deleted,
-        createdAt: summary.createdAt === null || summary.createdAt === undefined
-            ? null
-            : requireEpochMs(summary.createdAt),
-        modifiedAt: summary.modifiedAt === null || summary.modifiedAt === undefined
-            ? null
-            : requireEpochMs(summary.modifiedAt),
+        createdAt: summary.createdAt === null || summary.createdAt === undefined ? null : requireEpochMs(summary.createdAt),
+        modifiedAt: summary.modifiedAt === null || summary.modifiedAt === undefined ? null : requireEpochMs(summary.modifiedAt),
         author: summary.author ?? null,
     } as const;
     if (
-        summary.subtype === 'Highlight'
-        || summary.subtype === 'Underline'
-        || summary.subtype === 'Squiggly'
-        || summary.subtype === 'StrikeOut'
+        summary.subtype === 'Highlight' ||
+        summary.subtype === 'Underline' ||
+        summary.subtype === 'Squiggly' ||
+        summary.subtype === 'StrikeOut'
     ) {
         return {
             ...common,
@@ -301,43 +250,40 @@ function canonicalEntityFromSummary(
 function buildCanonicalAnnotationPlan(deps: TFileOperationsSaveControllerTestDeps) {
     const pendingTexts = deps.captureCanonicalPendingTextUpdates() ?? new Map<string, string>();
     const pendingDeletes = deps.captureCanonicalPendingAnnotationDeletes() ?? [];
-    const live = deps.canonicalAnnotationComments.value.map(summary => (
-        canonicalEntityFromSummary(summary, pendingTexts)
-    ));
-    const deleted = pendingDeletes.map(summary => canonicalEntityFromSummary(summary, pendingTexts, true));
-    const entities = [
-        ...live,
-        ...deleted,
-    ];
-    return buildSerializationPlan({
-        documentRevisionToken: deps.documentRevisionToken.value,
-        epoch: 1,
-        entityBaselineHash: 'save-controller-fixture',
-        revisions: new Map(entities.map(entity => [
-            entity.identity.id,
-            entity.revision,
-        ])),
-    }, entities, entities);
+    const live = deps.canonicalAnnotationComments.value.map((summary) => canonicalEntityFromSummary(summary, pendingTexts));
+    const deleted = pendingDeletes.map((summary) => canonicalEntityFromSummary(summary, pendingTexts, true));
+    const entities = [...live, ...deleted];
+    return buildSerializationPlan(
+        {
+            documentRevisionToken: deps.documentRevisionToken.value,
+            epoch: 1,
+            entityBaselineHash: 'save-controller-fixture',
+            revisions: new Map(entities.map((entity) => [entity.identity.id, entity.revision])),
+        },
+        entities,
+        entities,
+    );
 }
 
 export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSaveServiceForTest>[0]> = {}) {
     const resetModified = vi.fn();
     // The one write path for edits: native mutations staged, verified and published.
-    const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async (_mutations, opts) => cast<IPdfPersistResult>({
-        success: true,
-        outPath: '/tmp/work.pdf',
-        saveMode: opts.saveMode,
-        didSaveAs: false,
-    }));
-    const saveWorkingCopyAs = vi.fn(async (
-        _data?: Uint8Array,
-        _opts?: Parameters<IWorkspaceSaveDependencies['persistence']['saveAs']>[1],
-    ) => ({
-        success: true,
-        outPath: '/tmp/new.pdf',
-        saveMode: 'save_as_rewrite' as const,
-        didSaveAs: true,
-    }));
+    const trySavePdfNativeMutations = vi.fn<TPdfNativeMutationSave>(async (_mutations, opts) =>
+        cast<IPdfPersistResult>({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: opts.saveMode,
+            didSaveAs: false,
+        }),
+    );
+    const saveWorkingCopyAs = vi.fn(
+        async (_data?: Uint8Array, _opts?: Parameters<IWorkspaceSaveDependencies['persistence']['saveAs']>[1]) => ({
+            success: true,
+            outPath: '/tmp/new.pdf',
+            saveMode: 'save_as_rewrite' as const,
+            didSaveAs: true,
+        }),
+    );
 
     const deps = cast<Parameters<typeof useWorkspaceSaveServiceForTest>[0]>({
         isSaving: ref(false),
@@ -357,7 +303,7 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         bookmarkItems: ref([]),
         totalPages: ref(1),
         untitledBookmarkLabel: 'Untitled',
-        pdfDocument: shallowRef(cast({ annotationStorage: { resetModified } })),
+        pdfDocument: shallowRef(cast({annotationStorage: {resetModified}})),
         getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
         validatePdfPath: vi.fn(async () => ({
             isValid: true,
@@ -390,23 +336,26 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         ...overrides,
     });
     if (!overrides.runSaveTransaction) {
-        const hasCanonicalAnnotationPlan = overrides.canonicalAnnotationComments !== undefined
-            || overrides.captureCanonicalPendingTextUpdates !== undefined
-            || overrides.captureCanonicalPendingAnnotationDeletes !== undefined;
+        const hasCanonicalAnnotationPlan =
+            overrides.canonicalAnnotationComments !== undefined ||
+            overrides.captureCanonicalPendingTextUpdates !== undefined ||
+            overrides.captureCanonicalPendingAnnotationDeletes !== undefined;
         const transaction = usePdfViewerSaveTransaction({
             getPdfDocument: () => deps.pdfDocument.value,
             ...(hasCanonicalAnnotationPlan
-                ? {prepareAnnotationSave: () => ({
-                    plan: buildCanonicalAnnotationPlan(deps),
-                    verify: vi.fn(async () => undefined),
-                    commit: vi.fn(),
-                })}
+                ? {
+                      prepareAnnotationSave: () => ({
+                          plan: buildCanonicalAnnotationPlan(deps),
+                          verify: vi.fn(async () => undefined),
+                          commit: vi.fn(),
+                      }),
+                  }
                 : {}),
             getAllShapes: () => deps.getAllShapes?.() ?? [],
             getDeletedEmbeddedShapeAnnotationIds: () => deps.getDeletedEmbeddedShapeAnnotationIds?.() ?? [],
             getDeletedEmbeddedShapeStableKeys: () => deps.getDeletedEmbeddedShapeStableKeys?.() ?? [],
         });
-        deps.runSaveTransaction = vi.fn(request => transaction.runSaveTransaction(request));
+        deps.runSaveTransaction = vi.fn((request) => transaction.runSaveTransaction(request));
     }
 
     return {

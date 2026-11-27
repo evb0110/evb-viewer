@@ -1,23 +1,8 @@
-import {
-    afterAll,
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {afterAll, afterEach, describe, expect, it} from 'vitest';
 import type {CDPSession} from 'puppeteer-core';
-import {
-    clickAsUser,
-    clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import {
-    requireDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    readFile,
-    stat,
-} from 'node:fs/promises';
+import {clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {requireDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {readFile, stat} from 'node:fs/promises';
 import {
     cleanupRunFixtures,
     createLargeScannedFixturePdf,
@@ -27,8 +12,8 @@ import {
     resolveDjvuFixturePath,
     selectFixtureDescribe,
 } from '@tests/e2e/electron/helpers/fixtures';
-import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
-import { getActiveWorkspaceWorkingCopyPath, readDocumentBytes } from '@tests/e2e/electron/helpers/electronApiHelpers';
+import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {getActiveWorkspaceWorkingCopyPath, readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {
     goToPageViaToolbar,
     openDjvuInApp,
@@ -45,15 +30,9 @@ import {
     requireWorkspaceCommand,
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
-import {
-    evaluateInPage,
-    waitForFunctionInPage,
-} from '@tests/e2e/electron/helpers/pageRuntime';
-import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
-import {
-    disablePdfDiagnosticSession,
-    enablePdfDiagnosticSession,
-} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
+import {evaluateInPage, waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
+import {disablePdfDiagnosticSession, enablePdfDiagnosticSession} from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
 import {
     findCommittedSurfaceCausalOpenViolations,
     findCommittedSurfaceContractViolations,
@@ -73,10 +52,10 @@ import {
     waitForVisibleMountedPdfCanvases,
     wheelPdfViewportAndWaitForSettlement,
 } from '@tests/e2e/electron/helpers/viewerVirtualizationContract';
-import { findViewportLifecycleViolations } from '@tests/e2e/electron/helpers/findViewportLifecycleViolations';
-import { resolveClockwiseRotationDelta } from '@tests/e2e/electron/helpers/resolveClockwiseRotationDelta';
-import { expectWithinTimingBudget } from '@tests/e2e/electron/helpers/timingBudget';
-import { createNewWorkspaceTab } from '@tests/e2e/electron/helpers/workspaceTabs';
+import {findViewportLifecycleViolations} from '@tests/e2e/electron/helpers/findViewportLifecycleViolations';
+import {resolveClockwiseRotationDelta} from '@tests/e2e/electron/helpers/resolveClockwiseRotationDelta';
+import {expectWithinTimingBudget} from '@tests/e2e/electron/helpers/timingBudget';
+import {createNewWorkspaceTab} from '@tests/e2e/electron/helpers/workspaceTabs';
 
 const PR_BLOCKING_SMOKE_TIMEOUT_MS = 90_000;
 const UPDATE_OFFER_UI_TIMEOUT_MS = 15_000;
@@ -111,7 +90,9 @@ interface IPdfRenderTraceEntrySnapshot {
     payload: Record<string, unknown>;
 }
 
-interface IPdfRenderTraceReaderWindow extends Window {__getPdfRenderTrace?: () => IPdfRenderTraceEntrySnapshot[];}
+interface IPdfRenderTraceReaderWindow extends Window {
+    __getPdfRenderTrace?: () => IPdfRenderTraceEntrySnapshot[];
+}
 
 interface IPdfFitGeometrySnapshot {
     canvasCssHeight: number;
@@ -140,14 +121,10 @@ async function stopPdfRenderTrace(page: Parameters<typeof installCommittedSurfac
     return entries;
 }
 
-async function collectPdfStageDiagnostics(
-    page: Parameters<typeof installCommittedSurfaceSampler>[0],
-) {
+async function collectPdfStageDiagnostics(page: Parameters<typeof installCommittedSurfaceSampler>[0]) {
     return evaluateInPage(page, () => {
         const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
-        const host = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        );
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
         const viewport = host?.querySelector<HTMLElement>('#pdf-viewer') ?? null;
         const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
         const traceWindow = window as IPdfRenderTraceReaderWindow;
@@ -155,55 +132,49 @@ async function collectPdfStageDiagnostics(
         return {
             devicePixelRatio: window.devicePixelRatio,
             toolbar,
-            host: host ? {
-                attributes: Object.fromEntries(
-                    Array.from(host.attributes).map(attribute => [
-                        attribute.name,
-                        attribute.value,
-                    ]),
-                ),
-                text: host.textContent?.trim().slice(0, 300) ?? '',
-            } : null,
-            viewport: viewport ? {
-                attributes: Object.fromEntries(
-                    Array.from(viewport.attributes).map(attribute => [
-                        attribute.name,
-                        attribute.value,
-                    ]),
-                ),
-                clientHeight: viewport.clientHeight,
-                clientWidth: viewport.clientWidth,
-                scrollHeight: viewport.scrollHeight,
-                scrollLeft: viewport.scrollLeft,
-                scrollTop: viewport.scrollTop,
-                scrollWidth: viewport.scrollWidth,
-            } : null,
-            chassis: chassis ? Object.fromEntries(
-                Array.from(chassis.attributes).map(attribute => [
-                    attribute.name,
-                    attribute.value,
-                ]),
-            ) : null,
-            pages: Array.from(viewport?.querySelectorAll<HTMLElement>('.page_container') ?? [])
-                .map((pageContainer) => {
-                    const rect = pageContainer.getBoundingClientRect();
-                    const canvas = pageContainer.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-                    return {
-                        page: pageContainer.dataset.page ?? null,
-                        classes: pageContainer.className,
-                        height: rect.height,
-                        top: rect.top,
-                        width: rect.width,
-                        hasSkeleton: pageContainer.querySelector('.document-page-skeleton') !== null,
-                        canvas: canvas ? {
-                            height: canvas.height,
-                            width: canvas.width,
-                        } : null,
-                    };
-                }),
-            layers: Array.from(viewport?.querySelectorAll<HTMLElement>(
-                '.page_container:not(.page_container--buffered) :is(.text-layer, .textLayer, .annotation-layer, .annotationLayer, .annotation-editor-layer, .annotationEditorLayer)',
-            ) ?? []).map((layer) => {
+            host: host
+                ? {
+                      attributes: Object.fromEntries(Array.from(host.attributes).map((attribute) => [attribute.name, attribute.value])),
+                      text: host.textContent?.trim().slice(0, 300) ?? '',
+                  }
+                : null,
+            viewport: viewport
+                ? {
+                      attributes: Object.fromEntries(Array.from(viewport.attributes).map((attribute) => [attribute.name, attribute.value])),
+                      clientHeight: viewport.clientHeight,
+                      clientWidth: viewport.clientWidth,
+                      scrollHeight: viewport.scrollHeight,
+                      scrollLeft: viewport.scrollLeft,
+                      scrollTop: viewport.scrollTop,
+                      scrollWidth: viewport.scrollWidth,
+                  }
+                : null,
+            chassis: chassis
+                ? Object.fromEntries(Array.from(chassis.attributes).map((attribute) => [attribute.name, attribute.value]))
+                : null,
+            pages: Array.from(viewport?.querySelectorAll<HTMLElement>('.page_container') ?? []).map((pageContainer) => {
+                const rect = pageContainer.getBoundingClientRect();
+                const canvas = pageContainer.querySelector<HTMLCanvasElement>('.page_canvas canvas');
+                return {
+                    page: pageContainer.dataset.page ?? null,
+                    classes: pageContainer.className,
+                    height: rect.height,
+                    top: rect.top,
+                    width: rect.width,
+                    hasSkeleton: pageContainer.querySelector('.document-page-skeleton') !== null,
+                    canvas: canvas
+                        ? {
+                              height: canvas.height,
+                              width: canvas.width,
+                          }
+                        : null,
+                };
+            }),
+            layers: Array.from(
+                viewport?.querySelectorAll<HTMLElement>(
+                    '.page_container:not(.page_container--buffered) :is(.text-layer, .textLayer, .annotation-layer, .annotationLayer, .annotation-editor-layer, .annotationEditorLayer)',
+                ) ?? [],
+            ).map((layer) => {
                 const owner = layer.closest<HTMLElement>('.page_container');
                 const layerRect = layer.getBoundingClientRect();
                 const ownerRect = owner?.getBoundingClientRect() ?? null;
@@ -218,21 +189,24 @@ async function collectPdfStageDiagnostics(
                         top: layerRect.top,
                         width: layerRect.width,
                     },
-                    ownerRect: ownerRect ? {
-                        bottom: ownerRect.bottom,
-                        height: ownerRect.height,
-                        left: ownerRect.left,
-                        right: ownerRect.right,
-                        top: ownerRect.top,
-                        width: ownerRect.width,
-                    } : null,
+                    ownerRect: ownerRect
+                        ? {
+                              bottom: ownerRect.bottom,
+                              height: ownerRect.height,
+                              left: ownerRect.left,
+                              right: ownerRect.right,
+                              top: ownerRect.top,
+                              width: ownerRect.width,
+                          }
+                        : null,
                 };
             }),
-            viewportAuthorityTrace: renderTrace.filter(entry => (
-                entry.event.startsWith('viewport-session-')
-                || entry.event.startsWith('navigation-')
-                || entry.event.startsWith('workspace-')
-            )),
+            viewportAuthorityTrace: renderTrace.filter(
+                (entry) =>
+                    entry.event.startsWith('viewport-session-') ||
+                    entry.event.startsWith('navigation-') ||
+                    entry.event.startsWith('workspace-'),
+            ),
             renderTrace: renderTrace.slice(-60),
         };
     });
@@ -253,10 +227,11 @@ async function runPdfDiagnosticStage<T>(
         return result;
     } catch (error) {
         const failedAt = new Date().toISOString();
-        const containedErrors = error instanceof AggregateError
-            ? error.errors.map((containedError, index) => `; contained ${String(index + 1)}: ${String(containedError)}`).join('')
-            : '';
-        const diagnostics = await collectPdfStageDiagnostics(page).catch(diagnosticError => ({diagnosticError: String(diagnosticError)}));
+        const containedErrors =
+            error instanceof AggregateError
+                ? error.errors.map((containedError, index) => `; contained ${String(index + 1)}: ${String(containedError)}`).join('')
+                : '';
+        const diagnostics = await collectPdfStageDiagnostics(page).catch((diagnosticError) => ({diagnosticError: String(diagnosticError)}));
         throw new Error(
             `[pdf-stage:failed] ${stage} at ${failedAt}: ${String(error)}${containedErrors}; diagnostics=${JSON.stringify(diagnostics)}`,
             {cause: error},
@@ -272,139 +247,147 @@ async function runLargePdfInteractionWait<T>(
     try {
         return await operation();
     } catch (error) {
-        const state = await evaluateInPage(page, (targetPage: number) => {
-            const pageContainer = document.querySelector<HTMLElement>(
-                `.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="${String(targetPage)}"]`,
-            );
-            const canvas = pageContainer?.querySelector<HTMLCanvasElement>(
-                '.page_canvas__render-layer canvas',
-            ) ?? null;
-            const canvasRect = canvas?.getBoundingClientRect() ?? null;
-            const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
-            return {
-                canvas: canvas ? {
-                    height: canvas.height,
-                    width: canvas.width,
-                } : null,
-                canvasRect: canvasRect ? {
-                    bottom: canvasRect.bottom,
-                    height: canvasRect.height,
-                    left: canvasRect.left,
-                    right: canvasRect.right,
-                    top: canvasRect.top,
-                    width: canvasRect.width,
-                } : null,
-                effectiveZoom: toolbar?.effectiveZoom ?? null,
-                rendered: pageContainer?.classList.contains('page_container--rendered') ?? false,
-                skeleton: pageContainer?.querySelector('.document-page-skeleton') !== null,
-            };
-        }, pageNumber).catch(diagnosticError => ({diagnosticError: String(diagnosticError)}));
+        const state = await evaluateInPage(
+            page,
+            (targetPage: number) => {
+                const pageContainer = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="${String(targetPage)}"]`,
+                );
+                const canvas = pageContainer?.querySelector<HTMLCanvasElement>('.page_canvas__render-layer canvas') ?? null;
+                const canvasRect = canvas?.getBoundingClientRect() ?? null;
+                const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
+                return {
+                    canvas: canvas
+                        ? {
+                              height: canvas.height,
+                              width: canvas.width,
+                          }
+                        : null,
+                    canvasRect: canvasRect
+                        ? {
+                              bottom: canvasRect.bottom,
+                              height: canvasRect.height,
+                              left: canvasRect.left,
+                              right: canvasRect.right,
+                              top: canvasRect.top,
+                              width: canvasRect.width,
+                          }
+                        : null,
+                    effectiveZoom: toolbar?.effectiveZoom ?? null,
+                    rendered: pageContainer?.classList.contains('page_container--rendered') ?? false,
+                    skeleton: pageContainer?.querySelector('.document-page-skeleton') !== null,
+                };
+            },
+            pageNumber,
+        ).catch((diagnosticError) => ({diagnosticError: String(diagnosticError)}));
         throw new Error(`${String(error)}; state=${JSON.stringify(state)}`);
     }
 }
 
-async function waitForCommittedEmptyBaseline(
-    page: Parameters<typeof installCommittedSurfaceSampler>[0],
-) {
-    await waitForFunctionInPage(page, () => {
-        const isVisible = (element: HTMLElement | null) => {
-            if (!element) {
+async function waitForCommittedEmptyBaseline(page: Parameters<typeof installCommittedSurfaceSampler>[0]) {
+    await waitForFunctionInPage(
+        page,
+        () => {
+            const isVisible = (element: HTMLElement | null) => {
+                if (!element) {
+                    return false;
+                }
+                const rect = element.getBoundingClientRect();
+                const style = window.getComputedStyle(element);
+                return (
+                    rect.width > 0 &&
+                    rect.height > 0 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    Number(style.opacity || '1') > 0
+                );
+            };
+            const startupOverlay = document.querySelector<HTMLElement>('#evb-startup-overlay');
+            const committedEmptySurface = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .empty-state',
+            );
+            if (isVisible(startupOverlay) || !isVisible(committedEmptySurface)) {
                 return false;
             }
-            const rect = element.getBoundingClientRect();
-            const style = window.getComputedStyle(element);
-            return rect.width > 0
-                && rect.height > 0
-                && style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0;
-        };
-        const startupOverlay = document.querySelector<HTMLElement>('#evb-startup-overlay');
-        const committedEmptySurface = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .empty-state',
-        );
-        if (isVisible(startupOverlay) || !isVisible(committedEmptySurface)) {
-            return false;
-        }
-        const rect = committedEmptySurface!.getBoundingClientRect();
-        const topElement = document.elementFromPoint(
-            rect.left + (rect.width / 2),
-            rect.top + (rect.height / 2),
-        );
-        return Boolean(topElement && committedEmptySurface!.contains(topElement));
-    }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
+            const rect = committedEmptySurface!.getBoundingClientRect();
+            const topElement = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+            return Boolean(topElement && committedEmptySurface!.contains(topElement));
+        },
+        {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+    );
 }
 
-async function waitForVisuallyPresentedPdfPage(
-    page: Parameters<typeof installCommittedSurfaceSampler>[0],
-    pageNumber: number,
-) {
-    await waitForFunctionInPage(page, (targetPage: number) => {
-        const viewer = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
-        );
-        const target = viewer?.querySelector<HTMLElement>(
-            `.page_container[data-page="${String(targetPage)}"]`,
-        ) ?? null;
-        const canvas = target?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
-        if (
-            !viewer
-            || !target
-            || !canvas
-            || canvas.width <= 0
-            || canvas.height <= 0
-            || target.querySelector('.document-page-skeleton') !== null
-            || window.getComputedStyle(viewer).visibility === 'hidden'
-            || window.getComputedStyle(target).visibility === 'hidden'
-        ) {
-            return false;
-        }
-        const viewerRect = viewer.getBoundingClientRect();
-        const targetRect = target.getBoundingClientRect();
-        const intersectionLeft = Math.max(viewerRect.left, targetRect.left);
-        const intersectionRight = Math.min(viewerRect.right, targetRect.right);
-        const intersectionTop = Math.max(viewerRect.top, targetRect.top);
-        const intersectionBottom = Math.min(viewerRect.bottom, targetRect.bottom);
-        if (intersectionRight <= intersectionLeft || intersectionBottom <= intersectionTop) {
-            return false;
-        }
-        const topmost = document.elementFromPoint(
-            intersectionLeft + ((intersectionRight - intersectionLeft) / 2),
-            intersectionTop + ((intersectionBottom - intersectionTop) / 2),
-        );
-        return topmost?.closest('.page_container') === target;
-    }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, pageNumber);
+async function waitForVisuallyPresentedPdfPage(page: Parameters<typeof installCommittedSurfaceSampler>[0], pageNumber: number) {
+    await waitForFunctionInPage(
+        page,
+        (targetPage: number) => {
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+            );
+            const target = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`) ?? null;
+            const canvas = target?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+            if (
+                !viewer ||
+                !target ||
+                !canvas ||
+                canvas.width <= 0 ||
+                canvas.height <= 0 ||
+                target.querySelector('.document-page-skeleton') !== null ||
+                window.getComputedStyle(viewer).visibility === 'hidden' ||
+                window.getComputedStyle(target).visibility === 'hidden'
+            ) {
+                return false;
+            }
+            const viewerRect = viewer.getBoundingClientRect();
+            const targetRect = target.getBoundingClientRect();
+            const intersectionLeft = Math.max(viewerRect.left, targetRect.left);
+            const intersectionRight = Math.min(viewerRect.right, targetRect.right);
+            const intersectionTop = Math.max(viewerRect.top, targetRect.top);
+            const intersectionBottom = Math.min(viewerRect.bottom, targetRect.bottom);
+            if (intersectionRight <= intersectionLeft || intersectionBottom <= intersectionTop) {
+                return false;
+            }
+            const topmost = document.elementFromPoint(
+                intersectionLeft + (intersectionRight - intersectionLeft) / 2,
+                intersectionTop + (intersectionBottom - intersectionTop) / 2,
+            );
+            return topmost?.closest('.page_container') === target;
+        },
+        {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+        pageNumber,
+    );
 }
 
-async function readCommittedPdfCanvasPixelSize(
-    page: Parameters<typeof installCommittedSurfaceSampler>[0],
-    pageNumber: number,
-) {
-    return evaluateInPage(page, (targetPage: number) => {
-        const target = document.querySelector<HTMLElement>(
-            `.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="${String(targetPage)}"]`,
-        );
-        const canvas = target?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
-        return {
-            height: canvas?.height ?? 0,
-            skeletonVisible: target?.querySelector('.document-page-skeleton') !== null,
-            width: canvas?.width ?? 0,
-        };
-    }, pageNumber);
+async function readCommittedPdfCanvasPixelSize(page: Parameters<typeof installCommittedSurfaceSampler>[0], pageNumber: number) {
+    return evaluateInPage(
+        page,
+        (targetPage: number) => {
+            const target = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="${String(targetPage)}"]`,
+            );
+            const canvas = target?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+            return {
+                height: canvas?.height ?? 0,
+                skeletonVisible: target?.querySelector('.document-page-skeleton') !== null,
+                width: canvas?.width ?? 0,
+            };
+        },
+        pageNumber,
+    );
 }
 
-async function readManagedPdfOpeningGeometry(
-    page: Parameters<typeof evaluateInPage>[0],
-    workingCopyPath: TDocumentRef,
-) {
-    return evaluateInPage(page, async (path: TDocumentRef) => {
-        const readOpeningGeometry = (window as IE2EWindow).electronAPI
-            ?.documentFiles?.getPdfOpeningGeometry;
-        if (!readOpeningGeometry) {
-            throw new Error('electronAPI PDF opening geometry capability is unavailable');
-        }
-        return readOpeningGeometry(path);
-    }, workingCopyPath);
+async function readManagedPdfOpeningGeometry(page: Parameters<typeof evaluateInPage>[0], workingCopyPath: TDocumentRef) {
+    return evaluateInPage(
+        page,
+        async (path: TDocumentRef) => {
+            const readOpeningGeometry = (window as IE2EWindow).electronAPI?.documentFiles?.getPdfOpeningGeometry;
+            if (!readOpeningGeometry) {
+                throw new Error('electronAPI PDF opening geometry capability is unavailable');
+            }
+            return readOpeningGeometry(path);
+        },
+        workingCopyPath,
+    );
 }
 
 async function waitForManagedPdfRotation(
@@ -420,7 +403,7 @@ async function waitForManagedPdfRotation(
         if (Date.now() >= deadline) {
             throw new Error(`Timed out waiting for persisted PDF rotation ${expectedRotation}; last observed ${String(rotation)}`);
         }
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
     }
     return rotation;
 }
@@ -434,21 +417,22 @@ async function waitForCommittedPdfCanvasResize(
 ) {
     const deadline = Date.now() + timeoutMs;
     let current = await readCommittedPdfCanvasPixelSize(page, pageNumber);
-    const resized = () => current.width > 0
-        && current.height > 0
-        && !current.skeletonVisible
-        && (direction === 'larger'
+    const resized = () =>
+        current.width > 0 &&
+        current.height > 0 &&
+        !current.skeletonVisible &&
+        (direction === 'larger'
             ? current.width > previous.width && current.height > previous.height
             : current.width < previous.width && current.height < previous.height);
     while (!resized()) {
         if (Date.now() >= deadline) {
             throw new Error(
-                `Timed out waiting for page ${pageNumber} canvas to become ${direction} than `
-                + `${previous.width}x${previous.height}; `
-                + `last observed ${current.width}x${current.height}, skeleton=${String(current.skeletonVisible)}`,
+                `Timed out waiting for page ${pageNumber} canvas to become ${direction} than ` +
+                    `${previous.width}x${previous.height}; ` +
+                    `last observed ${current.width}x${current.height}, skeleton=${String(current.skeletonVisible)}`,
             );
         }
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
         current = await readCommittedPdfCanvasPixelSize(page, pageNumber);
     }
     return current;
@@ -460,278 +444,292 @@ async function waitForCommittedFitHeightGeometry(
     expected?: IPdfFitGeometrySnapshot,
 ) {
     try {
-        await waitForFunctionInPage(page, (
-            targetPage: number,
-            expectedZoom: number | null,
-            expectedPageWidth: number | null,
-            expectedPageHeightValue: number | null,
-            expectedViewportWidth: number | null,
-            expectedViewportHeight: number | null,
-        ) => {
+        await waitForFunctionInPage(
+            page,
+            (
+                targetPage: number,
+                expectedZoom: number | null,
+                expectedPageWidth: number | null,
+                expectedPageHeightValue: number | null,
+                expectedViewportWidth: number | null,
+                expectedViewportHeight: number | null,
+            ) => {
+                const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
+                const viewport = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                );
+                const pageContainer = viewport?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`) ?? null;
+                // A fit change stretches the pre-fit raster until the new-scale
+                // raster commits. Measuring it would report the previous fit's
+                // raster resolution, so the page has to present a current raster
+                // before this geometry counts as committed.
+                const canvas = pageContainer?.querySelector<HTMLCanvasElement>('.page_canvas .page_canvas__render-layer canvas') ?? null;
+                if (
+                    toolbar?.zoomMode !== 'fit-height' ||
+                    !viewport ||
+                    !pageContainer ||
+                    !canvas ||
+                    canvas.width <= 0 ||
+                    canvas.height <= 0 ||
+                    !pageContainer.classList.contains('page_container--rendered') ||
+                    pageContainer.dataset.pageRaster !== 'current' ||
+                    pageContainer.querySelector('.document-page-skeleton') !== null
+                ) {
+                    return false;
+                }
+                const pageRect = pageContainer.getBoundingClientRect();
+                const canvasRect = canvas.getBoundingClientRect();
+                const layerBoundsViolations = Array.from(
+                    viewport.querySelectorAll<HTMLElement>(
+                        '.page_container:not(.page_container--buffered) :is(.text-layer, .textLayer, .annotation-layer, .annotationLayer, .annotation-editor-layer, .annotationEditorLayer)',
+                    ),
+                ).flatMap((layer) => {
+                    const owner = layer.closest<HTMLElement>('.page_container');
+                    if (!owner) {
+                        return [`${layer.className}:missing-page-owner`];
+                    }
+                    const ownerRect = owner.getBoundingClientRect();
+                    const layerRect = layer.getBoundingClientRect();
+                    // PDF.js deliberately collapses a disabled, non-editing editor
+                    // layer to a 0x0 box. It is not a presented visual layer and its
+                    // origin is therefore unrelated to the owning page geometry.
+                    const isPresented = layerRect.width > 0 && layerRect.height > 0;
+                    const exceedsOwner =
+                        isPresented &&
+                        (layerRect.left < ownerRect.left - 1 ||
+                            layerRect.top < ownerRect.top - 1 ||
+                            layerRect.right > ownerRect.right + 1 ||
+                            layerRect.bottom > ownerRect.bottom + 1 ||
+                            layerRect.width > ownerRect.width + 1 ||
+                            layerRect.height > ownerRect.height + 1);
+                    return exceedsOwner ? [`${layer.className}:page-${owner.dataset.page ?? 'unknown'}`] : [];
+                });
+                const expectedPageHeight = viewport.clientHeight - 40;
+                const isCanonicalFitHeight =
+                    Math.abs(pageRect.height - expectedPageHeight) <= 1.5 &&
+                    Math.abs(canvasRect.width - pageRect.width) <= 1 &&
+                    Math.abs(canvasRect.height - pageRect.height) <= 1 &&
+                    layerBoundsViolations.length === 0 &&
+                    viewport.scrollWidth <= viewport.clientWidth + 1;
+                if (!isCanonicalFitHeight) {
+                    return false;
+                }
+                if (
+                    expectedZoom === null ||
+                    expectedPageWidth === null ||
+                    expectedPageHeightValue === null ||
+                    expectedViewportWidth === null ||
+                    expectedViewportHeight === null
+                ) {
+                    return true;
+                }
+                return (
+                    Math.abs(toolbar.effectiveZoom - expectedZoom) <= 0.001 &&
+                    Math.abs(pageRect.width - expectedPageWidth) <= 1 &&
+                    Math.abs(pageRect.height - expectedPageHeightValue) <= 1 &&
+                    viewport.clientWidth === expectedViewportWidth &&
+                    viewport.clientHeight === expectedViewportHeight
+                );
+            },
+            {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+            pageNumber,
+            expected?.effectiveZoom ?? null,
+            expected?.pageWidth ?? null,
+            expected?.pageHeight ?? null,
+            expected?.viewportClientWidth ?? null,
+            expected?.viewportClientHeight ?? null,
+        );
+    } catch (error) {
+        const diagnostics = await evaluateInPage(
+            page,
+            (targetPage: number) => {
+                const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
+                const viewport = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                );
+                const pageContainer = viewport?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`) ?? null;
+                const canvas = pageContainer?.querySelector<HTMLCanvasElement>('.page_canvas .page_canvas__render-layer canvas') ?? null;
+                const pageRect = pageContainer?.getBoundingClientRect() ?? null;
+                const canvasRect = canvas?.getBoundingClientRect() ?? null;
+                const traceWindow = window as IPdfRenderTraceReaderWindow;
+                const layers = Array.from(
+                    viewport?.querySelectorAll<HTMLElement>(
+                        '.page_container:not(.page_container--buffered) :is(.text-layer, .textLayer, .annotation-layer, .annotationLayer, .annotation-editor-layer, .annotationEditorLayer)',
+                    ) ?? [],
+                ).map((layer) => {
+                    const owner = layer.closest<HTMLElement>('.page_container');
+                    const ownerRect = owner?.getBoundingClientRect() ?? null;
+                    const layerRect = layer.getBoundingClientRect();
+                    return {
+                        className: layer.className,
+                        page: owner?.dataset.page ?? null,
+                        rect: {
+                            bottom: layerRect.bottom,
+                            height: layerRect.height,
+                            left: layerRect.left,
+                            right: layerRect.right,
+                            top: layerRect.top,
+                            width: layerRect.width,
+                        },
+                        ownerRect: ownerRect
+                            ? {
+                                  bottom: ownerRect.bottom,
+                                  height: ownerRect.height,
+                                  left: ownerRect.left,
+                                  right: ownerRect.right,
+                                  top: ownerRect.top,
+                                  width: ownerRect.width,
+                              }
+                            : null,
+                    };
+                });
+                return {
+                    toolbar,
+                    viewport: viewport
+                        ? {
+                              clientHeight: viewport.clientHeight,
+                              clientWidth: viewport.clientWidth,
+                              scrollHeight: viewport.scrollHeight,
+                              scrollLeft: viewport.scrollLeft,
+                              scrollTop: viewport.scrollTop,
+                              scrollWidth: viewport.scrollWidth,
+                          }
+                        : null,
+                    page: pageRect
+                        ? {
+                              height: pageRect.height,
+                              left: pageRect.left,
+                              top: pageRect.top,
+                              width: pageRect.width,
+                              raster: pageContainer?.dataset.pageRaster ?? null,
+                              hasSkeleton: pageContainer?.querySelector('.document-page-skeleton') !== null,
+                              isRendered: pageContainer?.classList.contains('page_container--rendered') ?? false,
+                          }
+                        : null,
+                    canvas: canvasRect
+                        ? {
+                              cssHeight: canvasRect.height,
+                              cssWidth: canvasRect.width,
+                              pixelHeight: canvas?.height ?? 0,
+                              pixelWidth: canvas?.width ?? 0,
+                          }
+                        : null,
+                    layers,
+                    renderTrace: traceWindow.__getPdfRenderTrace?.().slice(-40) ?? [],
+                };
+            },
+            pageNumber,
+        );
+        throw new Error(`Fit-height geometry did not settle: ${JSON.stringify(diagnostics)}; cause: ${String(error)}`);
+    }
+
+    return evaluateInPage(
+        page,
+        (targetPage: number): IPdfFitGeometrySnapshot => {
             const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
             const viewport = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
-            );
-            const pageContainer = viewport?.querySelector<HTMLElement>(
-                `.page_container[data-page="${String(targetPage)}"]`,
-            ) ?? null;
-            // A fit change stretches the pre-fit raster until the new-scale
-            // raster commits. Measuring it would report the previous fit's
-            // raster resolution, so the page has to present a current raster
-            // before this geometry counts as committed.
-            const canvas = pageContainer?.querySelector<HTMLCanvasElement>(
-                '.page_canvas .page_canvas__render-layer canvas',
-            ) ?? null;
-            if (
-                toolbar?.zoomMode !== 'fit-height'
-            || !viewport
-            || !pageContainer
-            || !canvas
-            || canvas.width <= 0
-            || canvas.height <= 0
-            || !pageContainer.classList.contains('page_container--rendered')
-            || pageContainer.dataset.pageRaster !== 'current'
-            || pageContainer.querySelector('.document-page-skeleton') !== null
-            ) {
-                return false;
+            )!;
+            const pageContainer = viewport.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`)!;
+            const canvas = pageContainer.querySelector<HTMLCanvasElement>('.page_canvas .page_canvas__render-layer canvas')!;
+            if (!toolbar) {
+                throw new Error('Active toolbar snapshot is unavailable');
             }
             const pageRect = pageContainer.getBoundingClientRect();
             const canvasRect = canvas.getBoundingClientRect();
-            const layerBoundsViolations = Array.from(viewport.querySelectorAll<HTMLElement>(
-                '.page_container:not(.page_container--buffered) :is(.text-layer, .textLayer, .annotation-layer, .annotationLayer, .annotation-editor-layer, .annotationEditorLayer)',
-            )).flatMap((layer) => {
+            const layerBoundsViolations = Array.from(
+                viewport.querySelectorAll<HTMLElement>(
+                    '.page_container:not(.page_container--buffered) :is(.text-layer, .textLayer, .annotation-layer, .annotationLayer, .annotation-editor-layer, .annotationEditorLayer)',
+                ),
+            ).flatMap((layer) => {
                 const owner = layer.closest<HTMLElement>('.page_container');
                 if (!owner) {
                     return [`${layer.className}:missing-page-owner`];
                 }
                 const ownerRect = owner.getBoundingClientRect();
                 const layerRect = layer.getBoundingClientRect();
-                // PDF.js deliberately collapses a disabled, non-editing editor
-                // layer to a 0x0 box. It is not a presented visual layer and its
-                // origin is therefore unrelated to the owning page geometry.
                 const isPresented = layerRect.width > 0 && layerRect.height > 0;
-                const exceedsOwner = isPresented && (layerRect.left < ownerRect.left - 1
-                || layerRect.top < ownerRect.top - 1
-                || layerRect.right > ownerRect.right + 1
-                || layerRect.bottom > ownerRect.bottom + 1
-                || layerRect.width > ownerRect.width + 1
-                || layerRect.height > ownerRect.height + 1);
-                return exceedsOwner
-                    ? [`${layer.className}:page-${owner.dataset.page ?? 'unknown'}`]
-                    : [];
-            });
-            const expectedPageHeight = viewport.clientHeight - 40;
-            const isCanonicalFitHeight = Math.abs(pageRect.height - expectedPageHeight) <= 1.5
-            && Math.abs(canvasRect.width - pageRect.width) <= 1
-            && Math.abs(canvasRect.height - pageRect.height) <= 1
-            && layerBoundsViolations.length === 0
-            && viewport.scrollWidth <= viewport.clientWidth + 1;
-            if (!isCanonicalFitHeight) {
-                return false;
-            }
-            if (
-                expectedZoom === null
-            || expectedPageWidth === null
-            || expectedPageHeightValue === null
-            || expectedViewportWidth === null
-            || expectedViewportHeight === null
-            ) {
-                return true;
-            }
-            return Math.abs(toolbar.effectiveZoom - expectedZoom) <= 0.001
-            && Math.abs(pageRect.width - expectedPageWidth) <= 1
-            && Math.abs(pageRect.height - expectedPageHeightValue) <= 1
-            && viewport.clientWidth === expectedViewportWidth
-            && viewport.clientHeight === expectedViewportHeight;
-        }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-        pageNumber,
-        expected?.effectiveZoom ?? null,
-        expected?.pageWidth ?? null,
-        expected?.pageHeight ?? null,
-        expected?.viewportClientWidth ?? null,
-        expected?.viewportClientHeight ?? null);
-    } catch (error) {
-        const diagnostics = await evaluateInPage(page, (targetPage: number) => {
-            const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
-            const viewport = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
-            );
-            const pageContainer = viewport?.querySelector<HTMLElement>(
-                `.page_container[data-page="${String(targetPage)}"]`,
-            ) ?? null;
-            const canvas = pageContainer?.querySelector<HTMLCanvasElement>(
-                '.page_canvas .page_canvas__render-layer canvas',
-            ) ?? null;
-            const pageRect = pageContainer?.getBoundingClientRect() ?? null;
-            const canvasRect = canvas?.getBoundingClientRect() ?? null;
-            const traceWindow = window as IPdfRenderTraceReaderWindow;
-            const layers = Array.from(viewport?.querySelectorAll<HTMLElement>(
-                '.page_container:not(.page_container--buffered) :is(.text-layer, .textLayer, .annotation-layer, .annotationLayer, .annotation-editor-layer, .annotationEditorLayer)',
-            ) ?? []).map((layer) => {
-                const owner = layer.closest<HTMLElement>('.page_container');
-                const ownerRect = owner?.getBoundingClientRect() ?? null;
-                const layerRect = layer.getBoundingClientRect();
-                return {
-                    className: layer.className,
-                    page: owner?.dataset.page ?? null,
-                    rect: {
-                        bottom: layerRect.bottom,
-                        height: layerRect.height,
-                        left: layerRect.left,
-                        right: layerRect.right,
-                        top: layerRect.top,
-                        width: layerRect.width,
-                    },
-                    ownerRect: ownerRect ? {
-                        bottom: ownerRect.bottom,
-                        height: ownerRect.height,
-                        left: ownerRect.left,
-                        right: ownerRect.right,
-                        top: ownerRect.top,
-                        width: ownerRect.width,
-                    } : null,
-                };
+                const exceedsOwner =
+                    isPresented &&
+                    (layerRect.left < ownerRect.left - 1 ||
+                        layerRect.top < ownerRect.top - 1 ||
+                        layerRect.right > ownerRect.right + 1 ||
+                        layerRect.bottom > ownerRect.bottom + 1 ||
+                        layerRect.width > ownerRect.width + 1 ||
+                        layerRect.height > ownerRect.height + 1);
+                return exceedsOwner ? [`${layer.className}:page-${owner.dataset.page ?? 'unknown'}`] : [];
             });
             return {
-                toolbar,
-                viewport: viewport ? {
-                    clientHeight: viewport.clientHeight,
-                    clientWidth: viewport.clientWidth,
-                    scrollHeight: viewport.scrollHeight,
-                    scrollLeft: viewport.scrollLeft,
-                    scrollTop: viewport.scrollTop,
-                    scrollWidth: viewport.scrollWidth,
-                } : null,
-                page: pageRect ? {
-                    height: pageRect.height,
-                    left: pageRect.left,
-                    top: pageRect.top,
-                    width: pageRect.width,
-                    raster: pageContainer?.dataset.pageRaster ?? null,
-                    hasSkeleton: pageContainer?.querySelector('.document-page-skeleton') !== null,
-                    isRendered: pageContainer?.classList.contains('page_container--rendered') ?? false,
-                } : null,
-                canvas: canvasRect ? {
-                    cssHeight: canvasRect.height,
-                    cssWidth: canvasRect.width,
-                    pixelHeight: canvas?.height ?? 0,
-                    pixelWidth: canvas?.width ?? 0,
-                } : null,
-                layers,
-                renderTrace: traceWindow.__getPdfRenderTrace?.().slice(-40) ?? [],
+                canvasCssHeight: canvasRect.height,
+                canvasCssWidth: canvasRect.width,
+                canvasPixelHeight: canvas.height,
+                canvasPixelWidth: canvas.width,
+                effectiveZoom: toolbar.effectiveZoom,
+                layerBoundsViolations,
+                pageHeight: pageRect.height,
+                pageWidth: pageRect.width,
+                viewportClientHeight: viewport.clientHeight,
+                viewportClientWidth: viewport.clientWidth,
+                viewportScrollWidth: viewport.scrollWidth,
             };
-        }, pageNumber);
-        throw new Error(
-            `Fit-height geometry did not settle: ${JSON.stringify(diagnostics)}; cause: ${String(error)}`,
-        );
-    }
-
-    return evaluateInPage(page, (targetPage: number): IPdfFitGeometrySnapshot => {
-        const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
-        const viewport = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
-        )!;
-        const pageContainer = viewport.querySelector<HTMLElement>(
-            `.page_container[data-page="${String(targetPage)}"]`,
-        )!;
-        const canvas = pageContainer.querySelector<HTMLCanvasElement>(
-            '.page_canvas .page_canvas__render-layer canvas',
-        )!;
-        if (!toolbar) {
-            throw new Error('Active toolbar snapshot is unavailable');
-        }
-        const pageRect = pageContainer.getBoundingClientRect();
-        const canvasRect = canvas.getBoundingClientRect();
-        const layerBoundsViolations = Array.from(viewport.querySelectorAll<HTMLElement>(
-            '.page_container:not(.page_container--buffered) :is(.text-layer, .textLayer, .annotation-layer, .annotationLayer, .annotation-editor-layer, .annotationEditorLayer)',
-        )).flatMap((layer) => {
-            const owner = layer.closest<HTMLElement>('.page_container');
-            if (!owner) {
-                return [`${layer.className}:missing-page-owner`];
-            }
-            const ownerRect = owner.getBoundingClientRect();
-            const layerRect = layer.getBoundingClientRect();
-            const isPresented = layerRect.width > 0 && layerRect.height > 0;
-            const exceedsOwner = isPresented && (layerRect.left < ownerRect.left - 1
-                || layerRect.top < ownerRect.top - 1
-                || layerRect.right > ownerRect.right + 1
-                || layerRect.bottom > ownerRect.bottom + 1
-                || layerRect.width > ownerRect.width + 1
-                || layerRect.height > ownerRect.height + 1);
-            return exceedsOwner
-                ? [`${layer.className}:page-${owner.dataset.page ?? 'unknown'}`]
-                : [];
-        });
-        return {
-            canvasCssHeight: canvasRect.height,
-            canvasCssWidth: canvasRect.width,
-            canvasPixelHeight: canvas.height,
-            canvasPixelWidth: canvas.width,
-            effectiveZoom: toolbar.effectiveZoom,
-            layerBoundsViolations,
-            pageHeight: pageRect.height,
-            pageWidth: pageRect.width,
-            viewportClientHeight: viewport.clientHeight,
-            viewportClientWidth: viewport.clientWidth,
-            viewportScrollWidth: viewport.scrollWidth,
-        };
-    }, pageNumber);
+        },
+        pageNumber,
+    );
 }
 
-async function closeActiveDocumentToEmpty(
-    page: Parameters<typeof installCommittedSurfaceSampler>[0],
-) {
+async function closeActiveDocumentToEmpty(page: Parameters<typeof installCommittedSurfaceSampler>[0]) {
     await clickAsUser(page, '.tab-list .tab.is-active .tab-close');
     await waitForCommittedEmptyBaseline(page);
 }
 
-async function openActionableRecentFile(
-    page: Parameters<typeof installCommittedSurfaceSampler>[0],
-    sourcePath: string,
-) {
-    const findRow = (targetSourcePath: string) => Array.from(document.querySelectorAll<HTMLElement>(
-        '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-row--data:not(.recent-row--skeleton)',
-    )).find(candidate => (
-        candidate.dataset.recentOpenActionable === 'true'
-        && candidate.dataset.recentSource === targetSourcePath
-    ));
+async function openActionableRecentFile(page: Parameters<typeof installCommittedSurfaceSampler>[0], sourcePath: string) {
+    const findRow = (targetSourcePath: string) =>
+        Array.from(
+            document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .recent-row--data:not(.recent-row--skeleton)',
+            ),
+        ).find((candidate) => candidate.dataset.recentOpenActionable === 'true' && candidate.dataset.recentSource === targetSourcePath);
     // The checkpoint marks the interaction, so it is set once the row exists
     // and before the click.
     await (await page.waitForFunction(findRow, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, sourcePath)).dispose();
     await page.evaluate(() => {
-        (window as Window & {__committedSurfaceInteractionCheckpoint?: string | null;})
-            .__committedSurfaceInteractionCheckpoint = 'recent-djvu-click';
+        (window as Window & {__committedSurfaceInteractionCheckpoint?: string | null}).__committedSurfaceInteractionCheckpoint =
+            'recent-djvu-click';
     });
     await clickFoundAsUser(page, findRow, sourcePath, {description: `recent row for ${sourcePath}`});
 }
 
-async function captureRepeatedLargePdfOpen(
-    page: Parameters<typeof installCommittedSurfaceSampler>[0],
-    fixturePath: string,
-) {
+async function captureRepeatedLargePdfOpen(page: Parameters<typeof installCommittedSurfaceSampler>[0], fixturePath: string) {
     await installCommittedSurfaceSampler(page);
     await startPdfRenderTrace(page);
     await openPdfInApp(page, fixturePath, LARGE_PDF_VISUAL_READY_TIMEOUT_MS);
-    await runPdfDiagnosticStage(page, 'large-reopen:wait-authoritative-page-ready', () => waitForFunctionInPage(page, () => {
-        const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
-        const chassis = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-viewer-chassis',
-        );
-        const requestedPage = Number(chassis?.dataset.viewportRequestedPage ?? 0);
-        const committedPage = Number(chassis?.dataset.viewportCommittedPage ?? 0);
-        const canvas = viewer?.querySelector<HTMLCanvasElement>(
-            `.page_container[data-page="${requestedPage}"] .page_canvas canvas`,
-        ) ?? null;
-        return Boolean(
-            requestedPage > 0
-            && committedPage === requestedPage
-            && canvas
-            && canvas.width > 0
-            && canvas.height > 0
-            && viewer?.dataset.openSurfacePhase === 'ready'
-            && chassis?.dataset.openSurfacePresentation === 'committed',
-        );
-    }, {timeout: LARGE_PDF_VISUAL_READY_TIMEOUT_MS}));
+    await runPdfDiagnosticStage(page, 'large-reopen:wait-authoritative-page-ready', () =>
+        waitForFunctionInPage(
+            page,
+            () => {
+                const viewer = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                );
+                const chassis = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-viewer-chassis',
+                );
+                const requestedPage = Number(chassis?.dataset.viewportRequestedPage ?? 0);
+                const committedPage = Number(chassis?.dataset.viewportCommittedPage ?? 0);
+                const canvas =
+                    viewer?.querySelector<HTMLCanvasElement>(`.page_container[data-page="${requestedPage}"] .page_canvas canvas`) ?? null;
+                return Boolean(
+                    requestedPage > 0 &&
+                    committedPage === requestedPage &&
+                    canvas &&
+                    canvas.width > 0 &&
+                    canvas.height > 0 &&
+                    viewer?.dataset.openSurfacePhase === 'ready' &&
+                    chassis?.dataset.openSurfacePresentation === 'committed',
+                );
+            },
+            {timeout: LARGE_PDF_VISUAL_READY_TIMEOUT_MS},
+        ),
+    );
     // The DOM readiness probe above can complete between two throttled RAFs.
     // Keep polling from the host until the causal sampler has observed the
     // committed surface itself; otherwise a healthy reopen can be reported as
@@ -741,15 +739,13 @@ async function captureRepeatedLargePdfOpen(
         minimumSamples: 10,
     });
     const lifecycleState = await evaluateInPage(page, () => {
-        const loadedHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-            .filter(host => host.querySelector('#pdf-viewer .page_container'));
+        const loadedHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter((host) =>
+            host.querySelector('#pdf-viewer .page_container'),
+        );
         const hiddenLoadedHosts = loadedHosts.filter((host) => {
             const rect = host.getBoundingClientRect();
             const style = window.getComputedStyle(host);
-            return rect.width <= 0
-                || rect.height <= 0
-                || style.display === 'none'
-                || style.visibility === 'hidden';
+            return rect.width <= 0 || rect.height <= 0 || style.display === 'none' || style.visibility === 'hidden';
         });
         return {
             committedPage: Number(
@@ -770,14 +766,11 @@ async function captureRepeatedLargePdfOpen(
     };
 }
 
-async function waitForAnimationFrames(
-    _page: Parameters<typeof installCommittedSurfaceSampler>[0],
-    frameCount = 12,
-) {
+async function waitForAnimationFrames(_page: Parameters<typeof installCommittedSurfaceSampler>[0], frameCount = 12) {
     // Occluded Electron renderers can throttle requestAnimationFrame to roughly
     // one callback per second. A host-side settle avoids leaving a pending CDP
     // evaluation that serializes every later page command behind that throttle.
-    await new Promise(resolve => setTimeout(resolve, Math.max(2_000, frameCount * 100)));
+    await new Promise((resolve) => setTimeout(resolve, Math.max(2_000, frameCount * 100)));
 }
 
 interface ILargePdfOpenSample {
@@ -840,19 +833,13 @@ describe('Electron E2E - PR Blocking Smoke', () => {
     });
     let viewportLifecycleCpuThrottleClient: CDPSession | null = null;
     let viewportLifecycleCpuThrottleRelease: Promise<void> | null = null;
-    async function runBoundedCdpCleanup(
-        label: string,
-        cleanup: () => Promise<unknown>,
-        timeoutMs = CDP_CLEANUP_TIMEOUT_MS,
-    ) {
+    async function runBoundedCdpCleanup(label: string, cleanup: () => Promise<unknown>, timeoutMs = CDP_CLEANUP_TIMEOUT_MS) {
         let timeout: ReturnType<typeof setTimeout> | undefined;
         try {
             await Promise.race([
                 cleanup(),
                 new Promise<never>((_resolve, reject) => {
-                    timeout = setTimeout(() => reject(new Error(
-                        `${label} did not complete within ${String(timeoutMs)}ms`,
-                    )), timeoutMs);
+                    timeout = setTimeout(() => reject(new Error(`${label} did not complete within ${String(timeoutMs)}ms`)), timeoutMs);
                 }),
             ]);
         } finally {
@@ -872,9 +859,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         const release = (async () => {
             const errors: unknown[] = [];
             try {
-                await runBoundedCdpCleanup('CPU throttle reset', () => (
-                    client.send('Emulation.setCPUThrottlingRate', {rate: 1})
-                ));
+                await runBoundedCdpCleanup('CPU throttle reset', () => client.send('Emulation.setCPUThrottlingRate', {rate: 1}));
             } catch (error) {
                 errors.push(error);
             }
@@ -905,13 +890,16 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         } catch (error) {
             console.warn('[E2E cleanup] CDP throttle reset failed; replacing the owning renderer session', error);
             try {
-                await runBoundedCdpCleanup('CPU throttle renderer replacement', () => (
-                    sessionFixture.restart({
-                        clean: true,
-                        hard: true,
-                        sessionName: 'e2e-pr-blocking-timeout-recovery',
-                    })
-                ), 45_000);
+                await runBoundedCdpCleanup(
+                    'CPU throttle renderer replacement',
+                    () =>
+                        sessionFixture.restart({
+                            clean: true,
+                            hard: true,
+                            sessionName: 'e2e-pr-blocking-timeout-recovery',
+                        }),
+                    45_000,
+                );
             } finally {
                 viewportLifecycleCpuThrottleClient = null;
                 viewportLifecycleCpuThrottleRelease = null;
@@ -929,9 +917,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         const packageJson = JSON.parse(await readFile('package.json', 'utf8')) as {version?: unknown};
         expect(packageJson.version).toMatch(/^0\.1\.\d+$/u);
 
-        await waitForFunctionInPage(session.page, () => Boolean(
-            (window as IE2EWindow).electronAPI?.updates,
-        ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
+        await waitForFunctionInPage(session.page, () => Boolean((window as IE2EWindow).electronAPI?.updates), {
+            timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS,
+        });
         const updateState = await evaluateInPage(session.page, async () => {
             const electronAPI = (window as IE2EWindow).electronAPI;
             if (!electronAPI) {
@@ -960,57 +948,57 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         await waitForPdfLoaded(page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
 
         type TUpdateOfferWindow = Window & {__emitUpdateStatusForAutomation?: (status: unknown) => void};
-        const emitUpdateStatus = (phase: 'available' | 'downloaded' | 'idle', origin: 'auto' | 'manual') => evaluateInPage(
-            page,
-            (payload: {
-                phase: string;
-                origin: string
-            }) => {
-                // Main projects every status to each window; with one window, every
-                // status is this window's own.
-                (window as TUpdateOfferWindow).__emitUpdateStatusForAutomation?.({
-                    ...payload,
-                    version: '9.9.9',
-                    percent: null,
-                    message: null,
-                    requestedHere: true,
-                });
-            },
-            {
-                phase,
-                origin,
-            },
-        );
-        const waitForVisibleText = (text: string, selector = '*') => waitForFunctionInPage(
-            page,
-            (payload: {
-                text: string;
-                selector: string
-            }) => Array.from(document.querySelectorAll<HTMLElement>(payload.selector))
-                .some(element => element.childElementCount === 0
-                    && element.textContent?.trim() === payload.text
-                    && element.getClientRects().length > 0),
-            {timeout: UPDATE_OFFER_UI_TIMEOUT_MS},
-            {
-                text,
-                selector,
-            },
-        );
-        const readToggleSidebarTarget = () => evaluateInPage(page, () => {
-            const button = document.querySelector<HTMLButtonElement>('button[aria-label="Toggle Sidebar"]');
-            if (!button) {
-                return null;
-            }
-            const rect = button.getBoundingClientRect();
-            const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height / 2;
-            return {
-                x,
-                y,
-                pressed: button.getAttribute('aria-pressed'),
-                hit: document.elementFromPoint(x, y)?.closest('button') === button,
-            };
-        });
+        const emitUpdateStatus = (phase: 'available' | 'downloaded' | 'idle', origin: 'auto' | 'manual') =>
+            evaluateInPage(
+                page,
+                (payload: {phase: string; origin: string}) => {
+                    // Main projects every status to each window; with one window, every
+                    // status is this window's own.
+                    (window as TUpdateOfferWindow).__emitUpdateStatusForAutomation?.({
+                        ...payload,
+                        version: '9.9.9',
+                        percent: null,
+                        message: null,
+                        requestedHere: true,
+                    });
+                },
+                {
+                    phase,
+                    origin,
+                },
+            );
+        const waitForVisibleText = (text: string, selector = '*') =>
+            waitForFunctionInPage(
+                page,
+                (payload: {text: string; selector: string}) =>
+                    Array.from(document.querySelectorAll<HTMLElement>(payload.selector)).some(
+                        (element) =>
+                            element.childElementCount === 0 &&
+                            element.textContent?.trim() === payload.text &&
+                            element.getClientRects().length > 0,
+                    ),
+                {timeout: UPDATE_OFFER_UI_TIMEOUT_MS},
+                {
+                    text,
+                    selector,
+                },
+            );
+        const readToggleSidebarTarget = () =>
+            evaluateInPage(page, () => {
+                const button = document.querySelector<HTMLButtonElement>('button[aria-label="Toggle Sidebar"]');
+                if (!button) {
+                    return null;
+                }
+                const rect = button.getBoundingClientRect();
+                const x = rect.left + rect.width / 2;
+                const y = rect.top + rect.height / 2;
+                return {
+                    x,
+                    y,
+                    pressed: button.getAttribute('aria-pressed'),
+                    hit: document.elementFromPoint(x, y)?.closest('button') === button,
+                };
+            });
 
         await emitUpdateStatus('available', 'auto');
         await waitForVisibleText('Update available');
@@ -1019,32 +1007,45 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect(target?.hit).toBe(true);
 
         await page.mouse.click(target!.x, target!.y);
-        await waitForFunctionInPage(page, (previouslyPressed: string | null) => {
-            const button = document.querySelector<HTMLButtonElement>('button[aria-label="Toggle Sidebar"]');
-            const sidebar = document.querySelector<HTMLElement>('.sidebar-wrapper');
-            const pressed = button?.getAttribute('aria-pressed') ?? null;
-            return pressed !== previouslyPressed
-                && sidebar?.classList.contains('is-closed') === (pressed !== 'true');
-        }, {timeout: 1_000}, target!.pressed);
+        await waitForFunctionInPage(
+            page,
+            (previouslyPressed: string | null) => {
+                const button = document.querySelector<HTMLButtonElement>('button[aria-label="Toggle Sidebar"]');
+                const sidebar = document.querySelector<HTMLElement>('.sidebar-wrapper');
+                const pressed = button?.getAttribute('aria-pressed') ?? null;
+                return pressed !== previouslyPressed && sidebar?.classList.contains('is-closed') === (pressed !== 'true');
+            },
+            {timeout: 1_000},
+            target!.pressed,
+        );
 
         // The notice slides in, so its action is clickable once it has settled
         // and the hit test at its centre reaches it.
-        const viewUpdate = await (await waitForFunctionInPage(page, () => {
-            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-                .find(candidate => candidate.textContent?.trim() === 'View update');
-            const rect = button?.getBoundingClientRect();
-            if (!button || !rect || (button.closest('li')?.getAnimations({subtree: true}).length ?? 0) > 0) {
-                return null;
-            }
-            const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height / 2;
-            return document.elementFromPoint(x, y)?.closest('button') === button ? {
-                x,
-                y,
-            } : null;
-        }, {timeout: UPDATE_OFFER_UI_TIMEOUT_MS})).jsonValue() as {
+        const viewUpdate = (await (
+            await waitForFunctionInPage(
+                page,
+                () => {
+                    const button = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+                        (candidate) => candidate.textContent?.trim() === 'View update',
+                    );
+                    const rect = button?.getBoundingClientRect();
+                    if (!button || !rect || (button.closest('li')?.getAnimations({subtree: true}).length ?? 0) > 0) {
+                        return null;
+                    }
+                    const x = rect.left + rect.width / 2;
+                    const y = rect.top + rect.height / 2;
+                    return document.elementFromPoint(x, y)?.closest('button') === button
+                        ? {
+                              x,
+                              y,
+                          }
+                        : null;
+                },
+                {timeout: UPDATE_OFFER_UI_TIMEOUT_MS},
+            )
+        ).jsonValue()) as {
             x: number;
-            y: number
+            y: number;
         };
         // The notice's version may be hours old, so viewing it checks again and
         // the dialog shows that check's verdict. An unpackaged build has none to
@@ -1063,30 +1064,43 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect((await readToggleSidebarTarget())?.hit).toBe(false);
 
         // "Later" answers with a manual idle status, which must not reopen a dialog.
-        const later = await (await waitForFunctionInPage(page, () => {
-            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                .find(candidate => candidate.textContent?.trim() === 'Later');
-            const dialog = button?.closest<HTMLElement>('[role="dialog"]');
-            const rect = button?.getBoundingClientRect();
-            if (!button || !rect || (dialog?.getAnimations({subtree: true}).length ?? 0) > 0) {
-                return null;
-            }
-            const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height / 2;
-            return document.elementFromPoint(x, y)?.closest('button') === button ? {
-                x,
-                y,
-            } : null;
-        }, {timeout: UPDATE_OFFER_UI_TIMEOUT_MS})).jsonValue() as {
+        const later = (await (
+            await waitForFunctionInPage(
+                page,
+                () => {
+                    const button = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find(
+                        (candidate) => candidate.textContent?.trim() === 'Later',
+                    );
+                    const dialog = button?.closest<HTMLElement>('[role="dialog"]');
+                    const rect = button?.getBoundingClientRect();
+                    if (!button || !rect || (dialog?.getAnimations({subtree: true}).length ?? 0) > 0) {
+                        return null;
+                    }
+                    const x = rect.left + rect.width / 2;
+                    const y = rect.top + rect.height / 2;
+                    return document.elementFromPoint(x, y)?.closest('button') === button
+                        ? {
+                              x,
+                              y,
+                          }
+                        : null;
+                },
+                {timeout: UPDATE_OFFER_UI_TIMEOUT_MS},
+            )
+        ).jsonValue()) as {
             x: number;
-            y: number
+            y: number;
         };
         await page.mouse.click(later.x, later.y);
         await waitForFunctionInPage(page, () => !document.querySelector('[role="dialog"]'), {timeout: UPDATE_OFFER_UI_TIMEOUT_MS});
         await emitUpdateStatus('idle', 'manual');
-        await evaluateInPage(page, () => new Promise<void>((resolve) => {
-            requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-        }));
+        await evaluateInPage(
+            page,
+            () =>
+                new Promise<void>((resolve) => {
+                    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+                }),
+        );
         expect(await evaluateInPage(page, () => Boolean(document.querySelector('[role="dialog"]')))).toBe(false);
         expect((await readToggleSidebarTarget())?.hit).toBe(true);
     });
@@ -1104,57 +1118,82 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
 
-        const inactiveTabId = await evaluateInPage(session.page, () => (
-            document.querySelector<HTMLElement>('.tab-list .tab.is-active[data-tab-id]')?.dataset.tabId ?? null
-        ));
+        const inactiveTabId = await evaluateInPage(
+            session.page,
+            () => document.querySelector<HTMLElement>('.tab-list .tab.is-active[data-tab-id]')?.dataset.tabId ?? null,
+        );
         expect(inactiveTabId).not.toBeNull();
         await clickAsUser(session.page, '.tab-bar .tab-new');
-        await waitForFunctionInPage(session.page, (tabId: string) => {
-            const target = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'))
-                .find(tab => tab.dataset.tabId === tabId);
-            return Boolean(target && !target.classList.contains('is-active'));
-        }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, inactiveTabId ?? '');
+        await waitForFunctionInPage(
+            session.page,
+            (tabId: string) => {
+                const target = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]')).find(
+                    (tab) => tab.dataset.tabId === tabId,
+                );
+                return Boolean(target && !target.classList.contains('is-active'));
+            },
+            {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+            inactiveTabId ?? '',
+        );
 
         const targetSelector = `.tab-list .tab[data-tab-id="${inactiveTabId}"]`;
         await session.page.hover(targetSelector);
-        await waitForFunctionInPage(session.page, (tabId: string) => {
-            const tab = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'))
-                .find(candidate => candidate.dataset.tabId === tabId) ?? null;
-            const close = tab?.querySelector<HTMLElement>('.tab-close') ?? null;
-            return Boolean(close && Number(window.getComputedStyle(close).opacity) >= 0.99);
-        }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, inactiveTabId ?? '');
-        const geometry = await evaluateInPage(session.page, (tabId: string) => {
-            const tab = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'))
-                .find(candidate => candidate.dataset.tabId === tabId) ?? null;
-            const label = tab?.querySelector<HTMLElement>('.tab-label') ?? null;
-            const close = tab?.querySelector<HTMLElement>('.tab-close') ?? null;
-            const tabRect = tab?.getBoundingClientRect() ?? null;
-            const labelRect = label?.getBoundingClientRect() ?? null;
-            const closeRect = close?.getBoundingClientRect() ?? null;
-            const closeCenterOwner = closeRect
-                ? document.elementFromPoint(
-                    closeRect.left + (closeRect.width / 2),
-                    closeRect.top + (closeRect.height / 2),
-                )?.closest('.tab-close') === close
-                : false;
-            return {
-                closeCenterOwner,
-                closeOpacity: close ? Number(window.getComputedStyle(close).opacity) : 0,
-                closeRect: closeRect ? {
-                    left: closeRect.left,
-                    right: closeRect.right,
-                } : null,
-                labelIsEllipsized: Boolean(label && label.scrollWidth > label.clientWidth),
-                labelRect: labelRect ? {
-                    left: labelRect.left,
-                    right: labelRect.right,
-                } : null,
-                tabRect: tabRect ? {
-                    left: tabRect.left,
-                    right: tabRect.right,
-                } : null,
-            };
-        }, inactiveTabId ?? '');
+        await waitForFunctionInPage(
+            session.page,
+            (tabId: string) => {
+                const tab =
+                    Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]')).find(
+                        (candidate) => candidate.dataset.tabId === tabId,
+                    ) ?? null;
+                const close = tab?.querySelector<HTMLElement>('.tab-close') ?? null;
+                return Boolean(close && Number(window.getComputedStyle(close).opacity) >= 0.99);
+            },
+            {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+            inactiveTabId ?? '',
+        );
+        const geometry = await evaluateInPage(
+            session.page,
+            (tabId: string) => {
+                const tab =
+                    Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]')).find(
+                        (candidate) => candidate.dataset.tabId === tabId,
+                    ) ?? null;
+                const label = tab?.querySelector<HTMLElement>('.tab-label') ?? null;
+                const close = tab?.querySelector<HTMLElement>('.tab-close') ?? null;
+                const tabRect = tab?.getBoundingClientRect() ?? null;
+                const labelRect = label?.getBoundingClientRect() ?? null;
+                const closeRect = close?.getBoundingClientRect() ?? null;
+                const closeCenterOwner = closeRect
+                    ? document
+                          .elementFromPoint(closeRect.left + closeRect.width / 2, closeRect.top + closeRect.height / 2)
+                          ?.closest('.tab-close') === close
+                    : false;
+                return {
+                    closeCenterOwner,
+                    closeOpacity: close ? Number(window.getComputedStyle(close).opacity) : 0,
+                    closeRect: closeRect
+                        ? {
+                              left: closeRect.left,
+                              right: closeRect.right,
+                          }
+                        : null,
+                    labelIsEllipsized: Boolean(label && label.scrollWidth > label.clientWidth),
+                    labelRect: labelRect
+                        ? {
+                              left: labelRect.left,
+                              right: labelRect.right,
+                          }
+                        : null,
+                    tabRect: tabRect
+                        ? {
+                              left: tabRect.left,
+                              right: tabRect.right,
+                          }
+                        : null,
+                };
+            },
+            inactiveTabId ?? '',
+        );
 
         expect(geometry.labelIsEllipsized, JSON.stringify(geometry)).toBe(true);
         expect(geometry.closeOpacity, JSON.stringify(geometry)).toBeGreaterThanOrEqual(0.99);
@@ -1162,14 +1201,12 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect(geometry.labelRect, JSON.stringify(geometry)).not.toBeNull();
         expect(geometry.closeRect, JSON.stringify(geometry)).not.toBeNull();
         expect(geometry.tabRect, JSON.stringify(geometry)).not.toBeNull();
-        expect(
-            geometry.labelRect?.right ?? Number.POSITIVE_INFINITY,
-            JSON.stringify(geometry),
-        ).toBeLessThanOrEqual(geometry.closeRect?.left ?? Number.NEGATIVE_INFINITY);
-        expect(
-            geometry.closeRect?.right ?? Number.POSITIVE_INFINITY,
-            JSON.stringify(geometry),
-        ).toBeLessThanOrEqual(geometry.tabRect?.right ?? Number.NEGATIVE_INFINITY);
+        expect(geometry.labelRect?.right ?? Number.POSITIVE_INFINITY, JSON.stringify(geometry)).toBeLessThanOrEqual(
+            geometry.closeRect?.left ?? Number.NEGATIVE_INFINITY,
+        );
+        expect(geometry.closeRect?.right ?? Number.POSITIVE_INFINITY, JSON.stringify(geometry)).toBeLessThanOrEqual(
+            geometry.tabRect?.right ?? Number.NEGATIVE_INFINITY,
+        );
     });
 
     it('selects a narrow inactive tab clicked in its middle and closes one by its hovered X', async () => {
@@ -1177,18 +1214,20 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             clean: true,
             sessionName: 'e2e-pr-blocking-narrow-tab-click',
         });
-        const readTabs = () => evaluateInPage(session.page, () => Array.from(
-            document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'),
-        ).map(tab => ({
-            id: tab.dataset.tabId ?? '',
-            active: tab.classList.contains('is-active'),
-        })));
-        const stripOverflows = () => evaluateInPage(session.page, () => {
-            const list = document.querySelector<HTMLElement>('.tab-list');
-            return Boolean(list && list.scrollWidth > list.clientWidth);
-        });
+        const readTabs = () =>
+            evaluateInPage(session.page, () =>
+                Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]')).map((tab) => ({
+                    id: tab.dataset.tabId ?? '',
+                    active: tab.classList.contains('is-active'),
+                })),
+            );
+        const stripOverflows = () =>
+            evaluateInPage(session.page, () => {
+                const list = document.querySelector<HTMLElement>('.tab-list');
+                return Boolean(list && list.scrollWidth > list.clientWidth);
+            });
         // Once the strip scrolls, every tab is at its minimum width.
-        for (let created = 0; created < 40 && !await stripOverflows(); created += 1) {
+        for (let created = 0; created < 40 && !(await stripOverflows()); created += 1) {
             await createNewWorkspaceTab(session);
         }
         expect(await stripOverflows()).toBe(true);
@@ -1197,22 +1236,30 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect(target.active).toBe(false);
 
         await clickAsUser(session.page, `.tab-list .tab[data-tab-id="${target.id}"]`);
-        await waitForFunctionInPage(session.page, (tabId: string) => {
-            const tab = document.querySelector(`.tab-list .tab[data-tab-id="${tabId}"]`);
-            return tab === null || tab.classList.contains('is-active');
-        }, {timeout: 10_000}, target.id);
+        await waitForFunctionInPage(
+            session.page,
+            (tabId: string) => {
+                const tab = document.querySelector(`.tab-list .tab[data-tab-id="${tabId}"]`);
+                return tab === null || tab.classList.contains('is-active');
+            },
+            {timeout: 10_000},
+            target.id,
+        );
         const afterClick = await readTabs();
         expect(afterClick).toHaveLength(tabs.length);
-        expect(afterClick.find(tab => tab.id === target.id)?.active).toBe(true);
+        expect(afterClick.find((tab) => tab.id === target.id)?.active).toBe(true);
 
-        const closeTarget = afterClick.find(tab => !tab.active)!;
+        const closeTarget = afterClick.find((tab) => !tab.active)!;
         await clickAsUser(session.page, `.tab-list .tab[data-tab-id="${closeTarget.id}"] .tab-close`);
-        await waitForFunctionInPage(session.page, (tabId: string) => (
-            document.querySelector(`.tab-list .tab[data-tab-id="${tabId}"]`) === null
-        ), {timeout: 10_000}, closeTarget.id);
+        await waitForFunctionInPage(
+            session.page,
+            (tabId: string) => document.querySelector(`.tab-list .tab[data-tab-id="${tabId}"]`) === null,
+            {timeout: 10_000},
+            closeTarget.id,
+        );
         const afterClose = await readTabs();
         expect(afterClose).toHaveLength(tabs.length - 1);
-        expect(afterClose.find(tab => tab.id === target.id)?.active).toBe(true);
+        expect(afterClose.find((tab) => tab.id === target.id)?.active).toBe(true);
     });
 
     it('opens a PDF, persists a real IPC rotation, and navigates the viewer', async () => {
@@ -1222,13 +1269,13 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         });
 
         const fixturePath = await createMultiPageTextFixturePdf('pr-blocking-smoke.pdf', 3);
-        await runPdfDiagnosticStage(session.page, 'rotation:open-pdf', () => (
-            openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS)
-        ));
-        await runPdfDiagnosticStage(session.page, 'rotation:wait-loaded', () => (
-            waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS)
-        ));
-        await runPdfDiagnosticStage(session.page, 'rotation:wait-initial-toolbar', () => (
+        await runPdfDiagnosticStage(session.page, 'rotation:open-pdf', () =>
+            openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS),
+        );
+        await runPdfDiagnosticStage(session.page, 'rotation:wait-loaded', () =>
+            waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS),
+        );
+        await runPdfDiagnosticStage(session.page, 'rotation:wait-initial-toolbar', () =>
             waitForWorkspaceToolbarSnapshot(
                 session.page,
                 {
@@ -1237,59 +1284,54 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     minTotalPages: 3,
                 },
                 {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-            )
-        ));
+            ),
+        );
 
-        const workingCopyPath = await runPdfDiagnosticStage(
-            session.page,
-            'rotation:resolve-working-copy',
-            () => getActiveWorkspaceWorkingCopyPath(session.page),
+        const workingCopyPath = await runPdfDiagnosticStage(session.page, 'rotation:resolve-working-copy', () =>
+            getActiveWorkspaceWorkingCopyPath(session.page),
         );
-        const persistedBeforeRotation = await readManagedPdfOpeningGeometry(
-            session.page,
-            workingCopyPath,
-        );
+        const persistedBeforeRotation = await readManagedPdfOpeningGeometry(session.page, workingCopyPath);
         expect(persistedBeforeRotation).not.toBeNull();
-        const rotationDelta = resolveClockwiseRotationDelta(
-            persistedBeforeRotation?.rotation ?? 0,
-            90,
-        );
+        const rotationDelta = resolveClockwiseRotationDelta(persistedBeforeRotation?.rotation ?? 0, 90);
         if (rotationDelta !== 0) {
-            const surfaceRevisionBeforeRotation = await evaluateInPage(session.page, () => (
-                document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-viewer-chassis',
-                )?.dataset.openSurfaceDocumentRevision ?? null
-            ));
-            await runPdfDiagnosticStage(
+            const surfaceRevisionBeforeRotation = await evaluateInPage(
                 session.page,
-                'rotation:persist-workspace-mutation',
-                () => requireWorkspaceCommand(session.page, 'handleRotateCw', [[1]]),
-            );
-            await runPdfDiagnosticStage(session.page, 'rotation:wait-workspace-reload', () => (
-                waitForFunctionInPage(session.page, (previousRevision: string | null) => {
-                    const chassis = document.querySelector<HTMLElement>(
+                () =>
+                    document.querySelector<HTMLElement>(
                         '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-viewer-chassis',
-                    );
-                    const viewer = document.querySelector<HTMLElement>(
-                        '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
-                    );
-                    const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
-                    return Boolean(
-                        chassis
-                        && chassis.dataset.openSurfaceDocumentRevision !== previousRevision
-                        && chassis.dataset.openSurfacePresentation === 'committed'
-                        && viewer?.dataset.openSurfacePhase === 'ready'
-                        && toolbar
-                        && toolbar.currentPage === 1
-                        && !toolbar.isPageOperationInProgress,
-                    );
-                }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, surfaceRevisionBeforeRotation)
-            ));
+                    )?.dataset.openSurfaceDocumentRevision ?? null,
+            );
+            await runPdfDiagnosticStage(session.page, 'rotation:persist-workspace-mutation', () =>
+                requireWorkspaceCommand(session.page, 'handleRotateCw', [[1]]),
+            );
+            await runPdfDiagnosticStage(session.page, 'rotation:wait-workspace-reload', () =>
+                waitForFunctionInPage(
+                    session.page,
+                    (previousRevision: string | null) => {
+                        const chassis = document.querySelector<HTMLElement>(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .document-viewer-chassis',
+                        );
+                        const viewer = document.querySelector<HTMLElement>(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                        );
+                        const toolbar = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.();
+                        return Boolean(
+                            chassis &&
+                            chassis.dataset.openSurfaceDocumentRevision !== previousRevision &&
+                            chassis.dataset.openSurfacePresentation === 'committed' &&
+                            viewer?.dataset.openSurfacePhase === 'ready' &&
+                            toolbar &&
+                            toolbar.currentPage === 1 &&
+                            !toolbar.isPageOperationInProgress,
+                        );
+                    },
+                    {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+                    surfaceRevisionBeforeRotation,
+                ),
+            );
         }
-        const persistedRotation = await runPdfDiagnosticStage(
-            session.page,
-            'rotation:wait-persisted-bytes',
-            () => waitForManagedPdfRotation(session.page, workingCopyPath, 90),
+        const persistedRotation = await runPdfDiagnosticStage(session.page, 'rotation:wait-persisted-bytes', () =>
+            waitForManagedPdfRotation(session.page, workingCopyPath, 90),
         );
         expect(persistedRotation).toBe(90);
         // The revision commits before the bounded managed-shape import finishes.
@@ -1303,14 +1345,12 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         // The contract is that navigation itself promotes page 2 to required
         // demand and reaches a committed visual, whether or not it was warm.
 
-        await runPdfDiagnosticStage(
-            session.page,
-            'rotation:set-actual-size',
-            () => requireWorkspaceCommand(session.page, 'handleActualSize'),
+        await runPdfDiagnosticStage(session.page, 'rotation:set-actual-size', () =>
+            requireWorkspaceCommand(session.page, 'handleActualSize'),
         );
-        await runPdfDiagnosticStage(session.page, 'rotation:wait-actual-size', () => (
-            waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'custom'}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS})
-        ));
+        await runPdfDiagnosticStage(session.page, 'rotation:wait-actual-size', () =>
+            waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'custom'}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS}),
+        );
         expect((await getWorkspaceToolbarSnapshot(session.page))?.zoomMode).toBe('custom');
 
         await installCommittedSurfaceSampler(session.page);
@@ -1318,24 +1358,18 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         let navigationSurfaceTrace: Awaited<ReturnType<typeof stopCommittedSurfaceSampler>> = {frames: []};
         let navigationRenderTrace: IPdfRenderTraceEntrySnapshot[] = [];
         try {
-            await runPdfDiagnosticStage(
-                session.page,
-                'rotation:navigate-next',
-                () => requireWorkspaceCommand(session.page, 'handleGoToPage', [2]),
+            await runPdfDiagnosticStage(session.page, 'rotation:navigate-next', () =>
+                requireWorkspaceCommand(session.page, 'handleGoToPage', [2]),
             );
-            await runPdfDiagnosticStage(session.page, 'rotation:wait-page-2-toolbar', () => (
-                waitForToolbarCurrentPage(session.page, 2)
-            ));
-            await runPdfDiagnosticStage(
-                session.page,
-                'rotation:set-fit-width',
-                () => requireWorkspaceCommand(session.page, 'handleFitWidth'),
+            await runPdfDiagnosticStage(session.page, 'rotation:wait-page-2-toolbar', () => waitForToolbarCurrentPage(session.page, 2));
+            await runPdfDiagnosticStage(session.page, 'rotation:set-fit-width', () =>
+                requireWorkspaceCommand(session.page, 'handleFitWidth'),
             );
-            await runPdfDiagnosticStage(session.page, 'rotation:wait-fit-width', () => (
-                waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'fit-width'}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS})
-            ));
+            await runPdfDiagnosticStage(session.page, 'rotation:wait-fit-width', () =>
+                waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'fit-width'}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS}),
+            );
 
-            await runPdfDiagnosticStage(session.page, 'rotation:wait-page-2-snapshot', () => (
+            await runPdfDiagnosticStage(session.page, 'rotation:wait-page-2-snapshot', () =>
                 waitForWorkspaceToolbarSnapshot(
                     session.page,
                     {
@@ -1344,11 +1378,11 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                         minTotalPages: 3,
                     },
                     {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-                )
-            ));
-            await runPdfDiagnosticStage(session.page, 'rotation:wait-page-2-visual', () => (
-                waitForVisuallyPresentedPdfPage(session.page, 2)
-            ));
+                ),
+            );
+            await runPdfDiagnosticStage(session.page, 'rotation:wait-page-2-visual', () =>
+                waitForVisuallyPresentedPdfPage(session.page, 2),
+            );
             await waitForAnimationFrames(session.page, 10);
         } finally {
             navigationSurfaceTrace = await stopCommittedSurfaceSampler(session.page);
@@ -1383,45 +1417,39 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         async function chooseViewMode(index: number) {
             await clickAsUser(session.page, '#editor-global-toolbar-host .zoom-controls-display');
             await session.page.waitForSelector('.zoom-dropdown', {visible: true});
-            const point = await evaluateInPage(session.page, (modeIndex: number) => {
-                const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(
-                    '.zoom-dropdown .zoom-toggle-btn',
-                )).slice(-3);
-                const rect = buttons[modeIndex]!.getBoundingClientRect();
-                return {
-                    x: rect.left + rect.width / 2,
-                    y: rect.top + rect.height / 2,
-                };
-            }, index);
-            await session.page.mouse.click(point.x, point.y);
-            const modes = [
-                'single',
-                'facing',
-                'facing-first-single',
-            ] as const;
-            await waitForWorkspaceToolbarSnapshot(
+            const point = await evaluateInPage(
                 session.page,
-                {viewMode: modes[index]!},
-                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+                (modeIndex: number) => {
+                    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.zoom-dropdown .zoom-toggle-btn')).slice(-3);
+                    const rect = buttons[modeIndex]!.getBoundingClientRect();
+                    return {
+                        x: rect.left + rect.width / 2,
+                        y: rect.top + rect.height / 2,
+                    };
+                },
+                index,
             );
+            await session.page.mouse.click(point.x, point.y);
+            const modes = ['single', 'facing', 'facing-first-single'] as const;
+            await waitForWorkspaceToolbarSnapshot(session.page, {viewMode: modes[index]!}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS});
         }
 
         async function readSpread() {
             return evaluateInPage(session.page, () => {
                 const viewport = document.querySelector<HTMLElement>('#pdf-viewer')!;
                 const bounds = viewport.getBoundingClientRect();
-                const pages = Array.from(viewport.querySelectorAll<HTMLElement>(
-                    '.page_container:not(.page_container--buffered)',
-                )).map(element => {
-                    const rect = element.getBoundingClientRect();
-                    return {
-                        page: Number(element.dataset.page),
-                        left: rect.left,
-                        right: rect.right,
-                        top: rect.top,
-                        bottom: rect.bottom,
-                    };
-                });
+                const pages = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)')).map(
+                    (element) => {
+                        const rect = element.getBoundingClientRect();
+                        return {
+                            page: Number(element.dataset.page),
+                            left: rect.left,
+                            right: rect.right,
+                            top: rect.top,
+                            bottom: rect.bottom,
+                        };
+                    },
+                );
                 return {
                     pages,
                     top: bounds.top,
@@ -1437,30 +1465,25 @@ describe('Electron E2E - PR Blocking Smoke', () => {
 
         // L1: buffering is invisible to fit geometry, at both document ends and
         // in an interior spread. The menu action is trusted pointer input.
-        for (const pageNumber of [
-            1,
-            4,
-            7,
-        ]) {
+        for (const pageNumber of [1, 4, 7]) {
             await goToPageViaToolbar(session.page, pageNumber);
-            for (const mode of [
-                0,
-                1,
-                2,
-            ]) {
+            for (const mode of [0, 1, 2]) {
                 await chooseViewMode(mode);
                 await waitForCommittedFitHeightGeometry(session.page, pageNumber);
                 const spread = await readSpread();
-                expect(spread.scrollRange, JSON.stringify({
-                    pageNumber,
-                    mode,
-                    spread,
-                })).toBe(0);
+                expect(
+                    spread.scrollRange,
+                    JSON.stringify({
+                        pageNumber,
+                        mode,
+                        spread,
+                    }),
+                ).toBe(0);
                 expect(spread.scrollTop).toBe(0);
                 // clientHeight is rounded; compare physical boxes as well to
                 // catch the original fractional-pixel overflow.
                 expect(spread.trackBottom).toBeLessThanOrEqual(spread.bottom);
-                expect(spread.pages.some(page => page.page === pageNumber)).toBe(true);
+                expect(spread.pages.some((page) => page.page === pageNumber)).toBe(true);
                 for (const page of spread.pages) {
                     expect(page.top).toBeGreaterThanOrEqual(spread.top);
                     expect(page.bottom).toBeLessThanOrEqual(spread.bottom);
@@ -1470,41 +1493,48 @@ describe('Electron E2E - PR Blocking Smoke', () => {
 
         // Rotation is setup; switching back to Single exercises the same
         // layout transition with PDF.js text/link layers in rotated coordinates.
-        for (const rotation of [
-            90,
-            270,
-            0,
-        ]) {
-            await requireWorkspaceCommand(session.page, 'restoreViewState', [{
-                currentPage: null,
-                zoom: null,
-                zoomMode: null,
-                continuousScroll: null,
-                viewMode: null,
-                viewRotation: rotation,
-            }]);
+        for (const rotation of [90, 270, 0]) {
+            await requireWorkspaceCommand(session.page, 'restoreViewState', [
+                {
+                    currentPage: null,
+                    zoom: null,
+                    zoomMode: null,
+                    continuousScroll: null,
+                    viewMode: null,
+                    viewRotation: rotation,
+                },
+            ]);
             await chooseViewMode(0);
             await waitForCommittedFitHeightGeometry(session.page, 7);
             const spread = await readSpread();
-            expect(spread.scrollRange, JSON.stringify({
-                rotation,
-                spread,
-            })).toBe(0);
+            expect(
+                spread.scrollRange,
+                JSON.stringify({
+                    rotation,
+                    spread,
+                }),
+            ).toBe(0);
             expect(spread.trackBottom).toBeLessThanOrEqual(spread.bottom);
         }
 
         async function waitForUnpairedFitWidth() {
             await waitForVisibleMountedPdfCanvases(session.page);
-            await waitForFunctionInPage(session.page, () => {
-                const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
-                const pages = viewport?.querySelectorAll<HTMLElement>(
-                    '.page_container:not(.page_container--buffered)',
-                );
-                const page = pages?.[0];
-                return Boolean(viewport && page && pages?.length === 1
-                    && page.dataset.page === '7'
-                    && Math.abs(page.getBoundingClientRect().width - (viewport.clientWidth - 40)) <= 1);
-            }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
+            await waitForFunctionInPage(
+                session.page,
+                () => {
+                    const viewport = document.querySelector<HTMLElement>('#pdf-viewer');
+                    const pages = viewport?.querySelectorAll<HTMLElement>('.page_container:not(.page_container--buffered)');
+                    const page = pages?.[0];
+                    return Boolean(
+                        viewport &&
+                        page &&
+                        pages?.length === 1 &&
+                        page.dataset.page === '7' &&
+                        Math.abs(page.getBoundingClientRect().width - (viewport.clientWidth - 40)) <= 1,
+                    );
+                },
+                {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+            );
         }
 
         // A lone last page in Facing must fill the same width as Single. It
@@ -1518,8 +1548,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         await waitForUnpairedFitWidth();
         const facing = await readSpread();
         expect(facing.pages).toHaveLength(1);
-        expect(Math.abs((facing.pages[0]!.right - facing.pages[0]!.left)
-            - (single.pages[0]!.right - single.pages[0]!.left))).toBeLessThanOrEqual(1);
+        expect(
+            Math.abs(facing.pages[0]!.right - facing.pages[0]!.left - (single.pages[0]!.right - single.pages[0]!.left)),
+        ).toBeLessThanOrEqual(1);
     });
 
     it('keeps buffered neighbors out of the paged fit-height scroll extent', async () => {
@@ -1527,9 +1558,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             clean: true,
             sessionName: 'e2e-pr-blocking-paged-fit-height-buffered-scroll',
         });
-        const fixturePath = await createMixedPageSizeTextFixturePdf(
-            'paged-fit-height-buffered-scroll.pdf',
-        );
+        const fixturePath = await createMixedPageSizeTextFixturePdf('paged-fit-height-buffered-scroll.pdf');
         await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
         await requireWorkspaceCommand(session.page, 'handleFitHeight');
@@ -1592,13 +1621,11 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         });
 
         const fixturePath = await createMultiPageTextFixturePdf('pr-blocking-fit-height.pdf', 3);
-        await runPdfDiagnosticStage(session.page, 'fit:open-pdf', () => (
-            openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS)
-        ));
-        await runPdfDiagnosticStage(session.page, 'fit:wait-loaded', () => (
-            waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS)
-        ));
-        await runPdfDiagnosticStage(session.page, 'fit:wait-initial-toolbar', () => (
+        await runPdfDiagnosticStage(session.page, 'fit:open-pdf', () =>
+            openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS),
+        );
+        await runPdfDiagnosticStage(session.page, 'fit:wait-loaded', () => waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS));
+        await runPdfDiagnosticStage(session.page, 'fit:wait-initial-toolbar', () =>
             waitForWorkspaceToolbarSnapshot(
                 session.page,
                 {
@@ -1607,22 +1634,16 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     minTotalPages: 3,
                 },
                 {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-            )
-        ));
+            ),
+        );
         await startPdfRenderTrace(session.page);
-        await runPdfDiagnosticStage(session.page, 'fit:go-to-page-2', () => (
-            goToPageViaToolbar(session.page, 2)
-        ));
-        await runPdfDiagnosticStage(session.page, 'fit:wait-toolbar-page-2', () => (
-            waitForToolbarCurrentPage(session.page, 2)
-        ));
+        await runPdfDiagnosticStage(session.page, 'fit:go-to-page-2', () => goToPageViaToolbar(session.page, 2));
+        await runPdfDiagnosticStage(session.page, 'fit:wait-toolbar-page-2', () => waitForToolbarCurrentPage(session.page, 2));
         await requireWorkspaceCommand(session.page, 'handleFitWidth');
-        await runPdfDiagnosticStage(session.page, 'fit:wait-fit-width-mode', () => (
-            waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'fit-width'}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS})
-        ));
-        await runPdfDiagnosticStage(session.page, 'fit:wait-fit-width-page-2', () => (
-            waitForVisuallyPresentedPdfPage(session.page, 2)
-        ));
+        await runPdfDiagnosticStage(session.page, 'fit:wait-fit-width-mode', () =>
+            waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'fit-width'}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS}),
+        );
+        await runPdfDiagnosticStage(session.page, 'fit:wait-fit-width-page-2', () => waitForVisuallyPresentedPdfPage(session.page, 2));
 
         const fitWidthPageGeometry = await evaluateInPage(session.page, () => {
             const pageContainer = document.querySelector<HTMLElement>(
@@ -1635,10 +1656,8 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             };
         });
         await requireWorkspaceCommand(session.page, 'handleFitHeight');
-        const continuousFitHeight = await runPdfDiagnosticStage(
-            session.page,
-            'fit:continuous-fit-height-geometry',
-            () => waitForCommittedFitHeightGeometry(session.page, 2),
+        const continuousFitHeight = await runPdfDiagnosticStage(session.page, 'fit:continuous-fit-height-geometry', () =>
+            waitForCommittedFitHeightGeometry(session.page, 2),
         );
         expect(
             Math.max(
@@ -1649,418 +1668,361 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect(continuousFitHeight.canvasCssWidth).toBeCloseTo(continuousFitHeight.pageWidth, 0);
         expect(continuousFitHeight.canvasCssHeight).toBeCloseTo(continuousFitHeight.pageHeight, 0);
         expect(continuousFitHeight.layerBoundsViolations).toEqual([]);
-        expect(continuousFitHeight.viewportScrollWidth).toBeLessThanOrEqual(
-            continuousFitHeight.viewportClientWidth + 1,
-        );
+        expect(continuousFitHeight.viewportScrollWidth).toBeLessThanOrEqual(continuousFitHeight.viewportClientWidth + 1);
 
         await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
-        await runPdfDiagnosticStage(session.page, 'fit:wait-paged-mode', () => (
-            waitForWorkspaceToolbarSnapshot(
-                session.page,
-                {continuousScroll: false},
-                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-            )
-        ));
-        const pagedFitHeight = await runPdfDiagnosticStage(
-            session.page,
-            'fit:paged-fit-height-geometry',
-            () => waitForCommittedFitHeightGeometry(session.page, 2, continuousFitHeight),
+        await runPdfDiagnosticStage(session.page, 'fit:wait-paged-mode', () =>
+            waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll: false}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS}),
+        );
+        const pagedFitHeight = await runPdfDiagnosticStage(session.page, 'fit:paged-fit-height-geometry', () =>
+            waitForCommittedFitHeightGeometry(session.page, 2, continuousFitHeight),
         );
         expect(pagedFitHeight.canvasPixelWidth).toBe(continuousFitHeight.canvasPixelWidth);
         expect(pagedFitHeight.canvasPixelHeight).toBe(continuousFitHeight.canvasPixelHeight);
         expect(pagedFitHeight.layerBoundsViolations).toEqual([]);
-        expect(pagedFitHeight.viewportScrollWidth).toBeLessThanOrEqual(
-            pagedFitHeight.viewportClientWidth + 1,
-        );
+        expect(pagedFitHeight.viewportScrollWidth).toBeLessThanOrEqual(pagedFitHeight.viewportClientWidth + 1);
 
         await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
-        await runPdfDiagnosticStage(session.page, 'fit:wait-restored-continuous-mode', () => (
-            waitForWorkspaceToolbarSnapshot(
-                session.page,
-                {continuousScroll: true},
-                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-            )
-        ));
-        const restoredContinuousFitHeight = await runPdfDiagnosticStage(
-            session.page,
-            'fit:restored-continuous-fit-height-geometry',
-            () => waitForCommittedFitHeightGeometry(session.page, 2, continuousFitHeight),
+        await runPdfDiagnosticStage(session.page, 'fit:wait-restored-continuous-mode', () =>
+            waitForWorkspaceToolbarSnapshot(session.page, {continuousScroll: true}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS}),
+        );
+        const restoredContinuousFitHeight = await runPdfDiagnosticStage(session.page, 'fit:restored-continuous-fit-height-geometry', () =>
+            waitForCommittedFitHeightGeometry(session.page, 2, continuousFitHeight),
         );
         expect(restoredContinuousFitHeight.canvasPixelWidth).toBe(continuousFitHeight.canvasPixelWidth);
         expect(restoredContinuousFitHeight.canvasPixelHeight).toBe(continuousFitHeight.canvasPixelHeight);
         expect(restoredContinuousFitHeight.layerBoundsViolations).toEqual([]);
-        expect(restoredContinuousFitHeight.viewportScrollWidth).toBeLessThanOrEqual(
-            restoredContinuousFitHeight.viewportClientWidth + 1,
-        );
+        expect(restoredContinuousFitHeight.viewportScrollWidth).toBeLessThanOrEqual(restoredContinuousFitHeight.viewportClientWidth + 1);
         await stopPdfRenderTrace(session.page);
     });
 
-    it('serializes early Recent navigation and owns every viewport frame', {
-        retry: 0,
-        timeout: 180_000,
-    }, async () => {
-        const session = await sessionFixture.restart({
-            clean: true,
-            hard: true,
-            sessionName: 'e2e-pr-blocking-viewport-lifecycle',
-        });
+    it(
+        'serializes early Recent navigation and owns every viewport frame',
+        {
+            retry: 0,
+            timeout: 180_000,
+        },
+        async () => {
+            const session = await sessionFixture.restart({
+                clean: true,
+                hard: true,
+                sessionName: 'e2e-pr-blocking-viewport-lifecycle',
+            });
 
-        const fixturePath = await createLargeScannedFixturePdf(
-            'pr-blocking-viewport-lifecycle.pdf',
-            12,
-            0,
-            1,
-            {runOwner: PR_BLOCKING_FIXTURE_OWNER},
-        );
-        const fixtureDocumentRef = requireDocumentRef(fixturePath);
-        await runPdfDiagnosticStage(session.page, 'early:prime-open-pdf', () => (
-            openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS)
-        ));
-        await runPdfDiagnosticStage(session.page, 'early:prime-wait-loaded', () => (
-            waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS)
-        ));
-        await runPdfDiagnosticStage(session.page, 'early:close-to-recents', () => (
-            closeActiveDocumentToEmpty(session.page)
-        ));
-        await runPdfDiagnosticStage(session.page, 'early:wait-actionable-recent', () => (
-            waitForFunctionInPage(session.page, (targetSourcePath: string) => (
-                Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
-                    .some(row => (
-                        row.dataset.recentOpenActionable === 'true'
-                        && row.dataset.recentSource === targetSourcePath
-                    ))
-            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, fixturePath)
-        ));
+            const fixturePath = await createLargeScannedFixturePdf('pr-blocking-viewport-lifecycle.pdf', 12, 0, 1, {
+                runOwner: PR_BLOCKING_FIXTURE_OWNER,
+            });
+            const fixtureDocumentRef = requireDocumentRef(fixturePath);
+            await runPdfDiagnosticStage(session.page, 'early:prime-open-pdf', () =>
+                openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS),
+            );
+            await runPdfDiagnosticStage(session.page, 'early:prime-wait-loaded', () =>
+                waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS),
+            );
+            await runPdfDiagnosticStage(session.page, 'early:close-to-recents', () => closeActiveDocumentToEmpty(session.page));
+            await runPdfDiagnosticStage(session.page, 'early:wait-actionable-recent', () =>
+                waitForFunctionInPage(
+                    session.page,
+                    (targetSourcePath: string) =>
+                        Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)')).some(
+                            (row) => row.dataset.recentOpenActionable === 'true' && row.dataset.recentSource === targetSourcePath,
+                        ),
+                    {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+                    fixturePath,
+                ),
+            );
 
-        const sourceDeferred = await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__deferDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef);
-        expect(sourceDeferred).toBe(true);
-        await installCommittedSurfaceSampler(
-            session.page,
-            LIFECYCLE_ONLY_SURFACE_SAMPLER_OPTIONS,
-        );
-        await startPdfRenderTrace(session.page);
-        const earlyNavigation = await evaluateInPage(session.page, (targetSourcePath: string) => {
-            const row = Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
-                .find(candidate => (
-                    candidate.dataset.recentOpenActionable === 'true'
-                    && candidate.dataset.recentSource === targetSourcePath
-                ));
-            const api = (window as IE2EWindow).__evbTestApi;
-            if (!row || !api) {
-                return {
-                    clicked: false,
-                    requestCount: 0,
-                };
-            }
-            (window as Window & {__committedSurfaceInteractionCheckpoint?: string | null;})
-                .__committedSurfaceInteractionCheckpoint = 'recent-early-navigation';
-            row.click();
-            const requests: Array<Promise<{called: boolean;}>> = [];
-            for (let pageNumber = 2; pageNumber <= 6; pageNumber += 1) {
-                requests.push(api.callActiveWorkspaceCommand('handleGoToPage', [pageNumber]));
-            }
-            (window as Window & {__viewportLifecycleEarlyNavigationRequests?: Array<Promise<{called: boolean;}>>;}).__viewportLifecycleEarlyNavigationRequests = requests;
-            return {
+            const sourceDeferred = await evaluateInPage(
+                session.page,
+                (path: TDocumentRef) => window.__deferDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
+            );
+            expect(sourceDeferred).toBe(true);
+            await installCommittedSurfaceSampler(session.page, LIFECYCLE_ONLY_SURFACE_SAMPLER_OPTIONS);
+            await startPdfRenderTrace(session.page);
+            const earlyNavigation = await evaluateInPage(
+                session.page,
+                (targetSourcePath: string) => {
+                    const row = Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)')).find(
+                        (candidate) =>
+                            candidate.dataset.recentOpenActionable === 'true' && candidate.dataset.recentSource === targetSourcePath,
+                    );
+                    const api = (window as IE2EWindow).__evbTestApi;
+                    if (!row || !api) {
+                        return {
+                            clicked: false,
+                            requestCount: 0,
+                        };
+                    }
+                    (window as Window & {__committedSurfaceInteractionCheckpoint?: string | null}).__committedSurfaceInteractionCheckpoint =
+                        'recent-early-navigation';
+                    row.click();
+                    const requests: Array<Promise<{called: boolean}>> = [];
+                    for (let pageNumber = 2; pageNumber <= 6; pageNumber += 1) {
+                        requests.push(api.callActiveWorkspaceCommand('handleGoToPage', [pageNumber]));
+                    }
+                    (
+                        window as Window & {__viewportLifecycleEarlyNavigationRequests?: Array<Promise<{called: boolean}>>}
+                    ).__viewportLifecycleEarlyNavigationRequests = requests;
+                    return {
+                        clicked: true,
+                        requestCount: 5,
+                    };
+                },
+                fixturePath,
+            );
+            expect(earlyNavigation).toEqual({
                 clicked: true,
                 requestCount: 5,
-            };
-        }, fixturePath);
-        expect(earlyNavigation).toEqual({
-            clicked: true,
-            requestCount: 5,
-        });
-        await waitForAnimationFrames(session.page, 4);
-        const sourceReleased = await evaluateInPage(session.page, (path: TDocumentRef) => (
-            window.__releaseDocumentOpenForAutomation?.(path) ?? false
-        ), fixtureDocumentRef);
-        expect(sourceReleased).toBe(true);
-        const earlyNavigationRequestResults = await runPdfDiagnosticStage(
-            session.page,
-            'early:resolve-navigation-command-promises',
-            () => evaluateInPage(session.page, async () => {
-                const testWindow = window as Window & {__viewportLifecycleEarlyNavigationRequests?: Array<Promise<{called: boolean;}>>;};
-                const results = await Promise.all(testWindow.__viewportLifecycleEarlyNavigationRequests ?? []);
-                delete testWindow.__viewportLifecycleEarlyNavigationRequests;
-                return results;
-            }),
-        );
-        expect(earlyNavigationRequestResults).toHaveLength(5);
-        // Setup, not an outcome: a navigation request the workspace never
-        // received would make the screen checks below meaningless.
-        if (!earlyNavigationRequestResults.every(result => result.called)) {
-            throw new Error('An early navigation request never reached the active workspace');
-        }
-        await runPdfDiagnosticStage(session.page, 'early:wait-toolbar-page-6', () => (
-            waitForWorkspaceToolbarSnapshot(
+            });
+            await waitForAnimationFrames(session.page, 4);
+            const sourceReleased = await evaluateInPage(
                 session.page,
-                {
-                    hasPdf: true,
-                    currentPage: 6,
-                    minTotalPages: 12,
-                },
-                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-            )
-        ));
-        await runPdfDiagnosticStage(session.page, 'early:wait-visible-page-6', () => (
-            waitForVisuallyPresentedPdfPage(session.page, 6)
-        ));
-        await waitForAnimationFrames(session.page, 12);
-        const firstPageSixCanvas = await readCommittedPdfCanvasPixelSize(session.page, 6);
-        expect(firstPageSixCanvas.width).toBeGreaterThan(0);
-        expect(firstPageSixCanvas.height).toBeGreaterThan(0);
-        expect(firstPageSixCanvas.skeletonVisible).toBe(false);
-        await runPdfDiagnosticStage(session.page, 'early:wait-prefetched-page-7', () => (
-            waitForFunctionInPage(session.page, () => {
-                const prefetchedPage = document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="7"]',
-                );
-                const canvas = prefetchedPage?.querySelector<HTMLCanvasElement>(
-                    '.page_canvas__render-layer canvas',
-                );
-                return Boolean(
-                    prefetchedPage?.classList.contains('page_container--rendered')
-                    && canvas
-                    && canvas.width > 0
-                    && canvas.height > 0,
-                );
-            }, {timeout: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS})
-        ));
-        const earlyNavigationTrace = await runPdfDiagnosticStage(
-            session.page,
-            'early:stop-initial-sampler',
-            () => stopCommittedSurfaceSampler(session.page),
-        );
-        const earlyNavigationViolations = findViewportLifecycleViolations(earlyNavigationTrace, {
-            expectedFinalPage: 6,
-            interactionCheckpoint: 'recent-early-navigation',
-            rejectUnexpectedCanvasPages: true,
-            startAtOpenSurfaceClaim: true,
-        });
-        expect(
-            earlyNavigationViolations,
-            JSON.stringify(earlyNavigationTrace.frames),
-        ).toEqual([]);
-
-        await runPdfDiagnosticStage(session.page, 'early:install-fast-sampler', () => (
-            installCommittedSurfaceSampler(session.page, LIFECYCLE_ONLY_SURFACE_SAMPLER_OPTIONS)
-        ));
-        await runPdfDiagnosticStage(session.page, 'early:mark-fast-checkpoint', () => (
-            markCommittedSurfaceInteractionCheckpoint(session.page, 'fast-navigation')
-        ));
-        await runPdfDiagnosticStage(session.page, 'early:go-to-page-7', () => (
-            requireWorkspaceCommand(session.page, 'handleGoToPage', [7])
-        ));
-        await runPdfDiagnosticStage(session.page, 'early:wait-toolbar-page-7', () => (
-            waitForWorkspaceToolbarSnapshot(
-                session.page,
-                {currentPage: 7},
-                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-            )
-        ));
-        await runPdfDiagnosticStage(session.page, 'early:wait-visible-page-7', () => (
-            waitForVisuallyPresentedPdfPage(session.page, 7)
-        ));
-        await runPdfDiagnosticStage(session.page, 'early:settle-page-7', () => (
-            waitForAnimationFrames(session.page, 12)
-        ));
-        const pageSevenCanvas = await runPdfDiagnosticStage(
-            session.page,
-            'early:read-page-7-canvas',
-            () => readCommittedPdfCanvasPixelSize(session.page, 7),
-        );
-        expect(pageSevenCanvas.width).toBeGreaterThan(0);
-        expect(pageSevenCanvas.height).toBeGreaterThan(0);
-        expect(pageSevenCanvas.skeletonVisible).toBe(false);
-        const fastNavigationTrace = await runPdfDiagnosticStage(
-            session.page,
-            'early:stop-fast-sampler',
-            () => stopCommittedSurfaceSampler(session.page),
-        );
-        expect(
-            findViewportLifecycleViolations(fastNavigationTrace, {
-                expectedFinalPage: 7,
-                interactionCheckpoint: 'fast-navigation',
-            }),
-            JSON.stringify(fastNavigationTrace.frames),
-        ).toEqual([]);
-
-        await runPdfDiagnosticStage(session.page, 'late:go-back-to-page-6', () => (
-            requireWorkspaceCommand(session.page, 'handleGoToPage', [6])
-        ));
-        await runPdfDiagnosticStage(session.page, 'late:wait-toolbar-page-6', () => (
-            waitForWorkspaceToolbarSnapshot(
-                session.page,
-                {currentPage: 6},
-                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-            )
-        ));
-        await runPdfDiagnosticStage(session.page, 'late:wait-visible-page-6', () => (
-            waitForVisuallyPresentedPdfPage(session.page, 6)
-        ));
-        const revisitedPageSixCanvas = await runPdfDiagnosticStage(
-            session.page,
-            'late:read-page-6-canvas',
-            () => readCommittedPdfCanvasPixelSize(session.page, 6),
-        );
-        expect(revisitedPageSixCanvas).toEqual(firstPageSixCanvas);
-
-        await runPdfDiagnosticStage(session.page, 'late:restore-page-7', () => (
-            requireWorkspaceCommand(session.page, 'handleGoToPage', [7])
-        ));
-        await runPdfDiagnosticStage(session.page, 'late:wait-restored-page-7', () => (
-            waitForVisuallyPresentedPdfPage(session.page, 7)
-        ));
-        expect(await runPdfDiagnosticStage(
-            session.page,
-            'late:read-restored-page-7-canvas',
-            () => readCommittedPdfCanvasPixelSize(session.page, 7),
-        )).toEqual(pageSevenCanvas);
-
-        const client = await runPdfDiagnosticStage(session.page, 'late:create-cdp-session', () => (
-            session.page.createCDPSession()
-        ));
-        viewportLifecycleCpuThrottleClient = client;
-        let zoomReplacementTrace: Awaited<ReturnType<typeof stopCommittedSurfaceSampler>> = {frames: []};
-        let slowNavigationTrace: Awaited<ReturnType<typeof stopCommittedSurfaceSampler>> = {frames: []};
-        try {
-            await runPdfDiagnosticStage(session.page, 'late:install-zoom-sampler', () => (
-                installCommittedSurfaceSampler(session.page, LIFECYCLE_ONLY_SURFACE_SAMPLER_OPTIONS)
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:mark-zoom-checkpoint', () => (
-                markCommittedSurfaceInteractionCheckpoint(session.page, 'zoom-replacement')
-            ));
-            // Sample the current fresh owner before submitting the replacement.
-            await runPdfDiagnosticStage(session.page, 'late:settle-before-zoom', () => (
-                waitForAnimationFrames(session.page, 2)
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:set-custom-zoom', () => (
-                requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.03])
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:wait-custom-zoom-toolbar', () => (
-                waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'custom'}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS})
-            ));
-            const zoomedPageSevenCanvas = await runPdfDiagnosticStage(
-                session.page,
-                'late:wait-zoomed-page-7-raster',
-                () => waitForCommittedPdfCanvasResize(session.page, 7, pageSevenCanvas, 'larger'),
+                (path: TDocumentRef) => window.__releaseDocumentOpenForAutomation?.(path) ?? false,
+                fixtureDocumentRef,
             );
-            await runPdfDiagnosticStage(session.page, 'late:wait-zoomed-page-7', () => (
-                waitForVisuallyPresentedPdfPage(session.page, 7)
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:settle-zoomed-page-7', () => (
-                waitForAnimationFrames(session.page, 12)
-            ));
-            zoomReplacementTrace = await runPdfDiagnosticStage(
+            expect(sourceReleased).toBe(true);
+            const earlyNavigationRequestResults = await runPdfDiagnosticStage(
                 session.page,
-                'late:stop-zoom-sampler',
-                () => stopCommittedSurfaceSampler(session.page),
+                'early:resolve-navigation-command-promises',
+                () =>
+                    evaluateInPage(session.page, async () => {
+                        const testWindow = window as Window & {
+                            __viewportLifecycleEarlyNavigationRequests?: Array<Promise<{called: boolean}>>;
+                        };
+                        const results = await Promise.all(testWindow.__viewportLifecycleEarlyNavigationRequests ?? []);
+                        delete testWindow.__viewportLifecycleEarlyNavigationRequests;
+                        return results;
+                    }),
             );
-
-            // Keep the two ownership contracts independent: the high-zoom
-            // replacement trace above proves every presentable zoom frame,
-            // while the navigation trace below proves ownership under severe
-            // CPU pressure. Combining a continuously running RAF observer,
-            // 5.03x software rasterization, and CDP throttling can starve
-            // Chromium's own automation/toolbar polling rather than expose an
-            // application lifecycle transition.
-            await runPdfDiagnosticStage(session.page, 'late:reset-zoom', () => (
-                requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [1])
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:wait-reset-zoom-toolbar', () => (
-                waitForFunctionInPage(session.page, () => {
-                    const effectiveZoom = (window as IE2EWindow)
-                        .__evbTestApi
-                        ?.getActiveToolbarSnapshot?.()
-                        ?.effectiveZoom;
-                    return typeof effectiveZoom === 'number' && Math.abs(effectiveZoom - 1) < 0.01;
-                }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS})
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:wait-reset-page-7-raster', () => (
-                waitForCommittedPdfCanvasResize(session.page, 7, zoomedPageSevenCanvas, 'smaller')
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:enable-cpu-throttling', () => (
-                client.send('Emulation.setCPUThrottlingRate', {rate: 4})
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:install-slow-sampler', () => (
-                installCommittedSurfaceSampler(session.page, LIFECYCLE_ONLY_SURFACE_SAMPLER_OPTIONS)
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:mark-slow-checkpoint', () => (
-                markCommittedSurfaceInteractionCheckpoint(session.page, 'controlled-slow-navigation')
-            ));
-            // Establish a checkpointed committed baseline so debounce timing is
-            // measured from a real pre-navigation frame rather than treating
-            // the first post-navigation skeleton sample as time zero.
-            await runPdfDiagnosticStage(session.page, 'late:settle-before-slow-navigation', () => (
-                waitForAnimationFrames(session.page, 2)
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:go-to-page-10', () => (
-                requireWorkspaceCommand(session.page, 'handleGoToPage', [10])
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:wait-toolbar-page-10', () => (
+            expect(earlyNavigationRequestResults).toHaveLength(5);
+            // Setup, not an outcome: a navigation request the workspace never
+            // received would make the screen checks below meaningless.
+            if (!earlyNavigationRequestResults.every((result) => result.called)) {
+                throw new Error('An early navigation request never reached the active workspace');
+            }
+            await runPdfDiagnosticStage(session.page, 'early:wait-toolbar-page-6', () =>
                 waitForWorkspaceToolbarSnapshot(
                     session.page,
-                    {currentPage: 10},
+                    {
+                        hasPdf: true,
+                        currentPage: 6,
+                        minTotalPages: 12,
+                    },
                     {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-                )
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:wait-visible-page-10', () => (
-                waitForVisuallyPresentedPdfPage(session.page, 10)
-            ));
-            await runPdfDiagnosticStage(session.page, 'late:settle-page-10', () => (
-                waitForAnimationFrames(session.page, 12)
-            ));
-        } finally {
-            await runPdfDiagnosticStage(session.page, 'late:disable-cpu-throttling', () => (
-                releaseViewportLifecycleCpuThrottle()
-            ));
-            const remainingTrace = await runPdfDiagnosticStage(
-                session.page,
-                'late:stop-remaining-sampler',
-                () => stopCommittedSurfaceSampler(session.page),
+                ),
             );
-            if (slowNavigationTrace.frames.length === 0) {
-                slowNavigationTrace = remainingTrace;
-            }
-        }
-        const zoomPageFrames = zoomReplacementTrace.frames.filter(frame => (
-            frame.interactionCheckpoint === 'zoom-replacement'
-            && frame.pageNumber === 7
-            && frame.kind === 'committed-canvas'
-        ));
-        expect(zoomPageFrames[0]?.pageVisualState, JSON.stringify(zoomReplacementTrace.frames)).toBe('ready');
-        expect(
-            zoomPageFrames.every(frame => frame.pageVisualState === 'ready'),
-            JSON.stringify(zoomReplacementTrace.frames),
-        ).toBe(true);
-        expect(
-            zoomPageFrames.every(frame => frame.pageCanvasNonzeroCanvasCount === 1),
-            JSON.stringify(zoomReplacementTrace.frames),
-        ).toBe(true);
-        expect(
-            zoomPageFrames[0]?.canvasId,
-            JSON.stringify(zoomReplacementTrace.frames),
-        ).not.toBe(zoomPageFrames.at(-1)?.canvasId);
-        expect(
-            findViewportLifecycleViolations(slowNavigationTrace, {
-                expectedFinalPage: 10,
-                interactionCheckpoint: 'controlled-slow-navigation',
-            }),
-            JSON.stringify(slowNavigationTrace.frames),
-        ).toEqual([]);
+            await runPdfDiagnosticStage(session.page, 'early:wait-visible-page-6', () => waitForVisuallyPresentedPdfPage(session.page, 6));
+            await waitForAnimationFrames(session.page, 12);
+            const firstPageSixCanvas = await readCommittedPdfCanvasPixelSize(session.page, 6);
+            expect(firstPageSixCanvas.width).toBeGreaterThan(0);
+            expect(firstPageSixCanvas.height).toBeGreaterThan(0);
+            expect(firstPageSixCanvas.skeletonVisible).toBe(false);
+            await runPdfDiagnosticStage(session.page, 'early:wait-prefetched-page-7', () =>
+                waitForFunctionInPage(
+                    session.page,
+                    () => {
+                        const prefetchedPage = document.querySelector<HTMLElement>(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="7"]',
+                        );
+                        const canvas = prefetchedPage?.querySelector<HTMLCanvasElement>('.page_canvas__render-layer canvas');
+                        return Boolean(
+                            prefetchedPage?.classList.contains('page_container--rendered') &&
+                            canvas &&
+                            canvas.width > 0 &&
+                            canvas.height > 0,
+                        );
+                    },
+                    {timeout: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS},
+                ),
+            );
+            const earlyNavigationTrace = await runPdfDiagnosticStage(session.page, 'early:stop-initial-sampler', () =>
+                stopCommittedSurfaceSampler(session.page),
+            );
+            const earlyNavigationViolations = findViewportLifecycleViolations(earlyNavigationTrace, {
+                expectedFinalPage: 6,
+                interactionCheckpoint: 'recent-early-navigation',
+                rejectUnexpectedCanvasPages: true,
+                startAtOpenSurfaceClaim: true,
+            });
+            expect(earlyNavigationViolations, JSON.stringify(earlyNavigationTrace.frames)).toEqual([]);
 
-        // A person closes the tab; Recent then offers the document again.
-        await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
-        await waitForFunctionInPage(session.page, (targetSourcePath: string) => (
-            Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
-                .some(row => (
-                    row.dataset.recentOpenActionable === 'true'
-                    && row.dataset.recentSource === targetSourcePath
-                ))
-        ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, fixturePath);
-        await stopPdfRenderTrace(session.page);
-    });
+            await runPdfDiagnosticStage(session.page, 'early:install-fast-sampler', () =>
+                installCommittedSurfaceSampler(session.page, LIFECYCLE_ONLY_SURFACE_SAMPLER_OPTIONS),
+            );
+            await runPdfDiagnosticStage(session.page, 'early:mark-fast-checkpoint', () =>
+                markCommittedSurfaceInteractionCheckpoint(session.page, 'fast-navigation'),
+            );
+            await runPdfDiagnosticStage(session.page, 'early:go-to-page-7', () =>
+                requireWorkspaceCommand(session.page, 'handleGoToPage', [7]),
+            );
+            await runPdfDiagnosticStage(session.page, 'early:wait-toolbar-page-7', () =>
+                waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 7}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS}),
+            );
+            await runPdfDiagnosticStage(session.page, 'early:wait-visible-page-7', () => waitForVisuallyPresentedPdfPage(session.page, 7));
+            await runPdfDiagnosticStage(session.page, 'early:settle-page-7', () => waitForAnimationFrames(session.page, 12));
+            const pageSevenCanvas = await runPdfDiagnosticStage(session.page, 'early:read-page-7-canvas', () =>
+                readCommittedPdfCanvasPixelSize(session.page, 7),
+            );
+            expect(pageSevenCanvas.width).toBeGreaterThan(0);
+            expect(pageSevenCanvas.height).toBeGreaterThan(0);
+            expect(pageSevenCanvas.skeletonVisible).toBe(false);
+            const fastNavigationTrace = await runPdfDiagnosticStage(session.page, 'early:stop-fast-sampler', () =>
+                stopCommittedSurfaceSampler(session.page),
+            );
+            expect(
+                findViewportLifecycleViolations(fastNavigationTrace, {
+                    expectedFinalPage: 7,
+                    interactionCheckpoint: 'fast-navigation',
+                }),
+                JSON.stringify(fastNavigationTrace.frames),
+            ).toEqual([]);
+
+            await runPdfDiagnosticStage(session.page, 'late:go-back-to-page-6', () =>
+                requireWorkspaceCommand(session.page, 'handleGoToPage', [6]),
+            );
+            await runPdfDiagnosticStage(session.page, 'late:wait-toolbar-page-6', () =>
+                waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 6}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS}),
+            );
+            await runPdfDiagnosticStage(session.page, 'late:wait-visible-page-6', () => waitForVisuallyPresentedPdfPage(session.page, 6));
+            const revisitedPageSixCanvas = await runPdfDiagnosticStage(session.page, 'late:read-page-6-canvas', () =>
+                readCommittedPdfCanvasPixelSize(session.page, 6),
+            );
+            expect(revisitedPageSixCanvas).toEqual(firstPageSixCanvas);
+
+            await runPdfDiagnosticStage(session.page, 'late:restore-page-7', () =>
+                requireWorkspaceCommand(session.page, 'handleGoToPage', [7]),
+            );
+            await runPdfDiagnosticStage(session.page, 'late:wait-restored-page-7', () => waitForVisuallyPresentedPdfPage(session.page, 7));
+            expect(
+                await runPdfDiagnosticStage(session.page, 'late:read-restored-page-7-canvas', () =>
+                    readCommittedPdfCanvasPixelSize(session.page, 7),
+                ),
+            ).toEqual(pageSevenCanvas);
+
+            const client = await runPdfDiagnosticStage(session.page, 'late:create-cdp-session', () => session.page.createCDPSession());
+            viewportLifecycleCpuThrottleClient = client;
+            let zoomReplacementTrace: Awaited<ReturnType<typeof stopCommittedSurfaceSampler>> = {frames: []};
+            let slowNavigationTrace: Awaited<ReturnType<typeof stopCommittedSurfaceSampler>> = {frames: []};
+            try {
+                await runPdfDiagnosticStage(session.page, 'late:install-zoom-sampler', () =>
+                    installCommittedSurfaceSampler(session.page, LIFECYCLE_ONLY_SURFACE_SAMPLER_OPTIONS),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:mark-zoom-checkpoint', () =>
+                    markCommittedSurfaceInteractionCheckpoint(session.page, 'zoom-replacement'),
+                );
+                // Sample the current fresh owner before submitting the replacement.
+                await runPdfDiagnosticStage(session.page, 'late:settle-before-zoom', () => waitForAnimationFrames(session.page, 2));
+                await runPdfDiagnosticStage(session.page, 'late:set-custom-zoom', () =>
+                    requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.03]),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:wait-custom-zoom-toolbar', () =>
+                    waitForWorkspaceToolbarSnapshot(session.page, {zoomMode: 'custom'}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS}),
+                );
+                const zoomedPageSevenCanvas = await runPdfDiagnosticStage(session.page, 'late:wait-zoomed-page-7-raster', () =>
+                    waitForCommittedPdfCanvasResize(session.page, 7, pageSevenCanvas, 'larger'),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:wait-zoomed-page-7', () =>
+                    waitForVisuallyPresentedPdfPage(session.page, 7),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:settle-zoomed-page-7', () => waitForAnimationFrames(session.page, 12));
+                zoomReplacementTrace = await runPdfDiagnosticStage(session.page, 'late:stop-zoom-sampler', () =>
+                    stopCommittedSurfaceSampler(session.page),
+                );
+
+                // Keep the two ownership contracts independent: the high-zoom
+                // replacement trace above proves every presentable zoom frame,
+                // while the navigation trace below proves ownership under severe
+                // CPU pressure. Combining a continuously running RAF observer,
+                // 5.03x software rasterization, and CDP throttling can starve
+                // Chromium's own automation/toolbar polling rather than expose an
+                // application lifecycle transition.
+                await runPdfDiagnosticStage(session.page, 'late:reset-zoom', () =>
+                    requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [1]),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:wait-reset-zoom-toolbar', () =>
+                    waitForFunctionInPage(
+                        session.page,
+                        () => {
+                            const effectiveZoom = (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.effectiveZoom;
+                            return typeof effectiveZoom === 'number' && Math.abs(effectiveZoom - 1) < 0.01;
+                        },
+                        {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+                    ),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:wait-reset-page-7-raster', () =>
+                    waitForCommittedPdfCanvasResize(session.page, 7, zoomedPageSevenCanvas, 'smaller'),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:enable-cpu-throttling', () =>
+                    client.send('Emulation.setCPUThrottlingRate', {rate: 4}),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:install-slow-sampler', () =>
+                    installCommittedSurfaceSampler(session.page, LIFECYCLE_ONLY_SURFACE_SAMPLER_OPTIONS),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:mark-slow-checkpoint', () =>
+                    markCommittedSurfaceInteractionCheckpoint(session.page, 'controlled-slow-navigation'),
+                );
+                // Establish a checkpointed committed baseline so debounce timing is
+                // measured from a real pre-navigation frame rather than treating
+                // the first post-navigation skeleton sample as time zero.
+                await runPdfDiagnosticStage(session.page, 'late:settle-before-slow-navigation', () =>
+                    waitForAnimationFrames(session.page, 2),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:go-to-page-10', () =>
+                    requireWorkspaceCommand(session.page, 'handleGoToPage', [10]),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:wait-toolbar-page-10', () =>
+                    waitForWorkspaceToolbarSnapshot(session.page, {currentPage: 10}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS}),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:wait-visible-page-10', () =>
+                    waitForVisuallyPresentedPdfPage(session.page, 10),
+                );
+                await runPdfDiagnosticStage(session.page, 'late:settle-page-10', () => waitForAnimationFrames(session.page, 12));
+            } finally {
+                await runPdfDiagnosticStage(session.page, 'late:disable-cpu-throttling', () => releaseViewportLifecycleCpuThrottle());
+                const remainingTrace = await runPdfDiagnosticStage(session.page, 'late:stop-remaining-sampler', () =>
+                    stopCommittedSurfaceSampler(session.page),
+                );
+                if (slowNavigationTrace.frames.length === 0) {
+                    slowNavigationTrace = remainingTrace;
+                }
+            }
+            const zoomPageFrames = zoomReplacementTrace.frames.filter(
+                (frame) =>
+                    frame.interactionCheckpoint === 'zoom-replacement' && frame.pageNumber === 7 && frame.kind === 'committed-canvas',
+            );
+            expect(zoomPageFrames[0]?.pageVisualState, JSON.stringify(zoomReplacementTrace.frames)).toBe('ready');
+            expect(
+                zoomPageFrames.every((frame) => frame.pageVisualState === 'ready'),
+                JSON.stringify(zoomReplacementTrace.frames),
+            ).toBe(true);
+            expect(
+                zoomPageFrames.every((frame) => frame.pageCanvasNonzeroCanvasCount === 1),
+                JSON.stringify(zoomReplacementTrace.frames),
+            ).toBe(true);
+            expect(zoomPageFrames[0]?.canvasId, JSON.stringify(zoomReplacementTrace.frames)).not.toBe(zoomPageFrames.at(-1)?.canvasId);
+            expect(
+                findViewportLifecycleViolations(slowNavigationTrace, {
+                    expectedFinalPage: 10,
+                    interactionCheckpoint: 'controlled-slow-navigation',
+                }),
+                JSON.stringify(slowNavigationTrace.frames),
+            ).toEqual([]);
+
+            // A person closes the tab; Recent then offers the document again.
+            await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
+            await waitForFunctionInPage(
+                session.page,
+                (targetSourcePath: string) =>
+                    Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)')).some(
+                        (row) => row.dataset.recentOpenActionable === 'true' && row.dataset.recentSource === targetSourcePath,
+                    ),
+                {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+                fixturePath,
+            );
+            await stopPdfRenderTrace(session.page);
+        },
+    );
 
     it('keeps Recent actionable across document-tab close and reopen', async () => {
         const session = await sessionFixture.restart({
@@ -2072,56 +2034,48 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         const rendererExceptions: string[] = [];
         await client.send('Runtime.enable');
         client.on('Runtime.exceptionThrown', (event) => {
-            rendererExceptions.push(
-                event.exceptionDetails.exception?.description
-                ?? event.exceptionDetails.text,
-            );
+            rendererExceptions.push(event.exceptionDetails.exception?.description ?? event.exceptionDetails.text);
         });
 
         try {
-            const fixturePath = await createLargeScannedFixturePdf(
-                'pr-blocking-recent-close-reopen.pdf',
-                3,
-                0,
-                1,
-                {runOwner: PR_BLOCKING_FIXTURE_OWNER},
-            );
+            const fixturePath = await createLargeScannedFixturePdf('pr-blocking-recent-close-reopen.pdf', 3, 0, 1, {
+                runOwner: PR_BLOCKING_FIXTURE_OWNER,
+            });
             await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             const defaultView = await getWorkspaceToolbarSnapshot(session.page);
             await requireWorkspaceCommand(session.page, 'handleFitHeight');
-            await waitForFunctionInPage(session.page, () => (
-                (window as IE2EWindow).__evbTestApi
-                    ?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height'
-            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
-            await requireWorkspaceCommand(session.page, 'handleToggleSidebar');
-            await waitForWorkspaceToolbarSnapshot(
+            await waitForFunctionInPage(
                 session.page,
-                {showSidebar: true},
-                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+                () => (window as IE2EWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.zoomMode === 'fit-height',
+                {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
             );
+            await requireWorkspaceCommand(session.page, 'handleToggleSidebar');
+            await waitForWorkspaceToolbarSnapshot(session.page, {showSidebar: true}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS});
             await clickAsUser(session.page, '.tab-list .tab.is-active .tab-close');
-            await waitForFunctionInPage(session.page, (targetSourcePath: string) => (
-                Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'))
-                    .some(row => (
-                        row.dataset.recentOpenActionable === 'true'
-                        && row.dataset.recentSource === targetSourcePath
-                    ))
-            ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, fixturePath);
-            await clickFoundAsUser(session.page, (targetSourcePath: string) => Array.from(
-                document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)'),
-            ).find(candidate => (
-                candidate.dataset.recentOpenActionable === 'true'
-                && candidate.dataset.recentSource === targetSourcePath
-            )), fixturePath, {description: `recent row for ${fixturePath}`});
+            await waitForFunctionInPage(
+                session.page,
+                (targetSourcePath: string) =>
+                    Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)')).some(
+                        (row) => row.dataset.recentOpenActionable === 'true' && row.dataset.recentSource === targetSourcePath,
+                    ),
+                {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+                fixturePath,
+            );
+            await clickFoundAsUser(
+                session.page,
+                (targetSourcePath: string) =>
+                    Array.from(document.querySelectorAll<HTMLElement>('.recent-row--data:not(.recent-row--skeleton)')).find(
+                        (candidate) =>
+                            candidate.dataset.recentOpenActionable === 'true' && candidate.dataset.recentSource === targetSourcePath,
+                    ),
+                fixturePath,
+                {description: `recent row for ${fixturePath}`},
+            );
             await waitForActiveDocumentSource(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await waitForWorkspaceHistorySettled(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
             await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
-            await waitForWorkspaceToolbarSnapshot(
-                session.page,
-                {showSidebar: false},
-                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-            );
+            await waitForWorkspaceToolbarSnapshot(session.page, {showSidebar: false}, {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS});
             // Restoration is off by default; reopening starts at page 1 with
             // the default zoom and a closed sidebar.
             const reopenedView = await getWorkspaceToolbarSnapshot(session.page);
@@ -2136,513 +2090,482 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         }
     });
 
-    it('keeps large-PDF opening, virtualization, and repeated reopen coherent', {
-        retry: 0,
-        timeout: 240_000,
-    }, async () => {
-        const session = await sessionFixture.restart({
-            clean: true,
-            hard: true,
-            sessionName: 'e2e-pr-blocking-large-scanned-pdf',
-        });
-
-        const fixturePath = await createLargeScannedFixturePdf(
-            'pr-blocking-large-scanned-pdf.pdf',
-            LARGE_PDF_PAGE_COUNT,
-            28 * 1024 * 1024,
-            1,
-            {runOwner: PR_BLOCKING_FIXTURE_OWNER},
-        );
-        expect((await stat(fixturePath)).size).toBeGreaterThanOrEqual(LARGE_PDF_MIN_BYTES);
-
-        // This must run before the open trigger so a one-frame blank, loader, or
-        // separate fallback surface cannot escape the release-blocking trace.
-        await waitForCommittedEmptyBaseline(session.page);
-        await installCommittedSurfaceSampler(session.page);
-        await startPdfRenderTrace(session.page);
-        await evaluateInPage(session.page, () => {
-            const testWindow = window as typeof window & {
-                __largePdfOpenSampleObserver?: MutationObserver;
-                __largePdfOpenSampleAnimationFrame?: number;
-                __largePdfOpenSamples?: ILargePdfOpenSample[];
-            };
-            if (testWindow.__largePdfOpenSampleAnimationFrame !== undefined) {
-                window.cancelAnimationFrame(testWindow.__largePdfOpenSampleAnimationFrame);
-            }
-            testWindow.__largePdfOpenSampleObserver?.disconnect();
-            const startedAt = performance.now();
-            const previousSampleSignatures = new Map<string, string>();
-            testWindow.__largePdfOpenSamples = [];
-            const captureSample = (sampleSource: 'mutation' | 'raf') => {
-                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
-                const currentPage = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]') ?? null;
-                const rect = currentPage?.getBoundingClientRect() ?? null;
-                const currentPageCanvas = currentPage?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
-                const currentPageCanvasRect = currentPageCanvas?.getBoundingClientRect() ?? null;
-                const pageCanvas = currentPage?.querySelector<HTMLElement>('.page_canvas') ?? null;
-                const pageCanvasRect = pageCanvas?.getBoundingClientRect() ?? null;
-                const pageCanvasStyle = pageCanvas ? window.getComputedStyle(pageCanvas) : null;
-                const pageSkeletons = Array.from(
-                    currentPage?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? [],
-                );
-                const sampleCanvasPixels = (canvas: HTMLCanvasElement | null) => {
-                    if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
-                        return {
-                            luminanceRange: 0,
-                            nonblankPixels: 0,
-                        };
-                    }
-                    const sampleSize = 32;
-                    const boundedCanvas = document.createElement('canvas');
-                    boundedCanvas.width = sampleSize;
-                    boundedCanvas.height = sampleSize;
-                    const boundedContext = boundedCanvas.getContext('2d', {willReadFrequently: true});
-                    if (!boundedContext) {
-                        return {
-                            luminanceRange: 0,
-                            nonblankPixels: 0,
-                        };
-                    }
-                    boundedContext.drawImage(canvas, 0, 0, sampleSize, sampleSize);
-                    const pixels = boundedContext.getImageData(0, 0, sampleSize, sampleSize).data;
-                    let minLuminance = 255;
-                    let maxLuminance = 0;
-                    let nonblankPixels = 0;
-                    for (let offset = 0; offset < pixels.length; offset += 4) {
-                        const alpha = pixels[offset + 3] ?? 0;
-                        if (alpha === 0) {
-                            continue;
-                        }
-                        const red = pixels[offset] ?? 0;
-                        const green = pixels[offset + 1] ?? 0;
-                        const blue = pixels[offset + 2] ?? 0;
-                        const luminance = (red * 0.2126) + (green * 0.7152) + (blue * 0.0722);
-                        minLuminance = Math.min(minLuminance, luminance);
-                        maxLuminance = Math.max(maxLuminance, luminance);
-                        if (red < 245 || green < 245 || blue < 245) {
-                            nonblankPixels += 1;
-                        }
-                    }
-                    return {
-                        luminanceRange: Math.round(maxLuminance - minLuminance),
-                        nonblankPixels,
-                    };
-                };
-                const canvasPixels = sampleCanvasPixels(currentPageCanvas);
-                const isVisible = (element: HTMLElement) => {
-                    const elementRect = element.getBoundingClientRect();
-                    const style = window.getComputedStyle(element);
-                    return elementRect.width > 0
-                        && elementRect.height > 0
-                        && style.display !== 'none'
-                        && style.visibility !== 'hidden'
-                        && Number(style.opacity || '1') > 0;
-                };
-                const visiblePageSkeletons = pageSkeletons.filter(isVisible);
-                const pageSkeleton = visiblePageSkeletons[0] ?? null;
-                const pageSkeletonRect = pageSkeleton?.getBoundingClientRect() ?? null;
-                const pageSkeletonStyle = pageSkeleton ? window.getComputedStyle(pageSkeleton) : null;
-                const visibleHostLoaders = Array.from(document.querySelectorAll<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host__loading',
-                )).filter(isVisible);
-                const visibleCanvasReady = Boolean(
-                    currentPageCanvas
-                    && currentPageCanvasRect
-                    && isVisible(currentPageCanvas)
-                    && currentPageCanvas.width > 0
-                    && currentPageCanvas.height > 0
-                    && currentPageCanvasRect.width > 0
-                    && currentPageCanvasRect.height > 0
-                    && currentPageCanvasRect.bottom > 0
-                    && currentPageCanvasRect.right > 0
-                    && currentPageCanvasRect.top < window.innerHeight
-                    && currentPageCanvasRect.left < window.innerWidth
-                    && canvasPixels.nonblankPixels > 2
-                    && canvasPixels.luminanceRange > 8,
-                );
-                const sample: ILargePdfOpenSample = {
-                    bodyOverflow: Math.max(0, Math.round(document.body.scrollWidth - document.body.clientWidth)),
-                    documentOverflow: Math.max(0, Math.round(
-                        document.documentElement.scrollWidth - document.documentElement.clientWidth,
-                    )),
-                    currentPageCanvasPixelHeight: currentPageCanvas?.height ?? null,
-                    currentPageCanvasPixelWidth: currentPageCanvas?.width ?? null,
-                    currentPageCanvasLuminanceRange: canvasPixels.luminanceRange,
-                    currentPageCanvasNonblankPixels: canvasPixels.nonblankPixels,
-                    elapsedMs: Math.round(performance.now() - startedAt),
-                    horizontalOverflow: viewer
-                        ? Math.max(0, Math.round(viewer.scrollWidth - viewer.clientWidth))
-                        : null,
-                    hostLoaderCount: visibleHostLoaders.length,
-                    hostLoaderSkeletonCount: visibleHostLoaders.reduce((count, loader) => (
-                        count + loader.querySelectorAll('.document-page-skeleton').length
-                    ), 0),
-                    hostLoaderSpinnerCount: visibleHostLoaders.reduce((count, loader) => (
-                        count + loader.querySelectorAll('.animate-spin').length
-                    ), 0),
-                    pageCanvasBackgroundColor: pageCanvasStyle?.backgroundColor ?? null,
-                    pageCanvasBorderRadius: pageCanvasStyle?.borderRadius ?? null,
-                    pageCanvasBoxShadow: pageCanvasStyle?.boxShadow ?? null,
-                    pageCanvasHeight: pageCanvasRect ? Math.round(pageCanvasRect.height) : null,
-                    pageCanvasLeft: pageCanvasRect ? Math.round(pageCanvasRect.left) : null,
-                    pageCanvasTop: pageCanvasRect ? Math.round(pageCanvasRect.top) : null,
-                    pageCanvasWidth: pageCanvasRect ? Math.round(pageCanvasRect.width) : null,
-                    pageSkeletonBackgroundColor: pageSkeletonStyle?.backgroundColor ?? null,
-                    pageSkeletonBorderRadius: pageSkeletonStyle?.borderRadius ?? null,
-                    pageSkeletonBoxShadow: pageSkeletonStyle?.boxShadow ?? null,
-                    pageSkeletonCount: visiblePageSkeletons.length,
-                    pageSkeletonHeight: pageSkeletonRect ? Math.round(pageSkeletonRect.height) : null,
-                    pageSkeletonLeft: pageSkeletonRect ? Math.round(pageSkeletonRect.left) : null,
-                    pageSkeletonTop: pageSkeletonRect ? Math.round(pageSkeletonRect.top) : null,
-                    pageSkeletonVisible: visiblePageSkeletons.length > 0,
-                    pageSkeletonWidth: pageSkeletonRect ? Math.round(pageSkeletonRect.width) : null,
-                    openSurfacePhase: viewer?.dataset.openSurfacePhase ?? null,
-                    pageHeight: rect ? Math.round(rect.height) : null,
-                    pageTop: rect ? Math.round(rect.top) : null,
-                    pageWidth: rect ? Math.round(rect.width) : null,
-                    sampleSource,
-                    viewportClientWidth: viewer?.clientWidth ?? null,
-                    viewportScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
-                    viewportScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
-                    visibleCanvasReady,
-                };
-                const sampleSignature = JSON.stringify({
-                    ...sample,
-                    elapsedMs: 0,
-                });
-                if (sampleSignature === previousSampleSignatures.get(sampleSource)) {
-                    return;
-                }
-                previousSampleSignatures.set(sampleSource, sampleSignature);
-                testWindow.__largePdfOpenSamples?.push(sample);
-            };
-            testWindow.__largePdfOpenSampleObserver = new MutationObserver(() => captureSample('mutation'));
-            testWindow.__largePdfOpenSampleObserver.observe(document.documentElement, {
-                attributeFilter: [
-                    'class',
-                    'height',
-                    'style',
-                    'width',
-                ],
-                childList: true,
-                subtree: true,
+    it(
+        'keeps large-PDF opening, virtualization, and repeated reopen coherent',
+        {
+            retry: 0,
+            timeout: 240_000,
+        },
+        async () => {
+            const session = await sessionFixture.restart({
+                clean: true,
+                hard: true,
+                sessionName: 'e2e-pr-blocking-large-scanned-pdf',
             });
-            captureSample('mutation');
-            const captureAnimationFrame = () => {
-                captureSample('raf');
+
+            const fixturePath = await createLargeScannedFixturePdf(
+                'pr-blocking-large-scanned-pdf.pdf',
+                LARGE_PDF_PAGE_COUNT,
+                28 * 1024 * 1024,
+                1,
+                {runOwner: PR_BLOCKING_FIXTURE_OWNER},
+            );
+            expect((await stat(fixturePath)).size).toBeGreaterThanOrEqual(LARGE_PDF_MIN_BYTES);
+
+            // This must run before the open trigger so a one-frame blank, loader, or
+            // separate fallback surface cannot escape the release-blocking trace.
+            await waitForCommittedEmptyBaseline(session.page);
+            await installCommittedSurfaceSampler(session.page);
+            await startPdfRenderTrace(session.page);
+            await evaluateInPage(session.page, () => {
+                const testWindow = window as typeof window & {
+                    __largePdfOpenSampleObserver?: MutationObserver;
+                    __largePdfOpenSampleAnimationFrame?: number;
+                    __largePdfOpenSamples?: ILargePdfOpenSample[];
+                };
+                if (testWindow.__largePdfOpenSampleAnimationFrame !== undefined) {
+                    window.cancelAnimationFrame(testWindow.__largePdfOpenSampleAnimationFrame);
+                }
+                testWindow.__largePdfOpenSampleObserver?.disconnect();
+                const startedAt = performance.now();
+                const previousSampleSignatures = new Map<string, string>();
+                testWindow.__largePdfOpenSamples = [];
+                const captureSample = (sampleSource: 'mutation' | 'raf') => {
+                    const viewer = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                    );
+                    const currentPage = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]') ?? null;
+                    const rect = currentPage?.getBoundingClientRect() ?? null;
+                    const currentPageCanvas = currentPage?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+                    const currentPageCanvasRect = currentPageCanvas?.getBoundingClientRect() ?? null;
+                    const pageCanvas = currentPage?.querySelector<HTMLElement>('.page_canvas') ?? null;
+                    const pageCanvasRect = pageCanvas?.getBoundingClientRect() ?? null;
+                    const pageCanvasStyle = pageCanvas ? window.getComputedStyle(pageCanvas) : null;
+                    const pageSkeletons = Array.from(currentPage?.querySelectorAll<HTMLElement>('.document-page-skeleton') ?? []);
+                    const sampleCanvasPixels = (canvas: HTMLCanvasElement | null) => {
+                        if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+                            return {
+                                luminanceRange: 0,
+                                nonblankPixels: 0,
+                            };
+                        }
+                        const sampleSize = 32;
+                        const boundedCanvas = document.createElement('canvas');
+                        boundedCanvas.width = sampleSize;
+                        boundedCanvas.height = sampleSize;
+                        const boundedContext = boundedCanvas.getContext('2d', {willReadFrequently: true});
+                        if (!boundedContext) {
+                            return {
+                                luminanceRange: 0,
+                                nonblankPixels: 0,
+                            };
+                        }
+                        boundedContext.drawImage(canvas, 0, 0, sampleSize, sampleSize);
+                        const pixels = boundedContext.getImageData(0, 0, sampleSize, sampleSize).data;
+                        let minLuminance = 255;
+                        let maxLuminance = 0;
+                        let nonblankPixels = 0;
+                        for (let offset = 0; offset < pixels.length; offset += 4) {
+                            const alpha = pixels[offset + 3] ?? 0;
+                            if (alpha === 0) {
+                                continue;
+                            }
+                            const red = pixels[offset] ?? 0;
+                            const green = pixels[offset + 1] ?? 0;
+                            const blue = pixels[offset + 2] ?? 0;
+                            const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+                            minLuminance = Math.min(minLuminance, luminance);
+                            maxLuminance = Math.max(maxLuminance, luminance);
+                            if (red < 245 || green < 245 || blue < 245) {
+                                nonblankPixels += 1;
+                            }
+                        }
+                        return {
+                            luminanceRange: Math.round(maxLuminance - minLuminance),
+                            nonblankPixels,
+                        };
+                    };
+                    const canvasPixels = sampleCanvasPixels(currentPageCanvas);
+                    const isVisible = (element: HTMLElement) => {
+                        const elementRect = element.getBoundingClientRect();
+                        const style = window.getComputedStyle(element);
+                        return (
+                            elementRect.width > 0 &&
+                            elementRect.height > 0 &&
+                            style.display !== 'none' &&
+                            style.visibility !== 'hidden' &&
+                            Number(style.opacity || '1') > 0
+                        );
+                    };
+                    const visiblePageSkeletons = pageSkeletons.filter(isVisible);
+                    const pageSkeleton = visiblePageSkeletons[0] ?? null;
+                    const pageSkeletonRect = pageSkeleton?.getBoundingClientRect() ?? null;
+                    const pageSkeletonStyle = pageSkeleton ? window.getComputedStyle(pageSkeleton) : null;
+                    const visibleHostLoaders = Array.from(
+                        document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host__loading'),
+                    ).filter(isVisible);
+                    const visibleCanvasReady = Boolean(
+                        currentPageCanvas &&
+                        currentPageCanvasRect &&
+                        isVisible(currentPageCanvas) &&
+                        currentPageCanvas.width > 0 &&
+                        currentPageCanvas.height > 0 &&
+                        currentPageCanvasRect.width > 0 &&
+                        currentPageCanvasRect.height > 0 &&
+                        currentPageCanvasRect.bottom > 0 &&
+                        currentPageCanvasRect.right > 0 &&
+                        currentPageCanvasRect.top < window.innerHeight &&
+                        currentPageCanvasRect.left < window.innerWidth &&
+                        canvasPixels.nonblankPixels > 2 &&
+                        canvasPixels.luminanceRange > 8,
+                    );
+                    const sample: ILargePdfOpenSample = {
+                        bodyOverflow: Math.max(0, Math.round(document.body.scrollWidth - document.body.clientWidth)),
+                        documentOverflow: Math.max(
+                            0,
+                            Math.round(document.documentElement.scrollWidth - document.documentElement.clientWidth),
+                        ),
+                        currentPageCanvasPixelHeight: currentPageCanvas?.height ?? null,
+                        currentPageCanvasPixelWidth: currentPageCanvas?.width ?? null,
+                        currentPageCanvasLuminanceRange: canvasPixels.luminanceRange,
+                        currentPageCanvasNonblankPixels: canvasPixels.nonblankPixels,
+                        elapsedMs: Math.round(performance.now() - startedAt),
+                        horizontalOverflow: viewer ? Math.max(0, Math.round(viewer.scrollWidth - viewer.clientWidth)) : null,
+                        hostLoaderCount: visibleHostLoaders.length,
+                        hostLoaderSkeletonCount: visibleHostLoaders.reduce(
+                            (count, loader) => count + loader.querySelectorAll('.document-page-skeleton').length,
+                            0,
+                        ),
+                        hostLoaderSpinnerCount: visibleHostLoaders.reduce(
+                            (count, loader) => count + loader.querySelectorAll('.animate-spin').length,
+                            0,
+                        ),
+                        pageCanvasBackgroundColor: pageCanvasStyle?.backgroundColor ?? null,
+                        pageCanvasBorderRadius: pageCanvasStyle?.borderRadius ?? null,
+                        pageCanvasBoxShadow: pageCanvasStyle?.boxShadow ?? null,
+                        pageCanvasHeight: pageCanvasRect ? Math.round(pageCanvasRect.height) : null,
+                        pageCanvasLeft: pageCanvasRect ? Math.round(pageCanvasRect.left) : null,
+                        pageCanvasTop: pageCanvasRect ? Math.round(pageCanvasRect.top) : null,
+                        pageCanvasWidth: pageCanvasRect ? Math.round(pageCanvasRect.width) : null,
+                        pageSkeletonBackgroundColor: pageSkeletonStyle?.backgroundColor ?? null,
+                        pageSkeletonBorderRadius: pageSkeletonStyle?.borderRadius ?? null,
+                        pageSkeletonBoxShadow: pageSkeletonStyle?.boxShadow ?? null,
+                        pageSkeletonCount: visiblePageSkeletons.length,
+                        pageSkeletonHeight: pageSkeletonRect ? Math.round(pageSkeletonRect.height) : null,
+                        pageSkeletonLeft: pageSkeletonRect ? Math.round(pageSkeletonRect.left) : null,
+                        pageSkeletonTop: pageSkeletonRect ? Math.round(pageSkeletonRect.top) : null,
+                        pageSkeletonVisible: visiblePageSkeletons.length > 0,
+                        pageSkeletonWidth: pageSkeletonRect ? Math.round(pageSkeletonRect.width) : null,
+                        openSurfacePhase: viewer?.dataset.openSurfacePhase ?? null,
+                        pageHeight: rect ? Math.round(rect.height) : null,
+                        pageTop: rect ? Math.round(rect.top) : null,
+                        pageWidth: rect ? Math.round(rect.width) : null,
+                        sampleSource,
+                        viewportClientWidth: viewer?.clientWidth ?? null,
+                        viewportScrollLeft: viewer ? Math.round(viewer.scrollLeft) : null,
+                        viewportScrollTop: viewer ? Math.round(viewer.scrollTop) : null,
+                        visibleCanvasReady,
+                    };
+                    const sampleSignature = JSON.stringify({
+                        ...sample,
+                        elapsedMs: 0,
+                    });
+                    if (sampleSignature === previousSampleSignatures.get(sampleSource)) {
+                        return;
+                    }
+                    previousSampleSignatures.set(sampleSource, sampleSignature);
+                    testWindow.__largePdfOpenSamples?.push(sample);
+                };
+                testWindow.__largePdfOpenSampleObserver = new MutationObserver(() => captureSample('mutation'));
+                testWindow.__largePdfOpenSampleObserver.observe(document.documentElement, {
+                    attributeFilter: ['class', 'height', 'style', 'width'],
+                    childList: true,
+                    subtree: true,
+                });
+                captureSample('mutation');
+                const captureAnimationFrame = () => {
+                    captureSample('raf');
+                    testWindow.__largePdfOpenSampleAnimationFrame = window.requestAnimationFrame(captureAnimationFrame);
+                };
                 testWindow.__largePdfOpenSampleAnimationFrame = window.requestAnimationFrame(captureAnimationFrame);
-            };
-            testWindow.__largePdfOpenSampleAnimationFrame = window.requestAnimationFrame(captureAnimationFrame);
-        });
+            });
 
-        await openPdfInApp(session.page, fixturePath, LARGE_PDF_VISUAL_READY_TIMEOUT_MS);
-        await waitForWorkspaceToolbarSnapshot(
-            session.page,
-            {
-                hasPdf: true,
-                currentPage: 1,
-                minTotalPages: LARGE_PDF_PAGE_COUNT,
-            },
-            {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
-        );
-        await waitForFunctionInPage(session.page, () => {
-            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
-            const canvas = viewer?.querySelector<HTMLCanvasElement>(
-                '.page_container[data-page="1"] .page_canvas canvas',
-            ) ?? null;
-            if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
-                return false;
-            }
-            const rect = canvas.getBoundingClientRect();
-            return rect.width > 0
-                && rect.height > 0
-                && rect.bottom > 0
-                && rect.right > 0
-                && rect.top < window.innerHeight
-                && rect.left < window.innerWidth;
-        }, {timeout: LARGE_PDF_VISUAL_READY_TIMEOUT_MS});
+            await openPdfInApp(session.page, fixturePath, LARGE_PDF_VISUAL_READY_TIMEOUT_MS);
+            await waitForWorkspaceToolbarSnapshot(
+                session.page,
+                {
+                    hasPdf: true,
+                    currentPage: 1,
+                    minTotalPages: LARGE_PDF_PAGE_COUNT,
+                },
+                {timeoutMs: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+            );
+            await waitForFunctionInPage(
+                session.page,
+                () => {
+                    const viewer = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                    );
+                    const canvas = viewer?.querySelector<HTMLCanvasElement>('.page_container[data-page="1"] .page_canvas canvas') ?? null;
+                    if (!canvas || canvas.width <= 0 || canvas.height <= 0) {
+                        return false;
+                    }
+                    const rect = canvas.getBoundingClientRect();
+                    return (
+                        rect.width > 0 &&
+                        rect.height > 0 &&
+                        rect.bottom > 0 &&
+                        rect.right > 0 &&
+                        rect.top < window.innerHeight &&
+                        rect.left < window.innerWidth
+                    );
+                },
+                {timeout: LARGE_PDF_VISUAL_READY_TIMEOUT_MS},
+            );
 
-        await new Promise(resolve => setTimeout(resolve, LARGE_PDF_SETTLED_OBSERVATION_MS));
-        await waitForCommittedSurfaceSamples(session.page, {
-            kind: 'committed-canvas',
-            minimumSamples: 10,
-        });
-        const committedSurfaceTrace = await stopCommittedSurfaceSampler(session.page);
-        const initialRenderTrace = await stopPdfRenderTrace(session.page);
-        const result = await evaluateInPage(session.page, () => {
-            const testWindow = window as typeof window & {
-                __largePdfOpenSampleObserver?: MutationObserver;
-                __largePdfOpenSampleAnimationFrame?: number;
-                __largePdfOpenSamples?: ILargePdfOpenSample[];
-            };
-            if (testWindow.__largePdfOpenSampleAnimationFrame !== undefined) {
-                window.cancelAnimationFrame(testWindow.__largePdfOpenSampleAnimationFrame);
-                delete testWindow.__largePdfOpenSampleAnimationFrame;
-            }
-            testWindow.__largePdfOpenSampleObserver?.disconnect();
-            delete testWindow.__largePdfOpenSampleObserver;
+            await new Promise((resolve) => setTimeout(resolve, LARGE_PDF_SETTLED_OBSERVATION_MS));
+            await waitForCommittedSurfaceSamples(session.page, {
+                kind: 'committed-canvas',
+                minimumSamples: 10,
+            });
+            const committedSurfaceTrace = await stopCommittedSurfaceSampler(session.page);
+            const initialRenderTrace = await stopPdfRenderTrace(session.page);
+            const result = await evaluateInPage(session.page, () => {
+                const testWindow = window as typeof window & {
+                    __largePdfOpenSampleObserver?: MutationObserver;
+                    __largePdfOpenSampleAnimationFrame?: number;
+                    __largePdfOpenSamples?: ILargePdfOpenSample[];
+                };
+                if (testWindow.__largePdfOpenSampleAnimationFrame !== undefined) {
+                    window.cancelAnimationFrame(testWindow.__largePdfOpenSampleAnimationFrame);
+                    delete testWindow.__largePdfOpenSampleAnimationFrame;
+                }
+                testWindow.__largePdfOpenSampleObserver?.disconnect();
+                delete testWindow.__largePdfOpenSampleObserver;
 
-            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
-            const isVisible = (element: Element) => {
-                const htmlElement = element as HTMLElement;
-                const rect = htmlElement.getBoundingClientRect();
-                const style = window.getComputedStyle(htmlElement);
-                return rect.width > 0
-                    && rect.height > 0
-                    && rect.bottom > 0
-                    && rect.right > 0
-                    && rect.top < window.innerHeight
-                    && rect.left < window.innerWidth
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0;
-            };
-            const visibleCanvases = Array.from(
-                viewer?.querySelectorAll<HTMLCanvasElement>('.page_container canvas') ?? [],
-            ).filter(canvas => isVisible(canvas) && canvas.width > 0 && canvas.height > 0);
-            const firstCanvas = visibleCanvases[0];
-            const loadedHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
-                .filter(host => host.querySelector('#pdf-viewer .page_container'));
-            const hiddenLoadedHosts = loadedHosts.filter(host => !isVisible(host));
-            const visualState: ILargePdfVisualState = {
-                canvasHeight: firstCanvas?.height ?? 0,
-                canvasWidth: firstCanvas?.width ?? 0,
-                horizontalOverflow: viewer ? Math.max(0, viewer.scrollWidth - viewer.clientWidth) : -1,
-                hiddenLoadedHostCount: hiddenLoadedHosts.length,
-                loadedHostCount: loadedHosts.length,
-                nestedPdfViewerCount: viewer?.querySelectorAll('.pdfViewer').length ?? -1,
-                renderedPageCount: viewer?.querySelectorAll('.page_container--rendered').length ?? 0,
-                visibleCanvasCount: visibleCanvases.length,
-                visibleLoadingStateCount: Array.from(document.querySelectorAll<HTMLElement>(
-                    '.document-loading, .pdf-loading, .pdf-loading-overlay, [data-loading="true"]',
-                )).filter(isVisible).length,
-                visibleSkeletonCount: Array.from(
-                    viewer?.querySelectorAll('.document-page-skeleton') ?? [],
-                ).filter(isVisible).length,
-            };
-            return {
-                samples: testWindow.__largePdfOpenSamples ?? [],
-                visualState,
-            };
-        });
+                const viewer = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                );
+                const isVisible = (element: Element) => {
+                    const htmlElement = element as HTMLElement;
+                    const rect = htmlElement.getBoundingClientRect();
+                    const style = window.getComputedStyle(htmlElement);
+                    return (
+                        rect.width > 0 &&
+                        rect.height > 0 &&
+                        rect.bottom > 0 &&
+                        rect.right > 0 &&
+                        rect.top < window.innerHeight &&
+                        rect.left < window.innerWidth &&
+                        style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        Number(style.opacity || '1') > 0
+                    );
+                };
+                const visibleCanvases = Array.from(viewer?.querySelectorAll<HTMLCanvasElement>('.page_container canvas') ?? []).filter(
+                    (canvas) => isVisible(canvas) && canvas.width > 0 && canvas.height > 0,
+                );
+                const firstCanvas = visibleCanvases[0];
+                const loadedHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host')).filter((host) =>
+                    host.querySelector('#pdf-viewer .page_container'),
+                );
+                const hiddenLoadedHosts = loadedHosts.filter((host) => !isVisible(host));
+                const visualState: ILargePdfVisualState = {
+                    canvasHeight: firstCanvas?.height ?? 0,
+                    canvasWidth: firstCanvas?.width ?? 0,
+                    horizontalOverflow: viewer ? Math.max(0, viewer.scrollWidth - viewer.clientWidth) : -1,
+                    hiddenLoadedHostCount: hiddenLoadedHosts.length,
+                    loadedHostCount: loadedHosts.length,
+                    nestedPdfViewerCount: viewer?.querySelectorAll('.pdfViewer').length ?? -1,
+                    renderedPageCount: viewer?.querySelectorAll('.page_container--rendered').length ?? 0,
+                    visibleCanvasCount: visibleCanvases.length,
+                    visibleLoadingStateCount: Array.from(
+                        document.querySelectorAll<HTMLElement>(
+                            '.document-loading, .pdf-loading, .pdf-loading-overlay, [data-loading="true"]',
+                        ),
+                    ).filter(isVisible).length,
+                    visibleSkeletonCount: Array.from(viewer?.querySelectorAll('.document-page-skeleton') ?? []).filter(isVisible).length,
+                };
+                return {
+                    samples: testWindow.__largePdfOpenSamples ?? [],
+                    visualState,
+                };
+            });
 
-        const committedSurfaceViolations = findCommittedSurfaceCausalOpenViolations(
-            committedSurfaceTrace,
-            {
+            const committedSurfaceViolations = findCommittedSurfaceCausalOpenViolations(committedSurfaceTrace, {
                 maxFirstCanvasMs: LARGE_PDF_FIRST_VISUAL_BUDGET_MS,
                 maxFirstPageShellMs: LARGE_PDF_FIRST_PAGE_SHELL_BUDGET_MS,
                 maxReadyAfterCanvasMs: LARGE_PDF_READY_AFTER_CANVAS_BUDGET_MS,
                 requirePageShell: true,
-            },
-        );
-        const committedSurfaceDiagnostic = committedSurfaceTrace.frames.filter((frame, index, frames) => (
-            frame.kind === 'blank'
-            || frame.kind === 'loader'
-            || frame.kind !== frames[index - 1]?.kind
-            || frame.kind !== frames[index + 1]?.kind
-        ));
-        expect(
-            committedSurfaceViolations,
-            JSON.stringify(committedSurfaceDiagnostic),
-        ).toEqual([]);
-        expect(
-            findInitialRenderAuthorityViolations(initialRenderTrace, 1),
-            JSON.stringify(initialRenderTrace),
-        ).toEqual([]);
-
-        expect(result.visualState.visibleCanvasCount, JSON.stringify(result)).toBeGreaterThan(0);
-        expect(result.visualState.canvasWidth, JSON.stringify(result)).toBeGreaterThan(0);
-        expect(result.visualState.canvasHeight, JSON.stringify(result)).toBeGreaterThan(0);
-        expect(result.visualState.horizontalOverflow, JSON.stringify(result)).toBe(0);
-        expect(result.visualState.hiddenLoadedHostCount, JSON.stringify(result)).toBe(0);
-        expect(result.visualState.loadedHostCount, JSON.stringify(result)).toBe(1);
-        expect(result.visualState.nestedPdfViewerCount, JSON.stringify(result)).toBe(0);
-        expect(result.visualState.renderedPageCount, JSON.stringify(result)).toBeGreaterThan(0);
-        expect(result.visualState.visibleLoadingStateCount, JSON.stringify(result)).toBe(0);
-        expect(result.visualState.visibleSkeletonCount, JSON.stringify(result)).toBe(0);
-
-        const firstVisibleCanvasSample = result.samples.find(sample => (
-            sample.visibleCanvasReady
-            && sample.sampleSource === 'raf'
-        ));
-        expect(firstVisibleCanvasSample, JSON.stringify(result)).toBeDefined();
-        expectWithinTimingBudget(
-            firstVisibleCanvasSample?.elapsedMs,
-            LARGE_PDF_FIRST_VISUAL_BUDGET_MS,
-            JSON.stringify(result),
-        );
-        const currentPageCanvasSamples = result.samples.filter(sample => (
-            sample.visibleCanvasReady
-            && sample.currentPageCanvasPixelHeight !== null
-            && sample.currentPageCanvasPixelWidth !== null
-        ));
-        expect(currentPageCanvasSamples.length, JSON.stringify(result)).toBeGreaterThan(0);
-        const committedCanvasSizes = new Set(currentPageCanvasSamples.map(sample => (
-            `${sample.currentPageCanvasPixelWidth}x${sample.currentPageCanvasPixelHeight}`
-        )));
-        expect(committedCanvasSizes.size, JSON.stringify(result)).toBe(1);
-
-        expect(
-            result.samples.filter(sample => sample.sampleSource === 'raf' && sample.hostLoaderCount > 0),
-            JSON.stringify(result),
-        ).toEqual([]);
-        for (const sample of result.samples) {
-            expect(
-                sample.visibleCanvasReady && sample.pageSkeletonVisible,
-                JSON.stringify(result),
-            ).toBe(false);
-            if (sample.horizontalOverflow !== null) {
-                expect(sample.horizontalOverflow, JSON.stringify(result)).toBe(0);
-            }
-        }
-
-        const settledCanvasFrames = result.samples.filter((sample): sample is ILargePdfOpenSample & {
-            pageHeight: number;
-            pageTop: number;
-            pageWidth: number;
-            viewportScrollLeft: number;
-            viewportScrollTop: number;
-        } => (
-            sample.sampleSource === 'raf'
-            && sample.visibleCanvasReady
-            && sample.pageHeight !== null
-            && sample.pageTop !== null
-            && sample.pageWidth !== null
-            && sample.viewportScrollLeft !== null
-            && sample.viewportScrollTop !== null
-        ));
-        const settledBaseline = settledCanvasFrames[0];
-        expect(settledBaseline, JSON.stringify(result)).toBeDefined();
-        for (const sample of settledCanvasFrames) {
-            expect(Math.abs(sample.pageTop - settledBaseline!.pageTop), JSON.stringify(result)).toBeLessThanOrEqual(1);
-            expect(Math.abs(sample.pageWidth - settledBaseline!.pageWidth), JSON.stringify(result)).toBeLessThanOrEqual(1);
-            expect(Math.abs(sample.pageHeight - settledBaseline!.pageHeight), JSON.stringify(result)).toBeLessThanOrEqual(1);
-            expect(
-                Math.abs(sample.viewportScrollTop - settledBaseline!.viewportScrollTop),
-                JSON.stringify(result),
-            ).toBeLessThanOrEqual(1);
-            expect(
-                Math.abs(sample.viewportScrollLeft - settledBaseline!.viewportScrollLeft),
-                JSON.stringify(result),
-            ).toBeLessThanOrEqual(1);
-        }
-
-        const geometrySamples = settledCanvasFrames;
-        expect(geometrySamples.length, JSON.stringify(result)).toBeGreaterThan(0);
-        const firstGeometryAtMs = geometrySamples[0]?.elapsedMs ?? 0;
-        let lastSignificantGeometryChangeAtMs = firstGeometryAtMs;
-        for (let index = 1; index < geometrySamples.length; index += 1) {
-            const previous = geometrySamples[index - 1];
-            const current = geometrySamples[index];
-            if (!previous || !current) {
-                continue;
-            }
-            const changed = Math.abs(current.pageTop - previous.pageTop) > 8
-                || Math.abs(current.pageWidth - previous.pageWidth) > 8
-                || Math.abs(current.pageHeight - previous.pageHeight) > 8;
-            if (changed) {
-                lastSignificantGeometryChangeAtMs = current.elapsedMs;
-            }
-        }
-        expectWithinTimingBudget(
-            lastSignificantGeometryChangeAtMs - firstGeometryAtMs,
-            LARGE_PDF_GEOMETRY_SETTLE_BUDGET_MS,
-            JSON.stringify({
-                firstGeometryAtMs,
-                lastSignificantGeometryChangeAtMs,
-                result,
-            }),
-        );
-
-        // Compact blocking virtualization sentinel. The deeper page-30 run
-        // remains in the nightly rapid-navigation lane.
-        await waitForVisibleMountedPdfCanvases(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
-        await waitForScannedFixturePageIdentity(session.page, 1, PR_BLOCKING_SMOKE_TIMEOUT_MS);
-        const virtualizationSamples = [await collectPdfVirtualizationSnapshot(session.page)];
-        const wheelScrollViolations: string[] = [];
-        let maxMountedPage = Math.max(
-            ...virtualizationSamples[0]!.mountedPages.map(page => page.pageNumber),
-        );
-        for (let step = 0; step < 12 && maxMountedPage < 10; step += 1) {
-            const previous = virtualizationSamples.at(-1)!;
-            const deltaY = Math.max(300, Math.round(previous.viewportHeight * 0.8));
-            const settlement = await wheelPdfViewportAndWaitForSettlement(
-                session.page,
-                deltaY,
-                PR_BLOCKING_SMOKE_TIMEOUT_MS,
+            });
+            const committedSurfaceDiagnostic = committedSurfaceTrace.frames.filter(
+                (frame, index, frames) =>
+                    frame.kind === 'blank' ||
+                    frame.kind === 'loader' ||
+                    frame.kind !== frames[index - 1]?.kind ||
+                    frame.kind !== frames[index + 1]?.kind,
             );
-            const expectedScrollTop = Math.min(
-                settlement.initialScrollTop + deltaY,
-                settlement.maxScrollTop,
+            expect(committedSurfaceViolations, JSON.stringify(committedSurfaceDiagnostic)).toEqual([]);
+            expect(findInitialRenderAuthorityViolations(initialRenderTrace, 1), JSON.stringify(initialRenderTrace)).toEqual([]);
+
+            expect(result.visualState.visibleCanvasCount, JSON.stringify(result)).toBeGreaterThan(0);
+            expect(result.visualState.canvasWidth, JSON.stringify(result)).toBeGreaterThan(0);
+            expect(result.visualState.canvasHeight, JSON.stringify(result)).toBeGreaterThan(0);
+            expect(result.visualState.horizontalOverflow, JSON.stringify(result)).toBe(0);
+            expect(result.visualState.hiddenLoadedHostCount, JSON.stringify(result)).toBe(0);
+            expect(result.visualState.loadedHostCount, JSON.stringify(result)).toBe(1);
+            expect(result.visualState.nestedPdfViewerCount, JSON.stringify(result)).toBe(0);
+            expect(result.visualState.renderedPageCount, JSON.stringify(result)).toBeGreaterThan(0);
+            expect(result.visualState.visibleLoadingStateCount, JSON.stringify(result)).toBe(0);
+            expect(result.visualState.visibleSkeletonCount, JSON.stringify(result)).toBe(0);
+
+            const firstVisibleCanvasSample = result.samples.find((sample) => sample.visibleCanvasReady && sample.sampleSource === 'raf');
+            expect(firstVisibleCanvasSample, JSON.stringify(result)).toBeDefined();
+            expectWithinTimingBudget(firstVisibleCanvasSample?.elapsedMs, LARGE_PDF_FIRST_VISUAL_BUDGET_MS, JSON.stringify(result));
+            const currentPageCanvasSamples = result.samples.filter(
+                (sample) =>
+                    sample.visibleCanvasReady &&
+                    sample.currentPageCanvasPixelHeight !== null &&
+                    sample.currentPageCanvasPixelWidth !== null,
             );
-            if (Math.abs(settlement.finalScrollTop - expectedScrollTop) > 1) {
-                wheelScrollViolations.push(
-                    `step ${step}: scrollTop ${settlement.finalScrollTop}px, expected ${expectedScrollTop}px`,
+            expect(currentPageCanvasSamples.length, JSON.stringify(result)).toBeGreaterThan(0);
+            const committedCanvasSizes = new Set(
+                currentPageCanvasSamples.map((sample) => `${sample.currentPageCanvasPixelWidth}x${sample.currentPageCanvasPixelHeight}`),
+            );
+            expect(committedCanvasSizes.size, JSON.stringify(result)).toBe(1);
+
+            expect(
+                result.samples.filter((sample) => sample.sampleSource === 'raf' && sample.hostLoaderCount > 0),
+                JSON.stringify(result),
+            ).toEqual([]);
+            for (const sample of result.samples) {
+                expect(sample.visibleCanvasReady && sample.pageSkeletonVisible, JSON.stringify(result)).toBe(false);
+                if (sample.horizontalOverflow !== null) {
+                    expect(sample.horizontalOverflow, JSON.stringify(result)).toBe(0);
+                }
+            }
+
+            const settledCanvasFrames = result.samples.filter(
+                (
+                    sample,
+                ): sample is ILargePdfOpenSample & {
+                    pageHeight: number;
+                    pageTop: number;
+                    pageWidth: number;
+                    viewportScrollLeft: number;
+                    viewportScrollTop: number;
+                } =>
+                    sample.sampleSource === 'raf' &&
+                    sample.visibleCanvasReady &&
+                    sample.pageHeight !== null &&
+                    sample.pageTop !== null &&
+                    sample.pageWidth !== null &&
+                    sample.viewportScrollLeft !== null &&
+                    sample.viewportScrollTop !== null,
+            );
+            const settledBaseline = settledCanvasFrames[0];
+            expect(settledBaseline, JSON.stringify(result)).toBeDefined();
+            for (const sample of settledCanvasFrames) {
+                expect(Math.abs(sample.pageTop - settledBaseline!.pageTop), JSON.stringify(result)).toBeLessThanOrEqual(1);
+                expect(Math.abs(sample.pageWidth - settledBaseline!.pageWidth), JSON.stringify(result)).toBeLessThanOrEqual(1);
+                expect(Math.abs(sample.pageHeight - settledBaseline!.pageHeight), JSON.stringify(result)).toBeLessThanOrEqual(1);
+                expect(Math.abs(sample.viewportScrollTop - settledBaseline!.viewportScrollTop), JSON.stringify(result)).toBeLessThanOrEqual(
+                    1,
                 );
+                expect(
+                    Math.abs(sample.viewportScrollLeft - settledBaseline!.viewportScrollLeft),
+                    JSON.stringify(result),
+                ).toBeLessThanOrEqual(1);
             }
-            const sample = await collectPdfVirtualizationSnapshot(session.page);
-            virtualizationSamples.push(sample);
-            maxMountedPage = Math.max(
-                maxMountedPage,
-                ...sample.mountedPages.map(page => page.pageNumber),
-            );
-        }
-        await waitForVisibleMountedPdfCanvases(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
-        const finalVirtualizationSample = await collectPdfVirtualizationSnapshot(session.page);
-        virtualizationSamples.push(finalVirtualizationSample);
-        const identityPage = finalVirtualizationSample.visiblePages[0]?.pageNumber ?? maxMountedPage;
-        await waitForScannedFixturePageIdentity(
-            session.page,
-            identityPage,
-            PR_BLOCKING_SMOKE_TIMEOUT_MS,
-        );
-        expect(maxMountedPage).toBeGreaterThanOrEqual(10);
-        expect(finalVirtualizationSample.totalPages).toBe(LARGE_PDF_PAGE_COUNT);
-        expect(
-            findPdfVirtualizationContractViolations(virtualizationSamples),
-            JSON.stringify(virtualizationSamples),
-        ).toEqual([]);
-        expect(wheelScrollViolations, JSON.stringify(virtualizationSamples)).toEqual([]);
 
-        const repeatedOpenTimings = [summarizeCommittedSurfaceTiming(committedSurfaceTrace)];
-        for (let attempt = 2; attempt <= 5; attempt += 1) {
-            await closeActiveDocumentToEmpty(session.page);
-            const repeatedOpen = await captureRepeatedLargePdfOpen(session.page, fixturePath);
-            const repeatedSurfaceViolations = findCommittedSurfaceCausalOpenViolations(
-                repeatedOpen.surfaceTrace,
-                {
+            const geometrySamples = settledCanvasFrames;
+            expect(geometrySamples.length, JSON.stringify(result)).toBeGreaterThan(0);
+            const firstGeometryAtMs = geometrySamples[0]?.elapsedMs ?? 0;
+            let lastSignificantGeometryChangeAtMs = firstGeometryAtMs;
+            for (let index = 1; index < geometrySamples.length; index += 1) {
+                const previous = geometrySamples[index - 1];
+                const current = geometrySamples[index];
+                if (!previous || !current) {
+                    continue;
+                }
+                const changed =
+                    Math.abs(current.pageTop - previous.pageTop) > 8 ||
+                    Math.abs(current.pageWidth - previous.pageWidth) > 8 ||
+                    Math.abs(current.pageHeight - previous.pageHeight) > 8;
+                if (changed) {
+                    lastSignificantGeometryChangeAtMs = current.elapsedMs;
+                }
+            }
+            expectWithinTimingBudget(
+                lastSignificantGeometryChangeAtMs - firstGeometryAtMs,
+                LARGE_PDF_GEOMETRY_SETTLE_BUDGET_MS,
+                JSON.stringify({
+                    firstGeometryAtMs,
+                    lastSignificantGeometryChangeAtMs,
+                    result,
+                }),
+            );
+
+            // Compact blocking virtualization sentinel. The deeper page-30 run
+            // remains in the nightly rapid-navigation lane.
+            await waitForVisibleMountedPdfCanvases(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+            await waitForScannedFixturePageIdentity(session.page, 1, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+            const virtualizationSamples = [await collectPdfVirtualizationSnapshot(session.page)];
+            const wheelScrollViolations: string[] = [];
+            let maxMountedPage = Math.max(...virtualizationSamples[0]!.mountedPages.map((page) => page.pageNumber));
+            for (let step = 0; step < 12 && maxMountedPage < 10; step += 1) {
+                const previous = virtualizationSamples.at(-1)!;
+                const deltaY = Math.max(300, Math.round(previous.viewportHeight * 0.8));
+                const settlement = await wheelPdfViewportAndWaitForSettlement(session.page, deltaY, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+                const expectedScrollTop = Math.min(settlement.initialScrollTop + deltaY, settlement.maxScrollTop);
+                if (Math.abs(settlement.finalScrollTop - expectedScrollTop) > 1) {
+                    wheelScrollViolations.push(`step ${step}: scrollTop ${settlement.finalScrollTop}px, expected ${expectedScrollTop}px`);
+                }
+                const sample = await collectPdfVirtualizationSnapshot(session.page);
+                virtualizationSamples.push(sample);
+                maxMountedPage = Math.max(maxMountedPage, ...sample.mountedPages.map((page) => page.pageNumber));
+            }
+            await waitForVisibleMountedPdfCanvases(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+            const finalVirtualizationSample = await collectPdfVirtualizationSnapshot(session.page);
+            virtualizationSamples.push(finalVirtualizationSample);
+            const identityPage = finalVirtualizationSample.visiblePages[0]?.pageNumber ?? maxMountedPage;
+            await waitForScannedFixturePageIdentity(session.page, identityPage, PR_BLOCKING_SMOKE_TIMEOUT_MS);
+            expect(maxMountedPage).toBeGreaterThanOrEqual(10);
+            expect(finalVirtualizationSample.totalPages).toBe(LARGE_PDF_PAGE_COUNT);
+            expect(findPdfVirtualizationContractViolations(virtualizationSamples), JSON.stringify(virtualizationSamples)).toEqual([]);
+            expect(wheelScrollViolations, JSON.stringify(virtualizationSamples)).toEqual([]);
+
+            const repeatedOpenTimings = [summarizeCommittedSurfaceTiming(committedSurfaceTrace)];
+            for (let attempt = 2; attempt <= 5; attempt += 1) {
+                await closeActiveDocumentToEmpty(session.page);
+                const repeatedOpen = await captureRepeatedLargePdfOpen(session.page, fixturePath);
+                const repeatedSurfaceViolations = findCommittedSurfaceCausalOpenViolations(repeatedOpen.surfaceTrace, {
                     maxFirstCanvasMs: LARGE_PDF_FIRST_VISUAL_BUDGET_MS,
                     maxFirstPageShellMs: LARGE_PDF_FIRST_PAGE_SHELL_BUDGET_MS,
                     maxReadyAfterCanvasMs: LARGE_PDF_READY_AFTER_CANVAS_BUDGET_MS,
                     requirePageShell: true,
-                },
-            );
-            expect(
-                findInitialRenderAuthorityViolations(
-                    repeatedOpen.renderTrace,
-                    repeatedOpen.lifecycleState.committedPage,
-                ),
-                JSON.stringify(repeatedOpen.renderTrace),
-            ).toEqual([]);
-            expect(
-                repeatedSurfaceViolations,
-                JSON.stringify(repeatedOpen.surfaceTrace.frames),
-            ).toEqual([]);
-            expect(repeatedOpen.lifecycleState.hiddenLoadedHostCount, JSON.stringify(repeatedOpen)).toBe(0);
-            expect(repeatedOpen.lifecycleState.loadedHostCount, JSON.stringify(repeatedOpen)).toBe(1);
-            repeatedOpenTimings.push(summarizeCommittedSurfaceTiming(repeatedOpen.surfaceTrace));
-        }
-        const firstOpenShellMs = repeatedOpenTimings[0]?.firstPageShellMs;
-        expect(firstOpenShellMs, JSON.stringify(repeatedOpenTimings)).not.toBeNull();
-        for (const timing of repeatedOpenTimings.slice(1)) {
-            expect(timing.firstPageShellMs, JSON.stringify(repeatedOpenTimings)).not.toBeNull();
-            expectWithinTimingBudget(
-                timing.firstPageShellMs,
-                (firstOpenShellMs ?? 0) + REPEATED_OPEN_SHELL_JITTER_BUDGET_MS,
-                JSON.stringify(repeatedOpenTimings),
-            );
-        }
-    });
+                });
+                expect(
+                    findInitialRenderAuthorityViolations(repeatedOpen.renderTrace, repeatedOpen.lifecycleState.committedPage),
+                    JSON.stringify(repeatedOpen.renderTrace),
+                ).toEqual([]);
+                expect(repeatedSurfaceViolations, JSON.stringify(repeatedOpen.surfaceTrace.frames)).toEqual([]);
+                expect(repeatedOpen.lifecycleState.hiddenLoadedHostCount, JSON.stringify(repeatedOpen)).toBe(0);
+                expect(repeatedOpen.lifecycleState.loadedHostCount, JSON.stringify(repeatedOpen)).toBe(1);
+                repeatedOpenTimings.push(summarizeCommittedSurfaceTiming(repeatedOpen.surfaceTrace));
+            }
+            const firstOpenShellMs = repeatedOpenTimings[0]?.firstPageShellMs;
+            expect(firstOpenShellMs, JSON.stringify(repeatedOpenTimings)).not.toBeNull();
+            for (const timing of repeatedOpenTimings.slice(1)) {
+                expect(timing.firstPageShellMs, JSON.stringify(repeatedOpenTimings)).not.toBeNull();
+                expectWithinTimingBudget(
+                    timing.firstPageShellMs,
+                    (firstOpenShellMs ?? 0) + REPEATED_OPEN_SHELL_JITTER_BUDGET_MS,
+                    JSON.stringify(repeatedOpenTimings),
+                );
+            }
+        },
+    );
 
     it('keeps large-PDF interaction transitions causally stable', async () => {
         const session = await sessionFixture.restart({
@@ -2667,7 +2590,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         // workspace/viewer authority reports its committed state; transition
         // frames remain observable under the preceding transition checkpoint.
         await installCommittedSurfaceSampler(session.page);
-        await runLargePdfInteractionWait(session.page, 1, () => (
+        await runLargePdfInteractionWait(session.page, 1, () =>
             waitForWorkspaceToolbarSnapshot(
                 session.page,
                 {
@@ -2675,8 +2598,8 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     currentPage: 1,
                 },
                 {timeoutMs: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS},
-            )
-        ));
+            ),
+        );
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'continuous-stable');
         await waitForCommittedSurfaceSamples(session.page, {
             interactionCheckpoint: 'continuous-stable',
@@ -2685,7 +2608,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
 
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'single-page-transition');
         await requireWorkspaceCommand(session.page, 'handleToggleContinuousScroll');
-        await runLargePdfInteractionWait(session.page, 1, () => (
+        await runLargePdfInteractionWait(session.page, 1, () =>
             waitForWorkspaceToolbarSnapshot(
                 session.page,
                 {
@@ -2693,22 +2616,21 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     currentPage: 1,
                 },
                 {timeoutMs: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS},
-            )
-        ));
-        await runLargePdfInteractionWait(session.page, 1, () => (
-            waitForFunctionInPage(session.page, () => {
-                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
-                const canvas = viewer?.querySelector<HTMLCanvasElement>(
-                    '.page_container[data-page="1"] .page_canvas canvas',
-                ) ?? null;
-                return Boolean(
-                    viewer?.classList.contains('pdfViewer--single-page')
-                    && canvas
-                    && canvas.width > 0
-                    && canvas.height > 0,
-                );
-            }, {timeout: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS})
-        ));
+            ),
+        );
+        await runLargePdfInteractionWait(session.page, 1, () =>
+            waitForFunctionInPage(
+                session.page,
+                () => {
+                    const viewer = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                    );
+                    const canvas = viewer?.querySelector<HTMLCanvasElement>('.page_container[data-page="1"] .page_canvas canvas') ?? null;
+                    return Boolean(viewer?.classList.contains('pdfViewer--single-page') && canvas && canvas.width > 0 && canvas.height > 0);
+                },
+                {timeout: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS},
+            ),
+        );
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'single-page-stable');
         await waitForCommittedSurfaceSamples(session.page, {
             interactionCheckpoint: 'single-page-stable',
@@ -2716,10 +2638,8 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         });
 
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'page-7-transition');
-        await runPdfDiagnosticStage(session.page, 'interaction:go-to-page-7', () => (
-            goToPageViaToolbar(session.page, 7)
-        ));
-        await runLargePdfInteractionWait(session.page, 7, () => (
+        await runPdfDiagnosticStage(session.page, 'interaction:go-to-page-7', () => goToPageViaToolbar(session.page, 7));
+        await runLargePdfInteractionWait(session.page, 7, () =>
             waitForWorkspaceToolbarSnapshot(
                 session.page,
                 {
@@ -2727,30 +2647,36 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     currentPage: 7,
                 },
                 {timeoutMs: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS},
-            )
-        ));
-        await runLargePdfInteractionWait(session.page, 7, () => (
-            waitForFunctionInPage(session.page, () => {
-                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
-                const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="7"]') ?? null;
-                const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
-                const viewerRect = viewer?.getBoundingClientRect() ?? null;
-                const pageRect = page?.getBoundingClientRect() ?? null;
-                const viewportCenter = viewerRect ? viewerRect.top + viewerRect.height / 2 : null;
-                return Boolean(
-                    canvas
-                    && canvas.width > 0
-                    && canvas.height > 0
-                    && canvas.getBoundingClientRect().width > 0
-                    && page?.classList.contains('page_container--rendered')
-                    && !page.querySelector('.document-page-skeleton')
-                    && pageRect
-                    && viewportCenter !== null
-                    && pageRect.top <= viewportCenter
-                    && pageRect.bottom >= viewportCenter,
-                );
-            }, {timeout: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS})
-        ));
+            ),
+        );
+        await runLargePdfInteractionWait(session.page, 7, () =>
+            waitForFunctionInPage(
+                session.page,
+                () => {
+                    const viewer = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                    );
+                    const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="7"]') ?? null;
+                    const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
+                    const viewerRect = viewer?.getBoundingClientRect() ?? null;
+                    const pageRect = page?.getBoundingClientRect() ?? null;
+                    const viewportCenter = viewerRect ? viewerRect.top + viewerRect.height / 2 : null;
+                    return Boolean(
+                        canvas &&
+                        canvas.width > 0 &&
+                        canvas.height > 0 &&
+                        canvas.getBoundingClientRect().width > 0 &&
+                        page?.classList.contains('page_container--rendered') &&
+                        !page.querySelector('.document-page-skeleton') &&
+                        pageRect &&
+                        viewportCenter !== null &&
+                        pageRect.top <= viewportCenter &&
+                        pageRect.bottom >= viewportCenter,
+                    );
+                },
+                {timeout: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS},
+            ),
+        );
         await markCommittedSurfaceInteractionCheckpoint(session.page, 'page-7-stable');
         await waitForCommittedSurfaceSamples(session.page, {
             interactionCheckpoint: 'page-7-stable',
@@ -2758,25 +2684,26 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         });
 
         await installWorkspaceExposeProbe(session.page);
-        const zoomResult = await runPdfDiagnosticStage(
-            session.page,
-            'interaction:set-custom-zoom',
-            () => evaluateInPage(session.page, async (zoom: number) => {
-                const testWindow = window as typeof window & {__committedSurfaceInteractionCheckpoint?: string | null;};
-                testWindow.__committedSurfaceInteractionCheckpoint = 'high-zoom-transition';
-                return testWindow.__evbTestApi?.callActiveWorkspaceCommand(
-                    'setCustomZoomFromDisplay',
-                    [zoom],
-                ) ?? {
-                    called: false,
-                    value: null,
-                };
-            }, 5.03),
+        const zoomResult = await runPdfDiagnosticStage(session.page, 'interaction:set-custom-zoom', () =>
+            evaluateInPage(
+                session.page,
+                async (zoom: number) => {
+                    const testWindow = window as typeof window & {__committedSurfaceInteractionCheckpoint?: string | null};
+                    testWindow.__committedSurfaceInteractionCheckpoint = 'high-zoom-transition';
+                    return (
+                        testWindow.__evbTestApi?.callActiveWorkspaceCommand('setCustomZoomFromDisplay', [zoom]) ?? {
+                            called: false,
+                            value: null,
+                        }
+                    );
+                },
+                5.03,
+            ),
         );
         if (!zoomResult.called) {
             throw new Error('The active workspace has no setCustomZoomFromDisplay command, so this setup did nothing');
         }
-        await runLargePdfInteractionWait(session.page, 7, () => (
+        await runLargePdfInteractionWait(session.page, 7, () =>
             waitForWorkspaceToolbarSnapshot(
                 session.page,
                 {
@@ -2785,35 +2712,43 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                     zoomMode: 'custom',
                 },
                 {timeoutMs: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS},
-            )
-        ));
+            ),
+        );
         // The constrained tier floors the output scale at 1x (and the pixel budget
         // can clamp further), so backing density is host-dependent; only presentation
         // geometry is contractual.
-        await runPdfDiagnosticStage(session.page, 'interaction:wait-high-zoom-page-7', () => (
-            runLargePdfInteractionWait(session.page, 7, () => (
-                waitForFunctionInPage(session.page, () => {
-                    const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
-                    const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="7"]') ?? null;
-                    const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas__render-layer canvas') ?? null;
-                    const canvasRect = canvas?.getBoundingClientRect() ?? null;
-                    return Boolean(
-                        viewer
-                        && viewer.scrollWidth > viewer.clientWidth + 20
-                        && page?.classList.contains('page_container--rendered')
-                        && !page.querySelector('.document-page-skeleton')
-                        && canvas
-                        && canvas.width > 0
-                        && canvas.height > 0
-                        && canvasRect
-                        && canvasRect.width > 2_500
-                        && canvas.width >= canvasRect.width - 1,
-                    );
-                }, {timeout: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS})
-            ))
-        ));
+        await runPdfDiagnosticStage(session.page, 'interaction:wait-high-zoom-page-7', () =>
+            runLargePdfInteractionWait(session.page, 7, () =>
+                waitForFunctionInPage(
+                    session.page,
+                    () => {
+                        const viewer = document.querySelector<HTMLElement>(
+                            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+                        );
+                        const page = viewer?.querySelector<HTMLElement>('.page_container[data-page="7"]') ?? null;
+                        const canvas = page?.querySelector<HTMLCanvasElement>('.page_canvas__render-layer canvas') ?? null;
+                        const canvasRect = canvas?.getBoundingClientRect() ?? null;
+                        return Boolean(
+                            viewer &&
+                            viewer.scrollWidth > viewer.clientWidth + 20 &&
+                            page?.classList.contains('page_container--rendered') &&
+                            !page.querySelector('.document-page-skeleton') &&
+                            canvas &&
+                            canvas.width > 0 &&
+                            canvas.height > 0 &&
+                            canvasRect &&
+                            canvasRect.width > 2_500 &&
+                            canvas.width >= canvasRect.width - 1,
+                        );
+                    },
+                    {timeout: LARGE_PDF_INTERACTION_WAIT_TIMEOUT_MS},
+                ),
+            ),
+        );
         const highZoom = await evaluateInPage(session.page, () => {
-            const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer');
+            const viewer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
+            );
             const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
             if (!viewer) {
                 return null;
@@ -2826,10 +2761,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
                 after: viewer.scrollLeft,
                 before,
                 bodyOverflow: Math.max(0, document.body.scrollWidth - document.body.clientWidth),
-                documentOverflow: Math.max(
-                    0,
-                    document.documentElement.scrollWidth - document.documentElement.clientWidth,
-                ),
+                documentOverflow: Math.max(0, document.documentElement.scrollWidth - document.documentElement.clientWidth),
                 hostRight: hostRect?.right ?? null,
                 viewerOverflow: viewer.scrollWidth - viewer.clientWidth,
                 viewerRight: viewerRect.right,
@@ -2844,10 +2776,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         const interactionTailTrace = await stopCommittedSurfaceSampler(session.page);
         const interactionRenderTrace = await stopPdfRenderTrace(session.page);
         const interactionTailViolations = findCommittedSurfaceInteractionTailViolations(interactionTailTrace, {
-            allowedSkeletonCheckpoints: [
-                'page-7-transition',
-                'high-zoom-transition',
-            ],
+            allowedSkeletonCheckpoints: ['page-7-transition', 'high-zoom-transition'],
             expectedPageByCheckpoint: {
                 'continuous-stable': 1,
                 'high-zoom-transition': 7,
@@ -2858,35 +2787,19 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             horizontalOverflowCheckpoint: 'high-zoom-transition',
             minStableFrames: 10,
             preserveShellIdentityAcross: [
-                [
-                    'continuous-stable',
-                    'single-page-stable',
-                ],
-                [
-                    'page-7-stable',
-                    'high-zoom-stable',
-                ],
+                ['continuous-stable', 'single-page-stable'],
+                ['page-7-stable', 'high-zoom-stable'],
             ],
-            preserveWidthAcross: [[
-                'continuous-stable',
-                'single-page-stable',
-                'page-7-stable',
-            ]],
-            stableCheckpoints: [
-                'continuous-stable',
-                'single-page-stable',
-                'page-7-stable',
-                'high-zoom-stable',
-            ],
+            preserveWidthAcross: [['continuous-stable', 'single-page-stable', 'page-7-stable']],
+            stableCheckpoints: ['continuous-stable', 'single-page-stable', 'page-7-stable', 'high-zoom-stable'],
         });
         expect(
             interactionTailViolations,
             JSON.stringify({
                 violations: interactionTailViolations,
-                renderTrace: interactionRenderTrace.filter(entry => (
-                    entry.payload.pageNumber === 7
-                    || /cleanup|demand|rerender|visible-render/.test(entry.event)
-                )).slice(-120),
+                renderTrace: interactionRenderTrace
+                    .filter((entry) => entry.payload.pageNumber === 7 || /cleanup|demand|rerender|visible-render/.test(entry.event))
+                    .slice(-120),
             }),
         ).toEqual([]);
         expect(highZoom, JSON.stringify(highZoom)).not.toBeNull();
@@ -2894,10 +2807,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
         expect(highZoom?.after ?? 0, JSON.stringify(highZoom)).toBeGreaterThan(highZoom?.before ?? 0);
         expect(highZoom?.bodyOverflow ?? -1, JSON.stringify(highZoom)).toBeLessThanOrEqual(1);
         expect(highZoom?.documentOverflow ?? -1, JSON.stringify(highZoom)).toBeLessThanOrEqual(1);
-        expect(
-            Math.abs((highZoom?.hostRight ?? 0) - (highZoom?.viewerRight ?? 100)),
-            JSON.stringify(highZoom),
-        ).toBeLessThanOrEqual(2);
+        expect(Math.abs((highZoom?.hostRight ?? 0) - (highZoom?.viewerRight ?? 100)), JSON.stringify(highZoom)).toBeLessThanOrEqual(2);
     });
 
     it('does not report a delayed render error for a high-zoom current page', async () => {
@@ -2906,15 +2816,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             hard: true,
             sessionName: 'e2e-pr-blocking-current-page-render-watchdog',
         });
-        const fixturePath = await createMultiPageTextFixturePdf(
-            'current-page-render-watchdog.pdf',
-            8,
-        );
+        const fixturePath = await createMultiPageTextFixturePdf('current-page-render-watchdog.pdf', 8);
         await waitForCommittedEmptyBaseline(session.page);
-        await installCommittedSurfaceSampler(
-            session.page,
-            LIFECYCLE_ONLY_SURFACE_SAMPLER_OPTIONS,
-        );
+        await installCommittedSurfaceSampler(session.page, LIFECYCLE_ONLY_SURFACE_SAMPLER_OPTIONS);
         await openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS);
         await waitForPdfLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
         await waitForVisuallyPresentedPdfPage(session.page, 1);
@@ -2923,46 +2827,50 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             minimumSamples: 10,
         });
         const smallFixtureSurfaceTrace = await stopCommittedSurfaceSampler(session.page);
-        const smallFixtureSurfaceDiagnostic = smallFixtureSurfaceTrace.frames.filter((frame, index, frames) => (
-            frame.kind === 'blank'
-            || frame.kind === 'loader'
-            || frame.kind !== frames[index - 1]?.kind
-            || frame.kind !== frames[index + 1]?.kind
-        ));
-        expect(
-            findCommittedSurfaceContractViolations(smallFixtureSurfaceTrace),
-            JSON.stringify(smallFixtureSurfaceDiagnostic),
-        ).toEqual([]);
+        const smallFixtureSurfaceDiagnostic = smallFixtureSurfaceTrace.frames.filter(
+            (frame, index, frames) =>
+                frame.kind === 'blank' ||
+                frame.kind === 'loader' ||
+                frame.kind !== frames[index - 1]?.kind ||
+                frame.kind !== frames[index + 1]?.kind,
+        );
+        expect(findCommittedSurfaceContractViolations(smallFixtureSurfaceTrace), JSON.stringify(smallFixtureSurfaceDiagnostic)).toEqual([]);
         await requireWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [5.03]);
         await goToPageViaToolbar(session.page, 7);
-        await waitForFunctionInPage(session.page, () => {
-            const canvas = document.querySelector<HTMLCanvasElement>(
-                '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="7"] .page_canvas canvas',
-            );
-            return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
-        }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
+        await waitForFunctionInPage(
+            session.page,
+            () => {
+                const canvas = document.querySelector<HTMLCanvasElement>(
+                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="7"] .page_canvas canvas',
+                );
+                return Boolean(canvas && canvas.width > 0 && canvas.height > 0);
+            },
+            {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+        );
 
-        await new Promise(resolve => setTimeout(resolve, 8_500));
+        await new Promise((resolve) => setTimeout(resolve, 8_500));
         const currentPageState = await evaluateInPage(session.page, () => {
             const isVisible = (element: HTMLElement) => {
                 const rect = element.getBoundingClientRect();
                 const style = window.getComputedStyle(element);
-                return rect.width > 0
-                    && rect.height > 0
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && Number(style.opacity || '1') > 0;
+                return (
+                    rect.width > 0 &&
+                    rect.height > 0 &&
+                    style.display !== 'none' &&
+                    style.visibility !== 'hidden' &&
+                    Number(style.opacity || '1') > 0
+                );
             };
             const canvas = document.querySelector<HTMLCanvasElement>(
                 '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer .page_container[data-page="7"] .page_canvas canvas',
             );
-            const visibleErrors = Array.from(document.querySelectorAll<HTMLElement>(
-                '.pdf-error, .viewer-error, [data-error="true"], .app-toast-failure',
-            )).filter(isVisible);
+            const visibleErrors = Array.from(
+                document.querySelectorAll<HTMLElement>('.pdf-error, .viewer-error, [data-error="true"], .app-toast-failure'),
+            ).filter(isVisible);
             return {
                 canvasHeight: canvas?.height ?? 0,
                 canvasWidth: canvas?.width ?? 0,
-                errorTexts: visibleErrors.map(error => error.textContent?.trim() ?? ''),
+                errorTexts: visibleErrors.map((error) => error.textContent?.trim() ?? ''),
             };
         });
         expect(currentPageState.canvasWidth, JSON.stringify(currentPageState)).toBeGreaterThan(0);
@@ -2985,87 +2893,88 @@ runDjvuBlockingOrSkip('Electron E2E - PR Blocking DjVu Committed Surface', () =>
 
         // Establish the same revision-fenced geometry cache populated by the
         // application-level Recent warmup, then exercise the reopen handoff.
-        await openDjvuInApp(
-            session.page,
-            djvuBlockingFixture.path,
-            PR_BLOCKING_SMOKE_TIMEOUT_MS,
-        );
+        await openDjvuInApp(session.page, djvuBlockingFixture.path, PR_BLOCKING_SMOKE_TIMEOUT_MS);
         await waitForDjvuLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
         await closeActiveDocumentToEmpty(session.page);
         await waitForCommittedEmptyBaseline(session.page);
         await installCommittedSurfaceSampler(session.page);
-        await openActionableRecentFile(
-            session.page,
-            djvuBlockingFixture.path,
-        );
+        await openActionableRecentFile(session.page, djvuBlockingFixture.path);
         await waitForDjvuLoaded(session.page, PR_BLOCKING_SMOKE_TIMEOUT_MS);
-        await waitForFunctionInPage(session.page, () => {
-            const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
-            const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
-            const page = host?.querySelector<HTMLElement>(
-                '[data-testid="document-page-source-page"][data-page-source-visual="fresh"]',
-            ) ?? null;
-            const image = page?.querySelector<HTMLImageElement>(
-                ':scope > [data-testid="document-page-source-image"]',
-            ) ?? null;
-            return Boolean(
-                image?.complete
-                && image.naturalWidth > 0
-                && image.naturalHeight > 0
-                && viewport?.dataset.openSurfacePhase === 'ready'
-                && chassis?.dataset.openSurfacePresentation === 'committed',
-            );
-        }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
+        await waitForFunctionInPage(
+            session.page,
+            () => {
+                const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+                const chassis = host?.querySelector<HTMLElement>('.document-viewer-chassis') ?? null;
+                const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+                const page =
+                    host?.querySelector<HTMLElement>('[data-testid="document-page-source-page"][data-page-source-visual="fresh"]') ?? null;
+                const image = page?.querySelector<HTMLImageElement>(':scope > [data-testid="document-page-source-image"]') ?? null;
+                return Boolean(
+                    image?.complete &&
+                    image.naturalWidth > 0 &&
+                    image.naturalHeight > 0 &&
+                    viewport?.dataset.openSurfacePhase === 'ready' &&
+                    chassis?.dataset.openSurfacePresentation === 'committed',
+                );
+            },
+            {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+        );
 
         // Observe actual browser-presentable frames rather than inferring their
         // count from wall time. Busy Electron renderers can coalesce RAFs even
         // after the image has decoded.
-        await waitForFunctionInPage(session.page, () => {
-            const testWindow = window as typeof window & {__committedSurfaceFrames?: Array<{kind?: string}>};
-            const frames = testWindow.__committedSurfaceFrames ?? [];
-            const firstCanvasIndex = frames.findIndex(frame => frame.kind === 'committed-canvas');
-            return firstCanvasIndex >= 0
-                && frames.slice(firstCanvasIndex).filter(frame => frame.kind === 'committed-canvas').length >= 10;
-        }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS});
+        await waitForFunctionInPage(
+            session.page,
+            () => {
+                const testWindow = window as typeof window & {__committedSurfaceFrames?: Array<{kind?: string}>};
+                const frames = testWindow.__committedSurfaceFrames ?? [];
+                const firstCanvasIndex = frames.findIndex((frame) => frame.kind === 'committed-canvas');
+                return (
+                    firstCanvasIndex >= 0 &&
+                    frames.slice(firstCanvasIndex).filter((frame) => frame.kind === 'committed-canvas').length >= 10
+                );
+            },
+            {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+        );
         const trace = await stopCommittedSurfaceSampler(session.page);
-        const clickFrame = trace.frames.find(frame => frame.interactionCheckpoint === 'recent-djvu-click');
+        const clickFrame = trace.frames.find((frame) => frame.interactionCheckpoint === 'recent-djvu-click');
         const postClickFrames = trace.frames
-            .filter(frame => frame.interactionCheckpoint === 'recent-djvu-click')
-            .map(frame => ({
+            .filter((frame) => frame.interactionCheckpoint === 'recent-djvu-click')
+            .map((frame) => ({
                 ...frame,
                 elapsedMs: Math.max(0, frame.elapsedMs - (clickFrame?.elapsedMs ?? 0)),
             }));
         const postClickTrace = {frames: postClickFrames};
-        const diagnostic = postClickTrace.frames.filter((frame, index, frames) => (
-            frame.kind === 'blank'
-            || frame.kind === 'loader'
-            || frame.kind !== frames[index - 1]?.kind
-            || frame.kind !== frames[index + 1]?.kind
-        ));
+        const diagnostic = postClickTrace.frames.filter(
+            (frame, index, frames) =>
+                frame.kind === 'blank' ||
+                frame.kind === 'loader' ||
+                frame.kind !== frames[index - 1]?.kind ||
+                frame.kind !== frames[index + 1]?.kind,
+        );
         const timing = summarizeCommittedSurfaceTiming(postClickTrace);
-        const pendingEmptyFrames = postClickTrace.frames.filter(frame => (
-            frame.kind === 'committed-empty' && frame.openSurfacePhase === 'pending'
-        ));
-        const firstReadyFrame = postClickTrace.frames.find(frame => (
-            frame.openSurfacePhase === 'ready'
-            && frame.openSurfacePresentation === 'committed'
-        ));
+        const pendingEmptyFrames = postClickTrace.frames.filter(
+            (frame) => frame.kind === 'committed-empty' && frame.openSurfacePhase === 'pending',
+        );
+        const firstReadyFrame = postClickTrace.frames.find(
+            (frame) => frame.openSurfacePhase === 'ready' && frame.openSurfacePresentation === 'committed',
+        );
         const stalePostReadyFrames = firstReadyFrame
-            ? postClickTrace.frames.filter(frame => (
-                frame.frame > firstReadyFrame.frame
-                && (
-                    frame.openSurfacePhase !== 'ready'
-                    || frame.openSurfacePresentation !== 'committed'
-                )
-            ))
+            ? postClickTrace.frames.filter(
+                  (frame) =>
+                      frame.frame > firstReadyFrame.frame &&
+                      (frame.openSurfacePhase !== 'ready' || frame.openSurfacePresentation !== 'committed'),
+              )
             : [];
-        console.info('[E2E recent DjVu open timing]', JSON.stringify({
-            diagnostic,
-            firstReadyMs: firstReadyFrame?.elapsedMs ?? null,
-            pendingEmptyFrames: pendingEmptyFrames.length,
-            timing,
-        }));
+        console.info(
+            '[E2E recent DjVu open timing]',
+            JSON.stringify({
+                diagnostic,
+                firstReadyMs: firstReadyFrame?.elapsedMs ?? null,
+                pendingEmptyFrames: pendingEmptyFrames.length,
+                timing,
+            }),
+        );
         expect(clickFrame, JSON.stringify(trace.frames)).toBeDefined();
         expect(pendingEmptyFrames.length, JSON.stringify(pendingEmptyFrames)).toBeLessThanOrEqual(2);
         expect(firstReadyFrame, JSON.stringify(postClickTrace.frames)).toBeDefined();
@@ -3083,41 +2992,36 @@ runDjvuBlockingOrSkip('Electron E2E - PR Blocking DjVu Committed Surface', () =>
             }),
         ).toEqual([]);
 
-        for (const targetPage of [
-            2,
-            1,
-        ]) {
+        for (const targetPage of [2, 1]) {
             // This lane owns the DjVu committed-surface/navigation contract.
             // The PDF toolbar's transient inline editor is covered separately
             // and is not a valid prerequisite for page-source navigation.
-            await requireWorkspaceCommand(
+            await requireWorkspaceCommand(session.page, 'handleGoToPage', [targetPage]);
+            await waitForFunctionInPage(
                 session.page,
-                'handleGoToPage',
-                [targetPage],
+                (pageNumber: number) => {
+                    const host = document.querySelector<HTMLElement>(
+                        '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
+                    );
+                    const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
+                    const page =
+                        host?.querySelector<HTMLElement>(
+                            `[data-testid="document-page-source-page"][data-page-number="${String(pageNumber)}"]`,
+                        ) ?? null;
+                    const image = page?.querySelector<HTMLImageElement>(':scope > [data-testid="document-page-source-image"]') ?? null;
+                    return Boolean(
+                        page?.dataset.pageSourceVisual === 'fresh' &&
+                        image?.complete &&
+                        image.naturalWidth > 0 &&
+                        image.naturalHeight > 0 &&
+                        !page.querySelector('.document-source-viewer__skeleton') &&
+                        !page.querySelector('[role="alert"]') &&
+                        viewport?.dataset.openSurfacePhase === 'ready',
+                    );
+                },
+                {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS},
+                targetPage,
             );
-            await waitForFunctionInPage(session.page, (pageNumber: number) => {
-                const host = document.querySelector<HTMLElement>(
-                    '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-                );
-                const viewport = host?.querySelector<HTMLElement>(
-                    '[data-document-viewer-chassis-viewport]',
-                ) ?? null;
-                const page = host?.querySelector<HTMLElement>(
-                    `[data-testid="document-page-source-page"][data-page-number="${String(pageNumber)}"]`,
-                ) ?? null;
-                const image = page?.querySelector<HTMLImageElement>(
-                    ':scope > [data-testid="document-page-source-image"]',
-                ) ?? null;
-                return Boolean(
-                    page?.dataset.pageSourceVisual === 'fresh'
-                    && image?.complete
-                    && image.naturalWidth > 0
-                    && image.naturalHeight > 0
-                    && !page.querySelector('.document-source-viewer__skeleton')
-                    && !page.querySelector('[role="alert"]')
-                    && viewport?.dataset.openSurfacePhase === 'ready',
-                );
-            }, {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, targetPage);
         }
     });
 });

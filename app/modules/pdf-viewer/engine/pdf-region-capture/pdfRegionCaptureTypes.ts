@@ -1,4 +1,4 @@
-import type { IClientRect } from '@app/modules/document-viewer/public';
+import type {IClientRect} from '@app/modules/document-viewer/public';
 
 export interface ICanvasSource {
     canvas: HTMLCanvasElement;
@@ -23,9 +23,16 @@ export interface IPdfRegionPaintCapture {
 
 export interface IPdfViewerRegionCaptureExpose {
     captureRegionToClipboard: () => Promise<boolean>;
-    captureVisibleRegionAsPng?: (selection: IClientRect, assertCurrent?: () => void) => Promise<{
-        blob: Blob;
-        outputRect: IClientRect
-    } | null | undefined>;
+    captureVisibleRegionAsPng?: (
+        selection: IClientRect,
+        assertCurrent?: () => void,
+    ) => Promise<
+        | {
+              blob: Blob;
+              outputRect: IClientRect;
+          }
+        | null
+        | undefined
+    >;
     isCapturingRegion: boolean;
 }

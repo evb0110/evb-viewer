@@ -1,11 +1,4 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {ref} from 'vue';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -92,11 +85,9 @@ describe('useFatalRuntimeError', () => {
     it('rejects the removed receipt-free signature at runtime', async () => {
         const fatal = await createFatalRuntimeError();
 
-        expect(() => Reflect.apply(fatal.setFatalRuntimeError, null, [
-            'runtime',
-            new Error('legacy failure'),
-            'legacy-source',
-        ])).toThrow(TypeError);
+        expect(() => Reflect.apply(fatal.setFatalRuntimeError, null, ['runtime', new Error('legacy failure'), 'legacy-source'])).toThrow(
+            TypeError,
+        );
         expect(fatal.fatalRuntimeError.value).toBeNull();
     });
 });

@@ -1,5 +1,5 @@
-import type { IDjvuPageSize } from '@contracts/electronApiDjvu';
-import type { IDjvuWorker } from '@app/platform/browser-api/browserDjvuWorkerClient';
+import type {IDjvuPageSize} from '@contracts/electronApiDjvu';
+import type {IDjvuWorker} from '@app/platform/browser-api/browserDjvuWorkerClient';
 import {
     isIndirectDjvuHeader,
     parseDjvuPageHead,
@@ -9,16 +9,8 @@ import {
     type TDjvuRangeReader,
 } from '@djvu-core/djvuSourceLayout';
 
-export {
-    isIndirectDjvuHeader,
-    parseDjvuPageHead,
-    readDjvuSourceLayout as readBrowserDjvuSourceLayout,
-};
-export type {
-    IDjvuComponentFiles,
-    IDjvuSourceLayout as IBrowserDjvuSourceLayout,
-    TDjvuRangeReader,
-};
+export {isIndirectDjvuHeader, parseDjvuPageHead, readDjvuSourceLayout as readBrowserDjvuSourceLayout};
+export type {IDjvuComponentFiles, IDjvuSourceLayout as IBrowserDjvuSourceLayout, TDjvuRangeReader};
 
 const workerPageTables = new WeakMap<IDjvuWorker, IDjvuPageSize[]>();
 
@@ -33,7 +25,5 @@ export function setDjvuWorkerPageSizes(worker: IDjvuWorker, pageSizes: IDjvuPage
  */
 export function getDjvuWorkerPageSizes(worker: IDjvuWorker): Promise<IDjvuPageSize[]> {
     const pageSizes = workerPageTables.get(worker);
-    return pageSizes
-        ? Promise.resolve(pageSizes)
-        : Promise.reject(new Error('The DjVu worker was not opened by createDjvuWorkerFromPath'));
+    return pageSizes ? Promise.resolve(pageSizes) : Promise.reject(new Error('The DjVu worker was not opened by createDjvuWorkerFromPath'));
 }

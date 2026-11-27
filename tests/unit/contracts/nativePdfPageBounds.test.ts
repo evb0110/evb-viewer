@@ -1,27 +1,24 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    isPdfNativeNormalizedBoxInsidePageBounds,
-    isPdfNativeNormalizedRectInsidePageBounds,
-} from '@contracts/nativePdfPageBounds';
+import {describe, expect, it} from 'vitest';
+import {isPdfNativeNormalizedBoxInsidePageBounds, isPdfNativeNormalizedRectInsidePageBounds} from '@contracts/nativePdfPageBounds';
 
 describe('native PDF normalized page bounds', () => {
     it('accepts rectangles and boxes that exactly fit inside normalized page bounds', () => {
-        expect(isPdfNativeNormalizedRectInsidePageBounds({
-            left: 0,
-            top: 0,
-            width: 1,
-            height: 1,
-        })).toBe(true);
-        expect(isPdfNativeNormalizedBoxInsidePageBounds({
-            x: 0.25,
-            y: 0.5,
-            width: 0.75,
-            height: 0.5,
-        })).toBe(true);
+        expect(
+            isPdfNativeNormalizedRectInsidePageBounds({
+                left: 0,
+                top: 0,
+                width: 1,
+                height: 1,
+            }),
+        ).toBe(true);
+        expect(
+            isPdfNativeNormalizedBoxInsidePageBounds({
+                x: 0.25,
+                y: 0.5,
+                width: 0.75,
+                height: 0.5,
+            }),
+        ).toBe(true);
     });
 
     it.each([

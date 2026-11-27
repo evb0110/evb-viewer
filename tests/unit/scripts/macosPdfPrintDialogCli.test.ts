@@ -1,12 +1,7 @@
-import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
-import {
-    beforeAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { resolvePlatformArchTag } from '@electron/utils/platformArch';
+import {spawnSync} from 'node:child_process';
+import {resolve} from 'node:path';
+import {beforeAll, describe, expect, it} from 'vitest';
+import {resolvePlatformArchTag} from '@electron/utils/platformArch';
 
 const macOsDescribe = process.platform === 'darwin' ? describe : describe.skip;
 const helperPath = resolve(

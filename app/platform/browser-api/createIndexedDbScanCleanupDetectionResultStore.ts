@@ -1,7 +1,4 @@
-import type {
-    IScanCleanupDetectionResult,
-    TScanCleanupLayoutByPage,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import type {IScanCleanupDetectionResult, TScanCleanupLayoutByPage} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import type {createMemoryScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/createMemoryScanCleanupDetectionResultStore';
 import {
@@ -54,12 +51,18 @@ function lockManager() {
  */
 async function deleteOrphanedDatabases(factory: IDBFactory, ownName: string) {
     const locks = lockManager();
-    if (locks === null || typeof factory.databases !== 'function') return;
+    if (locks === null || typeof factory.databases !== 'function') {
+        return;
+    }
     const databases = await factory.databases().catch(() => []);
     for (const {name} of databases) {
-        if (name === undefined || name === ownName || !name.startsWith(DATABASE_PREFIX)) continue;
-        await locks.request(name, {ifAvailable: true}, async lock => {
-            if (lock === null) return;
+        if (name === undefined || name === ownName || !name.startsWith(DATABASE_PREFIX)) {
+            continue;
+        }
+        await locks.request(name, {ifAvailable: true}, async (lock) => {
+            if (lock === null) {
+                return;
+            }
             await request(factory.deleteDatabase(name)).catch(() => undefined);
         });
     }
@@ -88,10 +91,7 @@ function openWindowDatabase() {
         await deleteOrphanedDatabases(factory, name);
         const open = factory.open(name, 1);
         open.onupgradeneeded = () => {
-            open.result.createObjectStore(RECORDS_STORE, {keyPath: [
-                'storeId',
-                'pageNumber',
-            ]});
+            open.result.createObjectStore(RECORDS_STORE, {keyPath: ['storeId', 'pageNumber']});
         };
         return request(open);
     })();
@@ -124,18 +124,22 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
     let operation = Promise.resolve();
     const enqueue = <T>(task: () => Promise<T>) => {
         const next = operation.then(task);
-        operation = next.then(() => undefined, () => undefined);
+        operation = next.then(
+            () => undefined,
+            () => undefined,
+        );
         return next;
     };
     const assertOpen = () => {
-        if (closed) throw new Error('Scan cleanup result store is closed');
+        if (closed) {
+            throw new Error('Scan cleanup result store is closed');
+        }
     };
     const flush = async () => {
-        if (pending.size === 0) return;
-        const rows: IRecordRow[] = [...pending].map(([
-            pageNumber,
-            record,
-        ]) => ({
+        if (pending.size === 0) {
+            return;
+        }
+        const rows: IRecordRow[] = [...pending].map(([pageNumber, record]) => ({
             storeId,
             pageNumber,
             record,
@@ -143,7 +147,9 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
         pending.clear();
         const transaction = database.transaction(RECORDS_STORE, 'readwrite');
         const store = transaction.objectStore(RECORDS_STORE);
-        for (const row of rows) store.put(row);
+        for (const row of rows) {
+            store.put(row);
+        }
         await transactionDone(transaction);
     };
     const write = async (pageNumber: number, result: IScanCleanupDetectionResult, requireExisting: boolean) => {
@@ -160,57 +166,59 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
             present[pageNumber] = 1;
             resultCount += 1;
         }
-        if (pending.size >= WRITE_BATCH_RECORDS) await flush();
+        if (pending.size >= WRITE_BATCH_RECORDS) {
+            await flush();
+        }
     };
     const readRange = async (firstPageNumber: number, lastPageNumberExclusive: number) => {
         assertReadWindow(firstPageNumber, lastPageNumberExclusive, pageCount, maxReadPages);
         await flush();
-        if (lastPageNumberExclusive === firstPageNumber) return [];
+        if (lastPageNumberExclusive === firstPageNumber) {
+            return [];
+        }
         const transaction = database.transaction(RECORDS_STORE, 'readonly');
-        const rows = await request(transaction.objectStore(RECORDS_STORE).getAll(IDBKeyRange.bound(
-            [
-                storeId,
-                firstPageNumber,
-            ],
-            [
-                storeId,
-                lastPageNumberExclusive - 1,
-            ],
-        ))) as IRecordRow[];
-        return rows.map(row => JSON.parse(row.record) as IScanCleanupDetectionResult);
+        const rows = (await request(
+            transaction
+                .objectStore(RECORDS_STORE)
+                .getAll(IDBKeyRange.bound([storeId, firstPageNumber], [storeId, lastPageNumberExclusive - 1])),
+        )) as IRecordRow[];
+        return rows.map((row) => JSON.parse(row.record) as IScanCleanupDetectionResult);
     };
     const readPage = async (pageNumber: number) => {
         assertOpen();
         assertPageNumber(pageNumber, pageCount);
-        if (present[pageNumber] !== 1) return undefined;
+        if (present[pageNumber] !== 1) {
+            return undefined;
+        }
         const buffered = pending.get(pageNumber);
-        if (buffered !== undefined) return JSON.parse(buffered) as IScanCleanupDetectionResult;
+        if (buffered !== undefined) {
+            return JSON.parse(buffered) as IScanCleanupDetectionResult;
+        }
         const transaction = database.transaction(RECORDS_STORE, 'readonly');
-        const row = await request(transaction.objectStore(RECORDS_STORE).get([
-            storeId,
-            pageNumber,
-        ])) as IRecordRow | undefined;
-        return row === undefined ? undefined : JSON.parse(row.record) as IScanCleanupDetectionResult;
+        const row = (await request(transaction.objectStore(RECORDS_STORE).get([storeId, pageNumber]))) as IRecordRow | undefined;
+        return row === undefined ? undefined : (JSON.parse(row.record) as IScanCleanupDetectionResult);
     };
     return {
         pageCount,
         get resultCount() {
             return resultCount;
         },
-        append: result => enqueue(() => write(result.pageNumber, result, false)),
+        append: (result) => enqueue(() => write(result.pageNumber, result, false)),
         replace: (pageNumber, result) => enqueue(() => write(pageNumber, result, true)),
-        getPage: pageNumber => enqueue(() => readPage(pageNumber)),
-        readPreviewSnapshot: (pageNumber, includeLayouts) => enqueue(async () => ({
-            page: await readPage(pageNumber),
-            layoutByPage: includeLayouts ? {...layoutByPage} : {},
-        })),
-        readRange: (firstPageNumber, lastPageNumberExclusive) => enqueue(async () => {
-            assertOpen();
-            return readRange(firstPageNumber, lastPageNumberExclusive);
-        }),
+        getPage: (pageNumber) => enqueue(() => readPage(pageNumber)),
+        readPreviewSnapshot: (pageNumber, includeLayouts) =>
+            enqueue(async () => ({
+                page: await readPage(pageNumber),
+                layoutByPage: includeLayouts ? {...layoutByPage} : {},
+            })),
+        readRange: (firstPageNumber, lastPageNumberExclusive) =>
+            enqueue(async () => {
+                assertOpen();
+                return readRange(firstPageNumber, lastPageNumberExclusive);
+            }),
         // Each chunk is its own queued read, handed to `onChunk` outside the
         // queue, so previews and writes are not held behind a long pass.
-        forEachChunk: async onChunk => {
+        forEachChunk: async (onChunk) => {
             assertOpen();
             for (let firstPageNumber = 1; firstPageNumber <= pageCount; firstPageNumber += maxReadPages) {
                 const lastPageNumberExclusive = Math.min(pageCount + 1, firstPageNumber + maxReadPages);
@@ -221,24 +229,20 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
                 await onChunk(results, firstPageNumber);
             }
         },
-        close: () => enqueue(async () => {
-            if (closed) return;
-            closed = true;
-            pending.clear();
-            layoutByPage = {};
-            if (pageCount === 0) return;
-            const transaction = database.transaction(RECORDS_STORE, 'readwrite');
-            transaction.objectStore(RECORDS_STORE).delete(IDBKeyRange.bound(
-                [
-                    storeId,
-                    1,
-                ],
-                [
-                    storeId,
-                    pageCount,
-                ],
-            ));
-            await transactionDone(transaction).catch(() => undefined);
-        }),
+        close: () =>
+            enqueue(async () => {
+                if (closed) {
+                    return;
+                }
+                closed = true;
+                pending.clear();
+                layoutByPage = {};
+                if (pageCount === 0) {
+                    return;
+                }
+                const transaction = database.transaction(RECORDS_STORE, 'readwrite');
+                transaction.objectStore(RECORDS_STORE).delete(IDBKeyRange.bound([storeId, 1], [storeId, pageCount]));
+                await transactionDone(transaction).catch(() => undefined);
+            }),
     };
 }

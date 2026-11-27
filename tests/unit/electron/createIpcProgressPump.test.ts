@@ -1,11 +1,5 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { createIpcProgressPump } from '@electron/utils/createIpcProgressPump';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createIpcProgressPump} from '@electron/utils/createIpcProgressPump';
 
 interface ITestProgress {
     requestId: string;
@@ -24,8 +18,8 @@ describe('createIpcProgressPump replay', () => {
         const pump = createIpcProgressPump<ITestProgress>({
             channel: 'test:progress',
             getTarget: () => ({send: primarySend}),
-            getKey: progress => progress.requestId,
-            isTerminal: progress => progress.phase === 'complete',
+            getKey: (progress) => progress.requestId,
+            isTerminal: (progress) => progress.phase === 'complete',
             intervalMs: 100,
         });
 
@@ -90,8 +84,8 @@ describe('createIpcProgressPump replay', () => {
         const pump = createIpcProgressPump<ITestProgress>({
             channel: 'test:progress',
             getTarget: () => ({send: primarySend}),
-            getKey: progress => progress.requestId,
-            isTerminal: progress => progress.phase === 'complete',
+            getKey: (progress) => progress.requestId,
+            isTerminal: (progress) => progress.phase === 'complete',
             terminalRetentionMs: 30_000,
             onIdle,
         });
@@ -127,8 +121,8 @@ describe('createIpcProgressPump replay', () => {
                 key: 'sender:1',
                 send: primarySend,
             }),
-            getKey: progress => progress.requestId,
-            isTerminal: progress => progress.phase === 'complete',
+            getKey: (progress) => progress.requestId,
+            isTerminal: (progress) => progress.phase === 'complete',
             intervalMs: 100,
         });
 
@@ -169,8 +163,8 @@ describe('createIpcProgressPump replay', () => {
         const pump = createIpcProgressPump<ITestProgress>({
             channel: 'test:progress',
             getTarget: () => null,
-            getKey: progress => progress.requestId,
-            isTerminal: progress => progress.phase === 'complete',
+            getKey: (progress) => progress.requestId,
+            isTerminal: (progress) => progress.phase === 'complete',
         });
 
         pump.replay({key: 'sender:2', send: otherSend});
@@ -188,14 +182,16 @@ describe('createIpcProgressPump replay', () => {
         const replaySend = vi.fn();
         let replay = [{requestId: 'external', phase: 'active', value: 7}] satisfies ITestProgress[];
         const pump = createIpcProgressPump<ITestProgress>({
-            channel: 'test:progress', getTarget: () => null,
-            getKey: progress => progress.requestId,
+            channel: 'test:progress',
+            getTarget: () => null,
+            getKey: (progress) => progress.requestId,
             replayMode: {kind: 'external', getReplayPayloads: () => replay},
         });
         pump.enqueue({requestId: 'not-retained-internally', phase: 'active', value: 1});
         pump.replay({send: replaySend});
         expect(replaySend.mock.calls).toEqual([['test:progress', replay[0]]]);
-        replaySend.mockClear(); replay = [];
+        replaySend.mockClear();
+        replay = [];
         pump.replay({send: replaySend});
         expect(replaySend).not.toHaveBeenCalled();
     });

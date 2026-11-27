@@ -1,31 +1,12 @@
-import {
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    AVAILABLE_OCR_LANGUAGES,
-    BUNDLED_OCR_LANGUAGE_CODES,
-    BUNDLED_OCR_LANGUAGE_CODE_SET,
-} from '@contracts/ocrLanguages';
-import {
-    createElectronBuilderResourcePlan,
-    renderElectronBuilderResources,
-} from '@scripts/generateElectronBuilderResources';
-import { generateBuildArtifacts } from '@scripts/generateBuildArtifacts';
-import {
-    generateReleaseTargetManifest,
-    renderReleaseTargetManifest,
-} from '@scripts/generateReleaseTargetManifest';
-import { NATIVE_TOOL_RESOURCE_FAMILIES } from '@scripts/nativeResourceManifest';
+import {describe, expect, it} from 'vitest';
+import {AVAILABLE_OCR_LANGUAGES, BUNDLED_OCR_LANGUAGE_CODES, BUNDLED_OCR_LANGUAGE_CODE_SET} from '@contracts/ocrLanguages';
+import {createElectronBuilderResourcePlan, renderElectronBuilderResources} from '@scripts/generateElectronBuilderResources';
+import {generateBuildArtifacts} from '@scripts/generateBuildArtifacts';
+import {generateReleaseTargetManifest, renderReleaseTargetManifest} from '@scripts/generateReleaseTargetManifest';
+import {NATIVE_TOOL_RESOURCE_FAMILIES} from '@scripts/nativeResourceManifest';
 import {
     generateFirstUnsupportedAnnotationCharacter,
     renderFirstUnsupportedAnnotationCharacter,
@@ -34,23 +15,26 @@ import {
 
 describe('build artifact generation', () => {
     it('honors the explicit once-only preparation boundary', async () => {
-        await expect(generateBuildArtifacts({
-            env: {EVB_BUILD_ARTIFACTS_PREPARED: '1'},
-            projectRoot: path.join(tmpdir(), `evb-prepared-artifacts-${process.pid}`),
-        })).resolves.toBe(false);
+        await expect(
+            generateBuildArtifacts({
+                env: {EVB_BUILD_ARTIFACTS_PREPARED: '1'},
+                projectRoot: path.join(tmpdir(), `evb-prepared-artifacts-${process.pid}`),
+            }),
+        ).resolves.toBe(false);
     });
 
     it('generates only web artifacts when Vercel omits desktop resources', async () => {
         const root = await mkdtemp(path.join(tmpdir(), 'evb-vercel-artifacts-'));
         try {
-            await expect(generateBuildArtifacts({
-                env: {VERCEL: '1'},
-                projectRoot: root,
-            })).resolves.toBe(false);
-            await expect(readFile(
-                path.join(root, '.tmp/generated-electron-builder-resources.yml'),
-                'utf8',
-            )).rejects.toMatchObject({code: 'ENOENT'});
+            await expect(
+                generateBuildArtifacts({
+                    env: {VERCEL: '1'},
+                    projectRoot: root,
+                }),
+            ).resolves.toBe(false);
+            await expect(readFile(path.join(root, '.tmp/generated-electron-builder-resources.yml'), 'utf8')).rejects.toMatchObject({
+                code: 'ENOENT',
+            });
         } finally {
             await rm(root, {
                 force: true,
@@ -79,29 +63,22 @@ describe('build artifact generation', () => {
         }
         for (const family of NATIVE_TOOL_RESOURCE_FAMILIES) {
             expect(family.packagedEntries, family.id).not.toHaveLength(0);
-            for (const platform of [
-                'darwin',
-                'linux',
-                'win32',
-            ] as const) {
+            for (const platform of ['darwin', 'linux', 'win32'] as const) {
                 const sourcePath = `${family.sourceRootSegments.join('/')}/${platform}-\${arch}`;
-                const isPackagedForPlatform = family.packagedEntries.some(entry => (
-                    !entry.platforms || entry.platforms.includes(platform)
-                ));
-
-                expect(rendered.includes(sourcePath), `${family.id} on ${platform}`).toBe(
-                    isPackagedForPlatform,
+                const isPackagedForPlatform = family.packagedEntries.some(
+                    (entry) => !entry.platforms || entry.platforms.includes(platform),
                 );
+
+                expect(rendered.includes(sourcePath), `${family.id} on ${platform}`).toBe(isPackagedForPlatform);
             }
         }
         expect(rendered).toContain('!share/poppler/CMakeLists.txt');
     });
 
     it('writes the release target manifest byte-stably and repairs generated drift', async () => {
-        await expect(readFile(
-            path.join(process.cwd(), 'scripts/release/generated-release-targets.cjs'),
-            'utf8',
-        )).resolves.toBe(renderReleaseTargetManifest());
+        await expect(readFile(path.join(process.cwd(), 'scripts/release/generated-release-targets.cjs'), 'utf8')).resolves.toBe(
+            renderReleaseTargetManifest(),
+        );
 
         const root = await mkdtemp(path.join(tmpdir(), 'evb-release-targets-'));
         try {
@@ -134,11 +111,7 @@ function format12(groups: ReadonlyArray<readonly [number, number, number]>) {
     buffer.writeUInt16BE(12, 0);
     buffer.writeUInt32BE(buffer.length, 4);
     buffer.writeUInt32BE(groups.length, 12);
-    groups.forEach(([
-        start,
-        end,
-        startGlyph,
-    ], index) => {
+    groups.forEach(([start, end, startGlyph], index) => {
         buffer.writeUInt32BE(start, 16 + index * 12);
         buffer.writeUInt32BE(end, 20 + index * 12);
         buffer.writeUInt32BE(startGlyph, 24 + index * 12);
@@ -158,30 +131,23 @@ function format4() {
     ]);
 }
 
-function sfnt(subtables: ReadonlyArray<{
-    platform: number;
-    encoding: number;
-    body: Buffer
-}>) {
+function sfnt(
+    subtables: ReadonlyArray<{
+        platform: number;
+        encoding: number;
+        body: Buffer;
+    }>,
+) {
     const cmapHeaderLength = 4 + subtables.length * 8;
     let offset = cmapHeaderLength;
-    const records = subtables.map(({
-        platform, encoding, body,
-    }) => {
+    const records = subtables.map(({platform, encoding, body}) => {
         const record = u16(platform, encoding);
         const offsetBuffer = Buffer.alloc(4);
         offsetBuffer.writeUInt32BE(offset, 0);
         offset += body.length;
-        return Buffer.concat([
-            record,
-            offsetBuffer,
-        ]);
+        return Buffer.concat([record, offsetBuffer]);
     });
-    const cmap = Buffer.concat([
-        u16(0, subtables.length),
-        ...records,
-        ...subtables.map(({body}) => body),
-    ]);
+    const cmap = Buffer.concat([u16(0, subtables.length), ...records, ...subtables.map(({body}) => body)]);
     const header = Buffer.alloc(12);
     header.writeUInt32BE(0x00010000, 0);
     header.writeUInt16BE(1, 4);
@@ -189,11 +155,7 @@ function sfnt(subtables: ReadonlyArray<{
     tableRecord.write('cmap', 0, 'latin1');
     tableRecord.writeUInt32BE(28, 8);
     tableRecord.writeUInt32BE(cmap.length, 12);
-    return Buffer.concat([
-        header,
-        tableRecord,
-        cmap,
-    ]);
+    return Buffer.concat([header, tableRecord, cmap]);
 }
 
 describe('first unsupported annotation character table generation', () => {
@@ -218,38 +180,17 @@ describe('first unsupported annotation character table generation', () => {
                 platform: 3,
                 encoding: 10,
                 body: format12([
-                    [
-                        0x41,
-                        0x41,
-                        1,
-                    ],
-                    [
-                        0x42,
-                        0x44,
-                        0,
-                    ],
-                    [
-                        0x1f600,
-                        0x1f600,
-                        5,
-                    ],
+                    [0x41, 0x41, 1],
+                    [0x42, 0x44, 0],
+                    [0x1f600, 0x1f600, 5],
                 ]),
             },
         ]);
 
         expect(unicodeRanges(font)).toEqual([
-            [
-                0x41,
-                0x41,
-            ],
-            [
-                0x43,
-                0x44,
-            ],
-            [
-                0x1f600,
-                0x1f600,
-            ],
+            [0x41, 0x41],
+            [0x43, 0x44],
+            [0x1f600, 0x1f600],
         ]);
     });
 
@@ -263,85 +204,63 @@ describe('first unsupported annotation character table generation', () => {
             {
                 platform: 0,
                 encoding: 5,
-                body: format12([[
-                    0x41,
-                    0x41,
-                    1,
-                ]]),
+                body: format12([[0x41, 0x41, 1]]),
             },
         ]);
 
         expect(unicodeRanges(font)).toEqual([
-            [
-                0x20,
-                0x22,
-            ],
-            [
-                0x51,
-                0x51,
-            ],
+            [0x20, 0x22],
+            [0x51, 0x51],
         ]);
     });
 
     it('reads a format 4 subtable through idRangeOffset glyph arrays and drops glyph 0 mappings', () => {
-        const font = sfnt([{
-            platform: 3,
-            encoding: 1,
-            body: format4(),
-        }]);
+        const font = sfnt([
+            {
+                platform: 3,
+                encoding: 1,
+                body: format4(),
+            },
+        ]);
 
         expect(unicodeRanges(font)).toEqual([
-            [
-                0x20,
-                0x22,
-            ],
-            [
-                0x51,
-                0x51,
-            ],
+            [0x20, 0x22],
+            [0x51, 0x51],
         ]);
     });
 
     it('refuses a symbol subtable because its codepoint mapping differs from the Unicode table', () => {
-        const font = sfnt([{
-            platform: 3,
-            encoding: 0,
-            body: format4(),
-        }]);
+        const font = sfnt([
+            {
+                platform: 3,
+                encoding: 0,
+                body: format4(),
+            },
+        ]);
 
         expect(() => unicodeRanges(font)).toThrow(/unsupported cmap subtable/);
     });
 
     it('merges updated font cmap coverage without duplicate ranges', () => {
-        const original = sfnt([{
-            platform: 3,
-            encoding: 10,
-            body: format12([[
-                0x41,
-                0x41,
-                1,
-            ]]),
-        }]);
-        const changed = sfnt([{
-            platform: 3,
-            encoding: 10,
-            body: format12([[
-                0x41,
-                0x42,
-                1,
-            ]]),
-        }]);
-
-        const originalTable = unicodeRanges(original);
-        const changedTable = unicodeRanges([
-            original,
-            changed,
+        const original = sfnt([
+            {
+                platform: 3,
+                encoding: 10,
+                body: format12([[0x41, 0x41, 1]]),
+            },
+        ]);
+        const changed = sfnt([
+            {
+                platform: 3,
+                encoding: 10,
+                body: format12([[0x41, 0x42, 1]]),
+            },
         ]);
 
+        const originalTable = unicodeRanges(original);
+        const changedTable = unicodeRanges([original, changed]);
+
         expect(changedTable).not.toEqual(originalTable);
-        expect(changedTable).toEqual([[
-            0x41,
-            0x42,
-        ]]);
+        expect(changedTable).toEqual([[0x41, 0x42]]);
     });
 });

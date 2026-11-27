@@ -1,38 +1,22 @@
 import type * as TJobBrokerModule from '@electron/resources/jobBroker';
-import {
-    mkdtemp,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    getUnprovenNativeTerminationDetail,
-    markUnprovenNativeTermination,
-} from '@electron/utils/nativeTerminationProof';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
     broker: null as TJobBrokerModule.JobBroker | null,
     runNativeToolCommand: vi.fn(),
 }));
 
-vi.mock('@electron/resources/jobBroker', async importOriginal => {
+vi.mock('@electron/resources/jobBroker', async (importOriginal) => {
     const actual = await importOriginal<typeof TJobBrokerModule>();
     return {
         ...actual,
         mainJobBroker: {
-            run: <T>(
-                request: TJobBrokerModule.IJobBrokerRequest,
-                work: (context: TJobBrokerModule.IJobBrokerRunContext) => Promise<T>,
-            ) => mocks.broker!.run(request, work),
+            run: <T>(request: TJobBrokerModule.IJobBrokerRequest, work: (context: TJobBrokerModule.IJobBrokerRunContext) => Promise<T>) =>
+                mocks.broker!.run(request, work),
         },
     };
 });
@@ -43,10 +27,8 @@ vi.mock('@electron/pdf/nativeToolPaths', () => ({
     getPdfNativeToolPaths: () => ({qpdf: '/mock/qpdf'}),
 }));
 
-const {
-    fingerprintFileWithUtilityProcess,
-    validateDocumentSaveStagingFile,
-} = await import('@electron/features/documents/main/fingerprintFileWithUtilityProcess');
+const {fingerprintFileWithUtilityProcess, validateDocumentSaveStagingFile} =
+    await import('@electron/features/documents/main/fingerprintFileWithUtilityProcess');
 const {verifyPdfTempFile} = await import('@electron/features/documents/main/verifyPdfTempFile');
 
 describe('in-process document save fingerprinting and validation', () => {
@@ -56,20 +38,20 @@ describe('in-process document save fingerprinting and validation', () => {
 
     beforeEach(async () => {
         vi.clearAllMocks();
-        const {
-            JobBroker,
-            MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
-            MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
-        } = await vi.importActual<typeof TJobBrokerModule>('@electron/resources/jobBroker');
-        mocks.broker = new JobBroker({
-            cpuTokens: 4,
-            estimatedResidentBytes: 1024 * 1024 * 1024,
-            nativeProcesses: 4,
-            ioWeight: 8,
-        }, {
-            maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
-            interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
-        });
+        const {JobBroker, MAIN_JOB_BROKER_INTERACTIVE_RESERVE, MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES} =
+            await vi.importActual<typeof TJobBrokerModule>('@electron/resources/jobBroker');
+        mocks.broker = new JobBroker(
+            {
+                cpuTokens: 4,
+                estimatedResidentBytes: 1024 * 1024 * 1024,
+                nativeProcesses: 4,
+                ioWeight: 8,
+            },
+            {
+                maxInteractiveJobResources: MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
+                interactiveReserve: MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
+            },
+        );
         dir = await mkdtemp(join(tmpdir(), 'evb-doc-save-inproc-'));
         pdfPath = join(dir, 'staged.pdf');
         await writeFile(pdfPath, samplePdf);
@@ -98,15 +80,20 @@ describe('in-process document save fingerprinting and validation', () => {
         const controller = new AbortController();
         controller.abort(new Error('save canceled before validation'));
 
-        await expect(validateDocumentSaveStagingFile({
-            type: 'validate',
-            sourcePath: pdfPath,
-            expectedBytes: Buffer.byteLength(samplePdf),
-            validationBinary: '/mock/qpdf',
-        }, {
-            timeoutMs: 1_000,
-            signal: controller.signal,
-        })).rejects.toThrow('save canceled before validation');
+        await expect(
+            validateDocumentSaveStagingFile(
+                {
+                    type: 'validate',
+                    sourcePath: pdfPath,
+                    expectedBytes: Buffer.byteLength(samplePdf),
+                    validationBinary: '/mock/qpdf',
+                },
+                {
+                    timeoutMs: 1_000,
+                    signal: controller.signal,
+                },
+            ),
+        ).rejects.toThrow('save canceled before validation');
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
     });
 

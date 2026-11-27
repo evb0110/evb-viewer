@@ -1,43 +1,37 @@
-import type { IOcrWord } from '@contracts/shared';
-import type { TOcrIndexRotation } from '@contracts/ocrIndex';
+import type {IOcrWord} from '@contracts/shared';
+import type {TOcrIndexRotation} from '@contracts/ocrIndex';
 
-export type TPdfjsTextOps = Partial<Record<
-    | 'save'
-    | 'restore'
-    | 'transform'
-    | 'beginText'
-    | 'endText'
-    | 'setCharSpacing'
-    | 'setWordSpacing'
-    | 'setHScale'
-    | 'setLeading'
-    | 'setFont'
-    | 'setTextRise'
-    | 'setTextMatrix'
-    | 'moveText'
-    | 'setLeadingMoveText'
-    | 'nextLine'
-    | 'showText'
-    | 'showSpacedText'
-    | 'nextLineShowText'
-    | 'nextLineSetSpacingShowText'
-    | 'paintFormXObjectBegin'
-    | 'paintFormXObjectEnd',
-    number
->>;
+export type TPdfjsTextOps = Partial<
+    Record<
+        | 'save'
+        | 'restore'
+        | 'transform'
+        | 'beginText'
+        | 'endText'
+        | 'setCharSpacing'
+        | 'setWordSpacing'
+        | 'setHScale'
+        | 'setLeading'
+        | 'setFont'
+        | 'setTextRise'
+        | 'setTextMatrix'
+        | 'moveText'
+        | 'setLeadingMoveText'
+        | 'nextLine'
+        | 'showText'
+        | 'showSpacedText'
+        | 'nextLineShowText'
+        | 'nextLineSetSpacingShowText'
+        | 'paintFormXObjectBegin'
+        | 'paintFormXObjectEnd',
+        number
+    >
+>;
 
 type TMatrix = [number, number, number, number, number, number];
 
 type TTypedArray =
-    | Int8Array
-    | Uint8Array
-    | Uint8ClampedArray
-    | Int16Array
-    | Uint16Array
-    | Int32Array
-    | Uint32Array
-    | Float32Array
-    | Float64Array;
+    Int8Array | Uint8Array | Uint8ClampedArray | Int16Array | Uint16Array | Int32Array | Uint32Array | Float32Array | Float64Array;
 
 interface ITextState {
     textMatrix: TMatrix;
@@ -95,17 +89,12 @@ export interface IPdfjsOperatorListLike {
     argsArray: ArrayLike<unknown>;
 }
 
-export interface IExtractPdfjsWordBoxOptions {throwIfAborted?: () => void;}
+export interface IExtractPdfjsWordBoxOptions {
+    throwIfAborted?: () => void;
+}
 
 function identityMatrix(): TMatrix {
-    return [
-        1,
-        0,
-        0,
-        1,
-        0,
-        0,
-    ];
+    return [1, 0, 0, 1, 0, 0];
 }
 
 function cloneMatrix(matrix: TMatrix): TMatrix {
@@ -113,17 +102,13 @@ function cloneMatrix(matrix: TMatrix): TMatrix {
 }
 
 function finiteNumber(value: unknown, fallback = 0) {
-    return typeof value === 'number' && Number.isFinite(value)
-        ? value
-        : fallback;
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function normalizePageRotation(value: unknown): TOcrIndexRotation {
     const finiteValue = finiteNumber(value, 0);
     const normalized = ((finiteValue % 360) + 360) % 360;
-    return normalized === 90 || normalized === 180 || normalized === 270
-        ? normalized
-        : 0;
+    return normalized === 90 || normalized === 180 || normalized === 270 ? normalized : 0;
 }
 
 function isUnknownArray(value: unknown): value is readonly unknown[] {
@@ -165,49 +150,20 @@ function matrixFromArgs(args: unknown): TMatrix | null {
 }
 
 function multiplyMatrices(left: TMatrix, right: TMatrix): TMatrix {
-    const [
-        a1,
-        b1,
-        c1,
-        d1,
-        e1,
-        f1,
-    ] = left;
-    const [
-        a2,
-        b2,
-        c2,
-        d2,
-        e2,
-        f2,
-    ] = right;
+    const [a1, b1, c1, d1, e1, f1] = left;
+    const [a2, b2, c2, d2, e2, f2] = right;
 
-    return [
-        a1 * a2 + c1 * b2,
-        b1 * a2 + d1 * b2,
-        a1 * c2 + c1 * d2,
-        b1 * c2 + d1 * d2,
-        a1 * e2 + c1 * f2 + e1,
-        b1 * e2 + d1 * f2 + f1,
-    ];
+    return [a1 * a2 + c1 * b2, b1 * a2 + d1 * b2, a1 * c2 + c1 * d2, b1 * c2 + d1 * d2, a1 * e2 + c1 * f2 + e1, b1 * e2 + d1 * f2 + f1];
 }
 
-function transformPoint(
-    matrix: TMatrix,
-    x: number,
-    y: number,
-) {
+function transformPoint(matrix: TMatrix, x: number, y: number) {
     return {
         x: matrix[0] * x + matrix[2] * y + matrix[4],
         y: matrix[1] * x + matrix[3] * y + matrix[5],
     };
 }
 
-function translateTextMatrix(
-    matrix: TMatrix,
-    x: number,
-    y: number,
-): TMatrix {
+function translateTextMatrix(matrix: TMatrix, x: number, y: number): TMatrix {
     return [
         matrix[0],
         matrix[1],
@@ -233,13 +189,8 @@ function createInitialTextState(): ITextState {
     };
 }
 
-export function getPdfjsPageViewBox(page: {
-    view?: unknown;
-    rotate?: unknown;
-}): IPdfjsPageViewBox {
-    const view = Array.isArray(page.view) || ArrayBuffer.isView(page.view)
-        ? Array.from(page.view as ArrayLike<unknown>)
-        : [];
+export function getPdfjsPageViewBox(page: {view?: unknown; rotate?: unknown}): IPdfjsPageViewBox {
+    const view = Array.isArray(page.view) || ArrayBuffer.isView(page.view) ? Array.from(page.view as ArrayLike<unknown>) : [];
     const xMin = finiteNumber(view[0], 0);
     const yMin = finiteNumber(view[1], 0);
     const xMax = finiteNumber(view[2], 0);
@@ -258,13 +209,7 @@ export function getPdfjsPageViewBox(page: {
     };
 }
 
-function createPageSpaceBox(
-    state: ITextState,
-    ctm: TMatrix,
-    glyphWidth: number,
-    glyphHeight: number,
-    pageBox: IPdfjsPageViewBox,
-) {
+function createPageSpaceBox(state: ITextState, ctm: TMatrix, glyphWidth: number, glyphHeight: number, pageBox: IPdfjsPageViewBox) {
     const textToPage = multiplyMatrices(ctm, state.textMatrix);
     // PDF text rise (Ts) shifts the glyph vertically in unscaled text space, so
     // superscripts/subscripts paint above/below the baseline. Offset the glyph's
@@ -277,24 +222,17 @@ function createPageSpaceBox(
         transformPoint(textToPage, glyphWidth, riseTop),
         transformPoint(textToPage, 0, riseTop),
     ];
-    const minX = Math.min(...corners.map(point => point.x));
-    const maxX = Math.max(...corners.map(point => point.x));
-    const minY = Math.min(...corners.map(point => point.y));
-    const maxY = Math.max(...corners.map(point => point.y));
+    const minX = Math.min(...corners.map((point) => point.x));
+    const maxX = Math.max(...corners.map((point) => point.x));
+    const minY = Math.min(...corners.map((point) => point.y));
+    const maxY = Math.max(...corners.map((point) => point.y));
 
     const x = minX - pageBox.xMin;
     const y = pageBox.yMax - maxY;
     const width = maxX - minX;
     const height = maxY - minY;
 
-    if (
-        !Number.isFinite(x)
-        || !Number.isFinite(y)
-        || !Number.isFinite(width)
-        || !Number.isFinite(height)
-        || width <= 0
-        || height <= 0
-    ) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
         return null;
     }
 
@@ -306,10 +244,7 @@ function createPageSpaceBox(
     };
 }
 
-function extendActiveWord(
-    activeWord: IActiveWord | null,
-    glyph: IIndexedGlyphBox,
-) {
+function extendActiveWord(activeWord: IActiveWord | null, glyph: IIndexedGlyphBox) {
     const word = activeWord ?? {
         text: '',
         minX: Number.POSITIVE_INFINITY,
@@ -331,16 +266,8 @@ function extendActiveWord(
     return word;
 }
 
-function flushActiveWord(
-    words: IOcrWord[],
-    activeWord: IActiveWord | null,
-) {
-    if (
-        !activeWord
-        || activeWord.text.trim().length === 0
-        || activeWord.maxX <= activeWord.minX
-        || activeWord.maxY <= activeWord.minY
-    ) {
+function flushActiveWord(words: IOcrWord[], activeWord: IActiveWord | null) {
+    if (!activeWord || activeWord.text.trim().length === 0 || activeWord.maxX <= activeWord.minX || activeWord.maxY <= activeWord.minY) {
         return null;
     }
 
@@ -377,20 +304,14 @@ function getGlyphWidth(glyph: unknown) {
     return finiteNumber((glyph as Record<string, unknown>).width, 0);
 }
 
-function isGlyphSpace(
-    glyph: unknown,
-    text: string,
-) {
+function isGlyphSpace(glyph: unknown, text: string) {
     if (glyph && typeof glyph === 'object' && (glyph as Record<string, unknown>).isSpace === true) {
         return true;
     }
     return text.length > 0 && text.trim().length === 0;
 }
 
-function advanceText(
-    state: ITextState,
-    amount: number,
-) {
+function advanceText(state: ITextState, amount: number) {
     state.textMatrix = translateTextMatrix(state.textMatrix, amount, 0);
 }
 
@@ -409,7 +330,7 @@ function showGlyphArray(
 
     for (const glyph of glyphs) {
         if (typeof glyph === 'number') {
-            advanceText(state, -glyph / 1000 * fontSize * hScale);
+            advanceText(state, (-glyph / 1000) * fontSize * hScale);
             // A wide TJ gap separates words as any move does; kerning stays
             // inside the word under the same pen-distance rule.
             state.repositioned = true;
@@ -420,7 +341,7 @@ function showGlyphArray(
         }
 
         const text = getGlyphText(glyph);
-        const glyphWidth = getGlyphWidth(glyph) / 1000 * fontSize * hScale;
+        const glyphWidth = (getGlyphWidth(glyph) / 1000) * fontSize * hScale;
         const spaceGlyph = isGlyphSpace(glyph, text);
         const textToPage = multiplyMatrices(ctm, state.textMatrix);
         if (state.repositioned && nextActiveWord) {
@@ -429,7 +350,11 @@ function showGlyphArray(
             const dy = origin.y - nextActiveWord.penY;
             const run = Math.hypot(textToPage[0], textToPage[1]) || 1;
             const limit = MAX_WORD_GLYPH_GAP_EM * nextActiveWord.emSize;
-            if ((dx * textToPage[0] + dy * textToPage[1]) / run > limit || (dx * textToPage[0] + dy * textToPage[1]) / run < -nextActiveWord.emSize || Math.abs(dx * textToPage[1] - dy * textToPage[0]) / run > limit) {
+            if (
+                (dx * textToPage[0] + dy * textToPage[1]) / run > limit ||
+                (dx * textToPage[0] + dy * textToPage[1]) / run < -nextActiveWord.emSize ||
+                Math.abs(dx * textToPage[1] - dy * textToPage[0]) / run > limit
+            ) {
                 nextActiveWord = flushActiveWord(words, nextActiveWord);
             }
         }
@@ -479,10 +404,7 @@ function showTextArgument(
     return showGlyphArray(value, state, ctm, pageBox, words, activeWord);
 }
 
-function setTextMatrixFromArgs(
-    state: ITextState,
-    args: readonly unknown[],
-) {
+function setTextMatrixFromArgs(state: ITextState, args: readonly unknown[]) {
     const matrix = matrixFromArgs(args);
     if (!matrix) {
         return;
@@ -491,11 +413,7 @@ function setTextMatrixFromArgs(
     state.lineMatrix = cloneMatrix(matrix);
 }
 
-function moveText(
-    state: ITextState,
-    x: number,
-    y: number,
-) {
+function moveText(state: ITextState, x: number, y: number) {
     state.lineMatrix = translateTextMatrix(state.lineMatrix, x, y);
     state.textMatrix = cloneMatrix(state.lineMatrix);
 }
@@ -515,7 +433,9 @@ export function extractPdfjsWordBoxesFromOperatorList(
     let ctm = identityMatrix();
     // q saves the text parameters with the CTM; the text matrices are not
     // part of the graphics state.
-    const graphicsStack: Array<{ctm: TMatrix} & Pick<ITextState, 'fontSize' | 'hScale' | 'charSpacing' | 'wordSpacing' | 'leading' | 'textRise'>> = [];
+    const graphicsStack: Array<
+        {ctm: TMatrix} & Pick<ITextState, 'fontSize' | 'hScale' | 'charSpacing' | 'wordSpacing' | 'leading' | 'textRise'>
+    > = [];
     let activeWord: IActiveWord | null = null;
 
     for (let index = 0; index < operatorList.fnArray.length; index += 1) {
@@ -529,7 +449,9 @@ export function extractPdfjsWordBoxesFromOperatorList(
             case ops.paintFormXObjectBegin: {
                 // A Form draws inside its own saved state, under its matrix.
                 const formMatrix = op === ops.paintFormXObjectBegin ? matrixFromArgs(args[0]) : null;
-                if (op === ops.paintFormXObjectBegin) activeWord = flushActiveWord(words, activeWord);
+                if (op === ops.paintFormXObjectBegin) {
+                    activeWord = flushActiveWord(words, activeWord);
+                }
                 graphicsStack.push({
                     ctm: cloneMatrix(ctm),
                     fontSize: state.fontSize,
@@ -539,7 +461,9 @@ export function extractPdfjsWordBoxesFromOperatorList(
                     leading: state.leading,
                     textRise: state.textRise,
                 });
-                if (formMatrix) ctm = multiplyMatrices(ctm, formMatrix);
+                if (formMatrix) {
+                    ctm = multiplyMatrices(ctm, formMatrix);
+                }
                 break;
             }
             case ops.restore:

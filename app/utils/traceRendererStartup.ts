@@ -23,7 +23,7 @@ function getStartupState() {
         return null;
     }
 
-    const startupWindow = window as Window & {[STARTUP_STATE_KEY]?: IRendererStartupState;};
+    const startupWindow = window as Window & {[STARTUP_STATE_KEY]?: IRendererStartupState};
 
     startupWindow[STARTUP_STATE_KEY] ??= {
         sequence: 0,
@@ -39,7 +39,7 @@ function isStartupTraceEnabled() {
         return false;
     }
 
-    const startupWindow = window as Window & {[STARTUP_TRACE_ENABLED_KEY]?: boolean;};
+    const startupWindow = window as Window & {[STARTUP_TRACE_ENABLED_KEY]?: boolean};
     if (typeof startupWindow[STARTUP_TRACE_ENABLED_KEY] === 'boolean') {
         return startupWindow[STARTUP_TRACE_ENABLED_KEY];
     }
@@ -48,7 +48,7 @@ function isStartupTraceEnabled() {
 }
 
 function getStartupEvents() {
-    const startupWindow = window as Window & {[STARTUP_TRACE_EVENTS_KEY]?: IStartupTraceEvent[];};
+    const startupWindow = window as Window & {[STARTUP_TRACE_EVENTS_KEY]?: IStartupTraceEvent[]};
 
     startupWindow[STARTUP_TRACE_EVENTS_KEY] ??= [];
 
@@ -84,9 +84,9 @@ export function traceRendererStartup(stage: string, details?: Record<string, unk
     const sinceStartupMs = Math.round(nowPerfMs - state.startedAtPerfMs);
 
     console.info(
-        `[${nowIso}] [startup][renderer][${state.sequence}] ${stage} `
-        + `(+${sinceStartupMs}ms from renderer-start, +${Math.round(nowPerfMs)}ms from navigationStart)`
-        + stringifyDetails(details),
+        `[${nowIso}] [startup][renderer][${state.sequence}] ${stage} ` +
+            `(+${sinceStartupMs}ms from renderer-start, +${Math.round(nowPerfMs)}ms from navigationStart)` +
+            stringifyDetails(details),
     );
 
     const events = getStartupEvents();

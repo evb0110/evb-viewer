@@ -1,34 +1,12 @@
-import type {
-    IReleaseInstaller,
-    IUserAgentProfile,
-    TReleaseArch,
-    TReleasePlatform,
-} from '@contracts/release';
-import {
-    groupBy,
-    orderBy,
-    uniq,
-} from 'es-toolkit/array';
+import type {IReleaseInstaller, IUserAgentProfile, TReleaseArch, TReleasePlatform} from '@contracts/release';
+import {groupBy, orderBy, uniq} from 'es-toolkit/array';
 
 // The shipped installers: macOS DMG, Windows NSIS EXE and Linux DEB. Older
 // releases also carry AppImage, Intel ZIP and Windows 7 legacy assets, which
 // the download page no longer offers.
-const INSTALLER_EXTENSIONS = new Set([
-    'deb',
-    'dmg',
-    'exe',
-]);
+const INSTALLER_EXTENSIONS = new Set(['deb', 'dmg', 'exe']);
 
-const NON_INSTALLER_SUFFIXES = [
-    '.blockmap',
-    '.sha256',
-    '.sha512',
-    '.sig',
-    '.txt',
-    '.xml',
-    '.yml',
-    '.yaml',
-];
+const NON_INSTALLER_SUFFIXES = ['.blockmap', '.sha256', '.sha512', '.sig', '.txt', '.xml', '.yml', '.yaml'];
 
 const UNSUPPORTED_BROWSER_PLATFORM_PATTERN = /(^|[^a-z0-9])(android|chrome\s*os|cros|ios|ipados|ipad|iphone|ipod|mobile)([^a-z0-9]|$)/i;
 
@@ -36,22 +14,13 @@ function isUnsupportedBrowserPlatform(value: string) {
     return UNSUPPORTED_BROWSER_PLATFORM_PATTERN.test(value);
 }
 
-export const INSTALLER_PLATFORM_ORDER = [
-    'macos',
-    'windows',
-    'linux',
-    'unknown',
-] as const satisfies readonly TReleasePlatform[];
+export const INSTALLER_PLATFORM_ORDER = ['macos', 'windows', 'linux', 'unknown'] as const satisfies readonly TReleasePlatform[];
 
 const PREFERRED_EXTENSION_ORDER: Record<TReleasePlatform, string[]> = {
     macos: ['dmg'],
     windows: ['exe'],
     linux: ['deb'],
-    unknown: [
-        'dmg',
-        'exe',
-        'deb',
-    ],
+    unknown: ['dmg', 'exe', 'deb'],
 };
 
 const EXTENSION_LABEL: Record<string, string> = {
@@ -85,7 +54,7 @@ export function getAssetExtension(assetName: string) {
 export function isInstallerAsset(assetName: string) {
     const lowerName = assetName.toLowerCase();
 
-    if (NON_INSTALLER_SUFFIXES.some(suffix => lowerName.endsWith(suffix))) {
+    if (NON_INSTALLER_SUFFIXES.some((suffix) => lowerName.endsWith(suffix))) {
         return false;
     }
 
@@ -100,11 +69,7 @@ export function detectPlatform(assetName: string): TReleasePlatform {
     const lowerName = assetName.toLowerCase();
     const extension = getAssetExtension(assetName);
 
-    if (
-        lowerName.includes('darwin')
-        || lowerName.includes('mac')
-        || extension === 'dmg'
-    ) {
+    if (lowerName.includes('darwin') || lowerName.includes('mac') || extension === 'dmg') {
         return 'macos';
     }
 
@@ -214,16 +179,11 @@ export function buildClientProfile(
     hintedArch: TReleaseArch = 'unknown',
 ): IUserAgentProfile {
     const userAgentProfile = parseUserAgent(userAgent);
-    const hasUnsupportedBrowserPlatform = userAgentProfile.platform === 'unknown'
-        && isUnsupportedBrowserPlatform(userAgent);
+    const hasUnsupportedBrowserPlatform = userAgentProfile.platform === 'unknown' && isUnsupportedBrowserPlatform(userAgent);
 
     return {
-        platform: hasUnsupportedBrowserPlatform
-            ? 'unknown'
-            : (hintedPlatform === 'unknown' ? userAgentProfile.platform : hintedPlatform),
-        arch: hasUnsupportedBrowserPlatform
-            ? 'unknown'
-            : (hintedArch === 'unknown' ? userAgentProfile.arch : hintedArch),
+        platform: hasUnsupportedBrowserPlatform ? 'unknown' : hintedPlatform === 'unknown' ? userAgentProfile.platform : hintedPlatform,
+        arch: hasUnsupportedBrowserPlatform ? 'unknown' : hintedArch === 'unknown' ? userAgentProfile.arch : hintedArch,
     };
 }
 
@@ -233,14 +193,14 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
     }
 
     const extensionPreference = PREFERRED_EXTENSION_ORDER[profile.platform];
-    const platformScopedAssets = assets.filter(asset => asset.platform === profile.platform);
+    const platformScopedAssets = assets.filter((asset) => asset.platform === profile.platform);
     if (!platformScopedAssets.length) {
         return null;
     }
 
-    const preferredScopedAssets = platformScopedAssets.filter(asset => extensionPreference.includes(asset.extension));
+    const preferredScopedAssets = platformScopedAssets.filter((asset) => extensionPreference.includes(asset.extension));
     const extensionScopedAssets = preferredScopedAssets.length ? preferredScopedAssets : platformScopedAssets;
-    const architectureFiltered = extensionScopedAssets.filter(asset => isCompatibleArchitecture(asset.arch, profile.arch));
+    const architectureFiltered = extensionScopedAssets.filter((asset) => isCompatibleArchitecture(asset.arch, profile.arch));
     if (!architectureFiltered.length) {
         // A wrong native binary is worse than no automatic recommendation.
         // Unknown variants remain visible for deliberate manual selection.
@@ -248,17 +208,16 @@ export function recommendInstaller(assets: IReleaseInstaller[], profile: IUserAg
     }
     const candidateAssets = architectureFiltered;
 
-    const sorted = orderBy(candidateAssets, [
-        asset => architectureRank(asset.arch, profile.arch),
-        asset => extensionRank(asset.extension, extensionPreference),
-        asset => knownPlatformRank(asset.platform),
-        asset => asset.name,
-    ], [
-        'asc',
-        'asc',
-        'asc',
-        'asc',
-    ]);
+    const sorted = orderBy(
+        candidateAssets,
+        [
+            (asset) => architectureRank(asset.arch, profile.arch),
+            (asset) => extensionRank(asset.extension, extensionPreference),
+            (asset) => knownPlatformRank(asset.platform),
+            (asset) => asset.name,
+        ],
+        ['asc', 'asc', 'asc', 'asc'],
+    );
 
     return sorted[0] ?? null;
 }
@@ -272,20 +231,20 @@ function isCompatibleArchitecture(assetArch: TReleaseArch, profileArch: TRelease
 }
 
 export function normalizeInstallers(assets: IReleaseInstaller[]): IReleaseInstaller[] {
-    const windowsExeArchs = new Set(uniq(assets
-        .filter(asset => asset.platform === 'windows' && asset.extension === 'exe' && asset.arch !== 'unknown')
-        .map(asset => asset.arch)));
+    const windowsExeArchs = new Set(
+        uniq(
+            assets
+                .filter((asset) => asset.platform === 'windows' && asset.extension === 'exe' && asset.arch !== 'unknown')
+                .map((asset) => asset.arch),
+        ),
+    );
 
     const hasArchSpecificWindowsBuilds = windowsExeArchs.has('x64') && windowsExeArchs.has('arm64');
     if (!hasArchSpecificWindowsBuilds) {
         return assets;
     }
 
-    return assets.filter(asset => !(
-        asset.platform === 'windows'
-        && asset.extension === 'exe'
-        && asset.arch === 'unknown'
-    ));
+    return assets.filter((asset) => !(asset.platform === 'windows' && asset.extension === 'exe' && asset.arch === 'unknown'));
 }
 
 function extensionRank(extension: string, preferenceOrder: string[]) {
@@ -413,15 +372,11 @@ export function selectPreferredInstallers(assets: IReleaseInstaller[]): IRelease
     }
 
     const formatOrder = PREFERRED_EXTENSION_ORDER[first.platform];
-    const assetsByArch = groupBy(assets, asset => asset.arch);
+    const assetsByArch = groupBy(assets, (asset) => asset.arch);
 
     const preferredInstallers: IReleaseInstaller[] = [];
     for (const archAssets of Object.values(assetsByArch)) {
-        const preferred = orderBy(
-            archAssets,
-            [asset => extensionRank(asset.extension, formatOrder)],
-            ['asc'],
-        )[0];
+        const preferred = orderBy(archAssets, [(asset) => extensionRank(asset.extension, formatOrder)], ['asc'])[0];
         if (preferred) {
             preferredInstallers.push(preferred);
         }
@@ -452,13 +407,7 @@ export function formatFileSize(bytes: number) {
         return 'Unknown size';
     }
 
-    const units = [
-        'B',
-        'KB',
-        'MB',
-        'GB',
-        'TB',
-    ];
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let value = bytes;
     let unitIndex = 0;
 

@@ -158,6 +158,8 @@ fn png_gray_only_decoding_never_allocates_the_discarded_colour_plane() {
 #[test]
 fn ppm_gray_only_decoding_never_allocates_the_discarded_colour_plane() {
     let ppm = p6("P6\n200 180\n255\n", &pseudo_random(COLOUR_PLANE_BYTES));
+    let gray_plane = (WIDTH * HEIGHT) as u64;
+    let row_bytes = (WIDTH * 3) as u64;
 
     let full = measure(|| {
         decode_ppm(ppm.as_slice(), DECODE).unwrap();
@@ -166,7 +168,20 @@ fn ppm_gray_only_decoding_never_allocates_the_discarded_colour_plane() {
         decode_ppm_gray(ppm.as_slice(), DECODE).unwrap();
     });
 
-    assert_colour_plane_is_not_allocated(full, gray);
+    // Full decode moves the validated RGB buffer directly into `RgbImage`
+    // (one colour plane + one gray plane), while gray-only streams row-by-row
+    // (one gray plane + one RGB row buffer).
+    assert_eq!(
+        full,
+        gray_plane + COLOUR_PLANE_BYTES as u64,
+        "full PPM decode should allocate only the RGB payload and gray plane: got {full} bytes"
+    );
+    assert_eq!(
+        gray,
+        gray_plane + row_bytes,
+        "gray-only PPM decode should stream row-by-row without allocating the colour plane: \
+         got {gray} bytes"
+    );
 }
 
 #[test]

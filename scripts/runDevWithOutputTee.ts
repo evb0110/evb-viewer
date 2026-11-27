@@ -1,13 +1,7 @@
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import {
-    spawn,
-    type ChildProcess,
-} from 'node:child_process';
-import {
-    DEV_OUTPUT_TEE_DIR_ENV,
-    createDevServerOutputTee,
-} from '@scripts/electron-run/devServerOutputTee';
-import { projectRoot } from '@scripts/electron-run/projectRoot';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {spawn, type ChildProcess} from 'node:child_process';
+import {DEV_OUTPUT_TEE_DIR_ENV, createDevServerOutputTee} from '@scripts/electron-run/devServerOutputTee';
+import {projectRoot} from '@scripts/electron-run/projectRoot';
 
 const PNPM_COMMAND = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const TSX_COMMAND = process.platform === 'win32' ? 'tsx.cmd' : 'tsx';
@@ -39,10 +33,7 @@ function writeWrapperLine(line: string) {
 }
 
 function installSignalForwarding() {
-    const signals = [
-        'SIGINT',
-        'SIGTERM',
-    ] as const;
+    const signals = ['SIGINT', 'SIGTERM'] as const;
     for (const signal of signals) {
         process.once(signal, () => {
             requestedSignal = signal;
@@ -68,13 +59,7 @@ function runStep(step: ICommandStep): Promise<number> {
         const child = spawn(step.command, step.args, {
             cwd: projectRoot,
             shell: false,
-            stdio: step.stdio === 'inherit'
-                ? 'inherit'
-                : [
-                    'inherit',
-                    'pipe',
-                    'pipe',
-                ],
+            stdio: step.stdio === 'inherit' ? 'inherit' : ['inherit', 'pipe', 'pipe'],
             env: createChildEnv(),
         });
         activeChild = child;
@@ -114,12 +99,7 @@ async function main() {
             source: 'pnpm-dev-stop-default-session',
             label: 'Stopping previous default session',
             command: PNPM_COMMAND,
-            args: [
-                '--silent',
-                'electron:run',
-                'stop',
-                '--session=default',
-            ],
+            args: ['--silent', 'electron:run', 'stop', '--session=default'],
             stdio: 'pipe',
         },
         // Every native tool the app runs is rebuilt from the canonical list, so
@@ -129,32 +109,21 @@ async function main() {
             source: 'pnpm-dev-build-native',
             label: 'Building native tools',
             command: PNPM_COMMAND,
-            args: [
-                '--silent',
-                'run',
-                'build:native',
-            ],
+            args: ['--silent', 'run', 'build:native'],
             stdio: 'pipe',
         },
         {
             source: 'pnpm-dev-build-electron',
             label: 'Building Electron main and preload',
             command: PNPM_COMMAND,
-            args: [
-                '--silent',
-                'run',
-                'build:electron',
-            ],
+            args: ['--silent', 'run', 'build:electron'],
             stdio: 'pipe',
         },
         {
             source: 'pnpm-dev-start-electron-session',
             label: 'Starting Electron session',
             command: TSX_COMMAND,
-            args: [
-                'scripts/electronRun.ts',
-                'start',
-            ],
+            args: ['scripts/electronRun.ts', 'start'],
             stdio: 'inherit',
         },
     ];

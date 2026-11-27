@@ -1,5 +1,8 @@
 <template>
-    <div v-show="visible" class="workspace-save-dialog-host-root">
+    <div
+        v-show="visible"
+        class="workspace-save-dialog-host-root"
+    >
         <PdfExportScopeDialog
             :open="presentsDocumentDialogs && exportWorkflow.exportScopeDialogOpen.value"
             :mode="exportWorkflow.exportScopeDialogMode.value"
@@ -61,16 +64,15 @@
 </template>
 
 <script setup lang="ts">
-import { PdfCropDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfCropDialog';
-import { PdfExportScopeDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfExportScopeDialog';
-import { PdfOptimizeDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfOptimizeDialog';
-import { PdfPrintDialog } from '@app/modules/pdf-viewer/public/component-exports/pdfPrintDialog';
-import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
-import { useDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
+import {PdfCropDialog} from '@app/modules/pdf-viewer/public/component-exports/pdfCropDialog';
+import {PdfExportScopeDialog} from '@app/modules/pdf-viewer/public/component-exports/pdfExportScopeDialog';
+import {PdfOptimizeDialog} from '@app/modules/pdf-viewer/public/component-exports/pdfOptimizeDialog';
+import {PdfPrintDialog} from '@app/modules/pdf-viewer/public/component-exports/pdfPrintDialog';
+import {useDocumentContext} from '@app/modules/workspace-shell/documentContext';
+import {useDocumentViewContext} from '@app/modules/workspace-shell/documentViewContext';
 
-const DjvuConvertDialog = defineAsyncComponent(
-    () => import('@app/modules/djvu-viewer/public')
-        .then(componentModule => componentModule.DjvuConvertDialog),
+const DjvuConvertDialog = defineAsyncComponent(() =>
+    import('@app/modules/djvu-viewer/public').then((componentModule) => componentModule.DjvuConvertDialog),
 );
 
 const {visible} = defineProps<{
@@ -84,23 +86,12 @@ const {
     file,
     save: {optimizeDialog: optimize},
 } = useDocumentContext();
-const {
-    isActive,
-    view,
-    crop,
-    pageOps,
-} = useDocumentViewContext();
+const {isActive, view, crop, pageOps} = useDocumentViewContext();
 // The document's dialogs open in the active tab's view, the one whose command
 // opened them, with its page and layout; another view of the document would
 // offer its own page for the same command.
 const presentsDocumentDialogs = computed(() => visible && isActive.value);
-const {
-    totalPages,
-    currentPage,
-    viewMode,
-    selectedThumbnailPages,
-    selectedPageSelection,
-} = view;
+const {totalPages, currentPage, viewMode, selectedThumbnailPages, selectedPageSelection} = view;
 </script>
 
 <style scoped>

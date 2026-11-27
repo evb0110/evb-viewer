@@ -13,24 +13,18 @@ export function buildScanCleanupCompactManifest(
     };
 }
 
-export function serializeScanCleanupCompactManifest(
-    manifest: IScanCleanupCompactManifestEnvelope,
-) {
+export function serializeScanCleanupCompactManifest(manifest: IScanCleanupCompactManifestEnvelope) {
     return JSON.stringify(manifest);
 }
 
-export function serializeLegacyScanCleanupCompactManifest(
-    manifest: IScanCleanupCompactManifestEnvelope,
-) {
+export function serializeLegacyScanCleanupCompactManifest(manifest: IScanCleanupCompactManifestEnvelope) {
     return manifest.pages.join('\n') + (manifest.pages.length === 0 ? '' : '\n');
 }
 
 export function parseScanCleanupCompactManifest(serialized: string): string[] {
     const trimmed = serialized.trim();
     if (!trimmed.startsWith('{')) {
-        return trimmed.length === 0
-            ? []
-            : trimmed.split(/\r?\n/u).filter(line => line.trim().length > 0);
+        return trimmed.length === 0 ? [] : trimmed.split(/\r?\n/u).filter((line) => line.trim().length > 0);
     }
     let value: unknown;
     try {
@@ -77,22 +71,18 @@ export function buildScanCleanupPageOpsInstructions(
     return {
         ...(provenanceStampHex === undefined ? {} : {provenanceStampHex}),
         ...(catalog === undefined ? {} : {catalog}),
-        pages: pages.map(page => ({
+        pages: pages.map((page) => ({
             ...page,
-            outputs: page.outputs.map(output => ({...output})),
+            outputs: page.outputs.map((output) => ({...output})),
         })),
     };
 }
 
-export function serializeScanCleanupPageOpsInstructions(
-    instructions: IScanCleanupPageOpsInstructionEnvelope,
-) {
+export function serializeScanCleanupPageOpsInstructions(instructions: IScanCleanupPageOpsInstructionEnvelope) {
     return JSON.stringify(instructions);
 }
 
-export function serializeLegacyScanCleanupPageOpsInstructions(
-    instructions: IScanCleanupPageOpsInstructionEnvelope,
-) {
+export function serializeLegacyScanCleanupPageOpsInstructions(instructions: IScanCleanupPageOpsInstructionEnvelope) {
     return JSON.stringify({pages: instructions.pages});
 }
 
@@ -107,7 +97,7 @@ export interface IScanCleanupTextLayerInstruction {
             x: number;
             y: number;
             width: number;
-            height: number
+            height: number;
         };
         matrix: IScanCleanupTextLayerInstruction['matrix'];
     };
@@ -133,10 +123,7 @@ export interface IScanCleanupTextLayerInstructionEnvelope {
     provenanceStampHex?: string;
 }
 
-export function serializeScanCleanupTextLayerInstructions(
-    pages: readonly IScanCleanupTextLayerInstruction[],
-    provenanceStampHex?: string,
-) {
+export function serializeScanCleanupTextLayerInstructions(pages: readonly IScanCleanupTextLayerInstruction[], provenanceStampHex?: string) {
     return JSON.stringify({
         pages,
         ...(provenanceStampHex === undefined ? {} : {provenanceStampHex}),
@@ -152,5 +139,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isStringArray(value: unknown): value is string[] {
-    return Array.isArray(value) && value.every(item => typeof item === 'string');
+    return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }

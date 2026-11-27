@@ -1,37 +1,24 @@
-import { tryOnScopeDispose } from '@vueuse/core';
-import type { TDjvuPdfExportStrategy } from '@contracts/electronApiDjvu';
-import type { Ref } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import {
-    usePdfFile,
-    type IPdfFileOptions,
-} from '@app/modules/workspace-shell/composables/usePdfFile';
-import { useDjvu } from '@app/composables/useDjvu';
-import { useRecentFiles } from '@app/composables/useRecentFiles';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IWorkspaceViewerLifecycleHooks } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
-import type {
-    TPdfProjectionReason,
-    IDocumentOpenSurfaceSession,
-} from '@app/modules/document-viewer/public';
-import {
-    didOpenDocument,
-    isOpenFileResultOfKind,
-    type TDocumentOpenOutcome,
-} from '@app/types/documentOpenOutcome';
-import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
-import {
-    describeDocumentTarget,
-    describeOpenResult,
-} from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
+import {tryOnScopeDispose} from '@vueuse/core';
+import type {TDjvuPdfExportStrategy} from '@contracts/electronApiDjvu';
+import type {Ref} from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import {usePdfFile, type IPdfFileOptions} from '@app/modules/workspace-shell/composables/usePdfFile';
+import {useDjvu} from '@app/composables/useDjvu';
+import {useRecentFiles} from '@app/composables/useRecentFiles';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {IWorkspaceViewerLifecycleHooks} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
+import type {TPdfProjectionReason, IDocumentOpenSurfaceSession} from '@app/modules/document-viewer/public';
+import {didOpenDocument, isOpenFileResultOfKind, type TDocumentOpenOutcome} from '@app/types/documentOpenOutcome';
+import type {IPdfRasterDisplayProfileOpenOptions} from '@app/types/pdfRasterDisplayProfile';
+import {describeDocumentTarget, describeOpenResult} from '@app/modules/workspace-shell/document-sessions/describeDocumentTarget';
 import type {
     IWorkspaceDocumentController,
     IWorkspaceOpenRequest,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { IDocumentDirectOpenOptions } from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
+import type {IDocumentDirectOpenOptions} from '@app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow';
 import {isDjvuOpenResult} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
-import { describeDocumentOpenFailure } from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
+import {describeDocumentOpenFailure} from '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface';
 
 interface IUseWorkspaceFileLifecycleControllerOptions extends IPdfFileOptions {
     createViewerLifecycleHooks?: () => IWorkspaceViewerLifecycleHooks[];
@@ -60,15 +47,13 @@ function createWorkspaceFileSwitch(deps: {
     function markOutcomeStale(outcome: TDocumentOpenOutcome): TDocumentOpenOutcome {
         return 'result' in outcome
             ? {
-                status: 'stale',
-                result: outcome.result,
-            }
+                  status: 'stale',
+                  result: outcome.result,
+              }
             : outcome;
     }
 
-    async function openWithViewerLifecycle(
-        openDocument: () => Promise<TDocumentOpenOutcome>,
-    ) {
+    async function openWithViewerLifecycle(openDocument: () => Promise<TDocumentOpenOutcome>) {
         const claim = deps.readDocument().activeTransaction?.id;
         const isCurrent = () => deps.readDocument().activeTransaction?.id === claim;
         const previousWorkingCopyPath = deps.workingCopyPath.value;
@@ -88,14 +73,14 @@ function createWorkspaceFileSwitch(deps: {
             return markOutcomeStale(outcome);
         }
         if (
-            didOpenDocument(outcome)
-            && isOpenFileResultOfKind(outcome.result, 'pdf')
-            && deps.shouldReleaseActiveDjvu(previousWorkingCopyPath)
+            didOpenDocument(outcome) &&
+            isOpenFileResultOfKind(outcome.result, 'pdf') &&
+            deps.shouldReleaseActiveDjvu(previousWorkingCopyPath)
         ) {
             deps.onActiveDjvuSourceReleased();
         }
         for (const hooks of deps.getViewerLifecycleHooks()) {
-            await hooks.afterOpen?.(outcome, { previousWorkingCopyPath });
+            await hooks.afterOpen?.(outcome, {previousWorkingCopyPath});
             if (!isCurrent()) {
                 return markOutcomeStale(outcome);
             }
@@ -104,17 +89,12 @@ function createWorkspaceFileSwitch(deps: {
     }
 
     async function closeFileWithViewerLifecycle() {
-        const {
-            identity,
-            activeTransaction: initialTransaction,
-        } = deps.readDocument();
+        const {identity, activeTransaction: initialTransaction} = deps.readDocument();
         // Only another document's commit replaces the instance; a claim alone does not.
         const isSameDocument = () => deps.readDocument().identity.documentInstanceId === identity.documentInstanceId;
         const hasNewerOpenClaim = () => {
             const currentTransaction = deps.readDocument().activeTransaction;
-            return currentTransaction !== null
-                && currentTransaction.kind !== 'close'
-                && currentTransaction.id !== initialTransaction?.id;
+            return currentTransaction !== null && currentTransaction.kind !== 'close' && currentTransaction.id !== initialTransaction?.id;
         };
         deps.onPendingOpenSuperseded();
         await deps.cancelActiveDjvuWork();
@@ -135,23 +115,16 @@ function createWorkspaceFileSwitch(deps: {
     }
 
     return {
-        openFileWithViewerLifecycle: (preSelected?: TOpenFileResult) => openWithViewerLifecycle(
-            () => deps.openFile(preSelected),
-        ),
-        openFileDirectWithViewerLifecycle: (path: TDocumentRef, options?: IDocumentDirectOpenOptions) => openWithViewerLifecycle(
-            () => deps.openFileDirect(path, options),
-        ),
-        openFileDirectBatchWithViewerLifecycle: (paths: TDocumentRef[]) => openWithViewerLifecycle(
-            () => deps.openFileDirectBatch(paths),
-        ),
+        openFileWithViewerLifecycle: (preSelected?: TOpenFileResult) => openWithViewerLifecycle(() => deps.openFile(preSelected)),
+        openFileDirectWithViewerLifecycle: (path: TDocumentRef, options?: IDocumentDirectOpenOptions) =>
+            openWithViewerLifecycle(() => deps.openFileDirect(path, options)),
+        openFileDirectBatchWithViewerLifecycle: (paths: TDocumentRef[]) => openWithViewerLifecycle(() => deps.openFileDirectBatch(paths)),
         closeFileWithViewerLifecycle,
     };
 }
 
-export const useWorkspaceFileLifecycleController = (
-    options: IUseWorkspaceFileLifecycleControllerOptions,
-) => {
-    const { t } = useTypedI18n();
+export const useWorkspaceFileLifecycleController = (options: IUseWorkspaceFileLifecycleControllerOptions) => {
+    const {t} = useTypedI18n();
     const getViewerLifecycleHooks = () => options.createViewerLifecycleHooks?.() ?? [];
     // An open's admitted source, before any page of it is drawn.
     async function admitOpeningSource(source: TDocumentRef, pageCount: () => Promise<number | null>) {
@@ -226,7 +199,7 @@ export const useWorkspaceFileLifecycleController = (
 
     tryOnScopeDispose(cancelDjvuProjection);
 
-    const { loadRecentFiles } = useRecentFiles();
+    const {loadRecentFiles} = useRecentFiles();
 
     async function commitPendingDjvuOpen(outcome: TDocumentOpenOutcome, openTransactionId: string | undefined) {
         BrowserLogger.info('djvu-open-transaction', 'Finalize requested', {
@@ -270,10 +243,13 @@ export const useWorkspaceFileLifecycleController = (
                     return admitOpeningSource(djvuPath, () => Promise.resolve(pageCount));
                 },
                 setOriginalPath: (path) => {
-                    options.document.commitFile({
-                        originalPath: path,
-                        isDjvu: true,
-                    }, openTransactionId);
+                    options.document.commitFile(
+                        {
+                            originalPath: path,
+                            isDjvu: true,
+                        },
+                        openTransactionId,
+                    );
                 },
             });
             BrowserLogger.info('djvu-open-transaction', 'Activation returned', {
@@ -342,9 +318,7 @@ export const useWorkspaceFileLifecycleController = (
         getViewerLifecycleHooks,
         onPendingOpenSuperseded: djvu.supersedePendingOpen,
         cancelActiveDjvuWork: handleDjvuCancel,
-        shouldReleaseActiveDjvu: previousWorkingCopyPath => (
-            isDjvuMode.value && workingCopyPath.value !== previousWorkingCopyPath
-        ),
+        shouldReleaseActiveDjvu: (previousWorkingCopyPath) => isDjvuMode.value && workingCopyPath.value !== previousWorkingCopyPath,
         onActiveDjvuSourceReleased: releaseActiveDjvuSource,
         openFile,
         openFileDirect,
@@ -367,35 +341,33 @@ export const useWorkspaceFileLifecycleController = (
 
     // A moved tab's document: it brings its own view.
     function openFileInDocumentTransaction(result: TOpenFileResult, transactionId?: string) {
-        return openInDocumentTransaction({
-            ...describeOpenResult(result),
-            carriesView: true,
-            transactionId,
-        }, () => openFileWithViewerLifecycle(result));
+        return openInDocumentTransaction(
+            {
+                ...describeOpenResult(result),
+                carriesView: true,
+                transactionId,
+            },
+            () => openFileWithViewerLifecycle(result),
+        );
     }
 
     // Conversion restores the retained reading view before returning focus.
     function openConvertedDjvuPdf(path: TDocumentRef, openOptions?: IPdfRasterDisplayProfileOpenOptions) {
-        return openInDocumentTransaction({
-            kind: 'restore',
-            target: describeDocumentTarget(path),
-        }, () => openFileDirectWithViewerLifecycle(path, openOptions));
+        return openInDocumentTransaction(
+            {
+                kind: 'restore',
+                target: describeDocumentTarget(path),
+            },
+            () => openFileDirectWithViewerLifecycle(path, openOptions),
+        );
     }
 
-    function handleDjvuConvert(
-        subsample: number,
-        preserveBookmarks: boolean,
-        pdfStrategy: TDjvuPdfExportStrategy,
-    ) {
+    function handleDjvuConvert(subsample: number, preserveBookmarks: boolean, pdfStrategy: TDjvuPdfExportStrategy) {
         return djvu.convertToPdf(subsample, preserveBookmarks, pdfStrategy, openConvertedDjvuPdf);
     }
 
     function ensureDjvuPdfProjection(reason: TPdfProjectionReason) {
-        return djvu.ensurePdfProjectionForAction(
-            reason,
-            openConvertedDjvuPdf,
-            getDjvuProjectionSignal(),
-        );
+        return djvu.ensurePdfProjectionForAction(reason, openConvertedDjvuPdf, getDjvuProjectionSignal());
     }
 
     function initFromStorage() {
@@ -407,11 +379,7 @@ export const useWorkspaceFileLifecycleController = (
     }
 
     const hasPdf = computed(() => !!pdfSrc.value);
-    const documentKey = computed(() => (
-        originalPath.value
-        ?? documentRevisionInfo.value?.documentRef
-        ?? workingCopyPath.value
-    ));
+    const documentKey = computed(() => originalPath.value ?? documentRevisionInfo.value?.documentRef ?? workingCopyPath.value);
 
     return {
         fileName: pdfFile.fileName,
@@ -445,9 +413,8 @@ export const useWorkspaceFileLifecycleController = (
         closeFile,
         markDirty: pdfFile.markDirty,
 
-        admitOpeningSource: (source: TDocumentRef, pageCount: () => Promise<number | null>) => recoveryDirtyBaseline.value
-            ? Promise.resolve()
-            : admitOpeningSource(source, pageCount),
+        admitOpeningSource: (source: TDocumentRef, pageCount: () => Promise<number | null>) =>
+            recoveryDirtyBaseline.value ? Promise.resolve() : admitOpeningSource(source, pageCount),
         pdfError,
         pdfFailurePresentation,
 

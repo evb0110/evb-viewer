@@ -1,11 +1,5 @@
 import type {IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
     runCoordinatedPdfPageOperation,
     runCoordinatedPdfPageRender,
@@ -14,11 +8,11 @@ import {
     createPdfRenderSupervisor,
     type IPdfRenderSupervisorEvent,
 } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
-import { cast } from '@tests/helpers/cast';
+import {cast} from '@tests/helpers/cast';
 import {requirePageNumber} from '@contracts/pageNumbers';
 
 async function flushAsync() {
-    await new Promise<void>(resolve => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
 async function flushMicrotasks() {
@@ -34,7 +28,7 @@ function createCancelledRenderError() {
     return error;
 }
 
-function createRenderTask(options: { settleOnCancel?: boolean } = {}) {
+function createRenderTask(options: {settleOnCancel?: boolean} = {}) {
     let resolveTask!: () => void;
     let rejectTask!: (error: unknown) => void;
     let settled = false;
@@ -90,51 +84,51 @@ describe('runCoordinatedPdfPageRender', () => {
             waitingPriority: 10,
             priorityRelationship: 'lower',
         },
-    ])('claims same-page render ownership before a $priorityRelationship-priority synchronous caller can overlap', async ({ waitingPriority }) => {
-        const page = cast<IPdfPage>({ pageNumber: requirePageNumber(1) });
-        const events: string[] = [];
-        const firstTask = createRenderTask();
-        const secondTask = createRenderTask();
+    ])(
+        'claims same-page render ownership before a $priorityRelationship-priority synchronous caller can overlap',
+        async ({waitingPriority}) => {
+            const page = cast<IPdfPage>({pageNumber: requirePageNumber(1)});
+            const events: string[] = [];
+            const firstTask = createRenderTask();
+            const secondTask = createRenderTask();
 
-        const firstRun = runCoordinatedPdfPageRender({
-            owner: 'first',
-            pageNumber: requirePageNumber(1),
-            pdfPage: page,
-            priority: 100,
-            startRender: () => {
-                events.push('start first');
-                return firstTask;
-            },
-        });
-        const secondRun = runCoordinatedPdfPageRender({
-            owner: 'second',
-            pageNumber: requirePageNumber(1),
-            pdfPage: page,
-            priority: waitingPriority,
-            startRender: () => {
-                events.push('start second');
-                return secondTask;
-            },
-        });
+            const firstRun = runCoordinatedPdfPageRender({
+                owner: 'first',
+                pageNumber: requirePageNumber(1),
+                pdfPage: page,
+                priority: 100,
+                startRender: () => {
+                    events.push('start first');
+                    return firstTask;
+                },
+            });
+            const secondRun = runCoordinatedPdfPageRender({
+                owner: 'second',
+                pageNumber: requirePageNumber(1),
+                pdfPage: page,
+                priority: waitingPriority,
+                startRender: () => {
+                    events.push('start second');
+                    return secondTask;
+                },
+            });
 
-        await flushAsync();
-        expect(events).toEqual(['start first']);
-        expect(firstTask.cancel).not.toHaveBeenCalled();
+            await flushAsync();
+            expect(events).toEqual(['start first']);
+            expect(firstTask.cancel).not.toHaveBeenCalled();
 
-        firstTask.resolve();
-        await firstRun;
-        await flushAsync();
-        expect(events).toEqual([
-            'start first',
-            'start second',
-        ]);
+            firstTask.resolve();
+            await firstRun;
+            await flushAsync();
+            expect(events).toEqual(['start first', 'start second']);
 
-        secondTask.resolve();
-        await secondRun;
-    });
+            secondTask.resolve();
+            await secondRun;
+        },
+    );
 
     it('claims same-page operation ownership before synchronous callers can overlap', async () => {
-        const page = cast<IPdfPage>({ pageNumber: requirePageNumber(1) });
+        const page = cast<IPdfPage>({pageNumber: requirePageNumber(1)});
         const events: string[] = [];
         const firstOperation = createDeferred<string>();
         const secondOperation = createDeferred<string>();
@@ -166,19 +160,16 @@ describe('runCoordinatedPdfPageRender', () => {
         firstOperation.resolve('first');
         expect(await firstRun).toBe('first');
         await flushAsync();
-        expect(events).toEqual([
-            'start first',
-            'start second',
-        ]);
+        expect(events).toEqual(['start first', 'start second']);
 
         secondOperation.resolve('second');
         expect(await secondRun).toBe('second');
     });
 
     it('preempts a synchronously queued lower-priority render but waits for settlement', async () => {
-        const page = cast<IPdfPage>({ pageNumber: requirePageNumber(1) });
+        const page = cast<IPdfPage>({pageNumber: requirePageNumber(1)});
         const events: string[] = [];
-        const thumbnailTask = createRenderTask({ settleOnCancel: false });
+        const thumbnailTask = createRenderTask({settleOnCancel: false});
         const viewerTask = createRenderTask();
 
         const thumbnailRun = runCoordinatedPdfPageRender({
@@ -209,18 +200,15 @@ describe('runCoordinatedPdfPageRender', () => {
         thumbnailTask.resolve();
         await thumbnailRun;
         await flushAsync();
-        expect(events).toEqual([
-            'start thumbnail',
-            'start viewer',
-        ]);
+        expect(events).toEqual(['start thumbnail', 'start viewer']);
 
         viewerTask.resolve();
         await viewerRun;
     });
 
     it('allows synchronous renders for different page proxies to overlap', async () => {
-        const firstPage = cast<IPdfPage>({ pageNumber: requirePageNumber(1) });
-        const secondPage = cast<IPdfPage>({ pageNumber: requirePageNumber(1) });
+        const firstPage = cast<IPdfPage>({pageNumber: requirePageNumber(1)});
+        const secondPage = cast<IPdfPage>({pageNumber: requirePageNumber(1)});
         const events: string[] = [];
         const firstTask = createRenderTask();
         const secondTask = createRenderTask();
@@ -247,17 +235,11 @@ describe('runCoordinatedPdfPageRender', () => {
         });
 
         await flushAsync();
-        expect(events).toEqual([
-            'start first',
-            'start second',
-        ]);
+        expect(events).toEqual(['start first', 'start second']);
 
         firstTask.resolve();
         secondTask.resolve();
-        await Promise.all([
-            firstRun,
-            secondRun,
-        ]);
+        await Promise.all([firstRun, secondRun]);
     });
 
     it('reports and cancels a wedged canvas task without releasing its page ownership', async () => {
@@ -269,14 +251,14 @@ describe('runCoordinatedPdfPageRender', () => {
         const onRenderStall = vi.fn();
         const capturedSettlements: Array<Promise<void>> = [];
         const capturedSettlementResolved = vi.fn();
-        const supervisor = createPdfRenderSupervisor({onEvent: event => events.push(event)});
+        const supervisor = createPdfRenderSupervisor({onEvent: (event) => events.push(event)});
         const run = runCoordinatedPdfPageRender({
             owner: 'viewport',
             pageNumber: requirePageNumber(7),
             pdfPage: page,
             priority: 100,
             startRender: () => task,
-            captureSettlement: settlement => capturedSettlements.push(settlement),
+            captureSettlement: (settlement) => capturedSettlements.push(settlement),
             watchdog: {
                 key: 'canvas:7:attempt-1',
                 metadata: {renderKey: '7:1'},
@@ -288,7 +270,7 @@ describe('runCoordinatedPdfPageRender', () => {
                 },
                 renderSupervisor: supervisor,
             },
-        }).catch(error => error as Error);
+        }).catch((error) => error as Error);
         await flushMicrotasks();
         expect(capturedSettlements).toHaveLength(1);
         void capturedSettlements[0]!.then(capturedSettlementResolved);
@@ -301,16 +283,18 @@ describe('runCoordinatedPdfPageRender', () => {
             stage: 'canvas-render',
             timeoutMs: 15_000,
         });
-        expect(events).toEqual([expect.objectContaining({
-            cause: 'page-stage-timeout',
-            delayMs: 15_000,
-            elapsedMs: 15_000,
-            metadata: expect.objectContaining({
-                pageNumber: requirePageNumber(7),
-                renderKey: '7:1',
-                stage: 'canvas-render',
+        expect(events).toEqual([
+            expect.objectContaining({
+                cause: 'page-stage-timeout',
+                delayMs: 15_000,
+                elapsedMs: 15_000,
+                metadata: expect.objectContaining({
+                    pageNumber: requirePageNumber(7),
+                    renderKey: '7:1',
+                    stage: 'canvas-render',
+                }),
             }),
-        })]);
+        ]);
         expect(capturedSettlementResolved).not.toHaveBeenCalled();
 
         const nextStart = vi.fn(() => nextTask);
@@ -340,10 +324,7 @@ describe('runCoordinatedPdfPageRender', () => {
         await nextRun;
     });
 
-    it.each([
-        'resolve',
-        'reject',
-    ] as const)('clears the canvas watchdog when the task settles by %s', async (settlement) => {
+    it.each(['resolve', 'reject'] as const)('clears the canvas watchdog when the task settles by %s', async (settlement) => {
         vi.useFakeTimers();
         const task = createRenderTask({settleOnCancel: false});
         const events: IPdfRenderSupervisorEvent[] = [];
@@ -360,9 +341,9 @@ describe('runCoordinatedPdfPageRender', () => {
                     stage: 'canvas-render',
                     timeoutMs: 15_000,
                 },
-                renderSupervisor: createPdfRenderSupervisor({onEvent: event => events.push(event)}),
+                renderSupervisor: createPdfRenderSupervisor({onEvent: (event) => events.push(event)}),
             },
-        }).catch(error => error as Error);
+        }).catch((error) => error as Error);
         await flushMicrotasks();
 
         if (settlement === 'resolve') {
@@ -398,9 +379,9 @@ describe('runCoordinatedPdfPageRender', () => {
                     stage: 'canvas-render',
                     timeoutMs: 15_000,
                 },
-                renderSupervisor: createPdfRenderSupervisor({onEvent: event => events.push(event)}),
+                renderSupervisor: createPdfRenderSupervisor({onEvent: (event) => events.push(event)}),
             },
-        }).catch(error => error as Error);
+        }).catch((error) => error as Error);
         await flushMicrotasks();
 
         controller.abort();
@@ -442,7 +423,7 @@ describe('runCoordinatedPdfPageRender', () => {
                     stage: 'canvas-render',
                     timeoutMs: 15_000,
                 },
-                renderSupervisor: createPdfRenderSupervisor({onEvent: event => events.push(event)}),
+                renderSupervisor: createPdfRenderSupervisor({onEvent: (event) => events.push(event)}),
             },
         });
         await flushMicrotasks();
@@ -479,7 +460,7 @@ describe('runCoordinatedPdfPageRender', () => {
                     stage: 'canvas-render',
                     timeoutMs: 15_000,
                 },
-                renderSupervisor: createPdfRenderSupervisor({onEvent: event => events.push(event)}),
+                renderSupervisor: createPdfRenderSupervisor({onEvent: (event) => events.push(event)}),
             },
         });
         await flushMicrotasks();
@@ -517,31 +498,35 @@ describe('runCoordinatedPdfPageRender', () => {
                 },
                 renderSupervisor: createPdfRenderSupervisor(),
             },
-        }).catch(error => error as Error);
+        }).catch((error) => error as Error);
         await flushMicrotasks();
 
         await vi.advanceTimersByTimeAsync(15_000);
         await run;
 
         expect(task.cancel).toHaveBeenCalledOnce();
-        expect(traceWindow.__getPdfRenderTrace?.()).toEqual(expect.arrayContaining([
-            expect.objectContaining({event: 'pdf-render-supervisor-watchdog'}),
-            expect.objectContaining({event: 'pdf-page-stage-deadline-callback-failed'}),
-        ]));
+        expect(traceWindow.__getPdfRenderTrace?.()).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({event: 'pdf-render-supervisor-watchdog'}),
+                expect.objectContaining({event: 'pdf-page-stage-deadline-callback-failed'}),
+            ]),
+        );
     });
 
     it('releases same-page ownership when shouldStart rejects a render', async () => {
-        const page = cast<IPdfPage>({ pageNumber: requirePageNumber(1) });
+        const page = cast<IPdfPage>({pageNumber: requirePageNumber(1)});
         const rejectedStart = vi.fn(() => createRenderTask());
 
-        await expect(runCoordinatedPdfPageRender({
-            owner: 'stale-viewer',
-            pageNumber: requirePageNumber(1),
-            pdfPage: page,
-            priority: 100,
-            shouldStart: () => false,
-            startRender: rejectedStart,
-        })).rejects.toMatchObject({ name: 'RenderingCancelledException' });
+        await expect(
+            runCoordinatedPdfPageRender({
+                owner: 'stale-viewer',
+                pageNumber: requirePageNumber(1),
+                pdfPage: page,
+                priority: 100,
+                shouldStart: () => false,
+                startRender: rejectedStart,
+            }),
+        ).rejects.toMatchObject({name: 'RenderingCancelledException'});
         expect(rejectedStart).not.toHaveBeenCalled();
 
         const nextTask = createRenderTask();
@@ -562,7 +547,7 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('preempts a lower-priority thumbnail render when the viewer needs the same page', async () => {
-        const page = cast<IPdfPage>({ pageNumber: requirePageNumber(1) });
+        const page = cast<IPdfPage>({pageNumber: requirePageNumber(1)});
         const events: string[] = [];
         const thumbnailTask = createRenderTask();
         const viewerTask = createRenderTask();
@@ -576,7 +561,7 @@ describe('runCoordinatedPdfPageRender', () => {
                 events.push('start thumbnail');
                 return thumbnailTask;
             },
-        }).catch(error => error as Error);
+        }).catch((error) => error as Error);
 
         await flushAsync();
         expect(events).toEqual(['start thumbnail']);
@@ -594,10 +579,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         await flushAsync();
         expect(thumbnailTask.cancel).toHaveBeenCalledOnce();
-        expect(events).toEqual([
-            'start thumbnail',
-            'start viewer',
-        ]);
+        expect(events).toEqual(['start thumbnail', 'start viewer']);
 
         viewerTask.resolve();
         await viewerRun;
@@ -607,7 +589,7 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('keeps a lower-priority thumbnail render waiting while a viewer render is active', async () => {
-        const page = cast<IPdfPage>({ pageNumber: requirePageNumber(1) });
+        const page = cast<IPdfPage>({pageNumber: requirePageNumber(1)});
         const events: string[] = [];
         const viewerTask = createRenderTask();
         const thumbnailTask = createRenderTask();
@@ -641,17 +623,14 @@ describe('runCoordinatedPdfPageRender', () => {
         viewerTask.resolve();
         await viewerRun;
         await flushAsync();
-        expect(events).toEqual([
-            'start viewer',
-            'start thumbnail',
-        ]);
+        expect(events).toEqual(['start viewer', 'start thumbnail']);
 
         thumbnailTask.resolve();
         await thumbnailRun;
     });
 
     it('aborts a queued render while it waits for the coordinated page turn', async () => {
-        const page = cast<IPdfPage>({ pageNumber: requirePageNumber(1) });
+        const page = cast<IPdfPage>({pageNumber: requirePageNumber(1)});
         const events: string[] = [];
         const viewerTask = createRenderTask();
         const queuedTask = createRenderTask();
@@ -679,7 +658,7 @@ describe('runCoordinatedPdfPageRender', () => {
                 events.push('start queued');
                 return queuedTask;
             },
-        }).catch(error => error as Error);
+        }).catch((error) => error as Error);
         await flushAsync();
 
         queuedAbortController.abort();
@@ -698,7 +677,7 @@ describe('runCoordinatedPdfPageRender', () => {
     });
 
     it('lets viewer preparation preempt a lower-priority thumbnail render', async () => {
-        const page = cast<IPdfPage>({ pageNumber: requirePageNumber(1) });
+        const page = cast<IPdfPage>({pageNumber: requirePageNumber(1)});
         const events: string[] = [];
         const thumbnailTask = createRenderTask();
 
@@ -711,7 +690,7 @@ describe('runCoordinatedPdfPageRender', () => {
                 events.push('start thumbnail');
                 return thumbnailTask;
             },
-        }).catch(error => error as Error);
+        }).catch((error) => error as Error);
         await flushAsync();
 
         const operationRun = runCoordinatedPdfPageOperation({
@@ -728,17 +707,14 @@ describe('runCoordinatedPdfPageRender', () => {
 
         expect(thumbnailTask.cancel).toHaveBeenCalledOnce();
         expect(await operationRun).toBe('ok');
-        expect(events).toEqual([
-            'start thumbnail',
-            'run viewer filter',
-        ]);
+        expect(events).toEqual(['start thumbnail', 'run viewer filter']);
         const thumbnailError = await thumbnailRun;
         expect(thumbnailError).toBeInstanceOf(Error);
         expect((thumbnailError as Error).name).toBe('RenderingCancelledException');
     });
 
     it('keeps coordinated operation ownership after abort until the operation settles', async () => {
-        const page = cast<IPdfPage>({ pageNumber: requirePageNumber(1) });
+        const page = cast<IPdfPage>({pageNumber: requirePageNumber(1)});
         const events: string[] = [];
         const operation = createDeferred<string>();
         const operationAbortController = new AbortController();
@@ -754,7 +730,7 @@ describe('runCoordinatedPdfPageRender', () => {
                 events.push('start filter');
                 return operation.promise;
             },
-        }).catch(error => error as Error);
+        }).catch((error) => error as Error);
         await flushAsync();
         expect(events).toEqual(['start filter']);
 
@@ -781,10 +757,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         operation.resolve('late');
         await flushAsync();
-        expect(events).toEqual([
-            'start filter',
-            'start viewer',
-        ]);
+        expect(events).toEqual(['start filter', 'start viewer']);
         viewerTask.resolve();
         await renderRun;
         await flushAsync();
@@ -803,9 +776,9 @@ describe('runCoordinatedPdfPageRender', () => {
             pdfPage: page,
             priority: 100,
             signal: controller.signal,
-            captureSettlement: settlement => capturedSettlements.push(settlement),
+            captureSettlement: (settlement) => capturedSettlements.push(settlement),
             operation: () => operation.promise,
-        }).catch(error => error as Error);
+        }).catch((error) => error as Error);
         await flushAsync();
 
         expect(capturedSettlements).toHaveLength(1);

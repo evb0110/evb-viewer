@@ -1,4 +1,4 @@
-import { createPdfPageSlotRegistry } from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
+import {createPdfPageSlotRegistry} from '@app/modules/pdf-viewer/runtime/page-slots/pdfPageSlotRegistry';
 import {
     resolveDocumentContinuousScrollGeometry,
     resolveDocumentContinuousScrollWindow,
@@ -9,11 +9,7 @@ export function createProductionViewportAdapter() {
 
     return {
         pageSlots,
-        resolveWindow(options: {
-            currentPage: number;
-            scrollTop: number;
-            totalPages: number;
-        }) {
+        resolveWindow(options: {currentPage: number; scrollTop: number; totalPages: number}) {
             const pageHeights = Array.from({length: options.totalPages}, () => 1_000);
             const geometry = resolveDocumentContinuousScrollGeometry({
                 pageGapPx: 10,

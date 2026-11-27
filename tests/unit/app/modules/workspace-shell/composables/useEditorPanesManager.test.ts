@@ -1,20 +1,11 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
-import type {
-    IEditorPaneState,
-    TEditorLayoutNode,
-} from '@contracts/editorPanes';
-import { requirePaneId } from '@contracts/editorPanes';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireEpochMs } from '@contracts/timestamps';
-import { requireTabId } from '@contracts/windowTabs';
-import { useEditorPanesManager } from '@app/modules/workspace-shell/composables/useEditorPanesManager';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import type {IEditorPaneState, TEditorLayoutNode} from '@contracts/editorPanes';
+import {requirePaneId} from '@contracts/editorPanes';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireTabId} from '@contracts/windowTabs';
+import {useEditorPanesManager} from '@app/modules/workspace-shell/composables/useEditorPanesManager';
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
 const occupiedTabIds = new Set<string>();
@@ -87,15 +78,16 @@ describe('useEditorPanesManager', () => {
 
         manager.ensureAtLeastOneTab();
 
-        const tabIds = manager.tabs.value.map(tab => tab.id);
+        const tabIds = manager.tabs.value.map((tab) => tab.id);
         expect(new Set(tabIds).size).toBe(tabIds.length);
 
-        const occurrences = manager.panes.value.reduce((count, pane) => (
-            count + pane.tabIds.filter(tabId => tabId === firstTab.id).length
-        ), 0);
+        const occurrences = manager.panes.value.reduce(
+            (count, pane) => count + pane.tabIds.filter((tabId) => tabId === firstTab.id).length,
+            0,
+        );
         expect(occurrences).toBe(1);
 
-        const uniquePaneIds = new Set(manager.panes.value.map(pane => pane.paneId));
+        const uniquePaneIds = new Set(manager.panes.value.map((pane) => pane.paneId));
         expect(uniquePaneIds.size).toBe(manager.panes.value.length);
 
         for (const pane of manager.panes.value) {
@@ -119,7 +111,7 @@ describe('useEditorPanesManager', () => {
 
         manager.ensureAtLeastOneTab();
 
-        const validPaneIds = new Set(manager.panes.value.map(pane => pane.paneId));
+        const validPaneIds = new Set(manager.panes.value.map((pane) => pane.paneId));
         const layoutPaneIds = new Set<string>();
         collectLeafPaneIds(manager.layout.value, layoutPaneIds);
 
@@ -202,7 +194,7 @@ describe('useEditorPanesManager', () => {
         expect(manager.getPaneById(targetPaneId)?.tabIds).toEqual([movedTabId]);
         expect(manager.getPaneById(targetPaneId)?.activeTabId).toBe(movedTabId);
         expect(manager.getTabById(placeholder.id)).toBeNull();
-        expect(manager.tabs.value.map(tab => tab.id)).not.toContain(placeholder.id);
+        expect(manager.tabs.value.map((tab) => tab.id)).not.toContain(placeholder.id);
         expect(manager.activePaneId.value).toBe(targetPaneId);
     });
 
@@ -233,11 +225,7 @@ describe('useEditorPanesManager', () => {
         expect(manager.moveTabToPane(movedTabId, targetPaneId!, true, 0)).toBe(true);
 
         expect(manager.getPaneById(sourcePane.paneId)?.activeTabId).toBe(sourceRemainingTab.id);
-        expect(manager.getPaneById(targetPaneId)?.tabIds).toEqual([
-            movedTabId,
-            targetFirstTab.id,
-            targetSecondTab.id,
-        ]);
+        expect(manager.getPaneById(targetPaneId)?.tabIds).toEqual([movedTabId, targetFirstTab.id, targetSecondTab.id]);
         expect(manager.getPaneById(targetPaneId)?.activeTabId).toBe(movedTabId);
     });
 
@@ -259,11 +247,7 @@ describe('useEditorPanesManager', () => {
 
         manager.moveTabWithinPane(pane.paneId, 2, 0);
 
-        expect(manager.getPaneById(pane.paneId)?.tabIds).toEqual([
-            thirdTab.id,
-            firstTabId,
-            secondTab.id,
-        ]);
+        expect(manager.getPaneById(pane.paneId)?.tabIds).toEqual([thirdTab.id, firstTabId, secondTab.id]);
         expect(manager.getPaneById(pane.paneId)?.activeTabId).toBe(secondTab.id);
     });
 
@@ -287,10 +271,7 @@ describe('useEditorPanesManager', () => {
 
         expect(closedActive.tab?.id).toBe(secondTab.id);
         expect(closedActive.removedPaneId).toBeNull();
-        expect(manager.getPaneById(sourcePane.paneId)?.tabIds).toEqual([
-            firstTabId,
-            thirdTab.id,
-        ]);
+        expect(manager.getPaneById(sourcePane.paneId)?.tabIds).toEqual([firstTabId, thirdTab.id]);
         expect(manager.getPaneById(sourcePane.paneId)?.activeTabId).toBe(thirdTab.id);
 
         const targetPaneId = manager.splitPane(sourcePane.paneId, 'right');
@@ -305,7 +286,7 @@ describe('useEditorPanesManager', () => {
         expect(closedOnlyTarget.tab?.id).toBe(targetTab.id);
         expect(closedOnlyTarget.removedPaneId).toBe(targetPaneId);
         expect(manager.getPaneById(targetPaneId)).toBeNull();
-        expect(manager.panes.value.map(pane => pane.paneId)).toContain(sourcePane.paneId);
+        expect(manager.panes.value.map((pane) => pane.paneId)).toContain(sourcePane.paneId);
     });
 
     it('clamps split ratios', async () => {
@@ -319,11 +300,10 @@ describe('useEditorPanesManager', () => {
         expect(splitNode).not.toBeNull();
 
         manager.setSplitRatio(splitNode!.id, 0.95);
-        expect((manager.layout.value as Extract<TEditorLayoutNode, { type: 'split' }>).ratio).toBe(0.85);
+        expect((manager.layout.value as Extract<TEditorLayoutNode, {type: 'split'}>).ratio).toBe(0.85);
 
         manager.setSplitRatio(splitNode!.id, 0.01);
-        expect((manager.layout.value as Extract<TEditorLayoutNode, { type: 'split' }>).ratio).toBe(0.15);
-
+        expect((manager.layout.value as Extract<TEditorLayoutNode, {type: 'split'}>).ratio).toBe(0.15);
     });
 
     it('restores the exact checkpoint pane, tab, layout, and active graph', async () => {
@@ -408,10 +388,7 @@ describe('useEditorPanesManager', () => {
                 activeTabId: 'tab-b',
             },
         ]);
-        expect(manager.tabs.value.map(tab => tab.id)).toEqual([
-            'tab-a',
-            'tab-b',
-        ]);
+        expect(manager.tabs.value.map((tab) => tab.id)).toEqual(['tab-a', 'tab-b']);
         expect(manager.layout.value).toMatchObject({
             type: 'split',
             id: 'split-a',

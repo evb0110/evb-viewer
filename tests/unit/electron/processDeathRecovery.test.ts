@@ -1,28 +1,17 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {
     configureProcessSafeMode,
     createProcessDeathRecovery,
     OCR_ENGINE_SERVICE_NAME,
     PROCESS_SAFE_MODE_ARGUMENT,
 } from '@electron/processDeathRecovery';
-import {
-    createShutdownCoordinator,
-    type IShutdownContext,
-} from '@electron/bootstrap/shutdown';
+import {createShutdownCoordinator, type IShutdownContext} from '@electron/bootstrap/shutdown';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {IMainFailureInput} from '@electron/features/diagnostics/public';
 
 type TFailureCapture = (input: IMainFailureInput) => FailureReceipt | undefined;
 
-function createFixture(
-    argv = ['/app/evb-viewer'],
-    options: {captureFailure?: TFailureCapture} = {},
-) {
+function createFixture(argv = ['/app/evb-viewer'], options: {captureFailure?: TFailureCapture} = {}) {
     const app = {commandLine: {appendSwitch: vi.fn()}};
     const logger = {
         debug: vi.fn(),
@@ -69,10 +58,12 @@ describe('processDeathRecovery', () => {
         });
 
         expect(fixture.captureFailure).toHaveBeenCalledOnce();
-        expect(fixture.captureFailure).toHaveBeenCalledWith(expect.objectContaining({
-            code: 'MAIN_CHILD_PROCESS_GONE',
-            message: expect.stringContaining('Utility process gone'),
-        }));
+        expect(fixture.captureFailure).toHaveBeenCalledWith(
+            expect.objectContaining({
+                code: 'MAIN_CHILD_PROCESS_GONE',
+                message: expect.stringContaining('Utility process gone'),
+            }),
+        );
         expect(fixture.logger.error).toHaveBeenCalledWith(
             expect.stringContaining('[process-death] Utility process gone (Audio Service, reason=crashed, exitCode=133)'),
             expect.objectContaining({
@@ -100,12 +91,7 @@ describe('processDeathRecovery', () => {
             'MAIN_CHILD_PROCESS_GONE',
             'MAIN_GPU_SAFE_MODE_RECOVERY',
         ]);
-        expect(fixture.logger.error.mock.calls.map(([
-            , receipt,
-        ]) => receipt?.eventId)).toEqual([
-            'a'.repeat(32),
-            'a'.repeat(32),
-        ]);
+        expect(fixture.logger.error.mock.calls.map(([, receipt]) => receipt?.eventId)).toEqual(['a'.repeat(32), 'a'.repeat(32)]);
     });
 
     it('keeps expected utility teardown at debug level with no occurrence', () => {
@@ -139,21 +125,14 @@ describe('processDeathRecovery', () => {
     });
 
     it('enables software rendering before startup when relaunched in safe mode', () => {
-        const fixture = createFixture([
-            '/app/evb-viewer',
-            PROCESS_SAFE_MODE_ARGUMENT,
-        ]);
+        const fixture = createFixture(['/app/evb-viewer', PROCESS_SAFE_MODE_ARGUMENT]);
 
         expect(configureProcessSafeMode(fixture.app, fixture.argv)).toBe(true);
         expect(fixture.app.commandLine.appendSwitch).toHaveBeenCalledWith('disable-gpu');
     });
 
     it('relaunches in safe mode after two GPU crashes in the rolling window', () => {
-        const fixture = createFixture([
-            '/app/evb-viewer',
-            '--document',
-            '/tmp/a.pdf',
-        ]);
+        const fixture = createFixture(['/app/evb-viewer', '--document', '/tmp/a.pdf']);
         const details = {
             type: 'GPU',
             reason: 'crashed',
@@ -163,18 +142,11 @@ describe('processDeathRecovery', () => {
         expect(fixture.recovery.handleChildProcessGone(details).action).toBe('logged');
         expect(fixture.recovery.handleChildProcessGone(details).action).toBe('safe-mode-relaunch');
 
-        expect(fixture.requestSafeModeRelaunch).toHaveBeenCalledWith([
-            '--document',
-            '/tmp/a.pdf',
-            PROCESS_SAFE_MODE_ARGUMENT,
-        ]);
+        expect(fixture.requestSafeModeRelaunch).toHaveBeenCalledWith(['--document', '/tmp/a.pdf', PROCESS_SAFE_MODE_ARGUMENT]);
     });
 
     it('does not enter a relaunch loop when the GPU fails in safe mode', () => {
-        const fixture = createReportingFixture([
-            '/app/evb-viewer',
-            PROCESS_SAFE_MODE_ARGUMENT,
-        ]);
+        const fixture = createReportingFixture(['/app/evb-viewer', PROCESS_SAFE_MODE_ARGUMENT]);
         const details = {
             type: 'GPU',
             reason: 'crashed',
@@ -195,12 +167,14 @@ describe('processDeathRecovery', () => {
     it.each(['name', 'serviceName'] as const)('keeps the OCR engine process the app killed out of the error channel (%s)', (field) => {
         const fixture = createFixture();
 
-        expect(fixture.recovery.handleChildProcessGone({
-            type: 'Utility',
-            reason: 'killed',
-            exitCode: 15,
-            [field]: OCR_ENGINE_SERVICE_NAME,
-        }).action).toBe('logged');
+        expect(
+            fixture.recovery.handleChildProcessGone({
+                type: 'Utility',
+                reason: 'killed',
+                exitCode: 15,
+                [field]: OCR_ENGINE_SERVICE_NAME,
+            }).action,
+        ).toBe('logged');
 
         expect(fixture.logger.error).not.toHaveBeenCalled();
         expect(fixture.logger.warn).not.toHaveBeenCalled();
@@ -209,28 +183,27 @@ describe('processDeathRecovery', () => {
         );
     });
 
-    it.each([
-        'crashed',
-        'abnormal-exit',
-        'oom',
-        'launch-failed',
-        'memory-eviction',
-    ])('still reports an OCR engine process that ended on its own (%s)', (reason) => {
-        const fixture = createReportingFixture();
+    it.each(['crashed', 'abnormal-exit', 'oom', 'launch-failed', 'memory-eviction'])(
+        'still reports an OCR engine process that ended on its own (%s)',
+        (reason) => {
+            const fixture = createReportingFixture();
 
-        expect(fixture.recovery.handleChildProcessGone({
-            type: 'Utility',
-            reason,
-            exitCode: 134,
-            name: OCR_ENGINE_SERVICE_NAME,
-        }).action).toBe('logged');
+            expect(
+                fixture.recovery.handleChildProcessGone({
+                    type: 'Utility',
+                    reason,
+                    exitCode: 134,
+                    name: OCR_ENGINE_SERVICE_NAME,
+                }).action,
+            ).toBe('logged');
 
-        expect(fixture.captureFailure).toHaveBeenCalledWith({
-            code: 'MAIN_CHILD_PROCESS_GONE',
-            message: `[process-death] Utility process gone (EVB OCR engine, reason=${reason}, exitCode=134)`,
-        });
-        expect(fixture.logger.debug).not.toHaveBeenCalled();
-    });
+            expect(fixture.captureFailure).toHaveBeenCalledWith({
+                code: 'MAIN_CHILD_PROCESS_GONE',
+                message: `[process-death] Utility process gone (EVB OCR engine, reason=${reason}, exitCode=134)`,
+            });
+            expect(fixture.logger.debug).not.toHaveBeenCalled();
+        },
+    );
 
     // Only named utility processes that the app forks are expected to be
     // terminated during ordinary teardown. A signal that ended any other
@@ -239,12 +212,14 @@ describe('processDeathRecovery', () => {
     it('still reports a killed utility process the app did not fork', () => {
         const fixture = createFixture();
 
-        expect(fixture.recovery.handleChildProcessGone({
-            type: 'Utility',
-            reason: 'killed',
-            exitCode: 9,
-            name: 'Audio Service',
-        }).action).toBe('logged');
+        expect(
+            fixture.recovery.handleChildProcessGone({
+                type: 'Utility',
+                reason: 'killed',
+                exitCode: 9,
+                name: 'Audio Service',
+            }).action,
+        ).toBe('logged');
 
         expect(fixture.logger.error).toHaveBeenCalledWith(
             '[process-death] Utility process gone (Audio Service, reason=killed, exitCode=9)',
@@ -256,42 +231,41 @@ describe('processDeathRecovery', () => {
     it('still reports a killed utility process that carries no identity', () => {
         const fixture = createFixture();
 
-        expect(fixture.recovery.handleChildProcessGone({
-            type: 'Utility',
-            reason: 'killed',
-            exitCode: 9,
-        }).action).toBe('logged');
+        expect(
+            fixture.recovery.handleChildProcessGone({
+                type: 'Utility',
+                reason: 'killed',
+                exitCode: 9,
+            }).action,
+        ).toBe('logged');
 
-        expect(fixture.logger.error).toHaveBeenCalledWith(
-            '[process-death] Utility process gone (Utility, reason=killed, exitCode=9)',
-            {code: 'MAIN_PROCESS_RECOVERY_FAILED'},
-        );
+        expect(fixture.logger.error).toHaveBeenCalledWith('[process-death] Utility process gone (Utility, reason=killed, exitCode=9)', {
+            code: 'MAIN_PROCESS_RECOVERY_FAILED',
+        });
         expect(fixture.logger.warn).not.toHaveBeenCalled();
     });
 
     // The app forks no process of these types at all, so nothing it does can
     // explain a signal that ended one.
-    it.each([
-        'Zygote',
-        'Sandbox helper',
-        'Pepper Plugin',
-        'Pepper Plugin Broker',
-        'Unknown',
-    ])('still reports a killed %s process', (type) => {
-        const fixture = createFixture();
+    it.each(['Zygote', 'Sandbox helper', 'Pepper Plugin', 'Pepper Plugin Broker', 'Unknown'])(
+        'still reports a killed %s process',
+        (type) => {
+            const fixture = createFixture();
 
-        expect(fixture.recovery.handleChildProcessGone({
-            type,
-            reason: 'killed',
-            exitCode: 9,
-        }).action).toBe('logged');
+            expect(
+                fixture.recovery.handleChildProcessGone({
+                    type,
+                    reason: 'killed',
+                    exitCode: 9,
+                }).action,
+            ).toBe('logged');
 
-        expect(fixture.logger.error).toHaveBeenCalledWith(
-            `[process-death] ${type} process gone (${type}, reason=killed, exitCode=9)`,
-            {code: 'MAIN_PROCESS_RECOVERY_FAILED'},
-        );
-        expect(fixture.logger.warn).not.toHaveBeenCalled();
-    });
+            expect(fixture.logger.error).toHaveBeenCalledWith(`[process-death] ${type} process gone (${type}, reason=killed, exitCode=9)`, {
+                code: 'MAIN_PROCESS_RECOVERY_FAILED',
+            });
+            expect(fixture.logger.warn).not.toHaveBeenCalled();
+        },
+    );
 
     // Nothing in the app kills the GPU, so a killed GPU process is a fault like
     // any other and still has to reach the relaunch decision below.
@@ -306,16 +280,12 @@ describe('processDeathRecovery', () => {
         expect(fixture.recovery.handleChildProcessGone(details).action).toBe('logged');
         expect(fixture.recovery.handleChildProcessGone(details).action).toBe('safe-mode-relaunch');
         expect(fixture.logger.error).toHaveBeenCalledTimes(2);
-        expect(fixture.logger.error).toHaveBeenNthCalledWith(
-            1,
-            '[process-death] GPU process gone (GPU, reason=killed, exitCode=9)',
-            {code: 'MAIN_PROCESS_RECOVERY_FAILED'},
-        );
-        expect(fixture.logger.error).toHaveBeenNthCalledWith(
-            2,
-            '[process-death] GPU process gone (GPU, reason=killed, exitCode=9)',
-            {code: 'MAIN_PROCESS_RECOVERY_FAILED'},
-        );
+        expect(fixture.logger.error).toHaveBeenNthCalledWith(1, '[process-death] GPU process gone (GPU, reason=killed, exitCode=9)', {
+            code: 'MAIN_PROCESS_RECOVERY_FAILED',
+        });
+        expect(fixture.logger.error).toHaveBeenNthCalledWith(2, '[process-death] GPU process gone (GPU, reason=killed, exitCode=9)', {
+            code: 'MAIN_PROCESS_RECOVERY_FAILED',
+        });
     });
 
     it('requests at most one coordinated relaunch after repeated GPU crashes', () => {
@@ -353,7 +323,7 @@ describe('processDeathRecovery', () => {
             app,
             logger,
             runBestEffortCleanupSteps: vi.fn(async () => {}),
-            runPreservationSteps: context => {
+            runPreservationSteps: (context) => {
                 observedContext = context;
                 return cleanup.promise;
             },
@@ -361,14 +331,15 @@ describe('processDeathRecovery', () => {
         const recovery = createProcessDeathRecovery({
             argv: ['/app/evb-viewer'],
             logger,
-            requestSafeModeRelaunch: args => coordinator.requestGracefulQuit({
-                afterCleanup: () => {
-                    app.relaunch({args});
-                    app.quit();
-                },
-                preserveRecoveryState: true,
-                reason: 'recovery-relaunch',
-            }),
+            requestSafeModeRelaunch: (args) =>
+                coordinator.requestGracefulQuit({
+                    afterCleanup: () => {
+                        app.relaunch({args});
+                        app.quit();
+                    },
+                    preserveRecoveryState: true,
+                    reason: 'recovery-relaunch',
+                }),
         });
         const details = {
             type: 'GPU',

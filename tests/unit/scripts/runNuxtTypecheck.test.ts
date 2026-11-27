@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import path from 'node:path';
 import {resolveNuxtTypecheckRun} from '@scripts/run-nuxt-typecheck.mjs';
 
@@ -23,28 +19,31 @@ describe('resolveNuxtTypecheckRun', () => {
     });
 
     it('resolves a workspace argument and honours every cold switch', () => {
-        expect(resolveNuxtTypecheckRun({
-            argv: [
-                '--cold',
-                'landing',
-            ],
-            cwd: '/repo',
-            env: {},
-        })).toMatchObject({
+        expect(
+            resolveNuxtTypecheckRun({
+                argv: ['--cold', 'landing'],
+                cwd: '/repo',
+                env: {},
+            }),
+        ).toMatchObject({
             cacheDir: path.resolve('/repo', 'landing', '.devkit', 'cache', 'typecheck'),
             cold: true,
             workspaceDir: path.resolve('/repo', 'landing'),
         });
-        expect(resolveNuxtTypecheckRun({
-            argv: [],
-            cwd: '/repo',
-            env: {EVB_GATE_NO_CACHE: '1'},
-        }).cold).toBe(true);
-        expect(resolveNuxtTypecheckRun({
-            argv: [],
-            cwd: '/repo',
-            env: {EVB_TYPECHECK_COLD: '1'},
-        }).cold).toBe(true);
+        expect(
+            resolveNuxtTypecheckRun({
+                argv: [],
+                cwd: '/repo',
+                env: {EVB_GATE_NO_CACHE: '1'},
+            }).cold,
+        ).toBe(true);
+        expect(
+            resolveNuxtTypecheckRun({
+                argv: [],
+                cwd: '/repo',
+                env: {EVB_TYPECHECK_COLD: '1'},
+            }).cold,
+        ).toBe(true);
     });
 
     it('strips pnpm npm_config variables except the user agent', () => {

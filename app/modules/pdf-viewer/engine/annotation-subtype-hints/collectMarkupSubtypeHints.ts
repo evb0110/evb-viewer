@@ -1,17 +1,9 @@
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationMarkerRect,
-    TMarkupSubtype,
-} from '@app/types/annotations';
-import { isRecord } from '@contracts/runtimeGuards';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import type {IAnnotationCommentSummary, IAnnotationMarkerRect, TMarkupSubtype} from '@app/types/annotations';
+import {isRecord} from '@contracts/runtimeGuards';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import type {IMarkupSubtypeHint} from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 
-const REWRITABLE_SUBTYPE_HINTS = new Set<TMarkupSubtype>([
-    'Underline',
-    'StrikeOut',
-    'Squiggly',
-]);
+const REWRITABLE_SUBTYPE_HINTS = new Set<TMarkupSubtype>(['Underline', 'StrikeOut', 'Squiggly']);
 
 function toMarkupSubtype(value: unknown): TMarkupSubtype | null {
     if (typeof value !== 'string') {
@@ -38,23 +30,20 @@ function isValidMarkerRect(value: unknown): value is IAnnotationMarkerRect {
         return false;
     }
 
-    const {
-        left,
-        top,
-        width,
-        height,
-    } = value;
+    const {left, top, width, height} = value;
 
-    return typeof left === 'number'
-        && typeof top === 'number'
-        && typeof width === 'number'
-        && typeof height === 'number'
-        && Number.isFinite(left)
-        && Number.isFinite(top)
-        && Number.isFinite(width)
-        && Number.isFinite(height)
-        && width > 0
-        && height > 0;
+    return (
+        typeof left === 'number' &&
+        typeof top === 'number' &&
+        typeof width === 'number' &&
+        typeof height === 'number' &&
+        Number.isFinite(left) &&
+        Number.isFinite(top) &&
+        Number.isFinite(width) &&
+        Number.isFinite(height) &&
+        width > 0 &&
+        height > 0
+    );
 }
 
 function shouldCollectMarkupSubtypeHint(comment: IAnnotationCommentSummary, subtype: TMarkupSubtype) {
@@ -92,20 +81,19 @@ export function collectMarkupSubtypeHints(
             annotationId: comment.annotationId,
             ...(comment.createdAt === undefined ? {} : {createdAt: comment.createdAt}),
             ...(comment.modifiedAt === undefined ? {} : {modifiedAt: comment.modifiedAt}),
-            color: shouldCollectMarkupSubtypeHintColor(comment, options.includeContents === true)
-                ? comment.color
-                : null,
-            ...(options.includeContents ? {
-                contents: comment.text,
-                author: comment.author,
-            } : {}),
+            color: shouldCollectMarkupSubtypeHintColor(comment, options.includeContents === true) ? comment.color : null,
+            ...(options.includeContents
+                ? {
+                      contents: comment.text,
+                      author: comment.author,
+                  }
+                : {}),
             ...(options.includeContents ? {opacity: comment.opacity ?? null} : {}),
             id: comment.id,
             subtype,
             pageIndex: requirePageIndex(comment.pageIndex),
             markerRect: comment.markerRect,
-            ...(comment.markupGeometry?.length
-                && comment.markupGeometry.every(isValidMarkerRect)
+            ...(comment.markupGeometry?.length && comment.markupGeometry.every(isValidMarkerRect)
                 ? {markupGeometry: comment.markupGeometry}
                 : {}),
             consumed: false,

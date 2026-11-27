@@ -1,16 +1,9 @@
-import type { Ref } from 'vue';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationInventoryCompleteness,
-    TAnnotationCommentsStatus,
-} from '@app/types/annotations';
-import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
-import {
-    normalizeMarkerRect,
-    annotationIdForSummary,
-} from '@app/modules/pdf-viewer/public';
-import type { TDocumentRef } from '@contracts/documentRef';
-import { parseAgentResourceUri } from '@contracts/agentResourceUri';
+import type {Ref} from 'vue';
+import type {IAnnotationCommentSummary, IAnnotationInventoryCompleteness, TAnnotationCommentsStatus} from '@app/types/annotations';
+import type {IAnnotationNoteWindowViewModel} from '@app/types/annotationNoteWindow';
+import {normalizeMarkerRect, annotationIdForSummary} from '@app/modules/pdf-viewer/public';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {parseAgentResourceUri} from '@contracts/agentResourceUri';
 
 interface ICreateDocumentAgentResourcesOptions {
     annotationComments: Ref<IAnnotationCommentSummary[]>;
@@ -45,7 +38,7 @@ interface ICreateDocumentAgentResourcesOptions {
  */
 function toAgentInventoryFields(completeness: IAnnotationInventoryCompleteness | null) {
     if (!completeness) {
-        return { inventoryComplete: null };
+        return {inventoryComplete: null};
     }
 
     return {
@@ -82,10 +75,7 @@ export function createDocumentAgentResources(options: ICreateDocumentAgentResour
         if (parsed.host !== 'document') {
             throw new Error(`Unsupported workspace resource host: ${parsed.host}`);
         }
-        const [
-            resourceTabId,
-            resourceKind,
-        ] = parsed.parts;
+        const [resourceTabId, resourceKind] = parsed.parts;
         if (resourceTabId && resourceTabId !== tabId) {
             throw new Error(`Resource tab ${resourceTabId} does not match workspace tab ${tabId}.`);
         }
@@ -122,18 +112,14 @@ export function createDocumentAgentResources(options: ICreateDocumentAgentResour
         }
 
         if (resourceKind === 'notes') {
-            const openNoteByAnnotationId = new Map(
-                sortedAnnotationNoteWindows.value.map(note => [
-                    note.annotationId,
-                    note,
-                ] as const),
-            );
+            const openNoteByAnnotationId = new Map(sortedAnnotationNoteWindows.value.map((note) => [note.annotationId, note] as const));
             const notes = annotationComments.value
-                .filter(comment => (
-                    comment.hasNote === true
-                    || comment.text.trim().length > 0
-                    || openNoteByAnnotationId.has(annotationIdForSummary(comment))
-                ))
+                .filter(
+                    (comment) =>
+                        comment.hasNote === true ||
+                        comment.text.trim().length > 0 ||
+                        openNoteByAnnotationId.has(annotationIdForSummary(comment)),
+                )
                 .map((comment) => {
                     const openNote = openNoteByAnnotationId.get(annotationIdForSummary(comment)) ?? null;
                     const openNoteMarkerRect = normalizeMarkerRect(openNote?.markerRect);
@@ -160,9 +146,7 @@ export function createDocumentAgentResources(options: ICreateDocumentAgentResour
         }
 
         if (resourceKind === 'toc' || resourceKind === 'bookmarks') {
-            const {
-                bookmarks, ...snapshot
-            } = createAgentBookmarkSnapshot();
+            const {bookmarks, ...snapshot} = createAgentBookmarkSnapshot();
             return {
                 uri,
                 tabId,
@@ -190,5 +174,5 @@ export function createDocumentAgentResources(options: ICreateDocumentAgentResour
         return Promise.resolve(createAgentResource(uri));
     }
 
-    return { readAgentResource };
+    return {readAgentResource};
 }

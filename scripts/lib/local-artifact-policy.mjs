@@ -13,31 +13,20 @@
 // merely sound related (`docs/agents-overview.md`, `docs/devkit-notes.md`,
 // `electron/features/agent/…`) are ordinary product paths and stay legal.
 
-export const AGENT_INSTRUCTION_FILE_NAMES = [
-    'AGENTS.md',
-    'CLAUDE.md',
-    'GEMINI.md',
-];
+export const AGENT_INSTRUCTION_FILE_NAMES = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'];
 
 // The two rule files at the repository root are published on purpose: the
 // README points readers at them so the workflow that writes most of this code
 // is auditable. The exception is anchored to the root. A nested `AGENTS.md`
 // is still a local scratch file for one directory and stays forbidden, and so
 // does every other name above.
-export const PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES = [
-    'AGENTS.md',
-    'CLAUDE.md',
-];
+export const PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES = ['AGENTS.md', 'CLAUDE.md'];
 
 // A branch working handoff is useful while a change is in flight, but working
 // documents outside the top-level `docs/` evidence tree are not product
 // content. Keep the basename list separate so the path-aware exception remains
 // explicit and case-insensitive.
-export const ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES = [
-    'HANDOFF.md',
-    'NOTES.md',
-    'TODO.md',
-];
+export const ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES = ['HANDOFF.md', 'NOTES.md', 'TODO.md'];
 
 // `.devkit/` holds local planning and run material. It is ignored working state,
 // never product source, so a forced `git add` under it must fail exactly as a
@@ -74,7 +63,7 @@ export const LOCAL_ONLY_DIRECTORY_NAMES = LOCAL_ONLY_DIRECTORIES.map(({name}) =>
 // `.devkit` always spells them in lower case.
 /** @param {string} value */
 function asciiLowerCase(value) {
-    return value.replace(/[A-Z]/gu, character => character.toLowerCase());
+    return value.replace(/[A-Z]/gu, (character) => character.toLowerCase());
 }
 
 /**
@@ -107,7 +96,6 @@ export function normalizeRepositoryRelativePath(filePath) {
 
 /** @param {string} filePath */
 
-
 /**
  * Returns the canonical instruction file name a basename spells in any ASCII
  * case, or null for an ordinary file name.
@@ -117,8 +105,7 @@ export function normalizeRepositoryRelativePath(filePath) {
  */
 export function findAgentInstructionFileName(fileName) {
     const normalized = asciiLowerCase(fileName);
-    return AGENT_INSTRUCTION_FILE_NAMES
-        .find(candidate => asciiLowerCase(candidate) === normalized) ?? null;
+    return AGENT_INSTRUCTION_FILE_NAMES.find((candidate) => asciiLowerCase(candidate) === normalized) ?? null;
 }
 
 /**
@@ -130,8 +117,7 @@ export function findAgentInstructionFileName(fileName) {
  */
 export function findRootOnlyLocalArtifactFileName(fileName) {
     const normalized = asciiLowerCase(fileName);
-    return ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES
-        .find(candidate => asciiLowerCase(candidate) === normalized) ?? null;
+    return ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES.find((candidate) => asciiLowerCase(candidate) === normalized) ?? null;
 }
 
 /**
@@ -153,17 +139,17 @@ export function describeForbiddenArtifactPath(filePath) {
     }
     const instructionFileName = findAgentInstructionFileName(fileName);
     if (instructionFileName) {
-        const publishedAtRoot = segments.length === 1
-            && PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES.includes(instructionFileName)
-            && fileName === instructionFileName;
+        const publishedAtRoot =
+            segments.length === 1 &&
+            PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES.includes(instructionFileName) &&
+            fileName === instructionFileName;
         if (!publishedAtRoot) {
             return `agent instruction file ${instructionFileName} at ${filePath}`;
         }
     }
 
     const directorySegments = segments.slice(0, -1);
-    const directory = LOCAL_ONLY_DIRECTORIES
-        .find(({name}) => directorySegments.includes(name));
+    const directory = LOCAL_ONLY_DIRECTORIES.find(({name}) => directorySegments.includes(name));
     if (directory) {
         return `${directory.kind} ${directory.name}/ at ${filePath}`;
     }
@@ -178,24 +164,15 @@ export function describeForbiddenArtifactPath(filePath) {
 // directory and everything under it. Working-document entries use a glob plus
 // a docs exception because tracked evidence under `docs/` remains legal.
 export const REQUIRED_GITIGNORE_PATTERNS = [
-    ...AGENT_INSTRUCTION_FILE_NAMES.flatMap(name => (
-        PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES.includes(name)
-            ? [
-                `**/${name}`,
-                `!/${name}`,
-            ]
-            : [name]
-    )),
-    ...LOCAL_ONLY_DIRECTORY_NAMES.map(name => `${name}/`),
+    ...AGENT_INSTRUCTION_FILE_NAMES.flatMap((name) =>
+        PUBLISHED_ROOT_AGENT_INSTRUCTION_FILE_NAMES.includes(name) ? [`**/${name}`, `!/${name}`] : [name],
+    ),
+    ...LOCAL_ONLY_DIRECTORY_NAMES.map((name) => `${name}/`),
 ];
 
 // Unlike the basename rules above, working-document patterns need a tracked
 // docs exception: nested `docs/**/HANDOFF.md` is evidence, not local state.
-export const REQUIRED_ROOT_GITIGNORE_PATTERNS = ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES
-    .flatMap(name => [
-        `**/${name}`,
-        `!docs/**/${name}`,
-    ]);
+export const REQUIRED_ROOT_GITIGNORE_PATTERNS = ROOT_ONLY_LOCAL_ARTIFACT_FILE_NAMES.flatMap((name) => [`**/${name}`, `!docs/**/${name}`]);
 
 /**
  * Returns the required ignore patterns `.gitignore` does not declare. An anchored
@@ -214,11 +191,8 @@ export const REQUIRED_ROOT_GITIGNORE_PATTERNS = ROOT_ONLY_LOCAL_ARTIFACT_FILE_NA
 export function findMissingGitIgnorePatterns(content) {
     const lines = content
         .split(/\r?\n/u)
-        .map(line => line.trim())
-        .filter(line => line.length > 0 && !line.startsWith('#'));
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith('#'));
 
-    return [
-        ...REQUIRED_GITIGNORE_PATTERNS,
-        ...REQUIRED_ROOT_GITIGNORE_PATTERNS,
-    ].filter(pattern => !lines.includes(pattern));
+    return [...REQUIRED_GITIGNORE_PATTERNS, ...REQUIRED_ROOT_GITIGNORE_PATTERNS].filter((pattern) => !lines.includes(pattern));
 }

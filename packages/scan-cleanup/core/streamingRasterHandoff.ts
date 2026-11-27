@@ -1,8 +1,5 @@
 import {getErrorMessage} from '@contracts/getErrorMessage';
-import {
-    getUnprovenNativeTerminationDetail,
-    markUnprovenNativeTermination,
-} from '@contracts/nativeErrors';
+import {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} from '@contracts/nativeErrors';
 
 export interface IResolvedStreamingRasterHandoffBudget {
     producerConcurrency: number;
@@ -28,16 +25,8 @@ export interface IRunBoundedRasterProducerConsumerInput<TItem, TStaged> {
     budget: IResolvedStreamingRasterHandoffBudget;
     signal: AbortSignal;
     estimateItemBytes: (item: TItem, index: number) => number;
-    produce: (
-        item: TItem,
-        index: number,
-        operationSignal: AbortSignal,
-    ) => Promise<IProducedStagedItem<TStaged>>;
-    consumeChunk: (
-        chunk: readonly TStaged[],
-        chunkIndex: number,
-        operationSignal: AbortSignal,
-    ) => Promise<void>;
+    produce: (item: TItem, index: number, operationSignal: AbortSignal) => Promise<IProducedStagedItem<TStaged>>;
+    consumeChunk: (chunk: readonly TStaged[], chunkIndex: number, operationSignal: AbortSignal) => Promise<void>;
     cleanupStaged: (stagedItems: readonly TStaged[]) => Promise<ICleanupStagedOutcome | void>;
 }
 
@@ -62,25 +51,14 @@ interface IReadyEntry<TStaged> {
 export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
     input: IRunBoundedRasterProducerConsumerInput<TItem, TStaged>,
 ): Promise<void> {
-    const {
-        items,
-        budget,
-        signal,
-        estimateItemBytes,
-        produce,
-        consumeChunk,
-        cleanupStaged,
-    } = input;
+    const {items, budget, signal, estimateItemBytes, produce, consumeChunk, cleanupStaged} = input;
     if (items.length === 0) {
         return;
     }
     signal.throwIfAborted();
 
     const internalAbort = new AbortController();
-    const operationSignal = AbortSignal.any([
-        signal,
-        internalAbort.signal,
-    ]);
+    const operationSignal = AbortSignal.any([signal, internalAbort.signal]);
 
     const readyByIndex = new Map<number, IReadyEntry<TStaged>>();
     let nextProducerIndex = 0;
@@ -100,7 +78,9 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
     const wakeWaiters = (waiters: Set<() => void>) => {
         const snapshot = [...waiters];
         waiters.clear();
-        for (const wake of snapshot) wake();
+        for (const wake of snapshot) {
+            wake();
+        }
     };
 
     const notifyAll = () => {
@@ -109,26 +89,25 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
         wakeWaiters(consumerWaiters);
     };
 
-    const waitForStateChange = (waiters: Set<() => void>, seenVersion: number) => new Promise<void>(resolve => {
-        if (stateVersion !== seenVersion || operationSignal.aborted || hasFailure) {
-            resolve();
-            return;
-        }
-        const wake = () => {
-            waiters.delete(wake);
-            resolve();
-        };
-        waiters.add(wake);
-    });
+    const waitForStateChange = (waiters: Set<() => void>, seenVersion: number) =>
+        new Promise<void>((resolve) => {
+            if (stateVersion !== seenVersion || operationSignal.aborted || hasFailure) {
+                resolve();
+                return;
+            }
+            const wake = () => {
+                waiters.delete(wake);
+                resolve();
+            };
+            waiters.add(wake);
+        });
 
     const recordFailure = (error: unknown) => {
         const isUnproven = getUnprovenNativeTerminationDetail(error) !== undefined;
         if (isUnproven && !unprovenFailures.includes(error)) {
             unprovenFailures.push(error);
         }
-        const isInternalAbortReflection = hasFailure
-            && !isUnproven
-            && error === internalAbort.signal.reason;
+        const isInternalAbortReflection = hasFailure && !isUnproven && error === internalAbort.signal.reason;
         if (!isInternalAbortReflection && !distinctFailures.includes(error)) {
             distinctFailures.push(error);
         }
@@ -154,10 +133,8 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
 
     // Single-item liveness: when nothing is currently in flight, always admit
     // the next item even if its byte size exceeds maxInFlightBytes.
-    const canAdmitNext = (estimatedBytes: number) => (
-        inFlightPages < budget.maxInFlightPages
-        && (inFlightPages === 0 || inFlightBytes + estimatedBytes <= budget.maxInFlightBytes)
-    );
+    const canAdmitNext = (estimatedBytes: number) =>
+        inFlightPages < budget.maxInFlightPages && (inFlightPages === 0 || inFlightBytes + estimatedBytes <= budget.maxInFlightBytes);
 
     const claimNextProducerSlot = async (): Promise<{
         index: number;
@@ -206,9 +183,8 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
             let handedOff = false;
             try {
                 const result = await produce(items[slot.index]!, slot.index, operationSignal);
-                const actualBytes = Number.isFinite(result.actualBytes) && result.actualBytes >= 0
-                    ? Math.ceil(result.actualBytes)
-                    : reservedBytes;
+                const actualBytes =
+                    Number.isFinite(result.actualBytes) && result.actualBytes >= 0 ? Math.ceil(result.actualBytes) : reservedBytes;
                 // Reconcile the initial conservative pre-write estimate (`reservedBytes`)
                 // to the actual on-disk bytes once staged so subsequent admissions reflect
                 // true resident scratch usage.
@@ -219,10 +195,10 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
                     if (unprovenFailures.length === 0) {
                         const cleanupOutcome = await cleanupStaged([result.staged]).catch(() => undefined);
                         if (
-                            cleanupOutcome !== undefined
-                            && cleanupOutcome.unreclaimedBytes !== undefined
-                            && Number.isFinite(cleanupOutcome.unreclaimedBytes)
-                            && cleanupOutcome.unreclaimedBytes > 0
+                            cleanupOutcome !== undefined &&
+                            cleanupOutcome.unreclaimedBytes !== undefined &&
+                            Number.isFinite(cleanupOutcome.unreclaimedBytes) &&
+                            cleanupOutcome.unreclaimedBytes > 0
                         ) {
                             unreclaimedBytes = Math.min(reservedBytes, Math.ceil(cleanupOutcome.unreclaimedBytes));
                         }
@@ -251,9 +227,7 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
     const producerLoop = (async () => {
         try {
             const workerCount = Math.min(budget.producerConcurrency, items.length);
-            const settled = await Promise.allSettled(
-                Array.from({length: workerCount}, () => runProducerWorker()),
-            );
+            const settled = await Promise.allSettled(Array.from({length: workerCount}, () => runProducerWorker()));
             for (const outcome of settled) {
                 if (outcome.status === 'rejected') {
                     recordFailure(outcome.reason);
@@ -267,10 +241,7 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
 
     const countContiguousReadyPrefix = () => {
         let count = 0;
-        while (
-            count < budget.maxChunkPages
-            && readyByIndex.has(nextConsumerIndex + count)
-        ) {
+        while (count < budget.maxChunkPages && readyByIndex.has(nextConsumerIndex + count)) {
             count += 1;
         }
         return count;
@@ -293,8 +264,7 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
         // If the next page after the ready prefix has not even been claimed yet
         // because the queue is at its page or byte limit, dispatch this ready
         // prefix immediately so consuming it frees room for the producer.
-        return nextProducerIndex === nextIndexAfterReady
-            && !canAdmitNext(estimatedBytesFor(nextIndexAfterReady));
+        return nextProducerIndex === nextIndexAfterReady && !canAdmitNext(estimatedBytesFor(nextIndexAfterReady));
     };
 
     const consumerLoop = (async () => {
@@ -317,7 +287,7 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
                 chunkEntries.push(entry);
             }
             nextConsumerIndex += readyCount;
-            const stagedChunk = chunkEntries.map(entry => entry.staged);
+            const stagedChunk = chunkEntries.map((entry) => entry.staged);
             const chunkBytes = chunkEntries.reduce((sum, entry) => sum + entry.trackedBytes, 0);
             let chunkError: unknown;
             let chunkFailed = false;
@@ -332,17 +302,16 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
             } finally {
                 // Unproven native termination means the sidecar may still hold
                 // open input rasters; keep them until recovery completes.
-                const retainForUnprovenTermination = chunkFailed
-                    && getUnprovenNativeTerminationDetail(chunkError) !== undefined;
+                const retainForUnprovenTermination = chunkFailed && getUnprovenNativeTerminationDetail(chunkError) !== undefined;
                 let unreclaimedBytes = retainForUnprovenTermination ? chunkBytes : 0;
                 if (!retainForUnprovenTermination) {
                     try {
                         const cleanupOutcome = await cleanupStaged(stagedChunk);
                         if (
-                            cleanupOutcome !== undefined
-                            && cleanupOutcome.unreclaimedBytes !== undefined
-                            && Number.isFinite(cleanupOutcome.unreclaimedBytes)
-                            && cleanupOutcome.unreclaimedBytes > 0
+                            cleanupOutcome !== undefined &&
+                            cleanupOutcome.unreclaimedBytes !== undefined &&
+                            Number.isFinite(cleanupOutcome.unreclaimedBytes) &&
+                            cleanupOutcome.unreclaimedBytes > 0
                         ) {
                             unreclaimedBytes = Math.min(chunkBytes, Math.ceil(cleanupOutcome.unreclaimedBytes));
                         }
@@ -362,10 +331,7 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
     })().catch(recordFailure);
 
     try {
-        const settled = await Promise.allSettled([
-            producerLoop,
-            consumerLoop,
-        ]);
+        const settled = await Promise.allSettled([producerLoop, consumerLoop]);
         for (const outcome of settled) {
             if (outcome.status === 'rejected') {
                 recordFailure(outcome.reason);
@@ -375,17 +341,14 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
         signal.removeEventListener('abort', handleExternalAbort);
         const retainRemaining = unprovenFailures.length > 0;
         if (readyByIndex.size > 0 && !retainRemaining) {
-            const leftover = [...readyByIndex.values()].map(entry => entry.staged);
+            const leftover = [...readyByIndex.values()].map((entry) => entry.staged);
             readyByIndex.clear();
             await cleanupStaged(leftover).catch(() => undefined);
         }
     }
 
     if (distinctFailures.length > 1) {
-        const aggregate = new AggregateError(
-            distinctFailures,
-            getErrorMessage(distinctFailures[0]),
-        );
+        const aggregate = new AggregateError(distinctFailures, getErrorMessage(distinctFailures[0]));
         if (unprovenFailures.length > 0) {
             const detail = getUnprovenNativeTerminationDetail(unprovenFailures[0]);
             if (detail !== undefined) {

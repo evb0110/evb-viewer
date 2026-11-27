@@ -1,25 +1,8 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    chmod,
-    lstat,
-    mkdtemp,
-    mkdir,
-    readFile,
-    rm,
-    symlink,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-    ensureSecurePersistentLocalMcpToken,
-    getLocalMcpTokenStoragePaths,
-} from '@electron/features/agent/localMcpTokenStore';
+import {afterEach, describe, expect, it} from 'vitest';
+import {chmod, lstat, mkdtemp, mkdir, readFile, rm, symlink, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {ensureSecurePersistentLocalMcpToken, getLocalMcpTokenStoragePaths} from '@electron/features/agent/localMcpTokenStore';
 
 const temporaryRoots: string[] = [];
 
@@ -31,19 +14,20 @@ async function createUserDataPath() {
 
 describe('local MCP token store', () => {
     afterEach(async () => {
-        await Promise.all(temporaryRoots.splice(0).map(path => rm(path, {
-            recursive: true,
-            force: true,
-        })));
+        await Promise.all(
+            temporaryRoots.splice(0).map((path) =>
+                rm(path, {
+                    recursive: true,
+                    force: true,
+                }),
+            ),
+        );
     });
 
     it('creates one stable token for concurrent callers in a private directory and file', async () => {
         const userDataPath = await createUserDataPath();
 
-        const tokens = await Promise.all(Array.from(
-            {length: 16},
-            () => ensureSecurePersistentLocalMcpToken(userDataPath),
-        ));
+        const tokens = await Promise.all(Array.from({length: 16}, () => ensureSecurePersistentLocalMcpToken(userDataPath)));
         const paths = getLocalMcpTokenStoragePaths(userDataPath);
 
         expect(new Set(tokens).size).toBe(1);
@@ -94,8 +78,7 @@ describe('local MCP token store', () => {
         await writeFile(targetPath, targetContents, 'utf8');
         await symlink(targetPath, paths.tokenPath);
 
-        await expect(ensureSecurePersistentLocalMcpToken(userDataPath))
-            .rejects.toThrow('regular file');
+        await expect(ensureSecurePersistentLocalMcpToken(userDataPath)).rejects.toThrow('regular file');
         expect(await readFile(targetPath, 'utf8')).toBe(targetContents);
     });
 
@@ -105,7 +88,6 @@ describe('local MCP token store', () => {
         await mkdir(paths.directoryPath, {mode: 0o700});
         await mkdir(paths.tokenPath);
 
-        await expect(ensureSecurePersistentLocalMcpToken(userDataPath))
-            .rejects.toThrow('regular file');
+        await expect(ensureSecurePersistentLocalMcpToken(userDataPath)).rejects.toThrow('regular file');
     });
 });

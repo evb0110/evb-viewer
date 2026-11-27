@@ -1,54 +1,25 @@
-import {
-    execFileSync,
-    spawn,
-} from 'node:child_process';
-import {
-    mkdirSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    mkdtemp,
-    mkdir,
-    readFile,
-    readdir,
-    realpath,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {execFileSync, spawn} from 'node:child_process';
+import {mkdirSync, writeFileSync} from 'node:fs';
+import {mkdtemp, mkdir, readFile, readdir, realpath, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import path, {
-    join,
-    resolve,
-} from 'node:path';
+import path, {join, resolve} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    isProcessAlive,
-    killProcessTree,
-    waitForProcessExit,
-} from '@scripts/electron-run/electronRunProcessTree';
-import {
-    isOutsideRoot,
-    resolvePackagedSourceRoot,
-} from '@scripts/release/runPackagedAutomation';
+import {afterEach, describe, expect, it} from 'vitest';
+import {isProcessAlive, killProcessTree, waitForProcessExit} from '@scripts/electron-run/electronRunProcessTree';
+import {isOutsideRoot, resolvePackagedSourceRoot} from '@scripts/release/runPackagedAutomation';
 
 describe('packaged automation source root', () => {
     // The platform argument selects the payload layout; paths stay host-native.
     it('is the payload each installer actually ships', () => {
-        expect(resolvePackagedSourceRoot('/Applications/EVB Viewer.app/Contents/MacOS/EVB Viewer', 'darwin'))
-            .toBe(resolve('/Applications/EVB Viewer.app'));
+        expect(resolvePackagedSourceRoot('/Applications/EVB Viewer.app/Contents/MacOS/EVB Viewer', 'darwin')).toBe(
+            resolve('/Applications/EVB Viewer.app'),
+        );
         expect(resolvePackagedSourceRoot('/opt/EVB Viewer/evb-viewer', 'linux')).toBe(resolve('/opt/EVB Viewer'));
         expect(resolvePackagedSourceRoot('/install/EVB Viewer/EVB Viewer.exe', 'win32')).toBe(resolve('/install/EVB Viewer'));
     });
 
     it.runIf(process.platform === 'win32')('is the drive-qualified Windows install folder', () => {
-        expect(resolvePackagedSourceRoot('C:\\Program Files\\EVB Viewer\\EVB Viewer.exe'))
-            .toBe('C:\\Program Files\\EVB Viewer');
+        expect(resolvePackagedSourceRoot('C:\\Program Files\\EVB Viewer\\EVB Viewer.exe')).toBe('C:\\Program Files\\EVB Viewer');
     });
 });
 
@@ -72,10 +43,7 @@ describe('process tree termination receipt', () => {
     });
 
     it('reports termination for a live root and none once the root is gone', async () => {
-        const child = spawn(process.execPath, [
-            '-e',
-            'setInterval(() => {}, 1000)',
-        ], {stdio: 'ignore'});
+        const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {stdio: 'ignore'});
         const pid = child.pid!;
         let failure: unknown;
         try {
@@ -91,12 +59,12 @@ describe('process tree termination receipt', () => {
         // failed, and report a child that would not exit beside that failure.
         if (child.exitCode === null && child.signalCode === null) {
             child.kill('SIGKILL');
-            if (!await waitForProcessExit(pid, 2_000)) {
+            if (!(await waitForProcessExit(pid, 2_000))) {
                 const leaked = new Error(`Owned test child ${String(pid)} did not exit after SIGKILL`);
-                failure = failure === undefined ? leaked : new AggregateError([
-                    failure,
-                    leaked,
-                ], 'Receipt test failed and its child did not exit');
+                failure =
+                    failure === undefined
+                        ? leaked
+                        : new AggregateError([failure, leaked], 'Receipt test failed and its child did not exit');
             }
         }
         if (failure !== undefined) {
@@ -114,12 +82,11 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
         for (const root of roots) {
             const env = await readFile(join(root, 'run', 'user-data.env'), 'utf8').catch(() => '');
             const helper = await readFile(join(root, 'run', 'user-data.helper'), 'utf8').catch(() => '');
-            for (const value of [
-                env.split('\n')[3],
-                helper,
-            ]) {
+            for (const value of [env.split('\n')[3], helper]) {
                 const pid = Number(value);
-                if (Number.isSafeInteger(pid) && pid > 0) pids.push(pid);
+                if (Number.isSafeInteger(pid) && pid > 0) {
+                    pids.push(pid);
+                }
             }
         }
         for (const pid of pids.splice(0)) {
@@ -140,7 +107,7 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
         options: {
             mode?: number;
             script?: string | ((root: string) => string);
-            scriptArguments?: (root: string) => string[]
+            scriptArguments?: (root: string) => string[];
         } = {},
     ) {
         const root = await mkdtemp(join(tmpdir(), 'evb-runner-test-'));
@@ -148,44 +115,61 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
         // macOS launches a bundle; Linux launches the installed directory's
         // executable by its own name, as the .deb ships it.
         const app = join(root, 'Fixture.app');
-        const executable = process.platform === 'darwin'
-            ? join(app, 'Contents', 'MacOS', 'Fixture')
-            : join(root, 'opt', 'EVB Viewer', 'evb-viewer');
+        const executable =
+            process.platform === 'darwin' ? join(app, 'Contents', 'MacOS', 'Fixture') : join(root, 'opt', 'EVB Viewer', 'evb-viewer');
         await mkdir(join(executable, '..'), {recursive: true});
-        await writeFile(executable, '#!/bin/sh\n'
-            + 'printf "%s\\n" "$EVB_AUTOMATION_HIDE_WINDOW" "$EVB_AUTOMATION_NO_FOCUS" "${ELECTRON_RUN_AS_NODE-unset}" "$$" "$EVB_FILE_LOG_DIR" > "$EVB_AUTOMATION_USER_DATA_DIR.env"\n'
-            + body, {mode: options.mode ?? 0o755});
+        await writeFile(
+            executable,
+            '#!/bin/sh\n' +
+                'printf "%s\\n" "$EVB_AUTOMATION_HIDE_WINDOW" "$EVB_AUTOMATION_NO_FOCUS" "${ELECTRON_RUN_AS_NODE-unset}" "$$" "$EVB_FILE_LOG_DIR" > "$EVB_AUTOMATION_USER_DATA_DIR.env"\n' +
+                body,
+            {mode: options.mode ?? 0o755},
+        );
         if (process.platform === 'darwin') {
-            await writeFile(join(app, 'Contents', 'Info.plist'), '<?xml version="1.0"?>'
-                + '<plist version="1.0"><dict><key>CFBundleExecutable</key><string>Fixture</string>'
-                + '<key>CFBundleIdentifier</key><string>com.example.fixture</string></dict></plist>');
+            await writeFile(
+                join(app, 'Contents', 'Info.plist'),
+                '<?xml version="1.0"?>' +
+                    '<plist version="1.0"><dict><key>CFBundleExecutable</key><string>Fixture</string>' +
+                    '<key>CFBundleIdentifier</key><string>com.example.fixture</string></dict></plist>',
+            );
         }
         const workDirectory = workDirectoryOverride ?? join(root, 'run');
-        const child = spawn(process.execPath, [
-            '--import',
-            'tsx',
-            resolve(typeof options.script === 'function' ? options.script(root) : options.script ?? 'scripts/release/runPackagedAutomation.ts'),
-            '--executable',
-            executable,
-            ...options.scriptArguments?.(root) ?? [
-                '--work-directory',
-                workDirectory,
+        const child = spawn(
+            process.execPath,
+            [
+                '--import',
+                'tsx',
+                resolve(
+                    typeof options.script === 'function'
+                        ? options.script(root)
+                        : (options.script ?? 'scripts/release/runPackagedAutomation.ts'),
+                ),
+                '--executable',
+                executable,
+                ...(options.scriptArguments?.(root) ?? ['--work-directory', workDirectory]),
             ],
-        ], {
-            env: {
-                ...process.env,
-                ELECTRON_RUN_AS_NODE: '1',
-                EVB_AUTOMATION_HIDE_WINDOW: '0',
-                // The owner's record cleanup reads the home directory, so keep it in this test's root.
-                HOME: root,
-                ...environment,
+            {
+                env: {
+                    ...process.env,
+                    ELECTRON_RUN_AS_NODE: '1',
+                    EVB_AUTOMATION_HIDE_WINDOW: '0',
+                    // The owner's record cleanup reads the home directory, so keep it in this test's root.
+                    HOME: root,
+                    ...environment,
+                },
+                stdio: 'pipe',
             },
-            stdio: 'pipe',
-        });
-        if (child.pid) pids.push(child.pid);
+        );
+        if (child.pid) {
+            pids.push(child.pid);
+        }
         let output = '';
-        child.stdout.on('data', data => { output += String(data); });
-        child.stderr.on('data', data => { output += String(data); });
+        child.stdout.on('data', (data) => {
+            output += String(data);
+        });
+        child.stderr.on('data', (data) => {
+            output += String(data);
+        });
         const exited = new Promise<number | null>((resolveExit, reject) => {
             child.once('error', reject);
             child.once('exit', resolveExit);
@@ -202,13 +186,8 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
         const run = await launch('exit 7\n');
         expect(await run.exited).toBe(7);
         expect(run.output()).toContain('code=7 signal=null');
-        expect((await readFile(join(run.workDirectory, 'user-data.env'), 'utf8')).split('\n').slice(0, 3))
-            .toEqual([
-                '1',
-                '1',
-                'unset',
-            ]);
-        expect((await readdir(run.workDirectory)).filter(name => name.startsWith('hidden-packaged-app-'))).toEqual([]);
+        expect((await readFile(join(run.workDirectory, 'user-data.env'), 'utf8')).split('\n').slice(0, 3)).toEqual(['1', '1', 'unset']);
+        expect((await readdir(run.workDirectory)).filter((name) => name.startsWith('hidden-packaged-app-'))).toEqual([]);
     });
 
     it('selects an owned log directory when the caller inherits the shared default', async () => {
@@ -241,13 +220,7 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
     });
 
     it('allocates independent roots for concurrent fixtures', async () => {
-        const [
-            first,
-            second,
-        ] = await Promise.all([
-            launch('exit 0\n'),
-            launch('exit 0\n'),
-        ]);
+        const [first, second] = await Promise.all([launch('exit 0\n'), launch('exit 0\n')]);
         expect(first.workDirectory).not.toBe(second.workDirectory);
         expect(await first.exited).toBe(0);
         expect(await second.exited).toBe(0);
@@ -264,18 +237,12 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
         expect(second.output()).toContain('empty and unused');
     });
 
-    it('leaves the winner\'s root intact when two runners race for one task root', async () => {
+    it("leaves the winner's root intact when two runners race for one task root", async () => {
         const shared = join(await mkdtemp(join(tmpdir(), 'evb-runner-race-')), 'run');
         roots.push(join(shared, '..'));
-        const runs = await Promise.all([
-            launch('sleep 1\nexit 0\n', {}, shared),
-            launch('sleep 1\nexit 0\n', {}, shared),
-        ]);
-        const codes = await Promise.all(runs.map(run => run.exited));
-        expect([...codes].sort()).toEqual([
-            0,
-            1,
-        ]);
+        const runs = await Promise.all([launch('sleep 1\nexit 0\n', {}, shared), launch('sleep 1\nexit 0\n', {}, shared)]);
+        const codes = await Promise.all(runs.map((run) => run.exited));
+        expect([...codes].sort()).toEqual([0, 1]);
         expect(runs[codes.indexOf(1)]!.output()).toMatch(/empty and unused|already claimed|EEXIST/u);
         expect((await readFile(join(shared, 'user-data.env'), 'utf8')).split('\n')[0]).toBe('1');
     });
@@ -288,50 +255,38 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
             scriptArguments: (root) => {
                 artifactDirectory = join(root, 'artifacts');
                 writeFileSync(join(root, 'source.pdf'), 'source');
-                return [
-                    '--source',
-                    join(root, 'source.pdf'),
-                    '--artifact-dir',
-                    artifactDirectory,
-                    '--expected-pages',
-                    '4',
-                    '--scale-only',
-                ];
+                return ['--source', join(root, 'source.pdf'), '--artifact-dir', artifactDirectory, '--expected-pages', '4', '--scale-only'];
             },
         });
         expect(await run.exited).toBe(1);
         expect(run.output()).toContain('EACCES');
-        expect((await readdir(artifactDirectory)).filter(name => name.startsWith('hidden-packaged-app-'))).toEqual([]);
+        expect((await readdir(artifactDirectory)).filter((name) => name.startsWith('hidden-packaged-app-'))).toEqual([]);
     }, 30_000);
 
-    it.each([
-        undefined,
-        '1.5',
-        '4junk',
-    ])('rejects an absent or invalid expected page count (%s) before launching', async (expectedPages) => {
-        const run = await launch('exit 7\n', {}, undefined, {
-            script: 'scripts/release/verifyPackagedScanCleanup.ts',
-            scriptArguments: root => {
-                writeFileSync(join(root, 'source.pdf'), 'source');
-                return [
-                    '--source',
-                    join(root, 'source.pdf'),
-                    '--artifact-dir',
-                    join(root, 'artifacts'),
-                    '--scale-only',
-                    ...expectedPages === undefined ? [] : [
-                        '--expected-pages',
-                        expectedPages,
-                    ],
-                ];
-            },
-        });
-        expect(await run.exited).toBe(1);
-        expect(run.output()).toContain('--expected-pages <count> is required and must be a positive integer');
-        expect(await readdir(join(run.workDirectory, '..'))).not.toContain('artifacts');
-    });
+    it.each([undefined, '1.5', '4junk'])(
+        'rejects an absent or invalid expected page count (%s) before launching',
+        async (expectedPages) => {
+            const run = await launch('exit 7\n', {}, undefined, {
+                script: 'scripts/release/verifyPackagedScanCleanup.ts',
+                scriptArguments: (root) => {
+                    writeFileSync(join(root, 'source.pdf'), 'source');
+                    return [
+                        '--source',
+                        join(root, 'source.pdf'),
+                        '--artifact-dir',
+                        join(root, 'artifacts'),
+                        '--scale-only',
+                        ...(expectedPages === undefined ? [] : ['--expected-pages', expectedPages]),
+                    ];
+                },
+            });
+            expect(await run.exited).toBe(1);
+            expect(run.output()).toContain('--expected-pages <count> is required and must be a positive integer');
+            expect(await readdir(join(run.workDirectory, '..'))).not.toContain('artifacts');
+        },
+    );
 
-    it('refuses a scan-cleanup rerun without touching the earlier run\'s evidence', async () => {
+    it("refuses a scan-cleanup rerun without touching the earlier run's evidence", async () => {
         const evidence = {
             'rome-packaged-source.pdf': 'earlier-source',
             'rome-pane-geometry-source.pdf': 'earlier-geometry',
@@ -347,10 +302,7 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
             scriptArguments: (root) => {
                 artifactDirectory = join(root, 'artifacts');
                 writeFileSync(join(root, 'new-source.pdf'), 'new-source');
-                for (const [
-                    name,
-                    contents,
-                ] of Object.entries(evidence)) {
+                for (const [name, contents] of Object.entries(evidence)) {
                     mkdirSync(join(artifactDirectory, name, '..'), {recursive: true});
                     writeFileSync(join(artifactDirectory, name), contents);
                 }
@@ -367,31 +319,35 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
         });
         expect(await run.exited).not.toBe(0);
         expect(run.output()).toMatch(/empty and unused|already claimed/u);
-        for (const [
-            name,
-            contents,
-        ] of Object.entries(evidence)) {
+        for (const [name, contents] of Object.entries(evidence)) {
             expect(await readFile(join(artifactDirectory, name), 'utf8')).toBe(contents);
         }
     }, 30_000);
 
-    it.each([
-        'running',
-        'starting',
-    ])('waits for its owned child to exit before removing the bundle on interruption while %s', async (phase) => {
-        // The payload can run before startup returns to the CLI. An early
-        // signal must enter the same owned stop as one sent after startup.
-        const run = await launch('trap "exit 0" TERM INT\n'
-            + (phase === 'starting' ? 'printf ready > "$(dirname "$EVB_AUTOMATION_USER_DATA_DIR")/../spawn-ready"\n' : '')
-            + 'while :; do sleep 1; done\n', {}, undefined, phase === 'starting' ? {script: root => {
-            const gate = join(root, 'spawn-ready');
-            execFileSync('mkfifo', [gate]);
-            const script = join(root, 'interrupt-start.mjs');
-            const runner = resolve('scripts/release/runPackagedAutomation.ts');
-            // Keep the real spawn and process tree. Block its startup
-            // notification until the shell records its PID, then send
-            // a real OS signal before the launch promise can settle.
-            writeFileSync(script, `
+    it.each(['running', 'starting'])(
+        'waits for its owned child to exit before removing the bundle on interruption while %s',
+        async (phase) => {
+            // The payload can run before startup returns to the CLI. An early
+            // signal must enter the same owned stop as one sent after startup.
+            const run = await launch(
+                'trap "exit 0" TERM INT\n' +
+                    (phase === 'starting' ? 'printf ready > "$(dirname "$EVB_AUTOMATION_USER_DATA_DIR")/../spawn-ready"\n' : '') +
+                    'while :; do sleep 1; done\n',
+                {},
+                undefined,
+                phase === 'starting'
+                    ? {
+                          script: (root) => {
+                              const gate = join(root, 'spawn-ready');
+                              execFileSync('mkfifo', [gate]);
+                              const script = join(root, 'interrupt-start.mjs');
+                              const runner = resolve('scripts/release/runPackagedAutomation.ts');
+                              // Keep the real spawn and process tree. Block its startup
+                              // notification until the shell records its PID, then send
+                              // a real OS signal before the launch promise can settle.
+                              writeFileSync(
+                                  script,
+                                  `
                         import childProcess from 'node:child_process';
                         import {readFileSync} from 'node:fs';
                         import {syncBuiltinESMExports} from 'node:module';
@@ -407,26 +363,39 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
                         syncBuiltinESMExports();
                         process.argv[1] = ${JSON.stringify(runner)};
                         await import(${JSON.stringify(runner)});
-                    `);
-            return script;
-        }} : {});
-        let childPid: number | undefined;
-        const deadline = Date.now() + 10_000;
-        while (Date.now() < deadline) {
-            const env = await readFile(join(run.workDirectory, 'user-data.env'), 'utf8').catch(() => '');
-            if (env) { childPid = Number(env.split('\n')[3]); break; }
-            await delay(25);
-        }
-        if (!childPid) throw new Error(`Fixture did not write user-data.env within 10 seconds. Runner output: ${run.output()}`);
-        expect(childPid).toBeGreaterThan(0);
-        if (phase === 'running') run.child.kill('SIGTERM');
-        await run.exited;
-        expect(isProcessAlive(childPid!)).toBe(false);
-        expect(run.child.signalCode).toBeNull();
-        expect(run.child.exitCode).toBe(0);
-        expect(run.output()).toContain('Packaged automation exited:');
-        expect((await readdir(run.workDirectory)).filter(name => name.startsWith('hidden-packaged-app-'))).toEqual([]);
-    }, 20_000);
+                    `,
+                              );
+                              return script;
+                          },
+                      }
+                    : {},
+            );
+            let childPid: number | undefined;
+            const deadline = Date.now() + 10_000;
+            while (Date.now() < deadline) {
+                const env = await readFile(join(run.workDirectory, 'user-data.env'), 'utf8').catch(() => '');
+                if (env) {
+                    childPid = Number(env.split('\n')[3]);
+                    break;
+                }
+                await delay(25);
+            }
+            if (!childPid) {
+                throw new Error(`Fixture did not write user-data.env within 10 seconds. Runner output: ${run.output()}`);
+            }
+            expect(childPid).toBeGreaterThan(0);
+            if (phase === 'running') {
+                run.child.kill('SIGTERM');
+            }
+            await run.exited;
+            expect(isProcessAlive(childPid!)).toBe(false);
+            expect(run.child.signalCode).toBeNull();
+            expect(run.child.exitCode).toBe(0);
+            expect(run.output()).toContain('Packaged automation exited:');
+            expect((await readdir(run.workDirectory)).filter((name) => name.startsWith('hidden-packaged-app-'))).toEqual([]);
+        },
+        20_000,
+    );
 
     it('cleans up an orphaned helper after the main process exits normally', async () => {
         const run = await launch('sleep 30 &\necho "$!" > "$EVB_AUTOMATION_USER_DATA_DIR.helper"\nexit 0\n');
@@ -434,6 +403,6 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
         const helperPid = Number(await readFile(join(run.workDirectory, 'user-data.helper'), 'utf8'));
         expect(helperPid).toBeGreaterThan(0);
         expect(isProcessAlive(helperPid)).toBe(false);
-        expect((await readdir(run.workDirectory)).filter(name => name.startsWith('hidden-packaged-app-'))).toEqual([]);
+        expect((await readdir(run.workDirectory)).filter((name) => name.startsWith('hidden-packaged-app-'))).toEqual([]);
     });
 });

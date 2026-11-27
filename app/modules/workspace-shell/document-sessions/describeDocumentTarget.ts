@@ -1,9 +1,9 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { IRecentFile } from '@contracts/shared';
-import type { IWorkspaceDocumentTarget } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentSnapshot';
-import type { IWorkspaceOpenRequest } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {IRecentFile} from '@contracts/shared';
+import type {IWorkspaceDocumentTarget} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentSnapshot';
+import type {IWorkspaceOpenRequest} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {getDocumentRefBaseName} from '@app/utils/documentRef';
 
 type TDocumentTargetSource = TDocumentRef | TOpenFileResult | IRecentFile;
 
@@ -61,11 +61,12 @@ export function describeDocumentTarget(target: TDocumentTargetSource): IWorkspac
  * paints when it is; restoring waits for the shown tab's pixels itself.
  */
 export function describeOpenResult(result: TOpenFileResult): IWorkspaceOpenRequest {
-    const pageShapeSource = result.kind !== 'pdf'
-        ? null
-        : result.recoveryDirtyBaseline === true || result.wasEncrypted === true || result.isGenerated === true
-            ? result.workingPath
-            : undefined;
+    const pageShapeSource =
+        result.kind !== 'pdf'
+            ? null
+            : result.recoveryDirtyBaseline === true || result.wasEncrypted === true || result.isGenerated === true
+              ? result.workingPath
+              : undefined;
     return {
         kind: result.kind === 'pdf' && result.recoveryDirtyBaseline === true ? 'restore' : 'open',
         target: describeDocumentTarget(result),

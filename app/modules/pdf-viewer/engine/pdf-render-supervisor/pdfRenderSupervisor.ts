@@ -1,4 +1,4 @@
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 
 /** The only watchdog: a render stage that made no progress for its window. */
 export type TPdfRenderSupervisorWatchdogCause = 'page-stage-timeout';
@@ -47,14 +47,12 @@ interface IActivePdfRenderSupervisorTimer {
 }
 
 /** One timer per key: arming a key replaces its timer, whose callback then never runs. */
-export function createPdfRenderSupervisor(
-    options: ICreatePdfRenderSupervisorOptions = {},
-): IPdfRenderSupervisor {
+export function createPdfRenderSupervisor(options: ICreatePdfRenderSupervisorOptions = {}): IPdfRenderSupervisor {
     const activeTimers = new Map<string, IActivePdfRenderSupervisorTimer>();
     let lastToken = 0;
     const now = options.now ?? (() => Date.now());
     const setTimeoutFn = options.setTimeoutFn ?? ((callback, delayMs) => setTimeout(callback, delayMs));
-    const clearTimeoutFn = options.clearTimeoutFn ?? (handle => clearTimeout(handle));
+    const clearTimeoutFn = options.clearTimeoutFn ?? ((handle) => clearTimeout(handle));
 
     function clearTimer(timer: IActivePdfRenderSupervisorTimer) {
         if (activeTimers.get(timer.options.key) !== timer) {
@@ -82,7 +80,7 @@ export function createPdfRenderSupervisor(
             ownerKey: timer.options.key,
             token: timer.token,
         };
-        logPdfRenderTrace('pdf-render-supervisor-watchdog', { ...event });
+        logPdfRenderTrace('pdf-render-supervisor-watchdog', {...event});
         options.onEvent?.(event);
         timer.options.onFire(event);
     }
@@ -108,5 +106,5 @@ export function createPdfRenderSupervisor(
         };
     }
 
-    return { armTimer };
+    return {armTimer};
 }

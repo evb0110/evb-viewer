@@ -1,20 +1,8 @@
 import {constants as fsConstants} from 'fs';
 import {PassThrough} from 'node:stream';
-import {
-    access,
-    lstat,
-    readFile,
-    rename,
-    stat,
-    unlink,
-} from 'fs/promises';
-import {
-    basename, resolve,
-} from 'path';
-import {
-    constants as osConstants,
-    setPriority,
-} from 'os';
+import {access, lstat, readFile, rename, stat, unlink} from 'fs/promises';
+import {basename, resolve} from 'path';
+import {constants as osConstants, setPriority} from 'os';
 import type {TNativeErrorCode} from '@contracts/nativeErrors';
 import type {
     TNativeScanCleanupDocumentInkPriorV3,
@@ -24,10 +12,7 @@ import type {
 import type {TWorkerLog} from '@electron/features/ocr/publicNative';
 import {abortErrorFromSignal} from '@electron/utils/abort';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
-import {
-    decodeNativeScanCleanupEnvelope,
-    parseNativeScanCleanupStderr,
-} from '@electron/features/scan-cleanup/native/protocolCodec';
+import {decodeNativeScanCleanupEnvelope, parseNativeScanCleanupStderr} from '@electron/features/scan-cleanup/native/protocolCodec';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {
     chainJobBrokerRunContext,
@@ -38,7 +23,10 @@ import {
 import {createScanCleanupSidecarProtocolHandler} from '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler';
 
 export class NativeScanCleanupError extends Error {
-    constructor(readonly code: TNativeErrorCode, message: string) {
+    constructor(
+        readonly code: TNativeErrorCode,
+        message: string,
+    ) {
         super(message);
         this.name = 'NativeScanCleanupError';
     }
@@ -91,24 +79,22 @@ function isNotFound(error: unknown): error is NodeJS.ErrnoException {
 }
 
 function parsePublicationJournal(value: unknown): IScanCleanupPublicationJournal {
-    if (!isRecord(value)
-        || value.version !== 1
-        || typeof value.manifestPath !== 'string'
-        || (value.committed !== undefined && typeof value.committed !== 'boolean')
-        || !Array.isArray(value.entries)) {
+    if (
+        !isRecord(value) ||
+        value.version !== 1 ||
+        typeof value.manifestPath !== 'string' ||
+        (value.committed !== undefined && typeof value.committed !== 'boolean') ||
+        !Array.isArray(value.entries)
+    ) {
         throw new Error('scan-cleanup publication recovery journal has an invalid shape');
     }
     const entries: IScanCleanupPublicationJournalEntry[] = [];
     for (const entry of value.entries) {
-        if (!isRecord(entry)
-            || typeof entry.original !== 'string'
-            || (entry.remove !== undefined && typeof entry.remove !== 'boolean')) {
+        if (!isRecord(entry) || typeof entry.original !== 'string' || (entry.remove !== undefined && typeof entry.remove !== 'boolean')) {
             throw new Error('scan-cleanup publication recovery journal contains an invalid entry');
         }
         const remove = entry.remove === true;
-        if (remove
-            ? entry.backup !== undefined && entry.backup !== null
-            : typeof entry.backup !== 'string') {
+        if (remove ? entry.backup !== undefined && entry.backup !== null : typeof entry.backup !== 'string') {
             throw new Error('scan-cleanup publication recovery journal contains an invalid entry');
         }
         entries.push({
@@ -137,7 +123,9 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
     try {
         contents = await readFile(journalPath, 'utf8');
     } catch (error) {
-        if (isNotFound(error)) return false;
+        if (isNotFound(error)) {
+            return false;
+        }
         throw error;
     }
     const journal = parsePublicationJournal(JSON.parse(contents) as unknown);
@@ -146,12 +134,16 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
     }
     if (journal.committed) {
         for (const entry of journal.entries) {
-            if (entry.backup === null) continue;
+            if (entry.backup === null) {
+                continue;
+            }
             let backupStats;
             try {
                 backupStats = await lstat(entry.backup);
             } catch (error) {
-                if (isNotFound(error)) continue;
+                if (isNotFound(error)) {
+                    continue;
+                }
                 throw error;
             }
             if (!backupStats.isFile()) {
@@ -171,7 +163,9 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
                 }
                 await unlink(entry.original);
             } catch (error) {
-                if (!isNotFound(error)) throw error;
+                if (!isNotFound(error)) {
+                    throw error;
+                }
             }
             continue;
         }
@@ -183,7 +177,9 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
         try {
             backupStats = await lstat(backup);
         } catch (error) {
-            if (!isNotFound(error)) throw error;
+            if (!isNotFound(error)) {
+                throw error;
+            }
             try {
                 const originalStats = await lstat(entry.original);
                 if (originalStats.isDirectory()) {
@@ -207,7 +203,9 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
             }
             await unlink(entry.original);
         } catch (error) {
-            if (!isNotFound(error)) throw error;
+            if (!isNotFound(error)) {
+                throw error;
+            }
         }
         await rename(backup, entry.original);
     }
@@ -248,14 +246,8 @@ function formatSeconds(milliseconds: number) {
 
 function describeStageTotals(totals: TScanCleanupStageTotalsMs) {
     return Object.entries(totals)
-        .filter(([
-            ,
-            milliseconds,
-        ]) => milliseconds > 0)
-        .map(([
-            stage,
-            milliseconds,
-        ]) => `${stage}=${formatSeconds(milliseconds)}`);
+        .filter(([, milliseconds]) => milliseconds > 0)
+        .map(([stage, milliseconds]) => `${stage}=${formatSeconds(milliseconds)}`);
 }
 
 function logSidecarStageTimings(
@@ -266,17 +258,30 @@ function logSidecarStageTimings(
     terminalUnkeyedTimings: TNativeScanCleanupPageStageTimingsV3 | null,
 ) {
     const stageTotalsMs: TScanCleanupStageTotalsMs = {
-        decode: 0, analysisLevel: 0, normalization: 0, split: 0,
-        deskew: 0, content: 0, render: 0, write: 0,
+        decode: 0,
+        analysisLevel: 0,
+        normalization: 0,
+        split: 0,
+        deskew: 0,
+        content: 0,
+        render: 0,
+        write: 0,
     };
-    for (const timings of terminalPageTimings.values()) addStageTimings(stageTotalsMs, timings);
-    if (terminalUnkeyedTimings !== null) addStageTimings(stageTotalsMs, terminalUnkeyedTimings);
-    log('debug', [
-        'evb-scan-cleanup timings ' + basename(manifestPath) + ':',
-        'wall=' + formatSeconds(performance.now() - startedAt),
-        'timedPages=' + String(terminalPageTimings.size + Number(terminalUnkeyedTimings !== null)),
-        ...describeStageTotals(stageTotalsMs),
-    ].join(' '));
+    for (const timings of terminalPageTimings.values()) {
+        addStageTimings(stageTotalsMs, timings);
+    }
+    if (terminalUnkeyedTimings !== null) {
+        addStageTimings(stageTotalsMs, terminalUnkeyedTimings);
+    }
+    log(
+        'debug',
+        [
+            'evb-scan-cleanup timings ' + basename(manifestPath) + ':',
+            'wall=' + formatSeconds(performance.now() - startedAt),
+            'timedPages=' + String(terminalPageTimings.size + Number(terminalUnkeyedTimings !== null)),
+            ...describeStageTotals(stageTotalsMs),
+        ].join(' '),
+    );
 }
 
 export async function runScanCleanupSidecar(
@@ -287,15 +292,10 @@ export async function runScanCleanupSidecar(
     onProgress: (nativeProgress: TNativeScanCleanupProgressV3) => void | Promise<void>,
     options: IRunScanCleanupSidecarOptions = {},
 ) {
-    if (signal.aborted) throw abortErrorFromSignal(signal);
-    await streamScanCleanupSidecar(
-        binaryPath,
-        manifestPath,
-        signal,
-        log,
-        onProgress,
-        options,
-    );
+    if (signal.aborted) {
+        throw abortErrorFromSignal(signal);
+    }
+    await streamScanCleanupSidecar(binaryPath, manifestPath, signal, log, onProgress, options);
 }
 
 async function streamScanCleanupSidecar(
@@ -309,12 +309,7 @@ async function streamScanCleanupSidecar(
     const args = [
         '--manifest',
         manifestPath,
-        ...(options.allowedPathRoot === undefined
-            ? []
-            : [
-                '--allowed-path-root',
-                options.allowedPathRoot,
-            ]),
+        ...(options.allowedPathRoot === undefined ? [] : ['--allowed-path-root', options.allowedPathRoot]),
     ];
     const stdout = new PassThrough();
     const stderr = new PassThrough();
@@ -337,21 +332,24 @@ async function streamScanCleanupSidecar(
     let deferredRecoveryOutcome: boolean | null = null;
 
     const settleDeferredRecovery = (recovered: boolean) => {
-        if (deferredRecoveryOutcome !== null) return;
+        if (deferredRecoveryOutcome !== null) {
+            return;
+        }
         deferredRecoveryOutcome = recovered;
         resolveDeferredRecovery?.(recovered);
     };
     const ensureDeferredRecovery = () => {
         if (deferredRecoveryPromise === null) {
-            deferredRecoveryPromise = deferredRecoveryOutcome !== null
-                ? Promise.resolve(deferredRecoveryOutcome)
-                : new Promise<boolean>(resolve => {
-                    resolveDeferredRecovery = resolve;
-                });
+            deferredRecoveryPromise =
+                deferredRecoveryOutcome !== null
+                    ? Promise.resolve(deferredRecoveryOutcome)
+                    : new Promise<boolean>((resolve) => {
+                          resolveDeferredRecovery = resolve;
+                      });
             try {
                 const recoveryCallback = options.onRecoveryPending?.(deferredRecoveryPromise);
                 if (recoveryCallback !== undefined) {
-                    void recoveryCallback.catch(error => {
+                    void recoveryCallback.catch((error) => {
                         log('warn', 'Deferred scan-cleanup recovery owner failed: ' + String(error));
                     });
                 }
@@ -381,16 +379,14 @@ async function streamScanCleanupSidecar(
         settleDeferredRecovery(recovered);
         return recovered;
     };
-    const describeUnprovenTermination = () => (
-        'evb-scan-cleanup process tree (pid=' + String(childPid) + ') was not proven dead; its inputs may still be open'
-    );
-    const withTerminationProof = (error: Error, terminated: boolean) => (
-        terminated ? error : markUnprovenNativeTermination(error, describeUnprovenTermination())
-    );
+    const describeUnprovenTermination = () =>
+        'evb-scan-cleanup process tree (pid=' + String(childPid) + ') was not proven dead; its inputs may still be open';
+    const withTerminationProof = (error: Error, terminated: boolean) =>
+        terminated ? error : markUnprovenNativeTermination(error, describeUnprovenTermination());
     const protocol = createScanCleanupSidecarProtocolHandler({
         stdout,
         stderr,
-        onProtocolError: error => {
+        onProtocolError: (error) => {
             protocolError = error;
             void ensureDeferredRecovery();
             processAbort.abort();
@@ -421,27 +417,27 @@ async function streamScanCleanupSidecar(
                     nativeFailure = new NativeScanCleanupError(envelope.result.code, envelope.result.message);
                 } else {
                     await options.onResult?.({
-                        ...(envelope.result.documentInkPrior === undefined
-                            ? {}
-                            : {documentInkPrior: envelope.result.documentInkPrior}),
+                        ...(envelope.result.documentInkPrior === undefined ? {} : {documentInkPrior: envelope.result.documentInkPrior}),
                     });
                 }
             } catch (error) {
                 protocol.failProtocol(error, line);
             }
         }
-    })().catch(error => protocol.failProtocol(error, '[progress stream]'));
+    })().catch((error) => protocol.failProtocol(error, '[progress stream]'));
     const handleAbort = () => {
         aborting = true;
         void ensureDeferredRecovery();
         processAbort.abort();
     };
     signal.addEventListener('abort', handleAbort, {once: true});
-    if (signal.aborted) handleAbort();
+    if (signal.aborted) {
+        handleAbort();
+    }
 
     const recordSidecarProof: TTerminationProofSink = (proof) => {
         terminationAttempted = true;
-        void proof.then(terminated => {
+        void proof.then((terminated) => {
             terminationConfirmed = terminated;
             if (terminated) {
                 void replayPublicationJournal(true);
@@ -452,9 +448,8 @@ async function streamScanCleanupSidecar(
         chainJobBrokerRunContext(options.brokerRun, options.onTerminationProof),
         recordSidecarProof,
     );
-    const directProofSink = scopedBrokerRun === undefined
-        ? mergeTerminationProofSinks(options.onTerminationProof, recordSidecarProof)
-        : undefined;
+    const directProofSink =
+        scopedBrokerRun === undefined ? mergeTerminationProofSinks(options.onTerminationProof, recordSidecarProof) : undefined;
 
     const timeoutMs = Math.max(1, options.timeoutMs ?? DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS);
     try {
@@ -464,7 +459,7 @@ async function streamScanCleanupSidecar(
             maxStderrBytes: 64 * 1024,
             longLived: true,
             commandLabel: 'evb-scan-cleanup',
-            onSpawn: pid => {
+            onSpawn: (pid) => {
                 childPid = pid;
                 if (options.priority === 'background') {
                     try {
@@ -474,10 +469,10 @@ async function streamScanCleanupSidecar(
                     }
                 }
             },
-            onStdout: chunk => {
+            onStdout: (chunk) => {
                 stdout.write(chunk);
             },
-            onStderr: chunk => {
+            onStderr: (chunk) => {
                 stderr.write(chunk);
                 stderrTail = (stderrTail + chunk).slice(-64 * 1024);
             },
@@ -492,8 +487,8 @@ async function streamScanCleanupSidecar(
             ...(scopedBrokerRun !== undefined
                 ? {brokerRun: scopedBrokerRun}
                 : directProofSink === undefined
-                    ? {}
-                    : {onTerminationProof: directProofSink}),
+                  ? {}
+                  : {onTerminationProof: directProofSink}),
             log,
         });
         await consumeProgress;
@@ -501,12 +496,13 @@ async function streamScanCleanupSidecar(
         const sidecarStarted = childPid !== null || terminationAttempted || childClosed;
         const terminated = !sidecarStarted || terminationConfirmed || (!terminationAttempted && childClosed);
         const error = cause instanceof Error ? cause : new Error(String(cause));
-        const interruptedFailure = protocolError
-            ?? (aborting || signal.aborted
+        const interruptedFailure =
+            protocolError ??
+            (aborting || signal.aborted
                 ? abortErrorFromSignal(signal)
                 : error.message.includes('timed out')
-                    ? new NativeScanCleanupError('native-failure', `evb-scan-cleanup timed out after ${String(timeoutMs)}ms`)
-                    : null);
+                  ? new NativeScanCleanupError('native-failure', `evb-scan-cleanup timed out after ${String(timeoutMs)}ms`)
+                  : null);
         if (interruptedFailure !== null) {
             if (!terminated) {
                 void ensureDeferredRecovery();
@@ -529,8 +525,7 @@ async function streamScanCleanupSidecar(
         if (exitCode !== undefined) {
             throw new NativeScanCleanupError(
                 'native-failure',
-                'evb-scan-cleanup exited unsuccessfully (code=' + String(exitCode)
-                    + ', signal=' + String(exitSignal ?? null) + ')',
+                'evb-scan-cleanup exited unsuccessfully (code=' + String(exitCode) + ', signal=' + String(exitSignal ?? null) + ')',
             );
         }
         throw error;
@@ -552,7 +547,9 @@ async function streamScanCleanupSidecar(
         await replayPublicationJournal();
         throw protocolError;
     }
-    if (nativeFailure !== null) await replayPublicationJournal();
+    if (nativeFailure !== null) {
+        await replayPublicationJournal();
+    }
     throwIfError(nativeFailure);
     if (terminalResult !== 'success') {
         await replayPublicationJournal();

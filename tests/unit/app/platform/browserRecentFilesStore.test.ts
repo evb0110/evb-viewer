@@ -1,17 +1,8 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    BrowserRecentFilesStorageUnavailableError,
-    BrowserRecentFilesStore,
-} from '@app/platform/browser/browserRecentFilesStore';
-import { RECENT_FILES_LIMIT } from '@contracts/shared';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {BrowserRecentFilesStorageUnavailableError, BrowserRecentFilesStore} from '@app/platform/browser/browserRecentFilesStore';
+import {RECENT_FILES_LIMIT} from '@contracts/shared';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {BROWSER_RECENT_FILES_STORAGE_KEY} from '@app/utils/browserRuntimePersistence';
 
 describe('BrowserRecentFilesStore', () => {
     beforeEach(() => {
@@ -38,20 +29,16 @@ describe('BrowserRecentFilesStore', () => {
             timestamp: index,
             fileSize: 1,
         }));
-        globalThis.localStorage.setItem(
-            BROWSER_RECENT_FILES_STORAGE_KEY,
-            JSON.stringify(existingRecentFiles),
-        );
+        globalThis.localStorage.setItem(BROWSER_RECENT_FILES_STORAGE_KEY, JSON.stringify(existingRecentFiles));
         vi.mocked(globalThis.localStorage.setItem).mockImplementation(() => {
             throw new Error('quota exceeded');
         });
         const store = new BrowserRecentFilesStore();
 
-        await expect(store.touch(requireDocumentRef('browser://documents/new/new.pdf'), 'new.pdf', 1))
-            .rejects.toBeInstanceOf(BrowserRecentFilesStorageUnavailableError);
+        await expect(store.touch(requireDocumentRef('browser://documents/new/new.pdf'), 'new.pdf', 1)).rejects.toBeInstanceOf(
+            BrowserRecentFilesStorageUnavailableError,
+        );
 
-        expect(JSON.parse(
-            globalThis.localStorage.getItem(BROWSER_RECENT_FILES_STORAGE_KEY)!,
-        )).toEqual(existingRecentFiles);
+        expect(JSON.parse(globalThis.localStorage.getItem(BROWSER_RECENT_FILES_STORAGE_KEY)!)).toEqual(existingRecentFiles);
     });
 });

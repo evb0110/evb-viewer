@@ -1,66 +1,35 @@
-import {
-    createHash,
-    randomBytes,
-} from 'node:crypto';
-import {
-    closeSync,
-    constants as fsConstants,
-    fsyncSync,
-    mkdirSync,
-    openSync,
-    readFileSync,
-    renameSync,
-    rmSync,
-    writeFileSync,
-} from 'fs';
-import {
-    mkdir,
-    readFile,
-    rename,
-    writeFile,
-} from 'fs/promises';
-import {
-    basename,
-    dirname,
-    join,
-} from 'path';
+import {createHash, randomBytes} from 'node:crypto';
+import {closeSync, constants as fsConstants, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync} from 'fs';
+import {mkdir, readFile, rename, writeFile} from 'fs/promises';
+import {basename, dirname, join} from 'path';
 import {fsyncParentDirectory} from '@electron/utils/atomicReplace';
-import {
-    fsyncFile,
-    fsyncFileSync,
-} from '@electron/utils/fsyncPath';
+import {fsyncFile, fsyncFileSync} from '@electron/utils/fsyncPath';
 
 type TSnapshotRecord<TSession, TVersion extends number> =
     | {
-        schemaVersion: TVersion;
-        type: 'session-snapshot';
-        key: string;
-        writtenAt: string;
-        session: TSession;
-    }
+          schemaVersion: TVersion;
+          type: 'session-snapshot';
+          key: string;
+          writtenAt: string;
+          session: TSession;
+      }
     | {
-        schemaVersion: TVersion;
-        type: 'session-reset';
-        key: string;
-        writtenAt: string;
-    }
+          schemaVersion: TVersion;
+          type: 'session-reset';
+          key: string;
+          writtenAt: string;
+      }
     | {
-        schemaVersion: TVersion;
-        type: 'session-snapshot-ref';
-        keyDigest: string;
-        writtenAt: string;
-        blobFile: string;
-        sha256: string;
-        sizeBytes: number;
-    };
-type TSnapshotPayloadRecord<TSession, TVersion extends number> = Extract<
-    TSnapshotRecord<TSession, TVersion>,
-    {type: 'session-snapshot'}
->;
-type TSnapshotReference<TSession, TVersion extends number> = Extract<
-    TSnapshotRecord<TSession, TVersion>,
-    {type: 'session-snapshot-ref'}
->;
+          schemaVersion: TVersion;
+          type: 'session-snapshot-ref';
+          keyDigest: string;
+          writtenAt: string;
+          blobFile: string;
+          sha256: string;
+          sizeBytes: number;
+      };
+type TSnapshotPayloadRecord<TSession, TVersion extends number> = Extract<TSnapshotRecord<TSession, TVersion>, {type: 'session-snapshot'}>;
+type TSnapshotReference<TSession, TVersion extends number> = Extract<TSnapshotRecord<TSession, TVersion>, {type: 'session-snapshot-ref'}>;
 
 interface IAssistantChatSnapshotStorageOptions<TSession, TVersion extends number> {
     blobsDir: string;
@@ -134,10 +103,7 @@ function snapshotBlobPayload<TSession, TVersion extends number>(record: TSnapsho
 }
 
 function snapshotContentDigest<TSession, TVersion extends number>(record: TSnapshotPayloadRecord<TSession, TVersion>) {
-    const {
-        writtenAt: _writtenAt,
-        ...content
-    } = record;
+    const {writtenAt: _writtenAt, ...content} = record;
     return createHash('sha256').update(JSON.stringify(content)).digest('hex');
 }
 
@@ -159,11 +125,7 @@ export class AssistantChatSnapshotStorage<TSession, TVersion extends number> {
         return join(this.blobsDir, blobFile);
     }
 
-    private createSnapshotReference(
-        record: TSnapshotPayloadRecord<TSession, TVersion>,
-        payload: string,
-        blobFile: string,
-    ) {
+    private createSnapshotReference(record: TSnapshotPayloadRecord<TSession, TVersion>, payload: string, blobFile: string) {
         const digest = createHash('sha256').update(payload).digest('hex');
         const reference: TSnapshotReference<TSession, TVersion> = {
             schemaVersion: record.schemaVersion,
@@ -186,10 +148,7 @@ export class AssistantChatSnapshotStorage<TSession, TVersion extends number> {
         };
     }
 
-    private async findReusableBlob(
-        record: TSnapshotPayloadRecord<TSession, TVersion>,
-        blobFile: string,
-    ) {
+    private async findReusableBlob(record: TSnapshotPayloadRecord<TSession, TVersion>, blobFile: string) {
         const filePath = this.getSnapshotBlobPath(blobFile);
         let payload: string;
         try {
@@ -204,11 +163,7 @@ export class AssistantChatSnapshotStorage<TSession, TVersion extends number> {
             throw error;
         }
         const parsed = this.parseRecord(payload.trim());
-        if (
-            !parsed
-            || parsed.type !== 'session-snapshot'
-            || snapshotContentDigest(parsed) !== snapshotContentDigest(record)
-        ) {
+        if (!parsed || parsed.type !== 'session-snapshot' || snapshotContentDigest(parsed) !== snapshotContentDigest(record)) {
             return {
                 exists: true,
                 reference: null,
@@ -221,10 +176,7 @@ export class AssistantChatSnapshotStorage<TSession, TVersion extends number> {
         };
     }
 
-    private findReusableBlobSync(
-        record: TSnapshotPayloadRecord<TSession, TVersion>,
-        blobFile: string,
-    ) {
+    private findReusableBlobSync(record: TSnapshotPayloadRecord<TSession, TVersion>, blobFile: string) {
         const filePath = this.getSnapshotBlobPath(blobFile);
         let payload: string;
         try {
@@ -239,11 +191,7 @@ export class AssistantChatSnapshotStorage<TSession, TVersion extends number> {
             throw error;
         }
         const parsed = this.parseRecord(payload.trim());
-        if (
-            !parsed
-            || parsed.type !== 'session-snapshot'
-            || snapshotContentDigest(parsed) !== snapshotContentDigest(record)
-        ) {
+        if (!parsed || parsed.type !== 'session-snapshot' || snapshotContentDigest(parsed) !== snapshotContentDigest(record)) {
             return {
                 exists: true,
                 reference: null,
@@ -275,18 +223,12 @@ export class AssistantChatSnapshotStorage<TSession, TVersion extends number> {
         await mkdir(this.blobsDir, {recursive: true});
         await atomicWriteJsonLineFile(this.getSnapshotBlobPath(reference.blobFile), payload);
         if (Buffer.byteLength(payload, 'utf8') !== reference.sizeBytes) {
-            throw this.createTooLargeError(
-                key,
-                `Assistant chat snapshot for "${key}" changed while writing its bounded payload.`,
-            );
+            throw this.createTooLargeError(key, `Assistant chat snapshot for "${key}" changed while writing its bounded payload.`);
         }
         return reference;
     }
 
-    prepareRecordForStorageSync(
-        record: TSnapshotPayloadRecord<TSession, TVersion>,
-        key: string,
-    ): TSnapshotRecord<TSession, TVersion> {
+    prepareRecordForStorageSync(record: TSnapshotPayloadRecord<TSession, TVersion>, key: string): TSnapshotRecord<TSession, TVersion> {
         if (serializedBytes(record) <= this.maxSessionBytes) {
             return record;
         }
@@ -305,10 +247,7 @@ export class AssistantChatSnapshotStorage<TSession, TVersion extends number> {
         mkdirSync(this.blobsDir, {recursive: true});
         atomicWriteJsonLineFileSync(this.getSnapshotBlobPath(reference.blobFile), payload);
         if (Buffer.byteLength(payload, 'utf8') !== reference.sizeBytes) {
-            throw this.createTooLargeError(
-                key,
-                `Assistant chat snapshot for "${key}" changed while writing its bounded payload.`,
-            );
+            throw this.createTooLargeError(key, `Assistant chat snapshot for "${key}" changed while writing its bounded payload.`);
         }
         return reference;
     }

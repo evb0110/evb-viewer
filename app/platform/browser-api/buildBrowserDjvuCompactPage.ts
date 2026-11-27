@@ -7,15 +7,11 @@ import {
     measureDjvuCompactRasterStats,
     type TDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
-import type { IBrowserPdfCombineWasmPageSpec } from '@contracts/browserPdfCombineWorker';
-import { encodePpmP6 } from '@djvu-core/djvuPnm';
-import type { IDjvuWorker } from '@app/platform/browser-api/browserDjvuWorkerClient';
-import { toBrowserDjvuDecodeError } from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
-import {
-    renderDjvuPageAsPpm,
-    throwIfDjvuCanceled,
-    type IDjvuPageMetrics,
-} from '@app/platform/browser-api/browserDjvuRasterizer';
+import type {IBrowserPdfCombineWasmPageSpec} from '@contracts/browserPdfCombineWorker';
+import {encodePpmP6} from '@djvu-core/djvuPnm';
+import type {IDjvuWorker} from '@app/platform/browser-api/browserDjvuWorkerClient';
+import {toBrowserDjvuDecodeError} from '@app/platform/browser-api/assertBrowserDjvuRasterDimensions';
+import {renderDjvuPageAsPpm, throwIfDjvuCanceled, type IDjvuPageMetrics} from '@app/platform/browser-api/browserDjvuRasterizer';
 
 export type TBrowserDjvuCompactRoute = 'mask' | 'layered' | 'photo';
 
@@ -25,7 +21,7 @@ export interface IBrowserDjvuCompactPage {
 }
 
 function pointsFromPixels(pixels: number, dpi: number) {
-    return Math.max(1, pixels / Math.max(1, dpi) * 72);
+    return Math.max(1, (pixels / Math.max(1, dpi)) * 72);
 }
 
 function pageFileName(pageNumber: number, layer: string, extension: string) {
@@ -77,11 +73,11 @@ export async function buildBrowserDjvuCompactPage(
         };
     };
     if (
-        !layers
-        || layers.rotation !== 0
-        || layers.maskChunkBytes === null
-        || layers.maskChunkBytes < DJVU_COMPACT_REAL_MASK_MIN_BYTES
-        || (layers.foreground && hasDjvuCompactForegroundColor(layers.foreground))
+        !layers ||
+        layers.rotation !== 0 ||
+        layers.maskChunkBytes === null ||
+        layers.maskChunkBytes < DJVU_COMPACT_REAL_MASK_MIN_BYTES ||
+        (layers.foreground && hasDjvuCompactForegroundColor(layers.foreground))
     ) {
         return photo();
     }
@@ -101,12 +97,7 @@ export async function buildBrowserDjvuCompactPage(
     };
     const background = layers.hasBackground ? await worker.renderBackgroundRgb(pageNumber) : null;
     throwIfDjvuCanceled(signal);
-    if (
-        !background
-        || isDjvuCompactFlatBackground(
-            measureDjvuCompactRasterStats(background.rgb, background.width, background.height, 3),
-        )
-    ) {
+    if (!background || isDjvuCompactFlatBackground(measureDjvuCompactRasterStats(background.rgb, background.width, background.height, 3))) {
         return {
             route: 'mask',
             spec: {

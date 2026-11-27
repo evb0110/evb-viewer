@@ -1,12 +1,5 @@
-import {
-    getBrowserPageOpsWorkerRequestId,
-    isBrowserWorkerResponseEnvelope,
-} from '@contracts/browserPageOpsWorker';
-import {
-    isSerializableErrorEnvelope,
-    SerializableError,
-    type ISerializableErrorEnvelope,
-} from '@contracts/serializableError';
+import {getBrowserPageOpsWorkerRequestId, isBrowserWorkerResponseEnvelope} from '@contracts/browserPageOpsWorker';
+import {isSerializableErrorEnvelope, SerializableError, type ISerializableErrorEnvelope} from '@contracts/serializableError';
 
 export interface IPendingBrowserWorkerRequest {
     requestType: string;
@@ -17,10 +10,7 @@ export interface IPendingBrowserWorkerRequest {
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
 }
 
-export interface ITypedPendingBrowserWorkerRequest<
-    TRequestType extends string,
-    TResultData,
-> {
+export interface ITypedPendingBrowserWorkerRequest<TRequestType extends string, TResultData> {
     requestType: TRequestType;
     resolveData: (data: TResultData) => boolean;
     onEngineIdentity?: ((sha256: string) => void) | undefined;
@@ -28,9 +18,7 @@ export interface ITypedPendingBrowserWorkerRequest<
     timeoutTimer?: ReturnType<typeof setTimeout> | null;
 }
 
-type TSerializableErrorEnvelopeGuard = (
-    value: unknown,
-) => value is ISerializableErrorEnvelope;
+type TSerializableErrorEnvelopeGuard = (value: unknown) => value is ISerializableErrorEnvelope;
 
 export function settleBrowserWorkerResult<
     TRequestType extends string,
@@ -88,8 +76,6 @@ export function settleBrowserWorkerResult<
         onSettled();
         return;
     }
-    pending.reject(errorEnvelope
-        ? new SerializableError(errorEnvelope)
-        : new Error(response.error));
+    pending.reject(errorEnvelope ? new SerializableError(errorEnvelope) : new Error(response.error));
     onSettled();
 }

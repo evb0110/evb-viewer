@@ -6,10 +6,7 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type {IPdfValidationResult} from '@contracts/pdfConformance';
 import type {TDocumentRef} from '@contracts/documentRef';
-import {
-    createRequestId,
-    type TRequestId,
-} from '@contracts/shared';
+import {createRequestId, type TRequestId} from '@contracts/shared';
 import type {IReplacePageImagesInstructions} from '@contracts/browserPageOpsWriters';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 import {BROWSER_PAGE_OPS_MAX_REQUEST_BYTES} from '@contracts/browserPageOpsLimits';
@@ -29,14 +26,8 @@ import {
 } from '@pdf-core/pdfOptimization';
 import {AnnotationMode} from '@app/services/pdfjs/runtimeLib';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
-import {
-    createBrowserStoreStagedArtifact,
-    sha256Hex,
-} from '@app/platform/browser/browserStagedArtifact';
-import {
-    analyzeBrowserPdfConformanceData,
-    validateBrowserPdfData,
-} from '@app/platform/browser-api/browserPdfValidation';
+import {createBrowserStoreStagedArtifact, sha256Hex} from '@app/platform/browser/browserStagedArtifact';
+import {analyzeBrowserPdfConformanceData, validateBrowserPdfData} from '@app/platform/browser-api/browserPdfValidation';
 import {
     finishBrowserPdfCandidate,
     savePdfAsFromWorkingCopy,
@@ -45,14 +36,8 @@ import {
 import {BrowserOcrRasterTooLargeError} from '@app/platform/browser-api/browserOcrRaster';
 import {renderBrowserPdfRaster} from '@app/platform/browser-api/browserPdfRaster';
 import {runBrowserPdfCombineWorkerRequest} from '@app/platform/browser-api/browserPdfCombineWorkerClient';
-import {
-    recompressPdfImages,
-    replacePdfPageImages,
-} from '@app/platform/browser-api/browserPageOpsCore';
-import {
-    createPdfjsDocumentInit,
-    getPdfjsLib,
-} from '@app/platform/browser-api/browserPdfjsDocumentInit';
+import {recompressPdfImages, replacePdfPageImages} from '@app/platform/browser-api/browserPageOpsCore';
+import {createPdfjsDocumentInit, getPdfjsLib} from '@app/platform/browser-api/browserPdfjsDocumentInit';
 import {buildBrowserByteLimitError} from '@app/platform/browser-api/browserPlatformHelpers';
 import {ensurePdfExtension} from '@app/platform/browser-api/browserFileName';
 import {emitBrowserPdfOptimizeProgress} from '@app/platform/browser-api/documentsMenuCapability';
@@ -98,7 +83,9 @@ function assertInstructedRequestFits(bytes: number) {
  * is. The whole document must fit the next consumer before it is allocated.
  */
 function append(base: Uint8Array, suffix: Uint8Array, nextConsumerMaxBytes: number) {
-    if (!suffix.byteLength) return base;
+    if (!suffix.byteLength) {
+        return base;
+    }
     if (base.byteLength + suffix.byteLength > nextConsumerMaxBytes) {
         throw buildBrowserByteLimitError('Optimize PDF', nextConsumerMaxBytes, 'inputs');
     }
@@ -111,7 +98,9 @@ function append(base: Uint8Array, suffix: Uint8Array, nextConsumerMaxBytes: numb
 function readNetpbmSize(image: Uint8Array) {
     const header = new TextDecoder('latin1').decode(image.subarray(0, 40));
     const match = /^P[56]\n(\d+) (\d+)\n255\n/u.exec(header);
-    if (!match) throw new Error('Optimize rendered a page that is not an 8-bit Netpbm image');
+    if (!match) {
+        throw new Error('Optimize rendered a page that is not an 8-bit Netpbm image');
+    }
     return {
         width: Number(match[1]),
         height: Number(match[2]),
@@ -119,16 +108,11 @@ function readNetpbmSize(image: Uint8Array) {
 }
 
 function physicalPoints(pixels: number, dpi: number) {
-    return Number((pixels / dpi * 72).toFixed(6));
+    return Number(((pixels / dpi) * 72).toFixed(6));
 }
 
 /** One page: render, then encode it with desktop's combiner route. */
-async function encodePage(
-    pdf: IPdfDocument,
-    pageNumber: number,
-    preset: IPdfRasterOptimizePreset,
-    run: IOptimizeRun,
-) {
+async function encodePage(pdf: IPdfDocument, pageNumber: number, preset: IPdfRasterOptimizePreset, run: IOptimizeRun) {
     const grayscale = preset.encoding.kind === 'black-and-white' || preset.encoding.grayscale;
     const page = await pdf.getPage(pageNumber);
     let image: Uint8Array;
@@ -138,10 +122,7 @@ async function encodePage(
         const raster = await renderBrowserPdfRaster(
             page,
             page.getViewport({scale: preset.dpi / 72}),
-            AbortSignal.any([
-                run.signal,
-                AbortSignal.timeout(PDF_OPTIMIZE_RENDER_TIMEOUT_MS),
-            ]),
+            AbortSignal.any([run.signal, AbortSignal.timeout(PDF_OPTIMIZE_RENDER_TIMEOUT_MS)]),
             {
                 netpbm: grayscale ? 'gray' : 'rgb',
                 annotationMode: AnnotationMode.DISABLE,
@@ -151,16 +132,16 @@ async function encodePage(
                 tooLarge: (width, height) => new BrowserOcrRasterTooLargeError(width, height, BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS),
             },
         );
-        if (!(raster.image instanceof Uint8Array)) throw new Error('Optimize expected an assembled page raster');
+        if (!(raster.image instanceof Uint8Array)) {
+            throw new Error('Optimize expected an assembled page raster');
+        }
         image = raster.image;
     } finally {
         page.cleanup();
     }
     run.pages!.rendered = pageNumber;
     emit(run, 'rendering', pageNumber, run.pages!.total);
-    const {
-        width, height,
-    } = readNetpbmSize(image);
+    const {width, height} = readNetpbmSize(image);
     const pageSize = {
         widthPoints: physicalPoints(width, preset.dpi),
         heightPoints: physicalPoints(height, preset.dpi),
@@ -169,21 +150,30 @@ async function encodePage(
         fileName: grayscale ? 'page.pgm' : 'page.ppm',
         data: image,
     };
-    const {data} = await runBrowserPdfCombineWorkerRequest('combinePdfs', {
-        inputs: [],
-        wasmImagePreprocessing: {pageSpecs: [preset.encoding.kind === 'black-and-white'
-            ? {
-                kind: 'image-bw',
-                pageSize,
-                image: pageImage,
-            }
-            : {
-                kind: 'image-jpeg-with-flate-fallback',
-                pageSize,
-                jpegQuality: preset.encoding.quality,
-                image: pageImage,
-            }]},
-    }, run.signal, {timeoutMs: PDF_OPTIMIZE_ENCODE_TIMEOUT_MS});
+    const {data} = await runBrowserPdfCombineWorkerRequest(
+        'combinePdfs',
+        {
+            inputs: [],
+            wasmImagePreprocessing: {
+                pageSpecs: [
+                    preset.encoding.kind === 'black-and-white'
+                        ? {
+                              kind: 'image-bw',
+                              pageSize,
+                              image: pageImage,
+                          }
+                        : {
+                              kind: 'image-jpeg-with-flate-fallback',
+                              pageSize,
+                              jpegQuality: preset.encoding.quality,
+                              image: pageImage,
+                          },
+                ],
+            },
+        },
+        run.signal,
+        {timeoutMs: PDF_OPTIMIZE_ENCODE_TIMEOUT_MS},
+    );
     run.pages!.assembled = pageNumber;
     emit(run, 'assembling', pageNumber, run.pages!.total);
     return data;
@@ -254,38 +244,32 @@ async function optimizeRaster(
         maxByteRatio: MAX_BYTE_RATIO,
         pages,
     };
-    assertInstructedRequestFits(instructedRequestBytes(
-        source,
-        new TextEncoder().encode(JSON.stringify(replaceInstructions)).byteLength,
-        attachments.reduce((total, attachment) => total + 4 + attachment.byteLength, 0),
-    ));
-    const replaced = pages.length
-        ? await replacePdfPageImages(source, attachments, replaceInstructions, passOptions)
-        : null;
+    assertInstructedRequestFits(
+        instructedRequestBytes(
+            source,
+            new TextEncoder().encode(JSON.stringify(replaceInstructions)).byteLength,
+            attachments.reduce((total, attachment) => total + 4 + attachment.byteLength, 0),
+        ),
+    );
+    const replaced = pages.length ? await replacePdfPageImages(source, attachments, replaceInstructions, passOptions) : null;
     attachments.length = 0;
-    const replacedPages = replaced?.report.pages
-        .filter(page => page.outcome === 'replaced')
-        .map(page => page.pageNumber) ?? [];
+    const replacedPages = replaced?.report.pages.filter((page) => page.outcome === 'replaced').map((page) => page.pageNumber) ?? [];
     const recompressInstructions = {
         maxByteRatio: MAX_BYTE_RATIO,
         targetDpi: preset.images.dpi,
         quality: preset.images.quality,
         skipPages: replacedPages,
     };
-    const recompressMaxBytes = BROWSER_PAGE_OPS_MAX_REQUEST_BYTES - instructedRequestBytes(
-        new Uint8Array(),
-        new TextEncoder().encode(JSON.stringify(recompressInstructions)).byteLength,
-    );
+    const recompressMaxBytes =
+        BROWSER_PAGE_OPS_MAX_REQUEST_BYTES -
+        instructedRequestBytes(new Uint8Array(), new TextEncoder().encode(JSON.stringify(recompressInstructions)).byteLength);
     const afterReplace = append(source, replaced?.data ?? new Uint8Array(), recompressMaxBytes);
     const recompressed = await recompressPdfImages(afterReplace, recompressInstructions, passOptions);
     // qpdf and the full check take the whole document next.
     const candidate = append(afterReplace, recompressed.data, BROWSER_QPDF_MAX_INPUT_BYTES);
     return {
         bytes: candidate,
-        optimizedPages: new Set([
-            ...replacedPages,
-            ...recompressed.report.pages,
-        ]).size,
+        optimizedPages: new Set([...replacedPages, ...recompressed.report.pages]).size,
         pageCount,
     };
 }
@@ -334,7 +318,8 @@ export async function optimizeBrowserPdfAsCopy(
     requestId: TRequestId | undefined,
     revisionOptions: IDocumentMutationRevisionOptions | undefined,
     {
-        target, signal = new AbortController().signal,
+        target,
+        signal = new AbortController().signal,
     }: {
         target: IBrowserFinalizedPublication['target'];
         signal?: AbortSignal;
@@ -363,8 +348,7 @@ export async function optimizeBrowserPdfAsCopy(
 
     // Capture the frontier once; every pass reads these bytes, and publication
     // is checked against this revision and source.
-    const revision = revisionOptions?.expectedDocumentRevisionToken
-        ?? (await browserDocumentStore.getDocumentRevision(path)).token;
+    const revision = revisionOptions?.expectedDocumentRevisionToken ?? (await browserDocumentStore.getDocumentRevision(path)).token;
     await browserDocumentStore.assertDocumentRevisionCurrent(path, revision);
     const sourceRef = await browserDocumentStore.getSourceRef(path);
     const source = await browserDocumentStore.read(path, {maxBytes: BROWSER_QPDF_MAX_INPUT_BYTES});
@@ -381,10 +365,11 @@ export async function optimizeBrowserPdfAsCopy(
     const progressTotal = pageCount ?? 1;
     emit(run, 'optimizing', progressTotal, progressTotal);
     const rasterBytes = raster?.bytes ?? source;
-    const optimized = await finishBrowserPdfCandidate(rasterBytes, {
-        fileName: run.fileName,
-        signal,
-    }) ?? rasterBytes;
+    const optimized =
+        (await finishBrowserPdfCandidate(rasterBytes, {
+            fileName: run.fileName,
+            signal,
+        })) ?? rasterBytes;
     emit(run, 'validating', progressTotal, progressTotal);
     const validation = await validateBrowserPdfData(optimized, {
         fileName: run.fileName,

@@ -2,30 +2,13 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    effectScope,
-    nextTick,
-    ref,
-} from 'vue';
-import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import {
-    asAnnotationId,
-    type AnnotationEntity,
-    type INoteEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
-import {
-    mountAnnotationCommentsList,
-    unmountAnnotationCommentsLists,
-} from '@tests/helpers/pdfAnnotationCommentsListHarness';
-import { requirePageIndex } from '@contracts/pageNumbers';
+import {afterEach, expect, it, vi} from 'vitest';
+import {computed, effectScope, nextTick, ref} from 'vue';
+import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {asAnnotationId, type AnnotationEntity, type INoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {useAnnotationNoteWindows} from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
+import {mountAnnotationCommentsList, unmountAnnotationCommentsLists} from '@tests/helpers/pdfAnnotationCommentsListHarness';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -69,58 +52,57 @@ function applicationWith(entity: AnnotationEntity) {
     return application;
 }
 
-it.each([
-    'text-box',
-    'note',
-    'text-markup',
-    'shape',
-] as const)('renders canonical %s color even without a document-text preview', async (kind) => {
-    const source = note();
-    const entity: AnnotationEntity = kind === 'text-box'
-        ? {
-            ...source,
-            kind,
-            rect,
-            text: 'Colored text',
-            fontSize: 12,
-            rotation: 0,
-        }
-        : kind === 'text-markup'
-            ? {
-                ...source,
-                kind,
-                subtype: 'Highlight',
-                contents: '',
-                selectedText: null,
-                quadPoints: [rect],
-                opacity: 0.4,
-            }
-            : kind === 'shape'
+it.each(['text-box', 'note', 'text-markup', 'shape'] as const)(
+    'renders canonical %s color even without a document-text preview',
+    async (kind) => {
+        const source = note();
+        const entity: AnnotationEntity =
+            kind === 'text-box'
                 ? {
-                    ...source,
-                    kind,
-                    tool: 'rectangle',
-                    rect,
-                    strokeColor: '#ff0000',
-                    strokeWidth: 2,
-                    fill: '#00ff00',
-                    opacity: 0.5,
-                }
-                : source;
-    const application = applicationWith(entity);
-    const mounted = mountAnnotationCommentsList({comments: application.listCommentSummaries()});
-    await nextTick();
-    const row = mounted.host.querySelector<HTMLElement>('.note-item');
-    const chip = row?.querySelector<HTMLElement>('.note-item-color-chip');
+                      ...source,
+                      kind,
+                      rect,
+                      text: 'Colored text',
+                      fontSize: 12,
+                      rotation: 0,
+                  }
+                : kind === 'text-markup'
+                  ? {
+                        ...source,
+                        kind,
+                        subtype: 'Highlight',
+                        contents: '',
+                        selectedText: null,
+                        quadPoints: [rect],
+                        opacity: 0.4,
+                    }
+                  : kind === 'shape'
+                    ? {
+                          ...source,
+                          kind,
+                          tool: 'rectangle',
+                          rect,
+                          strokeColor: '#ff0000',
+                          strokeWidth: 2,
+                          fill: '#00ff00',
+                          opacity: 0.5,
+                      }
+                    : source;
+        const application = applicationWith(entity);
+        const mounted = mountAnnotationCommentsList({comments: application.listCommentSummaries()});
+        await nextTick();
+        const row = mounted.host.querySelector<HTMLElement>('.note-item');
+        const chip = row?.querySelector<HTMLElement>('.note-item-color-chip');
 
-    expect(row?.dataset.annotationId).toBe('note-1');
-    expect(row?.dataset.annotationKind).toBe(kind);
-    expect(chip?.style.getPropertyValue('--note-item-chip-color')).toBe('#ff0000');
-    expect(row?.textContent).toContain('Original Author');
-    if (kind === 'shape') {
-        expect(row?.querySelector<HTMLElement>('.note-item-shape-fill')?.style.backgroundColor).toBe('#00ff00');
-    }
-});
+        expect(row?.dataset.annotationId).toBe('note-1');
+        expect(row?.dataset.annotationKind).toBe(kind);
+        expect(chip?.style.getPropertyValue('--note-item-chip-color')).toBe('#ff0000');
+        expect(row?.textContent).toContain('Original Author');
+        if (kind === 'shape') {
+            expect(row?.querySelector<HTMLElement>('.note-item-shape-fill')?.style.backgroundColor).toBe('#00ff00');
+        }
+    },
+);
 
 it('keeps a markup preview in the sidebar when text extraction temporarily returns null', async () => {
     const application = applicationWith({
@@ -141,10 +123,7 @@ it('keeps a markup preview in the sidebar when text extraction temporarily retur
         await nextTick();
         expect(mounted.host.querySelector('.note-item-text')?.textContent).toContain('Selected document text');
 
-        expect(application.store.updateTextMarkupSelectedText(
-            asAnnotationId('markup-preview'),
-            null,
-        )).toBe(false);
+        expect(application.store.updateTextMarkupSelectedText(asAnnotationId('markup-preview'), null)).toBe(false);
         await nextTick();
 
         expect(mounted.host.querySelector('.note-item-text')?.textContent).toContain('Selected document text');
@@ -168,10 +147,12 @@ it('keeps the shape row identity and author across its first save binding', asyn
     const before = application.listCommentSummaries()[0]!;
     const mounted = mountAnnotationCommentsList({comments: [before]});
     const session = application.beginSave();
-    application.acknowledgeSave(session, null, [{
-        annotationId: 'shape-1',
-        pdfRef: '11 0 R',
-    }]);
+    application.acknowledgeSave(session, null, [
+        {
+            annotationId: 'shape-1',
+            pdfRef: '11 0 R',
+        },
+    ]);
     await mounted.setComments(application.listCommentSummaries());
 
     expect(application.listCommentSummaries()[0]).toMatchObject({
@@ -198,18 +179,18 @@ it('activates a text box for inline editing instead of opening a note window', a
     expect(mounted.events.opened).toHaveLength(0);
 });
 
-it.each([
-    'text-box',
-    'note',
-] as const)('opens a canonical %s with Enter while a pointer click only selects it', async (kind) => {
-    const entity: AnnotationEntity = kind === 'text-box' ? {
-        ...note('text-1'),
-        kind,
-        rect,
-        text: 'Text on the page',
-        fontSize: 12,
-        rotation: 0,
-    } : note();
+it.each(['text-box', 'note'] as const)('opens a canonical %s with Enter while a pointer click only selects it', async (kind) => {
+    const entity: AnnotationEntity =
+        kind === 'text-box'
+            ? {
+                  ...note('text-1'),
+                  kind,
+                  rect,
+                  text: 'Text on the page',
+                  fontSize: 12,
+                  rotation: 0,
+              }
+            : note();
     const application = applicationWith(entity);
     const mounted = mountAnnotationCommentsList({comments: application.listCommentSummaries()});
     await nextTick();
@@ -302,15 +283,14 @@ function storeProjection(application: AnnotationApplication) {
 
 function noteWindows(application = applicationWith(note())) {
     const projection = storeProjection(application);
-    const {
-        comments,
-        unsubscribe,
-    } = projection;
+    const {comments, unsubscribe} = projection;
     const scope = effectScope();
-    const windows = scope.run(() => useAnnotationNoteWindows({
-        documentAnnotations: projection,
-        updateAnnotationCommentInViewer: (id, contents) => Boolean(application.store.updateNote(id, {contents})),
-    }))!;
+    const windows = scope.run(() =>
+        useAnnotationNoteWindows({
+            documentAnnotations: projection,
+            updateAnnotationCommentInViewer: (id, contents) => Boolean(application.store.updateNote(id, {contents})),
+        }),
+    )!;
     return {
         application,
         comments,
@@ -364,27 +344,33 @@ it('preserves an uncommitted draft while tracking the newer canonical text and c
 
 it('keeps a dirty draft and rebases a clean one when the document is read again', async () => {
     const application = applicationWith(note());
-    application.store.replaceFromDocument([
-        note(),
-        {
-            ...note('note-2'),
-            contents: 'Before 2',
-        },
-    ], []);
-    const harness = noteWindows(application);
-    try {
-        application.listCommentSummaries().forEach(comment => harness.windows.handleOpenAnnotationNote(comment));
-        harness.windows.updateAnnotationNoteText('note-1', 'Typed during the read');
-        application.store.replaceFromDocument([
-            {
-                ...note(),
-                contents: 'Read again',
-            },
+    application.store.replaceFromDocument(
+        [
+            note(),
             {
                 ...note('note-2'),
-                contents: 'Read again 2',
+                contents: 'Before 2',
             },
-        ], []);
+        ],
+        [],
+    );
+    const harness = noteWindows(application);
+    try {
+        application.listCommentSummaries().forEach((comment) => harness.windows.handleOpenAnnotationNote(comment));
+        harness.windows.updateAnnotationNoteText('note-1', 'Typed during the read');
+        application.store.replaceFromDocument(
+            [
+                {
+                    ...note(),
+                    contents: 'Read again',
+                },
+                {
+                    ...note('note-2'),
+                    contents: 'Read again 2',
+                },
+            ],
+            [],
+        );
         await nextTick();
         expect(harness.windows.sortedAnnotationNoteWindows.value).toEqual([
             expect.objectContaining({
@@ -403,10 +389,7 @@ it('keeps a dirty draft and rebases a clean one when the document is read again'
     }
 });
 
-it.each([
-    'delete',
-    'undo-creation',
-] as const)('closes a dirty window on definitive canonical %s', async (operation) => {
+it.each(['delete', 'undo-creation'] as const)('closes a dirty window on definitive canonical %s', async (operation) => {
     const application = new AnnotationApplication('canonical-deletion');
     application.store.createNote({
         ...note(),
@@ -455,16 +438,18 @@ it('preserves a dirty window through an empty loading projection without a canon
 it('does not reopen a deleted window when its pending save settles', async () => {
     const application = applicationWith(note());
     const projection = storeProjection(application);
-    const {
-        comments,
-        unsubscribe,
-    } = projection;
+    const {comments, unsubscribe} = projection;
     const scope = effectScope();
     let settle!: (value: boolean) => void;
-    const windows = scope.run(() => useAnnotationNoteWindows({
-        documentAnnotations: projection,
-        updateAnnotationCommentInViewer: () => new Promise<boolean>((resolve) => { settle = resolve; }),
-    }))!;
+    const windows = scope.run(() =>
+        useAnnotationNoteWindows({
+            documentAnnotations: projection,
+            updateAnnotationCommentInViewer: () =>
+                new Promise<boolean>((resolve) => {
+                    settle = resolve;
+                }),
+        }),
+    )!;
     try {
         windows.handleOpenAnnotationNote(comments.value[0]!);
         windows.updateAnnotationNoteText('note-1', 'Pending');
@@ -491,16 +476,10 @@ it('invalidates rendered order when an overlapping note is raised', () => {
     });
     const harness = noteWindows(application);
     try {
-        application.listCommentSummaries().forEach(comment => harness.windows.handleOpenAnnotationNote(comment));
-        expect(harness.windows.sortedAnnotationNoteWindows.value.map(window => window.annotationId)).toEqual([
-            'note-1',
-            'note-2',
-        ]);
+        application.listCommentSummaries().forEach((comment) => harness.windows.handleOpenAnnotationNote(comment));
+        expect(harness.windows.sortedAnnotationNoteWindows.value.map((window) => window.annotationId)).toEqual(['note-1', 'note-2']);
         harness.windows.bringAnnotationNoteToFront('note-1');
-        expect(harness.windows.sortedAnnotationNoteWindows.value.map(window => window.annotationId)).toEqual([
-            'note-2',
-            'note-1',
-        ]);
+        expect(harness.windows.sortedAnnotationNoteWindows.value.map((window) => window.annotationId)).toEqual(['note-2', 'note-1']);
     } finally {
         harness.dispose();
     }
@@ -510,13 +489,18 @@ it('invalidates rendered saving and error state when an asynchronous update sett
     const scope = effectScope();
     let settle!: (value: boolean) => void;
     const application = applicationWith(note());
-    const windows = scope.run(() => useAnnotationNoteWindows({
-        documentAnnotations: {
-            comments: ref([...application.listCommentSummaries()]),
-            deletedAnnotationIds: ref(new Set<string>()),
-        },
-        updateAnnotationCommentInViewer: () => new Promise<boolean>((resolve) => { settle = resolve; }),
-    }))!;
+    const windows = scope.run(() =>
+        useAnnotationNoteWindows({
+            documentAnnotations: {
+                comments: ref([...application.listCommentSummaries()]),
+                deletedAnnotationIds: ref(new Set<string>()),
+            },
+            updateAnnotationCommentInViewer: () =>
+                new Promise<boolean>((resolve) => {
+                    settle = resolve;
+                }),
+        }),
+    )!;
     windows.handleOpenAnnotationNote(application.listCommentSummaries()[0]!);
     const presentation = computed(() => ({
         saving: windows.findAnnotationNoteWindow('note-1')?.saving,

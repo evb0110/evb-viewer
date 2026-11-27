@@ -1,14 +1,8 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
-import type { IDocumentOpenSurfaceSnapshot } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
+import {describe, expect, it} from 'vitest';
+import {resolvePdfPreparedOpeningFitScale} from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
+import type {IDocumentOpenSurfaceSnapshot} from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
 
-function createSnapshot(
-    overrides: Partial<IDocumentOpenSurfaceSnapshot> = {},
-): IDocumentOpenSurfaceSnapshot {
+function createSnapshot(overrides: Partial<IDocumentOpenSurfaceSnapshot> = {}): IDocumentOpenSurfaceSnapshot {
     return {
         generation: 4,
         identity: null,
@@ -20,7 +14,7 @@ function createSnapshot(
             ownerId: 'document-viewer-runtime:1',
             pageNumber: 2,
             intentKey: 'test-intent',
-            style: { width: '800px' },
+            style: {width: '800px'},
         },
         openingPageGeometry: {
             documentId: 'test-document',
@@ -44,11 +38,11 @@ describe('resolvePdfPreparedOpeningFitScale', () => {
 
     it('does not seed custom zoom or a completed opening session', () => {
         expect(resolvePdfPreparedOpeningFitScale(createSnapshot(), true)).toBeNull();
-        expect(resolvePdfPreparedOpeningFitScale(createSnapshot({ phase: 'ready' }), false)).toBeNull();
+        expect(resolvePdfPreparedOpeningFitScale(createSnapshot({phase: 'ready'}), false)).toBeNull();
     });
 
     it('rejects stale frame generations and unusable geometry', () => {
-        expect(resolvePdfPreparedOpeningFitScale(createSnapshot({ generation: 5 }), false)).toBeNull();
+        expect(resolvePdfPreparedOpeningFitScale(createSnapshot({generation: 5}), false)).toBeNull();
         const openingPageGeometry = {
             documentId: 'test-document',
             pageNumber: 2,
@@ -57,7 +51,7 @@ describe('resolvePdfPreparedOpeningFitScale', () => {
             height: 600,
             rotation: 0,
         };
-        const zeroWidthSnapshot = createSnapshot({ openingPageGeometry });
+        const zeroWidthSnapshot = createSnapshot({openingPageGeometry});
         expect(resolvePdfPreparedOpeningFitScale(zeroWidthSnapshot, false)).toBeNull();
     });
 });

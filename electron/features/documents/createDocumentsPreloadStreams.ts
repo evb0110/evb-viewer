@@ -1,23 +1,16 @@
-import type { IpcRenderer } from 'electron';
+import type {IpcRenderer} from 'electron';
 import type {IPdfValidationResult} from '@contracts/pdfConformance';
-import type {
-    IPdfSerializedCommitCallbacks,
-    IPdfCommittedSaveAsResult,
-    IPdfSerializedSaveOptions,
-} from '@contracts/electronApiDocuments';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { IIpcInvokeSpec } from '@contracts/ipcMain';
-import {
-    requireSessionId,
-    type TSessionId,
-} from '@contracts/shared';
+import type {IPdfSerializedCommitCallbacks, IPdfCommittedSaveAsResult, IPdfSerializedSaveOptions} from '@contracts/electronApiDocuments';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IIpcInvokeSpec} from '@contracts/ipcMain';
+import {requireSessionId, type TSessionId} from '@contracts/shared';
 import {
     DOCX_EXPORT_STREAM_CHANNELS,
     DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
     type IDocxExportFileCapability,
     type IDocxExportStreamBeginResult,
 } from '@contracts/docxExport';
-import { isRecord } from '@contracts/runtimeGuards';
+import {isRecord} from '@contracts/runtimeGuards';
 import {
     PDF_PERSISTENCE_DEFAULT_ACK_TIMEOUT_MS,
     PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
@@ -33,10 +26,10 @@ import {
     parsePdfPersistenceMainToPreloadFrame,
     type IPdfPersistenceErrorFrame,
 } from '@contracts/documentPersistenceFrames';
-import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
-import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import type { IBeginSerializedPdfPersistenceResult } from '@electron/features/documents/serializedPdfPersistenceContract';
-import { createIpcInvoker } from '@electron/preload/ipcClient';
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
+import {DOCUMENTS_CHANNELS} from '@electron/features/documents/contract';
+import type {IBeginSerializedPdfPersistenceResult} from '@electron/features/documents/serializedPdfPersistenceContract';
+import {createIpcInvoker} from '@electron/preload/ipcClient';
 import assertPdfSerializedSaveOptions from '@electron/features/documents/assertPdfSerializedSaveOptions';
 import {assertAbsolutePath} from '@contracts/ipcAssertions';
 
@@ -111,39 +104,27 @@ class PdfPersistenceError extends Error {
     }
 }
 
-function isVerifyBytesBeforeCommit(
-    value: unknown,
-): value is NonNullable<IPdfSerializedCommitCallbacks['verifyBytesBeforeCommit']> {
+function isVerifyBytesBeforeCommit(value: unknown): value is NonNullable<IPdfSerializedCommitCallbacks['verifyBytesBeforeCommit']> {
     return typeof value === 'function';
 }
 
-function isVerifyPathBeforeCommit(
-    value: unknown,
-): value is NonNullable<IPdfSerializedCommitCallbacks['verifyPathBeforeCommit']> {
+function isVerifyPathBeforeCommit(value: unknown): value is NonNullable<IPdfSerializedCommitCallbacks['verifyPathBeforeCommit']> {
     return typeof value === 'function';
 }
 
-function isAssertBeforeCommit(
-    value: unknown,
-): value is NonNullable<IPdfSerializedCommitCallbacks['assertBeforeCommit']> {
+function isAssertBeforeCommit(value: unknown): value is NonNullable<IPdfSerializedCommitCallbacks['assertBeforeCommit']> {
     return typeof value === 'function';
 }
 
-function assertPdfSerializedCommitCallbacks(
-    value: unknown,
-    label: string,
-): IPdfSerializedCommitCallbacks | undefined {
+function assertPdfSerializedCommitCallbacks(value: unknown, label: string): IPdfSerializedCommitCallbacks | undefined {
     if (value === undefined || value === null) {
         return undefined;
     }
     if (
-        !isRecord(value)
-        || (value.verifyBytesBeforeCommit !== undefined
-            && !isVerifyBytesBeforeCommit(value.verifyBytesBeforeCommit))
-        || (value.verifyPathBeforeCommit !== undefined
-            && !isVerifyPathBeforeCommit(value.verifyPathBeforeCommit))
-        || (value.assertBeforeCommit !== undefined
-            && !isAssertBeforeCommit(value.assertBeforeCommit))
+        !isRecord(value) ||
+        (value.verifyBytesBeforeCommit !== undefined && !isVerifyBytesBeforeCommit(value.verifyBytesBeforeCommit)) ||
+        (value.verifyPathBeforeCommit !== undefined && !isVerifyPathBeforeCommit(value.verifyPathBeforeCommit)) ||
+        (value.assertBeforeCommit !== undefined && !isAssertBeforeCommit(value.assertBeforeCommit))
     ) {
         throw new TypeError(`${label} must contain only persistence commit callbacks`);
     }
@@ -151,15 +132,9 @@ function assertPdfSerializedCommitCallbacks(
     const verifyPathBeforeCommit = value.verifyPathBeforeCommit;
     const assertBeforeCommit = value.assertBeforeCommit;
     return {
-        ...(isVerifyBytesBeforeCommit(verifyBytesBeforeCommit)
-            ? {verifyBytesBeforeCommit}
-            : {}),
-        ...(isVerifyPathBeforeCommit(verifyPathBeforeCommit)
-            ? {verifyPathBeforeCommit}
-            : {}),
-        ...(isAssertBeforeCommit(assertBeforeCommit)
-            ? {assertBeforeCommit}
-            : {}),
+        ...(isVerifyBytesBeforeCommit(verifyBytesBeforeCommit) ? {verifyBytesBeforeCommit} : {}),
+        ...(isVerifyPathBeforeCommit(verifyPathBeforeCommit) ? {verifyPathBeforeCommit} : {}),
+        ...(isAssertBeforeCommit(assertBeforeCommit) ? {assertBeforeCommit} : {}),
     };
 }
 
@@ -172,16 +147,17 @@ function assertPersistenceData(value: unknown, fieldName: string) {
     }
     return value;
 }
-function createDocxExportFileCapability(
-    ipcRenderer: Pick<IpcRenderer, 'invoke'>,
-): IDocxExportFileCapability {
+function createDocxExportFileCapability(ipcRenderer: Pick<IpcRenderer, 'invoke'>): IDocxExportFileCapability {
     const invoke = async <TChannel extends Extract<keyof IDocumentsDirectInvokeMap, string>>(
         channel: TChannel,
         ...args: IDocumentsDirectInvokeMap[TChannel]['args']
-    ) => await ipcRenderer.invoke(channel, ...args) as IDocumentsDirectInvokeMap[TChannel]['result'];
+    ) => (await ipcRenderer.invoke(channel, ...args)) as IDocumentsDirectInvokeMap[TChannel]['result'];
     const beginDocxFileStream = (path: Parameters<IDocxExportFileCapability['beginDocxFileStream']>[0]) =>
         invoke(DOCX_EXPORT_STREAM_CHANNELS.begin, assertAbsolutePath(path, 'beginDocxFileStream.path'));
-    const writeDocxFileStreamChunk = (sessionId: Parameters<IDocxExportFileCapability['writeDocxFileStreamChunk']>[0], chunk: Parameters<IDocxExportFileCapability['writeDocxFileStreamChunk']>[1]) => {
+    const writeDocxFileStreamChunk = (
+        sessionId: Parameters<IDocxExportFileCapability['writeDocxFileStreamChunk']>[0],
+        chunk: Parameters<IDocxExportFileCapability['writeDocxFileStreamChunk']>[1],
+    ) => {
         const checkedSessionId = requireSessionId(sessionId);
         if (!(chunk instanceof Uint8Array) || chunk.byteLength === 0) {
             throw new Error('writeDocxFileStreamChunk.chunk must be a non-empty Uint8Array');
@@ -261,10 +237,7 @@ class PdfPersistencePortLifecycle {
             this.rejectAbort = reject;
         });
         void this.abortPromise.catch(() => undefined);
-        this.ready = this.createDeferred<undefined>(
-            PDF_PERSISTENCE_READY_TIMEOUT_MS,
-            'PDF persistence port did not become ready',
-        );
+        this.ready = this.createDeferred<undefined>(PDF_PERSISTENCE_READY_TIMEOUT_MS, 'PDF persistence port did not become ready');
         this.noteProgress();
         port.addEventListener('message', this.handleMessage);
     }
@@ -463,10 +436,7 @@ async function streamPdfBytesToPersistencePort(
         let bytesWritten = 0;
         const inFlightAcks: Array<Promise<void>> = [];
         while (true) {
-            const nextChunk = await Promise.race([
-                Promise.resolve(chunkIterator.next()),
-                lifecycle.waitForAbort(),
-            ]);
+            const nextChunk = await Promise.race([Promise.resolve(chunkIterator.next()), lifecycle.waitForAbort()]);
             if (nextChunk.done) {
                 sourceExhausted = true;
                 break;
@@ -512,13 +482,10 @@ async function streamPdfBytesToPersistencePort(
     }
 }
 
-export function createDocumentsPreloadStreams(
-    ipcRenderer: Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>,
-) {
-    const invoke = createIpcInvoker<IDocumentsDirectInvokeMap>(
-        ipcRenderer,
-        {invokeTimeoutMsByChannel: {[DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf]: LONG_NATIVE_IPC_TIMEOUT_MS}},
-    );
+export function createDocumentsPreloadStreams(ipcRenderer: Pick<IpcRenderer, 'invoke' | 'postMessage' | 'send'>) {
+    const invoke = createIpcInvoker<IDocumentsDirectInvokeMap>(ipcRenderer, {
+        invokeTimeoutMsByChannel: {[DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf]: LONG_NATIVE_IPC_TIMEOUT_MS},
+    });
     const commitStagedPersistence = async (
         result: ISerializedPdfPersistencePortResult,
         callbacks: IPdfSerializedCommitCallbacks | undefined,
@@ -528,46 +495,24 @@ export function createDocumentsPreloadStreams(
             return result;
         }
         try {
-            await callbacks?.verifyPathBeforeCommit?.(
-                staged.stagedOutput.path,
-                staged.stagedOutput.size,
-            );
+            await callbacks?.verifyPathBeforeCommit?.(staged.stagedOutput.path, staged.stagedOutput.size);
             await callbacks?.assertBeforeCommit?.();
-            return await invoke(
-                DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf,
-                requireSessionId(staged.sessionId),
-                staged.stagedOutput,
-            );
+            return await invoke(DOCUMENTS_CHANNELS.fileCommitStagedSerializedPdf, requireSessionId(staged.sessionId), staged.stagedOutput);
         } catch (error) {
-            await invoke(
-                DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf,
-                requireSessionId(staged.sessionId),
-                staged.stagedOutput,
-            ).catch(() => false);
+            await invoke(DOCUMENTS_CHANNELS.fileCancelStagedSerializedPdf, requireSessionId(staged.sessionId), staged.stagedOutput).catch(
+                () => false,
+            );
             throw error;
         }
     };
     return {
         ...createDocxExportFileCapability(ipcRenderer),
-        savePdfData: async (
-            path: string,
-            data: Uint8Array,
-            options?: unknown,
-            commitCallbacks?: IPdfSerializedCommitCallbacks,
-        ) => {
+        savePdfData: async (path: string, data: Uint8Array, options?: unknown, commitCallbacks?: IPdfSerializedCommitCallbacks) => {
             const checkedPath = assertAbsolutePath(path, 'savePdfData.path');
             const checkedData = assertPersistenceData(data, 'savePdfData.data');
             const checkedOptions = assertPdfSerializedSaveOptions(options, 'savePdfData.options');
-            const checkedCommitCallbacks = assertPdfSerializedCommitCallbacks(
-                commitCallbacks,
-                'savePdfData.commitCallbacks',
-            );
-            const beginResult = await invoke(
-                DOCUMENTS_CHANNELS.fileSavePdfDataBegin,
-                checkedPath,
-                checkedData.byteLength,
-                checkedOptions,
-            );
+            const checkedCommitCallbacks = assertPdfSerializedCommitCallbacks(commitCallbacks, 'savePdfData.commitCallbacks');
+            const beginResult = await invoke(DOCUMENTS_CHANNELS.fileSavePdfDataBegin, checkedPath, checkedData.byteLength, checkedOptions);
             const stagedResult = await streamPdfBytesToPersistencePort(
                 ipcRenderer,
                 beginResult,

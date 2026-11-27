@@ -1,4 +1,4 @@
-import type { IPdfSearchHighlightMatchRange } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightMatchRange';
+import type {IPdfSearchHighlightMatchRange} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightMatchRange';
 
 export function getRelevantHighlightMatches(
     textLength: number,
@@ -8,8 +8,5 @@ export function getRelevantHighlightMatches(
 ) {
     const spanEndOffset = spanStartOffset + textLength;
 
-    return precomputedMatches
-        ?? matches.filter(
-            match => match.start < spanEndOffset && match.end > spanStartOffset,
-        );
+    return precomputedMatches ?? matches.filter((match) => match.start < spanEndOffset && match.end > spanStartOffset);
 }

@@ -1,25 +1,22 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
-import { createPdfDocumentSearchSession } from '@app/modules/pdf-viewer/search/createPdfDocumentSearchSession';
-import { DEFAULT_DOCUMENT_SEARCH_OPTIONS } from '@app/modules/document-viewer/providers/documentSearch';
-import { requirePageIndex } from '@contracts/pageNumbers';
+import {describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import {createPdfDocumentSearchSession} from '@app/modules/pdf-viewer/search/createPdfDocumentSearchSession';
+import {DEFAULT_DOCUMENT_SEARCH_OPTIONS} from '@app/modules/document-viewer/providers/documentSearch';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 describe('createPdfDocumentSearchSession', () => {
     it('projects the PDF engine through the shared search session contract', async () => {
         const run = vi.fn();
         const select = vi.fn();
         const navigate = vi.fn();
-        const results = ref([{
-            pageIndex: requirePageIndex(2),
-            matchIndex: 0,
-            startOffset: 4,
-            endOffset: 8,
-        }]);
+        const results = ref([
+            {
+                pageIndex: requirePageIndex(2),
+                matchIndex: 0,
+                startOffset: 4,
+                endOffset: 8,
+            },
+        ]);
         const session = createPdfDocumentSearchSession({
             query: ref('term'),
             submittedQuery: ref('term'),

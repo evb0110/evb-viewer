@@ -2,24 +2,9 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    reactive,
-} from 'vue';
-import type {
-    IDocumentBookmarkTreeItem,
-    TDocumentBookmarkDisplayMode,
-} from '@app/modules/document-viewer/bookmarks/documentBookmarks';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, reactive} from 'vue';
+import type {IDocumentBookmarkTreeItem, TDocumentBookmarkDisplayMode} from '@app/modules/document-viewer/bookmarks/documentBookmarks';
 import DocumentBookmarkTree from '@app/components/document-viewer/DocumentBookmarkTree.vue';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -28,11 +13,13 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 }));
 
 const IconStub = defineComponent({
-    props: {name: {
-        type: String,
-        required: true,
-    }},
-    setup: props => () => h('i', {'data-icon': props.name}),
+    props: {
+        name: {
+            type: String,
+            required: true,
+        },
+    },
+    setup: (props) => () => h('i', {'data-icon': props.name}),
 });
 
 interface IBookmarkTreeHarnessState {
@@ -59,13 +46,7 @@ function bookmark(
 
 function harnessState(overrides: Partial<IBookmarkTreeHarnessState> = {}) {
     return reactive<IBookmarkTreeHarnessState>({
-        items: [
-            bookmark('a', [
-                bookmark('a1', [bookmark('a2')]),
-                bookmark('a3'),
-            ]),
-            bookmark('b'),
-        ],
+        items: [bookmark('a', [bookmark('a1', [bookmark('a2')]), bookmark('a3')]), bookmark('b')],
         activeId: null,
         displayMode: 'all-expanded',
         expandedIds: new Set<string>(),
@@ -93,26 +74,39 @@ async function mountTree(state: IBookmarkTreeHarnessState) {
     }> = [];
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({setup: () => () => h(DocumentBookmarkTree, {
-        items: state.items,
-        activeId: state.activeId,
-        displayMode: state.displayMode,
-        expandedIds: state.expandedIds,
-        activePathIds: state.activePathIds,
-        onActivate: (id: string) => events.push({
-            name: 'activate',
-            id,
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(DocumentBookmarkTree, {
+                    items: state.items,
+                    activeId: state.activeId,
+                    displayMode: state.displayMode,
+                    expandedIds: state.expandedIds,
+                    activePathIds: state.activePathIds,
+                    onActivate: (id: string) =>
+                        events.push({
+                            name: 'activate',
+                            id,
+                        }),
+                    onToggleExpand: (id: string) =>
+                        events.push({
+                            name: 'toggle-expand',
+                            id,
+                        }),
+                }),
         }),
-        onToggleExpand: (id: string) => events.push({
-            name: 'toggle-expand',
-            id,
-        }),
-    })}));
+    );
     app.component('UIcon', IconStub);
-    app.component('AppTooltip', defineComponent({
-        inheritAttrs: false,
-        setup: (_props, {slots}) => () => slots.default?.(),
-    }));
+    app.component(
+        'AppTooltip',
+        defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    slots.default?.(),
+        }),
+    );
     app.mount(host);
     // useVirtualList fills its rendered window from a pre-flush watch that
     // fires after the container ref binds, so rows exist only after a tick.
@@ -131,8 +125,7 @@ async function mountTree(state: IBookmarkTreeHarnessState) {
 }
 
 function renderedIds(host: HTMLElement) {
-    return [...host.querySelectorAll<HTMLElement>('[data-bookmark-id]')]
-        .map(row => row.dataset.bookmarkId);
+    return [...host.querySelectorAll<HTMLElement>('[data-bookmark-id]')].map((row) => row.dataset.bookmarkId);
 }
 
 type TScrollIntoView = (...args: unknown[]) => void;
@@ -163,58 +156,29 @@ function row(host: HTMLElement, id: string) {
 describe('DocumentBookmarkTree', () => {
     it('flattens every level in all-expanded mode', async () => {
         const {host} = await mountTree(harnessState());
-        expect(renderedIds(host)).toEqual([
-            'a',
-            'a1',
-            'a2',
-            'a3',
-            'b',
-        ]);
+        expect(renderedIds(host)).toEqual(['a', 'a1', 'a2', 'a3', 'b']);
     });
 
     it('collapses children behind expandedIds in top-level mode and follows toggles', async () => {
         const state = harnessState({displayMode: 'top-level'});
         const {host} = await mountTree(state);
-        expect(renderedIds(host)).toEqual([
-            'a',
-            'b',
-        ]);
+        expect(renderedIds(host)).toEqual(['a', 'b']);
         state.expandedIds = new Set(['a']);
         await nextTick();
-        expect(renderedIds(host)).toEqual([
-            'a',
-            'a1',
-            'a3',
-            'b',
-        ]);
+        expect(renderedIds(host)).toEqual(['a', 'a1', 'a3', 'b']);
     });
 
     it('expands the active path without collapsing disclosed branches', async () => {
         const state = harnessState({
             displayMode: 'current-expanded',
             expandedIds: new Set(['a1']),
-            activePathIds: new Set([
-                'a',
-                'a1',
-            ]),
+            activePathIds: new Set(['a', 'a1']),
         });
         const {host} = await mountTree(state);
-        expect(renderedIds(host)).toEqual([
-            'a',
-            'a1',
-            'a2',
-            'a3',
-            'b',
-        ]);
+        expect(renderedIds(host)).toEqual(['a', 'a1', 'a2', 'a3', 'b']);
         state.activePathIds = new Set(['a']);
         await nextTick();
-        expect(renderedIds(host)).toEqual([
-            'a',
-            'a1',
-            'a2',
-            'a3',
-            'b',
-        ]);
+        expect(renderedIds(host)).toEqual(['a', 'a1', 'a2', 'a3', 'b']);
     });
 
     it('marks the active row', async () => {
@@ -230,15 +194,14 @@ describe('DocumentBookmarkTree', () => {
             displayMode: 'top-level',
             expandedIds: new Set(['a']),
         });
-        const {
-            host,
-            events,
-        } = await mountTree(state);
+        const {host, events} = await mountTree(state);
         row(host, 'a3').click();
-        expect(events).toEqual([{
-            name: 'activate',
-            id: 'a3',
-        }]);
+        expect(events).toEqual([
+            {
+                name: 'activate',
+                id: 'a3',
+            },
+        ]);
         const toggle = row(host, 'a').querySelector<HTMLElement>('.document-bookmark-item__toggle');
         expect(toggle).not.toBeNull();
         toggle!.click();
@@ -271,11 +234,7 @@ describe('DocumentBookmarkTree', () => {
         const state = harnessState({
             displayMode: 'top-level',
             expandedIds: new Set(['a']),
-            activePathIds: new Set([
-                'a',
-                'a1',
-                'a2',
-            ]),
+            activePathIds: new Set(['a', 'a1', 'a2']),
         });
         const scrolled = trackRevealedRows();
         const {host} = await mountTree(state);
@@ -292,11 +251,7 @@ describe('DocumentBookmarkTree', () => {
         const state = harnessState({
             displayMode: 'top-level',
             expandedIds: new Set(),
-            activePathIds: new Set([
-                'a',
-                'a1',
-                'a2',
-            ]),
+            activePathIds: new Set(['a', 'a1', 'a2']),
             activeId: 'a2',
         });
         const scrolled = trackRevealedRows();
@@ -314,38 +269,25 @@ describe('DocumentBookmarkTree', () => {
         const state = harnessState({
             displayMode: 'top-level',
             expandedIds: new Set(),
-            activePathIds: new Set([
-                'a',
-                'a1',
-                'a2',
-            ]),
+            activePathIds: new Set(['a', 'a1', 'a2']),
             activeId: 'a2',
         });
         const scrolled = trackRevealedRows();
         const {events} = await mountTree(state);
 
-        state.expandedIds = new Set([
-            'a',
-            'a1',
-        ]);
+        state.expandedIds = new Set(['a', 'a1']);
         await nextTick();
         await nextTick();
         expect(scrolled).toEqual(['a2']);
 
         // A re-emitted expansion set keeps the same reveal target, so the tree
         // leaves the user's scroll position alone.
-        state.expandedIds = new Set([
-            'a',
-            'a1',
-        ]);
+        state.expandedIds = new Set(['a', 'a1']);
         await nextTick();
         await nextTick();
 
         expect(scrolled).toEqual(['a2']);
-        expect(state.expandedIds).toEqual(new Set([
-            'a',
-            'a1',
-        ]));
+        expect(state.expandedIds).toEqual(new Set(['a', 'a1']));
         expect(events).toEqual([]);
     });
 

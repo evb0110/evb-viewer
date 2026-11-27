@@ -1,4 +1,4 @@
-import type { Ref } from 'vue';
+import type {Ref} from 'vue';
 import {
     getAgentNumberInput,
     getAgentNumberArrayInput,
@@ -8,15 +8,14 @@ import {
     isAgentRecord,
     isAgentSidebarTab,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
-import type { IAgentOcrRunOptions } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
+import type {IAgentOcrRunOptions} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 import {parseAgentOcrRunOptions} from '@contracts/agentOcr';
 import {parseAgentAnnotationRef} from '@contracts/agent';
-import {
-    getAgentPageNumberInput,
-    normalizeAgentPageNumber,
-} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPages';
+import {getAgentPageNumberInput, normalizeAgentPageNumber} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentPages';
 
-interface IDocumentWorkspaceAgentParsersOptions { totalPages: Ref<number>; }
+interface IDocumentWorkspaceAgentParsersOptions {
+    totalPages: Ref<number>;
+}
 
 export function createDocumentWorkspaceAgentParsers(options: IDocumentWorkspaceAgentParsersOptions) {
     function getAgentOcrRunOptions(input: Record<string, unknown>): IAgentOcrRunOptions {
@@ -64,33 +63,23 @@ export function createDocumentWorkspaceAgentParsers(options: IDocumentWorkspaceA
             normalizeAgentPageNumber(page, options.totalPages.value, actionId);
         }
 
-        const hasExplicitCrop = [
-            'x',
-            'y',
-            'width',
-            'height',
-        ].some(key => hasAgentInputKey(input, key));
+        const hasExplicitCrop = ['x', 'y', 'width', 'height'].some((key) => hasAgentInputKey(input, key));
         if (hasExplicitCrop) {
             const x = getAgentNumberInput(input, 'x') ?? 0;
             const y = getAgentNumberInput(input, 'y') ?? 0;
             const width = getAgentNumberInput(input, 'width') ?? 1;
             const height = getAgentNumberInput(input, 'height') ?? 1;
-            if (Math.min(1, Math.max(0, x + width)) <= Math.min(1, Math.max(0, x))
-                || Math.min(1, Math.max(0, y + height)) <= Math.min(1, Math.max(0, y))) {
+            if (
+                Math.min(1, Math.max(0, x + width)) <= Math.min(1, Math.max(0, x)) ||
+                Math.min(1, Math.max(0, y + height)) <= Math.min(1, Math.max(0, y))
+            ) {
                 throw new Error('document.capture_page_image crop must have a positive normalized width and height.');
             }
             return input;
         }
 
         const region = getAgentStringInput(input, 'region') ?? 'full';
-        if (![
-            'full',
-            'top',
-            'bottom',
-            'left',
-            'right',
-            'center',
-        ].includes(region)) {
+        if (!['full', 'top', 'bottom', 'left', 'right', 'center'].includes(region)) {
             throw new Error('document.capture_page_image region must be full, top, bottom, left, right, or center.');
         }
         return input;
@@ -118,9 +107,7 @@ export function createDocumentWorkspaceAgentParsers(options: IDocumentWorkspaceA
             return input;
         }
         if (Array.isArray(input.updates)) {
-            input.updates
-                .filter(isAgentRecord)
-                .forEach(update => getAgentPageNumberInput(update, options.totalPages.value, actionId));
+            input.updates.filter(isAgentRecord).forEach((update) => getAgentPageNumberInput(update, options.totalPages.value, actionId));
             return input;
         }
         getAgentPageNumberInput(input, options.totalPages.value, actionId);
@@ -143,20 +130,8 @@ export function createDocumentWorkspaceAgentParsers(options: IDocumentWorkspaceA
     }
 
     function parseAgentBookmarkStyleInput(input: Record<string, unknown>, actionId: string) {
-        const hasSelector = [
-            'paths',
-            'items',
-            'bookmarks',
-            'path',
-            'range',
-            'depth',
-            'level',
-        ].some(key => hasAgentInputKey(input, key));
-        const hasStyle = [
-            'bold',
-            'italic',
-            'color',
-        ].some(key => hasAgentInputKey(input, key));
+        const hasSelector = ['paths', 'items', 'bookmarks', 'path', 'range', 'depth', 'level'].some((key) => hasAgentInputKey(input, key));
+        const hasStyle = ['bold', 'italic', 'color'].some((key) => hasAgentInputKey(input, key));
         if (!hasSelector) {
             throw new Error(`${actionId} requires input.paths, input.path, input.items, input.range, input.depth, or input.level.`);
         }
@@ -173,9 +148,9 @@ export function createDocumentWorkspaceAgentParsers(options: IDocumentWorkspaceA
             }
             input.paths.forEach((path) => {
                 if (
-                    !Array.isArray(path)
-                    || path.length === 0
-                    || !path.every(value => typeof value === 'number' && Number.isFinite(value))
+                    !Array.isArray(path) ||
+                    path.length === 0 ||
+                    !path.every((value) => typeof value === 'number' && Number.isFinite(value))
                 ) {
                     throw new Error(`${actionId} requires input.paths to contain non-empty path arrays.`);
                 }

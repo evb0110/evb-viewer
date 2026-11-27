@@ -1,4 +1,4 @@
-import type { TLocale } from '@i18n-core/localeCodes';
+import type {TLocale} from '@i18n-core/localeCodes';
 
 export interface IPrivacySectionMessages {
     heading: string;
@@ -30,7 +30,7 @@ export interface IPrivacyMessages {
 }
 
 export const PRIVACY_MESSAGES = {
-    'en': {
+    en: {
         seo: {
             title: 'Privacy Policy',
             description: 'Privacy policy for EVB Viewer desktop, browser, website, and optional assistant features.',
@@ -77,10 +77,11 @@ export const PRIVACY_MESSAGES = {
             body: 'Private contact for privacy requests is currently unavailable. Do not publish personal details or Error IDs in public channels.',
         },
     },
-    'de': {
+    de: {
         seo: {
             title: 'Datenschutzerklärung',
-            description: 'Datenschutzerklärung für die Desktop- und Browser-App, die Website und optionale Assistentenfunktionen von EVB Viewer.',
+            description:
+                'Datenschutzerklärung für die Desktop- und Browser-App, die Website und optionale Assistentenfunktionen von EVB Viewer.',
         },
         hero: {
             title: 'Datenschutzerklärung',
@@ -124,14 +125,16 @@ export const PRIVACY_MESSAGES = {
             body: 'Ein privater Kontakt für Datenschutzanfragen ist derzeit nicht verfügbar. Veröffentliche keine persönlichen Daten oder Fehler-IDs in öffentlichen Kanälen.',
         },
     },
-    'es': {
+    es: {
         seo: {
             title: 'Política de privacidad',
-            description: 'Política de privacidad de la aplicación de escritorio, la aplicación web, el sitio y las funciones opcionales de asistente de EVB Viewer.',
+            description:
+                'Política de privacidad de la aplicación de escritorio, la aplicación web, el sitio y las funciones opcionales de asistente de EVB Viewer.',
         },
         hero: {
             title: 'Política de privacidad',
-            subtitle: 'Cómo gestiona EVB Viewer los documentos, la configuración, los datos analíticos y las funciones opcionales de asistente.',
+            subtitle:
+                'Cómo gestiona EVB Viewer los documentos, la configuración, los datos analíticos y las funciones opcionales de asistente.',
             effectiveDate: 'En vigor desde el 11 de noviembre de 2026',
         },
         documents: {
@@ -171,14 +174,16 @@ export const PRIVACY_MESSAGES = {
             body: 'Actualmente no hay disponible un canal privado para las solicitudes de privacidad. No publiques datos personales ni Error ID en canales públicos.',
         },
     },
-    'fr': {
+    fr: {
         seo: {
             title: 'Politique de confidentialité',
-            description: 'Politique de confidentialité de l’application de bureau, de l’application web, du site et des fonctions d’assistant optionnelles d’EVB Viewer.',
+            description:
+                'Politique de confidentialité de l’application de bureau, de l’application web, du site et des fonctions d’assistant optionnelles d’EVB Viewer.',
         },
         hero: {
             title: 'Politique de confidentialité',
-            subtitle: 'Comment EVB Viewer traite les documents, les réglages, les données analytiques et les fonctions d’assistant optionnelles.',
+            subtitle:
+                'Comment EVB Viewer traite les documents, les réglages, les données analytiques et les fonctions d’assistant optionnelles.',
             effectiveDate: 'En vigueur le 11 novembre 2026',
         },
         documents: {
@@ -218,10 +223,11 @@ export const PRIVACY_MESSAGES = {
             body: 'Aucun contact privé pour les demandes relatives à la confidentialité n’est actuellement disponible. Ne publiez pas de données personnelles ni d’Error ID sur des canaux publics.',
         },
     },
-    'it': {
+    it: {
         seo: {
             title: 'Informativa sulla privacy',
-            description: 'Informativa sulla privacy per l’app desktop, l’app browser, il sito e le funzionalità opzionali dell’assistente di EVB Viewer.',
+            description:
+                'Informativa sulla privacy per l’app desktop, l’app browser, il sito e le funzionalità opzionali dell’assistente di EVB Viewer.',
         },
         hero: {
             title: 'Informativa sulla privacy',
@@ -265,7 +271,7 @@ export const PRIVACY_MESSAGES = {
             body: 'Al momento non è disponibile un contatto privato per le richieste relative alla privacy. Non pubblicare dati personali o Error ID nei canali pubblici.',
         },
     },
-    'nl': {
+    nl: {
         seo: {
             title: 'Privacybeleid',
             description: 'Privacybeleid voor de desktop-app, browser-app, website en optionele assistentfuncties van EVB Viewer.',
@@ -312,10 +318,11 @@ export const PRIVACY_MESSAGES = {
             body: 'Een privékanaal voor privacyverzoeken is momenteel niet beschikbaar. Plaats geen persoonsgegevens of Error ID’s in openbare kanalen.',
         },
     },
-    'pt': {
+    pt: {
         seo: {
             title: 'Política de privacidade',
-            description: 'Política de privacidade da aplicação desktop, da aplicação no navegador, do site e das funcionalidades opcionais do assistente do EVB Viewer.',
+            description:
+                'Política de privacidade da aplicação desktop, da aplicação no navegador, do site e das funcionalidades opcionais do assistente do EVB Viewer.',
         },
         hero: {
             title: 'Política de privacidade',
@@ -362,7 +369,8 @@ export const PRIVACY_MESSAGES = {
     'pt-BR': {
         seo: {
             title: 'Política de privacidade',
-            description: 'Política de privacidade do aplicativo desktop, do aplicativo web, do site e dos recursos opcionais do assistente do EVB Viewer.',
+            description:
+                'Política de privacidade do aplicativo desktop, do aplicativo web, do site e dos recursos opcionais do assistente do EVB Viewer.',
         },
         hero: {
             title: 'Política de privacidade',
@@ -406,10 +414,11 @@ export const PRIVACY_MESSAGES = {
             body: 'No momento, não há um contato privado disponível para solicitações de privacidade. Não publique dados pessoais nem Error IDs em canais públicos.',
         },
     },
-    'ru': {
+    ru: {
         seo: {
             title: 'Политика конфиденциальности',
-            description: 'Политика конфиденциальности десктопного приложения, браузерной версии, сайта и опциональных функций ассистента EVB Viewer.',
+            description:
+                'Политика конфиденциальности десктопного приложения, браузерной версии, сайта и опциональных функций ассистента EVB Viewer.',
         },
         hero: {
             title: 'Политика конфиденциальности',

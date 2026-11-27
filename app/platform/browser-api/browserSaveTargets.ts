@@ -5,14 +5,10 @@ import type {TDocumentRef} from '@contracts/documentRef';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
 import {isRecord} from '@contracts/runtimeGuards';
 import {readBrowserStoreStagedArtifact} from '@app/platform/browser/browserStagedArtifact';
-import type {
-    IDocumentMutationRevisionOptions,
-    IPdfSaveAsOptions,
-    TDocumentSaveResult,
-} from '@contracts/electronApiDocuments';
-import { browserDocumentStore } from '@app/platform/browserDocumentStore';
-import { BrowserDocumentSourceChangedError } from '@app/platform/browser/browserDocumentRepository';
-import { browserDocumentRefId } from '@app/platform/browser/browserDocumentRefs';
+import type {IDocumentMutationRevisionOptions, IPdfSaveAsOptions, TDocumentSaveResult} from '@contracts/electronApiDocuments';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import {BrowserDocumentSourceChangedError} from '@app/platform/browser/browserDocumentRepository';
+import {browserDocumentRefId} from '@app/platform/browser/browserDocumentRefs';
 import {
     downloadDestination,
     handleDestination,
@@ -21,8 +17,8 @@ import {
     runBrowserPublishLock,
     storeFileHandle,
 } from '@app/platform/browser/browserPublication';
-import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts';
-import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
+import {buildPdfSaveTypes} from '@app/platform/browser-api/browserFileAccepts';
+import {ensurePdfExtension} from '@app/platform/browser-api/browserFileName';
 import {
     BrowserFileWriteOutcomeError,
     downloadBrowserBytes,
@@ -32,24 +28,24 @@ import {
 } from '@app/platform/browser-api/browserFilePickerAdapter';
 import {BROWSER_QPDF_MAX_INPUT_BYTES} from '@contracts/browserQpdfEngine';
 import {BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES} from '@contracts/browserPageOpsLimits';
-import {
-    getPdfLosslessOptimizationSkipReason, PDF_LOSSLESS_OPTIMIZE_MIN_BYTES,
-} from '@pdf-core/pdfConformanceHelpers';
-import {
-    isQpdfSuccessExitCode, QPDF_LOSSLESS_REWRITE_TIMEOUT_MS, shouldKeepPdfOptimizationCandidate,
-} from '@pdf-core/qpdfCommands';
+import {getPdfLosslessOptimizationSkipReason, PDF_LOSSLESS_OPTIMIZE_MIN_BYTES} from '@pdf-core/pdfConformanceHelpers';
+import {isQpdfSuccessExitCode, QPDF_LOSSLESS_REWRITE_TIMEOUT_MS, shouldKeepPdfOptimizationCandidate} from '@pdf-core/qpdfCommands';
 import {runBrowserQpdfCommand} from '@app/platform/browser-api/browserQpdfEngineClient';
 import {repairBrowserPdfBytes} from '@app/platform/browser-api/browserWorkingCopyService';
 import {
-    analyzeBrowserPdfConformanceData, validateBrowserPdfData, validateBrowserPdfLoadability,
+    analyzeBrowserPdfConformanceData,
+    validateBrowserPdfData,
+    validateBrowserPdfLoadability,
 } from '@app/platform/browser-api/browserPdfValidation';
-import { getErrorMessage } from '@app/utils/error';
-import { BrowserLogger } from '@app/utils/browserLogger';
+import {getErrorMessage} from '@app/utils/error';
+import {BrowserLogger} from '@app/utils/browserLogger';
 import {BROWSER_RECENT_FILES_STORAGE_KEY} from '@app/utils/browserRuntimePersistence';
 import {copyScanCleanupDocumentPreferences} from '@app/utils/browserScanCleanupPreferences';
 
 function warnRecentWriteFailure(documentRef: TDocumentRef, error: unknown) {
-    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) return;
+    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) {
+        return;
+    }
     BrowserLogger.warn('browser-save', 'Could not write Recent Files after saving', {
         key: BROWSER_RECENT_FILES_STORAGE_KEY,
         documentRef,
@@ -58,13 +54,13 @@ function warnRecentWriteFailure(documentRef: TDocumentRef, error: unknown) {
 }
 
 type TBrowserSourceSaveOutcome =
-    | { canceled: true }
+    | {canceled: true}
     | {
-        canceled: false;
-        documentRevision: IDocumentRevisionInfo | undefined;
-        refreshError?: unknown;
-        pendingPublish?: IPendingPublish | undefined;
-    };
+          canceled: false;
+          documentRevision: IDocumentRevisionInfo | undefined;
+          refreshError?: unknown;
+          pendingPublish?: IPendingPublish | undefined;
+      };
 
 async function saveWorkingBytesToSourceWithOutcome(
     workingCopyPath: TDocumentRef,
@@ -82,7 +78,9 @@ async function saveWorkingBytesToSourceWithOutcome(
         await ensureFileHandleWritePermission(handle);
     } else if (destination === null || !entry.doc?.state().baseline) {
         const target = await pickSaveTarget({suggestedName: ensurePdfExtension(entry.saveName), pickerTypes: buildPdfSaveTypes()});
-        if (target.canceled) return {canceled: true};
+        if (target.canceled) {
+            return {canceled: true};
+        }
         picked = target.handle;
         if (picked) {
             await ensureFileHandleWritePermission(picked);
@@ -97,9 +95,15 @@ async function saveWorkingBytesToSourceWithOutcome(
         ...(commitLease === undefined ? {} : {commit: commitLease}),
         ...(saveAs ? {saveAs} : {}),
     });
-    if (result.status === 'conflict') throw new BrowserDocumentSourceChangedError(sourceRef ?? workingCopyPath);
-    if (result.status === 'needs-save-as') throw new Error('The document has no file to save to; use Save As.');
-    if (result.status !== 'saved') throw new Error('The document changed while it was being saved');
+    if (result.status === 'conflict') {
+        throw new BrowserDocumentSourceChangedError(sourceRef ?? workingCopyPath);
+    }
+    if (result.status === 'needs-save-as') {
+        throw new Error('The document has no file to save to; use Save As.');
+    }
+    if (result.status !== 'saved') {
+        throw new Error('The document changed while it was being saved');
+    }
 
     let refreshError: unknown = result.acknowledgmentError;
     const recordRefreshFailure = (step: string, error: unknown) => {
@@ -119,17 +123,23 @@ async function saveWorkingBytesToSourceWithOutcome(
     // A picked file takes the source's place, so Recent Files and the next open find it. Without one, the
     // stored copy Recent Files reopens takes the downloaded bytes.
     if (picked && sourceRef) {
-        await browserDocumentStore.replaceWithHandleBackedDocument(sourceRef, {fileSize: 0, saveHandle: picked, saveName: picked.name})
+        await browserDocumentStore
+            .replaceWithHandleBackedDocument(sourceRef, {fileSize: 0, saveHandle: picked, saveName: picked.name})
             .catch((error: unknown) => recordRefreshFailure('handle adoption', error));
     }
     const source = sourceRef ? await browserDocumentStore.ensureEntry(sourceRef).catch(() => null) : null;
     const publishedDestination = saveAs ?? entry.doc?.state().destination ?? null;
     if (source?.doc && !source.saveHandle && publishedDestination?.startsWith('download:')) {
-        await browserDocumentStore.replaceContent(source.ref, workingCopyPath)
+        await browserDocumentStore
+            .replaceContent(source.ref, workingCopyPath)
             .catch((error: unknown) => recordRefreshFailure('recent copy refresh', error));
     }
-    if (sourceRef) await browserDocumentStore.touchRecentFile(sourceRef).catch((error: unknown) => warnRecentWriteFailure(sourceRef, error));
-    if (source?.doc) browserDocumentStore.unload(source.ref);
+    if (sourceRef) {
+        await browserDocumentStore.touchRecentFile(sourceRef).catch((error: unknown) => warnRecentWriteFailure(sourceRef, error));
+    }
+    if (source?.doc) {
+        browserDocumentStore.unload(source.ref);
+    }
     let documentRevision: IDocumentRevisionInfo | undefined;
     try {
         documentRevision = await browserDocumentStore.getDocumentRevision(workingCopyPath);
@@ -156,7 +166,9 @@ export async function saveWorkingBytesToSource(
     commitLease?: string,
 ) {
     const outcome = await saveWorkingBytesToSourceWithOutcome(workingCopyPath, revisionOptions, commitLease);
-    if (outcome.canceled) return false;
+    if (outcome.canceled) {
+        return false;
+    }
     if (!outcome.documentRevision) {
         throw new SavePublicationError(outcome.refreshError ?? new Error('Document revision unavailable after save'), {
             externalWriteCommitted: true,
@@ -181,24 +193,28 @@ export async function saveWorkingBytesToSourceStructured(
             externalWriteCommitted: true,
             workingCopyRefreshed: outcome.refreshError === undefined,
             ...(outcome.documentRevision ? {documentRevision: outcome.documentRevision} : {}),
-            ...(outcome.refreshError === undefined ? {} : {
-                warning: {
-                    reason: 'refresh-failed' as const,
-                    message: getErrorMessage(outcome.refreshError),
-                },
-            }),
+            ...(outcome.refreshError === undefined
+                ? {}
+                : {
+                      warning: {
+                          reason: 'refresh-failed' as const,
+                          message: getErrorMessage(outcome.refreshError),
+                      },
+                  }),
         };
     } catch (error) {
-        const externalWriteCommitted = error instanceof SavePublicationError || error instanceof BrowserFileWriteOutcomeError
-            ? error.externalWriteCommitted
-            : false;
+        const externalWriteCommitted =
+            error instanceof SavePublicationError || error instanceof BrowserFileWriteOutcomeError ? error.externalWriteCommitted : false;
         return {
             ok: false,
             message: getErrorMessage(error),
             validation: null,
-            reason: error instanceof BrowserDocumentSourceChangedError
-                ? 'original-changed'
-                : externalWriteCommitted === true ? 'refresh-failed' : 'write-failed',
+            reason:
+                error instanceof BrowserDocumentSourceChangedError
+                    ? 'original-changed'
+                    : externalWriteCommitted === true
+                      ? 'refresh-failed'
+                      : 'write-failed',
             externalWriteCommitted,
         };
     }
@@ -215,7 +231,7 @@ export async function finishBrowserPdfCandidate(
     input: Uint8Array,
     options: {
         fileName: string;
-        signal?: AbortSignal
+        signal?: AbortSignal;
     },
 ): Promise<Uint8Array | null> {
     const {signal} = options;
@@ -236,7 +252,9 @@ export async function finishBrowserPdfCandidate(
         return shouldKeepPdfOptimizationCandidate(input.byteLength, candidate.byteLength, validation) ? candidate : null;
     } catch (error) {
         signal?.throwIfAborted();
-        if (isAbortError(error)) throw error;
+        if (isAbortError(error)) {
+            throw error;
+        }
         return null;
     }
 }
@@ -246,7 +264,9 @@ async function isEligibleForSaveAsOptimization(source: Uint8Array) {
     try {
         return getPdfLosslessOptimizationSkipReason(await analyzeBrowserPdfConformanceData(source)) === null;
     } catch (error) {
-        if (isAbortError(error)) throw error;
+        if (isAbortError(error)) {
+            throw error;
+        }
         return false;
     }
 }
@@ -289,11 +309,13 @@ export async function savePdfAsFromWorkingCopy(
     const revisionCheckOptions = appended ? {allowStagedBase: true} : {allowStagedBase: false};
     await browserDocumentStore.assertDocumentRevisionCurrent(workingCopyPath, expected.token, revisionCheckOptions);
     const saveTarget = await browserDocumentStore.getSaveTarget(workingCopyPath);
-    const previousSourceRef = publication?.sourceRef ?? await browserDocumentStore.getSourceRef(workingCopyPath);
-    const saveResult = publication?.target ?? await pickSaveTarget({
-        suggestedName: ensurePdfExtension(saveTarget.saveName),
-        pickerTypes: buildPdfSaveTypes(),
-    });
+    const previousSourceRef = publication?.sourceRef ?? (await browserDocumentStore.getSourceRef(workingCopyPath));
+    const saveResult =
+        publication?.target ??
+        (await pickSaveTarget({
+            suggestedName: ensurePdfExtension(saveTarget.saveName),
+            pickerTypes: buildPdfSaveTypes(),
+        }));
     if (saveResult.canceled) {
         return null;
     }
@@ -301,11 +323,12 @@ export async function savePdfAsFromWorkingCopy(
         await ensureFileHandleWritePermission(saveResult.handle, signal);
     }
     signal?.throwIfAborted();
-    const staged = stagedOutput && !appended ? await readBrowserStoreStagedArtifact(
-        browserDocumentStore,
-        stagedOutput,
-        {maxBytes: publication ? BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES : BROWSER_QPDF_MAX_INPUT_BYTES},
-    ) : null;
+    const staged =
+        stagedOutput && !appended
+            ? await readBrowserStoreStagedArtifact(browserDocumentStore, stagedOutput, {
+                  maxBytes: publication ? BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES : BROWSER_QPDF_MAX_INPUT_BYTES,
+              })
+            : null;
     const appendedContent = appended ? await browserDocumentStore.appendedContent(workingCopyPath, appended.leaseId) : null;
     signal?.throwIfAborted();
     const fileName = saveResult.handle?.name ?? ensurePdfExtension(saveResult.fileName);
@@ -314,10 +337,8 @@ export async function savePdfAsFromWorkingCopy(
     // `instance` and refusing staged bases (`allowStagedBase: false`) ensures neither release+reopen nor a
     // concurrent foreign `stageAppend` can pass the pre-publish check, while an edit+undo back to the same
     // immutable store revision still publishes the already-checked bytes.
-    const workingCopyRevision = staged || appendedContent
-        ? null
-        : await browserDocumentStore.readableRevision(workingCopyPath, expected);
-    const input = staged ? staged.bytes : appendedContent ?? workingCopyRevision!.blob;
+    const workingCopyRevision = staged || appendedContent ? null : await browserDocumentStore.readableRevision(workingCopyPath, expected);
+    const input = staged ? staged.bytes : (appendedContent ?? workingCopyRevision!.blob);
     const publishRevisionToken = workingCopyRevision ? workingCopyRevision.token : expected.token;
     const publishRevisionCheckOptions = workingCopyRevision
         ? {allowStagedBase: false, expectedInstance: workingCopyRevision.instance}
@@ -330,22 +351,25 @@ export async function savePdfAsFromWorkingCopy(
         // A larger native edit was checked by the engine that appended it; a larger working copy is checked by PDF.js.
         let validation = source
             ? await validateBrowserPdfData(source, {fileName: saveTarget.saveName})
-            : oversized && !appendedContent ? await validateBrowserPdfLoadability(oversized) : null;
+            : oversized && !appendedContent
+              ? await validateBrowserPdfLoadability(oversized)
+              : null;
         // Damage the file already had is repaired once, by the qpdf rewrite a page edit's recovery uses.
-        const repaired = source && validation?.isValid === false
-            ? await repairBrowserPdfBytes(source).catch(() => null)
-            : null;
+        const repaired = source && validation?.isValid === false ? await repairBrowserPdfBytes(source).catch(() => null) : null;
         if (repaired) {
             source = repaired;
             published = repaired;
             validation = await validateBrowserPdfData(repaired, {fileName: saveTarget.saveName});
         }
-        if (validation && !validation.isValid) throw new Error('Working copy is not a valid PDF');
-        const candidate = source
-            && (saveOptions?.optimizeLossless === true || size >= PDF_LOSSLESS_OPTIMIZE_MIN_BYTES)
-            && await isEligibleForSaveAsOptimization(source)
-            ? await finishBrowserPdfCandidate(source, {fileName})
-            : null;
+        if (validation && !validation.isValid) {
+            throw new Error('Working copy is not a valid PDF');
+        }
+        const candidate =
+            source &&
+            (saveOptions?.optimizeLossless === true || size >= PDF_LOSSLESS_OPTIMIZE_MIN_BYTES) &&
+            (await isEligibleForSaveAsOptimization(source))
+                ? await finishBrowserPdfCandidate(source, {fileName})
+                : null;
         // Unchanged bytes keep the streaming path, even after an admitted check.
         published = candidate ?? published;
     }

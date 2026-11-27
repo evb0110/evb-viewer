@@ -1,13 +1,6 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    expectTypeOf,
-    it,
-    vi,
-} from 'vitest';
-import type { IZoomStateAccess, TPdfZoomState } from '@contracts/shared';
-import { ZOOM } from '@app/constants/pdfLayout';
+import {afterEach, describe, expect, expectTypeOf, it, vi} from 'vitest';
+import type {IZoomStateAccess, TPdfZoomState} from '@contracts/shared';
+import {ZOOM} from '@app/constants/pdfLayout';
 import {
     consumeDocumentWheelZoomInteraction,
     createDocumentWheelZoomHandler,
@@ -101,15 +94,13 @@ describe('document wheel interaction policy', () => {
             key: 'Escape',
             repeat: false,
         },
-    ])('classifies $key repeat=$repeat as a wheel-session boundary: $expected', ({
-        expected,
-        key,
-        repeat,
-    }) => {
-        expect(isDocumentWheelZoomSessionBoundaryKey({
-            key,
-            repeat,
-        })).toBe(expected);
+    ])('classifies $key repeat=$repeat as a wheel-session boundary: $expected', ({expected, key, repeat}) => {
+        expect(
+            isDocumentWheelZoomSessionBoundaryKey({
+                key,
+                repeat,
+            }),
+        ).toBe(expected);
     });
 
     it('allows only the interaction-active viewer to reset a wheel session', () => {
@@ -181,39 +172,41 @@ describe('document wheel interaction policy', () => {
             isMac: true,
             label: 'macOS Command-Control-wheel',
         },
-    ])('resolves $label as $expected', ({
-        event,
-        expected,
-        isMac,
-    }) => {
+    ])('resolves $label as $expected', ({event, expected, isMac}) => {
         expect(resolveDocumentWheelIntent(event, isMac)).toBe(expected);
     });
 
     it('normalizes line, page, and depth-axis deltas at the shared viewport boundary', () => {
-        expect(resolveDocumentWheelInteraction(
-            createWheelEvent({
-                deltaMode: 1,
-                deltaY: 3,
-            }),
-            viewport,
-            false,
-        ).deltaPx).toBe(48);
-        expect(resolveDocumentWheelInteraction(
-            createWheelEvent({
-                deltaMode: 2,
-                deltaY: 2,
-            }),
-            viewport,
-            false,
-        ).deltaPx).toBe(1_600);
-        expect(resolveDocumentWheelInteraction(
-            createWheelEvent({
-                deltaY: 0,
-                deltaZ: -4,
-            }),
-            viewport,
-            false,
-        ).deltaPx).toBe(-4);
+        expect(
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaMode: 1,
+                    deltaY: 3,
+                }),
+                viewport,
+                false,
+            ).deltaPx,
+        ).toBe(48);
+        expect(
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaMode: 2,
+                    deltaY: 2,
+                }),
+                viewport,
+                false,
+            ).deltaPx,
+        ).toBe(1_600);
+        expect(
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: 0,
+                    deltaZ: -4,
+                }),
+                viewport,
+                false,
+            ).deltaPx,
+        ).toBe(-4);
     });
 
     it('uses one cumulative scaling and clamping policy for every renderer', () => {
@@ -251,15 +244,10 @@ describe('document wheel interaction policy', () => {
         }
         expect(first.nextEffectiveZoom).toBeGreaterThan(0.4);
 
-        const zoomOut = resolveDocumentWheelZoomTarget(
-            0.4,
-            first.cumulativeDelta,
-            2,
-            {
-                minimumZoom: 0.4,
-                maximumZoom: ZOOM.MAX,
-            },
-        );
+        const zoomOut = resolveDocumentWheelZoomTarget(0.4, first.cumulativeDelta, 2, {
+            minimumZoom: 0.4,
+            maximumZoom: ZOOM.MAX,
+        });
         expect(zoomOut.valid).toBe(true);
         if (zoomOut.valid) {
             expect(zoomOut.nextEffectiveZoom).toBe(0.4);
@@ -274,19 +262,23 @@ describe('document wheel interaction policy', () => {
         });
         const zoomInteraction = resolveDocumentWheelInteraction(zoomEvent, viewport, true);
 
-        expect(consumeDocumentWheelZoomInteraction(zoomInteraction, {
-            effectiveZoom: 1,
-            emitZoom,
-        })).toBe(true);
+        expect(
+            consumeDocumentWheelZoomInteraction(zoomInteraction, {
+                effectiveZoom: 1,
+                emitZoom,
+            }),
+        ).toBe(true);
         expect(zoomEvent.preventDefault).toHaveBeenCalledOnce();
         expect(emitZoom).toHaveBeenCalledWith(expect.any(Number));
 
         const scrollEvent = createWheelEvent({ctrlKey: true});
         const scrollInteraction = resolveDocumentWheelInteraction(scrollEvent, viewport, true);
-        expect(consumeDocumentWheelZoomInteraction(scrollInteraction, {
-            effectiveZoom: 1,
-            emitZoom,
-        })).toBe(false);
+        expect(
+            consumeDocumentWheelZoomInteraction(scrollInteraction, {
+                effectiveZoom: 1,
+                emitZoom,
+            }),
+        ).toBe(false);
         expect(scrollEvent.preventDefault).not.toHaveBeenCalled();
     });
 
@@ -298,31 +290,32 @@ describe('document wheel interaction policy', () => {
         });
         const zoomInteraction = resolveDocumentWheelInteraction(zoomEvent, viewport, true);
 
-        expect(consumeDocumentWheelZoomInteraction(zoomInteraction, {
-            effectiveZoom: 1,
-            emitZoom: () => calls.push('zoom'),
-        }, {beforeZoom: () => calls.push('anchor')})).toBe(true);
-        expect(calls).toEqual([
-            'anchor',
-            'zoom',
-        ]);
+        expect(
+            consumeDocumentWheelZoomInteraction(
+                zoomInteraction,
+                {
+                    effectiveZoom: 1,
+                    emitZoom: () => calls.push('zoom'),
+                },
+                {beforeZoom: () => calls.push('anchor')},
+            ),
+        ).toBe(true);
+        expect(calls).toEqual(['anchor', 'zoom']);
     });
 
     it('shares the handler packet clock with the pointer-anchor callback', () => {
-        const now = vi.spyOn(performance, 'now')
-            .mockReturnValueOnce(179.999)
-            .mockReturnValueOnce(180.001);
+        const now = vi.spyOn(performance, 'now').mockReturnValueOnce(179.999).mockReturnValueOnce(180.001);
         const beforeZoom = vi.fn();
         const {access} = createZoomOwner();
-        const handler = createDocumentWheelZoomHandler(
-            {value: 1},
-            () => access,
-            {beforeZoom},
+        const handler = createDocumentWheelZoomHandler({value: 1}, () => access, {beforeZoom});
+        const interaction = resolveDocumentWheelInteraction(
+            createWheelEvent({
+                deltaY: -120,
+                metaKey: true,
+            }),
+            viewport,
+            true,
         );
-        const interaction = resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -120,
-            metaKey: true,
-        }), viewport, true);
 
         handler(interaction);
 
@@ -331,82 +324,86 @@ describe('document wheel interaction policy', () => {
     });
 
     it('starts a new session at the exact gesture grace boundary', () => {
-        vi.spyOn(performance, 'now')
-            .mockReturnValueOnce(0)
-            .mockReturnValueOnce(179)
-            .mockReturnValueOnce(359);
+        vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValueOnce(179).mockReturnValueOnce(359);
         const beforeZoom = vi.fn();
         const {access} = createZoomOwner();
-        const handler = createDocumentWheelZoomHandler(
-            {value: 1},
-            () => access,
-            {beforeZoom},
-        );
-        const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -1,
-            metaKey: true,
-        }), viewport, true);
+        const handler = createDocumentWheelZoomHandler({value: 1}, () => access, {beforeZoom});
+        const interaction = () =>
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: -1,
+                    metaKey: true,
+                }),
+                viewport,
+                true,
+            );
 
         handler(interaction());
         handler(interaction());
         handler(interaction());
 
-        expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
-            true,
-            false,
-            true,
-        ]);
+        expect(beforeZoom.mock.calls.map((call) => call[2])).toEqual([true, false, true]);
     });
 
     it('accumulates rapid packets while rendering lags and continues from the requested scale after a pause', () => {
-        vi.spyOn(performance, 'now')
-            .mockReturnValueOnce(100)
-            .mockReturnValueOnce(150)
-            .mockReturnValueOnce(400);
+        vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(150).mockReturnValueOnce(400);
         const {access, set: emit} = createZoomOwner();
-        const handler = createDocumentWheelZoomHandler(
-            {value: 1},
-            () => access,
+        const handler = createDocumentWheelZoomHandler({value: 1}, () => access);
+        handler(
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: -120,
+                    metaKey: true,
+                    timeStamp: 100,
+                }),
+                viewport,
+                true,
+            ),
         );
-        handler(resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -120,
-            metaKey: true,
-            timeStamp: 100,
-        }), viewport, true));
-        handler(resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -120,
-            metaKey: true,
-            timeStamp: 150,
-        }), viewport, true));
-        handler(resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -120,
-            metaKey: true,
-            timeStamp: 400,
-        }), viewport, true));
+        handler(
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: -120,
+                    metaKey: true,
+                    timeStamp: 150,
+                }),
+                viewport,
+                true,
+            ),
+        );
+        handler(
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: -120,
+                    metaKey: true,
+                    timeStamp: 400,
+                }),
+                viewport,
+                true,
+            ),
+        );
 
-        const emittedZooms = emit.mock.calls.map(call => call[0].kind === 'custom' ? call[0].scale : NaN);
+        const emittedZooms = emit.mock.calls.map((call) => (call[0].kind === 'custom' ? call[0].scale : NaN));
         expect(emittedZooms[1]).toBeGreaterThan(emittedZooms[0]!);
         const resumed = resolveDocumentWheelZoomTarget(emittedZooms[1]!, 0, -120);
         expect(emittedZooms[2]).toBe(resumed.valid ? resumed.nextZoom : null);
     });
 
     it('continues after the renderer shows a delayed intermediate wheel scale', () => {
-        vi.spyOn(performance, 'now')
-            .mockReturnValueOnce(100)
-            .mockReturnValueOnce(120)
-            .mockReturnValueOnce(140);
+        vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(120).mockReturnValueOnce(140);
         const effectiveZoom = {value: 1};
         const {access, set: emit} = createZoomOwner();
         const beforeZoom = vi.fn();
-        const handler = createDocumentWheelZoomHandler(
-            effectiveZoom,
-            () => access,
-            {beforeZoom},
-        );
-        const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -120,
-            metaKey: true,
-        }), viewport, true);
+        const handler = createDocumentWheelZoomHandler(effectiveZoom, () => access, {beforeZoom});
+        const interaction = () =>
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: -120,
+                    metaKey: true,
+                }),
+                viewport,
+                true,
+            );
 
         handler(interaction());
         handler(interaction());
@@ -416,30 +413,25 @@ describe('document wheel interaction policy', () => {
         const expected = resolveDocumentWheelZoomTarget(1, -240, -120);
         expect(expected.valid).toBe(true);
         expect(readScale(emit.mock.calls[2]?.[0])).toBe(expected.valid ? expected.nextZoom : null);
-        expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
-            true,
-            false,
-            false,
-        ]);
+        expect(beforeZoom.mock.calls.map((call) => call[2])).toEqual([true, false, false]);
     });
 
     it('accumulates sub-threshold deltas until they produce a visible zoom', () => {
-        vi.spyOn(performance, 'now')
-            .mockReturnValueOnce(0)
-            .mockReturnValueOnce(10)
-            .mockReturnValueOnce(20);
+        vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValueOnce(10).mockReturnValueOnce(20);
         const {access, set: emit} = createZoomOwner(ZOOM.MIN);
         const beforeZoom = vi.fn();
-        const handler = createDocumentWheelZoomHandler(
-            {value: ZOOM.MIN},
-            () => access,
-            {beforeZoom},
-        );
+        const handler = createDocumentWheelZoomHandler({value: ZOOM.MIN}, () => access, {beforeZoom});
         for (let index = 0; index < 3; index += 1) {
-            handler(resolveDocumentWheelInteraction(createWheelEvent({
-                deltaY: -1,
-                metaKey: true,
-            }), viewport, true));
+            handler(
+                resolveDocumentWheelInteraction(
+                    createWheelEvent({
+                        deltaY: -1,
+                        metaKey: true,
+                    }),
+                    viewport,
+                    true,
+                ),
+            );
         }
 
         expect(emit).toHaveBeenCalledOnce();
@@ -448,21 +440,20 @@ describe('document wheel interaction policy', () => {
     });
 
     it('restarts from an external zoom change during the gesture grace window', () => {
-        vi.spyOn(performance, 'now')
-            .mockReturnValueOnce(100)
-            .mockReturnValueOnce(150);
+        vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(150);
         const effectiveZoom = {value: 1};
         const {access, requested, set: emit} = createZoomOwner();
         const beforeZoom = vi.fn();
-        const handler = createDocumentWheelZoomHandler(
-            effectiveZoom,
-            () => access,
-            {beforeZoom},
-        );
-        const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -120,
-            metaKey: true,
-        }), viewport, true);
+        const handler = createDocumentWheelZoomHandler(effectiveZoom, () => access, {beforeZoom});
+        const interaction = () =>
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: -120,
+                    metaKey: true,
+                }),
+                viewport,
+                true,
+            );
         handler(interaction());
         requested.value = {kind: 'custom', scale: 2};
         handler(interaction());
@@ -470,62 +461,51 @@ describe('document wheel interaction policy', () => {
         const expected = resolveDocumentWheelZoomTarget(2, 0, -120);
         expect(expected.valid).toBe(true);
         expect(readScale(emit.mock.calls[1]?.[0])).toBe(expected.valid ? expected.nextZoom : null);
-        expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
-            true,
-            true,
-        ]);
+        expect(beforeZoom.mock.calls.map((call) => call[2])).toEqual([true, true]);
     });
 
     it('restarts a same-scale gesture after an external zoom-mode boundary', () => {
-        vi.spyOn(performance, 'now')
-            .mockReturnValueOnce(100)
-            .mockReturnValueOnce(150);
+        vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(150);
         const {access, requested, set: emit} = createZoomOwner();
         const beforeZoom = vi.fn();
-        const handler = createDocumentWheelZoomHandler(
-            {value: 1},
-            () => access,
-            {beforeZoom},
-        );
-        const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -120,
-            metaKey: true,
-        }), viewport, true);
+        const handler = createDocumentWheelZoomHandler({value: 1}, () => access, {beforeZoom});
+        const interaction = () =>
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: -120,
+                    metaKey: true,
+                }),
+                viewport,
+                true,
+            );
 
         handler(interaction());
         requested.value = {kind: 'fit', axis: 'width'};
         handler(interaction());
 
-        const emittedZooms = emit.mock.calls.map(([state]) => state.kind === 'custom' ? state.scale : NaN);
-        expect(emittedZooms).toEqual([
-            emittedZooms[0],
-            emittedZooms[0],
-        ]);
-        expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
-            true,
-            true,
-        ]);
+        const emittedZooms = emit.mock.calls.map(([state]) => (state.kind === 'custom' ? state.scale : NaN));
+        expect(emittedZooms).toEqual([emittedZooms[0], emittedZooms[0]]);
+        expect(beforeZoom.mock.calls.map((call) => call[2])).toEqual([true, true]);
     });
 
     it('restarts a same-scale gesture when its document session changes', () => {
-        vi.spyOn(performance, 'now')
-            .mockReturnValueOnce(100)
-            .mockReturnValueOnce(150);
+        vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(150);
         const sessionKey = {value: 'first'};
         const {access, requested, set: emit} = createZoomOwner();
         const beforeZoom = vi.fn();
-        const handler = createDocumentWheelZoomHandler(
-            {value: 1},
-            () => access,
-            {
-                beforeZoom,
-                readSessionKey: () => sessionKey.value,
-            },
-        );
-        const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -120,
-            metaKey: true,
-        }), viewport, true);
+        const handler = createDocumentWheelZoomHandler({value: 1}, () => access, {
+            beforeZoom,
+            readSessionKey: () => sessionKey.value,
+        });
+        const interaction = () =>
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: -120,
+                    metaKey: true,
+                }),
+                viewport,
+                true,
+            );
 
         handler(interaction());
         sessionKey.value = 'second';
@@ -533,27 +513,23 @@ describe('document wheel interaction policy', () => {
         handler(interaction());
 
         expect(readScale(emit.mock.calls[1]?.[0])).toBe(readScale(emit.mock.calls[0]?.[0]));
-        expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
-            true,
-            true,
-        ]);
+        expect(beforeZoom.mock.calls.map((call) => call[2])).toEqual([true, true]);
     });
 
     it('exposes an interaction-boundary reset for mousedown and external controls', () => {
-        vi.spyOn(performance, 'now')
-            .mockReturnValueOnce(100)
-            .mockReturnValueOnce(150);
+        vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(150);
         const {access, set: emit} = createZoomOwner();
         const beforeZoom = vi.fn();
-        const handler = createDocumentWheelZoomHandler(
-            {value: 1},
-            () => access,
-            {beforeZoom},
-        );
-        const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -120,
-            metaKey: true,
-        }), viewport, true);
+        const handler = createDocumentWheelZoomHandler({value: 1}, () => access, {beforeZoom});
+        const interaction = () =>
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: -120,
+                    metaKey: true,
+                }),
+                viewport,
+                true,
+            );
 
         handler(interaction());
         handler.reset();
@@ -561,28 +537,23 @@ describe('document wheel interaction policy', () => {
         handler(interaction());
 
         expect(readScale(emit.mock.calls[1]?.[0])).toBe(next.valid ? next.nextZoom : null);
-        expect(beforeZoom.mock.calls.map(call => call[2])).toEqual([
-            true,
-            true,
-        ]);
+        expect(beforeZoom.mock.calls.map((call) => call[2])).toEqual([true, true]);
     });
 
     it('restarts when an external command returns to an earlier zoom', () => {
-        vi.spyOn(performance, 'now')
-            .mockReturnValueOnce(100)
-            .mockReturnValueOnce(120)
-            .mockReturnValueOnce(140)
-            .mockReturnValueOnce(160);
+        vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(120).mockReturnValueOnce(140).mockReturnValueOnce(160);
         const effectiveZoom = {value: 1};
         const {access, requested, set: emit} = createZoomOwner();
-        const handler = createDocumentWheelZoomHandler(
-            effectiveZoom,
-            () => access,
-        );
-        const interaction = () => resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -120,
-            metaKey: true,
-        }), viewport, true);
+        const handler = createDocumentWheelZoomHandler(effectiveZoom, () => access);
+        const interaction = () =>
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: -120,
+                    metaKey: true,
+                }),
+                viewport,
+                true,
+            );
 
         handler(interaction());
         effectiveZoom.value = readScale(emit.mock.calls[0]?.[0]);
@@ -607,15 +578,16 @@ describe('document wheel interaction policy', () => {
         const effectiveZoom = {value: 1};
         const {access, requested, set: emit} = createZoomOwner();
         const beforeZoom = vi.fn();
-        const handler = createDocumentWheelZoomHandler(
-            effectiveZoom,
-            () => access,
-            {beforeZoom},
-        );
-        const interaction = (deltaY: number) => resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY,
-            metaKey: true,
-        }), viewport, true);
+        const handler = createDocumentWheelZoomHandler(effectiveZoom, () => access, {beforeZoom});
+        const interaction = (deltaY: number) =>
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY,
+                    metaKey: true,
+                }),
+                viewport,
+                true,
+            );
 
         handler(interaction(-120));
         handler(interaction(-120));
@@ -634,27 +606,33 @@ describe('document wheel interaction policy', () => {
     });
 
     it('resets its session and notifies the lifecycle on non-zoom input', () => {
-        vi.spyOn(performance, 'now')
-            .mockReturnValueOnce(100)
-            .mockReturnValueOnce(150);
+        vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(150);
         const {access, requested, set: emit} = createZoomOwner();
         const onNonZoom = vi.fn();
         const effectiveZoom = {value: 1};
-        const handler = createDocumentWheelZoomHandler(
-            effectiveZoom,
-            () => access,
-            {onNonZoom},
+        const handler = createDocumentWheelZoomHandler(effectiveZoom, () => access, {onNonZoom});
+        handler(
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: -120,
+                    metaKey: true,
+                }),
+                viewport,
+                true,
+            ),
         );
-        handler(resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -120,
-            metaKey: true,
-        }), viewport, true));
         expect(handler(resolveDocumentWheelInteraction(createWheelEvent(), viewport, true))).toBe(false);
         requested.value = {kind: 'custom', scale: 2};
-        handler(resolveDocumentWheelInteraction(createWheelEvent({
-            deltaY: -120,
-            metaKey: true,
-        }), viewport, true));
+        handler(
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    deltaY: -120,
+                    metaKey: true,
+                }),
+                viewport,
+                true,
+            ),
+        );
 
         const expected = resolveDocumentWheelZoomTarget(2, 0, -120);
         expect(onNonZoom).toHaveBeenCalledOnce();
@@ -669,14 +647,16 @@ describe('document wheel interaction policy', () => {
             deltaY: -120,
         });
 
-        expect(consumeDocumentWheelZoomInteraction(
-            resolveDocumentWheelInteraction(zoomEvent, viewport, true),
-            {
-                effectiveZoom: ZOOM.MAX,
-                emitZoom,
-            },
-            {beforeZoom},
-        )).toBe(true);
+        expect(
+            consumeDocumentWheelZoomInteraction(
+                resolveDocumentWheelInteraction(zoomEvent, viewport, true),
+                {
+                    effectiveZoom: ZOOM.MAX,
+                    emitZoom,
+                },
+                {beforeZoom},
+            ),
+        ).toBe(true);
         expect(beforeZoom).not.toHaveBeenCalled();
         expect(emitZoom).not.toHaveBeenCalled();
     });
@@ -690,14 +670,16 @@ describe('document wheel interaction policy', () => {
             deltaY: -1,
         });
 
-        expect(consumeDocumentWheelZoomInteraction(
-            resolveDocumentWheelInteraction(zoomEvent, viewport, true),
-            {
-                effectiveZoom,
-                emitZoom,
-            },
-            {beforeZoom},
-        )).toBe(true);
+        expect(
+            consumeDocumentWheelZoomInteraction(
+                resolveDocumentWheelInteraction(zoomEvent, viewport, true),
+                {
+                    effectiveZoom,
+                    emitZoom,
+                },
+                {beforeZoom},
+            ),
+        ).toBe(true);
         expect(beforeZoom).not.toHaveBeenCalled();
         expect(emitZoom).not.toHaveBeenCalled();
     });
@@ -731,10 +713,14 @@ describe('document wheel interaction policy', () => {
         const emitZoom = vi.fn();
         const belowDeadzoneDelta = -Math.log(1.0005) / 0.0016;
         consumeDocumentWheelZoomInteraction(
-            resolveDocumentWheelInteraction(createWheelEvent({
-                metaKey: true,
-                deltaY: belowDeadzoneDelta,
-            }), viewport, true),
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    metaKey: true,
+                    deltaY: belowDeadzoneDelta,
+                }),
+                viewport,
+                true,
+            ),
             {
                 effectiveZoom: 1,
                 emitZoom,
@@ -744,10 +730,14 @@ describe('document wheel interaction policy', () => {
 
         const atDeadzoneDelta = -Math.log(1.0011) / 0.0016;
         consumeDocumentWheelZoomInteraction(
-            resolveDocumentWheelInteraction(createWheelEvent({
-                metaKey: true,
-                deltaY: atDeadzoneDelta,
-            }), viewport, true),
+            resolveDocumentWheelInteraction(
+                createWheelEvent({
+                    metaKey: true,
+                    deltaY: atDeadzoneDelta,
+                }),
+                viewport,
+                true,
+            ),
             {
                 effectiveZoom: 1,
                 emitZoom,

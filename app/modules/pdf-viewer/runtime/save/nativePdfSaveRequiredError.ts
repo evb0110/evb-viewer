@@ -1,4 +1,4 @@
-import type { IPdfViewerNativeRequiredFailure } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
+import type {IPdfViewerNativeRequiredFailure} from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 
 export class NativePdfSaveRequiredError extends Error {
     readonly code = 'native-save-required' as const;

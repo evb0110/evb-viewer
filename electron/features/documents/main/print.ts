@@ -1,34 +1,17 @@
-import type { WebContentsPrintOptions } from 'electron';
-import { uniq } from 'es-toolkit/array';
-import {
-    readdir,
-    stat,
-    unlink,
-    writeFile,
-} from 'fs/promises';
-import {
-    basename,
-    extname,
-    join,
-} from 'path';
-import { randomUUID } from 'crypto';
-import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
-import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
-import { extractPages } from '@electron/features/page-ops/public';
-import type {
-    IPdfDataPrintOptions,
-    IPdfPathPrintOptions,
-} from '@contracts/electronApiDocuments';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import { getAppTempDir } from '@electron/utils/appTempDir';
-import type {
-    IDocumentsSenderIdContext,
-    IDocumentsWindowContext,
-} from '@electron/features/documents/documentsContexts';
-import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
-import {
-    ensureWorkingCopyMaterialized,
-} from '@electron/file-access/documentStore';
+import type {WebContentsPrintOptions} from 'electron';
+import {uniq} from 'es-toolkit/array';
+import {readdir, stat, unlink, writeFile} from 'fs/promises';
+import {basename, extname, join} from 'path';
+import {randomUUID} from 'crypto';
+import {cancelNativeCommandGroup} from '@electron/native-tools/runNativeCommand';
+import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {extractPages} from '@electron/features/page-ops/public';
+import type {IPdfDataPrintOptions, IPdfPathPrintOptions} from '@contracts/electronApiDocuments';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import type {IDocumentsSenderIdContext, IDocumentsWindowContext} from '@electron/features/documents/documentsContexts';
+import {resolveExistingReadablePdfPath} from '@electron/features/documents/main/documentFilePathResolution';
+import {ensureWorkingCopyMaterialized} from '@electron/file-access/documentStore';
 import {
     assertPdfPathWithinSizeLimit,
     cleanupPrintTempPath,
@@ -38,7 +21,7 @@ import {
     validatePdfBytesForHandoff,
     type IPrintPdfResult,
 } from '@electron/utils/printHandoff';
-import { buildPrintablePdfPath } from '@electron/features/documents/main/buildPrintablePdfPath';
+import {buildPrintablePdfPath} from '@electron/features/documents/main/buildPrintablePdfPath';
 
 const DEFAULT_APP_TEMP_PREFIX = 'open-in-default-app-';
 const PRINT_DATA_TEMP_PREFIX = 'print-data-';
@@ -49,7 +32,6 @@ const DEFAULT_APP_TEMP_CLEANUP_DELAY_MS = 5 * 60 * 1000;
 const DEFAULT_APP_TEMP_MAX_AGE_MS = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS;
 const scheduledDefaultAppTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
 const activePdfPrintAborters = new Map<string, (reason: string) => void>();
-
 
 function normalizePrintableFileName(fileName?: string) {
     const trimmed = typeof fileName === 'string' ? fileName.trim() : '';
@@ -77,7 +59,6 @@ function buildOpaquePrintTempPath(prefix: string, operationId: string) {
     return join(getAppTempDir(), tempFileName);
 }
 
-
 async function cleanupDefaultAppTempPath(path: string) {
     const existingTimer = scheduledDefaultAppTempCleanup.get(path);
     if (existingTimer) {
@@ -93,11 +74,13 @@ function shouldSweepManagedTempPdf(entry: string) {
         return false;
     }
 
-    return entry.startsWith(DEFAULT_APP_TEMP_PREFIX)
-        || entry.startsWith(PRINT_DATA_TEMP_PREFIX)
-        || entry.startsWith(PRINT_DJVU_TEMP_PREFIX)
-        || entry.startsWith(PRINT_PAGE_TEMP_PREFIX)
-        || entry.startsWith(PRINT_LAYOUT_TEMP_PREFIX);
+    return (
+        entry.startsWith(DEFAULT_APP_TEMP_PREFIX) ||
+        entry.startsWith(PRINT_DATA_TEMP_PREFIX) ||
+        entry.startsWith(PRINT_DJVU_TEMP_PREFIX) ||
+        entry.startsWith(PRINT_PAGE_TEMP_PREFIX) ||
+        entry.startsWith(PRINT_LAYOUT_TEMP_PREFIX)
+    );
 }
 
 export async function sweepStaleDefaultAppTempPdfs(maxAgeMs = DEFAULT_APP_TEMP_MAX_AGE_MS) {
@@ -111,27 +94,28 @@ export async function sweepStaleDefaultAppTempPdfs(maxAgeMs = DEFAULT_APP_TEMP_M
         return;
     }
 
-    await Promise.all(entries.map(async (entry) => {
-        if (!shouldSweepManagedTempPdf(entry)) {
-            return;
-        }
-
-        const path = join(tempDir, entry);
-        try {
-            const fileStat = await stat(path);
-            const lastTouchedAt = Math.max(fileStat.mtimeMs, fileStat.ctimeMs);
-            if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs) {
+    await Promise.all(
+        entries.map(async (entry) => {
+            if (!shouldSweepManagedTempPdf(entry)) {
                 return;
             }
-        } catch {
-            return;
-        }
 
-        await cleanupDefaultAppTempPath(path);
-        await cleanupPrintTempPath(path);
-    }));
+            const path = join(tempDir, entry);
+            try {
+                const fileStat = await stat(path);
+                const lastTouchedAt = Math.max(fileStat.mtimeMs, fileStat.ctimeMs);
+                if (!Number.isFinite(lastTouchedAt) || now - lastTouchedAt < maxAgeMs) {
+                    return;
+                }
+            } catch {
+                return;
+            }
+
+            await cleanupDefaultAppTempPath(path);
+            await cleanupPrintTempPath(path);
+        }),
+    );
 }
-
 
 async function resolveReadablePdfPathForSender(filePath: string, senderId?: number, signal?: AbortSignal) {
     const resolvedPath = await resolveExistingReadablePdfPath(filePath, senderId);
@@ -149,21 +133,19 @@ function normalizePrintPageNumbers(pageNumbers?: number[]) {
     }
 
     const normalized = uniq(pageNumbers);
-    if (normalized.some(pageNumber => !Number.isInteger(pageNumber) || pageNumber < 1)) {
+    if (normalized.some((pageNumber) => !Number.isInteger(pageNumber) || pageNumber < 1)) {
         throw new Error('Invalid print page numbers');
     }
 
-    return normalized
-        .sort((left, right) => left - right)
-        .map(pageNumber => requirePageNumber(pageNumber));
+    return normalized.sort((left, right) => left - right).map((pageNumber) => requirePageNumber(pageNumber));
 }
 
 function normalizePdfPathPrintOptions(options?: IPdfPathPrintOptions): IPdfPathPrintOptions {
     const viewMode = options?.viewMode ?? 'single';
     const orientation = options?.orientation ?? 'auto';
     if (
-        options?.requestId !== undefined
-        && (typeof options.requestId !== 'string' || options.requestId.length === 0 || options.requestId.length > 128)
+        options?.requestId !== undefined &&
+        (typeof options.requestId !== 'string' || options.requestId.length === 0 || options.requestId.length > 128)
     ) {
         throw new Error('Invalid print request ID');
     }
@@ -176,34 +158,30 @@ function normalizePdfPathPrintOptions(options?: IPdfPathPrintOptions): IPdfPathP
     };
 }
 
-function buildNativePathPrintOptions(
-    stagedPageCount?: number,
-): WebContentsPrintOptions {
+function buildNativePathPrintOptions(stagedPageCount?: number): WebContentsPrintOptions {
     return stagedPageCount === undefined
         ? {}
-        : {pageRanges: [{
-            from: 0,
-            to: stagedPageCount - 1,
-        }]};
+        : {
+              pageRanges: [
+                  {
+                      from: 0,
+                      to: stagedPageCount - 1,
+                  },
+              ],
+          };
 }
 
 function getPdfPrintAborterKey(senderId: number | undefined, requestId: string) {
     return `${senderId ?? 'unscoped'}\0${requestId}`;
 }
 
-function registerPdfPrintOperation(
-    context: IDocumentsSenderIdContext,
-    requestId: string | undefined,
-    cancel?: (reason: string) => void,
-) {
+function registerPdfPrintOperation(context: IDocumentsSenderIdContext, requestId: string | undefined, cancel?: (reason: string) => void) {
     const mainOperation = registerMainOperation({
         kind: 'abortable-work',
         ...(context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId}),
         cancel,
     });
-    const aborterKey = requestId === undefined
-        ? null
-        : getPdfPrintAborterKey(context.senderId, requestId);
+    const aborterKey = requestId === undefined ? null : getPdfPrintAborterKey(context.senderId, requestId);
     if (aborterKey !== null) {
         activePdfPrintAborters.set(aborterKey, mainOperation.abort);
     }
@@ -218,10 +196,7 @@ function registerPdfPrintOperation(
     };
 }
 
-export function handleCancelPdfPrint(
-    context: IDocumentsSenderIdContext,
-    requestId: string,
-): Promise<{canceled: boolean}> {
+export function handleCancelPdfPrint(context: IDocumentsSenderIdContext, requestId: string): Promise<{canceled: boolean}> {
     const abort = activePdfPrintAborters.get(getPdfPrintAborterKey(context.senderId, requestId));
     if (!abort) {
         return Promise.resolve({canceled: false});
@@ -249,19 +224,11 @@ export async function handlePrintPdfData(
         operation.signal.throwIfAborted();
         await writeFile(tempPath, Buffer.from(data));
         operation.signal.throwIfAborted();
-        const onNativeDialogOpened = requestId === undefined
-            ? undefined
-            : () => context.onNativePrintDialogOpened?.(requestId);
-        const result = await openNativePrintDialogForPath(
-            ownerWindow,
-            tempPath,
-            {},
-            fileName,
-            {
-                ...(onNativeDialogOpened ? {onNativeDialogOpened} : {}),
-                signal: operation.signal,
-            },
-        );
+        const onNativeDialogOpened = requestId === undefined ? undefined : () => context.onNativePrintDialogOpened?.(requestId);
+        const result = await openNativePrintDialogForPath(ownerWindow, tempPath, {}, fileName, {
+            ...(onNativeDialogOpened ? {onNativeDialogOpened} : {}),
+            signal: operation.signal,
+        });
         if (result.success) {
             shouldRetainTempPdf = true;
             schedulePrintTempCleanup(tempPath);
@@ -275,8 +242,6 @@ export async function handlePrintPdfData(
     }
 }
 
-
-
 export async function handlePrintPdfPath(
     context: IDocumentsWindowContext,
     filePath: string,
@@ -286,18 +251,12 @@ export async function handlePrintPdfPath(
     const ownerWindow = context.window ?? undefined;
     const normalizedOptions = normalizePdfPathPrintOptions(options);
     const requestId = normalizedOptions.requestId;
-    const onNativeDialogOpened = requestId === undefined
-        ? undefined
-        : () => context.onNativePrintDialogOpened?.(requestId);
+    const onNativeDialogOpened = requestId === undefined ? undefined : () => context.onNativePrintDialogOpened?.(requestId);
     const normalizedPageNumbers = normalizedOptions.pageNumbers;
     const operationId = randomUUID();
     const cancelGroup = `print-selected-pages:${operationId}`;
     const tempPath = buildOpaquePrintTempPath(normalizedPageNumbers ? PRINT_PAGE_TEMP_PREFIX : PRINT_LAYOUT_TEMP_PREFIX, operationId);
-    const operation = registerPdfPrintOperation(
-        context,
-        requestId,
-        () => cancelNativeCommandGroup(cancelGroup),
-    );
+    const operation = registerPdfPrintOperation(context, requestId, () => cancelNativeCommandGroup(cancelGroup));
     let shouldRetainTempPdf = false;
     try {
         const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId, operation.signal);
@@ -317,7 +276,10 @@ export async function handlePrintPdfPath(
         });
         operation.signal.throwIfAborted();
         // Single pages in Auto that need no appearance leave the source to print as it is.
-        const printPath = await stat(tempPath).then(() => tempPath, () => resolvedPath);
+        const printPath = await stat(tempPath).then(
+            () => tempPath,
+            () => resolvedPath,
+        );
         await assertPdfPathWithinSizeLimit(printPath);
         const keepsPages = normalizedOptions.viewMode === 'single' && normalizedOptions.orientation === 'auto';
         const result = await openNativePrintDialogForPath(

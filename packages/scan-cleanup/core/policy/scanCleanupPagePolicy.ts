@@ -1,8 +1,5 @@
 import type {TPageNumber} from '@contracts/pageNumbers';
-import {
-    parsePageNumber,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
+import {parsePageNumber, requirePageNumber} from '@contracts/pageNumbers';
 import type {
     IScanCleanupOptions,
     IScanCleanupPageOverride,
@@ -36,19 +33,17 @@ import {
 } from '@evb/scan-cleanup/core/policy/scanCleanupPaperCohort';
 
 export function usesScanCleanupInkAlignment(options: IScanCleanupOptions) {
-    return options.matchPageSize
-        && (options.pageAlignment === 'ink'
-            || Object.values(options.pageOverrideDefaults?.placementOverrides ?? {})
-                .some(alignment => alignment === 'ink')
-            || Object.values(options.pageOverrides).some(override => Object
-                .values(override.placementOverrides ?? {})
-                .some(alignment => alignment === 'ink')));
+    return (
+        options.matchPageSize &&
+        (options.pageAlignment === 'ink' ||
+            Object.values(options.pageOverrideDefaults?.placementOverrides ?? {}).some((alignment) => alignment === 'ink') ||
+            Object.values(options.pageOverrides).some((override) =>
+                Object.values(override.placementOverrides ?? {}).some((alignment) => alignment === 'ink'),
+            ))
+    );
 }
 
-export function resolveScanCleanupMarginsMm(
-    documentMargins: IScanCleanupMarginsMm,
-    override: Pick<IScanCleanupPageOverride, 'marginsMm'>,
-) {
+export function resolveScanCleanupMarginsMm(documentMargins: IScanCleanupMarginsMm, override: Pick<IScanCleanupPageOverride, 'marginsMm'>) {
     return override.marginsMm ?? documentMargins;
 }
 
@@ -80,10 +75,7 @@ export interface IScanCleanupPlacementAnchorSample extends IScanCleanupPlacement
     half: TScanCleanupOutputHalf;
 }
 
-export type TScanCleanupPlacementAnchorsByPage = Map<
-    number,
-    Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>
->;
+export type TScanCleanupPlacementAnchorsByPage = Map<number, Partial<Record<TScanCleanupOutputHalf, IScanCleanupPlacementAnchor>>>;
 
 /**
  * The lower median. Every value between the two central members of an
@@ -142,9 +134,9 @@ export function resolveScanCleanupSheetAnchors(
         lowestTop = Math.max(lowestTop, inkTop.yNormalized);
         const candidate = inkTop.snappedNormalized - inkTop.yNormalized;
         if (
-            correction === undefined
-            || inkTop.support > support
-            || (inkTop.support === support && Math.abs(candidate) < Math.abs(correction))
+            correction === undefined ||
+            inkTop.support > support ||
+            (inkTop.support === support && Math.abs(candidate) < Math.abs(correction))
         ) {
             correction = candidate;
             support = inkTop.support;
@@ -181,19 +173,19 @@ export function resolveScanCleanupSheetAnchors(
  * (value, page, half), so the same document resolves to the same anchors
  * whatever order its evidence arrived in.
  */
-function snapScanCleanupAnchors(
-    samples: readonly IScanCleanupPlacementAnchorSample[],
-    tolerance: number,
-) {
+function snapScanCleanupAnchors(samples: readonly IScanCleanupPlacementAnchorSample[], tolerance: number) {
     const ordered = samples
         .map((sample, index) => ({
             index,
             sample,
         }))
-        .sort((left, right) => left.sample.yNormalized - right.sample.yNormalized
-            || left.sample.pageNumber - right.sample.pageNumber
-            || left.sample.half.localeCompare(right.sample.half));
-    const values = ordered.map(entry => entry.sample.yNormalized);
+        .sort(
+            (left, right) =>
+                left.sample.yNormalized - right.sample.yNormalized ||
+                left.sample.pageNumber - right.sample.pageNumber ||
+                left.sample.half.localeCompare(right.sample.half),
+        );
+    const values = ordered.map((entry) => entry.sample.yNormalized);
     const valueAt = (position: number) => {
         const value = values[position];
         if (value === undefined) {
@@ -210,18 +202,12 @@ function snapScanCleanupAnchors(
     let runStart = 0;
     for (let position = 1; position <= values.length; position += 1) {
         if (position === values.length || valueAt(position) - valueAt(position - 1) > tolerance) {
-            runs.push([
-                runStart,
-                position,
-            ]);
+            runs.push([runStart, position]);
             runStart = position;
         }
     }
     for (let run = runs.pop(); run !== undefined; run = runs.pop()) {
-        const [
-            start,
-            end,
-        ] = run;
+        const [start, end] = run;
         if (start >= end) {
             continue;
         }
@@ -235,9 +221,8 @@ function snapScanCleanupAnchors(
             const size = windowEnd - windowStart;
             const bestSize = bestEnd - bestStart;
             if (
-                size > bestSize
-                || (size === bestSize
-                    && valueAt(windowEnd - 1) - valueAt(windowStart) < valueAt(bestEnd - 1) - valueAt(bestStart))
+                size > bestSize ||
+                (size === bestSize && valueAt(windowEnd - 1) - valueAt(windowStart) < valueAt(bestEnd - 1) - valueAt(bestStart))
             ) {
                 bestStart = windowStart;
                 bestEnd = windowEnd;
@@ -254,13 +239,7 @@ function snapScanCleanupAnchors(
             value,
             size: bestEnd - bestStart,
         });
-        runs.push([
-            start,
-            bestStart,
-        ], [
-            bestEnd,
-            end,
-        ]);
+        runs.push([start, bestStart], [bestEnd, end]);
     }
     clusters.sort((left, right) => left.start - right.start);
     return {
@@ -280,8 +259,8 @@ const SCAN_CLEANUP_INK_TOP_EDGE_MINIMUM_SHARE = 1 / 20;
 
 function resolveScanCleanupInkTopEdge(clusters: readonly IScanCleanupAnchorCluster[], sampleCount: number) {
     const minimumSize = Math.max(2, Math.ceil(sampleCount * SCAN_CLEANUP_INK_TOP_EDGE_MINIMUM_SHARE));
-    const supported = clusters.filter(cluster => cluster.size >= minimumSize);
-    return Math.min(...(supported.length > 0 ? supported : clusters).map(cluster => cluster.value));
+    const supported = clusters.filter((cluster) => cluster.size >= minimumSize);
+    return Math.min(...(supported.length > 0 ? supported : clusters).map((cluster) => cluster.value));
 }
 
 export interface IScanCleanupPlacementAnchorResolution {
@@ -309,17 +288,12 @@ export function resolveScanCleanupPlacementAnchorResolution(
             clusters: [],
         };
     }
-    const {
-        clusters,
-        snapped,
-        support,
-    } = snapScanCleanupAnchors(samples, tolerance);
+    const {clusters, snapped, support} = snapScanCleanupAnchors(samples, tolerance);
     // A sparse calibration window represents the full document. Use the
     // window's cardinality for its support threshold so a common cluster is
     // not discarded simply because it was downsampled to 256 entries.
-    const representedSampleCount = Number.isSafeInteger(sampleCount) && sampleCount > 0
-        ? Math.min(sampleCount, samples.length)
-        : samples.length;
+    const representedSampleCount =
+        Number.isSafeInteger(sampleCount) && sampleCount > 0 ? Math.min(sampleCount, samples.length) : samples.length;
     const topEdge = resolveScanCleanupInkTopEdge(clusters, representedSampleCount);
     const inkTopsByPage = new Map<number, Partial<Record<TScanCleanupOutputHalf, IScanCleanupSnappedInkTop>>>();
     samples.forEach((sample, index) => {
@@ -331,16 +305,13 @@ export function resolveScanCleanupPlacementAnchorResolution(
         };
         inkTopsByPage.set(sample.pageNumber, inkTops);
     });
-    for (const [
-        pageNumber,
-        inkTops,
-    ] of inkTopsByPage) {
+    for (const [pageNumber, inkTops] of inkTopsByPage) {
         anchorsByPage.set(pageNumber, resolveScanCleanupSheetAnchors(inkTops, topEdge));
     }
     return {
         anchorsByPage,
         topEdgeNormalized: topEdge,
-        clusters: clusters.map(cluster => ({
+        clusters: clusters.map((cluster) => ({
             startNormalized: cluster.start,
             endNormalized: cluster.end,
             valueNormalized: cluster.value,
@@ -407,24 +378,18 @@ function resolveScanCleanupProducedHalves(
         return ['full'];
     }
     if (layout === 'force-two-page' || pageOverride.manualSplit !== null) {
-        return [
-            'left',
-            'right',
-        ];
+        return ['left', 'right'];
     }
     if (sheet.layoutClassification === 'single-uncut-page') {
         return ['full'];
     }
     if (sheet.layoutClassification === 'two-page-spread') {
-        return [
-            'left',
-            'right',
-        ];
+        return ['left', 'right'];
     }
     if (sheet.layoutClassification !== 'page-with-offcut') {
         return SCAN_CLEANUP_OUTPUT_HALVES;
     }
-    const reported = SCAN_CLEANUP_OUTPUT_HALVES.filter(half => half !== 'full' && sheet.evidence?.outputs[half] !== undefined);
+    const reported = SCAN_CLEANUP_OUTPUT_HALVES.filter((half) => half !== 'full' && sheet.evidence?.outputs[half] !== undefined);
     if (reported.length > 0) {
         return reported;
     }
@@ -459,9 +424,7 @@ export function collectScanCleanupSheetInkTops(
         return inkTops;
     }
     const sheetHeightPoints = resolveScanCleanupSheetRect(sheet.metadata)?.heightPoints ?? 0;
-    const scale = referenceHeightPoints > 0 && sheetHeightPoints > 0
-        ? sheetHeightPoints / referenceHeightPoints
-        : 1;
+    const scale = referenceHeightPoints > 0 && sheetHeightPoints > 0 ? sheetHeightPoints / referenceHeightPoints : 1;
     for (const half of resolveScanCleanupProducedHalves(options, pageOverride, sheet)) {
         if (resolveScanCleanupOutputPlacement(options.pageAlignment, pageOverride, half) !== 'ink') {
             continue;
@@ -497,12 +460,14 @@ export function addScanCleanupInkReferenceSheet(
     options: IScanCleanupOptions,
     sheet: IScanCleanupInkSheet,
 ) {
-    if (getScanCleanupPageOverride(
-        options.pageOverrides,
-        requirePageNumber(sheet.pageNumber),
-        options.pageOverrideDefaults,
-        options.marginsMm,
-    ).excluded) {
+    if (
+        getScanCleanupPageOverride(
+            options.pageOverrides,
+            requirePageNumber(sheet.pageNumber),
+            options.pageOverrideDefaults,
+            options.marginsMm,
+        ).excluded
+    ) {
         return;
     }
     const rect = resolveScanCleanupSheetRect(sheet.metadata);
@@ -517,9 +482,10 @@ export function resolveScanCleanupInkScale(reference: IScanCleanupInkReference) 
     const referenceHeightPoints = resolveScanCleanupInkReferenceHeightPoints(reference.sheets);
     return {
         referenceHeightPoints,
-        toleranceNormalized: reference.everySheetMeasured && referenceHeightPoints > 0
-            ? SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM * POINTS_PER_MM / referenceHeightPoints
-            : 0,
+        toleranceNormalized:
+            reference.everySheetMeasured && referenceHeightPoints > 0
+                ? (SCAN_CLEANUP_INK_ANCHOR_TOLERANCE_MM * POINTS_PER_MM) / referenceHeightPoints
+                : 0,
     };
 }
 
@@ -540,27 +506,18 @@ export function resolveScanCleanupDocumentInkAnchors(
     for (const sheet of included) {
         addScanCleanupInkReferenceSheet(reference, options, sheet);
     }
-    const {
-        referenceHeightPoints,
-        toleranceNormalized,
-    } = resolveScanCleanupInkScale(reference);
-    const samples = included.flatMap(sheet => Object.entries(
-        collectScanCleanupSheetInkTops(options, sheet, referenceHeightPoints),
-    ).map(([
-        half,
-        yNormalized,
-    ]) => ({
-        pageNumber: requirePageNumber(sheet.pageNumber),
-        half: half as TScanCleanupOutputHalf,
-        yNormalized,
-    })));
+    const {referenceHeightPoints, toleranceNormalized} = resolveScanCleanupInkScale(reference);
+    const samples = included.flatMap((sheet) =>
+        Object.entries(collectScanCleanupSheetInkTops(options, sheet, referenceHeightPoints)).map(([half, yNormalized]) => ({
+            pageNumber: requirePageNumber(sheet.pageNumber),
+            half: half as TScanCleanupOutputHalf,
+            yNormalized,
+        })),
+    );
     return resolveScanCleanupPlacementAnchors(samples, toleranceNormalized);
 }
 
-export function resolveScanCleanupPageLayout(
-    layoutMode: IScanCleanupOptions['layoutMode'],
-    override: TScanCleanupPageLayoutOverride,
-) {
+export function resolveScanCleanupPageLayout(layoutMode: IScanCleanupOptions['layoutMode'], override: TScanCleanupPageLayoutOverride) {
     if (override === 'single') {
         return 'force-single' as const;
     }
@@ -582,10 +539,7 @@ export function toScanCleanupLayoutByPage(
     classifications: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>,
 ): TScanCleanupLayoutByPage {
     const layouts: TScanCleanupLayoutByPage = {};
-    for (const [
-        pageNumber,
-        classification,
-    ] of classifications) {
+    for (const [pageNumber, classification] of classifications) {
         layouts[String(pageNumber)] = classification;
     }
     return layouts;
@@ -605,8 +559,8 @@ export function toScanCleanupLayoutByPage(
  */
 export function scanCleanupLayoutSignature(layouts: TScanCleanupLayoutByPage) {
     const spreads = Object.entries(layouts)
-        .filter(entry => entry[1] === 'two-page-spread')
-        .map(entry => Number(entry[0]))
+        .filter((entry) => entry[1] === 'two-page-spread')
+        .map((entry) => Number(entry[0]))
         .sort((left, right) => left - right);
     const ranges: string[] = [];
     let rangeStart: number | undefined;
@@ -662,63 +616,55 @@ export function scanCleanupMatchedCanvasOverridesSignature(
     pageOverrideDefaults?: IScanCleanupPageOverride,
     documentMargins?: IScanCleanupMarginsMm,
 ) {
-    const serialize = (override: IScanCleanupPageOverride) => [
-        override.excluded ? 'excluded' : '',
-        override.layoutOverride,
-        override.manualSplit ? 'split' : '',
-        // Only whether the page can leave the bilevel pixel budget.
-        override.outputModeOverride === undefined
-            ? ''
-            : override.outputModeOverride === 'bw' ? 'bw' : 'tonal',
-    ].join(':');
-    const defaults = serialize(pageOverrideDefaults === undefined
-        ? getScanCleanupPageOverrideDefaults(overrides)
-        : createScanCleanupPageOverride(pageOverrideDefaults, documentMargins));
+    const serialize = (override: IScanCleanupPageOverride) =>
+        [
+            override.excluded ? 'excluded' : '',
+            override.layoutOverride,
+            override.manualSplit ? 'split' : '',
+            // Only whether the page can leave the bilevel pixel budget.
+            override.outputModeOverride === undefined ? '' : override.outputModeOverride === 'bw' ? 'bw' : 'tonal',
+        ].join(':');
+    const defaults = serialize(
+        pageOverrideDefaults === undefined
+            ? getScanCleanupPageOverrideDefaults(overrides)
+            : createScanCleanupPageOverride(pageOverrideDefaults, documentMargins),
+    );
     const defaultEntry = defaults === ':auto::' ? '' : `@default=${defaults}`;
     const pageEntries = Object.keys(overrides)
-        .map(pageKey => {
+        .map((pageKey) => {
             const pageNumber = parsePageNumber(Number(pageKey));
             if (pageNumber === null) {
                 return '';
             }
-            const canvasInputs = serialize(pageOverrideDefaults === undefined
-                ? getScanCleanupPageOverride(overrides, pageNumber)
-                : getScanCleanupPageOverride(overrides, pageNumber, pageOverrideDefaults, documentMargins));
+            const canvasInputs = serialize(
+                pageOverrideDefaults === undefined
+                    ? getScanCleanupPageOverride(overrides, pageNumber)
+                    : getScanCleanupPageOverride(overrides, pageNumber, pageOverrideDefaults, documentMargins),
+            );
             return canvasInputs === ':auto::' ? '' : `${pageKey}=${canvasInputs}`;
         })
-        .filter(entry => entry !== '')
+        .filter((entry) => entry !== '')
         .sort()
         .join(',');
-    return [
-        defaultEntry,
-        pageEntries,
-    ]
-        .filter(entry => entry !== '')
-        .join(',');
+    return [defaultEntry, pageEntries].filter((entry) => entry !== '').join(',');
 }
 
-function automaticOutputCount(
-    classification: IScanCleanupPreviewMetadata['layoutClassification'] | undefined,
-) {
+function automaticOutputCount(classification: IScanCleanupPreviewMetadata['layoutClassification'] | undefined) {
     return classification === 'two-page-spread' ? 2 : 1;
 }
 
 export function estimateScanCleanupOutputPages(
     totalPages: number,
-    options: Pick<IScanCleanupOptions, 'layoutMode' | 'pageOverrides'>
-        & Partial<Pick<IScanCleanupOptions, 'pageOverrideDefaults'>>
-        & Partial<Pick<IScanCleanupOptions, 'skipBlankPages'>>,
+    options: Pick<IScanCleanupOptions, 'layoutMode' | 'pageOverrides'> &
+        Partial<Pick<IScanCleanupOptions, 'pageOverrideDefaults'>> &
+        Partial<Pick<IScanCleanupOptions, 'skipBlankPages'>>,
     classifications: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>,
 ) {
     const pageCount = Math.max(0, Math.floor(totalPages));
     if (options.pageOverrideDefaults !== undefined) {
-        attachScanCleanupPageOverrideDefaults(
-            options.pageOverrides,
-            options.pageOverrideDefaults,
-        );
+        attachScanCleanupPageOverrideDefaults(options.pageOverrides, options.pageOverrideDefaults);
     }
-    const defaultOverride = options.pageOverrideDefaults
-        ?? getScanCleanupPageOverrideDefaults(options.pageOverrides);
+    const defaultOverride = options.pageOverrideDefaults ?? getScanCleanupPageOverrideDefaults(options.pageOverrides);
     const resolveOutput = (
         override: IScanCleanupPageOverride,
         classification: IScanCleanupPreviewMetadata['layoutClassification'] | undefined,
@@ -771,14 +717,8 @@ export function estimateScanCleanupOutputPages(
         }
     }
     let classifiedAutomaticPages = 0;
-    for (const [
-        pageNumber,
-        classification,
-    ] of classifications) {
-        if (!Number.isSafeInteger(pageNumber)
-            || pageNumber < 1
-            || pageNumber > pageCount
-            || fixedPages.has(pageNumber)) {
+    for (const [pageNumber, classification] of classifications) {
+        if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > pageCount || fixedPages.has(pageNumber)) {
             continue;
         }
         classifiedAutomaticPages += 1;
@@ -786,9 +726,10 @@ export function estimateScanCleanupOutputPages(
             outputPages += automaticOutputCount(classification) - 1;
         }
     }
-    if (defaultResolution.automatic
-        && (classifiedAutomaticPages < pageCount - fixedPages.size
-            || fixedAutomaticPagesMissingClassification)) {
+    if (
+        defaultResolution.automatic &&
+        (classifiedAutomaticPages < pageCount - fixedPages.size || fixedAutomaticPagesMissingClassification)
+    ) {
         exact = false;
     }
     return {
@@ -799,8 +740,7 @@ export function estimateScanCleanupOutputPages(
 
 export function shouldShowScanCleanupOutputEstimate(
     totalPages: number,
-    options: Pick<IScanCleanupOptions, 'layoutMode' | 'pageOverrides'>
-        & Partial<Pick<IScanCleanupOptions, 'skipBlankPages'>>,
+    options: Pick<IScanCleanupOptions, 'layoutMode' | 'pageOverrides'> & Partial<Pick<IScanCleanupOptions, 'skipBlankPages'>>,
     classifications: ReadonlyMap<number, IScanCleanupPreviewMetadata['layoutClassification']>,
 ) {
     if (classifications.size > 0 || options.layoutMode !== 'auto') {

@@ -1,12 +1,5 @@
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { FakeAssistantAppServerProcess } from '@tests/unit/electron/helpers/fakeAssistantAppServerProcess';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {FakeAssistantAppServerProcess} from '@tests/unit/electron/helpers/fakeAssistantAppServerProcess';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
@@ -26,24 +19,16 @@ vi.mock('child_process', () => ({spawn: mocks.spawn}));
 vi.mock('electron', () => ({app: {getVersion: () => '0.0.0-test'}}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 vi.mock('@electron/utils/nativeChildProcess', () => ({
-    createDetachedChildProcessSpawnOptions: (...args: [Record<string, unknown>]) =>
-        mocks.createDetachedChildProcessSpawnOptions(...args),
+    createDetachedChildProcessSpawnOptions: (...args: [Record<string, unknown>]) => mocks.createDetachedChildProcessSpawnOptions(...args),
     terminateDetachedChildProcess: (...args: unknown[]) => mocks.terminateDetachedChildProcess(...args),
 }));
 
 async function createClient(process: FakeAssistantAppServerProcess) {
     mocks.spawn.mockReturnValue(process);
-    const { CodexAppServerClient } = await import('@electron/features/agent/codexAppServerClient');
+    const {CodexAppServerClient} = await import('@electron/features/agent/codexAppServerClient');
     const onNotification = vi.fn();
     const onExit = vi.fn();
-    const client = new CodexAppServerClient(
-        '/usr/bin/codex',
-        [],
-        {},
-        '/tmp',
-        onNotification,
-        onExit,
-    );
+    const client = new CodexAppServerClient('/usr/bin/codex', [], {}, '/tmp', onNotification, onExit);
     return {
         client,
         onExit,
@@ -67,7 +52,7 @@ describe('CodexAppServerClient stdin handling', () => {
 
     afterEach(async () => {
         vi.useRealTimers();
-        const { resetMainOperationLifecycleForTests } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        const {resetMainOperationLifecycleForTests} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
         resetMainOperationLifecycleForTests();
     });
 
@@ -76,10 +61,7 @@ describe('CodexAppServerClient stdin handling', () => {
             callback?.();
             return true;
         });
-        const {
-            client,
-            onExit,
-        } = await createClient(process);
+        const {client, onExit} = await createClient(process);
 
         const request = client.request('thread/start', {});
         process.stdin.emit('error', new Error('EPIPE'));
@@ -97,13 +79,15 @@ describe('CodexAppServerClient stdin handling', () => {
         process.stdout.write('{"jsonrpc":"2.0","method":"item/reasoning/summaryTextDelta","params":{"delta":"plan');
         process.stdout.write('","threadId":"thread-1"}}\n');
 
-        expect(onNotification).toHaveBeenCalledWith(expect.objectContaining({
-            method: 'item/reasoning/summaryTextDelta',
-            params: {
-                delta: 'plan',
-                threadId: 'thread-1',
-            },
-        }));
+        expect(onNotification).toHaveBeenCalledWith(
+            expect.objectContaining({
+                method: 'item/reasoning/summaryTextDelta',
+                params: {
+                    delta: 'plan',
+                    threadId: 'thread-1',
+                },
+            }),
+        );
     });
 
     it('rejects pending requests with a typed error and terminates on an oversized stdout record', async () => {
@@ -127,18 +111,12 @@ describe('CodexAppServerClient stdin handling', () => {
         await expect(request).rejects.toBeInstanceOf(CodexAppServerRecordTooLargeError);
     });
 
-    it.each([
-        ['notify' as const],
-        ['respond' as const],
-    ])('handles %s write callback failures without throwing', async (method) => {
+    it.each([['notify' as const], ['respond' as const]])('handles %s write callback failures without throwing', async (method) => {
         const process = new FakeAssistantAppServerProcess((_line, callback) => {
             callback?.(new Error('EPIPE'));
             return false;
         });
-        const {
-            client,
-            onExit,
-        } = await createClient(process);
+        const {client, onExit} = await createClient(process);
 
         if (method === 'notify') {
             expect(() => client.notify('initialized')).not.toThrow();
@@ -155,11 +133,9 @@ describe('CodexAppServerClient stdin handling', () => {
             callback?.();
             return true;
         });
-        const { client } = await createClient(process);
-        const {
-            CodexAppServerRequestTimeoutError,
-            isCodexAppServerRequestTimeoutError,
-        } = await import('@electron/features/agent/codexAppServerClient');
+        const {client} = await createClient(process);
+        const {CodexAppServerRequestTimeoutError, isCodexAppServerRequestTimeoutError} =
+            await import('@electron/features/agent/codexAppServerClient');
 
         const request = client.request('turn/start', {}, 25).catch((error: unknown) => error);
         await vi.advanceTimersByTimeAsync(25);
@@ -179,7 +155,7 @@ describe('CodexAppServerClient stdin handling', () => {
             callback?.();
             return true;
         });
-        const { onExit } = await createClient(fakeProcess);
+        const {onExit} = await createClient(fakeProcess);
 
         fakeProcess.stderr.write(`${'old'.repeat(90_000)}\nrecent-tail\n`);
         fakeProcess.emit('close', 7);
@@ -197,17 +173,19 @@ describe('CodexAppServerClient stdin handling', () => {
             callback?.();
             return true;
         });
-        const { client } = await createClient(fakeProcess);
-        const { snapshotMainOperations } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        const {client} = await createClient(fakeProcess);
+        const {snapshotMainOperations} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
 
         expect(snapshotMainOperations()).toEqual([expect.objectContaining({kind: 'resource-cleanup'})]);
 
         await client.shutdown();
 
-        expect(mocks.createDetachedChildProcessSpawnOptions).toHaveBeenCalledWith(expect.objectContaining({
-            cwd: '/tmp',
-            windowsHide: true,
-        }));
+        expect(mocks.createDetachedChildProcessSpawnOptions).toHaveBeenCalledWith(
+            expect.objectContaining({
+                cwd: '/tmp',
+                windowsHide: true,
+            }),
+        );
         expect(mocks.spawn.mock.calls[0]?.[2]).toMatchObject({detached: true});
         expect(mocks.terminateDetachedChildProcess).toHaveBeenCalledWith(fakeProcess, 1_000);
         expect(snapshotMainOperations()).toEqual([]);
@@ -222,8 +200,8 @@ describe('CodexAppServerClient stdin handling', () => {
             fakeProcess.emit('close', 0);
             return false;
         });
-        const { client } = await createClient(fakeProcess);
-        const { snapshotMainOperations } = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        const {client} = await createClient(fakeProcess);
+        const {snapshotMainOperations} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
 
         await expect(client.shutdown()).rejects.toThrow('process tree did not terminate cleanly');
 

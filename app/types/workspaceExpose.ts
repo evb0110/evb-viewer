@@ -1,39 +1,24 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { ICropMargins } from '@app/types/crop';
-import type { TPageMoveOperation } from '@contracts/pageNumbers';
-import type {
-    IDocumentRevisionInfo,
-    TDocumentCommitReceipt,
-} from '@contracts/documentRevision';
-import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { TSplitPayload } from '@contracts/windowTabs';
-import type { IWorkspaceCheckpointTab } from '@contracts/workspaceCheckpoint';
-import type { TWorkspaceCommandTarget } from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
-import type { IWorkspaceReaderFollow } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
-import type { IPdfPageShapeRead } from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationInventoryCompleteness,
-    TAnnotationCommentsStatus,
-} from '@app/types/annotations';
-import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {ICropMargins} from '@app/types/crop';
+import type {TPageMoveOperation} from '@contracts/pageNumbers';
+import type {IDocumentRevisionInfo, TDocumentCommitReceipt} from '@contracts/documentRevision';
+import type {TDocumentInstanceId} from '@contracts/documentInstanceId';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {TSplitPayload} from '@contracts/windowTabs';
+import type {IWorkspaceCheckpointTab} from '@contracts/workspaceCheckpoint';
+import type {TWorkspaceCommandTarget} from '@app/modules/workspace-shell/document-sessions/workspaceCommandTarget';
+import type {IWorkspaceReaderFollow} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import type {IPdfPageShapeRead} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
+import type {IAnnotationCommentSummary, IAnnotationInventoryCompleteness, TAnnotationCommentsStatus} from '@app/types/annotations';
+import type {IAnnotationNoteWindowViewModel} from '@app/types/annotationNoteWindow';
 import type {IWorkspaceDocumentRecoveryPort} from '@app/types/workspaceDocumentRecovery';
-import type {
-    TFitMode,
-    TPdfViewRotation,
-    TPdfViewMode,
-    TZoomMode,
-} from '@contracts/shared';
-import type { TDocumentSidebarTab } from '@app/modules/document-viewer/public';
-import type {
-    IPdfSemanticAnchor,
-    IScrollToPageOptions,
-} from '@app/modules/pdf-viewer/public';
-import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
-import type { IDocumentOperationOwnership } from '@app/types/documentOperationKind';
-import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import type { IFailureToastAction } from '@app/composables/useFailureToast';
+import type {TFitMode, TPdfViewRotation, TPdfViewMode, TZoomMode} from '@contracts/shared';
+import type {TDocumentSidebarTab} from '@app/modules/document-viewer/public';
+import type {IPdfSemanticAnchor, IScrollToPageOptions} from '@app/modules/pdf-viewer/public';
+import type {TDocumentOpenOutcome} from '@app/types/documentOpenOutcome';
+import type {IDocumentOperationOwnership} from '@app/types/documentOperationKind';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {IFailureToastAction} from '@app/composables/useFailureToast';
 
 export interface IWorkspaceToolbarSnapshot {
     hasPdf: boolean;
@@ -252,7 +237,7 @@ export interface IWorkspaceAutomationStateSnapshot {
 
 /** The command and state surface a mounted DocumentWorkspace publishes to its tab controller. */
 export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
-    hasPdf: {value: boolean;} | boolean;
+    hasPdf: {value: boolean} | boolean;
     handleSave: () => Promise<boolean>;
     handleRepairSave: () => Promise<boolean>;
     handleOptimizePdfForInteraction: () => Promise<boolean>;
@@ -299,7 +284,9 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     handleViewModeFacingFirstSingle: () => void;
     handleViewRotationCw: () => void;
     handleViewRotationCcw: () => void;
-    restoreViewState: (state: Pick<IWorkspaceCheckpointTab, 'currentPage' | 'zoom' | 'zoomMode' | 'continuousScroll' | 'viewMode' | 'viewRotation'>) => void;
+    restoreViewState: (
+        state: Pick<IWorkspaceCheckpointTab, 'currentPage' | 'zoom' | 'zoomMode' | 'continuousScroll' | 'viewMode' | 'viewRotation'>,
+    ) => void;
     handleDeletePages: () => void;
     handleExtractPages: () => void;
     handleRotateCw: (pages?: number[]) => Promise<boolean>;
@@ -315,7 +302,11 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
     handleOpenScanCleanup: () => void;
     /** Captures the document at `page`, by default the page this view reads. */
     captureSplitPayload: (page?: number, ownership?: () => void) => Promise<TSplitPayload>;
-    restoreSplitPayload: (payload: TSplitPayload, transactionId?: string, captureOpenedTarget?: () => () => boolean) => Promise<TDocumentOpenOutcome>;
+    restoreSplitPayload: (
+        payload: TSplitPayload,
+        transactionId?: string,
+        captureOpenedTarget?: () => () => boolean,
+    ) => Promise<TDocumentOpenOutcome>;
     closeAllDropdowns: () => void;
     getToolbarSnapshot: () => IWorkspaceToolbarSnapshot;
     getOpenFailure: () => IWorkspaceOpenFailure | null;
@@ -326,16 +317,8 @@ export interface IWorkspaceExpose extends IWorkspaceDocumentRecoveryPort {
         options?: {dryRun?: boolean},
         context?: IWorkspaceAgentCommandContext,
     ) => Promise<Record<string, unknown>>;
-    readAgentResource: (
-        uri: string,
-        context?: IWorkspaceAgentCommandContext,
-    ) => Promise<Record<string, unknown>>;
-    commentAtPoint?: (
-        pageNumber: number,
-        pageX: number,
-        pageY: number,
-        options?: { preferTextAnchor?: boolean },
-    ) => Promise<boolean>;
+    readAgentResource: (uri: string, context?: IWorkspaceAgentCommandContext) => Promise<Record<string, unknown>>;
+    commentAtPoint?: (pageNumber: number, pageX: number, pageY: number, options?: {preferTextAnchor?: boolean}) => Promise<boolean>;
     getAllShapes?: () => unknown[];
     getAutomationStateSnapshot: () => IWorkspaceAutomationStateSnapshot;
     getDeletedEmbeddedShapeAnnotationIds?: () => string[];

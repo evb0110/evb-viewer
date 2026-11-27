@@ -1,8 +1,5 @@
 import type {TOcrSearchablePdfPages} from '@contracts/electronApiOcr';
-import type {
-    IOcrPdfPageRequest,
-    TOcrPdfPageSelection,
-} from '@electron/features/ocr/pipeline/types';
+import type {IOcrPdfPageRequest, TOcrPdfPageSelection} from '@electron/features/ocr/pipeline/types';
 
 export function getLastOcrSelectionPage(selection: TOcrPdfPageSelection) {
     if (Array.isArray(selection)) {

@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'fs';
-import { abortErrorFromSignal } from '@electron/utils/abort';
+import {createHash} from 'node:crypto';
+import {createReadStream} from 'fs';
+import {abortErrorFromSignal} from '@electron/utils/abort';
 
 function throwIfAborted(signal?: AbortSignal) {
     if (signal?.aborted) {
@@ -13,10 +13,7 @@ function throwIfAborted(signal?: AbortSignal) {
  * process is never held for the whole hash. An aborted signal rejects with its
  * abort error before, during and after the read, and stops the stream.
  */
-export async function hashFileSha256(
-    path: string,
-    signal?: AbortSignal,
-) {
+export async function hashFileSha256(path: string, signal?: AbortSignal) {
     throwIfAborted(signal);
     const hash = createHash('sha256');
     const stream = createReadStream(path);
@@ -26,7 +23,7 @@ export async function hashFileSha256(
         }
     };
 
-    signal?.addEventListener('abort', onAbort, { once: true });
+    signal?.addEventListener('abort', onAbort, {once: true});
     try {
         for await (const rawChunk of stream) {
             throwIfAborted(signal);

@@ -1,21 +1,9 @@
-import {
-    readFile, writeFile,
-} from 'node:fs/promises';
+import {readFile, writeFile} from 'node:fs/promises';
 import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {
-    describe, expect, it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {
-    PDFArray,
-    PDFDict,
-    PDFDocument,
-    PDFName,
-    PDFNumber,
-    PDFRef,
-    PDFString,
-} from 'pdf-lib';
+import {PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRef, PDFString} from 'pdf-lib';
 import {
     createMultiPageTextFixturePdf,
     createPageLabelRangesFixturePdf,
@@ -23,11 +11,15 @@ import {
 } from '@tests/e2e/electron/helpers/fixtures';
 import {readDocumentBytes} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {createElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
+import {clickAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {
-    clickAsUser, clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import {
-    goToPageViaToolbar, openDjvuInApp, openDocumentSidebarTab, openPdfInApp, saveViaVisibleToolbar, waitForPdfLoaded, waitForViewerInteractive,
+    goToPageViaToolbar,
+    openDjvuInApp,
+    openDocumentSidebarTab,
+    openPdfInApp,
+    saveViaVisibleToolbar,
+    waitForPdfLoaded,
+    waitForViewerInteractive,
     waitForToolbarCurrentPage,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {readToolbarPageIndicator} from '@tests/e2e/electron/helpers/toolbarPageIndicator';
@@ -42,11 +34,7 @@ describe('Electron E2E - page numbering start limit', () => {
 
     it('deletes pages with recoverable page-label trees and preserves the labels PDF.js displays', async () => {
         const {page} = sessions.getSession();
-        for (const variant of [
-            'duplicates',
-            'dangling-kids',
-            'empty',
-        ] as const) {
+        for (const variant of ['duplicates', 'dangling-kids', 'empty'] as const) {
             const fixture = await createMultiPageTextFixturePdf(`label-tree-${variant}-${Date.now()}.pdf`, 3);
             const pdf = await PDFDocument.load(await readFile(fixture));
             const {context} = pdf;
@@ -54,82 +42,58 @@ describe('Electron E2E - page numbering start limit', () => {
                 S: 'r',
                 P: PDFString.of('x-'),
             });
-            const deep = context.register(context.obj({Nums: [
-                0,
-                label,
-            ]}));
-            const tree = variant === 'duplicates'
-                ? context.obj({Nums: [
-                    0,
-                    {S: 'D'},
-                    0,
-                    5,
-                    0,
-                    label,
-                ]})
-                : variant === 'empty'
-                    ? context.obj({Nums: []})
-                    : context.obj({Kids: [
-                        context.register(context.obj({
-                            Kids: [deep],
-                            Nums: [
-                                0,
-                                5,
+            const deep = context.register(context.obj({Nums: [0, label]}));
+            const tree =
+                variant === 'duplicates'
+                    ? context.obj({Nums: [0, {S: 'D'}, 0, 5, 0, label]})
+                    : variant === 'empty'
+                      ? context.obj({Nums: []})
+                      : context.obj({
+                            Kids: [
+                                context.register(
+                                    context.obj({
+                                        Kids: [deep],
+                                        Nums: [0, 5],
+                                    }),
+                                ),
+                                context.register(context.obj({Nums: [0, {S: 'D'}]})),
+                                PDFRef.of(999_999),
+                                context.register(PDFNumber.of(5)),
+                                context.register(context.obj({Nums: []})),
                             ],
-                        })),
-                        context.register(context.obj({Nums: [
-                            0,
-                            {S: 'D'},
-                        ]})),
-                        PDFRef.of(999_999),
-                        context.register(PDFNumber.of(5)),
-                        context.register(context.obj({Nums: []})),
-                    ]});
+                        });
             pdf.catalog.set(PDFName.of('PageLabels'), tree);
             await writeFile(fixture, await pdf.save({useObjectStreams: false}));
             const before = (await readPdfCatalogWithPdfjs(fixture)).pageLabels;
-            expect(before).toEqual(variant === 'empty' ? [
-                '',
-                '',
-                '',
-            ] : [
-                'x-i',
-                'x-ii',
-                'x-iii',
-            ]);
+            expect(before).toEqual(variant === 'empty' ? ['', '', ''] : ['x-i', 'x-ii', 'x-iii']);
             await openPdfInApp(page, fixture);
             await waitForPdfLoaded(page);
             await openDocumentSidebarTab(page, 'Pages');
-            const renderedLabels = () => page.$$eval('.editor-pane.is-active [data-document-thumbnail-label]',
-                nodes => nodes.map(node => node.textContent?.trim() ?? ''));
+            const renderedLabels = () =>
+                page.$$eval('.editor-pane.is-active [data-document-thumbnail-label]', (nodes) =>
+                    nodes.map((node) => node.textContent?.trim() ?? ''),
+                );
             // The native read finishes before page operations can proceed. The
             // action below must still succeed when that read sees a broken tree.
             await goToPageViaToolbar(page, 3);
             await waitForToolbarCurrentPage(page, 3);
             const labelsBefore = await renderedLabels();
             await clickAsUser(page, '.editor-pane.is-active [data-thumbnail-page="2"]', {button: 'right'});
-            await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-                .find(element => element.textContent?.trim() === 'Delete Pages'), null, {description: 'Delete page 2'});
-            await expect.poll(() => page.$eval('.page-controls-total', node => node.textContent?.trim()),
-                {timeout: 15_000}).toBe('2');
-            expect(labelsBefore).toEqual(before?.map((label, index) => label ? `${label} (${index + 1})` : String(index + 1)));
+            await clickFoundAsUser(
+                page,
+                () =>
+                    Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(
+                        (element) => element.textContent?.trim() === 'Delete Pages',
+                    ),
+                null,
+                {description: 'Delete page 2'},
+            );
+            await expect.poll(() => page.$eval('.page-controls-total', (node) => node.textContent?.trim()), {timeout: 15_000}).toBe('2');
+            expect(labelsBefore).toEqual(before?.map((label, index) => (label ? `${label} (${index + 1})` : String(index + 1))));
             const after = (await readPdfCatalogWithPdfjs(await readDocumentBytes(page))).pageLabels;
-            const retainedLabels = variant === 'empty' ? [
-                '1',
-                '3',
-            ] : [
-                'x-i',
-                'x-iii',
-            ];
+            const retainedLabels = variant === 'empty' ? ['1', '3'] : ['x-i', 'x-iii'];
             expect(after).toEqual(retainedLabels);
-            await expect.poll(renderedLabels, {timeout: 15_000})
-                .toEqual(variant === 'empty' ? [
-                    '1',
-                    '3 (2)',
-                ] : [
-                    'x-i (1)',
-                    'x-iii (2)',
-                ]);
+            await expect.poll(renderedLabels, {timeout: 15_000}).toEqual(variant === 'empty' ? ['1', '3 (2)'] : ['x-i (1)', 'x-iii (2)']);
             await saveViaVisibleToolbar(page, 30_000, fixture);
             expect((await readPdfCatalogWithPdfjs(fixture)).pageLabels).toEqual(retainedLabels);
         }
@@ -139,19 +103,29 @@ describe('Electron E2E - page numbering start limit', () => {
         const {page} = sessions.getSession();
         const fixture = await createMultiPageTextFixturePdf(`imported-label-${Date.now()}.pdf`, 1);
         const document = await PDFDocument.load(await readFile(fixture));
-        document.catalog.set(PDFName.of('PageLabels'), document.context.obj({Nums: [
-            0,
-            {
-                S: PDFName.of('A'),
-                P: PDFString.of('Imported-'),
-                St: 1_000_000_000,
-            },
-        ]}));
+        document.catalog.set(
+            PDFName.of('PageLabels'),
+            document.context.obj({
+                Nums: [
+                    0,
+                    {
+                        S: PDFName.of('A'),
+                        P: PDFString.of('Imported-'),
+                        St: 1_000_000_000,
+                    },
+                ],
+            }),
+        );
         await writeFile(fixture, await document.save());
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
-        await expect.poll(async () => (await readWorkspaceStateValues<{pageLabelsResolved: boolean}>(page, ['pageLabelsResolved'])).pageLabelsResolved,
-            {timeout: 15_000}).toBe(true);
+        await expect
+            .poll(
+                async () =>
+                    (await readWorkspaceStateValues<{pageLabelsResolved: boolean}>(page, ['pageLabelsResolved'])).pageLabelsResolved,
+                {timeout: 15_000},
+            )
+            .toBe(true);
         expect((await readToolbarPageIndicator(page)).primaryText?.startsWith('Imported-')).toBe(true);
         await openDocumentSidebarTab(page, 'Pages');
         await goToPageViaToolbar(page, 1);
@@ -165,19 +139,30 @@ describe('Electron E2E - page numbering start limit', () => {
         await waitForPdfLoaded(page);
         await openPagesPanel(page);
         await clickAsUser(page, '#page-label-style-input');
-        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
-            .find(option => option.textContent?.trim() === label), 'Letters (A, B)', {description: 'Letters numbering style'});
+        await clickFoundAsUser(
+            page,
+            (label: string) =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find(
+                    (option) => option.textContent?.trim() === label,
+                ),
+            'Letters (A, B)',
+            {description: 'Letters numbering style'},
+        );
         await clickAsUser(page, '#page-label-start-input', {count: 3});
         await page.keyboard.type('20000000000');
         await page.keyboard.press('Tab');
         await clickAsUser(page, `${PAGES_PANEL} .pdf-sidebar-pages-primary-button`);
         // The field settles on the largest start the page-numbering contract admits for letter style.
         const bound = String(getPageLabelStartNumberMax('A'));
-        await page.waitForFunction((expected: string) => {
-            const field = document.querySelector('#page-label-start-input');
-            const input = field instanceof HTMLInputElement ? field : field?.querySelector('input');
-            return (input?.value ?? '').replace(/\D/g, '') === expected;
-        }, {timeout: 15_000}, bound);
+        await page.waitForFunction(
+            (expected: string) => {
+                const field = document.querySelector('#page-label-start-input');
+                const input = field instanceof HTMLInputElement ? field : field?.querySelector('input');
+                return (input?.value ?? '').replace(/\D/g, '') === expected;
+            },
+            {timeout: 15_000},
+            bound,
+        );
         await goToPageViaToolbar(page, 2);
         await waitForToolbarCurrentPage(page, 2);
     }, 90_000);
@@ -185,10 +170,7 @@ describe('Electron E2E - page numbering start limit', () => {
     it('keeps Apply Numbering and DjVu Search reachable at narrow and default window sizes', async () => {
         const session = sessions.getSession();
         const {page} = session;
-        const narrow = await session.command<IResizeElectronWindowResult>('windowResize', [
-            900,
-            672,
-        ]);
+        const narrow = await session.command<IResizeElectronWindowResult>('windowResize', [900, 672]);
         const sizes = [
             {name: 'narrow', ...narrow.after.contentSize},
             {name: 'default', ...narrow.before.contentSize},
@@ -196,10 +178,7 @@ describe('Electron E2E - page numbering start limit', () => {
 
         for (const {name, width, height} of sizes) {
             if (name === 'default') {
-                await session.command('windowResize', [
-                    width,
-                    height,
-                ]);
+                await session.command('windowResize', [width, height]);
             }
             const size = `${width}x${height}`;
             const fixture = await createMultiPageTextFixturePdf(`numbering-${name}.pdf`, 3);
@@ -211,29 +190,38 @@ describe('Electron E2E - page numbering start limit', () => {
             await clickAsUser(page, '#page-label-range-input');
             await page.keyboard.type('1-2');
             await page.keyboard.press('Tab');
-            const applyHandle = await page.waitForFunction(host => Array.from(document.querySelectorAll<HTMLButtonElement>(`${host} button`))
-                .find(button => button.textContent?.trim() === 'Apply numbering' && !button.disabled && button.checkVisibility()), {}, PAGES_PANEL);
+            const applyHandle = await page.waitForFunction(
+                (host) =>
+                    Array.from(document.querySelectorAll<HTMLButtonElement>(`${host} button`)).find(
+                        (button) => button.textContent?.trim() === 'Apply numbering' && !button.disabled && button.checkVisibility(),
+                    ),
+                {},
+                PAGES_PANEL,
+            );
             const apply = await applyHandle.asElement()!.toElement('button');
             const readLabel = async () => (await readToolbarPageIndicator(page)).primaryText;
             expect(await readLabel(), `${size} page label before Apply numbering`).toBe('1');
 
             // clickAsUser wheels within the panel when needed and reports when
             // no user-scrollable ancestor can bring the button into reach.
-            const clickError = await clickAsUser(page, apply, {timeoutMs: 5_000})
-                .then(() => null, (error: unknown) => String(error));
+            const clickError = await clickAsUser(page, apply, {timeoutMs: 5_000}).then(
+                () => null,
+                (error: unknown) => String(error),
+            );
             const applyHit = await readControlHit(apply);
             const applyResult = {...applyHit, clickError};
-            expect.soft(applyResult, `${size} Apply numbering ${JSON.stringify(applyResult)}`)
-                .toMatchObject({
-                    insideWindow: true,
-                    hitsControl: true,
-                    clickError: null,
-                });
+            expect.soft(applyResult, `${size} Apply numbering ${JSON.stringify(applyResult)}`).toMatchObject({
+                insideWindow: true,
+                hitsControl: true,
+                clickError: null,
+            });
             if (clickError === null) {
-                await expect.poll(readLabel, {
-                    timeout: 15_000,
-                    message: `${size} page label after Apply numbering`,
-                }).toBe('Section-1');
+                await expect
+                    .poll(readLabel, {
+                        timeout: 15_000,
+                        message: `${size} page label after Apply numbering`,
+                    })
+                    .toBe('Section-1');
             } else {
                 expect.soft(await readLabel(), `${size} page label after attempting Apply numbering`).toBe('Section-1');
             }
@@ -243,43 +231,67 @@ describe('Electron E2E - page numbering start limit', () => {
             await waitForViewerInteractive(page);
             await openDocumentSidebarTab(page, 'Pages');
             await page.waitForSelector(`${PAGES_PANEL} .djvu-banner`, {visible: true});
-            const searchHandle = await page.waitForFunction(host => Array.from(document.querySelectorAll<HTMLButtonElement>(`${host} button[role="tab"]`))
-                .find(tab => tab.textContent?.trim() === 'Search' && tab.checkVisibility()), {}, PAGES_PANEL);
+            const searchHandle = await page.waitForFunction(
+                (host) =>
+                    Array.from(document.querySelectorAll<HTMLButtonElement>(`${host} button[role="tab"]`)).find(
+                        (tab) => tab.textContent?.trim() === 'Search' && tab.checkVisibility(),
+                    ),
+                {},
+                PAGES_PANEL,
+            );
             const search = await searchHandle.asElement()!.toElement('button');
             const searchHit = await readControlHit(search);
             await page.mouse.click(searchHit.x, searchHit.y);
-            const searchOpened = await page.waitForSelector(`${PAGES_PANEL} input[aria-label="Search document"]`, {
-                visible: true,
-                timeout: 2_000,
-            }).then(Boolean, () => false);
+            const searchOpened = await page
+                .waitForSelector(`${PAGES_PANEL} input[aria-label="Search document"]`, {
+                    visible: true,
+                    timeout: 2_000,
+                })
+                .then(Boolean, () => false);
             expect.soft(searchHit, `${size} Search ${JSON.stringify(searchHit)}`).toMatchObject({
                 insideWindow: true,
                 hitsControl: true,
             });
             expect.soft(searchOpened, `${size} Search field opens after clicking the tab`).toBe(true);
-            console.info(`[window controls] ${size} Apply bottom=${applyHit.bottom} label=${applyLabel} Search hit=${searchHit.hit} opened=${searchOpened}`);
+            console.info(
+                `[window controls] ${size} Apply bottom=${applyHit.bottom} label=${applyLabel} Search hit=${searchHit.hit} opened=${searchOpened}`,
+            );
         }
     }, 90_000);
 
     it('keeps the label of a page the edit did not touch when one page is renumbered and saved', async () => {
         const {page} = sessions.getSession();
-        const fixture = await createPageLabelRangesFixturePdf(`page-label-untouched-${Date.now()}.pdf`, 150, [{
-            startPage: 1,
-            style: 'A',
-            startNumber: 1,
-        }]);
+        const fixture = await createPageLabelRangesFixturePdf(`page-label-untouched-${Date.now()}.pdf`, 150, [
+            {
+                startPage: 1,
+                style: 'A',
+                startNumber: 1,
+            },
+        ]);
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
         await openPagesPanel(page);
         // Page 110 is "FFFFF" and page 111 "GGGGG" before the edit; only page 110 gets a decimal label.
         await clickAsUser(page, '#page-label-style-input');
-        await clickFoundAsUser(page, (label: string) => Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
-            .find(option => option.textContent?.trim() === label), 'Decimal', {description: 'Decimal numbering style'});
+        await clickFoundAsUser(
+            page,
+            (label: string) =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="option"]')).find(
+                    (option) => option.textContent?.trim() === label,
+                ),
+            'Decimal',
+            {description: 'Decimal numbering style'},
+        );
         await clickAsUser(page, '#page-label-range-input');
         await page.keyboard.type('110');
-        await expect.poll(() => page.$eval(`${PAGES_PANEL} .pdf-sidebar-pages-primary-button`, button => (button as HTMLButtonElement).disabled), {timeout: 15_000}).toBe(false);
+        await expect
+            .poll(
+                () => page.$eval(`${PAGES_PANEL} .pdf-sidebar-pages-primary-button`, (button) => (button as HTMLButtonElement).disabled),
+                {timeout: 15_000},
+            )
+            .toBe(false);
         // Setup only: the typed range can push Apply below the sidebar's fold; the click itself is still a trusted click.
-        await page.$eval(`${PAGES_PANEL} .pdf-sidebar-pages-primary-button`, button => button.scrollIntoView({block: 'center'}));
+        await page.$eval(`${PAGES_PANEL} .pdf-sidebar-pages-primary-button`, (button) => button.scrollIntoView({block: 'center'}));
         await clickAsUser(page, `${PAGES_PANEL} .pdf-sidebar-pages-primary-button`);
         await goToPageViaToolbar(page, 111);
         await waitForToolbarCurrentPage(page, 111);
@@ -287,7 +299,7 @@ describe('Electron E2E - page numbering start limit', () => {
         const saved = await saveViaVisibleToolbar(page, 30_000, fixture);
         expect(saved.detail.path).toBeTruthy();
         const ranges = await readSavedPageLabelRanges(fixture);
-        expect(ranges.find(range => range.startPage === 111)).toEqual({
+        expect(ranges.find((range) => range.startPage === 111)).toEqual({
             startPage: 111,
             style: '/A',
             startNumber: 111,
@@ -296,11 +308,13 @@ describe('Electron E2E - page numbering start limit', () => {
 
     it('opens a document whose imported letter start is too large to print and keeps its labels readable', async () => {
         const {page} = sessions.getSession();
-        const fixture = await createPageLabelRangesFixturePdf(`page-label-huge-import-${Date.now()}.pdf`, 3, [{
-            startPage: 1,
-            style: 'A',
-            startNumber: 1_000_000_000,
-        }]);
+        const fixture = await createPageLabelRangesFixturePdf(`page-label-huge-import-${Date.now()}.pdf`, 3, [
+            {
+                startPage: 1,
+                style: 'A',
+                startNumber: 1_000_000_000,
+            },
+        ]);
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
         // 1,000,000,000 is "L" repeated 38,461,539 times; the toolbar shows its bounded head with a visible ellipsis.
@@ -314,13 +328,13 @@ describe('Electron E2E - page numbering start limit', () => {
 async function openPagesPanel(page: Page) {
     await openDocumentSidebarTab(page, 'Pages');
     const disclosure = `${PAGES_PANEL} .pdf-sidebar-pages-disclosure`;
-    if (await page.$eval(disclosure, button => button.getAttribute('aria-expanded')) !== 'true') {
+    if ((await page.$eval(disclosure, (button) => button.getAttribute('aria-expanded'))) !== 'true') {
         await clickAsUser(page, disclosure);
     }
 }
 
 async function readControlHit(control: ElementHandle<Element>) {
-    return control.evaluate(element => {
+    return control.evaluate((element) => {
         const {left, right, top, bottom, width, height} = element.getBoundingClientRect();
         const x = left + width / 2;
         const y = top + height / 2;
@@ -331,8 +345,7 @@ async function readControlHit(control: ElementHandle<Element>) {
             top,
             bottom,
             innerHeight: window.innerHeight,
-            insideWindow: width > 0 && height > 0 && left >= 0 && right <= window.innerWidth
-                && top >= 0 && bottom <= window.innerHeight,
+            insideWindow: width > 0 && height > 0 && left >= 0 && right <= window.innerWidth && top >= 0 && bottom <= window.innerHeight,
             hitsControl: element.contains(hit),
             hit: hit?.getAttribute('class') ?? hit?.tagName ?? null,
         };

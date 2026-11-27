@@ -1,13 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type {
-    IScanCleanupOptions,
-    IScanCleanupPageOverride,
-    TScanCleanupLayoutByPage,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {describe, expect, it} from 'vitest';
+import type {IScanCleanupOptions, IScanCleanupPageOverride, TScanCleanupLayoutByPage} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     addScanCleanupDocumentCanvasObservedPage,
     addScanCleanupDocumentCanvasPage,
@@ -22,10 +14,7 @@ import {
     resolveScanCleanupProvisionalDocumentCanvas,
     SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
 } from '@evb/scan-cleanup/core/policy/documentCanvas';
-import type {
-    IPdfPageSizeStore,
-    IPdfPageSize,
-} from '@electron/pdf/pdfPageSizes';
+import type {IPdfPageSizeStore, IPdfPageSize} from '@electron/pdf/pdfPageSizes';
 
 const options: IScanCleanupOptions = {
     preserveOriginalQuality: false,
@@ -96,101 +85,94 @@ describe('scan cleanup document canvas', () => {
             }
 
             const legacyCanvas = resolveScanCleanupDocumentCanvas(pages, 150, options, {});
-            expect(resolveScanCleanupDocumentCanvasFromAccumulator(
-                accumulator,
-                150,
-                options,
-            )).toEqual(legacyCanvas);
+            expect(resolveScanCleanupDocumentCanvasFromAccumulator(accumulator, 150, options)).toEqual(legacyCanvas);
 
-            addScanCleanupDocumentCanvasObservedPage(
-                accumulator,
-                pages[0]!,
-                options,
-                'two-page-spread',
-            );
-            expect(resolveScanCleanupDocumentCanvasFromAccumulator(
-                accumulator,
-                150,
-                options,
-            )).toEqual(legacyCanvas);
+            addScanCleanupDocumentCanvasObservedPage(accumulator, pages[0]!, options, 'two-page-spread');
+            expect(resolveScanCleanupDocumentCanvasFromAccumulator(accumulator, 150, options)).toEqual(legacyCanvas);
         });
     });
 
-    it.each([
-        0,
-        -1,
-        Number.NaN,
-        Number.POSITIVE_INFINITY,
-    ])('falls back to output dimensions for an invalid intrinsic width (%s)', intrinsicRasterWidthPx => {
-        expect(resolveScanCleanupMatchedCanvasPlacement({
-            outputWidthPx: 100,
-            outputHeightPx: 80,
-            intrinsicRasterWidthPx,
-            intrinsicRasterHeightPx: 40,
-            placementOffsetXPx: 0,
-            placementOffsetYPx: 0,
-        })).toMatchObject({
-            intrinsicRasterWidthPx: 100,
-            intrinsicRasterHeightPx: 40,
-            matchScaleX: 1,
-            matchScaleY: 2,
-        });
-    });
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+        'falls back to output dimensions for an invalid intrinsic width (%s)',
+        (intrinsicRasterWidthPx) => {
+            expect(
+                resolveScanCleanupMatchedCanvasPlacement({
+                    outputWidthPx: 100,
+                    outputHeightPx: 80,
+                    intrinsicRasterWidthPx,
+                    intrinsicRasterHeightPx: 40,
+                    placementOffsetXPx: 0,
+                    placementOffsetYPx: 0,
+                }),
+            ).toMatchObject({
+                intrinsicRasterWidthPx: 100,
+                intrinsicRasterHeightPx: 40,
+                matchScaleX: 1,
+                matchScaleY: 2,
+            });
+        },
+    );
 
-    it.each([
-        0,
-        -1,
-        Number.NaN,
-        Number.POSITIVE_INFINITY,
-    ])('falls back to output dimensions for an invalid intrinsic height (%s)', intrinsicRasterHeightPx => {
-        expect(resolveScanCleanupMatchedCanvasPlacement({
-            outputWidthPx: 100,
-            outputHeightPx: 80,
-            intrinsicRasterWidthPx: 50,
-            intrinsicRasterHeightPx,
-            placementOffsetXPx: 0,
-            placementOffsetYPx: 0,
-        })).toMatchObject({
-            intrinsicRasterWidthPx: 50,
-            intrinsicRasterHeightPx: 80,
-            matchScaleX: 2,
-            matchScaleY: 1,
-        });
-    });
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+        'falls back to output dimensions for an invalid intrinsic height (%s)',
+        (intrinsicRasterHeightPx) => {
+            expect(
+                resolveScanCleanupMatchedCanvasPlacement({
+                    outputWidthPx: 100,
+                    outputHeightPx: 80,
+                    intrinsicRasterWidthPx: 50,
+                    intrinsicRasterHeightPx,
+                    placementOffsetXPx: 0,
+                    placementOffsetYPx: 0,
+                }),
+            ).toMatchObject({
+                intrinsicRasterWidthPx: 50,
+                intrinsicRasterHeightPx: 80,
+                matchScaleX: 2,
+                matchScaleY: 1,
+            });
+        },
+    );
 
-    it.each([
-        0,
-        -1,
-        Number.NaN,
-        Number.POSITIVE_INFINITY,
-    ])('falls back to output dimensions for an invalid matched content width (%s)', matchedCanvasContentWidthPx => {
-        expect(resolveScanCleanupMatchedCanvasPlacement({
-            outputWidthPx: 100,
-            outputHeightPx: 80,
-            matchedCanvasContentWidthPx,
-            matchedCanvasContentHeightPx: 40,
-            intrinsicRasterWidthPx: 50,
-            intrinsicRasterHeightPx: 40,
-            placementOffsetXPx: 0,
-            placementOffsetYPx: 0,
-        })).toMatchObject({
-            contentWidthPx: 100,
-            contentHeightPx: 40,
-            matchScaleX: 2,
-            matchScaleY: 1,
-        });
-    });
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+        'falls back to output dimensions for an invalid matched content width (%s)',
+        (matchedCanvasContentWidthPx) => {
+            expect(
+                resolveScanCleanupMatchedCanvasPlacement({
+                    outputWidthPx: 100,
+                    outputHeightPx: 80,
+                    matchedCanvasContentWidthPx,
+                    matchedCanvasContentHeightPx: 40,
+                    intrinsicRasterWidthPx: 50,
+                    intrinsicRasterHeightPx: 40,
+                    placementOffsetXPx: 0,
+                    placementOffsetYPx: 0,
+                }),
+            ).toMatchObject({
+                contentWidthPx: 100,
+                contentHeightPx: 40,
+                matchScaleX: 2,
+                matchScaleY: 1,
+            });
+        },
+    );
 
     it('takes the rectangle a rotated page is actually presented on', () => {
         // A landscape scan stored as a rotated portrait page is landscape to
         // the reader, and that is the frame the preview and the output carry.
-        expect(resolveScanCleanupDocumentCanvas([
-            page({pageNumber: 1}),
-            page({
-                pageNumber: 2,
-                rotation: 90,
-            }),
-        ], 150, options)).toEqual({
+        expect(
+            resolveScanCleanupDocumentCanvas(
+                [
+                    page({pageNumber: 1}),
+                    page({
+                        pageNumber: 2,
+                        rotation: 90,
+                    }),
+                ],
+                150,
+                options,
+            ),
+        ).toEqual({
             widthPoints: 792,
             heightPoints: 612,
             widthPx: 1650,
@@ -201,11 +183,9 @@ describe('scan cleanup document canvas', () => {
     it('places every matched page on the largest rectangle a uniform document carries', () => {
         // The ordinary scan: one paper size throughout, and the canvas is that
         // page — not a width from one page and a height from another.
-        expect(resolveScanCleanupDocumentCanvas([
-            page({pageNumber: 1}),
-            page({pageNumber: 2}),
-            page({pageNumber: 3}),
-        ], 150, options)).toEqual({
+        expect(
+            resolveScanCleanupDocumentCanvas([page({pageNumber: 1}), page({pageNumber: 2}), page({pageNumber: 3})], 150, options),
+        ).toEqual({
             widthPoints: 612,
             heightPoints: 792,
             widthPx: 1275,
@@ -217,18 +197,24 @@ describe('scan cleanup document canvas', () => {
         // A4 beside a letter page: the canvas is the larger *actual* rectangle
         // and the other page is scaled onto it, rather than a width from one
         // page and a height from another that no page in the document has.
-        expect(resolveScanCleanupDocumentCanvas([
-            page({
-                pageNumber: 1,
-                widthPoints: 612,
-                heightPoints: 792,
-            }),
-            page({
-                pageNumber: 2,
-                widthPoints: 595,
-                heightPoints: 842,
-            }),
-        ], 72, options)).toEqual({
+        expect(
+            resolveScanCleanupDocumentCanvas(
+                [
+                    page({
+                        pageNumber: 1,
+                        widthPoints: 612,
+                        heightPoints: 792,
+                    }),
+                    page({
+                        pageNumber: 2,
+                        widthPoints: 595,
+                        heightPoints: 842,
+                    }),
+                ],
+                72,
+                options,
+            ),
+        ).toEqual({
             widthPoints: 595,
             heightPoints: 842,
             widthPx: 595,
@@ -268,10 +254,7 @@ describe('scan cleanup document canvas', () => {
             heightPx: 3_235,
         };
         const singles: TScanCleanupLayoutByPage = Object.fromEntries(
-            book.map(pageSize => [
-                String(pageSize.pageNumber),
-                'single-uncut-page',
-            ] as const),
+            book.map((pageSize) => [String(pageSize.pageNumber), 'single-uncut-page'] as const),
         );
 
         it('normalizes onto the leaves, fitting the cover down instead of blowing every leaf up', () => {
@@ -288,20 +271,20 @@ describe('scan cleanup document canvas', () => {
                 addScanCleanupDocumentCanvasPage(accumulator, pageSize, options, 'single-uncut-page');
             }
 
-            expect(resolveScanCleanupDocumentCanvasFromAccumulator(accumulator, 72, options, true))
-                .toEqual(leafCanvas);
-            expect(resolveScanCleanupProvisionalDocumentCanvas(book, 72, options, singles))
-                .toEqual(leafCanvas);
+            expect(resolveScanCleanupDocumentCanvasFromAccumulator(accumulator, 72, options, true)).toEqual(leafCanvas);
+            expect(resolveScanCleanupProvisionalDocumentCanvas(book, 72, options, singles)).toEqual(leafCanvas);
         });
 
-        it('keeps a scanner\'s per-leaf crop jitter one paper, sized to its largest leaf', () => {
-            const jittered = book.map(pageSize => pageSize.pageNumber > 2
-                ? {
-                    ...pageSize,
-                    widthPoints: 2_060 + (pageSize.pageNumber % 5) * 2,
-                    heightPoints: 3_235 - (pageSize.pageNumber % 3) * 3,
-                }
-                : pageSize);
+        it("keeps a scanner's per-leaf crop jitter one paper, sized to its largest leaf", () => {
+            const jittered = book.map((pageSize) =>
+                pageSize.pageNumber > 2
+                    ? {
+                          ...pageSize,
+                          widthPoints: 2_060 + (pageSize.pageNumber % 5) * 2,
+                          heightPoints: 3_235 - (pageSize.pageNumber % 3) * 3,
+                      }
+                    : pageSize,
+            );
 
             expect(resolveScanCleanupDocumentCanvas(jittered, 72, options, singles)).toMatchObject({
                 widthPoints: 2_068,
@@ -311,52 +294,49 @@ describe('scan cleanup document canvas', () => {
 
         it('finds the leaves even after many other sizes filled the tally first', () => {
             // Seventy one-off sizes arrive before the leaves.
-            const oddities = Array.from({length: 70}, (_, index) => page({
-                pageNumber: index + 1,
-                widthPoints: 1_000 + index * 40,
-                heightPoints: 1_500 + index * 40,
-            }));
-            const leaves = Array.from({length: 300}, (_, index) => page({
-                pageNumber: index + 71,
-                widthPoints: 2_060,
-                heightPoints: 3_235,
-            }));
+            const oddities = Array.from({length: 70}, (_, index) =>
+                page({
+                    pageNumber: index + 1,
+                    widthPoints: 1_000 + index * 40,
+                    heightPoints: 1_500 + index * 40,
+                }),
+            );
+            const leaves = Array.from({length: 300}, (_, index) =>
+                page({
+                    pageNumber: index + 71,
+                    widthPoints: 2_060,
+                    heightPoints: 3_235,
+                }),
+            );
             const accumulator = createScanCleanupDocumentCanvasAccumulator();
-            for (const pageSize of [
-                ...oddities,
-                ...leaves,
-            ]) {
+            for (const pageSize of [...oddities, ...leaves]) {
                 addScanCleanupDocumentCanvasPage(accumulator, pageSize, options, 'single-uncut-page');
             }
 
-            expect(resolveScanCleanupDocumentCanvasFromAccumulator(accumulator, 72, options, true))
-                .toMatchObject({
-                    widthPoints: 2_060,
-                    heightPoints: 3_235,
-                });
+            expect(resolveScanCleanupDocumentCanvasFromAccumulator(accumulator, 72, options, true)).toMatchObject({
+                widthPoints: 2_060,
+                heightPoints: 3_235,
+            });
         });
 
         it('counts both leaves a split spread produces', () => {
             // Three spreads give six leaves beside two whole sheets of another
             // size: three quarters of the output pages are leaves.
             const sheets = [
-                ...[
-                    1,
-                    2,
-                    3,
-                ].map(pageNumber => page({
-                    pageNumber,
-                    widthPoints: 1_224,
-                    heightPoints: 792,
-                })),
-                ...[
-                    4,
-                    5,
-                ].map(pageNumber => page({
-                    pageNumber,
-                    widthPoints: 595,
-                    heightPoints: 842,
-                })),
+                ...[1, 2, 3].map((pageNumber) =>
+                    page({
+                        pageNumber,
+                        widthPoints: 1_224,
+                        heightPoints: 792,
+                    }),
+                ),
+                ...[4, 5].map((pageNumber) =>
+                    page({
+                        pageNumber,
+                        widthPoints: 595,
+                        heightPoints: 842,
+                    }),
+                ),
             ];
             const layouts: TScanCleanupLayoutByPage = {
                 '1': 'two-page-spread',
@@ -373,13 +353,15 @@ describe('scan cleanup document canvas', () => {
         });
 
         it('keeps the largest sheet for a document with no paper three quarters of it share', () => {
-            const mixed = book.slice(0, 4).map((pageSize, index) => index < 2
-                ? {
-                    ...pageSize,
-                    widthPoints: 2_912,
-                    heightPoints: 4_368,
-                }
-                : pageSize);
+            const mixed = book.slice(0, 4).map((pageSize, index) =>
+                index < 2
+                    ? {
+                          ...pageSize,
+                          widthPoints: 2_912,
+                          heightPoints: 4_368,
+                      }
+                    : pageSize,
+            );
 
             expect(resolveScanCleanupDocumentCanvas(mixed, 72, options, singles)).toMatchObject({
                 widthPoints: 2_912,
@@ -402,8 +384,9 @@ describe('scan cleanup document canvas', () => {
             }),
         ];
 
-        expect(resolveScanCleanupDocumentCanvas(pages, 150, options))
-            .toEqual(resolveScanCleanupDocumentCanvas([...pages].reverse(), 150, options));
+        expect(resolveScanCleanupDocumentCanvas(pages, 150, options)).toEqual(
+            resolveScanCleanupDocumentCanvas([...pages].reverse(), 150, options),
+        );
     });
 
     it('keeps a Letter document Letter-sized', () => {
@@ -411,10 +394,7 @@ describe('scan cleanup document canvas', () => {
         // the page within it, so neither is an input here: a default 5 mm
         // margin can no longer turn 612x792 into 640x820, and a quarter turn
         // can no longer square it to 792x792.
-        expect(resolveScanCleanupDocumentCanvas([
-            page({pageNumber: 1}),
-            page({pageNumber: 2}),
-        ], 150, options)).toEqual({
+        expect(resolveScanCleanupDocumentCanvas([page({pageNumber: 1}), page({pageNumber: 2})], 150, options)).toEqual({
             widthPoints: 612,
             heightPoints: 792,
             widthPx: 1275,
@@ -435,8 +415,8 @@ describe('scan cleanup document canvas', () => {
         // The same rectangle, at the resolution the run renders with.
         expect(final?.widthPoints).toBe(preview?.widthPoints);
         expect(final?.heightPoints).toBe(preview?.heightPoints);
-        expect(final?.widthPx).toBe(Math.round(612 / 72 * 400));
-        expect(final?.heightPx).toBe(Math.round(792 / 72 * 400));
+        expect(final?.widthPx).toBe(Math.round((612 / 72) * 400));
+        expect(final?.heightPx).toBe(Math.round((792 / 72) * 400));
     });
 
     it('rounds the grid the way the renderer does, so a page that fits is not resampled', () => {
@@ -444,11 +424,17 @@ describe('scan cleanup document canvas', () => {
         // canvas that rounded down would be a pixel narrower than the raster of
         // the very page it was measured from — and every page of the document
         // would be resampled to recover that pixel.
-        const canvas = resolveScanCleanupDocumentCanvas([page({
-            pageNumber: 1,
-            widthPoints: 100.5,
-            heightPoints: 200.8,
-        })], 150, options);
+        const canvas = resolveScanCleanupDocumentCanvas(
+            [
+                page({
+                    pageNumber: 1,
+                    widthPoints: 100.5,
+                    heightPoints: 200.8,
+                }),
+            ],
+            150,
+            options,
+        );
 
         expect(canvas).toMatchObject({
             widthPx: 210,
@@ -457,11 +443,17 @@ describe('scan cleanup document canvas', () => {
     });
 
     it('lowers the shared grid rather than exceeding the guardrails a page has', () => {
-        const canvas = resolveScanCleanupDocumentCanvas([page({
-            pageNumber: 1,
-            widthPoints: 3_000,
-            heightPoints: 4_000,
-        })], 1_200, options);
+        const canvas = resolveScanCleanupDocumentCanvas(
+            [
+                page({
+                    pageNumber: 1,
+                    widthPoints: 3_000,
+                    heightPoints: 4_000,
+                }),
+            ],
+            1_200,
+            options,
+        );
 
         expect(canvas?.widthPoints).toBe(3_000);
         expect(canvas?.heightPoints).toBe(4_000);
@@ -475,17 +467,21 @@ describe('scan cleanup document canvas', () => {
     });
 
     it('keeps a mixed normal and absurd-paper document inside the engine budget', () => {
-        const canvas = resolveScanCleanupDocumentCanvas([
-            page({pageNumber: 1}),
-            page({
-                pageNumber: 2,
-                widthPoints: 4_766.9,
-                heightPoints: 6_355.86,
-            }),
-        ], 600, {
-            ...options,
-            outputMode: 'auto',
-        });
+        const canvas = resolveScanCleanupDocumentCanvas(
+            [
+                page({pageNumber: 1}),
+                page({
+                    pageNumber: 2,
+                    widthPoints: 4_766.9,
+                    heightPoints: 6_355.86,
+                }),
+            ],
+            600,
+            {
+                ...options,
+                outputMode: 'auto',
+            },
+        );
 
         expect(canvas).not.toBeNull();
         expect(canvas!.widthPx * canvas!.heightPx).toBeLessThanOrEqual(80_000_000);
@@ -493,8 +489,8 @@ describe('scan cleanup document canvas', () => {
         // prove the capped DPI reproduces a grid that is safe too.
         const cappedDpi = resolveScanCleanupDocumentCanvasRenderDpi(600, canvas);
         expect(resolveScanCleanupDocumentCanvasRenderDpi(72, canvas)).toBe(cappedDpi);
-        const reconstructedWidth = Math.round(canvas!.widthPoints / 72 * cappedDpi);
-        const reconstructedHeight = Math.round(canvas!.heightPoints / 72 * cappedDpi);
+        const reconstructedWidth = Math.round((canvas!.widthPoints / 72) * cappedDpi);
+        const reconstructedHeight = Math.round((canvas!.heightPoints / 72) * cappedDpi);
         expect(reconstructedWidth * reconstructedHeight).toBeLessThanOrEqual(80_000_000);
         expect(reconstructedWidth).toBeLessThanOrEqual(40_000);
         expect(reconstructedHeight).toBeLessThanOrEqual(40_000);
@@ -527,22 +523,27 @@ describe('scan cleanup document canvas', () => {
         ];
 
         for (const paper of papers) {
-            const canvas = resolveScanCleanupDocumentCanvas([page({
-                pageNumber: 1,
-                widthPoints: paper.widthPoints,
-                heightPoints: paper.heightPoints,
-            })], paper.renderDpi, {
-                ...options,
-                outputMode: 'color',
-            });
+            const canvas = resolveScanCleanupDocumentCanvas(
+                [
+                    page({
+                        pageNumber: 1,
+                        widthPoints: paper.widthPoints,
+                        heightPoints: paper.heightPoints,
+                    }),
+                ],
+                paper.renderDpi,
+                {
+                    ...options,
+                    outputMode: 'color',
+                },
+            );
 
             expect(canvas!.widthPx * canvas!.heightPx).toBeLessThanOrEqual(80_000_000);
             // Trimming spends at most the pixel rounding added, so the grid is
             // still the paper's shape at the paper's own size.
             expect(canvas!.widthPx).toBeGreaterThanOrEqual(1);
             expect(canvas!.heightPx).toBeGreaterThanOrEqual(1);
-            expect(canvas!.widthPx / canvas!.heightPx)
-                .toBeCloseTo(paper.widthPoints / paper.heightPoints, 3);
+            expect(canvas!.widthPx / canvas!.heightPx).toBeCloseTo(paper.widthPoints / paper.heightPoints, 3);
             expect(canvas!.widthPoints).toBe(paper.widthPoints);
             expect(canvas!.heightPoints).toBe(paper.heightPoints);
         }
@@ -553,11 +554,17 @@ describe('scan cleanup document canvas', () => {
         // pixel budget, is what bounds it: the resolution lands exactly on the
         // limit, and rounding a rectangle up from exactly the limit is the one
         // way a plan measured to fit produces a grid that does not.
-        const canvas = resolveScanCleanupDocumentCanvas([page({
-            pageNumber: 1,
-            widthPoints: 2_419,
-            heightPoints: 71,
-        })], 1_200, options);
+        const canvas = resolveScanCleanupDocumentCanvas(
+            [
+                page({
+                    pageNumber: 1,
+                    widthPoints: 2_419,
+                    heightPoints: 71,
+                }),
+            ],
+            1_200,
+            options,
+        );
 
         expect(canvas?.widthPx).toBe(40_000);
         expect(canvas!.widthPx).toBeLessThanOrEqual(40_000);
@@ -565,20 +572,19 @@ describe('scan cleanup document canvas', () => {
     });
 
     it('sizes the shared grid by the budget the document can actually be rendered under', () => {
-        const pages = [page({
-            pageNumber: 1,
-            widthPoints: 3_000,
-            heightPoints: 4_000,
-        })];
+        const pages = [
+            page({
+                pageNumber: 1,
+                widthPoints: 3_000,
+                heightPoints: 4_000,
+            }),
+        ];
         const bilevel = resolveScanCleanupDocumentCanvas(pages, 1_200, options);
         const automatic = resolveScanCleanupDocumentCanvas(pages, 1_200, {
             ...options,
             outputMode: 'auto',
         });
-        const oneColourPage = resolveScanCleanupDocumentCanvas([
-            ...pages,
-            page({pageNumber: 2}),
-        ], 1_200, {
+        const oneColourPage = resolveScanCleanupDocumentCanvas([...pages, page({pageNumber: 2})], 1_200, {
             ...options,
             pageOverrides: {'2': override({outputModeOverride: 'color'})},
         });
@@ -596,10 +602,12 @@ describe('scan cleanup document canvas', () => {
             // Two book pages on one sheet become two pages of half its width.
             // Measuring the sheet would put each half on a canvas it fills
             // halfway and double the width of the document.
-            expect(resolveScanCleanupDocumentCanvas([spread], 150, {
-                ...options,
-                layoutMode: 'force-two-page',
-            })).toEqual({
+            expect(
+                resolveScanCleanupDocumentCanvas([spread], 150, {
+                    ...options,
+                    layoutMode: 'force-two-page',
+                }),
+            ).toEqual({
                 widthPoints: 612,
                 heightPoints: 792,
                 widthPx: 1275,
@@ -608,20 +616,28 @@ describe('scan cleanup document canvas', () => {
         });
 
         it('measures a page kept from a spread as the half sheet it is', () => {
-            expect(resolveScanCleanupDocumentCanvas([spread], 150, {
-                ...options,
-                pageOverrides: {'1': override({layoutOverride: 'keep-left'})},
-            })).toMatchObject({
+            expect(
+                resolveScanCleanupDocumentCanvas([spread], 150, {
+                    ...options,
+                    pageOverrides: {'1': override({layoutOverride: 'keep-left'})},
+                }),
+            ).toMatchObject({
                 widthPoints: 612,
                 heightPoints: 792,
             });
-            expect(resolveScanCleanupDocumentCanvas([spread], 150, {
-                ...options,
-                pageOverrides: {'1': override({manualSplit: {
-                    xNormalized: 0.5,
-                    rotationDegrees: 0,
-                }})},
-            })).toMatchObject({
+            expect(
+                resolveScanCleanupDocumentCanvas([spread], 150, {
+                    ...options,
+                    pageOverrides: {
+                        '1': override({
+                            manualSplit: {
+                                xNormalized: 0.5,
+                                rotationDegrees: 0,
+                            },
+                        }),
+                    },
+                }),
+            ).toMatchObject({
                 widthPoints: 612,
                 heightPoints: 792,
             });
@@ -641,16 +657,17 @@ describe('scan cleanup document canvas', () => {
                 '2': 'two-page-spread',
             };
 
-            expect(resolveScanCleanupDocumentCanvas(pages, 150, options, detectedSpreads))
-                .toMatchObject({
-                    widthPoints: 612,
-                    heightPoints: 792,
-                });
+            expect(resolveScanCleanupDocumentCanvas(pages, 150, options, detectedSpreads)).toMatchObject({
+                widthPoints: 612,
+                heightPoints: 792,
+            });
             // A sheet that carries one page keeps the whole sheet.
-            expect(resolveScanCleanupDocumentCanvas(pages, 150, options, {
-                '1': 'single-uncut-page',
-                '2': 'single-uncut-page',
-            })).toMatchObject({
+            expect(
+                resolveScanCleanupDocumentCanvas(pages, 150, options, {
+                    '1': 'single-uncut-page',
+                    '2': 'single-uncut-page',
+                }),
+            ).toMatchObject({
                 widthPoints: 1_224,
                 heightPoints: 792,
             });
@@ -668,8 +685,7 @@ describe('scan cleanup document canvas', () => {
 
             // Nothing is known: no page is assumed to be cut, which never
             // shrinks anyone's content.
-            expect(resolveScanCleanupDocumentCanvas(pages, 150, options, {}))
-                .toMatchObject({widthPoints: 1_224});
+            expect(resolveScanCleanupDocumentCanvas(pages, 150, options, {})).toMatchObject({widthPoints: 1_224});
             // One page came back a spread and the other has not come back at
             // all. Taking the first page's answer for the second would halve
             // the rectangle on the strength of a classification that says
@@ -678,8 +694,7 @@ describe('scan cleanup document canvas', () => {
             // sheet is measured as the sheet it is; a page that later turns
             // out to be a spread is padded, never shrunk, and the run reports
             // that it had to measure that way.
-            expect(resolveScanCleanupDocumentCanvas(pages, 150, options, {'1': 'two-page-spread'}))
-                .toMatchObject({widthPoints: 1_224});
+            expect(resolveScanCleanupDocumentCanvas(pages, 150, options, {'1': 'two-page-spread'})).toMatchObject({widthPoints: 1_224});
         });
 
         it('builds a provisional preview canvas only from pages whose layout is known', () => {
@@ -697,101 +712,97 @@ describe('scan cleanup document canvas', () => {
                 }),
             ];
 
-            expect(resolveScanCleanupProvisionalDocumentCanvas(pages, 150, options, {}))
-                .toBeNull();
-            expect(resolveScanCleanupProvisionalDocumentCanvas(
-                pages,
-                150,
-                options,
-                {'1': 'two-page-spread'},
-            )).toMatchObject({
+            expect(resolveScanCleanupProvisionalDocumentCanvas(pages, 150, options, {})).toBeNull();
+            expect(resolveScanCleanupProvisionalDocumentCanvas(pages, 150, options, {'1': 'two-page-spread'})).toMatchObject({
                 widthPoints: 612,
                 heightPoints: 792,
             });
             // An interim single-page outlier cannot resize every known spread
             // leaf. A tie is resolved by the earliest observed cohort, and a
             // later spread makes that cohort the clear document majority.
-            expect(resolveScanCleanupProvisionalDocumentCanvas(
-                pages,
-                150,
-                options,
-                {
+            expect(
+                resolveScanCleanupProvisionalDocumentCanvas(pages, 150, options, {
                     '1': 'two-page-spread',
                     '2': 'single-uncut-page',
-                },
-            )).toMatchObject({
+                }),
+            ).toMatchObject({
                 widthPoints: 612,
                 heightPoints: 792,
             });
-            expect(resolveScanCleanupProvisionalDocumentCanvas(
-                pages,
-                150,
-                options,
-                {
+            expect(
+                resolveScanCleanupProvisionalDocumentCanvas(pages, 150, options, {
                     '1': 'two-page-spread',
                     '2': 'single-uncut-page',
                     '3': 'two-page-spread',
-                },
-            )).toMatchObject({
+                }),
+            ).toMatchObject({
                 widthPoints: 612,
                 heightPoints: 792,
             });
             // Once reconciliation is complete, every output page votes: two
             // split spreads give four leaves beside one landscape single, so
             // the leaves hold the paper and the single is fitted onto it.
-            expect(resolveScanCleanupProvisionalDocumentCanvas(
-                pages,
-                150,
-                options,
-                {
-                    '1': 'two-page-spread',
-                    '2': 'single-uncut-page',
-                    '3': 'two-page-spread',
-                },
-                true,
-            )).toMatchObject({
+            expect(
+                resolveScanCleanupProvisionalDocumentCanvas(
+                    pages,
+                    150,
+                    options,
+                    {
+                        '1': 'two-page-spread',
+                        '2': 'single-uncut-page',
+                        '3': 'two-page-spread',
+                    },
+                    true,
+                ),
+            ).toMatchObject({
                 widthPoints: 612,
                 heightPoints: 792,
             });
             // Half leaves and half whole sheets is a genuinely mixed document,
             // and its authoritative canvas grows to the largest sheet.
-            expect(resolveScanCleanupProvisionalDocumentCanvas(
-                pages,
-                150,
-                options,
-                {
-                    '1': 'two-page-spread',
-                    '2': 'single-uncut-page',
-                    '3': 'single-uncut-page',
-                },
-                true,
-            )).toMatchObject({
+            expect(
+                resolveScanCleanupProvisionalDocumentCanvas(
+                    pages,
+                    150,
+                    options,
+                    {
+                        '1': 'two-page-spread',
+                        '2': 'single-uncut-page',
+                        '3': 'single-uncut-page',
+                    },
+                    true,
+                ),
+            ).toMatchObject({
                 widthPoints: 1_224,
                 heightPoints: 792,
             });
             // A manual single-page choice is already authoritative while
             // automatic reconciliation is still running: it votes with the
             // known spreads, whose four leaves still hold the paper.
-            expect(resolveScanCleanupProvisionalDocumentCanvas(
-                pages,
-                150,
-                {
-                    ...options,
-                    pageOverrides: {'2': override({layoutOverride: 'single'})},
-                },
-                {
-                    '1': 'two-page-spread',
-                    '3': 'two-page-spread',
-                },
-            )).toMatchObject({
+            expect(
+                resolveScanCleanupProvisionalDocumentCanvas(
+                    pages,
+                    150,
+                    {
+                        ...options,
+                        pageOverrides: {'2': override({layoutOverride: 'single'})},
+                    },
+                    {
+                        '1': 'two-page-spread',
+                        '3': 'two-page-spread',
+                    },
+                ),
+            ).toMatchObject({
                 widthPoints: 612,
                 heightPoints: 792,
             });
             // Explicit layout is evidence before detection starts.
-            expect(resolveScanCleanupProvisionalDocumentCanvas(pages, 150, {
-                ...options,
-                layoutMode: 'force-two-page',
-            })).toMatchObject({
+            expect(
+                resolveScanCleanupProvisionalDocumentCanvas(pages, 150, {
+                    ...options,
+                    layoutMode: 'force-two-page',
+                }),
+            ).toMatchObject({
                 widthPoints: 612,
                 heightPoints: 792,
             });
@@ -800,17 +811,24 @@ describe('scan cleanup document canvas', () => {
         it('puts a spread half and a page scanned on its own on the same rectangle', () => {
             // The same book scanned two ways: spreads plus a cover sheet that
             // carries a single page. Both produce the same paper.
-            expect(resolveScanCleanupDocumentCanvas([
-                spread,
-                page({
-                    pageNumber: 2,
-                    widthPoints: 612,
-                    heightPoints: 792,
-                }),
-            ], 150, options, {
-                '1': 'two-page-spread',
-                '2': 'single-uncut-page',
-            })).toMatchObject({
+            expect(
+                resolveScanCleanupDocumentCanvas(
+                    [
+                        spread,
+                        page({
+                            pageNumber: 2,
+                            widthPoints: 612,
+                            heightPoints: 792,
+                        }),
+                    ],
+                    150,
+                    options,
+                    {
+                        '1': 'two-page-spread',
+                        '2': 'single-uncut-page',
+                    },
+                ),
+            ).toMatchObject({
                 widthPoints: 612,
                 heightPoints: 792,
             });
@@ -819,12 +837,17 @@ describe('scan cleanup document canvas', () => {
         it('divides the presented width, not the stored one', () => {
             // A spread stored as a rotated portrait page is a landscape sheet
             // to the reader, and it is cut along the width the reader sees.
-            expect(resolveScanCleanupOutputPageRect(page({
-                pageNumber: 1,
-                widthPoints: 792,
-                heightPoints: 1_224,
-                rotation: 90,
-            }), 2)).toEqual({
+            expect(
+                resolveScanCleanupOutputPageRect(
+                    page({
+                        pageNumber: 1,
+                        widthPoints: 792,
+                        heightPoints: 1_224,
+                        rotation: 90,
+                    }),
+                    2,
+                ),
+            ).toEqual({
                 widthPoints: 612,
                 heightPoints: 792,
             });
@@ -847,10 +870,12 @@ describe('scan cleanup document canvas', () => {
 
         // The largest page is excluded, so it is not on the sheet and does not
         // decide its size.
-        expect(resolveScanCleanupDocumentCanvas(pages, 72, {
-            ...options,
-            pageOverrides: {'2': override({excluded: true})},
-        })).toMatchObject({
+        expect(
+            resolveScanCleanupDocumentCanvas(pages, 72, {
+                ...options,
+                pageOverrides: {'2': override({excluded: true})},
+            }),
+        ).toMatchObject({
             widthPoints: 612,
             heightPoints: 792,
         });
@@ -867,10 +892,12 @@ describe('scan cleanup document canvas', () => {
         expect(resolveScanCleanupDocumentCanvas([], 150, options)).toBeNull();
         expect(resolveScanCleanupDocumentCanvas([page({pageNumber: 1})], 0, options)).toBeNull();
         // And for one that produces no pages at all.
-        expect(resolveScanCleanupDocumentCanvas([page({pageNumber: 1})], 150, {
-            ...options,
-            pageOverrides: {'1': override({excluded: true})},
-        })).toBeNull();
+        expect(
+            resolveScanCleanupDocumentCanvas([page({pageNumber: 1})], 150, {
+                ...options,
+                pageOverrides: {'1': override({excluded: true})},
+            }),
+        ).toBeNull();
     });
 
     it('answers null for paper no page can be normalized onto', () => {
@@ -902,18 +929,34 @@ describe('scan cleanup document canvas', () => {
             },
         ];
         for (const geometry of unusable) {
-            expect(resolveScanCleanupDocumentCanvas([page({
-                pageNumber: 1,
-                ...geometry,
-            })], 150, options)).toBeNull();
+            expect(
+                resolveScanCleanupDocumentCanvas(
+                    [
+                        page({
+                            pageNumber: 1,
+                            ...geometry,
+                        }),
+                    ],
+                    150,
+                    options,
+                ),
+            ).toBeNull();
         }
         // A rectangle so small the grid rounds to a pixel is still paper, and
         // the smallest grid the engine accepts is one pixel.
-        expect(resolveScanCleanupDocumentCanvas([page({
-            pageNumber: 1,
-            widthPoints: 0.0001,
-            heightPoints: 0.0001,
-        })], 150, options)).toEqual({
+        expect(
+            resolveScanCleanupDocumentCanvas(
+                [
+                    page({
+                        pageNumber: 1,
+                        widthPoints: 0.0001,
+                        heightPoints: 0.0001,
+                    }),
+                ],
+                150,
+                options,
+            ),
+        ).toEqual({
             widthPoints: 0.0001,
             heightPoints: 0.0001,
             widthPx: 1,
@@ -928,21 +971,27 @@ describe('scan cleanup document canvas', () => {
         };
 
         // Paper that is the canvas needs no scaling at all.
-        expect(resolveScanCleanupCanvasFitScale(canvas, {
-            widthPoints: 612,
-            heightPoints: 792,
-        })).toBe(1);
+        expect(
+            resolveScanCleanupCanvasFitScale(canvas, {
+                widthPoints: 612,
+                heightPoints: 792,
+            }),
+        ).toBe(1);
         // The same original scanned at half the resolution arrives as a
         // half-size page, and is doubled onto the document.
-        expect(resolveScanCleanupCanvasFitScale(canvas, {
-            widthPoints: 306,
-            heightPoints: 396,
-        })).toBe(2);
+        expect(
+            resolveScanCleanupCanvasFitScale(canvas, {
+                widthPoints: 306,
+                heightPoints: 396,
+            }),
+        ).toBe(2);
         // Aspect ratio is preserved: the axis that would overrun decides.
-        expect(resolveScanCleanupCanvasFitScale(canvas, {
-            widthPoints: 306,
-            heightPoints: 792,
-        })).toBe(1);
+        expect(
+            resolveScanCleanupCanvasFitScale(canvas, {
+                widthPoints: 306,
+                heightPoints: 792,
+            }),
+        ).toBe(1);
     });
 
     describe('lossless pages that cannot keep their pixels', () => {
@@ -967,43 +1016,42 @@ describe('scan cleanup document canvas', () => {
                 heightPoints: 792,
             });
             const layoutByPage = {'1': 'two-page-spread' as const};
-            const canvas = resolveScanCleanupDocumentCanvas(
-                [spread],
-                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-                losslessOptions,
-                layoutByPage,
-            );
-            if (canvas === null) throw new Error('expected a matched canvas');
+            const canvas = resolveScanCleanupDocumentCanvas([spread], SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI, losslessOptions, layoutByPage);
+            if (canvas === null) {
+                throw new Error('expected a matched canvas');
+            }
             const store: IPdfPageSizeStore = {
                 pageCount: 1,
                 getPage: async () => spread,
                 readRange: async () => [spread],
-                forEachChunk: async onChunk => onChunk({
-                    pageCount: 1,
-                    chunkIndex: 0,
-                    firstPageNumber: 1,
-                    offset: 0,
-                    byteLength: 0,
-                    pages: [spread],
-                }),
+                forEachChunk: async (onChunk) =>
+                    onChunk({
+                        pageCount: 1,
+                        chunkIndex: 0,
+                        firstPageNumber: 1,
+                        offset: 0,
+                        byteLength: 0,
+                        pages: [spread],
+                    }),
                 close: async () => undefined,
             };
-            const plan = (readLayouts?: () => Promise<typeof layoutByPage>) => resolveMatchedCanvasResamplePagesFromStore({
-                pageSizeStore: store,
-                documentPageCount: 1,
-                canvas,
-                options: losslessOptions,
-                rasterSource: {
-                    detected: true,
-                    getPageRaster: async () => ({
-                        dpi: 300,
-                        width: 5_100,
-                        height: 3_300,
-                    }),
-                },
-                rasterDetectionAvailable: true,
-                ...(readLayouts ? {readLayouts} : {}),
-            });
+            const plan = (readLayouts?: () => Promise<typeof layoutByPage>) =>
+                resolveMatchedCanvasResamplePagesFromStore({
+                    pageSizeStore: store,
+                    documentPageCount: 1,
+                    canvas,
+                    options: losslessOptions,
+                    rasterSource: {
+                        detected: true,
+                        getPageRaster: async () => ({
+                            dpi: 300,
+                            width: 5_100,
+                            height: 3_300,
+                        }),
+                    },
+                    rasterDetectionAvailable: true,
+                    ...(readLayouts ? {readLayouts} : {}),
+                });
 
             await expect(plan(async () => layoutByPage)).resolves.toEqual([]);
             // Without the layout the whole sheet is measured against a leaf.
@@ -1011,24 +1059,23 @@ describe('scan cleanup document canvas', () => {
         });
 
         it('validates order and total page count while planning from a store', async () => {
-            const canvas = resolveScanCleanupDocumentCanvas(
-                mixedScale,
-                SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
-                losslessOptions,
-            );
-            if (canvas === null) throw new Error('expected a matched canvas');
+            const canvas = resolveScanCleanupDocumentCanvas(mixedScale, SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI, losslessOptions);
+            if (canvas === null) {
+                throw new Error('expected a matched canvas');
+            }
             const createPageSizeStore = (pages: readonly IPdfPageSize[]): IPdfPageSizeStore => ({
                 pageCount: 2,
-                getPage: async pageNumber => pages[pageNumber - 1] ?? pages[0]!,
+                getPage: async (pageNumber) => pages[pageNumber - 1] ?? pages[0]!,
                 readRange: async () => [...pages],
-                forEachChunk: async onChunk => onChunk({
-                    pageCount: 2,
-                    chunkIndex: 0,
-                    firstPageNumber: 1,
-                    offset: 0,
-                    byteLength: 0,
-                    pages: [...pages],
-                }),
+                forEachChunk: async (onChunk) =>
+                    onChunk({
+                        pageCount: 2,
+                        chunkIndex: 0,
+                        firstPageNumber: 1,
+                        offset: 0,
+                        byteLength: 0,
+                        pages: [...pages],
+                    }),
                 close: async () => undefined,
             });
             const rasterSource = {
@@ -1040,55 +1087,47 @@ describe('scan cleanup document canvas', () => {
                 }),
             };
 
-            await expect(resolveMatchedCanvasResamplePagesFromStore({
-                pageSizeStore: createPageSizeStore([
-                    mixedScale[0]!,
-                    mixedScale[1]!,
-                ]),
-                documentPageCount: 2,
-                canvas,
-                options: losslessOptions,
-                rasterSource,
-                rasterDetectionAvailable: true,
-            })).resolves.toEqual([2]);
+            await expect(
+                resolveMatchedCanvasResamplePagesFromStore({
+                    pageSizeStore: createPageSizeStore([mixedScale[0]!, mixedScale[1]!]),
+                    documentPageCount: 2,
+                    canvas,
+                    options: losslessOptions,
+                    rasterSource,
+                    rasterDetectionAvailable: true,
+                }),
+            ).resolves.toEqual([2]);
 
-            await expect(resolveMatchedCanvasResamplePagesFromStore({
-                pageSizeStore: createPageSizeStore([
-                    mixedScale[1]!,
-                    mixedScale[0]!,
-                ]),
-                documentPageCount: 2,
-                canvas,
-                options: losslessOptions,
-                rasterSource,
-                rasterDetectionAvailable: true,
-            })).rejects.toThrow(
-                'Scan cleanup page-size store returned page 2 where page 1 was expected',
-            );
-            await expect(resolveMatchedCanvasResamplePagesFromStore({
-                pageSizeStore: createPageSizeStore([mixedScale[0]!]),
-                documentPageCount: 2,
-                canvas,
-                options: losslessOptions,
-                rasterSource,
-                rasterDetectionAvailable: true,
-            })).rejects.toThrow(
-                'Scan cleanup page-size store returned 1 pages for 2 document pages',
-            );
-            await expect(resolveMatchedCanvasResamplePagesFromStore({
-                pageSizeStore: createPageSizeStore([
-                    mixedScale[0]!,
-                    mixedScale[1]!,
-                    page({pageNumber: 3}),
-                ]),
-                documentPageCount: 2,
-                canvas,
-                options: losslessOptions,
-                rasterSource,
-                rasterDetectionAvailable: true,
-            })).rejects.toThrow(
-                'Scan cleanup page-size store returned 3 pages for 2 document pages',
-            );
+            await expect(
+                resolveMatchedCanvasResamplePagesFromStore({
+                    pageSizeStore: createPageSizeStore([mixedScale[1]!, mixedScale[0]!]),
+                    documentPageCount: 2,
+                    canvas,
+                    options: losslessOptions,
+                    rasterSource,
+                    rasterDetectionAvailable: true,
+                }),
+            ).rejects.toThrow('Scan cleanup page-size store returned page 2 where page 1 was expected');
+            await expect(
+                resolveMatchedCanvasResamplePagesFromStore({
+                    pageSizeStore: createPageSizeStore([mixedScale[0]!]),
+                    documentPageCount: 2,
+                    canvas,
+                    options: losslessOptions,
+                    rasterSource,
+                    rasterDetectionAvailable: true,
+                }),
+            ).rejects.toThrow('Scan cleanup page-size store returned 1 pages for 2 document pages');
+            await expect(
+                resolveMatchedCanvasResamplePagesFromStore({
+                    pageSizeStore: createPageSizeStore([mixedScale[0]!, mixedScale[1]!, page({pageNumber: 3})]),
+                    documentPageCount: 2,
+                    canvas,
+                    options: losslessOptions,
+                    rasterSource,
+                    rasterDetectionAvailable: true,
+                }),
+            ).rejects.toThrow('Scan cleanup page-size store returned 3 pages for 2 document pages');
         });
     });
 });

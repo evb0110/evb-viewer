@@ -1,15 +1,10 @@
 import type {TNativeAnnotationDeleteEffects} from '@contracts/nativePdfSaveReport';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IDocumentRevisionInfo, TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import type {
-    TDocumentSaveFailureReason,
-    IPdfNativeAnnotationIdentityBinding,
-} from '@contracts/electronApiDocuments';
-import type { TOcrIndexRotation } from '@contracts/ocrIndex';
-import { pageNumberToPageIndex } from '@contracts/pageNumbers';
-import type { IDocumentPageRange } from '@app/modules/document-viewer/public';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IDocumentRevisionInfo, TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TDocumentSaveFailureReason, IPdfNativeAnnotationIdentityBinding} from '@contracts/electronApiDocuments';
+import type {TOcrIndexRotation} from '@contracts/ocrIndex';
+import {pageNumberToPageIndex} from '@contracts/pageNumbers';
+import type {IDocumentPageRange} from '@app/modules/document-viewer/public';
 import type {
     IOcrWord,
     IPdfBookmarkEntry,
@@ -162,10 +157,10 @@ export function mapPdfSearchResultToUiMatch(result: IPdfSearchResult): IPdfUiSea
         startOffset: result.startOffset,
         endOffset: result.endOffset,
         excerpt: result.excerpt,
-        ...(result.words !== undefined ? { words: result.words } : {}),
-        ...(result.pageWidth !== undefined ? { pageWidth: result.pageWidth } : {}),
-        ...(result.pageHeight !== undefined ? { pageHeight: result.pageHeight } : {}),
-        ...(result.rotation !== undefined ? { rotation: result.rotation } : {}),
+        ...(result.words !== undefined ? {words: result.words} : {}),
+        ...(result.pageWidth !== undefined ? {pageWidth: result.pageWidth} : {}),
+        ...(result.pageHeight !== undefined ? {pageHeight: result.pageHeight} : {}),
+        ...(result.rotation !== undefined ? {rotation: result.rotation} : {}),
     };
 }
 
@@ -175,9 +170,9 @@ export function mapPdfSearchResultToUiPageMatchEntry(result: IPdfSearchResult): 
         matchIndex: result.matchIndex,
         start: result.startOffset,
         end: result.endOffset,
-        ...(result.words !== undefined ? { words: result.words } : {}),
-        ...(result.pageWidth !== undefined ? { pageWidth: result.pageWidth } : {}),
-        ...(result.pageHeight !== undefined ? { pageHeight: result.pageHeight } : {}),
-        ...(result.rotation !== undefined ? { rotation: result.rotation } : {}),
+        ...(result.words !== undefined ? {words: result.words} : {}),
+        ...(result.pageWidth !== undefined ? {pageWidth: result.pageWidth} : {}),
+        ...(result.pageHeight !== undefined ? {pageHeight: result.pageHeight} : {}),
+        ...(result.rotation !== undefined ? {rotation: result.rotation} : {}),
     };
 }

@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import {resolve} from 'node:path';
 
 const projectRoot = resolve(import.meta.dirname, '..');
 

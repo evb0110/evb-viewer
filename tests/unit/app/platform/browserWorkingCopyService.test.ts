@@ -1,37 +1,19 @@
 import type * as TBrowserWindowTabs from '@app/platform/browserWindowTabs';
 import type * as TBrowserPageOpsWorkerClient from '@app/platform/browser-api/browserPageOpsWorkerClient';
 import type * as TBrowserQpdfEngineClient from '@app/platform/browser-api/browserQpdfEngineClient';
-import {
-    mkdtemp,
-    rm,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { collectDocuments } from '@document-store/collectDocuments';
-import {
-    decodeManifest,
-    type IManifest,
-    isDirty,
-} from '@document-store/documentDirectory';
-import { createNodeStorePort } from '@document-store/nodeStorePort';
-import { readWorkspaceCheckpoints } from '@document-store/workspaceCheckpoint';
-import { browserDocumentStore as windowDocumentStore } from '@app/platform/browser/browserDocumentRepository';
-import { browserPublication } from '@app/platform/browser/browserPublication';
-import { createMemoryStorePort } from '@app/platform/browser/browserStorePort';
-import { nameBrowserWorkspaceDirectory } from '@app/platform/browser/browserWorkspaceRecovery';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
-import {
-    createFileSystemFileHandle,
-    MemoryStorage,
-} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {mkdtemp, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {collectDocuments} from '@document-store/collectDocuments';
+import {decodeManifest, type IManifest, isDirty} from '@document-store/documentDirectory';
+import {createNodeStorePort} from '@document-store/nodeStorePort';
+import {readWorkspaceCheckpoints} from '@document-store/workspaceCheckpoint';
+import {browserDocumentStore as windowDocumentStore} from '@app/platform/browser/browserDocumentRepository';
+import {browserPublication} from '@app/platform/browser/browserPublication';
+import {createMemoryStorePort} from '@app/platform/browser/browserStorePort';
+import {nameBrowserWorkspaceDirectory} from '@app/platform/browser/browserWorkspaceRecovery';
+import {afterEach, beforeEach, describe, expect, it, onTestFinished, vi} from 'vitest';
+import {createFileSystemFileHandle, MemoryStorage} from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import {createBrowserExtensionViewerUrl} from '@contracts/browserExtensionLaunch';
 import {MAX_DOCUMENT_ALLOCATION_BYTES} from '@contracts/electronApiDocuments';
 import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
@@ -42,8 +24,8 @@ import * as workingCopyService from '@app/platform/browser-api/browserWorkingCop
 
 const serviceState = vi.hoisted(() => ({store: null as BrowserDocumentStore | null}));
 
-vi.mock('@app/platform/browserWindowTabs', async importOriginal => ({
-    ...await importOriginal<typeof TBrowserWindowTabs>(),
+vi.mock('@app/platform/browserWindowTabs', async (importOriginal) => ({
+    ...(await importOriginal<typeof TBrowserWindowTabs>()),
     reserveBrowserDocumentWorkingCopy: async (fileName: string) => {
         const {createBrowserDocumentRef} = await import('@app/platform/browser/browserDocumentRefs');
         return createBrowserDocumentRef(fileName);
@@ -51,10 +33,12 @@ vi.mock('@app/platform/browserWindowTabs', async importOriginal => ({
     retireBrowserDocumentWorkingCopy: async () => {},
 }));
 
-vi.mock('@app/platform/browserDocumentStore', async importOriginal => ({
-    ...await importOriginal<typeof TBrowserDocumentStore>(),
+vi.mock('@app/platform/browserDocumentStore', async (importOriginal) => ({
+    ...(await importOriginal<typeof TBrowserDocumentStore>()),
     get browserDocumentStore() {
-        if (!serviceState.store) throw new Error('Missing working-copy test store');
+        if (!serviceState.store) {
+            throw new Error('Missing working-copy test store');
+        }
         return serviceState.store;
     },
 }));
@@ -62,55 +46,54 @@ vi.mock('@app/platform/browserDocumentStore', async importOriginal => ({
 const wasmRun = vi.hoisted(() => vi.fn());
 // Node runs no engine worker; tests that open a PDF see the input its append admission was given.
 const normalizeAppendBaseRun = vi.hoisted(() => vi.fn());
-vi.mock('@app/platform/browser-api/browserQpdfEngineClient', async importOriginal => {
+vi.mock('@app/platform/browser-api/browserQpdfEngineClient', async (importOriginal) => {
     const original = await importOriginal<typeof TBrowserQpdfEngineClient>();
-    return {...original, normalizeBrowserPdfAppendBase: normalizeAppendBaseRun, runBrowserQpdfCommand: vi.fn(original.runBrowserQpdfCommand)};
+    return {
+        ...original,
+        normalizeBrowserPdfAppendBase: normalizeAppendBaseRun,
+        runBrowserQpdfCommand: vi.fn(original.runBrowserQpdfCommand),
+    };
 });
 const combinedPdfRun = vi.hoisted(() => vi.fn());
-const emitBatchOpenProgressMock = vi.hoisted(() => vi.fn((
-    options: {onProgress?: (progress: IBrowserBatchOpenProgress) => void} | undefined,
-) => {
-    options?.onProgress?.({
-        processed: 0,
-        total: 1,
-        percent: 0,
-        elapsedMs: 0,
-        estimatedRemainingMs: null,
-    });
-}));
+const emitBatchOpenProgressMock = vi.hoisted(() =>
+    vi.fn((options: {onProgress?: (progress: IBrowserBatchOpenProgress) => void} | undefined) => {
+        options?.onProgress?.({
+            processed: 0,
+            total: 1,
+            percent: 0,
+            elapsedMs: 0,
+            estimatedRemainingMs: null,
+        });
+    }),
+);
 
 const pageOpsWorkerOverride = vi.hoisted(() => ({
     run: null as ((type: string, payload: unknown, options?: unknown) => Promise<unknown>) | null,
 }));
-vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', async importOriginal => {
+vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', async (importOriginal) => {
     const original = await importOriginal<typeof TBrowserPageOpsWorkerClient>();
     return {
         ...original,
-        runBrowserPageOpsWorkerRequest: (type: string, payload: unknown, options?: unknown) => (
+        runBrowserPageOpsWorkerRequest: (type: string, payload: unknown, options?: unknown) =>
             pageOpsWorkerOverride.run
                 ? pageOpsWorkerOverride.run(type, payload, options)
-                : original.runBrowserPageOpsWorkerRequest(type as never, payload as never, options as never)
-        ),
+                : original.runBrowserPageOpsWorkerRequest(type as never, payload as never, options as never),
     };
 });
 
 vi.mock('@app/platform/browser-api/tryRunBrowserPageOpsWithWasm', () => ({
-    isBrowserPageOpsWasmFailure: (value: unknown) => (
-        typeof value === 'object'
-        && value !== null
-        && 'status' in value
-        && value.status === 'failed'
-        && 'error' in value
-    ),
+    isBrowserPageOpsWasmFailure: (value: unknown) =>
+        typeof value === 'object' && value !== null && 'status' in value && value.status === 'failed' && 'error' in value,
     tryRunBrowserPageOpsWithWasm: wasmRun,
 }));
 // The combine stores its output as the document the caller names; here its bytes come from `combinedPdfRun`.
 vi.mock('@app/platform/browser-api/createCombinedPdfFromPaths', () => ({
-    createCombinedPdfFromPaths: async (paths: string[], progress: unknown, output: {fileName: string}) => serviceState.store!.createStoredDocument(
-        output.fileName,
-        await combinedPdfRun(paths, progress),
-        {...output, mimeType: 'application/pdf', saveKind: 'pdf'},
-    ),
+    createCombinedPdfFromPaths: async (paths: string[], progress: unknown, output: {fileName: string}) =>
+        serviceState.store!.createStoredDocument(output.fileName, await combinedPdfRun(paths, progress), {
+            ...output,
+            mimeType: 'application/pdf',
+            saveKind: 'pdf',
+        }),
     emitBatchOpenProgress: emitBatchOpenProgressMock,
 }));
 const PDF_SOURCE_OPTIONS = {
@@ -118,20 +101,18 @@ const PDF_SOURCE_OPTIONS = {
     kind: 'source',
     saveKind: 'pdf',
 } as const;
-const ENCRYPTED_PDF = Uint8Array.from(
-    new TextEncoder().encode('%PDF-1.7\n/Encrypt 1 0 R\n'),
-);
-const DECRYPTED_PDF = Uint8Array.from(
-    new TextEncoder().encode('%PDF-1.7\nplain document\n'),
-);
+const ENCRYPTED_PDF = Uint8Array.from(new TextEncoder().encode('%PDF-1.7\n/Encrypt 1 0 R\n'));
+const DECRYPTED_PDF = Uint8Array.from(new TextEncoder().encode('%PDF-1.7\nplain document\n'));
 
 /** Closes the files the test's store holds open; Node fails a test run whose file handles are only collected. */
 async function closeStoreDocuments() {
-    await Promise.all(serviceState.store?.openEntries().map(entry => entry.doc?.close()) ?? []);
+    await Promise.all(serviceState.store?.openEntries().map((entry) => entry.doc?.close()) ?? []);
 }
 
 function loadService() {
-    if (!serviceState.store) throw new Error('Missing working-copy test store');
+    if (!serviceState.store) {
+        throw new Error('Missing working-copy test store');
+    }
     return {
         browserDocumentStore: serviceState.store,
         ...workingCopyService,
@@ -163,18 +144,11 @@ describe('browser working-copy decryption', () => {
     });
 
     it('passes the transient password to the writer and replaces the working copy only after success', async () => {
-        const {
-            browserDocumentStore,
-            decryptBrowserWorkingCopy,
-        } = await loadService();
-        const workingPath = await browserDocumentStore.createStoredDocument(
-            'protected.pdf',
-            ENCRYPTED_PDF,
-            {
-                ...PDF_SOURCE_OPTIONS,
-                kind: 'working',
-            },
-        );
+        const {browserDocumentStore, decryptBrowserWorkingCopy} = await loadService();
+        const workingPath = await browserDocumentStore.createStoredDocument('protected.pdf', ENCRYPTED_PDF, {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'working',
+        });
         wasmRun.mockResolvedValueOnce({
             data: DECRYPTED_PDF,
             pageCount: 1,
@@ -184,18 +158,19 @@ describe('browser working-copy decryption', () => {
             outcome: 'decrypted',
             wasEncrypted: true,
         });
-        expect(wasmRun).toHaveBeenCalledWith('decrypt', {
-            data: ENCRYPTED_PDF,
-            password: 'correct-password',
-        }, expect.any(Function));
+        expect(wasmRun).toHaveBeenCalledWith(
+            'decrypt',
+            {
+                data: ENCRYPTED_PDF,
+                password: 'correct-password',
+            },
+            expect.any(Function),
+        );
         await expect(browserDocumentStore.read(workingPath)).resolves.toEqual(DECRYPTED_PDF);
     });
 
     it('opens encrypted PDFs without making them recoverable: no file starts clean, a picked file stays unnamed until its first edit', async () => {
-        const {
-            browserDocumentStore,
-            openDocumentPaths,
-        } = await loadService();
+        const {browserDocumentStore, openDocumentPaths} = await loadService();
         // A durable store on disk, shared with the window checkpoint writer, so its persisted checkpoint can be read.
         const root = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'working-copy-open-'));
         onTestFinished(() => rm(root, {recursive: true, force: true}));
@@ -204,15 +179,18 @@ describe('browser working-copy decryption', () => {
         vi.spyOn(browserDocumentStore, 'stores').mockResolvedValue(stores);
         vi.spyOn(windowDocumentStore, 'stores').mockResolvedValue(stores);
         const windowId = 'opened-documents-window';
-        browserDocumentStore.onDirectoryEdited = id => nameBrowserWorkspaceDirectory(windowId, id);
-        const named = async () => Object.values((await readWorkspaceCheckpoints(durable.port)).get(windowId)?.tabs ?? {}).map(tab => tab.directory);
+        browserDocumentStore.onDirectoryEdited = (id) => nameBrowserWorkspaceDirectory(windowId, id);
+        const named = async () =>
+            Object.values((await readWorkspaceCheckpoints(durable.port)).get(windowId)?.tabs ?? {}).map((tab) => tab.directory);
         // What a reload's collection does with `id` alone: removed, kept as unsaved work for recovery, or neither.
-        const collect = (id: string) => collectDocuments(durable, async other => (other === id ? () => {} : null));
+        const collect = (id: string) => collectDocuments(durable, async (other) => (other === id ? () => {} : null));
         const sourcePath = await browserDocumentStore.createStoredDocument('protected.pdf', ENCRYPTED_PDF, PDF_SOURCE_OPTIONS);
         const manifests: IManifest[] = [];
         const writeAtomic = durable.port.writeAtomic.bind(durable.port);
         vi.spyOn(durable.port, 'writeAtomic').mockImplementation(async (path, bytes) => {
-            if (path.endsWith('/manifest.json')) manifests.push(decodeManifest(bytes));
+            if (path.endsWith('/manifest.json')) {
+                manifests.push(decodeManifest(bytes));
+            }
             return writeAtomic(path, bytes);
         });
         const openPicked = async () => {
@@ -223,7 +201,9 @@ describe('browser working-copy decryption', () => {
             const pickedPath = await browserDocumentStore.registerFile(await handle.getFile(), {...PDF_SOURCE_OPTIONS, saveHandle: handle});
             wasmRun.mockResolvedValueOnce({data: DECRYPTED_PDF, pageCount: 1});
             const opened = await openDocumentPaths([pickedPath], undefined, {password: 'correct-password'});
-            if (opened?.kind !== 'pdf') throw new Error('Expected an opened PDF');
+            if (opened?.kind !== 'pdf') {
+                throw new Error('Expected an opened PDF');
+            }
             return {workingPath: opened.workingPath, doc: (await browserDocumentStore.requireEntry(opened.workingPath)).doc!};
         };
         wasmRun.mockResolvedValueOnce({
@@ -232,7 +212,9 @@ describe('browser working-copy decryption', () => {
         });
 
         const result = await openDocumentPaths([sourcePath], undefined, {password: 'correct-password'});
-        if (result?.kind !== 'pdf') throw new Error('Expected an opened PDF');
+        if (result?.kind !== 'pdf') {
+            throw new Error('Expected an opened PDF');
+        }
 
         expect(result).toMatchObject({wasEncrypted: true});
         expect(manifests).not.toHaveLength(0);
@@ -249,24 +231,19 @@ describe('browser working-copy decryption', () => {
 
         const edited = await openPicked();
         const {token} = await browserDocumentStore.getDocumentRevision(edited.workingPath);
-        await browserDocumentStore.write(edited.workingPath, new TextEncoder().encode('%PDF-1.7\nedited\n'), {expectedDocumentRevisionToken: token});
+        await browserDocumentStore.write(edited.workingPath, new TextEncoder().encode('%PDF-1.7\nedited\n'), {
+            expectedDocumentRevisionToken: token,
+        });
         expect(await named()).toEqual([edited.doc.id]);
         expect(await collect(edited.doc.id)).toMatchObject({removed: [], unsaved: [edited.doc.id], unreadable: []});
     });
 
     it('returns a typed wrong-password result without changing the encrypted working copy', async () => {
-        const {
-            browserDocumentStore,
-            decryptBrowserWorkingCopy,
-        } = await loadService();
-        const workingPath = await browserDocumentStore.createStoredDocument(
-            'protected.pdf',
-            ENCRYPTED_PDF,
-            {
-                ...PDF_SOURCE_OPTIONS,
-                kind: 'working',
-            },
-        );
+        const {browserDocumentStore, decryptBrowserWorkingCopy} = await loadService();
+        const workingPath = await browserDocumentStore.createStoredDocument('protected.pdf', ENCRYPTED_PDF, {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'working',
+        });
         wasmRun.mockResolvedValueOnce({
             status: 'failed',
             error: {
@@ -283,18 +260,11 @@ describe('browser working-copy decryption', () => {
     });
 
     it('returns unsupported-handler failures without trying a browser fallback', async () => {
-        const {
-            browserDocumentStore,
-            decryptBrowserWorkingCopy,
-        } = await loadService();
-        const workingPath = await browserDocumentStore.createStoredDocument(
-            'protected.pdf',
-            ENCRYPTED_PDF,
-            {
-                ...PDF_SOURCE_OPTIONS,
-                kind: 'working',
-            },
-        );
+        const {browserDocumentStore, decryptBrowserWorkingCopy} = await loadService();
+        const workingPath = await browserDocumentStore.createStoredDocument('protected.pdf', ENCRYPTED_PDF, {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'working',
+        });
         wasmRun.mockResolvedValueOnce({
             status: 'failed',
             error: {
@@ -312,10 +282,7 @@ describe('browser working-copy decryption', () => {
     });
 
     it('removes a failed browser working copy after a password attempt', async () => {
-        const {
-            browserDocumentStore,
-            createBrowserWorkingCopyFromBytes,
-        } = await loadService();
+        const {browserDocumentStore, createBrowserWorkingCopyFromBytes} = await loadService();
         const remove = vi.spyOn(browserDocumentStore, 'remove');
         wasmRun.mockResolvedValueOnce({
             status: 'failed',
@@ -325,20 +292,19 @@ describe('browser working-copy decryption', () => {
             },
         });
 
-        await expect(createBrowserWorkingCopyFromBytes({
-            fileName: 'protected.pdf',
-            data: ENCRYPTED_PDF,
-            password: 'wrong-password',
-        })).rejects.toThrow('PDF decryption requires a password');
+        await expect(
+            createBrowserWorkingCopyFromBytes({
+                fileName: 'protected.pdf',
+                data: ENCRYPTED_PDF,
+                password: 'wrong-password',
+            }),
+        ).rejects.toThrow('PDF decryption requires a password');
         expect(remove).toHaveBeenCalledOnce();
         await expect(browserDocumentStore.requireEntry(remove.mock.calls[0]![0])).rejects.toThrow();
     });
 
     it('removes a browser working copy when decryption fails before producing a typed outcome', async () => {
-        const {
-            browserDocumentStore,
-            createBrowserWorkingCopyFromBytes,
-        } = await loadService();
+        const {browserDocumentStore, createBrowserWorkingCopyFromBytes} = await loadService();
         const remove = vi.spyOn(browserDocumentStore, 'remove');
         wasmRun.mockResolvedValueOnce({
             status: 'failed',
@@ -348,27 +314,22 @@ describe('browser working-copy decryption', () => {
             },
         });
 
-        await expect(createBrowserWorkingCopyFromBytes({
-            fileName: 'malformed.pdf',
-            data: ENCRYPTED_PDF,
-        })).rejects.toThrow('malformed PDF');
+        await expect(
+            createBrowserWorkingCopyFromBytes({
+                fileName: 'malformed.pdf',
+                data: ENCRYPTED_PDF,
+            }),
+        ).rejects.toThrow('malformed PDF');
         expect(remove).toHaveBeenCalledOnce();
         await expect(browserDocumentStore.requireEntry(remove.mock.calls[0]![0])).rejects.toThrow();
     });
 
     it('refuses an encrypted input above the unlock budget before reading it, naming the desktop app', async () => {
-        const {
-            browserDocumentStore,
-            decryptBrowserWorkingCopy,
-        } = await loadService();
-        const workingPath = await browserDocumentStore.createStoredDocument(
-            'large.pdf',
-            new TextEncoder().encode('%PDF-1.7\n/Encrypt'),
-            {
-                ...PDF_SOURCE_OPTIONS,
-                kind: 'working',
-            },
-        );
+        const {browserDocumentStore, decryptBrowserWorkingCopy} = await loadService();
+        const workingPath = await browserDocumentStore.createStoredDocument('large.pdf', new TextEncoder().encode('%PDF-1.7\n/Encrypt'), {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'working',
+        });
         vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({size: MAX_DOCUMENT_ALLOCATION_BYTES + 1, modifiedAt: 0});
         const read = vi.spyOn(browserDocumentStore, 'read');
 
@@ -378,45 +339,34 @@ describe('browser working-copy decryption', () => {
     });
 
     it('rejects an oversized password before invoking the browser writer', async () => {
-        const {
-            browserDocumentStore,
-            decryptBrowserWorkingCopy,
-        } = await loadService();
-        const workingPath = await browserDocumentStore.createStoredDocument(
-            'protected.pdf',
-            ENCRYPTED_PDF,
-            {
-                ...PDF_SOURCE_OPTIONS,
-                kind: 'working',
-            },
-        );
+        const {browserDocumentStore, decryptBrowserWorkingCopy} = await loadService();
+        const workingPath = await browserDocumentStore.createStoredDocument('protected.pdf', ENCRYPTED_PDF, {
+            ...PDF_SOURCE_OPTIONS,
+            kind: 'working',
+        });
 
-        await expect(decryptBrowserWorkingCopy(
-            workingPath,
-            'p'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1),
-        )).rejects.toThrow(`${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        await expect(decryptBrowserWorkingCopy(workingPath, 'p'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1))).rejects.toThrow(
+            `${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`,
+        );
         expect(wasmRun).not.toHaveBeenCalled();
     });
 
     it('removes the working copy when publication fails after decryption', async () => {
-        const {
-            browserDocumentStore,
-            openDocumentPaths,
-        } = await loadService();
-        const sourcePath = await browserDocumentStore.createStoredDocument(
-            'protected.pdf',
-            ENCRYPTED_PDF,
-            PDF_SOURCE_OPTIONS,
-        );
+        const {browserDocumentStore, openDocumentPaths} = await loadService();
+        const sourcePath = await browserDocumentStore.createStoredDocument('protected.pdf', ENCRYPTED_PDF, PDF_SOURCE_OPTIONS);
         wasmRun.mockResolvedValueOnce({
             data: DECRYPTED_PDF,
             pageCount: 1,
         });
         const remove = vi.spyOn(browserDocumentStore, 'remove');
 
-        await expect(openDocumentPaths([sourcePath], {onProgress: () => {
-            throw new Error('progress consumer failed');
-        }})).rejects.toThrow('progress consumer failed');
+        await expect(
+            openDocumentPaths([sourcePath], {
+                onProgress: () => {
+                    throw new Error('progress consumer failed');
+                },
+            }),
+        ).rejects.toThrow('progress consumer failed');
 
         expect(remove).toHaveBeenCalledOnce();
         const failedWorkingPath = remove.mock.calls[0]![0];
@@ -424,11 +374,8 @@ describe('browser working-copy decryption', () => {
         await expect(browserDocumentStore.requireEntry(failedWorkingPath)).rejects.toThrow();
     });
 
-    it('keeps a restored document\'s Recent Files time and place, while a reader\'s open moves it to now', async () => {
-        const {
-            browserDocumentStore,
-            openDocumentPaths,
-        } = await loadService();
+    it("keeps a restored document's Recent Files time and place, while a reader's open moves it to now", async () => {
+        const {browserDocumentStore, openDocumentPaths} = await loadService();
         const root = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'restored-recent-'));
         onTestFinished(() => rm(root, {recursive: true, force: true}));
         vi.spyOn(browserDocumentStore, 'stores').mockResolvedValue({
@@ -449,58 +396,63 @@ describe('browser working-copy decryption', () => {
         const threeDaysAgo = Date.UTC(2026, 10, 20, 9);
         const twoDaysAgo = Date.UTC(2026, 10, 21, 9);
         const now = Date.UTC(2026, 10, 23, 9);
-        const listed = () => browserDocumentStore.getRecentFiles().map(file => [file.originalPath, file.timestamp]);
+        const listed = () => browserDocumentStore.getRecentFiles().map((file) => [file.originalPath, file.timestamp]);
         vi.setSystemTime(threeDaysAgo);
         await openDocumentPaths([older]);
         vi.setSystemTime(twoDaysAgo);
         await openDocumentPaths([newer]);
-        expect(listed()).toEqual([[newer, twoDaysAgo], [older, threeDaysAgo]]);
+        expect(listed()).toEqual([
+            [newer, twoDaysAgo],
+            [older, threeDaysAgo],
+        ]);
 
         vi.setSystemTime(now);
         await expect(openDocumentPaths([older], undefined, {recordRecent: false})).resolves.toMatchObject({kind: 'djvu'});
-        expect(listed()).toEqual([[newer, twoDaysAgo], [older, threeDaysAgo]]);
+        expect(listed()).toEqual([
+            [newer, twoDaysAgo],
+            [older, threeDaysAgo],
+        ]);
 
         await openDocumentPaths([older]);
-        expect(listed()).toEqual([[older, now], [newer, twoDaysAgo]]);
+        expect(listed()).toEqual([
+            [older, now],
+            [newer, twoDaysAgo],
+        ]);
     });
 
     it('opens a memory-only PDF when exposed IndexedDB refuses access without touching Recent Files', async () => {
-        vi.stubGlobal('indexedDB', {open: () => { throw new Error('IndexedDB access denied'); }});
-        const {
-            browserDocumentStore,
-            openDocumentPaths,
-        } = await loadService();
+        vi.stubGlobal('indexedDB', {
+            open: () => {
+                throw new Error('IndexedDB access denied');
+            },
+        });
+        const {browserDocumentStore, openDocumentPaths} = await loadService();
         const sourcePath = await browserDocumentStore.registerFile(
-            new File(
-                [DECRYPTED_PDF],
-                'volatile.pdf',
-                {type: 'application/pdf'},
-            ),
+            new File([DECRYPTED_PDF], 'volatile.pdf', {type: 'application/pdf'}),
             PDF_SOURCE_OPTIONS,
         );
 
         const result = await openDocumentPaths([sourcePath]);
 
-        expect(result).toEqual(expect.objectContaining({
-            kind: 'pdf',
-            originalPath: sourcePath,
-        }));
+        expect(result).toEqual(
+            expect.objectContaining({
+                kind: 'pdf',
+                originalPath: sourcePath,
+            }),
+        );
         expect((await browserDocumentStore.requireEntry(sourcePath)).memoryOnly).toBe(true);
         expect(browserDocumentStore.getRecentFiles()).toEqual([]);
     });
 
     it('opens a memory-only DjVu when exposed IndexedDB refuses access without touching Recent Files', async () => {
-        vi.stubGlobal('indexedDB', {open: () => { throw new Error('IndexedDB access denied'); }});
-        const {
-            browserDocumentStore,
-            openDocumentPaths,
-        } = await loadService();
+        vi.stubGlobal('indexedDB', {
+            open: () => {
+                throw new Error('IndexedDB access denied');
+            },
+        });
+        const {browserDocumentStore, openDocumentPaths} = await loadService();
         const sourcePath = await browserDocumentStore.registerFile(
-            new File(
-                [Uint8Array.of(1, 2, 3)],
-                'volatile.djvu',
-                {type: 'image/vnd.djvu'},
-            ),
+            new File([Uint8Array.of(1, 2, 3)], 'volatile.djvu', {type: 'image/vnd.djvu'}),
             {
                 kind: 'source',
                 saveKind: 'generic',
@@ -519,48 +471,41 @@ describe('browser working-copy decryption', () => {
     });
 
     it('opens a generated PDF in memory when exposed IndexedDB refuses access', async () => {
-        vi.stubGlobal('indexedDB', {open: () => { throw new Error('IndexedDB access denied'); }});
+        vi.stubGlobal('indexedDB', {
+            open: () => {
+                throw new Error('IndexedDB access denied');
+            },
+        });
         combinedPdfRun.mockResolvedValueOnce(DECRYPTED_PDF);
-        const {
-            browserDocumentStore,
-            openDocumentPaths,
-        } = await loadService();
+        const {browserDocumentStore, openDocumentPaths} = await loadService();
         const sourcePath = await browserDocumentStore.registerFile(
             new File([DECRYPTED_PDF], 'volatile-source.pdf', {type: 'application/pdf'}),
             PDF_SOURCE_OPTIONS,
         );
 
-        const result = await openDocumentPaths([
-            sourcePath,
-            sourcePath,
-        ]);
+        const result = await openDocumentPaths([sourcePath, sourcePath]);
         if (!result || result.kind !== 'pdf') {
             throw new Error('Expected generated PDF result');
         }
 
-        expect(result).toEqual(expect.objectContaining({
-            kind: 'pdf',
-            isGenerated: true,
-        }));
+        expect(result).toEqual(
+            expect.objectContaining({
+                kind: 'pdf',
+                isGenerated: true,
+            }),
+        );
         expect((await browserDocumentStore.requireEntry(result.originalPath)).memoryOnly).toBe(true);
         expect((await browserDocumentStore.requireEntry(result.workingPath)).memoryOnly).toBe(true);
     });
 
     it('marks a single browser output PDF as generated without adding it to Recent Files', async () => {
-        const {
-            browserDocumentStore,
-            openDocumentPaths,
-        } = await loadService();
-        const outputPath = await browserDocumentStore.createStoredDocument(
-            'scan-cleaned.pdf',
-            DECRYPTED_PDF,
-            {
-                mimeType: 'application/pdf',
-                saveKind: 'pdf',
-                kind: 'output',
-                retention: 'transient',
-            },
-        );
+        const {browserDocumentStore, openDocumentPaths} = await loadService();
+        const outputPath = await browserDocumentStore.createStoredDocument('scan-cleaned.pdf', DECRYPTED_PDF, {
+            mimeType: 'application/pdf',
+            saveKind: 'pdf',
+            kind: 'output',
+            retention: 'transient',
+        });
 
         const result = await openDocumentPaths([outputPath]);
 
@@ -572,9 +517,7 @@ describe('browser working-copy decryption', () => {
         expect(browserDocumentStore.getRecentFiles()).toEqual([]);
     });
     it('rejects decrypted output for an input revision changed while CPU work was pending', async () => {
-        const {
-            browserDocumentStore, decryptBrowserWorkingCopy,
-        } = await loadService();
+        const {browserDocumentStore, decryptBrowserWorkingCopy} = await loadService();
         const workingPath = await browserDocumentStore.createStoredDocument('protected.pdf', ENCRYPTED_PDF, {
             ...PDF_SOURCE_OPTIONS,
             kind: 'working',
@@ -582,7 +525,7 @@ describe('browser working-copy decryption', () => {
         const writerStarted = Promise.withResolvers<undefined>();
         const writerResult = Promise.withResolvers<{
             data: Uint8Array;
-            pageCount: number
+            pageCount: number;
         }>();
         wasmRun.mockImplementationOnce(() => {
             writerStarted.resolve(undefined);
@@ -602,25 +545,27 @@ describe('browser working-copy decryption', () => {
         await expect(browserDocumentStore.read(workingPath)).resolves.toEqual(replacement);
     });
 
-
     // Undo brings a revision's token back, so a token read apart from the bytes could name bytes it never held.
     it('refuses a repair whose working copy was edited and undone while its input was read', async () => {
-        const {
-            browserDocumentStore, repairBrowserWorkingCopy,
-        } = loadService();
+        const {browserDocumentStore, repairBrowserWorkingCopy} = loadService();
         const damaged = new TextEncoder().encode('%PDF-1.7\nrevision A, damaged\n');
         const working = await browserDocumentStore.createStoredDocument('damaged.pdf', damaged, {...PDF_SOURCE_OPTIONS, kind: 'working'});
         const revisionA = (await browserDocumentStore.getDocumentRevision(working)).token;
         const readableBlob = browserDocumentStore.readableBlob.bind(browserDocumentStore);
-        vi.spyOn(browserDocumentStore, 'readableBlob').mockImplementationOnce(async ref => {
-            await browserDocumentStore.write(working, new TextEncoder().encode('%PDF-1.7\nedit B\n'), {expectedDocumentRevisionToken: revisionA});
+        vi.spyOn(browserDocumentStore, 'readableBlob').mockImplementationOnce(async (ref) => {
+            await browserDocumentStore.write(working, new TextEncoder().encode('%PDF-1.7\nedit B\n'), {
+                expectedDocumentRevisionToken: revisionA,
+            });
             const blob = await readableBlob(ref);
             await browserDocumentStore.restoreRevision(working, revisionA, (await browserDocumentStore.getDocumentRevision(working)).token);
             return blob;
         });
         const {runBrowserQpdfCommand} = await import('@app/platform/browser-api/browserQpdfEngineClient');
         const rewrite = vi.mocked(runBrowserQpdfCommand).mockImplementationOnce(async () => ({
-            exitCode: 0, stdout: '', stderr: '', output: new TextEncoder().encode('%PDF-1.7\nrepaired\n'),
+            exitCode: 0,
+            stdout: '',
+            stderr: '',
+            output: new TextEncoder().encode('%PDF-1.7\nrepaired\n'),
         }));
 
         await expect(repairBrowserWorkingCopy(working)).rejects.toMatchObject({code: 'STALE_REVISION'});
@@ -630,9 +575,7 @@ describe('browser working-copy decryption', () => {
     });
 
     it('rejects repair when a concurrent stageAppend materializes changed picked bytes while qpdf runs', async () => {
-        const {
-            browserDocumentStore, repairBrowserWorkingCopy,
-        } = loadService();
+        const {browserDocumentStore, repairBrowserWorkingCopy} = loadService();
         const bytesA = new TextEncoder().encode('%PDF-1.7\nrevision A, damaged\n');
         const bytesB = new TextEncoder().encode('%PDF-1.7\nchanged picked file B, longer content\n');
         let currentFile = new File([bytesA], 'picked.pdf', {
@@ -658,10 +601,12 @@ describe('browser working-copy decryption', () => {
             stderr: string;
             output: Uint8Array | null;
         }>();
-        vi.mocked(runBrowserQpdfCommand).mockReset().mockImplementationOnce(async () => {
-            qpdfStarted.resolve(undefined);
-            return qpdfResult.promise;
-        });
+        vi.mocked(runBrowserQpdfCommand)
+            .mockReset()
+            .mockImplementationOnce(async () => {
+                qpdfStarted.resolve(undefined);
+                return qpdfResult.promise;
+            });
 
         const repair = repairBrowserWorkingCopy(working);
         await qpdfStarted.promise;
@@ -671,10 +616,15 @@ describe('browser working-copy decryption', () => {
             lastModified: 2,
         });
         const appendedTail = new TextEncoder().encode('\n% staged append');
-        const lease = await browserDocumentStore.stageAppend(working, tokenA, async (file, base) => {
-            await file.writeAt(base, appendedTail);
-            return base + appendedTail.byteLength;
-        }, {allowForeignBase: true});
+        const lease = await browserDocumentStore.stageAppend(
+            working,
+            tokenA,
+            async (file, base) => {
+                await file.writeAt(base, appendedTail);
+                return base + appendedTail.byteLength;
+            },
+            {allowForeignBase: true},
+        );
         expect(lease).toEqual(expect.any(String));
         const stagedToken = (await browserDocumentStore.getDocumentRevision(working)).token;
         expect(stagedToken).toMatch(/:1:s$/u);
@@ -689,17 +639,12 @@ describe('browser working-copy decryption', () => {
         await expect(repair).rejects.toMatchObject({code: 'STALE_REVISION'});
         await expect(browserDocumentStore.getDocumentRevision(working)).resolves.toMatchObject({token: stagedToken});
         const stagedBlob = await browserDocumentStore.appendedContent(working, lease!);
-        expect(new Uint8Array(await stagedBlob.arrayBuffer())).toEqual(new Uint8Array([
-            ...bytesB,
-            ...appendedTail,
-        ]));
+        expect(new Uint8Array(await stagedBlob.arrayBuffer())).toEqual(new Uint8Array([...bytesB, ...appendedTail]));
         await expect(browserDocumentStore.read(working)).resolves.toEqual(bytesB);
     });
 
     it('rejects repair when an ordinary stageAppend is pending while qpdf runs and keeps the append lease usable', async () => {
-        const {
-            browserDocumentStore, repairBrowserWorkingCopy,
-        } = loadService();
+        const {browserDocumentStore, repairBrowserWorkingCopy} = loadService();
         const bytesA = new TextEncoder().encode('%PDF-1.7\nrevision A, damaged\n');
         const working = await browserDocumentStore.createStoredDocument('damaged.pdf', bytesA, {
             ...PDF_SOURCE_OPTIONS,
@@ -715,10 +660,12 @@ describe('browser working-copy decryption', () => {
             stderr: string;
             output: Uint8Array | null;
         }>();
-        vi.mocked(runBrowserQpdfCommand).mockReset().mockImplementationOnce(async () => {
-            qpdfStarted.resolve(undefined);
-            return qpdfResult.promise;
-        });
+        vi.mocked(runBrowserQpdfCommand)
+            .mockReset()
+            .mockImplementationOnce(async () => {
+                qpdfStarted.resolve(undefined);
+                return qpdfResult.promise;
+            });
 
         const repair = repairBrowserWorkingCopy(working);
         await qpdfStarted.promise;
@@ -739,10 +686,7 @@ describe('browser working-copy decryption', () => {
 
         await expect(repair).rejects.toMatchObject({code: 'STALE_REVISION'});
         await browserDocumentStore.commitAppend(working, tokenA, lease!);
-        await expect(browserDocumentStore.read(working)).resolves.toEqual(new Uint8Array([
-            ...bytesA,
-            ...appendedTail,
-        ]));
+        await expect(browserDocumentStore.read(working)).resolves.toEqual(new Uint8Array([...bytesA, ...appendedTail]));
     });
 
     it('rejects a queued ordinary write derived from file A when stageAppend materializes changed picked file B', async () => {
@@ -781,31 +725,34 @@ describe('browser working-copy decryption', () => {
         let lease: string | null = null;
         const appendedTail = new TextEncoder().encode('\n% staged append on B');
         try {
-            const writeFailure = browserDocumentStore.write(
-                working,
-                new TextEncoder().encode('%PDF-1.7\nwrite derived from A\n'),
-                {expectedDocumentRevisionToken: tokenA},
-            ).then(() => null, (error: unknown) => error);
+            const writeFailure = browserDocumentStore
+                .write(working, new TextEncoder().encode('%PDF-1.7\nwrite derived from A\n'), {expectedDocumentRevisionToken: tokenA})
+                .then(
+                    () => null,
+                    (error: unknown) => error,
+                );
             await editedStarted.promise;
 
             currentFile = new File([bytesB], 'picked.pdf', {
                 type: 'application/pdf',
                 lastModified: 2,
             });
-            lease = await browserDocumentStore.stageAppend(working, tokenA, async (file, base) => {
-                await file.writeAt(base, appendedTail);
-                return base + appendedTail.byteLength;
-            }, {allowForeignBase: true});
+            lease = await browserDocumentStore.stageAppend(
+                working,
+                tokenA,
+                async (file, base) => {
+                    await file.writeAt(base, appendedTail);
+                    return base + appendedTail.byteLength;
+                },
+                {allowForeignBase: true},
+            );
             expect(lease).toEqual(expect.any(String));
 
             editedRelease.resolve(undefined);
             await expect(writeFailure).resolves.toMatchObject({code: 'STALE_REVISION'});
 
             await browserDocumentStore.commitAppend(working, tokenA, lease!);
-            await expect(browserDocumentStore.read(working)).resolves.toEqual(new Uint8Array([
-                ...bytesB,
-                ...appendedTail,
-            ]));
+            await expect(browserDocumentStore.read(working)).resolves.toEqual(new Uint8Array([...bytesB, ...appendedTail]));
         } finally {
             editedRelease.resolve(undefined);
             browserDocumentStore.onDirectoryEdited = async () => {};
@@ -819,24 +766,22 @@ describe('browser working-copy decryption', () => {
             ...PDF_SOURCE_OPTIONS,
             kind: 'working',
         });
-        const {
-            token: tokenA,
-            byteRevision,
-        } = await browserDocumentStore.readableRevision(working);
+        const {token: tokenA, byteRevision} = await browserDocumentStore.readableRevision(working);
 
         const appendedTail = new TextEncoder().encode('\n% ordinary staged append');
         let queuedStrictFailure: Promise<unknown> | null = null;
         const lease = await browserDocumentStore.stageAppend(working, tokenA, async (file, base) => {
             // Queue the strict write while stageAppend holds doc.run and before pendingAppend is set.
-            queuedStrictFailure = browserDocumentStore.write(
-                working,
-                new TextEncoder().encode('%PDF-1.7\nrepaired A\n'),
-                {
+            queuedStrictFailure = browserDocumentStore
+                .write(working, new TextEncoder().encode('%PDF-1.7\nrepaired A\n'), {
                     expectedDocumentRevisionToken: tokenA,
                     strictRevisionToken: true,
                     ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
-                },
-            ).then(() => null, (error: unknown) => error);
+                })
+                .then(
+                    () => null,
+                    (error: unknown) => error,
+                );
             await file.writeAt(base, appendedTail);
             return base + appendedTail.byteLength;
         });
@@ -845,23 +790,14 @@ describe('browser working-copy decryption', () => {
         expect(queuedStrictFailure).not.toBeNull();
         await expect(queuedStrictFailure!).resolves.toMatchObject({code: 'STALE_REVISION'});
         const stagedBlob = await browserDocumentStore.appendedContent(working, lease!);
-        expect(new Uint8Array(await stagedBlob.arrayBuffer())).toEqual(new Uint8Array([
-            ...bytesA,
-            ...appendedTail,
-        ]));
+        expect(new Uint8Array(await stagedBlob.arrayBuffer())).toEqual(new Uint8Array([...bytesA, ...appendedTail]));
         await browserDocumentStore.commitAppend(working, tokenA, lease!);
-        await expect(browserDocumentStore.read(working)).resolves.toEqual(new Uint8Array([
-            ...bytesA,
-            ...appendedTail,
-        ]));
+        await expect(browserDocumentStore.read(working)).resolves.toEqual(new Uint8Array([...bytesA, ...appendedTail]));
     });
 
     it('rejects validateBrowserPdfPath and analyzeBrowserPdfConformance when stageAppend materializes a changed picked file', async () => {
         const {browserDocumentStore} = loadService();
-        const {
-            analyzeBrowserPdfConformance,
-            validateBrowserPdfPath,
-        } = await import('@app/platform/browser-api/browserPdfValidation');
+        const {analyzeBrowserPdfConformance, validateBrowserPdfPath} = await import('@app/platform/browser-api/browserPdfValidation');
         const {runBrowserQpdfCommand} = await import('@app/platform/browser-api/browserQpdfEngineClient');
         const bytesA = new TextEncoder().encode('%PDF-1.7\nrevision A\n');
         const bytesB = new TextEncoder().encode('%PDF-1.7\nchanged picked file B, longer content\n');
@@ -889,21 +825,31 @@ describe('browser working-copy decryption', () => {
             stderr: string;
             output: Uint8Array | null;
         }>();
-        vi.mocked(runBrowserQpdfCommand).mockReset().mockImplementationOnce(async () => {
-            qpdfStarted.resolve(undefined);
-            return qpdfResult.promise;
-        });
+        vi.mocked(runBrowserQpdfCommand)
+            .mockReset()
+            .mockImplementationOnce(async () => {
+                qpdfStarted.resolve(undefined);
+                return qpdfResult.promise;
+            });
 
-        const validationFailure = validateBrowserPdfPath(working1).then(() => null, (error: unknown) => error);
+        const validationFailure = validateBrowserPdfPath(working1).then(
+            () => null,
+            (error: unknown) => error,
+        );
         await qpdfStarted.promise;
         currentFile1 = new File([bytesB], 'picked-validate.pdf', {
             type: 'application/pdf',
             lastModified: 2,
         });
-        const lease1 = await browserDocumentStore.stageAppend(working1, token1, async (file, base) => {
-            await file.writeAt(base, appendedTail);
-            return base + appendedTail.byteLength;
-        }, {allowForeignBase: true});
+        const lease1 = await browserDocumentStore.stageAppend(
+            working1,
+            token1,
+            async (file, base) => {
+                await file.writeAt(base, appendedTail);
+                return base + appendedTail.byteLength;
+            },
+            {allowForeignBase: true},
+        );
         expect(lease1).toEqual(expect.any(String));
         qpdfResult.resolve({
             exitCode: 0,
@@ -941,17 +887,24 @@ describe('browser working-copy decryption', () => {
             return confFacts.promise;
         };
         try {
-            const conformanceFailure = analyzeBrowserPdfConformance(working2, {purpose: 'save-restrictions'})
-                .then(() => null, (error: unknown) => error);
+            const conformanceFailure = analyzeBrowserPdfConformance(working2, {purpose: 'save-restrictions'}).then(
+                () => null,
+                (error: unknown) => error,
+            );
             await confStarted.promise;
             currentFile2 = new File([bytesB], 'picked-conformance.pdf', {
                 type: 'application/pdf',
                 lastModified: 2,
             });
-            const lease2 = await browserDocumentStore.stageAppend(working2, token2, async (file, base) => {
-                await file.writeAt(base, appendedTail);
-                return base + appendedTail.byteLength;
-            }, {allowForeignBase: true});
+            const lease2 = await browserDocumentStore.stageAppend(
+                working2,
+                token2,
+                async (file, base) => {
+                    await file.writeAt(base, appendedTail);
+                    return base + appendedTail.byteLength;
+                },
+                {allowForeignBase: true},
+            );
             expect(lease2).toEqual(expect.any(String));
             confFacts.resolve({
                 isSigned: false,
@@ -990,26 +943,28 @@ describe('browser working-copy decryption', () => {
             type: 'application/pdf',
             lastModified: 2,
         });
-        const lease = await browserDocumentStore.stageAppend(working, tokenA, async (file, base) => {
-            await file.writeAt(base, appendedTail);
-            return base + appendedTail.byteLength;
-        }, {allowForeignBase: true});
+        const lease = await browserDocumentStore.stageAppend(
+            working,
+            tokenA,
+            async (file, base) => {
+                await file.writeAt(base, appendedTail);
+                return base + appendedTail.byteLength;
+            },
+            {allowForeignBase: true},
+        );
         expect(lease).toEqual(expect.any(String));
 
-        await expect(browserDocumentStore.write(
-            working,
-            new TextEncoder().encode('%PDF-1.7\nwrite derived from A\n'),
-            {expectedDocumentRevisionToken: tokenA},
-        )).rejects.toMatchObject({code: 'STALE_REVISION'});
+        await expect(
+            browserDocumentStore.write(working, new TextEncoder().encode('%PDF-1.7\nwrite derived from A\n'), {
+                expectedDocumentRevisionToken: tokenA,
+            }),
+        ).rejects.toMatchObject({code: 'STALE_REVISION'});
 
         await browserDocumentStore.commitAppend(working, tokenA, lease!);
-        await expect(browserDocumentStore.read(working)).resolves.toEqual(new Uint8Array([
-            ...bytesB,
-            ...appendedTail,
-        ]));
+        await expect(browserDocumentStore.read(working)).resolves.toEqual(new Uint8Array([...bytesB, ...appendedTail]));
     });
 
-    it('rejects an ordinary write paused in nameEdited after an edit and undo restore A\'s token while advancing byteRevision', async () => {
+    it("rejects an ordinary write paused in nameEdited after an edit and undo restore A's token while advancing byteRevision", async () => {
         const {browserDocumentStore} = loadService();
         const root = await mkdtemp(join(process.env.TMPDIR ?? tmpdir(), 'working-copy-undo-epoch-'));
         onTestFinished(() => rm(root, {recursive: true, force: true}));
@@ -1036,18 +991,15 @@ describe('browser working-copy decryption', () => {
         };
 
         try {
-            const firstWrite = browserDocumentStore.write(
-                working,
-                new TextEncoder().encode('%PDF-1.7\nwrite derived from first A\n'),
-                {expectedDocumentRevisionToken: tokenA},
-            ).then(() => null, (error: unknown) => error);
+            const firstWrite = browserDocumentStore
+                .write(working, new TextEncoder().encode('%PDF-1.7\nwrite derived from first A\n'), {expectedDocumentRevisionToken: tokenA})
+                .then(
+                    () => null,
+                    (error: unknown) => error,
+                );
             await editedStarted.promise;
 
-            const edited = await browserDocumentStore.write(
-                working,
-                bytesEdit,
-                {expectedDocumentRevisionToken: tokenA},
-            );
+            const edited = await browserDocumentStore.write(working, bytesEdit, {expectedDocumentRevisionToken: tokenA});
             expect(edited).toBe(true);
             const tokenEdit = (await browserDocumentStore.getDocumentRevision(working)).token;
             expect(tokenEdit).not.toBe(tokenA);
@@ -1079,10 +1031,7 @@ describe('browser working-copy decryption', () => {
             ...PDF_SOURCE_OPTIONS,
             kind: 'working',
         });
-        const {
-            token: tokenA,
-            byteRevision,
-        } = await browserDocumentStore.readableRevision(working);
+        const {token: tokenA, byteRevision} = await browserDocumentStore.readableRevision(working);
 
         const editedStarted = Promise.withResolvers<undefined>();
         const editedRelease = Promise.withResolvers<undefined>();
@@ -1092,15 +1041,16 @@ describe('browser working-copy decryption', () => {
         };
 
         try {
-            const staleWrite = browserDocumentStore.write(
-                working,
-                new TextEncoder().encode('%PDF-1.7\nstale repair\n'),
-                {
+            const staleWrite = browserDocumentStore
+                .write(working, new TextEncoder().encode('%PDF-1.7\nstale repair\n'), {
                     expectedDocumentRevisionToken: tokenA,
                     strictRevisionToken: true,
                     ...(byteRevision === undefined ? {} : {expectedByteRevision: byteRevision}),
-                },
-            ).then(() => null, (error: unknown) => error);
+                })
+                .then(
+                    () => null,
+                    (error: unknown) => error,
+                );
             await editedStarted.promise;
 
             await browserDocumentStore.release(working);
@@ -1127,10 +1077,7 @@ describe('browser working-copy decryption', () => {
             durable,
             memory: {port: createMemoryStorePort(), publication: browserPublication},
         });
-        const {
-            analyzeBrowserPdfConformance,
-            validateBrowserPdfPath,
-        } = await import('@app/platform/browser-api/browserPdfValidation');
+        const {analyzeBrowserPdfConformance, validateBrowserPdfPath} = await import('@app/platform/browser-api/browserPdfValidation');
         const {runBrowserQpdfCommand} = await import('@app/platform/browser-api/browserQpdfEngineClient');
         const bytesA = new TextEncoder().encode('%PDF-1.7\npicked A\n');
         const bytesB = new TextEncoder().encode('%PDF-1.7\nreplaced picked B\n');
@@ -1157,12 +1104,17 @@ describe('browser working-copy decryption', () => {
             stderr: string;
             output: Uint8Array | null;
         }>();
-        vi.mocked(runBrowserQpdfCommand).mockReset().mockImplementationOnce(async () => {
-            qpdfStarted.resolve(undefined);
-            return qpdfResult.promise;
-        });
+        vi.mocked(runBrowserQpdfCommand)
+            .mockReset()
+            .mockImplementationOnce(async () => {
+                qpdfStarted.resolve(undefined);
+                return qpdfResult.promise;
+            });
 
-        const validationFailure = validateBrowserPdfPath(working).then(() => null, (error: unknown) => error);
+        const validationFailure = validateBrowserPdfPath(working).then(
+            () => null,
+            (error: unknown) => error,
+        );
         await qpdfStarted.promise;
 
         await browserDocumentStore.release(working);
@@ -1195,8 +1147,10 @@ describe('browser working-copy decryption', () => {
             return confFacts.promise;
         };
         try {
-            const conformanceFailure = analyzeBrowserPdfConformance(working, {purpose: 'save-restrictions'})
-                .then(() => null, (error: unknown) => error);
+            const conformanceFailure = analyzeBrowserPdfConformance(working, {purpose: 'save-restrictions'}).then(
+                () => null,
+                (error: unknown) => error,
+            );
             await confStarted.promise;
 
             await browserDocumentStore.release(working);
@@ -1265,8 +1219,10 @@ describe('browser working-copy decryption', () => {
             release: Promise.withResolvers<undefined>(),
         };
         const pausedCommit = pauseWriteAtomic;
-        const staleSave = browserDocumentStore.save(working, tokenA, {commit: lease!})
-            .then(() => null, (error: unknown) => error);
+        const staleSave = browserDocumentStore.save(working, tokenA, {commit: lease!}).then(
+            () => null,
+            (error: unknown) => error,
+        );
         await pausedCommit.started.promise;
 
         const releasing = browserDocumentStore.release(working);
@@ -1275,10 +1231,7 @@ describe('browser working-copy decryption', () => {
 
         // A second store takes over the directory and owns it exclusively.
         const secondBytes = await secondStore.read(working);
-        expect(secondBytes).toEqual(new Uint8Array([
-            ...bytesA,
-            ...appendedTail,
-        ]));
+        expect(secondBytes).toEqual(new Uint8Array([...bytesA, ...appendedTail]));
         await expect(staleSave).resolves.toMatchObject({code: 'STALE_REVISION'});
         await secondStore.release(working);
 
@@ -1300,8 +1253,10 @@ describe('browser working-copy decryption', () => {
             await editedRelease.promise;
         };
         try {
-            const staleRestore = browserDocumentStore.restoreRevision(undoWorking, token1, token2)
-                .then(() => null, (error: unknown) => error);
+            const staleRestore = browserDocumentStore.restoreRevision(undoWorking, token1, token2).then(
+                () => null,
+                (error: unknown) => error,
+            );
             await editedStarted.promise;
             await browserDocumentStore.release(undoWorking);
             editedRelease.resolve(undefined);
@@ -1368,11 +1323,17 @@ describe('Chrome extension launch', () => {
                     await file.close();
                     opened.set(path, opened.get(path)! - 1);
                 };
-                if (!/\/r\d+\.pdf$/u.test(path)) return {...file, close};
-                return {...file, close, writeAt: async (offset: number, bytes: Uint8Array) => {
-                    await file.writeAt(offset, bytes);
-                    writes.push(bytes.byteLength);
-                }};
+                if (!/\/r\d+\.pdf$/u.test(path)) {
+                    return {...file, close};
+                }
+                return {
+                    ...file,
+                    close,
+                    writeAt: async (offset: number, bytes: Uint8Array) => {
+                        await file.writeAt(offset, bytes);
+                        writes.push(bytes.byteLength);
+                    },
+                };
             },
             remove: async (path: string) => {
                 if ([...opened].some(([file, count]) => count > 0 && (file === path || file.startsWith(`${path}/`)))) {
@@ -1389,8 +1350,16 @@ describe('Chrome extension launch', () => {
             },
         };
         const durable = {port: recorded, publication: browserPublication};
-        vi.spyOn(serviceState.store!, 'stores').mockResolvedValue({durable, memory: {port: createMemoryStorePort(), publication: browserPublication}});
-        const manifests = async () => (await Promise.all((await port.list('documents')).map(async id => (await port.list(`documents/${id}`)).includes('manifest.json')))).filter(Boolean).length;
+        vi.spyOn(serviceState.store!, 'stores').mockResolvedValue({
+            durable,
+            memory: {port: createMemoryStorePort(), publication: browserPublication},
+        });
+        const manifests = async () =>
+            (
+                await Promise.all(
+                    (await port.list('documents')).map(async (id) => (await port.list(`documents/${id}`)).includes('manifest.json')),
+                )
+            ).filter(Boolean).length;
         return {
             writes,
             written: () => writes.reduce((total, size) => total + size, 0),
@@ -1447,7 +1416,10 @@ describe('Chrome extension launch', () => {
         const store = await recordingStore();
         const pdf = new TextEncoder().encode(`%PDF-1.7\n${'0123456789'.repeat(950_000)}\n%%EOF\n`);
         const served = servedBody(pdf, store.written);
-        const fetchMock = serve(served.body, {'content-type': 'application/pdf', 'content-disposition': 'attachment; filename="report.pdf"'});
+        const fetchMock = serve(served.body, {
+            'content-type': 'application/pdf',
+            'content-disposition': 'attachment; filename="report.pdf"',
+        });
         const sendMessage = chromeRuntime();
 
         await openBrowserExtensionDocument();
@@ -1479,7 +1451,9 @@ describe('Chrome extension launch', () => {
         const {openBrowserExtensionDocument} = await import('@app/platform/browser-api/openBrowserExtensionDocument');
         const store = await recordingStore();
         const sendMessage = chromeRuntime();
-        serve(servedBody(new TextEncoder().encode('<!doctype html><title>Sign in</title>'), store.written).body, {'content-type': 'application/pdf'});
+        serve(servedBody(new TextEncoder().encode('<!doctype html><title>Sign in</title>'), store.written).body, {
+            'content-type': 'application/pdf',
+        });
         await openBrowserExtensionDocument();
         expect(sendMessage).toHaveBeenLastCalledWith({type: expect.any(String), url: DOCUMENT_URL});
 

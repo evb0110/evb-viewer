@@ -1,22 +1,13 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
-import {
-    tryOnScopeDispose, until,
-} from '@vueuse/core';
-import type {
-    IWindowCloseRequest,
-    ISystemCapability,
-    TWindowCloseDecision,
-} from '@contracts/systemPlatformFeature';
+import type {ComputedRef, Ref} from 'vue';
+import {tryOnScopeDispose, until} from '@vueuse/core';
+import type {IWindowCloseRequest, ISystemCapability, TWindowCloseDecision} from '@contracts/systemPlatformFeature';
 import {
     getDocumentWorkspace,
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { rememberReadingView } from '@app/modules/workspace-shell/document-sessions/recentReadingView';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getSystemCapability } from '@app/utils/getSystemCapability';
+import {rememberReadingView} from '@app/modules/workspace-shell/document-sessions/recentReadingView';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getSystemCapability} from '@app/utils/getSystemCapability';
 
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 
@@ -27,9 +18,7 @@ interface IUseNativeWindowCloseHandshakeOptions {
     systemCapability?: Pick<ISystemCapability, 'onWindowCloseRequest'>;
 }
 
-export const useNativeWindowCloseHandshake = (
-    options: IUseNativeWindowCloseHandshakeOptions,
-) => {
+export const useNativeWindowCloseHandshake = (options: IUseNativeWindowCloseHandshakeOptions) => {
     const systemCapability = options.systemCapability ?? getSystemCapability();
     let closeRequestInFlight = false;
 
@@ -43,19 +32,22 @@ export const useNativeWindowCloseHandshake = (
     // views or opened on their own, the later one's place is the one kept.
     async function closeWith(decision: 'save' | 'discard'): Promise<TWindowCloseDecision> {
         // A Save's lease ends a few turns after its released adoption.
-        await until(() => getDocuments().every(session => !session.operationLease.isBusy.value)).toBe(true);
+        await until(() => getDocuments().every((session) => !session.operationLease.isBusy.value)).toBe(true);
         for (const [tabId, session] of Object.entries(options.documentSessionsByTabId.value)) {
             await rememberReadingView(session, tabId);
         }
-        return getDocuments().some(session => session.operationLease.isBusy.value
-            || (decision === 'save' && session.snapshot.value.dirty)) ? 'cancel' : decision;
+        return getDocuments().some(
+            (session) => session.operationLease.isBusy.value || (decision === 'save' && session.snapshot.value.dirty),
+        )
+            ? 'cancel'
+            : decision;
     }
 
     // Dirty tabs are save-protected, so their workspaces stay mounted. Save
     // resolves after publication, reload and draft settlement; work newer than
     // its frontier keeps the document dirty, which `closeWith` refuses.
     async function saveTab(session: IWorkspaceDocumentController) {
-        return await getDocumentWorkspace(session)?.handleSave() === true;
+        return (await getDocumentWorkspace(session)?.handleSave()) === true;
     }
 
     async function handleWindowClose(_request: IWindowCloseRequest): Promise<TWindowCloseDecision> {
@@ -66,15 +58,15 @@ export const useNativeWindowCloseHandshake = (
         closeRequestInFlight = true;
         // While the window decides, each document's running jobs end, so no reader holds the decision. One that had a
         // job ended gets its revision published again before the decision returns, since main may keep the window (#1598).
-        const ends = getDocuments().map(session => session.releaseJobs());
+        const ends = getDocuments().map((session) => session.releaseJobs());
         try {
             // A cleared source still owns its provisional transfer until commit
             // or restoration. Read the live registry as departing tabs leave it.
-            await until(() => getDocuments().every(session => !session.operationLease.isBusy.value)).toBe(true);
-            if (options.flushSettings && !await options.flushSettings()) {
+            await until(() => getDocuments().every((session) => !session.operationLease.isBusy.value)).toBe(true);
+            if (options.flushSettings && !(await options.flushSettings())) {
                 return 'cancel';
             }
-            const dirtyTabs = getDocuments().filter(session => session.snapshot.value.dirty);
+            const dirtyTabs = getDocuments().filter((session) => session.snapshot.value.dirty);
             if (dirtyTabs.length === 0) {
                 return await closeWith('save');
             }
@@ -85,12 +77,12 @@ export const useNativeWindowCloseHandshake = (
             }
 
             for (const session of dirtyTabs) {
-                if (!await saveTab(session)) {
+                if (!(await saveTab(session))) {
                     return 'cancel';
                 }
             }
 
-            if (options.flushSettings && !await options.flushSettings()) {
+            if (options.flushSettings && !(await options.flushSettings())) {
                 return 'cancel';
             }
 
@@ -99,7 +91,7 @@ export const useNativeWindowCloseHandshake = (
             BrowserLogger.error('workspace', 'Native window close save failed', {error}, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
             return 'cancel';
         } finally {
-            ends.forEach(end => end(true));
+            ends.forEach((end) => end(true));
             closeRequestInFlight = false;
         }
     }

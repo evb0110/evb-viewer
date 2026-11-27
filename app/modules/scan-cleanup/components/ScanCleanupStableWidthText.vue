@@ -3,7 +3,11 @@
         class="scan-cleanup-stable-width-text"
         :class="{'is-align-start': align === 'start'}"
     >
-        <span class="scan-cleanup-stable-width-sizer" aria-hidden="true">{{ widest }}</span>
+        <span
+            class="scan-cleanup-stable-width-sizer"
+            aria-hidden="true"
+            >{{ widest }}</span
+        >
         <span class="scan-cleanup-stable-width-value">{{ text }}</span>
     </span>
 </template>

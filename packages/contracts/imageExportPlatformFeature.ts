@@ -1,21 +1,9 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import {
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    definePlatformFeature,
-    type TFeatureCapability,
-    type TFeatureEventMap,
-    type TFeatureInvokeMap,
-} from '@contracts/platformFeature';
-import { isRecord } from '@contracts/runtimeGuards';
-import {
-    parseRequestId,
-    requireRequestId,
-    type TRequestId,
-} from '@contracts/shared';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {definePlatformFeature, type TFeatureCapability, type TFeatureEventMap, type TFeatureInvokeMap} from '@contracts/platformFeature';
+import {isRecord} from '@contracts/runtimeGuards';
+import {parseRequestId, requireRequestId, type TRequestId} from '@contracts/shared';
 import * as v from 'valibot';
 
 const MAX_COLLECTION_ITEMS = 100_000;
@@ -45,18 +33,11 @@ const pageNumbersSchema = v.pipe(
         return value;
     }),
     v.check(
-        pages => pages.every(page => (
-            typeof page === 'number'
-            && Number.isSafeInteger(page)
-            && page >= 1
-        )),
+        (pages) => pages.every((page) => typeof page === 'number' && Number.isSafeInteger(page) && page >= 1),
         'pageNumbers must contain positive safe integers',
     ),
-    v.check(
-        pages => new Set(pages).size === pages.length,
-        'pageNumbers must contain unique pages',
-    ),
-    v.transform(pages => pages.map(page => requirePageNumber(page as number))),
+    v.check((pages) => new Set(pages).size === pages.length, 'pageNumbers must contain unique pages'),
+    v.transform((pages) => pages.map((page) => requirePageNumber(page as number))),
 );
 const requestIdSchema = v.pipe(
     v.nullish(v.string('requestId must be a string')),
@@ -68,37 +49,37 @@ const requestIdSchema = v.pipe(
         return trimmed.length === 0 ? undefined : trimmed;
     }),
     v.check(
-        value => value === undefined || value.length <= IMAGE_EXPORT_REQUEST_ID_MAX_LENGTH,
+        (value) => value === undefined || value.length <= IMAGE_EXPORT_REQUEST_ID_MAX_LENGTH,
         `requestId exceeds maximum length (${IMAGE_EXPORT_REQUEST_ID_MAX_LENGTH})`,
     ),
-    v.transform(value => value === undefined ? undefined : requireRequestId(value)),
+    v.transform((value) => (value === undefined ? undefined : requireRequestId(value))),
 );
-const sourceKindSchema = v.picklist([
-    'pdf',
-    'djvu',
-], 'sourceKind must be pdf or djvu');
+const sourceKindSchema = v.picklist(['pdf', 'djvu'], 'sourceKind must be pdf or djvu');
 export const CAPTURE_MAX_EDGE_PX = 4096;
 export const CAPTURE_MAX_PIXELS = CAPTURE_MAX_EDGE_PX * CAPTURE_MAX_EDGE_PX;
 export const CAPTURE_MAX_BYTES = 16 * 1024 * 1024;
 export function assertCaptureImageBudget(width: number, height: number) {
-    if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1
-        || width > CAPTURE_MAX_EDGE_PX || height > CAPTURE_MAX_EDGE_PX || width * height > CAPTURE_MAX_PIXELS) {
+    if (
+        !Number.isSafeInteger(width) ||
+        !Number.isSafeInteger(height) ||
+        width < 1 ||
+        height < 1 ||
+        width > CAPTURE_MAX_EDGE_PX ||
+        height > CAPTURE_MAX_EDGE_PX ||
+        width * height > CAPTURE_MAX_PIXELS
+    ) {
         throw new RangeError(`Capture exceeds the ${CAPTURE_MAX_EDGE_PX} edge or 16 Mi-pixel limit`);
     }
 }
 export function readCapturePngSize(bytes: Uint8Array) {
-    if (bytes.byteLength < 33 || bytes.byteLength > CAPTURE_MAX_BYTES
-        || ![
-            137,
-            80,
-            78,
-            71,
-            13,
-            10,
-            26,
-            10,
-        ].every((byte, index) => bytes[index] === byte)
-        || String.fromCharCode(...bytes.subarray(12, 16)) !== 'IHDR') throw new Error('Invalid capture PNG');
+    if (
+        bytes.byteLength < 33 ||
+        bytes.byteLength > CAPTURE_MAX_BYTES ||
+        ![137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => bytes[index] === byte) ||
+        String.fromCharCode(...bytes.subarray(12, 16)) !== 'IHDR'
+    ) {
+        throw new Error('Invalid capture PNG');
+    }
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const width = view.getUint32(16);
     const height = view.getUint32(20);
@@ -108,16 +89,28 @@ export function readCapturePngSize(bytes: Uint8Array) {
         height,
     };
 }
-const captureRegionSchema = v.pipe(v.object({
-    x: v.pipe(v.number(), v.integer(), v.minValue(0)),
-    y: v.pipe(v.number(), v.integer(), v.minValue(0)),
-    width: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(CAPTURE_MAX_EDGE_PX)),
-    height: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(CAPTURE_MAX_EDGE_PX)),
-    viewportWidth: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65536)),
-    viewportHeight: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65536)),
-    pixelRatio: v.pipe(v.number(), v.finite(), v.minValue(Number.EPSILON), v.maxValue(8)),
-}), v.check(region => region.x + region.width <= region.viewportWidth && region.y + region.height <= region.viewportHeight, 'Capture must fit the current viewport'),
-v.check(region => Math.ceil(region.width * region.pixelRatio) <= CAPTURE_MAX_EDGE_PX && Math.ceil(region.height * region.pixelRatio) <= CAPTURE_MAX_EDGE_PX && Math.ceil(region.width * region.pixelRatio) * Math.ceil(region.height * region.pixelRatio) <= CAPTURE_MAX_PIXELS, 'Capture exceeds the pixel limit'));
+const captureRegionSchema = v.pipe(
+    v.object({
+        x: v.pipe(v.number(), v.integer(), v.minValue(0)),
+        y: v.pipe(v.number(), v.integer(), v.minValue(0)),
+        width: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(CAPTURE_MAX_EDGE_PX)),
+        height: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(CAPTURE_MAX_EDGE_PX)),
+        viewportWidth: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65536)),
+        viewportHeight: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65536)),
+        pixelRatio: v.pipe(v.number(), v.finite(), v.minValue(Number.EPSILON), v.maxValue(8)),
+    }),
+    v.check(
+        (region) => region.x + region.width <= region.viewportWidth && region.y + region.height <= region.viewportHeight,
+        'Capture must fit the current viewport',
+    ),
+    v.check(
+        (region) =>
+            Math.ceil(region.width * region.pixelRatio) <= CAPTURE_MAX_EDGE_PX &&
+            Math.ceil(region.height * region.pixelRatio) <= CAPTURE_MAX_EDGE_PX &&
+            Math.ceil(region.width * region.pixelRatio) * Math.ceil(region.height * region.pixelRatio) <= CAPTURE_MAX_PIXELS,
+        'Capture exceeds the pixel limit',
+    ),
+);
 export type ICurrentViewCaptureRegion = v.InferOutput<typeof captureRegionSchema>;
 /** Local browser consent/paint lifetime. These values never cross IPC. */
 export interface ICurrentViewCaptureLocal {
@@ -127,10 +120,15 @@ export interface ICurrentViewCaptureLocal {
     assertCurrent: () => void;
     cancel: () => void;
 }
-const capturePngSchema = v.nullable(v.pipe(v.custom<Uint8Array>(value => value instanceof Uint8Array, 'Invalid capture PNG'), v.check(bytes => {
-    readCapturePngSize(bytes);
-    return true;
-})));
+const capturePngSchema = v.nullable(
+    v.pipe(
+        v.custom<Uint8Array>((value) => value instanceof Uint8Array, 'Invalid capture PNG'),
+        v.check((bytes) => {
+            readCapturePngSize(bytes);
+            return true;
+        }),
+    ),
+);
 const exportArgs = v.strictTuple([
     documentRefSchema,
     v.optional(pageNumbersSchema),
@@ -150,23 +148,19 @@ const outputPathsSchema = v.pipe(
         }
         return value;
     }),
-    v.check(
-        paths => paths.every(path => typeof path === 'string'),
-        'outputPaths must be an array of strings',
-    ),
-    v.transform(paths => paths.filter((path): path is string => typeof path === 'string')),
+    v.check((paths) => paths.every((path) => typeof path === 'string'), 'outputPaths must be an array of strings'),
+    v.transform((paths) => paths.filter((path): path is string => typeof path === 'string')),
 );
 const imageExportResultSchema = v.pipe(
-    v.object({
-        success: v.boolean('invalid image export result'),
-        canceled: v.optional(v.boolean('invalid image export result')),
-        outputPaths: v.optional(outputPathsSchema),
-    }, 'invalid image export result'),
-    v.transform(({
-        success,
-        canceled,
-        outputPaths,
-    }) => ({
+    v.object(
+        {
+            success: v.boolean('invalid image export result'),
+            canceled: v.optional(v.boolean('invalid image export result')),
+            outputPaths: v.optional(outputPathsSchema),
+        },
+        'invalid image export result',
+    ),
+    v.transform(({success, canceled, outputPaths}) => ({
         success,
         ...(canceled === undefined ? {} : {canceled}),
         ...(outputPaths === undefined ? {} : {outputPaths}),
@@ -190,20 +184,9 @@ const multiPageTiffResultSchema = v.pipe(
 );
 
 const INVALID_PROGRESS = 'invalid image export progress';
-const imageExportProgressFormatSchema = v.picklist([
-    'images',
-    'multipage-tiff',
-], INVALID_PROGRESS);
-const imageExportProgressPhaseSchema = v.picklist([
-    'rendering',
-    'combining',
-], INVALID_PROGRESS);
-const imageExportProgressStatusSchema = v.picklist([
-    'running',
-    'success',
-    'canceled',
-    'failed',
-], INVALID_PROGRESS);
+const imageExportProgressFormatSchema = v.picklist(['images', 'multipage-tiff'], INVALID_PROGRESS);
+const imageExportProgressPhaseSchema = v.picklist(['rendering', 'combining'], INVALID_PROGRESS);
+const imageExportProgressStatusSchema = v.picklist(['running', 'success', 'canceled', 'failed'], INVALID_PROGRESS);
 const imageExportProgressRequestIdSchema = v.pipe(
     v.unknown(),
     v.transform((value): TRequestId => {
@@ -214,31 +197,22 @@ const imageExportProgressRequestIdSchema = v.pipe(
         return requestId;
     }),
 );
-const finiteProgressSchema = v.pipe(
-    v.number(INVALID_PROGRESS),
-    v.finite(INVALID_PROGRESS),
-);
+const finiteProgressSchema = v.pipe(v.number(INVALID_PROGRESS), v.finite(INVALID_PROGRESS));
 const imageExportProgressSchema = v.pipe(
-    v.object({
-        requestId: imageExportProgressRequestIdSchema,
-        format: imageExportProgressFormatSchema,
-        phase: imageExportProgressPhaseSchema,
-        processed: finiteProgressSchema,
-        total: finiteProgressSchema,
-        percent: finiteProgressSchema,
-        status: v.optional(imageExportProgressStatusSchema),
-        error: v.optional(v.string(INVALID_PROGRESS)),
-    }, INVALID_PROGRESS),
-    v.transform(({
-        requestId,
-        format,
-        phase,
-        processed,
-        total,
-        percent,
-        status,
-        error,
-    }) => ({
+    v.object(
+        {
+            requestId: imageExportProgressRequestIdSchema,
+            format: imageExportProgressFormatSchema,
+            phase: imageExportProgressPhaseSchema,
+            processed: finiteProgressSchema,
+            total: finiteProgressSchema,
+            percent: finiteProgressSchema,
+            status: v.optional(imageExportProgressStatusSchema),
+            error: v.optional(v.string(INVALID_PROGRESS)),
+        },
+        INVALID_PROGRESS,
+    ),
+    v.transform(({requestId, format, phase, processed, total, percent, status, error}) => ({
         requestId,
         format,
         phase,
@@ -297,17 +271,14 @@ export const IMAGE_EXPORT_PLATFORM_FEATURE = definePlatformFeature({
                 result: imageExportResultSchema,
                 timeoutMs: 30 * 60 * 1_000,
             },
-            client: {mapArgs: (
-                workingCopyPath: TDocumentRef,
-                pageNumbers?: TPageNumber[],
-                requestId?: TRequestId,
-                sourceKind?: TDocumentImageExportSourceKind,
-            ): TImageExportArgs => [
-                workingCopyPath,
-                pageNumbers,
-                requestId,
-                sourceKind,
-            ]},
+            client: {
+                mapArgs: (
+                    workingCopyPath: TDocumentRef,
+                    pageNumbers?: TPageNumber[],
+                    requestId?: TRequestId,
+                    sourceKind?: TDocumentImageExportSourceKind,
+                ): TImageExportArgs => [workingCopyPath, pageNumbers, requestId, sourceKind],
+            },
             main: {
                 method: 'exportImages',
                 context: 'sender',
@@ -323,17 +294,14 @@ export const IMAGE_EXPORT_PLATFORM_FEATURE = definePlatformFeature({
                 result: multiPageTiffResultSchema,
                 timeoutMs: 30 * 60 * 1_000,
             },
-            client: {mapArgs: (
-                workingCopyPath: TDocumentRef,
-                pageNumbers?: TPageNumber[],
-                requestId?: TRequestId,
-                sourceKind?: TDocumentImageExportSourceKind,
-            ): TImageExportArgs => [
-                workingCopyPath,
-                pageNumbers,
-                requestId,
-                sourceKind,
-            ]},
+            client: {
+                mapArgs: (
+                    workingCopyPath: TDocumentRef,
+                    pageNumbers?: TPageNumber[],
+                    requestId?: TRequestId,
+                    sourceKind?: TDocumentImageExportSourceKind,
+                ): TImageExportArgs => [workingCopyPath, pageNumbers, requestId, sourceKind],
+            },
             main: {
                 method: 'exportMultiPageTiff',
                 context: 'sender',
@@ -342,22 +310,24 @@ export const IMAGE_EXPORT_PLATFORM_FEATURE = definePlatformFeature({
             lazy: 'forwarded',
         },
     },
-    events: {onProgress: {
-        kind: 'event',
-        channel: 'pdfExport:progress',
-        payload: imageExportProgressSchema,
-        subscription: {
-            channel: 'pdfExport:progress:subscribe',
-            request: 'once-per-preload-event-channel',
-            main: {
-                method: 'subscribeProgress',
-                context: 'sender',
+    events: {
+        onProgress: {
+            kind: 'event',
+            channel: 'pdfExport:progress',
+            payload: imageExportProgressSchema,
+            subscription: {
+                channel: 'pdfExport:progress:subscribe',
+                request: 'once-per-preload-event-channel',
+                main: {
+                    method: 'subscribeProgress',
+                    context: 'sender',
+                },
+                replay,
             },
-            replay,
+            browser: {method: 'onProgress'},
+            lazy: 'forwarded',
         },
-        browser: {method: 'onProgress'},
-        lazy: 'forwarded',
-    }},
+    },
 });
 
 export type IImageExportCapability = TFeatureCapability<typeof IMAGE_EXPORT_PLATFORM_FEATURE>;

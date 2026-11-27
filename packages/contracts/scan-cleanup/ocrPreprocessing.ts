@@ -1,14 +1,9 @@
-import type {
-    IOcrDiagnostic,
-    TOcrPreprocessingMode,
-} from '@contracts/electronApiOcr';
+import type {IOcrDiagnostic, TOcrPreprocessingMode} from '@contracts/electronApiOcr';
 import type {TPageNumber} from '@contracts/pageNumbers';
 import type {IScanCleanupPreviewAffine} from '@contracts/scan-cleanup/geometry';
 import type {INativeScanCleanupOptionsV3} from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {TNativeScanCleanupOutputArtifactMetadataV3} from '@contracts/scan-cleanup/nativeArtifactCodecs';
-import {
-    SCAN_CLEANUP_MAX_BILEVEL_PIXELS, SCAN_CLEANUP_MAX_DIMENSION_PX,
-} from '@contracts/scan-cleanup/inputLimits';
+import {SCAN_CLEANUP_MAX_BILEVEL_PIXELS, SCAN_CLEANUP_MAX_DIMENSION_PX} from '@contracts/scan-cleanup/inputLimits';
 
 /**
  * How the cleanup engine prepares an OCR page: full cleanup, or only the
@@ -38,10 +33,7 @@ export function getOcrScanCleanupMode(setting: TOcrPreprocessingMode): TOcrScanC
  * `sourceDpi`/`requestedRenderDpi` are supplied per call because the engine
  * otherwise derives both from `dpi`.
  */
-const OCR_PREPROCESS_PINNED_OPTIONS: Omit<
-    INativeScanCleanupOptionsV3,
-    'dpi' | 'sourceDpi' | 'requestedRenderDpi'
-> = {
+const OCR_PREPROCESS_PINNED_OPTIONS: Omit<INativeScanCleanupOptionsV3, 'dpi' | 'sourceDpi' | 'requestedRenderDpi'> = {
     sourceHasBilevelLayer: false,
     binarization: 'auto',
     thickness: 0,
@@ -77,23 +69,24 @@ const OCR_PREPROCESS_PINNED_OPTIONS: Omit<
 
 /** The complete cleanup options for one OCR page rendered at `dpi`. */
 export function createOcrScanCleanupOptions(mode: TOcrScanCleanupMode, dpi: number): INativeScanCleanupOptionsV3 {
-    const options = mode === 'polarity-only'
-        ? {
-            ...OCR_PREPROCESS_PINNED_OPTIONS,
-            normalizeIllumination: false,
-            despeckle: false,
-            layout: 'force-single' as const,
-            cropContent: false,
-            matchPageSize: false,
-            margins: {
-                leftMm: 0,
-                topMm: 0,
-                rightMm: 0,
-                bottomMm: 0,
-            },
-            ocrPolarityOnly: true,
-        }
-        : OCR_PREPROCESS_PINNED_OPTIONS;
+    const options =
+        mode === 'polarity-only'
+            ? {
+                  ...OCR_PREPROCESS_PINNED_OPTIONS,
+                  normalizeIllumination: false,
+                  despeckle: false,
+                  layout: 'force-single' as const,
+                  cropContent: false,
+                  matchPageSize: false,
+                  margins: {
+                      leftMm: 0,
+                      topMm: 0,
+                      rightMm: 0,
+                      bottomMm: 0,
+                  },
+                  ocrPolarityOnly: true,
+              }
+            : OCR_PREPROCESS_PINNED_OPTIONS;
     return {
         ...options,
         dpi,
@@ -107,17 +100,20 @@ function isInvertibleAffine(affine: IScanCleanupPreviewAffine | null | undefined
         return true;
     }
     const matrix = affine.matrix;
-    if (matrix.length !== 3 || matrix.some(row => row.length !== 3 || row.some(value => !Number.isFinite(value)))) {
+    if (matrix.length !== 3 || matrix.some((row) => row.length !== 3 || row.some((value) => !Number.isFinite(value)))) {
         return false;
     }
-    const determinant = matrix[0]![0]! * (matrix[1]![1]! * matrix[2]![2]! - matrix[1]![2]! * matrix[2]![1]!)
-        - matrix[0]![1]! * (matrix[1]![0]! * matrix[2]![2]! - matrix[1]![2]! * matrix[2]![0]!)
-        + matrix[0]![2]! * (matrix[1]![0]! * matrix[2]![1]! - matrix[1]![1]! * matrix[2]![0]!);
+    const determinant =
+        matrix[0]![0]! * (matrix[1]![1]! * matrix[2]![2]! - matrix[1]![2]! * matrix[2]![1]!) -
+        matrix[0]![1]! * (matrix[1]![0]! * matrix[2]![2]! - matrix[1]![2]! * matrix[2]![0]!) +
+        matrix[0]![2]! * (matrix[1]![0]! * matrix[2]![1]! - matrix[1]![1]! * matrix[2]![0]!);
     return Number.isFinite(determinant) && Math.abs(determinant) > Number.EPSILON;
 }
 
 /** `inverseTransform` maps preprocessed pixels back to the rendered page; absent when unmoved. */
-export interface IOcrScanCleanupGeometry {inverseTransform?: IScanCleanupPreviewAffine;}
+export interface IOcrScanCleanupGeometry {
+    inverseTransform?: IScanCleanupPreviewAffine;
+}
 
 /**
  * The geometry OCR may use from one preprocessed page's metadata. Recognized

@@ -1,12 +1,6 @@
 import type * as TViMockOriginalModule from '@electron/utils/error';
 
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 interface IHostZenEscapeTestBounds {
     x: number;
@@ -45,7 +39,9 @@ interface IHostZenEscapeTestWindow {
     honorsUnmaximize: boolean;
 }
 
-interface IBeforeInputTestEvent { preventDefault: () => void; }
+interface IBeforeInputTestEvent {
+    preventDefault: () => void;
+}
 
 interface IBeforeInputTestInput {
     type: string;
@@ -56,9 +52,9 @@ const mocks = vi.hoisted(() => ({
     focusedWindow: null as IHostZenEscapeTestWindow | null,
     globalShortcutRegister: vi.fn(),
     globalShortcutUnregister: vi.fn(),
-    createWindow: ((_id: number): IHostZenEscapeTestWindow => {
+    createWindow: (_id: number): IHostZenEscapeTestWindow => {
         throw new Error('createWindow mock not initialized');
-    }),
+    },
 }));
 
 vi.mock('electron', () => {
@@ -82,14 +78,12 @@ vi.mock('electron', () => {
             height: 600,
         };
         // Native state events arrive after the request, as the window manager sends them.
-        const emit = (event: string) => queueMicrotask(() => {
-            for (const listener of [
-                ...(listeners[event] ?? []),
-                ...(onceListeners[event]?.splice(0) ?? []),
-            ]) {
-                listener();
-            }
-        });
+        const emit = (event: string) =>
+            queueMicrotask(() => {
+                for (const listener of [...(listeners[event] ?? []), ...(onceListeners[event]?.splice(0) ?? [])]) {
+                    listener();
+                }
+            });
         const window: IHostZenEscapeTestWindow = {
             id,
             webContents: {
@@ -104,10 +98,7 @@ vi.mock('electron', () => {
             }),
             getBounds: vi.fn(() => bounds),
             // The content area is the window less its title bar.
-            getContentSize: vi.fn(() => [
-                bounds.width,
-                bounds.height - TITLE_BAR_HEIGHT,
-            ]),
+            getContentSize: vi.fn(() => [bounds.width, bounds.height - TITLE_BAR_HEIGHT]),
             setContentSize: vi.fn((width: number, height: number) => {
                 bounds = {
                     ...bounds,
@@ -137,11 +128,11 @@ vi.mock('electron', () => {
                 fullScreen = active;
                 bounds = active
                     ? {
-                        x: 0,
-                        y: 0,
-                        width: 1280,
-                        height: 800,
-                    }
+                          x: 0,
+                          y: 0,
+                          width: 1280,
+                          height: 800,
+                      }
                     : bounds;
                 emit(active ? 'enter-full-screen' : 'leave-full-screen');
             }),
@@ -211,10 +202,8 @@ async function withEventEmittingFullScreen(run: () => Promise<void>) {
 }
 
 function getBeforeInputHandler(window: IHostZenEscapeTestWindow) {
-    return window.webContents.on.mock.calls
-        .find(call => call[0] === 'before-input-event')?.[1] as
-        | ((event: IBeforeInputTestEvent, input: IBeforeInputTestInput) => void)
-        | undefined;
+    return window.webContents.on.mock.calls.find((call) => call[0] === 'before-input-event')?.[1] as
+        ((event: IBeforeInputTestEvent, input: IBeforeInputTestInput) => void) | undefined;
 }
 
 // A window frame, so a content size and a window size differ.
@@ -228,10 +217,7 @@ describe('host environment zen Escape handling', () => {
     });
 
     it('exits only the focused zen window through window-scoped Escape handling', async () => {
-        const {
-            attachHostEnvironmentToWindow,
-            setHostZenModeForWindow,
-        } = await import('@electron/hostEnvironment');
+        const {attachHostEnvironmentToWindow, setHostZenModeForWindow} = await import('@electron/hostEnvironment');
         const firstWindow = mocks.createWindow(1);
         const secondWindow = mocks.createWindow(2);
 
@@ -295,12 +281,11 @@ describe('host environment zen Escape handling', () => {
     it('coalesces duplicate unchanged host environment broadcasts', async () => {
         vi.useFakeTimers();
         try {
-            const { attachHostEnvironmentToWindow } = await import('@electron/hostEnvironment');
+            const {attachHostEnvironmentToWindow} = await import('@electron/hostEnvironment');
             const window = mocks.createWindow(3);
 
             attachHostEnvironmentToWindow(window as never);
-            const moveHandler = window.on.mock.calls
-                .find(call => call[0] === 'move')?.[1] as (() => void) | undefined;
+            const moveHandler = window.on.mock.calls.find((call) => call[0] === 'move')?.[1] as (() => void) | undefined;
             expect(moveHandler).toBeTypeOf('function');
 
             moveHandler?.();
@@ -331,21 +316,24 @@ describe('host environment zen Escape handling', () => {
 
 describe('host environment startup argument', () => {
     it('describes the display the window bounds fall on, not the primary one', async () => {
-        const { encodeHostEnvironmentArgument } = await import('@electron/hostEnvironment');
-        const { readHostEnvironmentArgument } = await import('@electron/preload/readHostEnvironmentArgument');
-        const readStartupScaleFactor = (bounds: {x: number}) => readHostEnvironmentArgument([encodeHostEnvironmentArgument({
-            ...bounds,
-            y: 200,
-            width: 900,
-            height: 700,
-        })])?.osScaleFactor;
+        const {encodeHostEnvironmentArgument} = await import('@electron/hostEnvironment');
+        const {readHostEnvironmentArgument} = await import('@electron/preload/readHostEnvironmentArgument');
+        const readStartupScaleFactor = (bounds: {x: number}) =>
+            readHostEnvironmentArgument([
+                encodeHostEnvironmentArgument({
+                    ...bounds,
+                    y: 200,
+                    width: 900,
+                    height: 700,
+                }),
+            ])?.osScaleFactor;
 
         expect(readStartupScaleFactor({x: 2400})).toBe(2);
         expect(readStartupScaleFactor({x: 100})).toBe(1);
     });
 
     it('leaves maximized before answering, and reports a window that stays maximized', async () => {
-        const { restoreHostNormalWindowForWindow } = await import('@electron/hostEnvironment');
+        const {restoreHostNormalWindowForWindow} = await import('@electron/hostEnvironment');
         const window = mocks.createWindow(4);
         window.maximized = true;
 
@@ -366,10 +354,12 @@ describe('host environment startup argument', () => {
         // Already normal: nothing to leave, same answer.
         await expect(restoreHostNormalWindowForWindow(window as never)).resolves.toEqual(normal);
         // A requested content area is given natively, whatever the frame.
-        await expect(restoreHostNormalWindowForWindow(window as never, {
-            width: 640,
-            height: 480,
-        })).resolves.toEqual({
+        await expect(
+            restoreHostNormalWindowForWindow(window as never, {
+                width: 640,
+                height: 480,
+            }),
+        ).resolves.toEqual({
             ...normal,
             contentSize: {
                 width: 640,
@@ -400,15 +390,12 @@ describe('host environment startup argument', () => {
 
     it('leaves zen for the normal window without restoring or focusing its pre-zen placement', async () => {
         await withEventEmittingFullScreen(async () => {
-            const {
-                attachHostEnvironmentToWindow,
-                restoreHostNormalWindowForWindow,
-                setHostZenModeForWindow,
-            } = await import('@electron/hostEnvironment');
+            const {attachHostEnvironmentToWindow, restoreHostNormalWindowForWindow, setHostZenModeForWindow} =
+                await import('@electron/hostEnvironment');
             const window = mocks.createWindow(6);
             attachHostEnvironmentToWindow(window as never);
             await setHostZenModeForWindow(window as never, true);
-            await new Promise(resolve => setTimeout(resolve, 0));
+            await new Promise((resolve) => setTimeout(resolve, 0));
             mocks.focusedWindow = null;
             // The window moved while in zen; that is the bounds the resize measures from.
             window.setBounds({
@@ -431,7 +418,7 @@ describe('host environment startup argument', () => {
                     height: 600,
                 },
             });
-            await new Promise(resolve => setTimeout(resolve, 0));
+            await new Promise((resolve) => setTimeout(resolve, 0));
 
             expect(mocks.focusedWindow).toBeNull();
             expect(window.getBounds()).toEqual({
@@ -445,10 +432,7 @@ describe('host environment startup argument', () => {
 
     it('still restores and focuses the pre-zen placement on an ordinary zen exit', async () => {
         await withEventEmittingFullScreen(async () => {
-            const {
-                attachHostEnvironmentToWindow,
-                setHostZenModeForWindow,
-            } = await import('@electron/hostEnvironment');
+            const {attachHostEnvironmentToWindow, setHostZenModeForWindow} = await import('@electron/hostEnvironment');
             const window = mocks.createWindow(7);
             attachHostEnvironmentToWindow(window as never);
             await setHostZenModeForWindow(window as never, true);
@@ -481,19 +465,13 @@ describe('host per-window raster budget broadcasts', () => {
     });
 
     it('pushes updated per-window shares as windows register and unregister, and pushes initial share on load', async () => {
-        const { initializeHostResourceProfile } = await import('@electron/resources/hostResourceProfile');
-        const {
-            registerAppWindow,
-            unregisterAppWindow,
-        } = await import('@electron/window/registry');
-        const {
-            attachHostEnvironmentToWindow,
-            hostMainBindings,
-            installHostEnvironmentDisplayWatcher,
-        } = await import('@electron/hostEnvironment');
+        const {initializeHostResourceProfile} = await import('@electron/resources/hostResourceProfile');
+        const {registerAppWindow, unregisterAppWindow} = await import('@electron/window/registry');
+        const {attachHostEnvironmentToWindow, hostMainBindings, installHostEnvironmentDisplayWatcher} =
+            await import('@electron/hostEnvironment');
 
         initializeHostResourceProfile({
-            app: { getGPUFeatureStatus: () => ({} as never) },
+            app: {getGPUFeatureStatus: () => ({}) as never},
             performanceMode: 'auto',
             availableParallelism: () => 8,
             totalmem: () => 32 * GIB,
@@ -502,14 +480,14 @@ describe('host per-window raster budget broadcasts', () => {
 
         const firstWindow = mocks.createWindow(101);
         attachHostEnvironmentToWindow(firstWindow as never);
-        registerAppWindow(firstWindow as never, { setAsMain: true });
+        registerAppWindow(firstWindow as never, {setAsMain: true});
 
         expect(firstWindow.webContents.send).toHaveBeenCalledWith('host:rasterBudgetChanged', {
             maxRasterSurfaceBytes: 1536 * MIB,
             hostPoolBytes: 1536 * MIB,
             windowCount: 1,
         });
-        expect(hostMainBindings.snapshotHostRasterBudgetForWindow({ sender: firstWindow.webContents } as never)).toEqual({
+        expect(hostMainBindings.snapshotHostRasterBudgetForWindow({sender: firstWindow.webContents} as never)).toEqual({
             maxRasterSurfaceBytes: 1536 * MIB,
             hostPoolBytes: 1536 * MIB,
             windowCount: 1,
@@ -527,11 +505,11 @@ describe('host per-window raster budget broadcasts', () => {
         };
         expect(firstWindow.webContents.send).toHaveBeenLastCalledWith('host:rasterBudgetChanged', twoWindowShare);
         expect(secondWindow.webContents.send).toHaveBeenLastCalledWith('host:rasterBudgetChanged', twoWindowShare);
-        expect(hostMainBindings.snapshotHostRasterBudgetForWindow({ sender: secondWindow.webContents } as never)).toEqual(twoWindowShare);
+        expect(hostMainBindings.snapshotHostRasterBudgetForWindow({sender: secondWindow.webContents} as never)).toEqual(twoWindowShare);
 
         // did-finish-load delivers the share even after an earlier broadcast (e.g. reload or late preload attach).
-        const secondLoadHandler = secondWindow.webContents.on.mock.calls
-            .find(call => call[0] === 'did-finish-load')?.[1] as (() => void) | undefined;
+        const secondLoadHandler = secondWindow.webContents.on.mock.calls.find((call) => call[0] === 'did-finish-load')?.[1] as
+            (() => void) | undefined;
         expect(secondLoadHandler).toBeTypeOf('function');
         const sendCountBeforeLoad = secondWindow.webContents.send.mock.calls.length;
         secondLoadHandler?.();
@@ -552,15 +530,12 @@ describe('host per-window raster budget broadcasts', () => {
     });
 
     it('skips destroyed webContents without throwing during broadcast', async () => {
-        const { initializeHostResourceProfile } = await import('@electron/resources/hostResourceProfile');
-        const { registerAppWindow } = await import('@electron/window/registry');
-        const {
-            broadcastHostRasterBudgetToAllWindows,
-            installHostEnvironmentDisplayWatcher,
-        } = await import('@electron/hostEnvironment');
+        const {initializeHostResourceProfile} = await import('@electron/resources/hostResourceProfile');
+        const {registerAppWindow} = await import('@electron/window/registry');
+        const {broadcastHostRasterBudgetToAllWindows, installHostEnvironmentDisplayWatcher} = await import('@electron/hostEnvironment');
 
         initializeHostResourceProfile({
-            app: { getGPUFeatureStatus: () => ({} as never) },
+            app: {getGPUFeatureStatus: () => ({}) as never},
             performanceMode: 'auto',
             availableParallelism: () => 8,
             totalmem: () => 16 * GIB,
@@ -571,7 +546,7 @@ describe('host per-window raster budget broadcasts', () => {
         const closingWindow = mocks.createWindow(202);
         closingWindow.webContents.isDestroyed.mockReturnValue(true);
 
-        registerAppWindow(liveWindow as never, { setAsMain: true });
+        registerAppWindow(liveWindow as never, {setAsMain: true});
         registerAppWindow(closingWindow as never);
         expect(() => broadcastHostRasterBudgetToAllWindows()).not.toThrow();
 
@@ -584,19 +559,12 @@ describe('host per-window raster budget broadcasts', () => {
     });
 
     it('notifies listeners and restores the surviving share when a destroyed window is pruned without unregisterAppWindow', async () => {
-        const { initializeHostResourceProfile } = await import('@electron/resources/hostResourceProfile');
-        const {
-            getAllRegisteredAppWindows,
-            getWindowByIdFromRegistry,
-            registerAppWindow,
-        } = await import('@electron/window/registry');
-        const {
-            attachHostEnvironmentToWindow,
-            installHostEnvironmentDisplayWatcher,
-        } = await import('@electron/hostEnvironment');
+        const {initializeHostResourceProfile} = await import('@electron/resources/hostResourceProfile');
+        const {getAllRegisteredAppWindows, getWindowByIdFromRegistry, registerAppWindow} = await import('@electron/window/registry');
+        const {attachHostEnvironmentToWindow, installHostEnvironmentDisplayWatcher} = await import('@electron/hostEnvironment');
 
         initializeHostResourceProfile({
-            app: { getGPUFeatureStatus: () => ({}) as never },
+            app: {getGPUFeatureStatus: () => ({}) as never},
             performanceMode: 'auto',
             availableParallelism: () => 8,
             totalmem: () => 32 * GIB,
@@ -612,18 +580,15 @@ describe('host per-window raster budget broadcasts', () => {
         attachHostEnvironmentToWindow(secondWindow as never);
         attachHostEnvironmentToWindow(thirdWindow as never);
         attachHostEnvironmentToWindow(auxiliaryWindow as never);
-        registerAppWindow(firstWindow as never, { setAsMain: true });
+        registerAppWindow(firstWindow as never, {setAsMain: true});
         registerAppWindow(secondWindow as never);
         registerAppWindow(thirdWindow as never);
 
         // Unregistered auxiliary windows must not receive raster budget pushes on did-finish-load.
-        const auxiliaryLoadHandler = auxiliaryWindow.webContents.on.mock.calls
-            .find(call => call[0] === 'did-finish-load')?.[1] as (() => void) | undefined;
+        const auxiliaryLoadHandler = auxiliaryWindow.webContents.on.mock.calls.find((call) => call[0] === 'did-finish-load')?.[1] as
+            (() => void) | undefined;
         auxiliaryLoadHandler?.();
-        expect(auxiliaryWindow.webContents.send).not.toHaveBeenCalledWith(
-            'host:rasterBudgetChanged',
-            expect.anything(),
-        );
+        expect(auxiliaryWindow.webContents.send).not.toHaveBeenCalledWith('host:rasterBudgetChanged', expect.anything());
 
         // Destroy thirdWindow and prune via getAllRegisteredAppWindows() without calling unregisterAppWindow.
         thirdWindow.isDestroyed.mockReturnValue(true);
@@ -647,12 +612,12 @@ describe('host per-window raster budget broadcasts', () => {
     });
 
     it('unregisters and restores the surviving share when a registered window emits closed directly', async () => {
-        const { initializeHostResourceProfile } = await import('@electron/resources/hostResourceProfile');
-        const { registerAppWindow } = await import('@electron/window/registry');
-        const { installHostEnvironmentDisplayWatcher } = await import('@electron/hostEnvironment');
+        const {initializeHostResourceProfile} = await import('@electron/resources/hostResourceProfile');
+        const {registerAppWindow} = await import('@electron/window/registry');
+        const {installHostEnvironmentDisplayWatcher} = await import('@electron/hostEnvironment');
 
         initializeHostResourceProfile({
-            app: { getGPUFeatureStatus: () => ({}) as never },
+            app: {getGPUFeatureStatus: () => ({}) as never},
             performanceMode: 'auto',
             availableParallelism: () => 8,
             totalmem: () => 32 * GIB,
@@ -661,7 +626,7 @@ describe('host per-window raster budget broadcasts', () => {
 
         const firstWindow = mocks.createWindow(401);
         const secondWindow = mocks.createWindow(402);
-        registerAppWindow(firstWindow as never, { setAsMain: true });
+        registerAppWindow(firstWindow as never, {setAsMain: true});
         registerAppWindow(secondWindow as never);
         expect(firstWindow.webContents.send).toHaveBeenLastCalledWith('host:rasterBudgetChanged', {
             maxRasterSurfaceBytes: 768 * MIB,
@@ -669,8 +634,7 @@ describe('host per-window raster budget broadcasts', () => {
             windowCount: 2,
         });
 
-        const closedListener = secondWindow.once.mock.calls
-            .find(call => call[0] === 'closed')?.[1] as (() => void) | undefined;
+        const closedListener = secondWindow.once.mock.calls.find((call) => call[0] === 'closed')?.[1] as (() => void) | undefined;
         expect(closedListener).toBeTypeOf('function');
         secondWindow.isDestroyed.mockReturnValue(true);
         secondWindow.webContents.isDestroyed.mockReturnValue(true);

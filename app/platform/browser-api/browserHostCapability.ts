@@ -1,10 +1,5 @@
-import type {
-    IHostCapability,
-    IHostEnvironmentSnapshot,
-    IHostZenModeState,
-    THostPlatform,
-} from '@contracts/hostPlatformFeature';
-import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
+import type {IHostCapability, IHostEnvironmentSnapshot, IHostZenModeState, THostPlatform} from '@contracts/hostPlatformFeature';
+import {noopUnsubscribe} from '@app/platform/browser-api/browserMenuHelpers';
 
 function detectBrowserPlatform(): THostPlatform {
     if (typeof navigator === 'undefined') {

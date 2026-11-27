@@ -1,12 +1,9 @@
-import type { IpcMainInvokeEvent } from 'electron';
-import type { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
-import type { TFeatureMainBindings } from '@contracts/platformFeature';
-import { createLogger } from '@electron/utils/createLogger';
-import { pruneStaleDjvuArtifactJobs } from '@electron/features/djvu/main/djvuArtifactManifest';
-import {
-    getDjvuOutputJobState,
-    subscribeDjvuProgress,
-} from '@electron/features/djvu/main/pdfExport';
+import type {IpcMainInvokeEvent} from 'electron';
+import type {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
+import type {TFeatureMainBindings} from '@contracts/platformFeature';
+import {createLogger} from '@electron/utils/createLogger';
+import {pruneStaleDjvuArtifactJobs} from '@electron/features/djvu/main/djvuArtifactManifest';
+import {getDjvuOutputJobState, subscribeDjvuProgress} from '@electron/features/djvu/main/pdfExport';
 import {
     handleDjvuCancelOperation,
     handleDjvuCancelPagePreview,

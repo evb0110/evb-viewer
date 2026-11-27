@@ -2,26 +2,13 @@ import {randomUUID} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import {rm} from 'node:fs/promises';
 import {createRequire} from 'node:module';
-import {
-    dirname,
-    join,
-} from 'node:path';
+import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {Worker} from 'node:worker_threads';
 import {WORKER_BUNDLES_BY_ID} from '@electron-worker-bundles/electronWorkerBundles.js';
-import {
-    NATIVE_ERROR_CODES,
-    type TNativeErrorCode,
-} from '@contracts/nativeErrors';
-import {
-    createPdfSearchWasmRunner,
-    loadPdfSearchWasmModule,
-    PdfSearchNativeError,
-} from '@electron/features/search/pdfSearchWasmRunner';
-import {
-    executePdfSearchWorkerCommand,
-    type TPdfSearchWorkerCommand,
-} from '@electron/features/search/pdfSearchWorkerOps';
+import {NATIVE_ERROR_CODES, type TNativeErrorCode} from '@contracts/nativeErrors';
+import {createPdfSearchWasmRunner, loadPdfSearchWasmModule, PdfSearchNativeError} from '@electron/features/search/pdfSearchWasmRunner';
+import {executePdfSearchWorkerCommand, type TPdfSearchWorkerCommand} from '@electron/features/search/pdfSearchWorkerOps';
 import {resolveUnpackedWorkerPath} from '@electron/utils/workerTask';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -86,13 +73,8 @@ function validateTimeoutMs(timeoutMs: number | undefined): number {
 }
 
 function decodeWorkerError(reply: IWorkerReply) {
-    const message = typeof reply.error === 'string' && reply.error.length > 0
-        ? reply.error
-        : 'evb-pdf-search worker failed';
-    if (
-        typeof reply.nativeErrorCode === 'string'
-        && (NATIVE_ERROR_CODES as readonly string[]).includes(reply.nativeErrorCode)
-    ) {
+    const message = typeof reply.error === 'string' && reply.error.length > 0 ? reply.error : 'evb-pdf-search worker failed';
+    if (typeof reply.nativeErrorCode === 'string' && (NATIVE_ERROR_CODES as readonly string[]).includes(reply.nativeErrorCode)) {
         return new PdfSearchNativeError(reply.nativeErrorCode, message);
     }
     return new Error(message);
@@ -237,7 +219,7 @@ function createSearchWorkerPool() {
 
     function pumpQueue() {
         while (queue.length > 0) {
-            const idle = [...workers].find(entry => !entry.busy && !entry.closed);
+            const idle = [...workers].find((entry) => !entry.busy && !entry.closed);
             if (!idle && workers.size + startingWorkers >= MAX_WARM_WORKERS) {
                 return;
             }
@@ -317,7 +299,7 @@ function createSearchWorkerPool() {
         }
 
         void loadPromise.then(
-            wasmModule => {
+            (wasmModule) => {
                 const task = pendingTask;
                 if (!task) {
                     return;
@@ -380,24 +362,18 @@ function createSearchWorkerPool() {
         const requestId = ++nextRequestId;
         let settled = false;
         let timeoutHandle: NodeJS.Timeout | null = null;
-        const {
-            signal,
-            timeoutMs,
-            resolve,
-            reject,
-        } = task;
-        const stagedIndexPath = task.command.op === 'index'
-            ? `${task.command.indexPath}.tmp-${process.pid}-${randomUUID()}`
-            : null;
+        const {signal, timeoutMs, resolve, reject} = task;
+        const stagedIndexPath = task.command.op === 'index' ? `${task.command.indexPath}.tmp-${process.pid}-${randomUUID()}` : null;
         if (stagedIndexPath !== null) {
             trackPendingStagedPath(stagedIndexPath);
         }
-        const dispatchPayload: TPdfSearchWorkerCommand | (Extract<TPdfSearchWorkerCommand, {op: 'index'}> & {stagedIndexPath: string}) = task.command.op === 'index'
-            ? {
-                ...task.command,
-                stagedIndexPath: stagedIndexPath!,
-            }
-            : task.command;
+        const dispatchPayload: TPdfSearchWorkerCommand | (Extract<TPdfSearchWorkerCommand, {op: 'index'}> & {stagedIndexPath: string}) =
+            task.command.op === 'index'
+                ? {
+                      ...task.command,
+                      stagedIndexPath: stagedIndexPath!,
+                  }
+                : task.command;
 
         const cleanup = () => {
             if (timeoutHandle !== null) {
@@ -412,7 +388,9 @@ function createSearchWorkerPool() {
         };
 
         const finishSuccess = (data: unknown) => {
-            if (settled) return;
+            if (settled) {
+                return;
+            }
             settled = true;
             cleanup();
             if (stagedIndexPath !== null) {
@@ -428,7 +406,9 @@ function createSearchWorkerPool() {
         };
 
         const finishError = (error: unknown, terminateWorker: boolean, alreadyExited = false) => {
-            if (settled) return;
+            if (settled) {
+                return;
+            }
             settled = true;
             cleanup();
             if (terminateWorker) {
@@ -490,28 +470,28 @@ function createSearchWorkerPool() {
         const effectiveTimeoutMs = timeoutMs ?? DEFAULT_SEARCH_WORKER_TIMEOUT_MS;
         if (effectiveTimeoutMs > 0) {
             timeoutHandle = setTimeout(() => {
-                finishError(
-                    new Error(`evb-pdf-search timed out after ${effectiveTimeoutMs}ms`),
-                    true,
-                );
+                finishError(new Error(`evb-pdf-search timed out after ${effectiveTimeoutMs}ms`), true);
             }, effectiveTimeoutMs);
             timeoutHandle.unref();
         }
 
         const transferList: ArrayBuffer[] = [];
         if (
-            (commandHasBuffer(dispatchPayload))
-            && dispatchPayload.pagesBuffer.buffer instanceof ArrayBuffer
-            && dispatchPayload.pagesBuffer.byteOffset === 0
-            && dispatchPayload.pagesBuffer.byteLength === dispatchPayload.pagesBuffer.buffer.byteLength
+            commandHasBuffer(dispatchPayload) &&
+            dispatchPayload.pagesBuffer.buffer instanceof ArrayBuffer &&
+            dispatchPayload.pagesBuffer.byteOffset === 0 &&
+            dispatchPayload.pagesBuffer.byteLength === dispatchPayload.pagesBuffer.buffer.byteLength
         ) {
             transferList.push(dispatchPayload.pagesBuffer.buffer);
         }
         try {
-            entry.worker.postMessage({
-                id: requestId,
-                command: dispatchPayload,
-            }, transferList);
+            entry.worker.postMessage(
+                {
+                    id: requestId,
+                    command: dispatchPayload,
+                },
+                transferList,
+            );
         } catch (error) {
             finishError(error, true);
         }
@@ -525,7 +505,7 @@ function createSearchWorkerPool() {
         signal?.throwIfAborted();
         if (!inlineRunnerPromise) {
             const pending = loadPdfSearchWasmModule()
-                .then(wasmModule => createPdfSearchWasmRunner(wasmModule))
+                .then((wasmModule) => createPdfSearchWasmRunner(wasmModule))
                 .catch((error: unknown) => {
                     if (inlineRunnerPromise === pending) {
                         inlineRunnerPromise = null;
@@ -541,11 +521,7 @@ function createSearchWorkerPool() {
         return result;
     }
 
-    function run(
-        command: TPdfSearchWorkerCommand,
-        signal?: AbortSignal,
-        options: IRunPdfSearchWorkerOptions = {},
-    ): Promise<unknown> {
+    function run(command: TPdfSearchWorkerCommand, signal?: AbortSignal, options: IRunPdfSearchWorkerOptions = {}): Promise<unknown> {
         if (signal?.aborted) {
             return Promise.reject(getAbortReason(signal));
         }
@@ -607,7 +583,7 @@ function createSearchWorkerPool() {
             }
         }
         if (inlineRunnerPromise) {
-            void inlineRunnerPromise.then(runner => runner.dispose()).catch(() => undefined);
+            void inlineRunnerPromise.then((runner) => runner.dispose()).catch(() => undefined);
             inlineRunnerPromise = null;
         }
         return Promise.allSettled([...pendingTeardowns]).then(() => undefined);

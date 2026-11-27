@@ -40,11 +40,5 @@ export {
     shouldRetryReleaseFetch,
 } from '@releaseSelection/latestReleaseRetry';
 
-export {
-    normalizeCanaryPercent,
-    parseReleaseTagList,
-    selectReleaseForRollout,
-} from '@releaseSelection/releaseRolloutPolicy';
-export type {
-    IReleaseRolloutPolicy, IRolloutRelease,
-} from '@releaseSelection/releaseRolloutPolicy';
+export {normalizeCanaryPercent, parseReleaseTagList, selectReleaseForRollout} from '@releaseSelection/releaseRolloutPolicy';
+export type {IReleaseRolloutPolicy, IRolloutRelease} from '@releaseSelection/releaseRolloutPolicy';

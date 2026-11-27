@@ -1,17 +1,8 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    effectScope,
-    nextTick,
-} from 'vue';
-import { usePositionedMenu } from '@app/composables/usePositionedMenu';
+import {afterEach, beforeEach, describe, expect, it} from 'vitest';
+import {effectScope, nextTick} from 'vue';
+import {usePositionedMenu} from '@app/composables/usePositionedMenu';
 
 interface ITestPositionedMenuState {
     visible: boolean;
@@ -61,11 +52,11 @@ describe('usePositionedMenu', () => {
 
     it('requeries a menu element that rendered after an initial null lookup', async () => {
         const scope = effectScope();
-        const positionedMenu = scope.run(() => usePositionedMenu<ITestPositionedMenuState>(
-            '.test-positioned-menu',
-            createInitialMenuState,
-            { autoDismiss: { onOutsideClick: true } },
-        ));
+        const positionedMenu = scope.run(() =>
+            usePositionedMenu<ITestPositionedMenuState>('.test-positioned-menu', createInitialMenuState, {
+                autoDismiss: {onOutsideClick: true},
+            }),
+        );
 
         if (!positionedMenu) {
             throw new Error('Failed to create positioned menu');
@@ -78,7 +69,7 @@ describe('usePositionedMenu', () => {
             y: 90,
             fallbackWidth: 5,
             fallbackHeight: 5,
-            buildState: position => ({
+            buildState: (position) => ({
                 visible: true,
                 x: position.x,
                 y: position.y,
@@ -96,8 +87,8 @@ describe('usePositionedMenu', () => {
         expect(positionedMenu.menu.value.x).toBe(42);
         expect(positionedMenu.menu.value.y).toBe(52);
 
-        document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
-        document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        document.body.dispatchEvent(new Event('pointerdown', {bubbles: true}));
+        document.body.dispatchEvent(new MouseEvent('click', {bubbles: true}));
         await nextTick();
 
         expect(positionedMenu.menu.value.visible).toBe(false);
@@ -106,25 +97,26 @@ describe('usePositionedMenu', () => {
 
     it('closes when another menu opens by right-click elsewhere, but not for one inside it', async () => {
         const scope = effectScope();
-        const positionedMenu = scope.run(() => usePositionedMenu<ITestPositionedMenuState>(
-            '.test-positioned-menu',
-            createInitialMenuState,
-            { autoDismiss: { onOutsideClick: true } },
-        ))!;
+        const positionedMenu = scope.run(() =>
+            usePositionedMenu<ITestPositionedMenuState>('.test-positioned-menu', createInitialMenuState, {
+                autoDismiss: {onOutsideClick: true},
+            }),
+        )!;
         const menuElement = document.createElement('div');
         menuElement.className = 'test-positioned-menu';
         document.body.append(menuElement);
-        const open = () => positionedMenu.showPositionedMenu({
-            x: 10,
-            y: 10,
-            fallbackWidth: 5,
-            fallbackHeight: 5,
-            buildState: position => ({
-                visible: true,
-                x: position.x,
-                y: position.y,
-            }),
-        });
+        const open = () =>
+            positionedMenu.showPositionedMenu({
+                x: 10,
+                y: 10,
+                fallbackWidth: 5,
+                fallbackHeight: 5,
+                buildState: (position) => ({
+                    visible: true,
+                    x: position.x,
+                    y: position.y,
+                }),
+            });
         open();
         await nextTick();
 

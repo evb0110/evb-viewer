@@ -1,59 +1,55 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-} from 'vue';
-import type { App } from 'vue';
-import {
-    requirePaneId,
-    type IEditorPaneState,
-} from '@contracts/editorPanes';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireTabId } from '@contracts/windowTabs';
-import type { ITab } from '@app/types/tabs';
-import type { ITabLifecycleState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
-import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick} from 'vue';
+import type {App} from 'vue';
+import {requirePaneId, type IEditorPaneState} from '@contracts/editorPanes';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireTabId} from '@contracts/windowTabs';
+import type {ITab} from '@app/types/tabs';
+import type {ITabLifecycleState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import {createWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 
 // What the pane owns is which tabs it presents. Its children render an
 // identifiable placeholder, so the assertions read the pane's markup instead
 // of a document workspace or a tab strip.
-vi.mock('@app/modules/workspace-shell/components/DocumentWorkspaceTab.vue', () => ({default: defineComponent({
-    name: 'DocumentWorkspaceTabStub',
-    props: {tabId: {
-        type: String,
-        required: true,
-    }},
-    setup(props) {
-        return () => h('div', {
-            'class': 'workspace-host-stub',
-            'data-host-tab-id': props.tabId,
-        });
-    },
-})}));
+vi.mock('@app/modules/workspace-shell/components/DocumentWorkspaceTab.vue', () => ({
+    default: defineComponent({
+        name: 'DocumentWorkspaceTabStub',
+        props: {
+            tabId: {
+                type: String,
+                required: true,
+            },
+        },
+        setup(props) {
+            return () =>
+                h('div', {
+                    class: 'workspace-host-stub',
+                    'data-host-tab-id': props.tabId,
+                });
+        },
+    }),
+}));
 
-vi.mock('@app/modules/workspace-shell/components/layout/TabBar.vue', () => ({default: defineComponent({
-    name: 'TabBarStub',
-    props: {panePresentation: {
-        type: String,
-        default: 'single',
-    }},
-    setup(props) {
-        return () => h('div', {
-            class: 'tab-bar-stub',
-            'data-pane-presentation': props.panePresentation,
-        });
-    },
-})}));
+vi.mock('@app/modules/workspace-shell/components/layout/TabBar.vue', () => ({
+    default: defineComponent({
+        name: 'TabBarStub',
+        props: {
+            panePresentation: {
+                type: String,
+                default: 'single',
+            },
+        },
+        setup(props) {
+            return () =>
+                h('div', {
+                    class: 'tab-bar-stub',
+                    'data-pane-presentation': props.panePresentation,
+                });
+        },
+    }),
+}));
 
 const targets = vi.hoisted(() => ({desktop: true, listTargetWindows: vi.fn()}));
 vi.mock('@app/utils/platformWindowTabs', () => ({
@@ -104,45 +100,50 @@ async function mountEditorPane({
     zenActiveTabId?: string | null;
     zenMode?: boolean;
 }) {
-    const { default: EditorPaneView } = await import(
-        '@app/modules/workspace-shell/components/EditorPaneView.vue'
-    );
+    const {default: EditorPaneView} = await import('@app/modules/workspace-shell/components/EditorPaneView.vue');
     const pane: IEditorPaneState = {
         paneId: requirePaneId('pane-1'),
-        tabIds: tabIds.map(tabId => requireTabId(tabId)),
+        tabIds: tabIds.map((tabId) => requireTabId(tabId)),
         activeTabId: activeTabId === null ? null : requireTabId(activeTabId),
     };
-    const documentSessionsByTabId = Object.fromEntries(tabIds.map(tabId => [
-        tabId,
-        createWorkspaceDocumentController({
+    const documentSessionsByTabId = Object.fromEntries(
+        tabIds.map((tabId) => [
             tabId,
-            assignment: {
-                fileName: `${tabId}.pdf`,
-                originalPath: requireDocumentRef(`/documents/${tabId}.pdf`),
-                isDirty: false,
-                isDjvu: false,
+            createWorkspaceDocumentController({
+                tabId,
+                assignment: {
+                    fileName: `${tabId}.pdf`,
+                    originalPath: requireDocumentRef(`/documents/${tabId}.pdf`),
+                    isDirty: false,
+                    isDjvu: false,
+                },
+            }),
+        ]),
+    );
+    const app = createApp(
+        defineComponent({
+            setup() {
+                return () =>
+                    h(EditorPaneView, {
+                        pane,
+                        paneCount,
+                        inPlace,
+                        tabs: tabIds.map(createTab),
+                        activePaneId,
+                        isTabTransitionBusy: false,
+                        tabContextAvailability: null,
+                        startSectionByTabId: {},
+                        tabLifecycleById,
+                        documentSessionsByTabId,
+                        zenMode,
+                        zenActiveTabId,
+                        isFullscreen: false,
+                        fullscreenSupported: false,
+                        isWorkspaceLayoutResizing: false,
+                    });
             },
         }),
-    ]));
-    const app = createApp(defineComponent({setup() {
-        return () => h(EditorPaneView, {
-            pane,
-            paneCount,
-            inPlace,
-            tabs: tabIds.map(createTab),
-            activePaneId,
-            isTabTransitionBusy: false,
-            tabContextAvailability: null,
-            startSectionByTabId: {},
-            tabLifecycleById,
-            documentSessionsByTabId,
-            zenMode,
-            zenActiveTabId,
-            isFullscreen: false,
-            fullscreenSupported: false,
-            isWorkspaceLayoutResizing: false,
-        });
-    }}));
+    );
     const host = document.createElement('div');
     document.body.append(host);
     app.mount(host);
@@ -163,11 +164,7 @@ describe('editor pane presentation', () => {
     it('presents only the active tab, including while another tab opens a document', async () => {
         const {host} = await mountEditorPane({
             activeTabId: 'tab-new',
-            tabIds: [
-                'tab-old',
-                'tab-new',
-                'tab-idle',
-            ],
+            tabIds: ['tab-old', 'tab-new', 'tab-idle'],
         });
 
         // A new tab shows its own opening; the tab it replaced is not kept on
@@ -180,10 +177,7 @@ describe('editor pane presentation', () => {
     it('drops released hosts and zen-hidden tabs from the pane', async () => {
         const {host} = await mountEditorPane({
             activeTabId: 'tab-new',
-            tabIds: [
-                'tab-released',
-                'tab-new',
-            ],
+            tabIds: ['tab-released', 'tab-new'],
             tabLifecycleById: {'tab-released': createReleasedHostLifecycle('tab-released')},
         });
 
@@ -197,10 +191,7 @@ describe('editor pane presentation', () => {
 
         const zen = await mountEditorPane({
             activeTabId: 'tab-new',
-            tabIds: [
-                'tab-old',
-                'tab-new',
-            ],
+            tabIds: ['tab-old', 'tab-new'],
             zenActiveTabId: 'tab-new',
             zenMode: true,
         });
@@ -230,12 +221,7 @@ describe('editor pane presentation', () => {
             inPlace: false,
             paneCount: 2,
         },
-    ])('derives $expected tab bar presentation and in-place state', async ({
-        activePaneId,
-        expected,
-        inPlace,
-        paneCount,
-    }) => {
+    ])('derives $expected tab bar presentation and in-place state', async ({activePaneId, expected, inPlace, paneCount}) => {
         const {host} = await mountEditorPane({
             activePaneId,
             activeTabId: 'tab-1',
@@ -251,43 +237,40 @@ describe('editor pane presentation', () => {
     });
 
     it('applies split pane classes on TabBar root from panePresentation', async () => {
-        const {default: TabBar} = await vi.importActual<typeof import('@app/modules/workspace-shell/components/layout/TabBar.vue')>('@app/modules/workspace-shell/components/layout/TabBar.vue');
-        const slot = defineComponent({inheritAttrs: false, setup: (_props, {slots}) => () => slots.default?.()});
+        const {default: TabBar} = await vi.importActual<typeof import('@app/modules/workspace-shell/components/layout/TabBar.vue')>(
+            '@app/modules/workspace-shell/components/layout/TabBar.vue',
+        );
+        const slot = defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    slots.default?.(),
+        });
         vi.stubGlobal('useToast', () => ({add: vi.fn()}));
 
         try {
-            for (const [
-                panePresentation,
-                isSplit,
-                isSplitActive,
-            ] of [
-                [
-                    'single',
-                    false,
-                    false,
-                ],
-                [
-                    'split-inactive',
-                    true,
-                    false,
-                ],
-                [
-                    'split-active',
-                    true,
-                    true,
-                ],
+            for (const [panePresentation, isSplit, isSplitActive] of [
+                ['single', false, false],
+                ['split-inactive', true, false],
+                ['split-active', true, true],
             ] as const) {
-                const app = createApp({render: () => h(TabBar, {
-                    tabs: [{
-                        id: 'tab-1',
-                        fileName: 'a.pdf',
-                        originalPath: null,
-                        isDirty: false,
-                        isDjvu: false,
-                    }],
-                    activeTabId: 'tab-1',
-                    panePresentation,
-                })});
+                const app = createApp({
+                    render: () =>
+                        h(TabBar, {
+                            tabs: [
+                                {
+                                    id: 'tab-1',
+                                    fileName: 'a.pdf',
+                                    originalPath: null,
+                                    isDirty: false,
+                                    isDjvu: false,
+                                },
+                            ],
+                            activeTabId: 'tab-1',
+                            panePresentation,
+                        }),
+                });
                 app.component('AppTooltip', slot);
                 app.component('UDropdownMenu', slot);
                 app.component('Icon', slot);
@@ -312,20 +295,45 @@ describe('editor pane presentation', () => {
 
 describe('#1608 desktop window transfer target feedback', () => {
     it('explains a failed desktop destination query when the tab menu opens', async () => {
-        const {default: TabBar} = await vi.importActual<typeof import('@app/modules/workspace-shell/components/layout/TabBar.vue')>('@app/modules/workspace-shell/components/layout/TabBar.vue');
+        const {default: TabBar} = await vi.importActual<typeof import('@app/modules/workspace-shell/components/layout/TabBar.vue')>(
+            '@app/modules/workspace-shell/components/layout/TabBar.vue',
+        );
         const messages: string[] = [];
-        vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
-            messages.push([notice.title, notice.description].filter(Boolean).join(' '));
-        }}));
+        vi.stubGlobal('useToast', () => ({
+            add: (notice: {title: string; description?: string}) => {
+                messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+            },
+        }));
         targets.listTargetWindows.mockRejectedValue(new Error('Window registry unavailable'));
-        const app = createApp({render: () => h(TabBar, {tabs: [{id: 'tab-1', fileName: 'a.pdf', originalPath: null, isDirty: false, isDjvu: false}], activeTabId: 'tab-1'})});
-        const slot = defineComponent({inheritAttrs: false, setup: (_props, {slots}) => () => slots.default?.()});
-        app.component('AppTooltip', slot); app.component('UDropdownMenu', slot); app.component('Icon', slot);
-        const host = document.createElement('div'); document.body.append(host); app.mount(host);
+        const app = createApp({
+            render: () =>
+                h(TabBar, {
+                    tabs: [{id: 'tab-1', fileName: 'a.pdf', originalPath: null, isDirty: false, isDjvu: false}],
+                    activeTabId: 'tab-1',
+                }),
+        });
+        const slot = defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    slots.default?.(),
+        });
+        app.component('AppTooltip', slot);
+        app.component('UDropdownMenu', slot);
+        app.component('Icon', slot);
+        const host = document.createElement('div');
+        document.body.append(host);
+        app.mount(host);
         try {
             host.querySelector('[role="tab"]')!.dispatchEvent(new MouseEvent('contextmenu', {bubbles: true}));
-            await nextTick(); await Promise.resolve();
+            await nextTick();
+            await Promise.resolve();
             expect(messages.join(' ')).toMatch(/window|destination|transfer/i);
-        } finally {app.unmount(); host.remove(); vi.unstubAllGlobals();}
+        } finally {
+            app.unmount();
+            host.remove();
+            vi.unstubAllGlobals();
+        }
     });
 });

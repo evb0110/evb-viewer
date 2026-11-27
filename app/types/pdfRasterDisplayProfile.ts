@@ -1,4 +1,4 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
 
 export interface IPdfRasterSourcePagePixels {
     width: number;
@@ -12,23 +12,18 @@ export interface ITrustedRasterDjvuPdfDisplayProfile {
 
 export type TPdfRasterDisplayProfile = ITrustedRasterDjvuPdfDisplayProfile;
 
-export interface IPdfRasterDisplayProfileOpenOptions {rasterDisplayProfile?: TPdfRasterDisplayProfile | null | undefined;}
+export interface IPdfRasterDisplayProfileOpenOptions {
+    rasterDisplayProfile?: TPdfRasterDisplayProfile | null | undefined;
+}
 
 const registeredRasterDisplayProfiles = new Map<TDocumentRef, TPdfRasterDisplayProfile>();
 const MAX_REGISTERED_RASTER_DISPLAY_PROFILES = 64;
 
 function normalizePositivePixelDimension(value: unknown) {
-    return typeof value === 'number'
-        && Number.isFinite(value)
-        && value > 0
-        ? Math.max(1, Math.round(value))
-        : null;
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.max(1, Math.round(value)) : null;
 }
 
-export function normalizePdfRasterSourcePagePixels(value: {
-    width?: unknown;
-    height?: unknown;
-}): IPdfRasterSourcePagePixels | null {
+export function normalizePdfRasterSourcePagePixels(value: {width?: unknown; height?: unknown}): IPdfRasterSourcePagePixels | null {
     const width = normalizePositivePixelDimension(value.width);
     const height = normalizePositivePixelDimension(value.height);
     if (width === null || height === null) {
@@ -40,10 +35,7 @@ export function normalizePdfRasterSourcePagePixels(value: {
     };
 }
 
-export function resolvePdfRasterSourceMaxPixels(
-    profile: TPdfRasterDisplayProfile | null | undefined,
-    pageNumber: number,
-) {
+export function resolvePdfRasterSourceMaxPixels(profile: TPdfRasterDisplayProfile | null | undefined, pageNumber: number) {
     if (!profile) {
         return null;
     }
@@ -51,9 +43,7 @@ export function resolvePdfRasterSourceMaxPixels(
         return null;
     }
 
-    const pagePixels = normalizePdfRasterSourcePagePixels(
-        profile.sourcePagePixels[pageNumber - 1] ?? {},
-    );
+    const pagePixels = normalizePdfRasterSourcePagePixels(profile.sourcePagePixels[pageNumber - 1] ?? {});
     return pagePixels ? pagePixels.width * pagePixels.height : null;
 }
 
@@ -92,9 +82,7 @@ export function consumeRegisteredPdfRasterDisplayProfile(
     return resolvedProfile;
 }
 
-export function unregisterPdfRasterDisplayProfiles(
-    ...documentRefs: Array<TDocumentRef | null | undefined>
-) {
+export function unregisterPdfRasterDisplayProfiles(...documentRefs: Array<TDocumentRef | null | undefined>) {
     for (const documentRef of documentRefs) {
         if (documentRef) {
             registeredRasterDisplayProfiles.delete(documentRef);

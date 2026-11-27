@@ -1,8 +1,4 @@
-import type {
-    IDebugLogEntry,
-    IRendererLogEntry,
-    TMenuEventUnsubscribe,
-} from '@contracts/electronApiCommon';
+import type {IDebugLogEntry, IRendererLogEntry, TMenuEventUnsubscribe} from '@contracts/electronApiCommon';
 import {
     DEFAULT_SETTINGS,
     decodeSettingsRecoveryNotice,
@@ -25,22 +21,18 @@ const invalidSettingsField = (field: string) => `invalid settings field: ${field
 const invalidSettingsResultField = (field: string) => `invalid settings result field: ${field}`;
 const settingsPatchSchema = v.pipe(
     v.unknown(),
-    v.transform(input => ({
+    v.transform((input) => ({
         input,
         normalized: sanitizeSettings({
             ...DEFAULT_SETTINGS,
             ...(isRecord(input) ? input : {}),
         }),
     })),
-    v.rawCheck(({
-        dataset, addIssue,
-    }) => {
+    v.rawCheck(({dataset, addIssue}) => {
         if (!dataset.typed) {
             return;
         }
-        const {
-            input, normalized,
-        } = dataset.value;
+        const {input, normalized} = dataset.value;
         if (!isRecord(input)) {
             addIssue({message: 'settings must be an object'});
             return;
@@ -60,19 +52,15 @@ const settingsPatchSchema = v.pipe(
 );
 const settingsResultSchema = v.pipe(
     v.unknown(),
-    v.transform(input => ({
+    v.transform((input) => ({
         input,
         normalized: sanitizeSettings(input),
     })),
-    v.rawCheck(({
-        dataset, addIssue,
-    }) => {
+    v.rawCheck(({dataset, addIssue}) => {
         if (!dataset.typed) {
             return;
         }
-        const {
-            input, normalized,
-        } = dataset.value;
+        const {input, normalized} = dataset.value;
         if (!isRecord(input)) {
             addIssue({message: 'invalid settings result'});
             return;
@@ -84,10 +72,7 @@ const settingsResultSchema = v.pipe(
                 return;
             }
         }
-        for (const [
-            key,
-            candidate,
-        ] of Object.entries(normalized)) {
+        for (const [key, candidate] of Object.entries(normalized)) {
             if (input[key] !== candidate) {
                 addIssue({message: invalidSettingsResultField(key)});
                 return;
@@ -96,13 +81,18 @@ const settingsResultSchema = v.pipe(
     }),
     v.transform(({normalized}) => normalized),
 );
-const settingsRecoveryNoticeSchema = v.nullable(v.pipe(v.unknown(), v.transform(value => {
-    const notice = decodeSettingsRecoveryNotice(value);
-    if (!notice) {
-        throw new Error('invalid settings recovery notice');
-    }
-    return notice;
-})));
+const settingsRecoveryNoticeSchema = v.nullable(
+    v.pipe(
+        v.unknown(),
+        v.transform((value) => {
+            const notice = decodeSettingsRecoveryNotice(value);
+            if (!notice) {
+                throw new Error('invalid settings recovery notice');
+            }
+            return notice;
+        }),
+    ),
+);
 const voidResult = v.pipe(
     v.undefined('expected an undefined IPC result'),
     v.transform((): void => undefined),
@@ -153,11 +143,13 @@ export const SETTINGS_PLATFORM_FEATURE = definePlatformFeature({
             main: 'save',
         }),
     },
-    events: {onChanged: defineForwardedPlatformEvent({
-        name: 'onChanged',
-        channel: 'settings:changed',
-        payload: settingsResultSchema,
-    })},
+    events: {
+        onChanged: defineForwardedPlatformEvent({
+            name: 'onChanged',
+            channel: 'settings:changed',
+            payload: settingsResultSchema,
+        }),
+    },
 });
 
 interface ISettingsSupportCapability {
@@ -166,7 +158,6 @@ interface ISettingsSupportCapability {
     rendererLog: (entry: IRendererLogEntry) => void;
 }
 
-export type ISettingsCapability =
-    TFeatureCapability<typeof SETTINGS_PLATFORM_FEATURE> & ISettingsSupportCapability;
+export type ISettingsCapability = TFeatureCapability<typeof SETTINGS_PLATFORM_FEATURE> & ISettingsSupportCapability;
 export type ISettingsInvokeMap = TFeatureInvokeMap<typeof SETTINGS_PLATFORM_FEATURE>;
 export type ISettingsEventMap = TFeatureEventMap<typeof SETTINGS_PLATFORM_FEATURE>;

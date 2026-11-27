@@ -1,4 +1,4 @@
-import type { TBrand } from '@contracts/brand';
+import type {TBrand} from '@contracts/brand';
 
 export type TPageIndex = TBrand<number, 'PageIndex'>;
 export type TPageNumber = TBrand<number, 'PageNumber'>;
@@ -77,7 +77,9 @@ export type TPageSelection =
     | IExceptionPageSelection
     | IMappedPageSelection;
 
-export interface IPageSelectionBatchOptions { batchSize?: number; }
+export interface IPageSelectionBatchOptions {
+    batchSize?: number;
+}
 
 function normalizeSelectionPageCount(pageCount: number) {
     if (!Number.isSafeInteger(pageCount) || pageCount < 0) {
@@ -94,7 +96,7 @@ function normalizeSelectionPage(page: number, pageCount: number) {
 }
 
 function normalizeSelectionPages(pages: readonly number[], pageCount: number) {
-    const normalized = [...new Set(pages)].map(page => normalizeSelectionPage(page, pageCount));
+    const normalized = [...new Set(pages)].map((page) => normalizeSelectionPage(page, pageCount));
     normalized.sort((left, right) => left - right);
     return normalized;
 }
@@ -127,10 +129,7 @@ export function createAllPageSelection(pageCount: number): IAllPageSelection {
     };
 }
 
-export function createExplicitPageSelection(
-    pageCount: number,
-    pages: readonly number[],
-): IExplicitPageSelection {
+export function createExplicitPageSelection(pageCount: number, pages: readonly number[]): IExplicitPageSelection {
     const normalizedPageCount = normalizeSelectionPageCount(pageCount);
     return {
         kind: 'explicit',
@@ -139,11 +138,7 @@ export function createExplicitPageSelection(
     };
 }
 
-export function createRangePageSelection(
-    pageCount: number,
-    startPage: number,
-    endPage: number,
-): IRangePageSelection {
+export function createRangePageSelection(pageCount: number, startPage: number, endPage: number): IRangePageSelection {
     const normalizedPageCount = normalizeSelectionPageCount(pageCount);
     const normalizedStart = normalizeSelectionPage(startPage, normalizedPageCount);
     const normalizedEnd = normalizeSelectionPage(endPage, normalizedPageCount);
@@ -158,10 +153,7 @@ export function createRangePageSelection(
     };
 }
 
-export function createComplementPageSelection(
-    pageCount: number,
-    excludedPages: readonly number[],
-): IComplementPageSelection {
+export function createComplementPageSelection(pageCount: number, excludedPages: readonly number[]): IComplementPageSelection {
     const normalizedPageCount = normalizeSelectionPageCount(pageCount);
     return {
         kind: 'complement',
@@ -257,9 +249,7 @@ export function requirePageNumber(value: number, pageCount?: number): TPageNumbe
 // reading instead of asserting it, and keep requirePageNumber for settled values.
 export function clampPageNumber(value: number, pageCount?: number): TPageNumber {
     const truncated = Number.isNaN(value) ? 1 : Math.trunc(value);
-    const withinDocument = pageCount !== undefined && pageCount > 0
-        ? Math.min(truncated, pageCount)
-        : truncated;
+    const withinDocument = pageCount !== undefined && pageCount > 0 ? Math.min(truncated, pageCount) : truncated;
     return toPageNumber(Math.max(1, Math.min(withinDocument, Number.MAX_SAFE_INTEGER)));
 }
 

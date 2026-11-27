@@ -1,13 +1,5 @@
-import {
-    createAbortError,
-    isAbortError,
-} from '@contracts/isAbortError';
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {createAbortError, isAbortError} from '@contracts/isAbortError';
+import {describe, expect, it, vi} from 'vitest';
 
 describe('canonical abort error contract', () => {
     it('creates Error instances with AbortError name and message', () => {
@@ -44,15 +36,18 @@ describe('canonical abort error contract', () => {
 
         expect(isAbortError(new SuppressedError(cleanup, abort))).toBe(true);
         expect(isAbortError(new SuppressedError(abort, cleanup))).toBe(true);
-        expect(isAbortError(new SuppressedError(
-            new Error('outer disposer'),
-            new SuppressedError(cleanup, new DOMException('canceled', 'AbortError')),
-        ))).toBe(true);
-        expect(isAbortError({
-            name: 'SuppressedError',
-            error: cleanup,
-            suppressed: {code: 'ABORT_ERR'},
-        })).toBe(true);
+        expect(
+            isAbortError(
+                new SuppressedError(new Error('outer disposer'), new SuppressedError(cleanup, new DOMException('canceled', 'AbortError'))),
+            ),
+        ).toBe(true);
+        expect(
+            isAbortError({
+                name: 'SuppressedError',
+                error: cleanup,
+                suppressed: {code: 'ABORT_ERR'},
+            }),
+        ).toBe(true);
         expect(isAbortError(new Error('IPC invoke failed', {cause: abort}))).toBe(true);
         expect(isAbortError(new Error('outer', {cause: new SuppressedError(cleanup, abort)}))).toBe(true);
     });

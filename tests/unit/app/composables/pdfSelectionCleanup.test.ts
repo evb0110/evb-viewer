@@ -1,19 +1,9 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {clearPdfSelectionForLayerTeardown} from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 
-function createElement(
-    classNames: string[] = [],
-    parentElement: HTMLElement | null = null,
-) {
+function createElement(classNames: string[] = [], parentElement: HTMLElement | null = null) {
     const element = document.createElement('div');
     element.classList.add(...classNames);
     parentElement?.append(element);
@@ -63,7 +53,7 @@ describe('clearPdfSelectionForLayerTeardown', () => {
         const selection = createSelection(text);
         stubSelection(selection);
 
-        const cleared = clearPdfSelectionForLayerTeardown({ target: page });
+        const cleared = clearPdfSelectionForLayerTeardown({target: page});
 
         expect(cleared).toBe(true);
         expect(selection.removeAllRanges).toHaveBeenCalledTimes(1);
@@ -76,7 +66,7 @@ describe('clearPdfSelectionForLayerTeardown', () => {
         const selection = createSelection(text);
         stubSelection(selection);
 
-        const cleared = clearPdfSelectionForLayerTeardown({ target: page });
+        const cleared = clearPdfSelectionForLayerTeardown({target: page});
 
         expect(cleared).toBe(false);
         expect(selection.removeAllRanges).not.toHaveBeenCalled();
@@ -90,7 +80,7 @@ describe('clearPdfSelectionForLayerTeardown', () => {
         const selection = createSelection(text);
         stubSelection(selection);
 
-        const cleared = clearPdfSelectionForLayerTeardown({ includeDetached: true });
+        const cleared = clearPdfSelectionForLayerTeardown({includeDetached: true});
 
         expect(cleared).toBe(true);
         expect(selection.removeAllRanges).toHaveBeenCalledTimes(1);

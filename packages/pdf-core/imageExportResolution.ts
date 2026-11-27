@@ -21,16 +21,12 @@ export function selectDpiProbePages(pageCount: number) {
         return [1];
     }
 
-    return uniq(range(0, sampleCount).map(index => 1 + Math.round(
-        (index / (sampleCount - 1)) * (pageCount - 1),
-    )));
+    return uniq(range(0, sampleCount).map((index) => 1 + Math.round((index / (sampleCount - 1)) * (pageCount - 1))));
 }
 
 export function resolveExportRenderDpi(detectedDpi: number | null, pageSizes: readonly IExportPageSize[]) {
     const sourceDpi = detectedDpi ?? DEFAULT_EXPORT_RENDER_DPI;
-    const requestedDpi = Number.isFinite(sourceDpi)
-        ? Math.min(Math.max(Math.round(sourceDpi), 72), 1200)
-        : DEFAULT_EXPORT_RENDER_DPI;
+    const requestedDpi = Number.isFinite(sourceDpi) ? Math.min(Math.max(Math.round(sourceDpi), 72), 1200) : DEFAULT_EXPORT_RENDER_DPI;
     let longestSidePts = 0;
     for (const pageSize of pageSizes) {
         longestSidePts = Math.max(longestSidePts, pageSize.widthPts, pageSize.heightPts);
@@ -46,13 +42,15 @@ export function resolveExportRenderDpi(detectedDpi: number | null, pageSizes: re
 
 /** Match the browser canvas bounds without letting Poppler round DPI first. */
 export function resolveExportRenderSize(size: IExportPageSize, dpi: number, rotated = false) {
-    const width = Math.ceil(size.widthPts * dpi / PDF_POINTS_PER_INCH);
-    const height = Math.ceil(size.heightPts * dpi / PDF_POINTS_PER_INCH);
-    return rotated ? {
-        width: height,
-        height: width,
-    } : {
-        width,
-        height,
-    };
+    const width = Math.ceil((size.widthPts * dpi) / PDF_POINTS_PER_INCH);
+    const height = Math.ceil((size.heightPts * dpi) / PDF_POINTS_PER_INCH);
+    return rotated
+        ? {
+              width: height,
+              height: width,
+          }
+        : {
+              width,
+              height,
+          };
 }

@@ -1,9 +1,4 @@
-import type {
-    IEditorLayoutLeafNode,
-    IEditorLayoutSplitNode,
-    TEditorLayoutNode,
-    TPaneId,
-} from '@contracts/editorPanes';
+import type {IEditorLayoutLeafNode, IEditorLayoutSplitNode, TEditorLayoutNode, TPaneId} from '@contracts/editorPanes';
 
 export function collectLayoutPaneIds(node: TEditorLayoutNode, target: Set<string>) {
     if (node.type === 'leaf') {
@@ -15,10 +10,7 @@ export function collectLayoutPaneIds(node: TEditorLayoutNode, target: Set<string
     collectLayoutPaneIds(node.second, target);
 }
 
-export function pruneLayoutToExistingPanes(
-    node: TEditorLayoutNode,
-    validPaneIds: Set<string>,
-): TEditorLayoutNode | null {
+export function pruneLayoutToExistingPanes(node: TEditorLayoutNode, validPaneIds: Set<string>): TEditorLayoutNode | null {
     if (node.type === 'leaf') {
         return validPaneIds.has(node.paneId) ? node : null;
     }
@@ -47,10 +39,7 @@ export function pruneLayoutToExistingPanes(
     };
 }
 
-export function appendPaneToLayout(
-    currentLayout: TEditorLayoutNode | null,
-    paneId: TPaneId,
-): TEditorLayoutNode {
+export function appendPaneToLayout(currentLayout: TEditorLayoutNode | null, paneId: TPaneId): TEditorLayoutNode {
     const nextLeaf: IEditorLayoutLeafNode = {
         type: 'leaf',
         paneId,
@@ -69,10 +58,7 @@ export function appendPaneToLayout(
     };
 }
 
-export function removeLeafNode(
-    node: TEditorLayoutNode,
-    paneId: TPaneId,
-): TEditorLayoutNode | null {
+export function removeLeafNode(node: TEditorLayoutNode, paneId: TPaneId): TEditorLayoutNode | null {
     if (node.type === 'leaf') {
         return node.paneId === paneId ? null : node;
     }
@@ -97,11 +83,7 @@ export function removeLeafNode(
     };
 }
 
-export function replaceLeafWithSplit(
-    node: TEditorLayoutNode,
-    sourcePaneId: TPaneId,
-    splitNode: IEditorLayoutSplitNode,
-): TEditorLayoutNode {
+export function replaceLeafWithSplit(node: TEditorLayoutNode, sourcePaneId: TPaneId, splitNode: IEditorLayoutSplitNode): TEditorLayoutNode {
     if (node.type === 'leaf') {
         return node.paneId === sourcePaneId ? splitNode : node;
     }
@@ -113,11 +95,7 @@ export function replaceLeafWithSplit(
     };
 }
 
-export function updateLayoutSplitRatio(
-    layout: TEditorLayoutNode,
-    splitId: string,
-    nextRatio: number,
-): TEditorLayoutNode {
+export function updateLayoutSplitRatio(layout: TEditorLayoutNode, splitId: string, nextRatio: number): TEditorLayoutNode {
     if (layout.type === 'leaf') {
         return layout;
     }

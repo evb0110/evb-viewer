@@ -22,12 +22,17 @@ export async function* streamItems<T>(
     const production = produce((item) => {
         items.push(item);
         wake?.();
-    }, controller.signal).then(() => undefined, (error: unknown) => {
-        run.failure = error instanceof Error ? error : new Error(String(error));
-    }).finally(() => {
-        run.settled = true;
-        wake?.();
-    });
+    }, controller.signal)
+        .then(
+            () => undefined,
+            (error: unknown) => {
+                run.failure = error instanceof Error ? error : new Error(String(error));
+            },
+        )
+        .finally(() => {
+            run.settled = true;
+            wake?.();
+        });
     try {
         for (;;) {
             const item = items.shift();

@@ -5,7 +5,7 @@ import {RECENT_FILES_LIMIT} from '@contracts/shared';
 export const MAX_CHUNK = 8 * 1024 * 1024;
 
 /** Maximum number of search results before truncation. */
-export { SEARCH_RESULT_LIMIT };
+export {SEARCH_RESULT_LIMIT};
 
 /** Maximum number of entries in the recent-files list. */
 export const MAX_RECENT_FILES = RECENT_FILES_LIMIT;

@@ -31,15 +31,11 @@
 </template>
 
 <script setup lang="ts">
-import type { INoteEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {INoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
-const {
-    entity,
-    selected,
-    displayRect,
-} = defineProps<{
+const {entity, selected, displayRect} = defineProps<{
     entity: INoteEntity;
     selected: boolean;
     displayRect?: INoteEntity['position'] | undefined;
@@ -61,9 +57,7 @@ const isTooltipSuppressed = ref(false);
 const isTooltipOpen = ref(false);
 const isPointerOver = ref(false);
 const shouldSuppressTooltip = computed(() => isTooltipSuppressed.value);
-const controlledTooltipOpen = computed(() =>
-    shouldSuppressTooltip.value ? false : isTooltipOpen.value,
-);
+const controlledTooltipOpen = computed(() => (shouldSuppressTooltip.value ? false : isTooltipOpen.value));
 const noteStyle = computed(() => ({
     '--annotation-note-color': entity.color ?? 'var(--ui-warning)',
     left: `${(notePosition.value.left + notePosition.value.width / 2) * 100}%`,
@@ -101,14 +95,16 @@ function handlePointerLeave() {
     releaseTooltipAfterPointerLeave();
 }
 
-watch(() => selected, isSelected => {
-    if (isSelected && isPointerOver.value) {
-        suppressTooltipUntilPointerExit();
-    }
-    else if (!isPointerOver.value) {
-        releaseTooltipAfterPointerLeave();
-    }
-});
+watch(
+    () => selected,
+    (isSelected) => {
+        if (isSelected && isPointerOver.value) {
+            suppressTooltipUntilPointerExit();
+        } else if (!isPointerOver.value) {
+            releaseTooltipAfterPointerLeave();
+        }
+    },
+);
 
 function handleActivate(event: MouseEvent | KeyboardEvent) {
     if ('button' in event && event.shiftKey) {

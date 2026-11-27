@@ -1,8 +1,10 @@
-import { EventEmitter } from 'node:events';
-import { PassThrough } from 'node:stream';
-import { vi } from 'vitest';
+import {EventEmitter} from 'node:events';
+import {PassThrough} from 'node:stream';
+import {vi} from 'vitest';
 
-interface IFakeAssistantAppServerStdin extends EventEmitter {write: ReturnType<typeof vi.fn>;}
+interface IFakeAssistantAppServerStdin extends EventEmitter {
+    write: ReturnType<typeof vi.fn>;
+}
 
 export class FakeAssistantAppServerProcess extends EventEmitter {
     readonly stdout = new PassThrough();

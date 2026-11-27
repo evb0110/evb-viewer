@@ -1,17 +1,10 @@
-import { requirePageIndex } from '@contracts/pageNumbers';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
-import { areBookmarkEntriesEqual } from '@app/modules/pdf-viewer/engine/pdf-outline-tree/areBookmarkEntriesEqual';
-import { cast } from '@tests/helpers/cast';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {describe, expect, it} from 'vitest';
+import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
+import {areBookmarkEntriesEqual} from '@app/modules/pdf-viewer/engine/pdf-outline-tree/areBookmarkEntriesEqual';
+import {cast} from '@tests/helpers/cast';
 
-function createEntry(
-    title: string,
-    overrides: Partial<IPdfBookmarkEntry> = {},
-): IPdfBookmarkEntry {
+function createEntry(title: string, overrides: Partial<IPdfBookmarkEntry> = {}): IPdfBookmarkEntry {
     return {
         title,
         pageIndex: requirePageIndex(3),
@@ -33,21 +26,19 @@ function createTree(): IPdfBookmarkEntry[] {
             namedDest: null,
             color: null,
         }),
-        createEntry('Chapter', { items: [
-            createEntry('Section one'),
-            createEntry('Section two', {
-                pageIndex: requirePageIndex(4),
-                bold: true,
-            }),
-        ] }),
+        createEntry('Chapter', {
+            items: [
+                createEntry('Section one'),
+                createEntry('Section two', {
+                    pageIndex: requirePageIndex(4),
+                    bold: true,
+                }),
+            ],
+        }),
     ];
 }
 
-function expectSymmetricEquality(
-    left: IPdfBookmarkEntry[],
-    right: IPdfBookmarkEntry[],
-    expected: boolean,
-) {
+function expectSymmetricEquality(left: IPdfBookmarkEntry[], right: IPdfBookmarkEntry[], expected: boolean) {
     expect(areBookmarkEntriesEqual(left, right)).toBe(expected);
     expect(areBookmarkEntriesEqual(right, left)).toBe(expected);
 }
@@ -61,10 +52,18 @@ describe('areBookmarkEntriesEqual', () => {
         };
         const left = [createEntry('Source', {originalDestination})];
         expectSymmetricEquality(left, [createEntry('Source', {originalDestination: {...originalDestination}})], true);
-        expectSymmetricEquality(left, [createEntry('Source', {originalDestination: {
-            ...originalDestination,
-            coordinates: [0],
-        }})], false);
+        expectSymmetricEquality(
+            left,
+            [
+                createEntry('Source', {
+                    originalDestination: {
+                        ...originalDestination,
+                        coordinates: [0],
+                    },
+                }),
+            ],
+            false,
+        );
         expectSymmetricEquality(left, [createEntry('Source')], false);
     });
 
@@ -107,26 +106,25 @@ describe('areBookmarkEntriesEqual', () => {
     });
 
     it('ignores serialization artifacts that persistence would normalize away', () => {
-        const artifacts = [cast<IPdfBookmarkEntry>({
-            title: 'Chapter',
-            pageIndex: 3,
-            pageYRatio: 0.5,
-            namedDest: 'anchor',
-            bold: false,
-            italic: false,
-            items: [],
-            unknownField: 'ignored',
-        })];
+        const artifacts = [
+            cast<IPdfBookmarkEntry>({
+                title: 'Chapter',
+                pageIndex: 3,
+                pageYRatio: 0.5,
+                namedDest: 'anchor',
+                bold: false,
+                italic: false,
+                items: [],
+                unknownField: 'ignored',
+            }),
+        ];
 
-        expectSymmetricEquality([createEntry('Chapter', { color: null })], artifacts, true);
+        expectSymmetricEquality([createEntry('Chapter', {color: null})], artifacts, true);
     });
 
     it('treats a missing pageYRatio the same as an explicit null', () => {
-        const withNull = [createEntry('Chapter', { pageYRatio: null })];
-        const {
-            pageYRatio: unusedPageYRatio,
-            ...withoutRatioEntry
-        } = createEntry('Chapter');
+        const withNull = [createEntry('Chapter', {pageYRatio: null})];
+        const {pageYRatio: unusedPageYRatio, ...withoutRatioEntry} = createEntry('Chapter');
         void unusedPageYRatio;
         const withoutRatio = [withoutRatioEntry];
 
@@ -134,34 +132,13 @@ describe('areBookmarkEntriesEqual', () => {
     });
 
     it.each([
-        [
-            'title',
-            { title: 'Renamed' },
-        ],
-        [
-            'pageIndex',
-            { pageIndex: requirePageIndex(9) },
-        ],
-        [
-            'pageYRatio',
-            { pageYRatio: 0.75 },
-        ],
-        [
-            'namedDest',
-            { namedDest: 'other-anchor' },
-        ],
-        [
-            'bold',
-            { bold: true },
-        ],
-        [
-            'italic',
-            { italic: true },
-        ],
-        [
-            'color',
-            { color: '#445566' },
-        ],
+        ['title', {title: 'Renamed'}],
+        ['pageIndex', {pageIndex: requirePageIndex(9)}],
+        ['pageYRatio', {pageYRatio: 0.75}],
+        ['namedDest', {namedDest: 'other-anchor'}],
+        ['bold', {bold: true}],
+        ['italic', {italic: true}],
+        ['color', {color: '#445566'}],
     ])('detects a change to the persisted %s field', (_field, overrides) => {
         const changed = createTree();
         changed[1] = createEntry('Chapter', {
@@ -181,12 +158,14 @@ describe('areBookmarkEntriesEqual', () => {
             if (chapter) {
                 changed[1] = {
                     ...chapter,
-                    items: chapter.items.map(entry => entry === section
-                        ? {
-                            ...entry,
-                            italic: true,
-                        }
-                        : entry),
+                    items: chapter.items.map((entry) =>
+                        entry === section
+                            ? {
+                                  ...entry,
+                                  italic: true,
+                              }
+                            : entry,
+                    ),
                 };
             }
         }
@@ -198,7 +177,7 @@ describe('areBookmarkEntriesEqual', () => {
         const rootSwapped = createTree().toReversed();
         const childSwapped = createTree();
         const children = childSwapped[1]?.items ?? [];
-        childSwapped[1] = createEntry('Chapter', { items: children.toReversed() });
+        childSwapped[1] = createEntry('Chapter', {items: children.toReversed()});
 
         expectSymmetricEquality(createTree(), rootSwapped, false);
         expectSymmetricEquality(createTree(), childSwapped, false);
@@ -210,10 +189,7 @@ describe('areBookmarkEntriesEqual', () => {
         if (addedChapter) {
             added[1] = {
                 ...addedChapter,
-                items: [
-                    ...addedChapter.items,
-                    createEntry('Section three'),
-                ],
+                items: [...addedChapter.items, createEntry('Section three')],
             };
         }
         const removed = createTree();
@@ -230,15 +206,17 @@ describe('areBookmarkEntriesEqual', () => {
     });
 
     it('survives entries whose title never made it through a malformed payload', () => {
-        const malformed = [cast<IPdfBookmarkEntry>({
-            pageIndex: 3,
-            pageYRatio: 0.5,
-            namedDest: 'anchor',
-            bold: false,
-            italic: false,
-            color: '#112233',
-            items: [],
-        })];
+        const malformed = [
+            cast<IPdfBookmarkEntry>({
+                pageIndex: 3,
+                pageYRatio: 0.5,
+                namedDest: 'anchor',
+                bold: false,
+                italic: false,
+                color: '#112233',
+                items: [],
+            }),
+        ];
 
         expectSymmetricEquality([createEntry('')], malformed, true);
         expectSymmetricEquality([createEntry('Chapter')], malformed, false);
@@ -253,10 +231,14 @@ describe('areBookmarkEntriesEqual', () => {
 
     it('compares large outlines without quadratic work', () => {
         function createLargeTree(): IPdfBookmarkEntry[] {
-            return Array.from({ length: 2000 }, (_unused, index) => createEntry(`Section ${index}`, {
-                pageIndex: requirePageIndex(index),
-                items: Array.from({ length: 4 }, (_child, childIndex) => createEntry(`Section ${index}.${childIndex}`, { pageIndex: requirePageIndex(index)})),
-            }));
+            return Array.from({length: 2000}, (_unused, index) =>
+                createEntry(`Section ${index}`, {
+                    pageIndex: requirePageIndex(index),
+                    items: Array.from({length: 4}, (_child, childIndex) =>
+                        createEntry(`Section ${index}.${childIndex}`, {pageIndex: requirePageIndex(index)}),
+                    ),
+                }),
+            );
         }
 
         const left = createLargeTree();
@@ -268,12 +250,14 @@ describe('areBookmarkEntriesEqual', () => {
         if (lastRoot && lastChild) {
             divergent[divergent.length - 1] = {
                 ...lastRoot,
-                items: lastRoot.items.map(entry => entry === lastChild
-                    ? {
-                        ...entry,
-                        bold: true,
-                    }
-                    : entry),
+                items: lastRoot.items.map((entry) =>
+                    entry === lastChild
+                        ? {
+                              ...entry,
+                              bold: true,
+                          }
+                        : entry,
+                ),
             };
         }
 

@@ -1,20 +1,10 @@
-import {
-    mkdir,
-    readFile,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import type {IOcrSearchablePdfOptions} from '@contracts/electronApiOcr';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {getOcrScanCleanupMode} from '@contracts/scan-cleanup/ocrPreprocessing';
-import {
-    recognizeOcrPages,
-    type IOcrRecognizedPage,
-} from '@ocr-core/recognizeOcrPages';
-import type {
-    IOcrEngineRequest,
-    IOcrEngineResult,
-} from '@ocr-core/tesseractEngine';
+import {recognizeOcrPages, type IOcrRecognizedPage} from '@ocr-core/recognizeOcrPages';
+import type {IOcrEngineRequest, IOcrEngineResult} from '@ocr-core/tesseractEngine';
 import {prepareOcrPageRaster} from '@electron/features/ocr/pipeline/tryPreprocessOcrImage';
 
 export interface IOcrProductionQualityCase {
@@ -38,33 +28,37 @@ export interface IOcrProductionQualityCase {
 export async function runProductionOcrQualityCase(testCase: IOcrProductionQualityCase) {
     const signal = new AbortController().signal;
     const logMessages: string[] = [];
-    const cleanupMode = testCase.recognitionOptions.preprocessingMode === undefined
-        ? undefined
-        : getOcrScanCleanupMode(testCase.recognitionOptions.preprocessingMode);
+    const cleanupMode =
+        testCase.recognitionOptions.preprocessingMode === undefined
+            ? undefined
+            : getOcrScanCleanupMode(testCase.recognitionOptions.preprocessingMode);
     await mkdir(testCase.outputDirectory, {recursive: true});
     let recognized: IOcrRecognizedPage | undefined;
     const result = await recognizeOcrPages({
-        pages: [{
-            pageNumber: requirePageNumber(1),
-            languages: testCase.language.split('+'),
-        }],
+        pages: [
+            {
+                pageNumber: requirePageNumber(1),
+                languages: testCase.language.split('+'),
+            },
+        ],
         extractionDpi: testCase.dpi,
         sourceDpiByPage: new Map(),
         options: testCase.recognitionOptions,
         lanes: 1,
         signal,
-        renderPage: (pageNumber, dpi) => prepareOcrPageRaster({
-            renderedPath: testCase.inputPath,
-            pageNumber,
-            dpi,
-            cleanupMode,
-            scanCleanupBinary: testCase.scanCleanupBinary,
-            log: (level, message) => logMessages.push(`${level}: ${message}`),
-            signal,
-        }),
+        renderPage: (pageNumber, dpi) =>
+            prepareOcrPageRaster({
+                renderedPath: testCase.inputPath,
+                pageNumber,
+                dpi,
+                cleanupMode,
+                scanCleanupBinary: testCase.scanCleanupBinary,
+                log: (level, message) => logMessages.push(`${level}: ${message}`),
+                signal,
+            }),
         runEngine: testCase.runEngine,
         prepareEarlyPrintModels: async () => {},
-        readModel: code => readFile(join(testCase.tessdataDirectory, `${code}.traineddata`)),
+        readModel: (code) => readFile(join(testCase.tessdataDirectory, `${code}.traineddata`)),
         acceptPage: async (page) => {
             recognized = page;
         },
@@ -79,11 +73,12 @@ export async function runProductionOcrQualityCase(testCase: IOcrProductionQualit
         diagnostics: recognized.diagnostics,
         logMessages,
         pdfPath,
-        preprocessing: testCase.recognitionOptions.preprocessingMode !== 'clean'
-            ? 'off'
-            : recognized.diagnostics.some(diagnostic => diagnostic.code.startsWith('OCR_PREPROCESSING'))
-                ? 'raw-fallback'
-                : 'clean-applied',
+        preprocessing:
+            testCase.recognitionOptions.preprocessingMode !== 'clean'
+                ? 'off'
+                : recognized.diagnostics.some((diagnostic) => diagnostic.code.startsWith('OCR_PREPROCESSING'))
+                  ? 'raw-fallback'
+                  : 'clean-applied',
         text: recognized.text,
         wordCount: words.length,
         words,

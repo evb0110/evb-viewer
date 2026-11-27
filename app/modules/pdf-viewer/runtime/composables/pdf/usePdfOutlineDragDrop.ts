@@ -1,20 +1,13 @@
-import type {
-    IBookmarkDropPayload,
-    IBookmarkDropTarget,
-    IBookmarkItem,
-} from '@app/types/pdfOutline';
-import {
-    findBookmarkLocation,
-    resolveMaxBookmarkDepth,
-} from '@app/utils/pdfOutlineHelpers';
+import type {IBookmarkDropPayload, IBookmarkDropTarget, IBookmarkItem} from '@app/types/pdfOutline';
+import {findBookmarkLocation, resolveMaxBookmarkDepth} from '@app/utils/pdfOutlineHelpers';
 import {PDF_NATIVE_MUTATION_LIMITS} from '@contracts/nativePdfMutationAdmission';
 
 type TBookmarkDropDestination =
-    | { kind: 'root-end' }
+    | {kind: 'root-end'}
     | {
-        kind: 'target';
-        payload: IBookmarkDropPayload;
-    };
+          kind: 'target';
+          payload: IBookmarkDropPayload;
+      };
 
 /** Removes the dragged roots, collecting them in tree order into `draggedItems`. */
 function removeDraggedBookmarkItems(
@@ -48,10 +41,7 @@ function insertBookmarkItems(
 } {
     if (destination.kind === 'root-end') {
         return {
-            items: [
-                ...items,
-                ...draggedItems,
-            ],
+            items: [...items, ...draggedItems],
             expandedBookmarkId: null,
             inserted: true,
         };
@@ -62,36 +52,29 @@ function insertBookmarkItems(
         if (item.id === destination.payload.targetId) {
             inserted = true;
             if (destination.payload.position === 'before') {
-                return [
-                    ...draggedItems,
-                    item,
-                ];
+                return [...draggedItems, item];
             }
             if (destination.payload.position === 'after') {
-                return [
-                    item,
-                    ...draggedItems,
-                ];
+                return [item, ...draggedItems];
             }
-            return [{
-                ...item,
-                items: [
-                    ...item.items,
-                    ...draggedItems,
-                ],
-            }];
+            return [
+                {
+                    ...item,
+                    items: [...item.items, ...draggedItems],
+                },
+            ];
         }
 
         const childResult = insertBookmarkItems(item.items, draggedItems, destination);
         inserted ||= childResult.inserted;
-        return [{
-            ...item,
-            items: childResult.items,
-        }];
+        return [
+            {
+                ...item,
+                items: childResult.items,
+            },
+        ];
     });
-    const targetExpanded = destination.payload.position === 'child'
-        ? destination.payload.targetId
-        : null;
+    const targetExpanded = destination.payload.position === 'child' ? destination.payload.targetId : null;
 
     return {
         items: nextItems,
@@ -106,23 +89,19 @@ function insertBookmarkItems(
  * that cost more than the move itself on a broad outline.
  */
 function haveSameBookmarkOrder(left: readonly IBookmarkItem[], right: readonly IBookmarkItem[]): boolean {
-    return left.length === right.length && left.every((item, index) => {
-        const other = right[index];
-        return other !== undefined && other.id === item.id && haveSameBookmarkOrder(item.items, other.items);
-    });
+    return (
+        left.length === right.length &&
+        left.every((item, index) => {
+            const other = right[index];
+            return other !== undefined && other.id === item.id && haveSameBookmarkOrder(item.items, other.items);
+        })
+    );
 }
 
-function moveBookmarkNodes(
-    items: readonly IBookmarkItem[],
-    draggedRootIds: readonly string[],
-    destination: TBookmarkDropDestination,
-) {
+function moveBookmarkNodes(items: readonly IBookmarkItem[], draggedRootIds: readonly string[], destination: TBookmarkDropDestination) {
     const extractedItems: IBookmarkItem[] = [];
     const remainingItems = removeDraggedBookmarkItems(items, new Set(draggedRootIds), extractedItems);
-    const draggedById = new Map(extractedItems.map(item => [
-        item.id,
-        item,
-    ]));
+    const draggedById = new Map(extractedItems.map((item) => [item.id, item]));
     const draggedItems = draggedRootIds.flatMap((id) => {
         const item = draggedById.get(id) ?? null;
         return item ? [item] : [];
@@ -193,13 +172,15 @@ export const usePdfOutlineDragDrop = (
     function canDropBookmarks(draggedRootIds: string[], targetId: string) {
         const dragged = new Set(draggedRootIds);
         for (let cursor: string | null = targetId; cursor; cursor = parentBookmarkIdMap.value.get(cursor) ?? null) {
-            if (dragged.has(cursor)) return false;
+            if (dragged.has(cursor)) {
+                return false;
+            }
         }
         return true;
     }
 
     function moveBookmarksToRootEnd(draggedRootIds: string[]) {
-        const result = moveBookmarkNodes(bookmarks.value, draggedRootIds, { kind: 'root-end' });
+        const result = moveBookmarkNodes(bookmarks.value, draggedRootIds, {kind: 'root-end'});
         if (!result.moved) {
             return false;
         }
@@ -207,7 +188,7 @@ export const usePdfOutlineDragDrop = (
         return true;
     }
 
-    function handleBookmarkDragStart(payload: { id: string }) {
+    function handleBookmarkDragStart(payload: {id: string}) {
         if (!isEditMode.value) {
             return;
         }
@@ -242,11 +223,7 @@ export const usePdfOutlineDragDrop = (
         isRootAppendDropTarget.value = false;
     }
 
-    function handleBookmarkDrop(
-        payload: IBookmarkDropPayload,
-        activeItemId: Ref<string | null>,
-        emitBookmarksChange: () => void,
-    ) {
+    function handleBookmarkDrop(payload: IBookmarkDropPayload, activeItemId: Ref<string | null>, emitBookmarksChange: () => void) {
         const draggingRoots = [...draggingBookmarkIds.value];
         if (!isEditMode.value || draggingRoots.length === 0) {
             return;
@@ -269,10 +246,7 @@ export const usePdfOutlineDragDrop = (
                 moved = true;
             }
             if (moved && result.expandedBookmarkId) {
-                expandedBookmarkIds.value = new Set([
-                    ...expandedBookmarkIds.value,
-                    result.expandedBookmarkId,
-                ]);
+                expandedBookmarkIds.value = new Set([...expandedBookmarkIds.value, result.expandedBookmarkId]);
             }
         }
 
@@ -292,10 +266,7 @@ export const usePdfOutlineDragDrop = (
         isRootAppendDropTarget.value = true;
     }
 
-    function handleTreeEndDrop(
-        activeItemId: Ref<string | null>,
-        emitBookmarksChange: () => void,
-    ) {
+    function handleTreeEndDrop(activeItemId: Ref<string | null>, emitBookmarksChange: () => void) {
         const draggingRoots = [...draggingBookmarkIds.value];
         if (!isEditMode.value || draggingRoots.length === 0) {
             return;

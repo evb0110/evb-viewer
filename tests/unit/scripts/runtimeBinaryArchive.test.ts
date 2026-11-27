@@ -1,23 +1,9 @@
 import {createHash} from 'node:crypto';
-import {
-    access,
-    mkdtemp,
-    readdir,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {access, mkdtemp, readdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type {
-    IRuntimeBinaryManifestEntry, IRuntimeBinaryManifest,
-} from '@scripts/runtimeBinaryArchive';
+import {afterEach, describe, expect, it} from 'vitest';
+import type {IRuntimeBinaryManifestEntry, IRuntimeBinaryManifest} from '@scripts/runtimeBinaryArchive';
 import {
     computeRuntimeBinaryManifestSha256,
     fetchVerifiedRuntimeArchive,
@@ -69,10 +55,7 @@ async function createCacheDirectory() {
     return mkdtemp(path.join(tmpdir(), 'evb-runtime-binary-'));
 }
 
-type TFetchArchiveOptions = Omit<
-    Parameters<typeof fetchVerifiedRuntimeArchive>[0],
-    'familyId'
->;
+type TFetchArchiveOptions = Omit<Parameters<typeof fetchVerifiedRuntimeArchive>[0], 'familyId'>;
 
 function fetchArchive(options: TFetchArchiveOptions) {
     return fetchVerifiedRuntimeArchive({
@@ -84,10 +67,14 @@ function fetchArchive(options: TFetchArchiveOptions) {
 const directories: string[] = [];
 
 afterEach(async () => {
-    await Promise.all(directories.splice(0).map(directory => rm(directory, {
-        force: true,
-        recursive: true,
-    })));
+    await Promise.all(
+        directories.splice(0).map((directory) =>
+            rm(directory, {
+                force: true,
+                recursive: true,
+            }),
+        ),
+    );
 });
 
 describe('runtime binary manifest and verified archive cache', () => {
@@ -96,10 +83,12 @@ describe('runtime binary manifest and verified archive cache', () => {
 
         expect(validateRuntimeBinaryManifest(value)).toBe(value);
         expect(value.manifestSha256).not.toBe(value.entries[0]?.archiveSha256);
-        expect(() => validateRuntimeBinaryManifest({
-            ...value,
-            manifestSha256: value.entries[0]?.archiveSha256 ?? '',
-        })).toThrow('does not match');
+        expect(() =>
+            validateRuntimeBinaryManifest({
+                ...value,
+                manifestSha256: value.entries[0]?.archiveSha256 ?? '',
+            }),
+        ).toThrow('does not match');
     });
 
     it('rejects unsupported targets, archive kinds, and unsafe executable entries', () => {
@@ -137,10 +126,7 @@ describe('runtime binary manifest and verified archive cache', () => {
                 expected: 'credential-free HTTPS',
             },
             {
-                entries: [
-                    entry(),
-                    entry(),
-                ],
+                entries: [entry(), entry()],
                 expected: 'duplicate family target',
             },
             {
@@ -148,20 +134,26 @@ describe('runtime binary manifest and verified archive cache', () => {
                 expected: 'at least one target',
             },
             {
-                entries: [entry({target: {
-                    ...target,
-                    exeSuffix: '',
-                }})],
+                entries: [
+                    entry({
+                        target: {
+                            ...target,
+                            exeSuffix: '',
+                        },
+                    }),
+                ],
                 expected: 'invalid executable suffix',
             },
         ];
 
         for (const testCase of cases) {
-            expect(() => validateRuntimeBinaryManifest({
-                ...value,
-                entries: testCase.entries,
-                manifestSha256: computeRuntimeBinaryManifestSha256(testCase.entries),
-            })).toThrow(testCase.expected);
+            expect(() =>
+                validateRuntimeBinaryManifest({
+                    ...value,
+                    entries: testCase.entries,
+                    manifestSha256: computeRuntimeBinaryManifestSha256(testCase.entries),
+                }),
+            ).toThrow(testCase.expected);
         }
     });
 
@@ -175,41 +167,33 @@ describe('runtime binary manifest and verified archive cache', () => {
         const first = entry();
         const second = entry({target: reorderedTarget});
 
-        expect(computeRuntimeBinaryManifestSha256([first])).toBe(
-            computeRuntimeBinaryManifestSha256([second]),
-        );
+        expect(computeRuntimeBinaryManifestSha256([first])).toBe(computeRuntimeBinaryManifestSha256([second]));
     });
 
     it('includes family and byte length in the manifest identity', () => {
         const base = entry();
         expect(computeRuntimeBinaryManifestSha256([base])).not.toBe(
-            computeRuntimeBinaryManifestSha256([{
-                ...base,
-                familyId: 'pdf-image-combine',
-            }]),
+            computeRuntimeBinaryManifestSha256([
+                {
+                    ...base,
+                    familyId: 'pdf-image-combine',
+                },
+            ]),
         );
         expect(computeRuntimeBinaryManifestSha256([base])).not.toBe(
-            computeRuntimeBinaryManifestSha256([{
-                ...base,
-                archiveBytes: base.archiveBytes + 1,
-            }]),
+            computeRuntimeBinaryManifestSha256([
+                {
+                    ...base,
+                    archiveBytes: base.archiveBytes + 1,
+                },
+            ]),
         );
     });
 
     it('rejects a missing, zero, fractional, or oversized archive length', () => {
-        const {
-            archiveBytes: _omitted,
-            ...withoutArchiveBytes
-        } = entry();
-        expect(() => validateRuntimeBinaryManifest(manifest([malformedEntry(withoutArchiveBytes)]))).toThrow(
-            'invalid byte length',
-        );
-        for (const archiveBytesValue of [
-            0,
-            -1,
-            1.5,
-            Number.MAX_SAFE_INTEGER,
-        ]) {
+        const {archiveBytes: _omitted, ...withoutArchiveBytes} = entry();
+        expect(() => validateRuntimeBinaryManifest(manifest([malformedEntry(withoutArchiveBytes)]))).toThrow('invalid byte length');
+        for (const archiveBytesValue of [0, -1, 1.5, Number.MAX_SAFE_INTEGER]) {
             const invalidEntry = malformedEntry({
                 ...entry(),
                 archiveBytes: archiveBytesValue,
@@ -227,12 +211,14 @@ describe('runtime binary manifest and verified archive cache', () => {
             throw new Error('transport must not run');
         };
 
-        await expect(fetchArchive({
-            cacheDirectory,
-            manifest: manifest([invalidEntry]),
-            target,
-            transport,
-        })).rejects.toThrow('lowercase SHA-256');
+        await expect(
+            fetchArchive({
+                cacheDirectory,
+                manifest: manifest([invalidEntry]),
+                target,
+                transport,
+            }),
+        ).rejects.toThrow('lowercase SHA-256');
         await expect(access(cacheDirectory)).rejects.toThrow();
     });
 
@@ -255,7 +241,7 @@ describe('runtime binary manifest and verified archive cache', () => {
 
         expect(calls).toBe(1);
         expect(await readFile(result.archivePath)).toEqual(Buffer.from(archiveBytes));
-        expect((await readdir(cacheDirectory))).toEqual([path.basename(result.archivePath)]);
+        expect(await readdir(cacheDirectory)).toEqual([path.basename(result.archivePath)]);
     });
 
     it('reuses a warm verified cache without transport', async () => {
@@ -315,10 +301,7 @@ describe('runtime binary manifest and verified archive cache', () => {
                 yield archiveBytes;
             },
         });
-        await writeFile(first.archivePath, Buffer.concat([
-            Buffer.from(archiveBytes),
-            Buffer.from('extra'),
-        ]));
+        await writeFile(first.archivePath, Buffer.concat([Buffer.from(archiveBytes), Buffer.from('extra')]));
 
         const result = await fetchArchive({
             cacheDirectory,
@@ -338,15 +321,17 @@ describe('runtime binary manifest and verified archive cache', () => {
         const cacheDirectory = await createCacheDirectory();
         directories.push(cacheDirectory);
 
-        await expect(fetchArchive({
-            cacheDirectory,
-            manifest: manifest(),
-            target,
-            transport: async function* () {
-                yield archiveBytes.slice(0, 8);
-                throw new Error('connection interrupted');
-            },
-        })).rejects.toThrow('connection interrupted');
+        await expect(
+            fetchArchive({
+                cacheDirectory,
+                manifest: manifest(),
+                target,
+                transport: async function* () {
+                    yield archiveBytes.slice(0, 8);
+                    throw new Error('connection interrupted');
+                },
+            }),
+        ).rejects.toThrow('connection interrupted');
 
         expect(await readdir(cacheDirectory)).toEqual([]);
     });
@@ -355,14 +340,16 @@ describe('runtime binary manifest and verified archive cache', () => {
         const cacheDirectory = await createCacheDirectory();
         directories.push(cacheDirectory);
         const invalidLengthEntry = entry({archiveBytes: archiveBytes.byteLength + 1});
-        await expect(fetchArchive({
-            cacheDirectory,
-            manifest: manifest([invalidLengthEntry]),
-            target,
-            transport: async function* () {
-                yield archiveBytes;
-            },
-        })).rejects.toThrow(`has ${archiveBytes.byteLength} bytes, expected ${archiveBytes.byteLength + 1}`);
+        await expect(
+            fetchArchive({
+                cacheDirectory,
+                manifest: manifest([invalidLengthEntry]),
+                target,
+                transport: async function* () {
+                    yield archiveBytes;
+                },
+            }),
+        ).rejects.toThrow(`has ${archiveBytes.byteLength} bytes, expected ${archiveBytes.byteLength + 1}`);
         expect(await readdir(cacheDirectory)).toEqual([]);
     });
 
@@ -370,14 +357,16 @@ describe('runtime binary manifest and verified archive cache', () => {
         const cacheDirectory = await createCacheDirectory();
         directories.push(cacheDirectory);
         const invalidLengthEntry = entry({archiveBytes: archiveBytes.byteLength - 1});
-        await expect(fetchArchive({
-            cacheDirectory,
-            manifest: manifest([invalidLengthEntry]),
-            target,
-            transport: async function* () {
-                yield archiveBytes;
-            },
-        })).rejects.toThrow('exceeded its expected');
+        await expect(
+            fetchArchive({
+                cacheDirectory,
+                manifest: manifest([invalidLengthEntry]),
+                target,
+                transport: async function* () {
+                    yield archiveBytes;
+                },
+            }),
+        ).rejects.toThrow('exceeded its expected');
         expect(await readdir(cacheDirectory)).toEqual([]);
     });
 
@@ -387,24 +376,28 @@ describe('runtime binary manifest and verified archive cache', () => {
         const mismatch = entry({archiveSha256: createHash('sha256').update('different').digest('hex')});
         const mismatchManifest = manifest([mismatch]);
 
-        await expect(fetchArchive({
-            cacheDirectory,
-            manifest: mismatchManifest,
-            target,
-            transport: async function* () {
-                yield archiveBytes;
-            },
-        })).rejects.toThrow('does not match');
+        await expect(
+            fetchArchive({
+                cacheDirectory,
+                manifest: mismatchManifest,
+                target,
+                transport: async function* () {
+                    yield archiveBytes;
+                },
+            }),
+        ).rejects.toThrow('does not match');
         expect(await readdir(cacheDirectory)).toEqual([]);
 
-        await expect(fetchArchive({
-            cacheDirectory,
-            manifest: manifest(),
-            target,
-            transport: async () => {
-                throw new Error('download unavailable');
-            },
-        })).rejects.toThrow('download unavailable');
+        await expect(
+            fetchArchive({
+                cacheDirectory,
+                manifest: manifest(),
+                target,
+                transport: async () => {
+                    throw new Error('download unavailable');
+                },
+            }),
+        ).rejects.toThrow('download unavailable');
         expect(await readdir(cacheDirectory)).toEqual([]);
     });
 
@@ -455,9 +448,7 @@ describe('runtime binary manifest and verified archive cache', () => {
             'https://example.test/runtime-v2.zip',
             'https://example.test/runtime-darwin.tar.gz',
         ]);
-        expect(multiTargetManifest.manifestSha256).not.toBe(
-            firstManifest.manifestSha256,
-        );
+        expect(multiTargetManifest.manifestSha256).not.toBe(firstManifest.manifestSha256);
     });
 
     it('separates tools that share a native target by family id', async () => {
@@ -466,16 +457,12 @@ describe('runtime binary manifest and verified archive cache', () => {
             archiveUrl: 'https://example.test/poppler.zip',
             familyId: 'poppler',
         });
-        const value = manifest([
-            combinerEntry,
-            popplerEntry,
-        ]);
+        const value = manifest([combinerEntry, popplerEntry]);
 
         expect(validateRuntimeBinaryManifest(value)).toBe(value);
-        expect(() => validateRuntimeBinaryManifest(manifest([
-            combinerEntry,
-            entry({familyId: 'pdf-image-combine'}),
-        ]))).toThrow('duplicate family target');
+        expect(() => validateRuntimeBinaryManifest(manifest([combinerEntry, entry({familyId: 'pdf-image-combine'})]))).toThrow(
+            'duplicate family target',
+        );
 
         const cacheDirectory = await createCacheDirectory();
         directories.push(cacheDirectory);
@@ -507,15 +494,15 @@ describe('runtime binary manifest and verified archive cache', () => {
         const cacheDirectory = await createCacheDirectory();
         directories.push(cacheDirectory);
         let releaseFirstChunk: (() => void) | undefined;
-        const firstChunkReady = new Promise<void>(resolve => {
+        const firstChunkReady = new Promise<void>((resolve) => {
             releaseFirstChunk = resolve;
         });
         let firstGeneratorEntered: (() => void) | undefined;
-        const firstGeneratorReady = new Promise<void>(resolve => {
+        const firstGeneratorReady = new Promise<void>((resolve) => {
             firstGeneratorEntered = resolve;
         });
         let secondGeneratorEntered: (() => void) | undefined;
-        const secondGeneratorReady = new Promise<void>(resolve => {
+        const secondGeneratorReady = new Promise<void>((resolve) => {
             secondGeneratorEntered = resolve;
         });
         let calls = 0;
@@ -552,17 +539,11 @@ describe('runtime binary manifest and verified archive cache', () => {
         });
         await secondGeneratorReady;
         releaseFirstChunk?.();
-        const [
-            firstResult,
-            secondResult,
-        ] = await Promise.all([
-            first,
-            second,
-        ]);
+        const [firstResult, secondResult] = await Promise.all([first, second]);
 
         expect(calls).toBe(2);
         expect(firstResult.archivePath).toBe(secondResult.archivePath);
         expect(await readFile(firstResult.archivePath)).toEqual(Buffer.from(archiveBytes));
-        expect((await readdir(cacheDirectory)).filter(name => name.includes('.part-'))).toEqual([]);
+        expect((await readdir(cacheDirectory)).filter((name) => name.includes('.part-'))).toEqual([]);
     });
 });

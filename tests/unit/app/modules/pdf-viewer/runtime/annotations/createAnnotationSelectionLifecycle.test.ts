@@ -1,9 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import type {IAnnotationTextSelectionSnapshot} from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
 import {createAnnotationSelectionLifecycle} from '@app/modules/pdf-viewer/runtime/annotations/createAnnotationSelectionLifecycle';
 
@@ -23,22 +18,10 @@ function style() {
 
 describe('createAnnotationSelectionLifecycle', () => {
     it.each([
-        [
-            'highlight',
-            'Highlight',
-        ],
-        [
-            'underline',
-            'Underline',
-        ],
-        [
-            'strikethrough',
-            'StrikeOut',
-        ],
-        [
-            'squiggly',
-            'Squiggly',
-        ],
+        ['highlight', 'Highlight'],
+        ['underline', 'Underline'],
+        ['strikethrough', 'StrikeOut'],
+        ['squiggly', 'Squiggly'],
     ] as const)('activates %s with its captured subtype', async (tool, subtype) => {
         const create = vi.fn(async (request: {subtype: string}) => ({
             status: 'created' as const,
@@ -50,13 +33,15 @@ describe('createAnnotationSelectionLifecycle', () => {
             consumeSelection: vi.fn(),
         });
 
-        await expect(lifecycle.activate({
-            selection: selection(1),
-            tool,
-            subtype,
-            style: style(),
-            withNote: false,
-        })).resolves.toMatchObject({status: 'created'});
+        await expect(
+            lifecycle.activate({
+                selection: selection(1),
+                tool,
+                subtype,
+                style: style(),
+                withNote: false,
+            }),
+        ).resolves.toMatchObject({status: 'created'});
         expect(create).toHaveBeenCalledExactlyOnceWith(
             expect.objectContaining({
                 tool,
@@ -109,9 +94,9 @@ describe('createAnnotationSelectionLifecycle', () => {
             await deferred.promise;
             return isRequestCurrent()
                 ? {
-                    status: 'created' as const,
-                    annotationId: 'too-late',
-                }
+                      status: 'created' as const,
+                      annotationId: 'too-late',
+                  }
                 : {status: 'cancelled' as const};
         });
         const consumeSelection = vi.fn();
@@ -142,9 +127,9 @@ describe('createAnnotationSelectionLifecycle', () => {
             await deferred.promise;
             return isRequestCurrent()
                 ? {
-                    status: 'created' as const,
-                    annotationId: 'explicit',
-                }
+                      status: 'created' as const,
+                      annotationId: 'explicit',
+                  }
                 : {status: 'cancelled' as const};
         });
         const consumeSelection = vi.fn();
@@ -220,15 +205,10 @@ describe('createAnnotationSelectionLifecycle', () => {
             lifecycle.invalidateActiveRequests();
         };
 
-        const calls = sequence === 'explicit first, then activation and a tool change'
-            ? [
-                lifecycle.request(explicit),
-                lifecycle.activate(automatic),
-            ]
-            : [
-                lifecycle.activate(automatic),
-                lifecycle.request(explicit),
-            ];
+        const calls =
+            sequence === 'explicit first, then activation and a tool change'
+                ? [lifecycle.request(explicit), lifecycle.activate(automatic)]
+                : [lifecycle.activate(automatic), lifecycle.request(explicit)];
         switchTool('select');
         if (sequence === 'away and back, then activation again') {
             switchTool('highlight');
@@ -238,10 +218,12 @@ describe('createAnnotationSelectionLifecycle', () => {
         }
         geometry.resolve(undefined);
 
-        expect(await Promise.all(calls)).toEqual(calls.map(() => ({
-            status: 'created',
-            annotationId: 'markup-1',
-        })));
+        expect(await Promise.all(calls)).toEqual(
+            calls.map(() => ({
+                status: 'created',
+                annotationId: 'markup-1',
+            })),
+        );
         expect(commits).toEqual(['Highlight:#00ff00']);
     });
 
@@ -249,23 +231,24 @@ describe('createAnnotationSelectionLifecycle', () => {
         let activeTool: 'highlight' | 'select' = 'highlight';
         const stale = Promise.withResolvers<undefined>();
         const current = Promise.withResolvers<undefined>();
-        const create = vi.fn()
+        const create = vi
+            .fn()
             .mockImplementationOnce(async (_request, isRequestCurrent: () => boolean) => {
                 await stale.promise;
                 return isRequestCurrent()
                     ? {
-                        status: 'created' as const,
-                        annotationId: 'stale',
-                    }
+                          status: 'created' as const,
+                          annotationId: 'stale',
+                      }
                     : {status: 'cancelled' as const};
             })
             .mockImplementationOnce(async (_request, isRequestCurrent: () => boolean) => {
                 await current.promise;
                 return isRequestCurrent()
                     ? {
-                        status: 'created' as const,
-                        annotationId: 'current',
-                    }
+                          status: 'created' as const,
+                          annotationId: 'current',
+                      }
                     : {status: 'cancelled' as const};
             });
         const consumeSelection = vi.fn();
@@ -300,7 +283,6 @@ describe('createAnnotationSelectionLifecycle', () => {
         stale.resolve(undefined);
         await expect(pending).resolves.toEqual({status: 'cancelled'});
         expect(consumeSelection).toHaveBeenCalledExactlyOnceWith(request.selection);
-
     });
 
     it('lets a newer selection finish without deduplicating it with the older one', async () => {
@@ -312,7 +294,8 @@ describe('createAnnotationSelectionLifecycle', () => {
             status: 'created';
             annotationId: string;
         }>();
-        const create = vi.fn()
+        const create = vi
+            .fn()
             .mockImplementationOnce(async () => first.promise)
             .mockImplementationOnce(async () => second.promise);
         const consumeSelection = vi.fn();

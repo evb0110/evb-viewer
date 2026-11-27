@@ -1,7 +1,7 @@
-import type { Page } from 'puppeteer-core';
-import { delay } from 'es-toolkit/promise';
-import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
-import type { IWorkspaceExposeProbeWindow } from '@tests/e2e/electron/helpers/workspaceExpose';
+import type {Page} from 'puppeteer-core';
+import {delay} from 'es-toolkit/promise';
+import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import type {IWorkspaceExposeProbeWindow} from '@tests/e2e/electron/helpers/workspaceExpose';
 
 // The page number a person reads is the text the toolbar renders, not the
 // `currentPage` field of the viewer's automation snapshot. A frozen indicator
@@ -37,11 +37,7 @@ const OBSERVATION_SOURCE = (): IToolbarPageIndicatorObservation => {
         let current: HTMLElement | null = element;
         while (current) {
             const style = window.getComputedStyle(current);
-            if (
-                style.display === 'none'
-                || style.visibility === 'hidden'
-                || Number(style.opacity || '1') === 0
-            ) {
+            if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || '1') === 0) {
                 return false;
             }
             current = current.parentElement;
@@ -58,13 +54,11 @@ const OBSERVATION_SOURCE = (): IToolbarPageIndicatorObservation => {
     // pane can render a second, inactive set, so prefer the host and only then
     // fall back to the first visible one.
     const resolveControls = () => {
-        const roots = [
-            document.querySelector<HTMLElement>('#editor-global-toolbar-host'),
-            document.documentElement,
-        ];
+        const roots = [document.querySelector<HTMLElement>('#editor-global-toolbar-host'), document.documentElement];
         for (const root of roots) {
-            const controls = Array.from(root?.querySelectorAll<HTMLElement>('.page-controls') ?? [])
-                .find(candidate => isVisible(candidate, 8));
+            const controls = Array.from(root?.querySelectorAll<HTMLElement>('.page-controls') ?? []).find((candidate) =>
+                isVisible(candidate, 8),
+            );
             if (controls) {
                 return controls;
             }
@@ -72,12 +66,10 @@ const OBSERVATION_SOURCE = (): IToolbarPageIndicatorObservation => {
         return null;
     };
     const resolveViewport = () => {
-        const host = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"]',
-        ) ?? document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        return host?.querySelector<HTMLElement>(
-            '[data-document-viewer-chassis-viewport], #pdf-viewer',
-        ) ?? null;
+        const host =
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]') ??
+            document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        return host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer') ?? null;
     };
     const readRowPages = (page: number | null) => {
         const viewport = page === null ? null : resolveViewport();
@@ -85,22 +77,21 @@ const OBSERVATION_SOURCE = (): IToolbarPageIndicatorObservation => {
             return [];
         }
         const boxes = Array.from(viewport.querySelectorAll<HTMLElement>('.page_container[data-page]'))
-            .map(container => ({
+            .map((container) => ({
                 page: Number(container.dataset.page),
                 rect: container.getBoundingClientRect(),
             }))
-            .filter(entry => Number.isSafeInteger(entry.page) && entry.rect.height > 0);
-        const named = boxes.find(entry => entry.page === page);
+            .filter((entry) => Number.isSafeInteger(entry.page) && entry.rect.height > 0);
+        const named = boxes.find((entry) => entry.page === page);
         if (!named) {
             return [];
         }
         return boxes
             .filter((entry) => {
-                const overlap = Math.min(entry.rect.bottom, named.rect.bottom)
-                    - Math.max(entry.rect.top, named.rect.top);
+                const overlap = Math.min(entry.rect.bottom, named.rect.bottom) - Math.max(entry.rect.top, named.rect.top);
                 return overlap >= 0.5 * Math.min(entry.rect.height, named.rect.height);
             })
-            .map(entry => entry.page)
+            .map((entry) => entry.page)
             .sort((left, right) => left - right);
     };
 
@@ -111,9 +102,7 @@ const OBSERVATION_SOURCE = (): IToolbarPageIndicatorObservation => {
     // page in parentheses beside it, so the parenthesised value is the one to
     // compare with a physical page number.
     const labelledPage = secondaryText ? /^\((\d+)\)$/u.exec(secondaryText) : null;
-    const primaryPage = primaryText !== null && /^\d+$/u.test(primaryText)
-        ? Number(primaryText)
-        : null;
+    const primaryPage = primaryText !== null && /^\d+$/u.test(primaryText) ? Number(primaryText) : null;
     const renderedPage = labelledPage ? Number(labelledPage[1]) : primaryPage;
 
     return {
@@ -122,10 +111,7 @@ const OBSERVATION_SOURCE = (): IToolbarPageIndicatorObservation => {
         renderedPage,
         renderedRowPages: readRowPages(renderedPage),
         isEditing: Boolean(controls?.querySelector('.page-controls-inline-input')),
-        snapshotPage: (window as IWorkspaceExposeProbeWindow)
-            .__evbTestApi
-            ?.getActiveToolbarSnapshot()
-            ?.currentPage ?? null,
+        snapshotPage: (window as IWorkspaceExposeProbeWindow).__evbTestApi?.getActiveToolbarSnapshot()?.currentPage ?? null,
         totalPagesText: controls ? readText(controls, '.page-controls-total') : null,
     };
 };
@@ -140,19 +126,14 @@ export async function readToolbarPageIndicator(page: Page) {
  * In a facing spread the window lays two pages on one row and the toolbar may
  * name either of them, which R1 of the behavior contract allows.
  */
-function namesExpectedPage(
-    observation: IToolbarPageIndicatorObservation,
-    value: number | null,
-    expectedPage: number,
-) {
+function namesExpectedPage(observation: IToolbarPageIndicatorObservation, value: number | null, expectedPage: number) {
     if (value === null) {
         return false;
     }
     if (value === expectedPage) {
         return true;
     }
-    return observation.renderedRowPages.includes(value)
-        && observation.renderedRowPages.includes(expectedPage);
+    return observation.renderedRowPages.includes(value) && observation.renderedRowPages.includes(expectedPage);
 }
 
 export function describeToolbarPageIndicator(observation: IToolbarPageIndicatorObservation) {
@@ -167,10 +148,7 @@ export function describeToolbarPageIndicator(observation: IToolbarPageIndicatorO
     });
 }
 
-function explainDisagreement(
-    observation: IToolbarPageIndicatorObservation,
-    expectedPage: number,
-) {
+function explainDisagreement(observation: IToolbarPageIndicatorObservation, expectedPage: number) {
     const renderedMatches = namesExpectedPage(observation, observation.renderedPage, expectedPage);
     const snapshotMatches = namesExpectedPage(observation, observation.snapshotPage, expectedPage);
     if (renderedMatches && !snapshotMatches) {
@@ -196,11 +174,7 @@ export interface IWaitForToolbarPageIndicatorOptions {
  * that survives the settle window is reported as a disagreement, not as a
  * plain timeout, because that is the shape of a frozen page counter.
  */
-export async function waitForToolbarPageIndicator(
-    page: Page,
-    expectedPage: number,
-    options: IWaitForToolbarPageIndicatorOptions = {},
-) {
+export async function waitForToolbarPageIndicator(page: Page, expectedPage: number, options: IWaitForToolbarPageIndicatorOptions = {}) {
     const settleMs = options.settleMs ?? 250;
     const timeoutMs = options.timeoutMs ?? 30_000;
     const deadline = Date.now() + timeoutMs;
@@ -208,8 +182,9 @@ export async function waitForToolbarPageIndicator(
     let agreedSince: number | null = null;
 
     while (Date.now() < deadline) {
-        const agreed = namesExpectedPage(observation, observation.renderedPage, expectedPage)
-            && namesExpectedPage(observation, observation.snapshotPage, expectedPage);
+        const agreed =
+            namesExpectedPage(observation, observation.renderedPage, expectedPage) &&
+            namesExpectedPage(observation, observation.snapshotPage, expectedPage);
         if (!agreed) {
             agreedSince = null;
         } else {
@@ -223,8 +198,8 @@ export async function waitForToolbarPageIndicator(
     }
 
     throw new Error(
-        `The viewer did not settle on page ${String(expectedPage)} within ${String(timeoutMs)}ms: `
-        + `${explainDisagreement(observation, expectedPage)}. `
-        + `Last observation: ${describeToolbarPageIndicator(observation)}`,
+        `The viewer did not settle on page ${String(expectedPage)} within ${String(timeoutMs)}ms: ` +
+            `${explainDisagreement(observation, expectedPage)}. ` +
+            `Last observation: ${describeToolbarPageIndicator(observation)}`,
     );
 }

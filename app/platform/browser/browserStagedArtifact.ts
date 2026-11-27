@@ -1,8 +1,5 @@
 import {BROWSER_PAGE_OPS_MAX_OUTPUT_BYTES} from '@contracts/browserPageOpsLimits';
-import {
-    isBrowserLegacyDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
+import {isBrowserLegacyDocumentRef, type TDocumentRef} from '@contracts/documentRef';
 import {
     createBrowserStoreFileIdentity,
     isBrowserStoreStagedArtifact,
@@ -10,9 +7,7 @@ import {
     type IStagedArtifactValidations,
     type TBrowserStoreStagedArtifact,
 } from '@contracts/stagedArtifacts';
-import {
-    type IDocumentRevisionInfo,
-} from '@contracts/documentRevision';
+import {type IDocumentRevisionInfo} from '@contracts/documentRevision';
 import * as v from 'valibot';
 import {SerializableError} from '@contracts/serializableError';
 
@@ -34,17 +29,12 @@ export interface ICreateBrowserStoreStagedArtifactOptions {
 }
 
 function toArrayBuffer(bytes: Uint8Array) {
-    return bytes.buffer.slice(
-        bytes.byteOffset,
-        bytes.byteOffset + bytes.byteLength,
-    ) as ArrayBuffer;
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 }
 
 export async function sha256Hex(bytes: Uint8Array) {
-    const digest = new Uint8Array(
-        await crypto.subtle.digest('SHA-256', toArrayBuffer(bytes)),
-    );
-    return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', toArrayBuffer(bytes)));
+    return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -63,13 +53,7 @@ export async function createBrowserStoreStagedArtifact(
         throw new TypeError('Browser staged artifacts require a browser document ref');
     }
 
-    const [
-        metadata,
-        revision,
-    ] = await Promise.all([
-        store.stat(stagedRef),
-        store.getDocumentRevision(stagedRef),
-    ]);
+    const [metadata, revision] = await Promise.all([store.stat(stagedRef), store.getDocumentRevision(stagedRef)]);
     if (revision.documentRef !== stagedRef) {
         throw new Error('Browser staged artifact revision belongs to a different document');
     }
@@ -117,16 +101,16 @@ export async function readBrowserStoreStagedArtifact(
     const initialRevision = await store.getDocumentRevision(decoded.path);
     const initialMetadata = await store.stat(decoded.path);
     if (
-        initialRevision.documentRef !== decoded.path
-        || initialRevision.token !== decoded.revision
-        || initialRevision.token !== decoded.fileIdentity.revisionToken
-        || initialMetadata.size !== decoded.size
+        initialRevision.documentRef !== decoded.path ||
+        initialRevision.token !== decoded.revision ||
+        initialRevision.token !== decoded.fileIdentity.revisionToken ||
+        initialMetadata.size !== decoded.size
     ) {
         throw new Error('Browser staged artifact content or revision changed after staging');
     }
 
     const bytes = await store.read(decoded.path, {maxBytes});
-    if (bytes.byteLength !== decoded.size || await sha256Hex(bytes) !== decoded.sha256) {
+    if (bytes.byteLength !== decoded.size || (await sha256Hex(bytes)) !== decoded.sha256) {
         throw new Error('Browser staged artifact content does not match its receipt');
     }
 

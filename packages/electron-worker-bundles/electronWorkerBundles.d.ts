@@ -1,11 +1,5 @@
 export type TWorkerBundleId =
-    | 'pdf-search'
-    | 'pdf-text'
-    | 'pdf-page-ops'
-    | 'image-export-tiff'
-    | 'djvu-engine'
-    | 'ocr-engine-host'
-    | 'ocr-engine';
+    'pdf-search' | 'pdf-text' | 'pdf-page-ops' | 'image-export-tiff' | 'djvu-engine' | 'ocr-engine-host' | 'ocr-engine';
 
 export interface IWorkerBundleEntry {
     id: TWorkerBundleId;

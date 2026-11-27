@@ -3,9 +3,7 @@ function readFiniteNumber(value: unknown) {
 }
 
 function readByteLength(value: unknown) {
-    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
-        ? value
-        : null;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 export function summarizeArnoldOpenTrace(
@@ -14,9 +12,8 @@ export function summarizeArnoldOpenTrace(
         payload: Record<string, unknown>;
     }>,
 ) {
-    const find = (event: string, predicate?: (payload: Record<string, unknown>) => boolean) => (
-        renderTrace.find(entry => entry.event === event && (predicate?.(entry.payload) ?? true))
-    );
+    const find = (event: string, predicate?: (payload: Record<string, unknown>) => boolean) =>
+        renderTrace.find((entry) => entry.event === event && (predicate?.(entry.payload) ?? true));
     const claim = find('viewport-session-open-requested') ?? find('pdf-open-direct-start');
     const claimAtMs = readFiniteNumber(claim?.payload.traceAtMs);
     const elapsed = (event: string, predicate?: (payload: Record<string, unknown>) => boolean) => {
@@ -25,12 +22,10 @@ export function summarizeArnoldOpenTrace(
     };
     const validationEnd = find('pdf-open-validate-end');
     const requestedByteTotal = renderTrace
-        .filter(entry => entry.event === 'pdf-document-range-request')
+        .filter((entry) => entry.event === 'pdf-document-range-request')
         .reduce((total, entry) => total + (readByteLength(entry.payload.length) ?? 0), 0);
     return {
-        validationCacheResult: typeof validationEnd?.payload.cacheResult === 'string'
-            ? validationEnd.payload.cacheResult
-            : null,
+        validationCacheResult: typeof validationEnd?.payload.cacheResult === 'string' ? validationEnd.payload.cacheResult : null,
         pdfjsRequestedByteTotal: requestedByteTotal,
         milestonesMs: {
             openingClaim: claimAtMs === null ? null : 0,

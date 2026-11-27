@@ -1,8 +1,5 @@
-import { isRecord } from '@contracts/runtimeGuards';
-import type {
-    IAgentCommandResponse,
-    IAgentWorkspaceSnapshotResponse,
-} from '@contracts/agent';
+import {isRecord} from '@contracts/runtimeGuards';
+import type {IAgentCommandResponse, IAgentWorkspaceSnapshotResponse} from '@contracts/agent';
 import {
     AGENT_COMMAND_CANCEL_REQUEST_SCHEMA,
     AGENT_COMMAND_REQUEST_SCHEMA,
@@ -38,12 +35,7 @@ function defineAgentMethod<
     const TChannel extends string,
     const TArgs extends TPlatformFeatureSchema<unknown[]>,
     const TResult extends TPlatformFeatureSchema,
->(definition: {
-    name: TName;
-    channel: TChannel;
-    args: TArgs;
-    result: TResult;
-}) {
+>(definition: {name: TName; channel: TChannel; args: TArgs; result: TResult}) {
     return {
         kind: 'async',
         channel: definition.channel,
@@ -64,7 +56,7 @@ const noArgs = v.strictTuple([]);
 const enabledArgs = v.message(v.strictTuple([v.boolean()]), 'enabled must be a boolean');
 const optionalAssistantStateArgs = v.pipe(
     v.strictTuple([v.optional(v.nullable(ASSISTANT_STATE_REQUEST_SCHEMA))]),
-    v.transform(([request]) => request == null ? [] : [request]),
+    v.transform(([request]) => (request == null ? [] : [request])),
 );
 const assistantChatArgs = v.strictTuple([ASSISTANT_CHAT_REQUEST_SCHEMA]);
 const assistantInstanceArgs = v.strictTuple([ASSISTANT_INSTANCE_REQUEST_SCHEMA]);

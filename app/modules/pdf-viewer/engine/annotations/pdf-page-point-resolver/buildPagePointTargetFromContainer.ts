@@ -1,7 +1,7 @@
-import type { IPagePointTarget } from '@app/modules/pdf-viewer/engine/annotations/pagePointTarget';
-import { clamp01 } from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type { INotePlacementDiagnosticsContext } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/notePlacementDiagnosticsContext';
+import type {IPagePointTarget} from '@app/modules/pdf-viewer/engine/annotations/pagePointTarget';
+import {clamp01} from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {INotePlacementDiagnosticsContext} from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/notePlacementDiagnosticsContext';
 
 const NOTE_PLACEMENT_LOG_SECTION = 'note-placement';
 
@@ -13,14 +13,18 @@ function roundForLog(value: number, digits = 3) {
     return Math.round(value * factor) / factor;
 }
 
-function toRectLog(rect: DOMRect | {
-    left: number;
-    top: number;
-    right: number;
-    bottom: number;
-    width: number;
-    height: number;
-}) {
+function toRectLog(
+    rect:
+        | DOMRect
+        | {
+              left: number;
+              top: number;
+              right: number;
+              bottom: number;
+              width: number;
+              height: number;
+          },
+) {
     return {
         left: roundForLog(rect.left),
         top: roundForLog(rect.top),

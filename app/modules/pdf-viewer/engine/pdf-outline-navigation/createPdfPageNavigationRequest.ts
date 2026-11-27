@@ -1,7 +1,4 @@
-import type {
-    IDocumentNavigationRequest,
-    TDocumentNavigationTarget,
-} from '@app/modules/document-viewer/public';
+import type {IDocumentNavigationRequest, TDocumentNavigationTarget} from '@app/modules/document-viewer/public';
 import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 
 function clampRatio(value: number) {
@@ -13,10 +10,7 @@ function clampRatio(value: number) {
  * Callers may provide a fully formed request for named destinations or other
  * semantic targets that have already been resolved.
  */
-export function createPdfPageNavigationRequest(
-    page: number,
-    options: IScrollToPageOptions = {},
-): IDocumentNavigationRequest {
+export function createPdfPageNavigationRequest(page: number, options: IScrollToPageOptions = {}): IDocumentNavigationRequest {
     if (options.navigationRequest) {
         return options.navigationRequest;
     }
@@ -27,11 +21,8 @@ export function createPdfPageNavigationRequest(
         page,
     };
     let alignment: IDocumentNavigationRequest['alignment'] = options.alignPageBottom ? 'page-bottom' : 'page-top';
-    const readiness: IDocumentNavigationRequest['readiness'] = source === 'search'
-        ? 'text-layer'
-        : source === 'annotation'
-            ? 'annotation-editor'
-            : 'page-canvas';
+    const readiness: IDocumentNavigationRequest['readiness'] =
+        source === 'search' ? 'text-layer' : source === 'annotation' ? 'annotation-editor' : 'page-canvas';
 
     if (options.markerRect) {
         target = {
@@ -62,9 +53,7 @@ export function createPdfPageNavigationRequest(
     }
 
     return {
-        ...(source === 'search' && typeof options.searchNavigationId === 'number'
-            ? {searchNavigationId: options.searchNavigationId}
-            : {}),
+        ...(source === 'search' && typeof options.searchNavigationId === 'number' ? {searchNavigationId: options.searchNavigationId} : {}),
         target,
         alignment,
         readiness,

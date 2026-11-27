@@ -39,25 +39,38 @@ export async function readAssistantShellEnvironment(
         }
         return baseline;
     }
-    if (baseline.TERM && baseline.TERM !== 'dumb') return baseline;
+    if (baseline.TERM && baseline.TERM !== 'dumb') {
+        return baseline;
+    }
     let shell = baseline.SHELL;
     if (!shell) {
-        try { shell = userInfo().shell ?? undefined; } catch { /* Use the platform login shell. */ }
+        try {
+            shell = userInfo().shell ?? undefined;
+        } catch {
+            /* Use the platform login shell. */
+        }
     }
     shell ||= platform === 'darwin' ? '/bin/zsh' : '/bin/bash';
     // Clear DEBUG before the markers, as upstream does. NUL records preserve
     // exported multiline values and ignore banners outside the capture frame.
-    const clearDebug = /^(?:bash|zsh|sh|ksh|ksh93)$/u.test(basename(shell))
-        ? '(trap - DEBUG) 2>/dev/null && trap - DEBUG; ' : '';
+    const clearDebug = /^(?:bash|zsh|sh|ksh|ksh93)$/u.test(basename(shell)) ? '(trap - DEBUG) 2>/dev/null && trap - DEBUG; ' : '';
     const command = `${clearDebug}printf '${START}\\0'; /usr/bin/env -0; printf '${END}\\0'`;
-    return new Promise<NodeJS.ProcessEnv | null>(resolveResult => {
-        const child = spawn(shell, ['-ilc', command], createDetachedChildProcessSpawnOptions({
-            env: baseline, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true,
-        }));
+    return new Promise<NodeJS.ProcessEnv | null>((resolveResult) => {
+        const child = spawn(
+            shell,
+            ['-ilc', command],
+            createDetachedChildProcessSpawnOptions({
+                env: baseline,
+                stdio: ['ignore', 'pipe', 'ignore'],
+                windowsHide: true,
+            }),
+        );
         let output = Buffer.alloc(0);
         let settled = false;
         const finish = async (success: boolean) => {
-            if (settled) return;
+            if (settled) {
+                return;
+            }
             settled = true;
             clearTimeout(timer);
             const stopped = await terminateDetachedChildProcess(child, 1_000).catch(() => false);
@@ -68,7 +81,9 @@ export async function readAssistantShellEnvironment(
                 const captured: NodeJS.ProcessEnv = {};
                 for (const record of text.slice(start + START.length + 1, end).split('\0')) {
                     const separator = record.indexOf('=');
-                    if (separator > 0) captured[record.slice(0, separator)] = record.slice(separator + 1);
+                    if (separator > 0) {
+                        captured[record.slice(0, separator)] = record.slice(separator + 1);
+                    }
                 }
                 if (captured.PATH) {
                     resolveResult(captured);
@@ -81,23 +96,43 @@ export async function readAssistantShellEnvironment(
         // A descendant can keep stdout open after the shell exits. Accept only
         // a complete frame and a successful shell exit, then stop the group.
         const acceptCompletedCapture = () => {
-            if (child.exitCode === 0 && output.includes(Buffer.from(`${END}\0`))) void finish(true);
+            if (child.exitCode === 0 && output.includes(Buffer.from(`${END}\0`))) {
+                void finish(true);
+            }
         };
-        const timer = setTimeout(() => { void finish(false); }, timeoutMs);
+        const timer = setTimeout(() => {
+            void finish(false);
+        }, timeoutMs);
         child.stdout.on('data', (chunk: Buffer) => {
-            if (settled) return;
-            if (output.length + chunk.length > OUTPUT_LIMIT) { void finish(false); return; }
+            if (settled) {
+                return;
+            }
+            if (output.length + chunk.length > OUTPUT_LIMIT) {
+                void finish(false);
+                return;
+            }
             output = Buffer.concat([output, chunk]);
             acceptCompletedCapture();
         });
-        child.once('error', () => { void finish(false); });
-        child.once('exit', code => {
-            if (code !== 0) void finish(false);
-            else acceptCompletedCapture();
+        child.once('error', () => {
+            void finish(false);
         });
-        child.once('close', code => { void finish(code === 0); });
-    }).catch(() => null).then(captured => {
-        if (!captured) logger.warn('Login-shell environment discovery failed; using inherited environment.');
-        return captured ?? baseline;
-    });
+        child.once('exit', (code) => {
+            if (code !== 0) {
+                void finish(false);
+            } else {
+                acceptCompletedCapture();
+            }
+        });
+        child.once('close', (code) => {
+            void finish(code === 0);
+        });
+    })
+        .catch(() => null)
+        .then((captured) => {
+            if (!captured) {
+                logger.warn('Login-shell environment discovery failed; using inherited environment.');
+            }
+            return captured ?? baseline;
+        });
 }

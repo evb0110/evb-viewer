@@ -1,12 +1,6 @@
-import {
-    type H3Event,
-    getRequestURL,
-} from 'h3';
-import { compact } from 'es-toolkit/array';
-import {
-    firstNonEmptyStringPreservingWhitespace,
-    getRuntimeEnv,
-} from '@server/utils/getRuntimeEnv';
+import {type H3Event, getRequestURL} from 'h3';
+import {compact} from 'es-toolkit/array';
+import {firstNonEmptyStringPreservingWhitespace, getRuntimeEnv} from '@server/utils/getRuntimeEnv';
 
 const DEFAULT_PRODUCTION_SITE_URL = 'https://web.evb-viewer.com';
 
@@ -17,10 +11,7 @@ export function normalizeSiteUrl(siteUrl: string) {
     } catch {
         throw new Error('Configured site URL must be an absolute HTTP(S) URL');
     }
-    if (![
-        'http:',
-        'https:',
-    ].includes(parsed.protocol) || !parsed.hostname) {
+    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) {
         throw new Error('Configured site URL must be an absolute HTTP(S) URL');
     }
     if (parsed.username || parsed.password) {
@@ -35,18 +26,12 @@ export function normalizeSiteUrl(siteUrl: string) {
 export function resolveSiteUrl(event: H3Event) {
     const requestUrl = getRequestURL(event);
     const env = getRuntimeEnv();
-    const configuredSiteUrl = firstNonEmptyStringPreservingWhitespace([
-        env.NUXT_PUBLIC_SITE_URL,
-        env.NUXT_SITE_URL,
-        env.SITE_URL,
-    ]).trim();
+    const configuredSiteUrl = firstNonEmptyStringPreservingWhitespace([env.NUXT_PUBLIC_SITE_URL, env.NUXT_SITE_URL, env.SITE_URL]).trim();
     if (configuredSiteUrl) {
         return normalizeSiteUrl(configuredSiteUrl);
     }
 
-    const allowedSiteHosts = compact((env.SITE_URL_ALLOWED_HOSTS ?? '')
-        .split(',')
-        .map(host => host.trim().toLowerCase()));
+    const allowedSiteHosts = compact((env.SITE_URL_ALLOWED_HOSTS ?? '').split(',').map((host) => host.trim().toLowerCase()));
 
     if (env.NODE_ENV !== 'production') {
         return normalizeSiteUrl(`${requestUrl.protocol}//${requestUrl.host}`);
@@ -65,7 +50,5 @@ export function resolveSiteUrl(event: H3Event) {
         throw new Error('Cannot resolve sitemap site URL without a configured canonical URL or allowed request host');
     }
 
-    return normalizeSiteUrl(
-        `${requestUrl.protocol}//${requestUrl.host}`,
-    );
+    return normalizeSiteUrl(`${requestUrl.protocol}//${requestUrl.host}`);
 }

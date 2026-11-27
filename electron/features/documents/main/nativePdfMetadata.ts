@@ -1,40 +1,27 @@
-import { stat } from 'fs/promises';
-import type {
-    IPdfNativePageGeometry,
-    IPdfNativePageSizesExactOptions,
-    IPdfOpeningGeometry,
-} from '@contracts/electronApiDocuments';
-import { requireDocumentRef } from '@contracts/documentRef';
+import {stat} from 'fs/promises';
+import type {IPdfNativePageGeometry, IPdfNativePageSizesExactOptions, IPdfOpeningGeometry} from '@contracts/electronApiDocuments';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {createStaleRevisionError} from '@contracts/documentMutationErrors';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
-import {
-    PDF_PAGE_LABEL_STYLE_VALUES,
-    type IPdfPageLabelRange,
-} from '@contracts/pdfPageLabels';
-import { requirePageNumber } from '@contracts/pageNumbers';
-import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsContexts';
-import { resolveDocumentReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
-import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
-import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
-import { getRecentFiles } from '@electron/recentFiles';
-import {
-    readingViewSourceOf,
-    readRecentReadingViewOf,
-} from '@electron/recentReadingViews';
-import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
-import {
-    runNativeToolCommand,
-    type IRunNativeToolCommandOptions,
-} from '@electron/native-tools/runNativeToolCommand';
-import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
-import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
-import { NativeProcessError } from '@electron/native-tools/processResult';
-import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
-import { abortErrorFromSignal } from '@electron/utils/abort';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@contracts/getErrorMessage';
-import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
-import { isErrnoException } from '@contracts/runtimeGuards';
+import {PDF_PAGE_LABEL_STYLE_VALUES, type IPdfPageLabelRange} from '@contracts/pdfPageLabels';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {IDocumentsSenderIdContext} from '@electron/features/documents/documentsContexts';
+import {resolveDocumentReadTransport} from '@electron/features/documents/main/documentFileReadHandlers';
+import {resolveExistingReadablePdfPath} from '@electron/features/documents/main/documentFilePathResolution';
+import {allowOpenPath} from '@electron/file-access/openPathCapabilities';
+import {getRecentFiles} from '@electron/recentFiles';
+import {readingViewSourceOf, readRecentReadingViewOf} from '@electron/recentReadingViews';
+import {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
+import {runNativeToolCommand, type IRunNativeToolCommandOptions} from '@electron/native-tools/runNativeToolCommand';
+import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
+import {cancelNativeCommandGroup} from '@electron/native-tools/runNativeCommand';
+import {NativeProcessError} from '@electron/native-tools/processResult';
+import {registerMainOperation} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {abortErrorFromSignal} from '@electron/utils/abort';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@contracts/getErrorMessage';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
+import {isErrnoException} from '@contracts/runtimeGuards';
 import {
     assertWorkingCopyRevisionCurrent,
     getWorkingCopyBackingEntry,
@@ -42,33 +29,26 @@ import {
     isWorkingCopyDocumentPath,
 } from '@electron/file-access/documentStore';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
-import { requireEpochMs } from '@contracts/timestamps';
-import {
-    readNativePdfCatalogPart,
-    resolveNativePageOpsPath,
-} from '@electron/features/page-ops/public/nativePageOpsPath';
-import { getAppTempDir } from '@electron/utils/appTempDir';
-import { readPdfNativePageGeometry } from '@electron/pdf/pdfPageSizes';
+import {requireEpochMs} from '@contracts/timestamps';
+import {readNativePdfCatalogPart, resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {readPdfNativePageGeometry} from '@electron/pdf/pdfPageSizes';
 import * as v from 'valibot';
 
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDFINFO_BASE_STDOUT_BYTES = 256 * 1024;
 const logger = createLogger('native-pdf-metadata');
 
-function withPopplerEnv(
-    env: NodeJS.ProcessEnv | undefined,
-    options: IRunNativeToolCommandOptions,
-): IRunNativeToolCommandOptions {
-    return env ? {
-        ...options,
-        env,
-    } : options;
+function withPopplerEnv(env: NodeJS.ProcessEnv | undefined, options: IRunNativeToolCommandOptions): IRunNativeToolCommandOptions {
+    return env
+        ? {
+              ...options,
+              env,
+          }
+        : options;
 }
 
-function normalizePdfOpeningIdentity(value: {
-    size: number;
-    modifiedAt: unknown
-}) {
+function normalizePdfOpeningIdentity(value: {size: number; modifiedAt: unknown}) {
     return {
         size: value.size,
         modifiedAt: requireEpochMs(value.modifiedAt),
@@ -79,17 +59,14 @@ async function resolvePdfPath(context: IDocumentsSenderIdContext, filePath: unkn
     return resolveExistingReadablePdfPath(filePath, context.senderId);
 }
 
-async function resolvePdfOpeningGeometryPath(
-    context: IDocumentsSenderIdContext,
-    filePath: unknown,
-) {
+async function resolvePdfOpeningGeometryPath(context: IDocumentsSenderIdContext, filePath: unknown) {
     // A Recent file's shape is its original's: the open about to start reads
     // the original, while a working copy of an earlier open may be closing.
     // Recent-file metadata preflight runs before the open command mints its
     // normal path capability, so a path still in the main-process Recent
     // ledger is granted to this renderer owner. The normal readable-path
     // resolver accepts only managed paths and would answer with that copy.
-    if (typeof filePath === 'string' && (await getRecentFiles()).some(file => file.originalPath === filePath)) {
+    if (typeof filePath === 'string' && (await getRecentFiles()).some((file) => file.originalPath === filePath)) {
         const trustedRecentPath = allowOpenPath(filePath, context.sender ?? context.senderId);
         if (trustedRecentPath !== null) {
             return trustedRecentPath;
@@ -101,10 +78,12 @@ async function resolvePdfOpeningGeometryPath(
 // Poppler's answer for an encrypted PDF read without its password. Opening
 // geometry is read before the password prompt, so this is an expected outcome.
 function isPasswordRequiredPdfInfoFailure(error: unknown) {
-    return error instanceof NativeProcessError
-        && error.kind === 'exit-code'
-        && error.exitCode === 1
-        && error.message.includes('Command Line Error: Incorrect password');
+    return (
+        error instanceof NativeProcessError &&
+        error.kind === 'exit-code' &&
+        error.exitCode === 1 &&
+        error.message.includes('Command Line Error: Incorrect password')
+    );
 }
 
 function throwIfAborted(signal: AbortSignal) {
@@ -163,9 +142,13 @@ export function registerNativePdfSenderCleanup(
         return () => undefined;
     }
 
-    return onSenderLifetimeEnd(sender, (end) => {
-        abort(end === 'main-frame-navigation' ? navigationReason : 'Renderer lifecycle ended');
-    }, {navigation: true});
+    return onSenderLifetimeEnd(
+        sender,
+        (end) => {
+            abort(end === 'main-frame-navigation' ? navigationReason : 'Renderer lifecycle ended');
+        },
+        {navigation: true},
+    );
 }
 
 export async function handlePdfNativePageSizes(
@@ -173,9 +156,7 @@ export async function handlePdfNativePageSizes(
     filePath: unknown,
     options: IPdfNativePageSizesExactOptions,
 ): Promise<IPdfNativePageGeometry> {
-    const expectedRevisionToken = parseDocumentRevisionToken(
-        options.expectedDocumentRevisionToken,
-    );
+    const expectedRevisionToken = parseDocumentRevisionToken(options.expectedDocumentRevisionToken);
     if (expectedRevisionToken === null) {
         throw new Error('Document revision token is required for exact PDF geometry');
     }
@@ -199,16 +180,21 @@ export async function handlePdfNativePageSizes(
         };
     }
 
-    const pages = await runNativePdfRead(context, resolvedPath, {
-        group: 'pdf-native-page-geometry',
-        navigation: 'Renderer navigation canceled native PDF exact page geometry',
-    }, async (signal, cancelGroup) => {
-        const read = (physicalPath: string) => readExactPageGeometry(physicalPath, signal, cancelGroup);
-        const pages = originalBackedRead ? await originalBackedRead.read(read) : await read(resolvedPath);
-        throwIfAborted(signal);
-        await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
-        return pages;
-    });
+    const pages = await runNativePdfRead(
+        context,
+        resolvedPath,
+        {
+            group: 'pdf-native-page-geometry',
+            navigation: 'Renderer navigation canceled native PDF exact page geometry',
+        },
+        async (signal, cancelGroup) => {
+            const read = (physicalPath: string) => readExactPageGeometry(physicalPath, signal, cancelGroup);
+            const pages = originalBackedRead ? await originalBackedRead.read(read) : await read(resolvedPath);
+            throwIfAborted(signal);
+            await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
+            return pages;
+        },
+    );
     return {
         kind: 'exact',
         documentRef: requireDocumentRef(filePath),
@@ -242,12 +228,7 @@ export async function readExactPageGeometry(physicalPath: string, signal: AbortS
         throw new Error('Native exact geometry returned no pages');
     }
     return pages.map((page) => {
-        if (![
-            0,
-            90,
-            180,
-            270,
-        ].includes(page.rotation) || page.userUnit === undefined) {
+        if (![0, 90, 180, 270].includes(page.rotation) || page.userUnit === undefined) {
             throw new Error(`Native exact geometry returned invalid page ${String(page.pageNumber)}`);
         }
         return {
@@ -269,35 +250,38 @@ function readPreparedPageGeometry(
 ) {
     const entry = getWorkingCopyBackingEntry(path, senderId);
     const geometry = entry?.openingPageGeometry;
-    if (!geometry) return null;
-    if (normalizePathForLookup(geometry.documentRef) === normalizePathForLookup(path)
-        && geometry.documentRevisionToken === revision
-        && geometry.pageCount > 0 && geometry.pages.length === geometry.pageCount) return geometry;
+    if (!geometry) {
+        return null;
+    }
+    if (
+        normalizePathForLookup(geometry.documentRef) === normalizePathForLookup(path) &&
+        geometry.documentRevisionToken === revision &&
+        geometry.pageCount > 0 &&
+        geometry.pages.length === geometry.pageCount
+    ) {
+        return geometry;
+    }
     delete entry.openingPageGeometry;
     return null;
 }
 
-const nativePdfPageLabelRangeSchema = v.pipe(v.object({
-    pageIndex: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
-    start: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
-    style: v.optional(v.picklist(PDF_PAGE_LABEL_STYLE_VALUES)),
-    prefix: v.optional(v.string()),
-}), v.transform(({
-    pageIndex,
-    start,
-    style,
-    prefix,
-}) => ({
-    // Native zero-based indices and omitted defaults become renderer label ranges here.
-    startPage: pageIndex + 1,
-    style: style ?? null,
-    prefix: prefix ?? '',
-    startNumber: start ?? 1,
-})));
+const nativePdfPageLabelRangeSchema = v.pipe(
+    v.object({
+        pageIndex: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
+        start: v.optional(v.pipe(v.number(), v.safeInteger(), v.minValue(1))),
+        style: v.optional(v.picklist(PDF_PAGE_LABEL_STYLE_VALUES)),
+        prefix: v.optional(v.string()),
+    }),
+    v.transform(({pageIndex, start, style, prefix}) => ({
+        // Native zero-based indices and omitted defaults become renderer label ranges here.
+        startPage: pageIndex + 1,
+        style: style ?? null,
+        prefix: prefix ?? '',
+        startNumber: start ?? 1,
+    })),
+);
 
-export function parseNativePdfPageLabelRanges(
-    pageLabels: readonly unknown[],
-): Array<v.InferOutput<typeof nativePdfPageLabelRangeSchema>> {
+export function parseNativePdfPageLabelRanges(pageLabels: readonly unknown[]): Array<v.InferOutput<typeof nativePdfPageLabelRangeSchema>> {
     return pageLabels.map((rawRange, index) => {
         const parsed = v.safeParse(nativePdfPageLabelRangeSchema, rawRange, {abortEarly: true});
         if (!parsed.success) {
@@ -307,31 +291,32 @@ export function parseNativePdfPageLabelRanges(
     });
 }
 
-export async function handlePdfPageLabelRanges(
-    context: IDocumentsSenderIdContext,
-    filePath: unknown,
-): Promise<IPdfPageLabelRange[]> {
+export async function handlePdfPageLabelRanges(context: IDocumentsSenderIdContext, filePath: unknown): Promise<IPdfPageLabelRange[]> {
     const resolvedPath = await resolvePdfPath(context, filePath);
     const originalBackedRead = resolveDocumentReadTransport(resolvedPath, context.senderId);
     const binaryPath = resolveNativePageOpsPath();
     if (!binaryPath) {
         throw new Error('Native page operations are required to read PDF page labels');
     }
-    return runNativePdfRead(context, resolvedPath, {
-        group: 'pdf-page-labels',
-        navigation: 'Renderer navigation canceled native PDF page-label read',
-    }, async (signal, cancelGroup) => {
-        const readCatalog = async (physicalPath: string) => parseNativePdfPageLabelRanges(
-            await readNativePdfCatalogPart(binaryPath, physicalPath, 'pageLabels', {
-                commandLabel: 'evb-pdf-page-ops(read-page-labels)',
-                signal,
-                cancelGroup,
-            }),
-        );
-        return originalBackedRead
-            ? originalBackedRead.read(readCatalog)
-            : readCatalog(resolvedPath);
-    });
+    return runNativePdfRead(
+        context,
+        resolvedPath,
+        {
+            group: 'pdf-page-labels',
+            navigation: 'Renderer navigation canceled native PDF page-label read',
+        },
+        async (signal, cancelGroup) => {
+            const readCatalog = async (physicalPath: string) =>
+                parseNativePdfPageLabelRanges(
+                    await readNativePdfCatalogPart(binaryPath, physicalPath, 'pageLabels', {
+                        commandLabel: 'evb-pdf-page-ops(read-page-labels)',
+                        signal,
+                        cancelGroup,
+                    }),
+                );
+            return originalBackedRead ? originalBackedRead.read(readCatalog) : readCatalog(resolvedPath);
+        },
+    );
 }
 
 async function readPdfOpeningGeometryIdentity(resolvedPath: string) {
@@ -348,8 +333,7 @@ async function readPdfOpeningGeometryIdentity(resolvedPath: string) {
 }
 
 function isMissingPdfOpeningGeometrySource(error: unknown) {
-    return isErrnoException(error)
-        && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
+    return isErrnoException(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR');
 }
 
 function isUnregisteredManagedWorkingCopy(filePath: unknown, senderId?: number) {
@@ -357,14 +341,10 @@ function isUnregisteredManagedWorkingCopy(filePath: unknown, senderId?: number) 
         return false;
     }
     const normalizedPath = filePath.trim();
-    return isWorkingCopyDocumentPath(normalizedPath)
-        && getWorkingCopyBackingEntry(normalizedPath, senderId) === null;
+    return isWorkingCopyDocumentPath(normalizedPath) && getWorkingCopyBackingEntry(normalizedPath, senderId) === null;
 }
 
-export async function handlePdfOpeningGeometry(
-    context: IDocumentsSenderIdContext,
-    filePath: unknown,
-): Promise<IPdfOpeningGeometry | null> {
+export async function handlePdfOpeningGeometry(context: IDocumentsSenderIdContext, filePath: unknown): Promise<IPdfOpeningGeometry | null> {
     if (isUnregisteredManagedWorkingCopy(filePath, context.senderId)) {
         return null;
     }
@@ -381,12 +361,7 @@ export async function handlePdfOpeningGeometry(
     // A working copy that still reads its original keeps its admission
     // identity when the original changes, so only the checked read can tell.
     if (originalBackedRead) {
-        return readPdfOpeningGeometry(
-            context,
-            resolvedPath,
-            originalBackedRead,
-            normalizePdfOpeningIdentity(originalBackedRead.identity),
-        );
+        return readPdfOpeningGeometry(context, resolvedPath, originalBackedRead, normalizePdfOpeningIdentity(originalBackedRead.identity));
     }
     const identityBefore = await readPdfOpeningGeometryIdentity(resolvedPath);
     if (identityBefore === null) {
@@ -394,12 +369,12 @@ export async function handlePdfOpeningGeometry(
     }
     // Where the reader left these bytes, matched against main's own stat of
     // them, names the page the open shows first; a changed file has none.
-    const readingView = typeof filePath === 'string'
-        ? await readRecentReadingViewOf({...identityBefore, originalPath: filePath})
-        : null;
+    const readingView = typeof filePath === 'string' ? await readRecentReadingViewOf({...identityBefore, originalPath: filePath}) : null;
     // With no reading view, the admitted copy's exact table owns the first
     // layout. Managed-copy callers still need its count to admit a restore.
-    if (readingView === null && !isWorkingCopyDocumentPath(resolvedPath)) return null;
+    if (readingView === null && !isWorkingCopyDocumentPath(resolvedPath)) {
+        return null;
+    }
     const readingPage = readingView?.anchor?.page ?? readingView?.currentPage ?? 1;
     const shape = await readPdfOpeningGeometry(context, resolvedPath, null, identityBefore, readingPage);
     const matched = readingView !== null && shape?.pageNumber === readingPage && shape.pageCount === readingView.pageCount;
@@ -407,10 +382,12 @@ export async function handlePdfOpeningGeometry(
     if (identityAfter?.size !== identityBefore.size || identityAfter.sourceModifiedAtMs !== identityBefore.sourceModifiedAtMs) {
         return null;
     }
-    return shape && (matched || shape.pageNumber === 1) ? {
-        ...shape,
-        readingView: matched ? readingView : null,
-    } : null;
+    return shape && (matched || shape.pageNumber === 1)
+        ? {
+              ...shape,
+              readingView: matched ? readingView : null,
+          }
+        : null;
 }
 
 async function readPdfOpeningGeometry(
@@ -420,70 +397,75 @@ async function readPdfOpeningGeometry(
     identityBefore: Pick<IPdfOpeningGeometry, 'size' | 'modifiedAt'>,
     openingPage = 1,
 ): Promise<IPdfOpeningGeometry | null> {
-    return runNativePdfRead(context, resolvedPath, {
-        group: 'pdf-opening-geometry',
-        navigation: 'Renderer navigation canceled PDF opening geometry discovery',
-    }, async (signal, cancelGroup) => {
-        const read = async (physicalPath: string): Promise<IPdfOpeningGeometry | null> => {
-            let pages: Awaited<ReturnType<typeof readExactPageGeometry>>;
-            try {
-                let prepared: IPdfNativePageGeometry | null = null;
-                if (getWorkingCopyBackingEntry(resolvedPath, context.senderId)?.openingPageGeometry) {
-                    const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
-                    await assertWorkingCopyRevisionCurrent(resolvedPath, revision.token);
-                    prepared = readPreparedPageGeometry(resolvedPath, context.senderId, revision.token);
+    return runNativePdfRead(
+        context,
+        resolvedPath,
+        {
+            group: 'pdf-opening-geometry',
+            navigation: 'Renderer navigation canceled PDF opening geometry discovery',
+        },
+        async (signal, cancelGroup) => {
+            const read = async (physicalPath: string): Promise<IPdfOpeningGeometry | null> => {
+                let pages: Awaited<ReturnType<typeof readExactPageGeometry>>;
+                try {
+                    let prepared: IPdfNativePageGeometry | null = null;
+                    if (getWorkingCopyBackingEntry(resolvedPath, context.senderId)?.openingPageGeometry) {
+                        const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
+                        await assertWorkingCopyRevisionCurrent(resolvedPath, revision.token);
+                        prepared = readPreparedPageGeometry(resolvedPath, context.senderId, revision.token);
+                    }
+                    pages = prepared?.pages ?? (await readExactPageGeometry(physicalPath, signal, cancelGroup));
+                } catch (error) {
+                    throwIfAborted(signal);
+                    logger.warn(`PDF opening page geometry unavailable: ${getErrorMessage(error)}`);
+                    // Preserve password prompting and Poppler's malformed/recovery
+                    // handling. Its dimensions omit UserUnit, so only a complete
+                    // exact table may size the opening skeleton.
+                    const tools = getPdfNativeToolPaths();
+                    await runNativeToolCommand(
+                        tools.pdfinfo,
+                        ['-f', '1', '-l', '1', physicalPath],
+                        withPopplerEnv(buildPopplerEnv(tools), {
+                            timeoutMs: PDFINFO_TIMEOUT_MS,
+                            maxStdoutBytes: PDFINFO_BASE_STDOUT_BYTES,
+                            rejectOnStdoutTruncation: true,
+                            commandLabel: 'pdfinfo-opening-geometry',
+                            signal,
+                            cancelGroup,
+                        }),
+                    ).catch((error: unknown) => {
+                        if (!isPasswordRequiredPdfInfoFailure(error)) {
+                            throw error;
+                        }
+                    });
+                    throwIfAborted(signal);
+                    return null;
                 }
-                pages = prepared?.pages ?? await readExactPageGeometry(physicalPath, signal, cancelGroup);
-            } catch (error) {
-                throwIfAborted(signal);
-                logger.warn(`PDF opening page geometry unavailable: ${getErrorMessage(error)}`);
-                // Preserve password prompting and Poppler's malformed/recovery
-                // handling. Its dimensions omit UserUnit, so only a complete
-                // exact table may size the opening skeleton.
-                const tools = getPdfNativeToolPaths();
-                await runNativeToolCommand(tools.pdfinfo, [
-                    '-f',
-                    '1',
-                    '-l',
-                    '1',
-                    physicalPath,
-                ], withPopplerEnv(buildPopplerEnv(tools), {
-                    timeoutMs: PDFINFO_TIMEOUT_MS,
-                    maxStdoutBytes: PDFINFO_BASE_STDOUT_BYTES,
-                    rejectOnStdoutTruncation: true,
-                    commandLabel: 'pdfinfo-opening-geometry',
-                    signal,
-                    cancelGroup,
-                })).catch((error: unknown) => {
-                    if (!isPasswordRequiredPdfInfoFailure(error)) throw error;
+                const pageNumber = requirePageNumber(openingPage, pages.length);
+                const opening = pages[pageNumber - 1]!;
+                const displayed = pages.map((page) => {
+                    const turned = page.rotation === 90 || page.rotation === 270;
+                    return {
+                        width: (turned ? page.heightPoints : page.widthPoints) * page.userUnit,
+                        height: (turned ? page.widthPoints : page.heightPoints) * page.userUnit,
+                    };
                 });
-                throwIfAborted(signal);
-                return null;
-            }
-            const pageNumber = requirePageNumber(openingPage, pages.length);
-            const opening = pages[pageNumber - 1]!;
-            const displayed = pages.map((page) => {
-                const turned = page.rotation === 90 || page.rotation === 270;
                 return {
-                    width: (turned ? page.heightPoints : page.widthPoints) * page.userUnit,
-                    height: (turned ? page.widthPoints : page.heightPoints) * page.userUnit,
+                    size: identityBefore.size,
+                    modifiedAt: identityBefore.modifiedAt,
+                    pageNumber,
+                    pageCount: pages.length,
+                    width: displayed[pageNumber - 1]!.width,
+                    height: displayed[pageNumber - 1]!.height,
+                    rotation: opening.rotation,
+                    widestPageWidth: displayed.reduce((width, page) => Math.max(width, page.width), 0),
+                    tallestPageHeight: displayed.reduce((height, page) => Math.max(height, page.height), 0),
+                    pages,
                 };
-            });
-            return {
-                size: identityBefore.size,
-                modifiedAt: identityBefore.modifiedAt,
-                pageNumber,
-                pageCount: pages.length,
-                width: displayed[pageNumber - 1]!.width,
-                height: displayed[pageNumber - 1]!.height,
-                rotation: opening.rotation,
-                widestPageWidth: displayed.reduce((width, page) => Math.max(width, page.width), 0),
-                tallestPageHeight: displayed.reduce((height, page) => Math.max(height, page.height), 0),
-                pages,
             };
-        };
-        const shape = originalBackedRead ? await originalBackedRead.read(read) : await read(resolvedPath);
-        throwIfAborted(signal);
-        return shape;
-    });
+            const shape = originalBackedRead ? await originalBackedRead.read(read) : await read(resolvedPath);
+            throwIfAborted(signal);
+            return shape;
+        },
+    );
 }

@@ -1,6 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import {readFile} from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {fileURLToPath} from 'node:url';
 
 const nulCharacter = String.fromCharCode(0);
 const escapeCharacter = String.fromCharCode(27);
@@ -17,8 +17,9 @@ function isWarningHeader(line) {
 function isBuildLogBoundary(line) {
     const trimmed = line.trimStart();
 
-    return /^(?:\[(?:debug|info|log|ready|start|success|error|fail|trace|nitro)\](?:\s|$)|\(node:\d+\)\s+\[[A-Z0-9]+\]|\(Use `node --trace-)/u
-        .test(trimmed);
+    return /^(?:\[(?:debug|info|log|ready|start|success|error|fail|trace|nitro)\](?:\s|$)|\(node:\d+\)\s+\[[A-Z0-9]+\]|\(Use `node --trace-)/u.test(
+        trimmed,
+    );
 }
 
 function isWarningRepeatTrailer(line) {
@@ -83,16 +84,11 @@ function parseWarningBlocks(logText) {
 }
 
 function normalizeWarningBlock(block) {
-    return block
-        .replace(ansiEscapePattern, '')
-        .replaceAll(nulCharacter, '')
-        .trim();
+    return block.replace(ansiEscapePattern, '').replaceAll(nulCharacter, '').trim();
 }
 
 function normalizeWarningLog(logText) {
-    return logText
-        .replace(ansiEscapePattern, '')
-        .replaceAll(nulCharacter, '');
+    return logText.replace(ansiEscapePattern, '').replaceAll(nulCharacter, '');
 }
 
 async function main() {
@@ -102,27 +98,18 @@ async function main() {
         process.exit(1);
     }
 
-    const [
-        allowlistRaw,
-        logRaw,
-    ] = await Promise.all([
+    const [allowlistRaw, logRaw] = await Promise.all([
         readFile(allowlistPath, 'utf8'),
         readFile(path.resolve(projectRoot, logPathArgument), 'utf8'),
     ]);
 
     const allowlistData = JSON.parse(allowlistRaw);
-    const allowedWarningPatterns = Array.isArray(allowlistData.allowedWarningPatterns)
-        ? allowlistData.allowedWarningPatterns
-        : [];
-    const allowlistMatchers = allowedWarningPatterns.map(pattern => new RegExp(pattern, 'u'));
+    const allowedWarningPatterns = Array.isArray(allowlistData.allowedWarningPatterns) ? allowlistData.allowedWarningPatterns : [];
+    const allowlistMatchers = allowedWarningPatterns.map((pattern) => new RegExp(pattern, 'u'));
 
     const warningBlocks = parseWarningBlocks(normalizeWarningLog(logRaw));
-    const normalizedWarningBlocks = warningBlocks.map(block =>
-        normalizeWarningBlock(block),
-    );
-    const unknownWarnings = normalizedWarningBlocks.filter(block =>
-        !allowlistMatchers.some(matcher => matcher.test(block)),
-    );
+    const normalizedWarningBlocks = warningBlocks.map((block) => normalizeWarningBlock(block));
+    const unknownWarnings = normalizedWarningBlocks.filter((block) => !allowlistMatchers.some((matcher) => matcher.test(block)));
 
     if (unknownWarnings.length > 0) {
         console.error('Build warning check failed. Unknown warnings found:');

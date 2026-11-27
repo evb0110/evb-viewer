@@ -2,7 +2,7 @@
     <UModal
         :open="open"
         :title="dialogTitle"
-        :ui="{ footer: 'justify-end gap-2' }"
+        :ui="{footer: 'justify-end gap-2'}"
         @update:open="handleOpenUpdate"
     >
         <template #description>
@@ -17,7 +17,7 @@
             </p>
         </template>
 
-        <template #footer="{ close }">
+        <template #footer="{close}">
             <UButton
                 :label="t('common.cancel')"
                 color="neutral"
@@ -41,8 +41,8 @@
 </template>
 
 <script setup lang="ts">
-import { whenever } from '@vueuse/core';
-import type { TDirtyCloseDialogMode } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import {whenever} from '@vueuse/core';
+import type {TDirtyCloseDialogMode} from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
 
 const {
     mode = 'tab',
@@ -60,18 +60,19 @@ const emit = defineEmits<{
     save: [];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const isResolving = ref(false);
-const dialogTitle = computed(() => mode === 'window'
-    ? t('tabs.confirmCloseWindowDirtyTitle')
-    : t('tabs.confirmCloseDirtyTitle'));
-const dialogDescription = computed(() => mode === 'window'
-    ? t('tabs.confirmCloseWindowDirtyDescription')
-    : t('tabs.confirmCloseDirtyDescription', {name: targetName}));
+const dialogTitle = computed(() => (mode === 'window' ? t('tabs.confirmCloseWindowDirtyTitle') : t('tabs.confirmCloseDirtyTitle')));
+const dialogDescription = computed(() =>
+    mode === 'window' ? t('tabs.confirmCloseWindowDirtyDescription') : t('tabs.confirmCloseDirtyDescription', {name: targetName}),
+);
 
-whenever(() => open, () => {
-    isResolving.value = false;
-});
+whenever(
+    () => open,
+    () => {
+        isResolving.value = false;
+    },
+);
 
 function handleOpenUpdate(open: boolean) {
     emit('update:open', open);

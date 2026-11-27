@@ -1,21 +1,7 @@
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import {
-    existsSync,
-    mkdirSync,
-    readFileSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    copyFile,
-    mkdir,
-    readdir,
-    readFile,
-    rename,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {copyFile, mkdir, readdir, readFile, rename, stat, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 
 export function parseCargoToolBuildRequest(argv, usage) {
@@ -27,19 +13,15 @@ export function parseCargoToolBuildRequest(argv, usage) {
     }
 
     const dryRun = argv.includes('--dry-run');
-    const outputDirArguments = argv.filter(arg => arg.startsWith('--output-dir='));
+    const outputDirArguments = argv.filter((arg) => arg.startsWith('--output-dir='));
     const outputDirArgument = outputDirArguments[0];
-    const unsupportedOptions = argv.filter(arg => (
-        arg.startsWith('-')
-        && arg !== '--dry-run'
-        && !arg.startsWith('--output-dir=')
-    ));
-    const positional = argv.filter(arg => arg !== '--' && arg !== '--dry-run' && !arg.startsWith('--output-dir='));
+    const unsupportedOptions = argv.filter((arg) => arg.startsWith('-') && arg !== '--dry-run' && !arg.startsWith('--output-dir='));
+    const positional = argv.filter((arg) => arg !== '--' && arg !== '--dry-run' && !arg.startsWith('--output-dir='));
     if (
-        unsupportedOptions.length > 0
-        || positional.length !== 1
-        || outputDirArguments.length > 1
-        || outputDirArgument === '--output-dir='
+        unsupportedOptions.length > 0 ||
+        positional.length !== 1 ||
+        outputDirArguments.length > 1 ||
+        outputDirArgument === '--output-dir='
     ) {
         throw new Error(usage);
     }
@@ -47,9 +29,7 @@ export function parseCargoToolBuildRequest(argv, usage) {
     return {
         dryRun,
         help: false,
-        ...(outputDirArgument
-            ? {outputDir: outputDirArgument.slice('--output-dir='.length)}
-            : {}),
+        ...(outputDirArgument ? {outputDir: outputDirArgument.slice('--output-dir='.length)} : {}),
         toolId: positional[0],
     };
 }
@@ -69,20 +49,8 @@ export function parseCargoTargetDirectory(metadataOutput) {
     return metadata.target_directory;
 }
 
-export function resolveCargoTargetDirectory({
-    env = process.env,
-    manifestPath,
-    projectRoot,
-    runCommand = spawnSync,
-}) {
-    const cargoArgs = [
-        'metadata',
-        '--manifest-path',
-        manifestPath,
-        '--format-version',
-        '1',
-        '--no-deps',
-    ];
+export function resolveCargoTargetDirectory({env = process.env, manifestPath, projectRoot, runCommand = spawnSync}) {
+    const cargoArgs = ['metadata', '--manifest-path', manifestPath, '--format-version', '1', '--no-deps'];
     const result = runCommand('cargo', cargoArgs, {
         cwd: projectRoot,
         encoding: 'utf8',
@@ -96,30 +64,12 @@ export function resolveCargoTargetDirectory({
     return parseCargoTargetDirectory(result.stdout);
 }
 
-export function getCargoArtifactPath({
-    fileName,
-    profile = 'release',
-    rustTarget,
-    targetDirectory,
-}) {
-    return path.join(
-        targetDirectory,
-        ...(rustTarget ? [rustTarget] : []),
-        profile,
-        fileName,
-    );
+export function getCargoArtifactPath({fileName, profile = 'release', rustTarget, targetDirectory}) {
+    return path.join(targetDirectory, ...(rustTarget ? [rustTarget] : []), profile, fileName);
 }
 
-const WRAPPER_FLAG_KEYS = [
-    'EVB_CARGO_RUSTFLAGS',
-    'EVB_CARGO_APPLE_RUSTFLAGS',
-    'EVB_CARGO_WASM_RUSTFLAGS',
-];
-const WRAPPER_FILES = [
-    'cargo-rustc-wrapper.mjs',
-    'cargo-rustc-wrapper.rs',
-    'cargo-rustc-launcher.mjs',
-];
+const WRAPPER_FLAG_KEYS = ['EVB_CARGO_RUSTFLAGS', 'EVB_CARGO_APPLE_RUSTFLAGS', 'EVB_CARGO_WASM_RUSTFLAGS'];
+const WRAPPER_FILES = ['cargo-rustc-wrapper.mjs', 'cargo-rustc-wrapper.rs', 'cargo-rustc-launcher.mjs'];
 
 /**
  * Cargo decides what is fresh without seeing the flags the rustc wrapper adds,
@@ -128,21 +78,23 @@ const WRAPPER_FILES = [
  * only while the wrapper and its flags are those it was built with.
  * @param {{env: NodeJS.ProcessEnv, projectRoot: string, rustTarget?: string, targetDirectory: string}} options
  */
-export function discardCargoBuildFromOtherWrapperFlags({
-    env, projectRoot, rustTarget, targetDirectory,
-}) {
-    const hash = createHash('sha256').update(JSON.stringify(WRAPPER_FLAG_KEYS.map(key => env[key] ?? null)));
+export function discardCargoBuildFromOtherWrapperFlags({env, projectRoot, rustTarget, targetDirectory}) {
+    const hash = createHash('sha256').update(JSON.stringify(WRAPPER_FLAG_KEYS.map((key) => env[key] ?? null)));
     for (const file of WRAPPER_FILES) {
         hash.update(readFileSync(path.join(projectRoot, 'scripts', 'lib', file)));
     }
     const identity = hash.digest('hex');
-    const profileDirectory = path.dirname(getCargoArtifactPath({
-        fileName: 'wrapper-flags',
-        rustTarget,
-        targetDirectory,
-    }));
+    const profileDirectory = path.dirname(
+        getCargoArtifactPath({
+            fileName: 'wrapper-flags',
+            rustTarget,
+            targetDirectory,
+        }),
+    );
     const stampPath = path.join(profileDirectory, '.evb-wrapper-flags');
-    if (existsSync(stampPath) && readFileSync(stampPath, 'utf8') === identity) return;
+    if (existsSync(stampPath) && readFileSync(stampPath, 'utf8') === identity) {
+        return;
+    }
     rmSync(profileDirectory, {
         force: true,
         recursive: true,
@@ -162,7 +114,7 @@ async function collectFiles(sourcePaths) {
         const metadata = await stat(sourcePath);
         if (metadata.isDirectory()) {
             const entries = await readdir(sourcePath, {withFileTypes: true});
-            await Promise.all(entries.map(entry => visit(path.join(sourcePath, entry.name))));
+            await Promise.all(entries.map((entry) => visit(path.join(sourcePath, entry.name))));
             return;
         }
         if (metadata.isFile()) {
@@ -174,19 +126,15 @@ async function collectFiles(sourcePaths) {
     return files.sort();
 }
 
-export async function computeCargoInputFingerprint({
-    cargoArgs,
-    environment = {},
-    projectRoot,
-    sourcePaths,
-    toolchain,
-}) {
+export async function computeCargoInputFingerprint({cargoArgs, environment = {}, projectRoot, sourcePaths, toolchain}) {
     const hash = createHash('sha256');
-    hash.update(JSON.stringify({
-        cargoArgs,
-        environment,
-        toolchain,
-    }));
+    hash.update(
+        JSON.stringify({
+            cargoArgs,
+            environment,
+            toolchain,
+        }),
+    );
     const files = await collectFiles(sourcePaths);
     for (const filePath of files) {
         const relativePath = path.relative(projectRoot, filePath).split(path.sep).join('/');
@@ -201,25 +149,14 @@ export async function computeCargoInputFingerprint({
     };
 }
 
-export async function readValidCargoBuildReceipt({
-    binaryPath,
-    fingerprint,
-    receiptPath,
-}) {
+export async function readValidCargoBuildReceipt({binaryPath, fingerprint, receiptPath}) {
     try {
         const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
-        if (
-            receipt?.schemaVersion !== 1
-            || receipt.inputFingerprint !== fingerprint
-            || receipt.binaryPath !== binaryPath
-        ) {
+        if (receipt?.schemaVersion !== 1 || receipt.inputFingerprint !== fingerprint || receipt.binaryPath !== binaryPath) {
             return null;
         }
         const bytes = await readFile(binaryPath);
-        if (
-            receipt.artifact?.byteLength !== bytes.byteLength
-            || receipt.artifact?.sha256 !== sha256(bytes)
-        ) {
+        if (receipt.artifact?.byteLength !== bytes.byteLength || receipt.artifact?.sha256 !== sha256(bytes)) {
             return null;
         }
         return receipt;
@@ -231,14 +168,7 @@ export async function readValidCargoBuildReceipt({
     }
 }
 
-export async function writeCargoBuildReceipt({
-    artifact,
-    binaryPath,
-    fileCount,
-    fingerprint,
-    receiptPath,
-    toolchain,
-}) {
+export async function writeCargoBuildReceipt({artifact, binaryPath, fileCount, fingerprint, receiptPath, toolchain}) {
     const receipt = {
         artifact,
         binaryPath,
@@ -256,13 +186,7 @@ export async function writeCargoBuildReceipt({
 
 export async function copyCargoArtifactVerified(sourcePath, destinationPath) {
     await copyFile(sourcePath, destinationPath);
-    const [
-        sourceBytes,
-        destinationBytes,
-    ] = await Promise.all([
-        readFile(sourcePath),
-        readFile(destinationPath),
-    ]);
+    const [sourceBytes, destinationBytes] = await Promise.all([readFile(sourcePath), readFile(destinationPath)]);
     const sourceSha256 = sha256(sourceBytes);
     const destinationSha256 = sha256(destinationBytes);
 
@@ -277,26 +201,18 @@ export async function copyCargoArtifactVerified(sourcePath, destinationPath) {
 }
 
 export function collectCargoSourceInputs(metadata, rootManifestPath) {
-    if (
-        !metadata
-        || !Array.isArray(metadata.packages)
-        || typeof metadata.workspace_root !== 'string'
-    ) {
+    if (!metadata || !Array.isArray(metadata.packages) || typeof metadata.workspace_root !== 'string') {
         throw new Error('Cargo metadata is missing packages or workspace_root');
     }
-    const packagesByRoot = new Map(metadata.packages
-        .filter(pkg => typeof pkg?.manifest_path === 'string')
-        .map(pkg => [
-            path.resolve(path.dirname(pkg.manifest_path)),
-            pkg,
-        ]));
+    const packagesByRoot = new Map(
+        metadata.packages
+            .filter((pkg) => typeof pkg?.manifest_path === 'string')
+            .map((pkg) => [path.resolve(path.dirname(pkg.manifest_path)), pkg]),
+    );
     const pendingRoots = [path.resolve(path.dirname(rootManifestPath))];
     const visitedRoots = new Set();
     const workspaceRoot = path.resolve(metadata.workspace_root);
-    const sourceInputs = [
-        path.join(workspaceRoot, 'Cargo.toml'),
-        path.join(workspaceRoot, 'Cargo.lock'),
-    ];
+    const sourceInputs = [path.join(workspaceRoot, 'Cargo.toml'), path.join(workspaceRoot, 'Cargo.lock')];
     const workspaceToolchain = path.join(workspaceRoot, 'rust-toolchain.toml');
     if (existsSync(workspaceToolchain)) {
         sourceInputs.push(workspaceToolchain);
@@ -312,10 +228,7 @@ export function collectCargoSourceInputs(metadata, rootManifestPath) {
         if (!pkg) {
             throw new Error(`Cargo metadata does not describe local package ${packageRoot}`);
         }
-        sourceInputs.push(
-            path.resolve(pkg.manifest_path),
-            path.join(packageRoot, 'src'),
-        );
+        sourceInputs.push(path.resolve(pkg.manifest_path), path.join(packageRoot, 'src'));
         const buildScript = path.join(packageRoot, 'build.rs');
         if (existsSync(buildScript)) {
             sourceInputs.push(buildScript);
@@ -326,10 +239,11 @@ export function collectCargoSourceInputs(metadata, rootManifestPath) {
             }
         }
     }
-    sourceInputs.push(...[
-        path.join(workspaceRoot, '.cargo', 'config'),
-        path.join(workspaceRoot, '.cargo', 'config.toml'),
-    ].filter(sourcePath => existsSync(sourcePath)));
+    sourceInputs.push(
+        ...[path.join(workspaceRoot, '.cargo', 'config'), path.join(workspaceRoot, '.cargo', 'config.toml')].filter((sourcePath) =>
+            existsSync(sourcePath),
+        ),
+    );
     return [...new Set(sourceInputs)];
 }
 
@@ -347,7 +261,7 @@ async function newestSourceFile(sourcePaths) {
         }
         if (metadata.isDirectory()) {
             const entries = await readdir(sourcePath, {withFileTypes: true});
-            await Promise.all(entries.map(entry => visit(path.join(sourcePath, entry.name))));
+            await Promise.all(entries.map((entry) => visit(path.join(sourcePath, entry.name))));
             return;
         }
         if (metadata.isFile() && (!newest || metadata.mtimeMs > newest.mtimeMs)) {
@@ -361,27 +275,19 @@ async function newestSourceFile(sourcePaths) {
     return newest;
 }
 
-export async function assertStagedCargoArtifactFresh({
-    binaryPath,
-    buildCommand,
-    sourcePaths,
-}) {
-    const [
-        binaryMetadata,
-        newestSource,
-    ] = await Promise.all([
-        stat(binaryPath),
-        newestSourceFile(sourcePaths),
-    ]);
+export async function assertStagedCargoArtifactFresh({binaryPath, buildCommand, sourcePaths}) {
+    const [binaryMetadata, newestSource] = await Promise.all([stat(binaryPath), newestSourceFile(sourcePaths)]);
     if (!newestSource) {
         throw new Error(`No native sources found for staged binary: ${binaryPath}`);
     }
     if (newestSource.mtimeMs > binaryMetadata.mtimeMs) {
-        throw new Error([
-            `Stale staged release binary: ${binaryPath}`,
-            `Newer native source: ${newestSource.path}`,
-            `Run ${buildCommand} to rebuild and restage it.`,
-        ].join('\n'));
+        throw new Error(
+            [
+                `Stale staged release binary: ${binaryPath}`,
+                `Newer native source: ${newestSource.path}`,
+                `Run ${buildCommand} to rebuild and restage it.`,
+            ].join('\n'),
+        );
     }
     return {
         binaryMtimeMs: binaryMetadata.mtimeMs,

@@ -6,18 +6,10 @@ export interface IByteSizeFormat {
     locale: MaybeRefOrGetter<string>;
 }
 
-const BYTE_SIZE_UNITS = [
-    'common.unitKilobyte',
-    'common.unitMegabyte',
-    'common.unitGigabyte',
-    'common.unitTerabyte',
-] as const;
+const BYTE_SIZE_UNITS = ['common.unitKilobyte', 'common.unitMegabyte', 'common.unitGigabyte', 'common.unitTerabyte'] as const;
 
 /** A byte count in the app's language: its units and its decimal separator. */
-export function formatBytes(bytes: number, {
-    t,
-    locale,
-}: IByteSizeFormat) {
+export function formatBytes(bytes: number, {t, locale}: IByteSizeFormat) {
     if (!Number.isFinite(bytes) || bytes < 0) {
         return '-';
     }
@@ -48,11 +40,7 @@ interface IRelativeTimeLabels {
     justNow: string;
 }
 
-export function formatRelativeTime(
-    timestamp: number,
-    labels: IRelativeTimeLabels,
-    now = Date.now(),
-) {
+export function formatRelativeTime(timestamp: number, labels: IRelativeTimeLabels, now = Date.now()) {
     const diff = now - timestamp;
     const seconds = Math.floor(diff / 1000);
     const minutes = Math.floor(seconds / 60);

@@ -1,12 +1,14 @@
-import type { ILogger } from '@electron/utils/createLogger';
-import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
-import type { IMainFailureInput } from '@electron/features/diagnostics/public';
+import type {ILogger} from '@electron/utils/createLogger';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {IMainFailureInput} from '@electron/features/diagnostics/public';
 
 export const PROCESS_SAFE_MODE_ARGUMENT = '--evb-safe-mode';
 const GPU_CRASH_WINDOW_MS = 5 * 60 * 1_000;
 const GPU_CRASH_RELAUNCH_THRESHOLD = 2;
 
-interface IProcessSafeModeApp {commandLine: {appendSwitch(name: string): void};}
+interface IProcessSafeModeApp {
+    commandLine: {appendSwitch(name: string): void};
+}
 
 interface IChildProcessGoneDetails {
     type: string;
@@ -32,9 +34,7 @@ interface IProcessDeathRecoveryOptions {
  */
 export const OCR_ENGINE_SERVICE_NAME = 'EVB OCR engine';
 
-const APP_TERMINATED_UTILITY_IDENTITIES: ReadonlySet<string> = new Set([
-    OCR_ENGINE_SERVICE_NAME,
-]);
+const APP_TERMINATED_UTILITY_IDENTITIES: ReadonlySet<string> = new Set([OCR_ENGINE_SERVICE_NAME]);
 
 /**
  * Whether this death is an app-owned utility process that the app itself ended.
@@ -57,8 +57,7 @@ function isAppTerminatedUtilityProcess(details: IChildProcessGoneDetails) {
     if (details.type !== 'Utility' || details.reason !== 'killed') {
         return false;
     }
-    return APP_TERMINATED_UTILITY_IDENTITIES.has(details.name ?? '')
-        || APP_TERMINATED_UTILITY_IDENTITIES.has(details.serviceName ?? '');
+    return APP_TERMINATED_UTILITY_IDENTITIES.has(details.name ?? '') || APP_TERMINATED_UTILITY_IDENTITIES.has(details.serviceName ?? '');
 }
 
 export function configureProcessSafeMode(app: IProcessSafeModeApp, argv: string[]) {
@@ -119,7 +118,7 @@ export function createProcessDeathRecovery(options: IProcessDeathRecoveryOptions
         }
 
         const cutoff = now() - GPU_CRASH_WINDOW_MS;
-        gpuCrashTimestamps = gpuCrashTimestamps.filter(timestamp => timestamp >= cutoff);
+        gpuCrashTimestamps = gpuCrashTimestamps.filter((timestamp) => timestamp >= cutoff);
         gpuCrashTimestamps.push(now());
         if (gpuCrashTimestamps.length < GPU_CRASH_RELAUNCH_THRESHOLD) {
             reportFailure('MAIN_CHILD_PROCESS_GONE', message);
@@ -138,7 +137,7 @@ export function createProcessDeathRecovery(options: IProcessDeathRecoveryOptions
         }
 
         const relaunchArgs = [
-            ...options.argv.slice(1).filter(argument => argument !== PROCESS_SAFE_MODE_ARGUMENT),
+            ...options.argv.slice(1).filter((argument) => argument !== PROCESS_SAFE_MODE_ARGUMENT),
             PROCESS_SAFE_MODE_ARGUMENT,
         ];
         safeModeRelaunchRequested = true;

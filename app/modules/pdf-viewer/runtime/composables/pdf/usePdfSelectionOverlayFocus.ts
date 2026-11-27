@@ -1,6 +1,8 @@
 import type {Ref} from 'vue';
 
-interface ISelectionOverlayKeyboardController {handleKeyboardKey: (event: KeyboardEvent) => boolean;}
+interface ISelectionOverlayKeyboardController {
+    handleKeyboardKey: (event: KeyboardEvent) => boolean;
+}
 
 interface IPdfSelectionOverlayFocusOptions {
     isActive: () => boolean;
@@ -48,16 +50,20 @@ export const usePdfSelectionOverlayFocus = (options: IPdfSelectionOverlayFocusOp
         }
     }
 
-    watch(options.isActive, (isActive) => {
-        if (isActive) {
-            focusOverlay();
-        } else {
-            restoreFocus();
-        }
-    }, {
-        flush: 'post',
-        immediate: true,
-    });
+    watch(
+        options.isActive,
+        (isActive) => {
+            if (isActive) {
+                focusOverlay();
+            } else {
+                restoreFocus();
+            }
+        },
+        {
+            flush: 'post',
+            immediate: true,
+        },
+    );
 
     onBeforeUnmount(restoreFocus);
 

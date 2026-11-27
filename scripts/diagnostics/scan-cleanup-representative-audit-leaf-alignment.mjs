@@ -16,9 +16,7 @@ export function contentBboxHeightFraction(grid, horizontalMargin = 0) {
     const margin = Math.min(horizontalMargin, Math.floor(grid.cols / 2));
     for (let row = 0; row < grid.rows; row += 1) {
         const rowOffset = row * grid.cols;
-        const rowHasInk = grid.dark
-            .subarray(rowOffset + margin, rowOffset + grid.cols - margin)
-            .some(cell => cell === 1);
+        const rowHasInk = grid.dark.subarray(rowOffset + margin, rowOffset + grid.cols - margin).some((cell) => cell === 1);
         if (rowHasInk) {
             minRow = minRow === -1 ? row : minRow;
             maxRow = row;
@@ -27,34 +25,34 @@ export function contentBboxHeightFraction(grid, horizontalMargin = 0) {
     return minRow === -1 ? 0 : (maxRow - minRow + 1) / grid.rows;
 }
 
-export function buildExpectationInfos({
-    expectSingles,
-    inferredLayouts,
-}) {
+export function buildExpectationInfos({expectSingles, inferredLayouts}) {
     const mismatches = inferredLayouts.flatMap((layout, index) => {
         const sourcePage = index + 1;
         const expectedLayout = expectSingles.has(sourcePage) ? 'single' : 'spread';
-        return layout === expectedLayout ? [] : [{
-            actual: layout,
-            expected: expectedLayout,
-            sourcePage,
-        }];
+        return layout === expectedLayout
+            ? []
+            : [
+                  {
+                      actual: layout,
+                      expected: expectedLayout,
+                      sourcePage,
+                  },
+              ];
     });
     if (mismatches.length === 0) {
         return [];
     }
-    return [{
-        code: 'expectation-mismatch',
-        details: mismatches,
-        message: 'Rendered output/source evidence inferred a different layout than the legacy manifest hint; this is INFO only and does not count as a violation.',
-    }];
+    return [
+        {
+            code: 'expectation-mismatch',
+            details: mismatches,
+            message:
+                'Rendered output/source evidence inferred a different layout than the legacy manifest hint; this is INFO only and does not count as a violation.',
+        },
+    ];
 }
 
-function contentVerticalBounds(
-    bitmap,
-    threshold = CONTENT_BELOW_PAPER,
-    minimumPixels = MINIMUM_ROW_PIXELS,
-) {
+function contentVerticalBounds(bitmap, threshold = CONTENT_BELOW_PAPER, minimumPixels = MINIMUM_ROW_PIXELS) {
     // Keep the oracle's vertical anchor in the same pixel space as the native
     // matched-canvas planner. A dark-ink grid misses pale photo skies and can
     // report different tops for otherwise aligned leaves. The row guard
@@ -78,10 +76,10 @@ function contentVerticalBounds(
     return top === null
         ? null
         : {
-            bottom,
-            span: bottom - top,
-            top,
-        };
+              bottom,
+              span: bottom - top,
+              top,
+          };
 }
 
 function contentTopPixels(bitmap) {
@@ -122,49 +120,35 @@ export function measureSpreadLeafVerticalAlignment({
         toleranceMm,
         violations: [],
     };
-    if (
-        sourceLeftTop === null
-        || sourceRightTop === null
-        || cleanedLeftTop === null
-        || cleanedRightTop === null
-    ) {
+    if (sourceLeftTop === null || sourceRightTop === null || cleanedLeftTop === null || cleanedRightTop === null) {
         result.reason = 'content-top-not-measurable';
         return result;
     }
 
     const sourceDeltaPx = sourceRightTop - sourceLeftTop;
     const outputDeltaPx = cleanedRightTop - cleanedLeftTop;
-    const tolerancePx = dpi * toleranceMm / 25.4;
+    const tolerancePx = (dpi * toleranceMm) / 25.4;
     const deltaDifferencePx = outputDeltaPx - sourceDeltaPx;
     // Retain the existing allowance for cleanup to reduce a source skew, but
     // compare signed deltas whenever both directions are material. Without
     // this branch a complete reversal (+100 px to -100 px) looks unchanged.
-    const directionReversed = sourceDeltaPx * outputDeltaPx < 0
-        && Math.abs(sourceDeltaPx) > tolerancePx
-        && Math.abs(outputDeltaPx) > tolerancePx;
-    const deltaExcessPx = directionReversed
-        ? Math.abs(deltaDifferencePx)
-        : Math.max(0, Math.abs(outputDeltaPx) - Math.abs(sourceDeltaPx));
-    const sourcePairTopFraction = (
-        sourceLeftTop / sourceLeft.height
-        + sourceRightTop / sourceRight.height
-    ) / 2;
-    const cleanedPairTopFraction = (
-        cleanedLeftTop / cleanedLeft.height
-        + cleanedRightTop / cleanedRight.height
-    ) / 2;
+    const directionReversed =
+        sourceDeltaPx * outputDeltaPx < 0 && Math.abs(sourceDeltaPx) > tolerancePx && Math.abs(outputDeltaPx) > tolerancePx;
+    const deltaExcessPx = directionReversed ? Math.abs(deltaDifferencePx) : Math.max(0, Math.abs(outputDeltaPx) - Math.abs(sourceDeltaPx));
+    const sourcePairTopFraction = (sourceLeftTop / sourceLeft.height + sourceRightTop / sourceRight.height) / 2;
+    const cleanedPairTopFraction = (cleanedLeftTop / cleanedLeft.height + cleanedRightTop / cleanedRight.height) / 2;
     const cleanedPairHeight = (cleanedLeft.height + cleanedRight.height) / 2;
     const absoluteShiftFraction = cleanedPairTopFraction - sourcePairTopFraction;
     const absoluteShiftPx = absoluteShiftFraction * cleanedPairHeight;
     const absolutePositionTolerancePx = absolutePositionToleranceFraction * cleanedPairHeight;
     result.source.deltaPx = round(sourceDeltaPx);
-    result.source.deltaMm = round(sourceDeltaPx * 25.4 / dpi);
+    result.source.deltaMm = round((sourceDeltaPx * 25.4) / dpi);
     result.cleaned.deltaPx = round(outputDeltaPx);
-    result.cleaned.deltaMm = round(outputDeltaPx * 25.4 / dpi);
+    result.cleaned.deltaMm = round((outputDeltaPx * 25.4) / dpi);
     result.deltaDifferencePx = round(deltaDifferencePx);
-    result.deltaDifferenceMm = round(deltaDifferencePx * 25.4 / dpi);
+    result.deltaDifferenceMm = round((deltaDifferencePx * 25.4) / dpi);
     result.deltaExcessPx = round(deltaExcessPx);
-    result.deltaExcessMm = round(deltaExcessPx * 25.4 / dpi);
+    result.deltaExcessMm = round((deltaExcessPx * 25.4) / dpi);
     result.directionReversed = directionReversed;
     result.tolerancePx = round(tolerancePx);
     result.absolutePosition = {
@@ -176,8 +160,7 @@ export function measureSpreadLeafVerticalAlignment({
         tolerancePx: round(absolutePositionTolerancePx),
     };
     const relativeMisalignment = deltaExcessPx > tolerancePx;
-    const grossAbsoluteTranslation = Math.abs(absoluteShiftFraction)
-        > absolutePositionToleranceFraction;
+    const grossAbsoluteTranslation = Math.abs(absoluteShiftFraction) > absolutePositionToleranceFraction;
     result.status = relativeMisalignment || grossAbsoluteTranslation ? 'violation' : 'pass';
     if (result.status === 'violation') {
         result.violations.push('leaf-misalignment');
@@ -185,26 +168,10 @@ export function measureSpreadLeafVerticalAlignment({
     return result;
 }
 
-export function measureSpreadLeafScale({
-    cleanedLeft,
-    cleanedRight,
-    sourceLeft,
-    sourceRight,
-    tolerance = DEFAULT_SCALE_TOLERANCE,
-}) {
-    const sourceLeftBounds = contentVerticalBounds(
-        sourceLeft,
-        SCALE_CONTENT_BELOW_PAPER,
-        SCALE_MINIMUM_ROW_PIXELS,
-    );
-    const sourceRightBounds = contentVerticalBounds(
-        sourceRight,
-        SCALE_CONTENT_BELOW_PAPER,
-        SCALE_MINIMUM_ROW_PIXELS,
-    );
-    const cleanedLeftBounds = cleanedLeft
-        ? contentVerticalBounds(cleanedLeft, SCALE_CONTENT_BELOW_PAPER, SCALE_MINIMUM_ROW_PIXELS)
-        : null;
+export function measureSpreadLeafScale({cleanedLeft, cleanedRight, sourceLeft, sourceRight, tolerance = DEFAULT_SCALE_TOLERANCE}) {
+    const sourceLeftBounds = contentVerticalBounds(sourceLeft, SCALE_CONTENT_BELOW_PAPER, SCALE_MINIMUM_ROW_PIXELS);
+    const sourceRightBounds = contentVerticalBounds(sourceRight, SCALE_CONTENT_BELOW_PAPER, SCALE_MINIMUM_ROW_PIXELS);
+    const cleanedLeftBounds = cleanedLeft ? contentVerticalBounds(cleanedLeft, SCALE_CONTENT_BELOW_PAPER, SCALE_MINIMUM_ROW_PIXELS) : null;
     const cleanedRightBounds = cleanedRight
         ? contentVerticalBounds(cleanedRight, SCALE_CONTENT_BELOW_PAPER, SCALE_MINIMUM_ROW_PIXELS)
         : null;
@@ -228,18 +195,13 @@ export function measureSpreadLeafScale({
         tolerance,
         violations: [],
     };
-    if (
-        sourceLeftBounds === null
-        || sourceRightBounds === null
-        || cleanedLeftBounds === null
-        || cleanedRightBounds === null
-    ) {
+    if (sourceLeftBounds === null || sourceRightBounds === null || cleanedLeftBounds === null || cleanedRightBounds === null) {
         result.reason = 'content-span-not-measurable';
         return result;
     }
 
-    const sourceSpanDifferenceRatio = Math.abs(sourceLeftBounds.span - sourceRightBounds.span)
-        / Math.max(sourceLeftBounds.span, sourceRightBounds.span);
+    const sourceSpanDifferenceRatio =
+        Math.abs(sourceLeftBounds.span - sourceRightBounds.span) / Math.max(sourceLeftBounds.span, sourceRightBounds.span);
     result.sourceSpanDifferenceRatio = round(sourceSpanDifferenceRatio);
     // A single bounding span is not a reliable scale marker when the two
     // source leaves contain materially different vertical extents. Keep that
@@ -263,93 +225,78 @@ export function measureSpreadLeafScale({
     return result;
 }
 
-function mapSpreadLeafPairs({
-    entries,
-    sourcePages,
-    splitHalves,
-}, mapPair) {
+function mapSpreadLeafPairs({entries, sourcePages, splitHalves}, mapPair) {
     const pairs = [];
     for (let index = 0; index < entries.length; index += 2) {
         const leftEntry = entries[index];
         const rightEntry = entries[index + 1];
         if (
-            !leftEntry
-            || !rightEntry
-            || leftEntry.side !== 'left'
-            || rightEntry.side !== 'right'
-            || leftEntry.sourceLayout !== 'spread'
-            || rightEntry.sourceLayout !== 'spread'
-            || leftEntry.sourcePage !== rightEntry.sourcePage
+            !leftEntry ||
+            !rightEntry ||
+            leftEntry.side !== 'left' ||
+            rightEntry.side !== 'right' ||
+            leftEntry.sourceLayout !== 'spread' ||
+            rightEntry.sourceLayout !== 'spread' ||
+            leftEntry.sourcePage !== rightEntry.sourcePage
         ) {
             continue;
         }
-        pairs.push(mapPair({
-            leftEntry,
-            rightEntry,
-            sourceHalves: splitHalves(sourcePages.get(leftEntry.sourcePage)),
-        }));
+        pairs.push(
+            mapPair({
+                leftEntry,
+                rightEntry,
+                sourceHalves: splitHalves(sourcePages.get(leftEntry.sourcePage)),
+            }),
+        );
     }
     return pairs;
 }
 
-export function buildSpreadLeafAlignment({
-    cleanedPages,
-    dpi,
-    entries,
-    sourcePages,
-    splitHalves,
-}) {
-    return mapSpreadLeafPairs({
-        entries,
-        sourcePages,
-        splitHalves,
-    }, ({
-        leftEntry,
-        rightEntry,
-        sourceHalves,
-    }) => {
-        const measurement = measureSpreadLeafVerticalAlignment({
-            cleanedLeft: cleanedPages.get(leftEntry.cleanedPage) ?? null,
-            cleanedRight: cleanedPages.get(rightEntry.cleanedPage) ?? null,
-            dpi,
-            sourceLeft: sourceHalves.left,
-            sourceRight: sourceHalves.right,
-        });
-        return {
-            leftCleanedPage: leftEntry.cleanedPage,
-            rightCleanedPage: rightEntry.cleanedPage,
-            sourcePage: leftEntry.sourcePage,
-            ...measurement,
-        };
-    });
+export function buildSpreadLeafAlignment({cleanedPages, dpi, entries, sourcePages, splitHalves}) {
+    return mapSpreadLeafPairs(
+        {
+            entries,
+            sourcePages,
+            splitHalves,
+        },
+        ({leftEntry, rightEntry, sourceHalves}) => {
+            const measurement = measureSpreadLeafVerticalAlignment({
+                cleanedLeft: cleanedPages.get(leftEntry.cleanedPage) ?? null,
+                cleanedRight: cleanedPages.get(rightEntry.cleanedPage) ?? null,
+                dpi,
+                sourceLeft: sourceHalves.left,
+                sourceRight: sourceHalves.right,
+            });
+            return {
+                leftCleanedPage: leftEntry.cleanedPage,
+                rightCleanedPage: rightEntry.cleanedPage,
+                sourcePage: leftEntry.sourcePage,
+                ...measurement,
+            };
+        },
+    );
 }
 
-export function buildSpreadLeafScale({
-    cleanedPages,
-    entries,
-    sourcePages,
-    splitHalves,
-}) {
-    return mapSpreadLeafPairs({
-        entries,
-        sourcePages,
-        splitHalves,
-    }, ({
-        leftEntry,
-        rightEntry,
-        sourceHalves,
-    }) => {
-        const measurement = measureSpreadLeafScale({
-            cleanedLeft: cleanedPages.get(leftEntry.cleanedPage) ?? null,
-            cleanedRight: cleanedPages.get(rightEntry.cleanedPage) ?? null,
-            sourceLeft: sourceHalves.left,
-            sourceRight: sourceHalves.right,
-        });
-        return {
-            leftCleanedPage: leftEntry.cleanedPage,
-            rightCleanedPage: rightEntry.cleanedPage,
-            sourcePage: leftEntry.sourcePage,
-            ...measurement,
-        };
-    });
+export function buildSpreadLeafScale({cleanedPages, entries, sourcePages, splitHalves}) {
+    return mapSpreadLeafPairs(
+        {
+            entries,
+            sourcePages,
+            splitHalves,
+        },
+        ({leftEntry, rightEntry, sourceHalves}) => {
+            const measurement = measureSpreadLeafScale({
+                cleanedLeft: cleanedPages.get(leftEntry.cleanedPage) ?? null,
+                cleanedRight: cleanedPages.get(rightEntry.cleanedPage) ?? null,
+                sourceLeft: sourceHalves.left,
+                sourceRight: sourceHalves.right,
+            });
+            return {
+                leftCleanedPage: leftEntry.cleanedPage,
+                rightCleanedPage: rightEntry.cleanedPage,
+                sourcePage: leftEntry.sourcePage,
+                ...measurement,
+            };
+        },
+    );
 }

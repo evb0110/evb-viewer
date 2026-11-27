@@ -1,15 +1,9 @@
-import { delay } from 'es-toolkit/promise';
-import {
-    COMMAND_REQUEST_TIMEOUT_MS,
-    SESSION_WAIT_TIMEOUT_MS,
-} from '@scripts/electron-run/electronRunTimeouts';
-import { getCurrentSessionName } from '@scripts/electron-run/electronRunSessionPaths';
-import { getSessionInfo } from '@scripts/electron-run/electronRunSessionArtifacts';
-import {
-    parseElectronRunCommandResponse,
-    type TElectronRunCommand,
-} from '@scripts/electron-run/electronRunProtocol';
-import type { ISessionInfo } from '@scripts/electron-run/electronRunSessionTypes';
+import {delay} from 'es-toolkit/promise';
+import {COMMAND_REQUEST_TIMEOUT_MS, SESSION_WAIT_TIMEOUT_MS} from '@scripts/electron-run/electronRunTimeouts';
+import {getCurrentSessionName} from '@scripts/electron-run/electronRunSessionPaths';
+import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
+import {parseElectronRunCommandResponse, type TElectronRunCommand} from '@scripts/electron-run/electronRunProtocol';
+import type {ISessionInfo} from '@scripts/electron-run/electronRunSessionTypes';
 
 class ElectronRunCommandError extends Error {
     constructor(message: string) {
@@ -25,8 +19,8 @@ class ElectronRunCommandUncertainError extends Error {
 
     constructor(sessionName: string, command: TElectronRunCommand, requestTimeoutMs: number, cause: unknown) {
         super(
-            `Command "${command}" for session '${sessionName}' timed out or was interrupted after `
-            + `${Math.round(requestTimeoutMs / 1000)}s; execution may have occurred, so the request was not replayed`,
+            `Command "${command}" for session '${sessionName}' timed out or was interrupted after ` +
+                `${Math.round(requestTimeoutMs / 1000)}s; execution may have occurred, so the request was not replayed`,
             {cause},
         );
         this.name = 'ElectronRunCommandUncertainError';
@@ -49,17 +43,12 @@ export async function sendCommandToSession(
     options: ISendCommandOptions = {},
 ) {
     const timeoutSignal = AbortSignal.timeout(requestTimeoutMs);
-    const requestSignal = options.signal
-        ? AbortSignal.any([
-            options.signal,
-            timeoutSignal,
-        ])
-        : timeoutSignal;
+    const requestSignal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
     let responseBody: unknown;
     try {
         const res = await fetch(`http://localhost:${info.port}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 command,
                 args,
@@ -152,5 +141,7 @@ export async function sendCommand(
         }
     }
 
-    throw new Error(`Session '${getCurrentSessionName()}' not ready after ${Math.round(SESSION_WAIT_TIMEOUT_MS / 1000)}s. Start with: pnpm electron:run start --session=${getCurrentSessionName()}`);
+    throw new Error(
+        `Session '${getCurrentSessionName()}' not ready after ${Math.round(SESSION_WAIT_TIMEOUT_MS / 1000)}s. Start with: pnpm electron:run start --session=${getCurrentSessionName()}`,
+    );
 }

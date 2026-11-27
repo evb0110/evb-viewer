@@ -1,11 +1,5 @@
 import type * as TNodeFsPromises from 'node:fs/promises';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {join} from 'node:path';
 import {
     buildPopplerEnv,
@@ -15,7 +9,7 @@ import {
     renderPdfPageToPpm,
     renderOcrPageToPpm,
 } from '@electron/features/ocr/pipeline/popplerStage';
-import type { IOcrPipelinePaths } from '@electron/features/ocr/pipeline/types';
+import type {IOcrPipelinePaths} from '@electron/features/ocr/pipeline/types';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
@@ -61,11 +55,13 @@ describe('buildPopplerEnv', () => {
     });
 
     it('sets Poppler data and fontconfig paths when configured', () => {
-        expect(buildPopplerEnv({
-            ...workerPaths,
-            popplerDataDir: '/share/poppler',
-            popplerFontConfigDir: '/share/fontconfig',
-        })).toEqual({
+        expect(
+            buildPopplerEnv({
+                ...workerPaths,
+                popplerDataDir: '/share/poppler',
+                popplerFontConfigDir: '/share/fontconfig',
+            }),
+        ).toEqual({
             POPPLER_DATADIR: '/share/poppler',
             FONTCONFIG_PATH: '/share/fontconfig',
             FONTCONFIG_FILE: join('/share/fontconfig', 'fonts.conf'),
@@ -76,7 +72,7 @@ describe('buildPopplerEnv', () => {
 describe('preparePdfForPoppler', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.stat.mockResolvedValue({ size: 1024 });
+        mocks.stat.mockResolvedValue({size: 1024});
     });
 
     it('returns surfaced warnings when qpdf preflight falls back to the original PDF', async () => {
@@ -84,13 +80,7 @@ describe('preparePdfForPoppler', () => {
         const log = vi.fn();
         const trackTempFile = vi.fn((path: string) => path);
 
-        const result = await preparePdfForPoppler(
-            workerPaths,
-            log,
-            '/tmp/source.pdf',
-            'session',
-            trackTempFile,
-        );
+        const result = await preparePdfForPoppler(workerPaths, log, '/tmp/source.pdf', 'session', trackTempFile);
 
         expect(result).toEqual({
             pdfPath: '/tmp/source.pdf',
@@ -99,10 +89,7 @@ describe('preparePdfForPoppler', () => {
         expect(log).toHaveBeenCalledWith('warn', result.warnings[0]);
     });
 
-    it.each([
-        false,
-        true,
-    ])('preserves a marked repair error and its normalized bytes, aborted=%s', async aborted => {
+    it.each([false, true])('preserves a marked repair error and its normalized bytes, aborted=%s', async (aborted) => {
         const fs = await vi.importActual<typeof TNodeFsPromises>('node:fs/promises');
         const {tmpdir} = await import('node:os');
         const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
@@ -115,27 +102,40 @@ describe('preparePdfForPoppler', () => {
         const log = vi.fn();
         mocks.runQpdfWasm.mockImplementationOnce(async (args: string[]) => {
             await fs.writeFile(args[1]!, 'partially normalized PDF');
-            if (aborted) controller.abort(new Error('different abort reason'));
+            if (aborted) {
+                controller.abort(new Error('different abort reason'));
+            }
             throw failure;
         });
         try {
-            await expect(preparePdfForPoppler({
-                ...workerPaths,
-                tempDir: directory,
-            }, log, source, 'proof', path => {
-                registered.push(path); return path;
-            }, controller.signal)).rejects.toBe(failure);
+            await expect(
+                preparePdfForPoppler(
+                    {
+                        ...workerPaths,
+                        tempDir: directory,
+                    },
+                    log,
+                    source,
+                    'proof',
+                    (path) => {
+                        registered.push(path);
+                        return path;
+                    },
+                    controller.signal,
+                ),
+            ).rejects.toBe(failure);
             expect(getUnprovenNativeTerminationDetail(failure)).toBe('repair writer still alive');
             expect(registered).toHaveLength(1);
             expect(await fs.readFile(registered[0]!, 'utf8')).toBe('partially normalized PDF');
             expect(await fs.readFile(source, 'utf8')).toBe('original PDF');
             expect(log.mock.calls.some(([level]) => level === 'warn')).toBe(false);
-        } finally { await fs.rm(directory, {
-            recursive: true,
-            force: true,
-        }); }
+        } finally {
+            await fs.rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
-
 });
 
 describe('OCR page rendering', () => {
@@ -154,14 +154,7 @@ describe('OCR page rendering', () => {
 
     it('renders readable OCR input directly without preparing a full PDF copy', async () => {
         const fallback = vi.fn();
-        await renderOcrPageToPpm([
-            workerPaths,
-            vi.fn(),
-            17,
-            '/source.pdf',
-            '/page.ppm',
-            300,
-        ], fallback);
+        await renderOcrPageToPpm([workerPaths, vi.fn(), 17, '/source.pdf', '/page.ppm', 300], fallback);
         expect(fallback).not.toHaveBeenCalled();
         expect(mocks.runOcrCommand).toHaveBeenCalledWith('/bin/pdftoppm', expect.arrayContaining(['/source.pdf']), expect.anything());
     });
@@ -172,43 +165,22 @@ describe('OCR page rendering', () => {
             pdfPath: '/normalized.pdf',
             warnings: [],
         });
-        await renderOcrPageToPpm([
-            workerPaths,
-            vi.fn(),
-            17,
-            '/source.pdf',
-            '/page.ppm',
-            300,
-        ], fallback);
+        await renderOcrPageToPpm([workerPaths, vi.fn(), 17, '/source.pdf', '/page.ppm', 300], fallback);
         expect(fallback).toHaveBeenCalledOnce();
-        expect(mocks.runOcrCommand).toHaveBeenLastCalledWith('/bin/pdftoppm', [
-            '-cropbox',
-            '-r',
-            '300',
-            '-f',
-            '17',
-            '-l',
-            '17',
-            '-singlefile',
-            '/normalized.pdf',
-            '/page',
-        ], expect.anything());
+        expect(mocks.runOcrCommand).toHaveBeenLastCalledWith(
+            '/bin/pdftoppm',
+            ['-cropbox', '-r', '300', '-f', '17', '-l', '17', '-singlefile', '/normalized.pdf', '/page'],
+            expect.anything(),
+        );
     });
 
     it.each([
         new RangeError('raster exceeds limits'),
         markUnprovenNativeTermination(new Error('termination failed'), 'process still running'),
-    ])('does not normalize after a safety failure: %s', async error => {
+    ])('does not normalize after a safety failure: %s', async (error) => {
         mocks.runOcrCommand.mockRejectedValueOnce(error);
         const fallback = vi.fn();
-        await expect(renderOcrPageToPpm([
-            workerPaths,
-            vi.fn(),
-            1,
-            '/source.pdf',
-            '/page.ppm',
-            300,
-        ], fallback)).rejects.toBe(error);
+        await expect(renderOcrPageToPpm([workerPaths, vi.fn(), 1, '/source.pdf', '/page.ppm', 300], fallback)).rejects.toBe(error);
         expect(fallback).not.toHaveBeenCalled();
     });
 
@@ -219,43 +191,18 @@ describe('OCR page rendering', () => {
             pdfPath: '/source.pdf',
             warnings: ['repair failed'],
         });
-        await expect(renderOcrPageToPpm([
-            workerPaths,
-            vi.fn(),
-            1,
-            '/source.pdf',
-            '/page.ppm',
-            300,
-        ], fallback)).rejects.toBe(error);
+        await expect(renderOcrPageToPpm([workerPaths, vi.fn(), 1, '/source.pdf', '/page.ppm', 300], fallback)).rejects.toBe(error);
         expect(mocks.runOcrCommand).toHaveBeenCalledOnce();
     });
 
     it('renders OCR rasters against the PDF CropBox contract', async () => {
         const log = vi.fn();
 
-        await renderPdfPageToPng(
-            workerPaths,
-            log,
-            3,
-            '/tmp/source.pdf',
-            '/tmp/page-3.png',
-            300,
-        );
+        await renderPdfPageToPng(workerPaths, log, 3, '/tmp/source.pdf', '/tmp/page-3.png', 300);
 
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/pdftoppm',
-            [
-                '-cropbox',
-                '-r',
-                '300',
-                '-f',
-                '3',
-                '-l',
-                '3',
-                '-singlefile',
-                '/tmp/source.pdf',
-                '/tmp/page-3',
-            ],
+            ['-cropbox', '-r', '300', '-f', '3', '-l', '3', '-singlefile', '/tmp/source.pdf', '/tmp/page-3'],
             expect.objectContaining({commandLabel: 'pdftoppm(page=3,dpi=300)'}),
         );
         expect(mocks.readPngDimensions).toHaveBeenCalledWith('/tmp/page-3.png');
@@ -268,45 +215,27 @@ describe('OCR page rendering', () => {
             isColor: true,
         });
 
-        await expect(renderPdfPageToPng(
-            workerPaths,
-            vi.fn(),
-            1,
-            '/tmp/source.pdf',
-            '/tmp/page-1.png',
-            300,
-            undefined,
-            undefined,
-            undefined,
-            {
+        await expect(
+            renderPdfPageToPng(workerPaths, vi.fn(), 1, '/tmp/source.pdf', '/tmp/page-1.png', 300, undefined, undefined, undefined, {
                 expectedWidthPx: 1_000,
                 expectedHeightPx: 1_000,
                 maxPixels: 45_000_000,
                 maxDimensionPx: 40_000,
-            },
-        )).rejects.toThrow('PNG raster 10000x10000 exceeds limits');
+            }),
+        ).rejects.toThrow('PNG raster 10000x10000 exceeds limits');
         expect(mocks.readPngDimensions).toHaveBeenCalledWith('/tmp/page-1.png');
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/page-1.png', {force: true});
     });
 
     it('rejects over-budget trusted geometry before spawning pdftoppm', async () => {
-        await expect(renderPdfPageToPpm(
-            workerPaths,
-            vi.fn(),
-            1,
-            '/tmp/source.pdf',
-            '/tmp/page-1.ppm',
-            300,
-            undefined,
-            undefined,
-            undefined,
-            {
+        await expect(
+            renderPdfPageToPpm(workerPaths, vi.fn(), 1, '/tmp/source.pdf', '/tmp/page-1.ppm', 300, undefined, undefined, undefined, {
                 expectedWidthPx: 10_000,
                 expectedHeightPx: 10_000,
                 maxPixels: 45_000_000,
                 maxDimensionPx: 40_000,
-            },
-        )).rejects.toThrow('Poppler raster 10000x10000 exceeds limits');
+            }),
+        ).rejects.toThrow('Poppler raster 10000x10000 exceeds limits');
         expect(mocks.runOcrCommand).not.toHaveBeenCalled();
     });
 
@@ -314,29 +243,11 @@ describe('OCR page rendering', () => {
         const log = vi.fn();
         mocks.stat.mockResolvedValue({isFile: () => false});
 
-        await renderPdfPageToPpm(
-            workerPaths,
-            log,
-            5,
-            '/tmp/source.pdf',
-            '/tmp/page-5.ppm',
-            360,
-        );
+        await renderPdfPageToPpm(workerPaths, log, 5, '/tmp/source.pdf', '/tmp/page-5.ppm', 360);
 
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/pdftoppm',
-            [
-                '-cropbox',
-                '-r',
-                '360',
-                '-f',
-                '5',
-                '-l',
-                '5',
-                '-singlefile',
-                '/tmp/source.pdf',
-                '/tmp/page-5',
-            ],
+            ['-cropbox', '-r', '360', '-f', '5', '-l', '5', '-singlefile', '/tmp/source.pdf', '/tmp/page-5'],
             expect.objectContaining({commandLabel: 'pdftoppm(page=5,dpi=360)'}),
         );
     });
@@ -344,22 +255,12 @@ describe('OCR page rendering', () => {
     it('renders only the requested positive pixel crop', async () => {
         const log = vi.fn();
 
-        await renderPdfPageToPng(
-            workerPaths,
-            log,
-            3,
-            '/tmp/source.pdf',
-            '/tmp/page-3.png',
-            300,
-            undefined,
-            undefined,
-            {
-                x: 11,
-                y: 22,
-                width: 333,
-                height: 444,
-            },
-        );
+        await renderPdfPageToPng(workerPaths, log, 3, '/tmp/source.pdf', '/tmp/page-3.png', 300, undefined, undefined, {
+            x: 11,
+            y: 22,
+            width: 333,
+            height: 444,
+        });
 
         expect(mocks.runOcrCommand).toHaveBeenCalledWith(
             '/bin/pdftoppm',
@@ -388,22 +289,10 @@ describe('OCR page rendering', () => {
     });
 
     it.each([
-        [
-            'x',
-            -1,
-        ],
-        [
-            'y',
-            -1,
-        ],
-        [
-            'width',
-            1.5,
-        ],
-        [
-            'height',
-            Number.MAX_SAFE_INTEGER + 1,
-        ],
+        ['x', -1],
+        ['y', -1],
+        ['width', 1.5],
+        ['height', Number.MAX_SAFE_INTEGER + 1],
     ] as const)('rejects an invalid %s crop value', async (field, value) => {
         const crop = {
             x: 1,
@@ -413,20 +302,10 @@ describe('OCR page rendering', () => {
             [field]: value,
         };
 
-        await expect(renderPdfPageToPng(
-            workerPaths,
-            vi.fn(),
-            3,
-            '/tmp/source.pdf',
-            '/tmp/page-3.png',
-            300,
-            undefined,
-            undefined,
-            crop,
-        )).rejects.toThrow(
-            `Poppler pixel crop ${field} must be a ${
-                field === 'x' || field === 'y' ? 'non-negative' : 'positive'
-            } safe integer`,
+        await expect(
+            renderPdfPageToPng(workerPaths, vi.fn(), 3, '/tmp/source.pdf', '/tmp/page-3.png', 300, undefined, undefined, crop),
+        ).rejects.toThrow(
+            `Poppler pixel crop ${field} must be a ${field === 'x' || field === 'y' ? 'non-negative' : 'positive'} safe integer`,
         );
         expect(mocks.runOcrCommand).not.toHaveBeenCalled();
     });
@@ -438,10 +317,15 @@ describe('OCR raster admission before rendering (SRCH-006)', () => {
     });
 
     it('derives pre-render raster limits from the page size and target DPI', () => {
-        expect(createOcrRasterRenderLimits({
-            width: 8.5,
-            height: 11,
-        }, 300)).toEqual({
+        expect(
+            createOcrRasterRenderLimits(
+                {
+                    width: 8.5,
+                    height: 11,
+                },
+                300,
+            ),
+        ).toEqual({
             expectedWidthPx: 2550,
             expectedHeightPx: 3300,
             maxPixels: 45_000_000,
@@ -452,21 +336,26 @@ describe('OCR raster admission before rendering (SRCH-006)', () => {
     it('rejects an oversize page raster before spawning pdftoppm', async () => {
         const log = vi.fn();
 
-        await expect(renderPdfPageToPng(
-            workerPaths,
-            log,
-            1,
-            '/tmp/ocr/source.pdf',
-            '/tmp/ocr/page-1.png',
-            300,
-            undefined,
-            undefined,
-            undefined,
-            createOcrRasterRenderLimits({
-                width: 200,
-                height: 200,
-            }, 300),
-        )).rejects.toThrow('Poppler raster 60000x60000 exceeds limits');
+        await expect(
+            renderPdfPageToPng(
+                workerPaths,
+                log,
+                1,
+                '/tmp/ocr/source.pdf',
+                '/tmp/ocr/page-1.png',
+                300,
+                undefined,
+                undefined,
+                undefined,
+                createOcrRasterRenderLimits(
+                    {
+                        width: 200,
+                        height: 200,
+                    },
+                    300,
+                ),
+            ),
+        ).rejects.toThrow('Poppler raster 60000x60000 exceeds limits');
         expect(mocks.runOcrCommand).not.toHaveBeenCalled();
     });
 });

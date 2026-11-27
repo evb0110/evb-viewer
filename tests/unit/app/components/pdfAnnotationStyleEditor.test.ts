@@ -2,24 +2,10 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    nextTick,
-    defineComponent,
-    h,
-} from 'vue';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import type {
-    IAnnotationPropertyUpdate,
-    TAnnotationTool,
-} from '@app/types/annotations';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, nextTick, defineComponent, h} from 'vue';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import type {IAnnotationPropertyUpdate, TAnnotationTool} from '@app/types/annotations';
 import {
     asAnnotationId,
     type AnnotationEntity,
@@ -39,32 +25,43 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 
 const TooltipStub = defineComponent({
     inheritAttrs: false,
-    setup: (_props, {slots}) => () => h('span', slots.default?.()),
+    setup:
+        (_props, {slots}) =>
+        () =>
+            h('span', slots.default?.()),
 });
 
 const ButtonStub = defineComponent({
     inheritAttrs: false,
-    setup: (_props, {attrs}) => () => h('button', {
-        ...attrs,
-        type: 'button',
-    }),
+    setup:
+        (_props, {attrs}) =>
+        () =>
+            h('button', {
+                ...attrs,
+                type: 'button',
+            }),
 });
 
 const SliderStub = defineComponent({
     inheritAttrs: false,
-    setup: (_props, {attrs}) => () => h('input', {
-        ...attrs,
-        'data-slider': '',
-        type: 'range',
-    }),
+    setup:
+        (_props, {attrs}) =>
+        () =>
+            h('input', {
+                ...attrs,
+                'data-slider': '',
+                type: 'range',
+            }),
 });
 
 const IconStub = defineComponent({
-    props: {name: {
-        type: String,
-        default: '',
-    }},
-    setup: props => () => h('span', {'data-icon': props.name}),
+    props: {
+        name: {
+            type: String,
+            default: '',
+        },
+    },
+    setup: (props) => () => h('span', {'data-icon': props.name}),
 });
 
 const activeUnmounts = new Set<() => void>();
@@ -75,16 +72,12 @@ interface IMountEditorOptions {
     canRotate?: (delta: -90 | 90) => boolean;
 }
 
-function mountEditor({
-    tool = 'text',
-    selectedAnnotations = [],
-    canRotate = () => true,
-}: IMountEditorOptions = {}) {
+function mountEditor({tool = 'text', selectedAnnotations = [], canRotate = () => true}: IMountEditorOptions = {}) {
     const host = document.createElement('div');
     document.body.append(host);
     const updates: Array<{
         key: string;
-        value: unknown
+        value: unknown;
     }> = [];
     const propertyUpdates: IAnnotationPropertyUpdate[] = [];
     const selectedTools: string[] = [];
@@ -93,18 +86,20 @@ function mountEditor({
         selectedTools.push(nextTool);
         activeTool = activeTool === nextTool ? 'none' : nextTool;
     };
-    const app = createApp(defineComponent({setup: () => () => h(PdfAnnotationStyleEditor, {
-        settings: {...DEFAULT_ANNOTATION_SETTINGS},
-        selectedAnnotations,
-        canRotate,
-        tool,
-        onUpdateProperties: (updates: IAnnotationPropertyUpdate) => propertyUpdates.push(updates),
-        onSetTool: setTool,
-        onUpdateSetting: (payload: {
-            key: string;
-            value: unknown
-        }) => updates.push(payload),
-    })}));
+    const app = createApp(
+        defineComponent({
+            setup: () => () =>
+                h(PdfAnnotationStyleEditor, {
+                    settings: {...DEFAULT_ANNOTATION_SETTINGS},
+                    selectedAnnotations,
+                    canRotate,
+                    tool,
+                    onUpdateProperties: (updates: IAnnotationPropertyUpdate) => propertyUpdates.push(updates),
+                    onSetTool: setTool,
+                    onUpdateSetting: (payload: {key: string; value: unknown}) => updates.push(payload),
+                }),
+        }),
+    );
     app.component('AppTooltip', TooltipStub);
     app.component('UButton', ButtonStub);
     app.component('UIcon', IconStub);
@@ -200,7 +195,9 @@ const selectedImage: IPlacedImageEntity = {
 
 function changeNumber(host: HTMLElement, label: string, value: string) {
     const input = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
-    if (!input) throw new Error(`Missing selected property ${label}`);
+    if (!input) {
+        throw new Error(`Missing selected property ${label}`);
+    }
     input.value = value;
     input.dispatchEvent(new Event('change', {bubbles: true}));
 }
@@ -221,14 +218,15 @@ describe('PdfAnnotationStyleEditor', () => {
             fontSize: 32.125,
             displayed: '32.13',
         },
-    ])('shows $fontSize as $displayed without losing fractional precision', ({
-        fontSize,
-        displayed,
-    }) => {
-        const {host} = mountEditor({selectedAnnotations: [{
-            ...selectedText,
-            fontSize,
-        }]});
+    ])('shows $fontSize as $displayed without losing fractional precision', ({fontSize, displayed}) => {
+        const {host} = mountEditor({
+            selectedAnnotations: [
+                {
+                    ...selectedText,
+                    fontSize,
+                },
+            ],
+        });
         expect(host.querySelector<HTMLInputElement>('input[aria-label="annotations.textSize"]')?.value).toBe(displayed);
     });
 
@@ -243,11 +241,7 @@ describe('PdfAnnotationStyleEditor', () => {
 
     it('changes draw presets without toggling the active draw tool off', () => {
         const editor = mountEditor({tool: 'draw'});
-        const {
-            host,
-            updates,
-            selectedTools,
-        } = editor;
+        const {host, updates, selectedTools} = editor;
 
         host.querySelector<HTMLButtonElement>('.draw-style-button:last-child')?.click();
 
@@ -280,36 +274,27 @@ describe('PdfAnnotationStyleEditor', () => {
         },
         {
             entity: selectedShape,
-            controls: [
-                'annotations.stroke',
-                'annotations.opacity',
-                'annotations.fillColor',
-            ],
+            controls: ['annotations.stroke', 'annotations.opacity', 'annotations.fillColor'],
         },
         {
             entity: selectedImage,
             controls: [],
         },
-    ])('shows supported canonical properties for $entity.kind', ({
-        entity,
-        controls,
-    }) => {
+    ])('shows supported canonical properties for $entity.kind', ({entity, controls}) => {
         const {host} = mountEditor({
             tool: 'select',
             selectedAnnotations: [entity],
         });
         const inputs = Array.from(host.querySelectorAll<HTMLInputElement>('input[aria-label]'));
-        expect(inputs.map(input => input.getAttribute('aria-label'))).toEqual(controls);
-        expect(host.querySelectorAll('[data-annotation-rotate]')).toHaveLength(entity.kind === 'text-box' || entity.kind === 'placed-image' ? 2 : 0);
+        expect(inputs.map((input) => input.getAttribute('aria-label'))).toEqual(controls);
+        expect(host.querySelectorAll('[data-annotation-rotate]')).toHaveLength(
+            entity.kind === 'text-box' || entity.kind === 'placed-image' ? 2 : 0,
+        );
         expect(host.querySelectorAll('.swatch').length > 0).toBe(entity.kind !== 'placed-image');
     });
 
     it('emits canonical text properties without changing creation defaults', () => {
-        const {
-            host,
-            updates,
-            propertyUpdates,
-        } = mountEditor({
+        const {host, updates, propertyUpdates} = mountEditor({
             tool: 'select',
             selectedAnnotations: [selectedText],
         });
@@ -317,42 +302,30 @@ describe('PdfAnnotationStyleEditor', () => {
         host.querySelector<HTMLButtonElement>('button[aria-label="#22c55e"]')?.click();
         changeNumber(host, 'annotations.textSize', '26');
         host.querySelector<HTMLButtonElement>('[data-annotation-rotate="cw"]')?.click();
-        expect(propertyUpdates).toEqual([
-            {color: '#22c55e'},
-            {fontSize: 26},
-            {rotationDelta: 90},
-        ]);
+        expect(propertyUpdates).toEqual([{color: '#22c55e'}, {fontSize: 26}, {rotationDelta: 90}]);
         expect(updates).toEqual([]);
     });
 
     it('shows the current angle and offers relative quarter turns without a number input', () => {
-        const {
-            host,
-            propertyUpdates,
-        } = mountEditor({selectedAnnotations: [{
-            ...selectedImage,
-            rotation: 37.125,
-        }]});
+        const {host, propertyUpdates} = mountEditor({
+            selectedAnnotations: [
+                {
+                    ...selectedImage,
+                    rotation: 37.125,
+                },
+            ],
+        });
         expect(host.querySelector('input[aria-label="annotations.rotation"]')).toBeNull();
         expect(host.querySelector('[data-annotation-rotation-value]')?.textContent?.trim()).toBe('37.13°');
         host.querySelector<HTMLButtonElement>('[data-annotation-rotate="ccw"]')?.click();
         host.querySelector<HTMLButtonElement>('[data-annotation-rotate="cw"]')?.click();
-        expect(propertyUpdates).toEqual([
-            {rotationDelta: -90},
-            {rotationDelta: 90},
-        ]);
+        expect(propertyUpdates).toEqual([{rotationDelta: -90}, {rotationDelta: 90}]);
     });
 
     it('keeps mixed orientations explicit and disables turns that cannot fit', () => {
-        const {
-            host,
-            propertyUpdates,
-        } = mountEditor({
-            selectedAnnotations: [
-                selectedText,
-                selectedImage,
-            ],
-            canRotate: delta => delta === -90,
+        const {host, propertyUpdates} = mountEditor({
+            selectedAnnotations: [selectedText, selectedImage],
+            canRotate: (delta) => delta === -90,
         });
         expect(host.querySelector('[data-annotation-rotation-value]')?.textContent?.trim()).toBe('annotations.mixedValues');
         const clockwise = host.querySelector<HTMLButtonElement>('[data-annotation-rotate="cw"]')!;
@@ -366,20 +339,18 @@ describe('PdfAnnotationStyleEditor', () => {
     it('shows custom selected colors as the active swatch', () => {
         const {host} = mountEditor({
             tool: 'select',
-            selectedAnnotations: [{
-                ...selectedText,
-                color: '#123456',
-            }],
+            selectedAnnotations: [
+                {
+                    ...selectedText,
+                    color: '#123456',
+                },
+            ],
         });
         expect(host.querySelector<HTMLButtonElement>('button[aria-label="#123456"]')?.getAttribute('aria-pressed')).toBe('true');
     });
 
     it('shows mixed values without choosing one selected object as the default', () => {
-        const {
-            host,
-            updates,
-            propertyUpdates,
-        } = mountEditor({
+        const {host, updates, propertyUpdates} = mountEditor({
             tool: 'select',
             selectedAnnotations: [
                 selectedShape,
@@ -392,10 +363,7 @@ describe('PdfAnnotationStyleEditor', () => {
                 },
             ],
         });
-        for (const label of [
-            'annotations.stroke',
-            'annotations.opacity',
-        ]) {
+        for (const label of ['annotations.stroke', 'annotations.opacity']) {
             const input = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
             expect(input?.value).toBe('');
             expect(input?.placeholder).toBe('annotations.mixedValues');
@@ -403,20 +371,14 @@ describe('PdfAnnotationStyleEditor', () => {
         expect(host.querySelector('button[aria-pressed="true"]')).toBeNull();
         changeNumber(host, 'annotations.stroke', '6');
         changeNumber(host, 'annotations.opacity', '45');
-        expect(propertyUpdates).toEqual([
-            {strokeWidth: 6},
-            {opacity: 0.45},
-        ]);
+        expect(propertyUpdates).toEqual([{strokeWidth: 6}, {opacity: 0.45}]);
         expect(updates).toEqual([]);
     });
 
     it('limits a heterogeneous selection to properties shared by every selected kind', () => {
         const {host} = mountEditor({
             tool: 'select',
-            selectedAnnotations: [
-                selectedMarkup,
-                selectedShape,
-            ],
+            selectedAnnotations: [selectedMarkup, selectedShape],
         });
         expect(host.querySelector<HTMLInputElement>('input[aria-label="annotations.opacity"]')).not.toBeNull();
         expect(host.querySelector<HTMLInputElement>('input[aria-label="annotations.stroke"]')).toBeNull();
@@ -425,10 +387,7 @@ describe('PdfAnnotationStyleEditor', () => {
     });
 
     it('does not emit a property mutation when a mixed number field is left empty', () => {
-        const {
-            host,
-            propertyUpdates,
-        } = mountEditor({
+        const {host, propertyUpdates} = mountEditor({
             tool: 'select',
             selectedAnnotations: [
                 selectedShape,
@@ -444,17 +403,14 @@ describe('PdfAnnotationStyleEditor', () => {
     });
 
     it('edits note defaults through noteColor without emitting a selected property change', () => {
-        const {
-            host,
-            updates,
-            propertyUpdates,
-        } = mountEditor({tool: 'note'});
+        const {host, updates, propertyUpdates} = mountEditor({tool: 'note'});
         host.querySelector<HTMLButtonElement>('button[aria-label="#22c55e"]')?.click();
-        expect(updates).toEqual([{
-            key: 'noteColor',
-            value: '#22c55e',
-        }]);
+        expect(updates).toEqual([
+            {
+                key: 'noteColor',
+                value: '#22c55e',
+            },
+        ]);
         expect(propertyUpdates).toEqual([]);
     });
-
 });

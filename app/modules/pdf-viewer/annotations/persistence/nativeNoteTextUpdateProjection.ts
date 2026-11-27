@@ -1,36 +1,23 @@
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import {
-    normalizePdfJsAnnotationId,
-    parsePdfAnnotationRef,
-} from '@app/utils/pdfAnnotationRefs';
-import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
-import { normalizeAnnotationSubtypeToken } from '@app/utils/textNormalization';
-import type {
-    IPdfNativeFreeTextNote,
-    IPdfNoteTextUpdate,
-} from '@contracts/electronApiDocuments';
-import { MAX_PDF_OBJECT_GENERATION } from '@contracts/pdfAnnotationRefs';
-import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
+import {normalizePdfJsAnnotationId, parsePdfAnnotationRef} from '@app/utils/pdfAnnotationRefs';
+import {parsePdfAnnotationStableKeyRef} from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
+import {normalizeAnnotationSubtypeToken} from '@app/utils/textNormalization';
+import type {IPdfNativeFreeTextNote, IPdfNoteTextUpdate} from '@contracts/electronApiDocuments';
+import {MAX_PDF_OBJECT_GENERATION} from '@contracts/pdfAnnotationRefs';
+import type {INativePdfMutationBuildResult} from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
-const NATIVE_NOTE_TEXT_UPDATE_SUBTYPES = new Set([
-    'text',
-    'popup',
-    'note',
-    'freetext',
-    'highlight',
-    'underline',
-    'strikeout',
-    'squiggly',
-]);
+const NATIVE_NOTE_TEXT_UPDATE_SUBTYPES = new Set(['text', 'popup', 'note', 'freetext', 'highlight', 'underline', 'strikeout', 'squiggly']);
 
 function parseAnnotationRefFromStableKey(stableKey: string) {
     return parsePdfAnnotationStableKeyRef(stableKey)?.ref ?? null;
 }
 
 function resolveNativeNoteTextUpdateRef(stableKey: string, comment: IAnnotationCommentSummary) {
-    return parseAnnotationRefFromStableKey(stableKey)
-        ?? parseAnnotationRefFromStableKey(comment.stableKey)
-        ?? parsePdfAnnotationRef(comment.annotationId);
+    return (
+        parseAnnotationRefFromStableKey(stableKey) ??
+        parseAnnotationRefFromStableKey(comment.stableKey) ??
+        parsePdfAnnotationRef(comment.annotationId)
+    );
 }
 
 function buildNativeNoteTextCommentLookup(comments: IAnnotationCommentSummary[]) {
@@ -64,38 +51,35 @@ function isNativeNoteTextUpdateSubtype(comment: IAnnotationCommentSummary) {
  * and all-or-nothing: updates are produced only when every pending text resolves to a
  * native-eligible ref, which is what makes coverage a set membership test downstream.
  */
-export function buildNativeNoteTextUpdatesForSave(
-    opts: {
-        pendingTexts: ReadonlyMap<string, string>;
-        canonicalComments: IAnnotationCommentSummary[];
-    },
-): INativePdfMutationBuildResult<IPdfNoteTextUpdate[]> {
+export function buildNativeNoteTextUpdatesForSave(opts: {
+    pendingTexts: ReadonlyMap<string, string>;
+    canonicalComments: IAnnotationCommentSummary[];
+}): INativePdfMutationBuildResult<IPdfNoteTextUpdate[]> {
     const skip = (reason: string, details: Record<string, unknown> = {}) => {
         return {
             value: null,
-            skipEvents: [{
-                event: 'Skipped native note-text save fast path',
-                reason,
-                details,
-            }],
+            skipEvents: [
+                {
+                    event: 'Skipped native note-text save fast path',
+                    reason,
+                    details,
+                },
+            ],
         };
     };
 
     const commentsByStableKey = buildNativeNoteTextCommentLookup(opts.canonicalComments);
     const updatesByRef = new Map<string, IPdfNoteTextUpdate>();
     const updates: IPdfNoteTextUpdate[] = [];
-    for (const [
-        stableKey,
-        text,
-    ] of opts.pendingTexts.entries()) {
+    for (const [stableKey, text] of opts.pendingTexts.entries()) {
         const comment = commentsByStableKey.get(stableKey);
         const targetRef = comment ? resolveNativeNoteTextUpdateRef(stableKey, comment) : null;
         if (
-            !comment
-            || comment.source !== 'pdf'
-            || !isNativeNoteTextUpdateSubtype(comment)
-            || !targetRef
-            || targetRef.generationNumber > MAX_PDF_OBJECT_GENERATION
+            !comment ||
+            comment.source !== 'pdf' ||
+            !isNativeNoteTextUpdateSubtype(comment) ||
+            !targetRef ||
+            targetRef.generationNumber > MAX_PDF_OBJECT_GENERATION
         ) {
             return skip('pending-text-not-native-eligible', {
                 stableKey,
@@ -145,12 +129,6 @@ export function arePendingTextsCoveredByNativeChanges(opts: {
         return true;
     }
 
-    const freeTextByStableKey = new Map((opts.nativeFreeTextNotes ?? []).map(note => [
-        note.stableKey,
-        note.text,
-    ]));
-    return [...opts.pendingTexts].every(([
-        stableKey,
-        text,
-    ]) => freeTextByStableKey.get(stableKey.trim()) === text);
+    const freeTextByStableKey = new Map((opts.nativeFreeTextNotes ?? []).map((note) => [note.stableKey, note.text]));
+    return [...opts.pendingTexts].every(([stableKey, text]) => freeTextByStableKey.get(stableKey.trim()) === text);
 }

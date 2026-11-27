@@ -7,10 +7,7 @@ export {
 } from '@electron/features/page-ops/main/qpdf';
 export {extractPages} from '@electron/features/page-ops/main/pageStructure';
 export {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
-export {
-    isPdfPageOpsCapabilityError,
-    PdfPageOpsCapabilityError,
-} from '@electron/features/page-ops/main/pageOpsErrors';
-export type { TPdfPageOpsCapabilityErrorCode } from '@electron/features/page-ops/main/pageOpsErrors';
-export { pageOpsMainBindings } from '@electron/features/page-ops/main/pageOpsMainBindings';
+export {isPdfPageOpsCapabilityError, PdfPageOpsCapabilityError} from '@electron/features/page-ops/main/pageOpsErrors';
+export type {TPdfPageOpsCapabilityErrorCode} from '@electron/features/page-ops/main/pageOpsErrors';
+export {pageOpsMainBindings} from '@electron/features/page-ops/main/pageOpsMainBindings';
 export {applyPageMetadataRemap} from '@electron/features/page-ops/main/pageMetadataRemap';

@@ -1,14 +1,11 @@
-import { screen } from 'electron';
-import { config } from '@electron/config';
-import { runtimeConfig } from '@electron/runtimeConfig';
-import {
-    encodeHostResourceProfileArgument,
-    getHostResourceProfileSnapshot,
-} from '@electron/resources/hostResourceProfile';
-import { getMainDiagnosticsPreference } from '@electron/features/diagnostics/public';
-import { encodeDiagnosticsPolicyArgument } from '@electron/platform-ipc/coreContract';
-import { encodeHostEnvironmentArgument } from '@electron/hostEnvironment';
-import { encodeUiScalePreferenceArgument } from '@electron/settings';
+import {screen} from 'electron';
+import {config} from '@electron/config';
+import {runtimeConfig} from '@electron/runtimeConfig';
+import {encodeHostResourceProfileArgument, getHostResourceProfileSnapshot} from '@electron/resources/hostResourceProfile';
+import {getMainDiagnosticsPreference} from '@electron/features/diagnostics/public';
+import {encodeDiagnosticsPolicyArgument} from '@electron/platform-ipc/coreContract';
+import {encodeHostEnvironmentArgument} from '@electron/hostEnvironment';
+import {encodeUiScalePreferenceArgument} from '@electron/settings';
 
 /**
  * Where a new window opens, and what its preload must know before the

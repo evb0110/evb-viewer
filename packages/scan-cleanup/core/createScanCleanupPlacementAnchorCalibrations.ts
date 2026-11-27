@@ -37,13 +37,7 @@ export function createScanCleanupPlacementAnchorCalibrations() {
         ): Promise<IScanCleanupPlacementAnchorCalibration> {
             const detectionSignature = createScanCleanupDetectionSignature(request.options);
             const calibrationSignature = createScanCleanupPlacementAnchorCalibrationSignature(request.options);
-            const key = JSON.stringify([
-                storeId,
-                request.ownerId,
-                request.documentRevision,
-                detectionSignature,
-                calibrationSignature,
-            ]);
+            const key = JSON.stringify([storeId, request.ownerId, request.documentRevision, detectionSignature, calibrationSignature]);
             let build = builds.get(storeId);
             if (build === undefined || build.key !== key) {
                 if (build !== undefined && build.waiters === 0) {
@@ -85,33 +79,34 @@ export function createScanCleanupPlacementAnchorCalibrations() {
                     currentBuild.controller.abort();
                 }
             }
-            const result = request.pageNumber === undefined
-                ? undefined
-                : await resultStore.getPage(request.pageNumber);
+            const result = request.pageNumber === undefined ? undefined : await resultStore.getPage(request.pageNumber);
             if (request.pageNumber !== undefined && result === undefined) {
                 throw new Error(`Scan cleanup placement calibration has no page ${String(request.pageNumber)}`);
             }
             return {
                 summary,
-                placementAnchors: result === undefined
-                    ? {}
-                    : resolveScanCleanupPlacementAnchorsFromResult(summary, request.options, result),
+                placementAnchors:
+                    result === undefined ? {} : resolveScanCleanupPlacementAnchorsFromResult(summary, request.options, result),
             };
         },
         /** Forgets a store's build; one nobody awaits stops. */
         retire(storeId: string) {
             const build = builds.get(storeId);
             builds.delete(storeId);
-            if (build !== undefined && build.waiters === 0) build.controller.abort();
+            if (build !== undefined && build.waiters === 0) {
+                build.controller.abort();
+            }
         },
         /** Retires every build whose store is no longer kept. */
         retireUnless(isKept: (storeId: string) => boolean) {
             for (const storeId of [...builds.keys()]) {
-                if (!isKept(storeId)) this.retire(storeId);
+                if (!isKept(storeId)) {
+                    this.retire(storeId);
+                }
             }
         },
         dispose() {
-            builds.forEach(build => build.controller.abort());
+            builds.forEach((build) => build.controller.abort());
             builds.clear();
         },
     };

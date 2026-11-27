@@ -1,8 +1,5 @@
-import type { IOcrWord } from '@contracts/shared';
-import type {
-    IOcrWordEdit,
-    ITesseractWord,
-} from '@ocr-core/types';
+import type {IOcrWord} from '@contracts/shared';
+import type {IOcrWordEdit, ITesseractWord} from '@ocr-core/types';
 
 /** Tesseract output bounds every host applies before it parses a page. */
 export const TESSERACT_MAX_TSV_BYTES = 64 * 1024 * 1024;
@@ -53,13 +50,17 @@ function parseNonNegativeTsvInt(value: string | undefined) {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
-export function parseTsvOcrData(tsvContent: string, limits: {
-    maxRows?: number;
-    maxWords?: number;
-    maxTextCharacters?: number;
-    maxInputCharacters?: number;
-    normalizeGreekMicroSign?: boolean;
-} = {}, wordEdits: readonly IOcrWordEdit[] = []): {
+export function parseTsvOcrData(
+    tsvContent: string,
+    limits: {
+        maxRows?: number;
+        maxWords?: number;
+        maxTextCharacters?: number;
+        maxInputCharacters?: number;
+        normalizeGreekMicroSign?: boolean;
+    } = {},
+    wordEdits: readonly IOcrWordEdit[] = [],
+): {
     /** Confident words on their line's box, for the overlay and exports. */
     words: IOcrWord[];
     text: string;
@@ -84,18 +85,18 @@ export function parseTsvOcrData(tsvContent: string, limits: {
         throw new Error('Tesseract TSV output exceeds the parser input limit');
     }
 
-    const editedText = new Map(wordEdits.map(edit => [
-        edit.word,
-        edit.to,
-    ]));
+    const editedText = new Map(wordEdits.map((edit) => [edit.word, edit.to]));
     for (const tsvRow of iterateTsvRows(tsvContent, maxRows)) {
         const edited = tsvRow.wordOrdinal === undefined ? undefined : editedText.get(tsvRow.wordOrdinal);
         const recognized = edited ?? tsvRow.text;
         const text = limits.normalizeGreekMicroSign ? recognized.replace(/\u00B5/g, '\u03BC') : recognized;
-        const row = text === tsvRow.text ? tsvRow : {
-            ...tsvRow,
-            text,
-        };
+        const row =
+            text === tsvRow.text
+                ? tsvRow
+                : {
+                      ...tsvRow,
+                      text,
+                  };
         const level = parseInt(row.parts[0]!, 10);
         if (level === 4) {
             const top = parseNonNegativeTsvInt(row.parts[7]);
@@ -108,14 +109,18 @@ export function parseTsvOcrData(tsvContent: string, limits: {
             }
             continue;
         }
-        if (level !== 5 || !row.text.trim()) continue;
+        if (level !== 5 || !row.text.trim()) {
+            continue;
+        }
 
         const left = parseNonNegativeTsvInt(row.parts[6]);
         const top = parseNonNegativeTsvInt(row.parts[7]);
         const width = parsePositiveTsvInt(row.parts[8]);
         const height = parsePositiveTsvInt(row.parts[9]);
         const confidence = parseNonNegativeTsvInt(row.parts[10]);
-        if (left === null || top === null || width === null || height === null || confidence === null) continue;
+        if (left === null || top === null || width === null || height === null || confidence === null) {
+            continue;
+        }
         appendTsvTextRow(textState, row, maxTextCharacters);
         if (acceptedWordRows.length >= maxWords) {
             throw new Error(`Tesseract TSV output exceeds the ${maxWords}-word limit`);
@@ -135,18 +140,20 @@ export function parseTsvOcrData(tsvContent: string, limits: {
     flushTsvTextLine(textState.outputLines, textState.currentWords);
 
     return {
-        words: acceptedWordRows.filter(row => row.confidence >= 20).map((row) => {
-            const lineBox = lineBoxes.get(getTsvLineKey(row.parts));
-            return {
-                text: row.text,
-                x: row.left,
-                y: lineBox?.top ?? row.top,
-                width: row.width,
-                height: lineBox?.height ?? row.height,
-            };
-        }),
+        words: acceptedWordRows
+            .filter((row) => row.confidence >= 20)
+            .map((row) => {
+                const lineBox = lineBoxes.get(getTsvLineKey(row.parts));
+                return {
+                    text: row.text,
+                    x: row.left,
+                    y: lineBox?.top ?? row.top,
+                    width: row.width,
+                    height: lineBox?.height ?? row.height,
+                };
+            }),
         text: textState.outputLines.join('\n').trim(),
-        inkWords: acceptedWordRows.map(row => ({
+        inkWords: acceptedWordRows.map((row) => ({
             text: row.recognizedText,
             x: row.left,
             y: row.top,
@@ -206,7 +213,10 @@ function appendTsvTextRow(
     state.outputCharacters += separatorCharacters + row.text.length;
 }
 
-function* iterateTsvRows(tsvContent: string, maxRows: number): Generator<{
+function* iterateTsvRows(
+    tsvContent: string,
+    maxRows: number,
+): Generator<{
     parts: string[];
     text: string;
     /** Set on non-empty word rows: the word's place in Tesseract's PDF text. */
@@ -232,14 +242,18 @@ function* iterateTsvRows(tsvContent: string, maxRows: number): Generator<{
         const lineEnd = nextLineEnd < 0 ? trimmed.length : nextLineEnd;
         const line = trimmed.slice(cursor, lineEnd).replace(/\r$/u, '');
         cursor = nextLineEnd < 0 ? trimmed.length + 1 : nextLineEnd + 1;
-        if (!line.trim()) continue;
+        if (!line.trim()) {
+            continue;
+        }
         rowCount += 1;
         if (rowCount > maxRows) {
             throw new Error(`Tesseract TSV output exceeds the ${maxRows}-row limit`);
         }
 
         const parts = line.split('\t');
-        if (parts.length < 12) continue;
+        if (parts.length < 12) {
+            continue;
+        }
 
         const text = (parts[11] ?? '').trim();
         yield {
@@ -253,7 +267,9 @@ function* iterateTsvRows(tsvContent: string, maxRows: number): Generator<{
 export function readTesseractWords(tsvContent: string): ITesseractWord[] {
     const words: ITesseractWord[] = [];
     for (const row of iterateTsvRows(tsvContent, OCR_TSV_MAX_ROWS)) {
-        if (row.wordOrdinal === undefined) continue;
+        if (row.wordOrdinal === undefined) {
+            continue;
+        }
         words.push({
             ordinal: row.wordOrdinal,
             lineKey: getTsvLineKey(row.parts),

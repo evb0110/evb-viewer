@@ -4,15 +4,9 @@ import {pathToFileURL} from 'node:url';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '..');
 const BULK_AUDIT_PNPM_VERSION = '11.13.1';
-const AUDIT_SEVERITIES = [
-    'info',
-    'low',
-    'moderate',
-    'high',
-    'critical',
-] as const;
+const AUDIT_SEVERITIES = ['info', 'low', 'moderate', 'high', 'critical'] as const;
 
-type TAuditSeverity = typeof AUDIT_SEVERITIES[number];
+type TAuditSeverity = (typeof AUDIT_SEVERITIES)[number];
 
 interface IAuditSummary {
     counts: Record<TAuditSeverity, number>;
@@ -53,9 +47,7 @@ function parseAuditReport(source: string, label: string) {
 }
 
 export function shouldUseBulkAuditFallback(source: unknown) {
-    return typeof source === 'string'
-        && source.includes('ERR_PNPM_AUDIT_BAD_RESPONSE')
-        && source.includes('endpoint is being retired');
+    return typeof source === 'string' && source.includes('ERR_PNPM_AUDIT_BAD_RESPONSE') && source.includes('endpoint is being retired');
 }
 
 export function summarizeProductionAuditReport(report: unknown, label = 'project'): IAuditSummary {
@@ -74,20 +66,21 @@ export function summarizeProductionAuditReport(report: unknown, label = 'project
 
     const muted = report.muted;
     if (Array.isArray(muted) && muted.length > 0) {
-        throw new Error(`${label} pnpm audit report contains ${muted.length} muted advisories; checked-in audit policy does not permit hidden production vulnerabilities.`);
+        throw new Error(
+            `${label} pnpm audit report contains ${muted.length} muted advisories; checked-in audit policy does not permit hidden production vulnerabilities.`,
+        );
     }
 
-    const counts = Object.fromEntries(AUDIT_SEVERITIES.map((severity) => {
-        const count = vulnerabilities[severity];
-        if (!Number.isSafeInteger(count) || Number(count) < 0) {
-            throw new Error(`${label} pnpm audit report has an invalid ${severity} vulnerability count.`);
-        }
+    const counts = Object.fromEntries(
+        AUDIT_SEVERITIES.map((severity) => {
+            const count = vulnerabilities[severity];
+            if (!Number.isSafeInteger(count) || Number(count) < 0) {
+                throw new Error(`${label} pnpm audit report has an invalid ${severity} vulnerability count.`);
+            }
 
-        return [
-            severity,
-            Number(count),
-        ];
-    })) as Record<TAuditSeverity, number>;
+            return [severity, Number(count)];
+        }),
+    ) as Record<TAuditSeverity, number>;
 
     return {
         counts,
@@ -141,7 +134,9 @@ export function assertProductionAuditIsClean(report: unknown, label = 'project')
         throw new Error(`${label} pnpm audit counts ${summary.total} vulnerabilities but its advisories list ${advisories.occurrences}.`);
     }
     if (advisories.fixable.length > 0) {
-        throw new Error(`${label} dependency audit found ${advisories.fixable.length} advisories with a patched release or an unknown patched status:\n${advisories.fixable.join('\n')}`);
+        throw new Error(
+            `${label} dependency audit found ${advisories.fixable.length} advisories with a patched release or an unknown patched status:\n${advisories.fixable.join('\n')}`,
+        );
     }
 
     return {
@@ -152,11 +147,7 @@ export function assertProductionAuditIsClean(report: unknown, label = 'project')
 
 function runProjectAudit(project: IAuditProject) {
     const scopeArgs = project.scope === 'prod' ? ['--prod'] : [];
-    let result = spawnSync('pnpm', [
-        'audit',
-        ...scopeArgs,
-        '--json',
-    ], {
+    let result = spawnSync('pnpm', ['audit', ...scopeArgs, '--json'], {
         cwd: project.cwd,
         encoding: 'utf8',
         maxBuffer: 16 * 1024 * 1024,
@@ -168,14 +159,7 @@ function runProjectAudit(project: IAuditProject) {
     }
 
     if (shouldUseBulkAuditFallback(result.stdout)) {
-        result = spawnSync('pnpm', [
-            'dlx',
-            `pnpm@${BULK_AUDIT_PNPM_VERSION}`,
-            '--pm-on-fail=ignore',
-            'audit',
-            ...scopeArgs,
-            '--json',
-        ], {
+        result = spawnSync('pnpm', ['dlx', `pnpm@${BULK_AUDIT_PNPM_VERSION}`, '--pm-on-fail=ignore', 'audit', ...scopeArgs, '--json'], {
             cwd: project.cwd,
             encoding: 'utf8',
             maxBuffer: 16 * 1024 * 1024,
@@ -193,7 +177,9 @@ function runProjectAudit(project: IAuditProject) {
     // pnpm audit exits non-zero whenever it lists an advisory.
     if (result.status !== 0 && summary.total === 0) {
         const detail = result.stderr.trim();
-        throw new Error(`${project.label} pnpm audit failed with exit code ${result.status ?? '<unknown>'}${detail === '' ? '' : `: ${detail}`}`);
+        throw new Error(
+            `${project.label} pnpm audit failed with exit code ${result.status ?? '<unknown>'}${detail === '' ? '' : `: ${detail}`}`,
+        );
     }
 
     for (const advisory of summary.unpatched) {

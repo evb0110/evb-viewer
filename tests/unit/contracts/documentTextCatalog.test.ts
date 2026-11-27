@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     decodeDocumentOcrAvailability,
     decodeDocumentOcrPageSnapshot,
@@ -30,40 +26,38 @@ function createPage(words: unknown[]) {
 
 describe('document text catalog page-scoped decoders', () => {
     it('decodes compact OCR availability without page geometry', () => {
-        expect(decodeDocumentOcrAvailability({
+        expect(
+            decodeDocumentOcrAvailability({
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 406,
+                pageNumbers: [1, 406],
+            }),
+        ).toEqual({
             documentRevision: DOCUMENT_REVISION,
             pageCount: 406,
-            pageNumbers: [
-                1,
-                406,
-            ],
-        })).toEqual({
-            documentRevision: DOCUMENT_REVISION,
-            pageCount: 406,
-            pageNumbers: [
-                1,
-                406,
-            ],
+            pageNumbers: [1, 406],
         });
     });
 
     it('decodes bounded OCR availability ranges with a scalar mapped count', () => {
-        expect(decodeDocumentOcrAvailability({
-            documentRevision: DOCUMENT_REVISION,
-            pageCount: 1_000_001,
-            mappedPageCount: 2,
-            pageRanges: [
-                {
-                    firstPage: 1,
-                    lastPage: 1,
-                },
-                {
-                    firstPage: 900_000,
-                    lastPage: 900_000,
-                },
-            ],
-            rangesComplete: true,
-        })).toEqual({
+        expect(
+            decodeDocumentOcrAvailability({
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 1_000_001,
+                mappedPageCount: 2,
+                pageRanges: [
+                    {
+                        firstPage: 1,
+                        lastPage: 1,
+                    },
+                    {
+                        firstPage: 900_000,
+                        lastPage: 900_000,
+                    },
+                ],
+                rangesComplete: true,
+            }),
+        ).toEqual({
             documentRevision: DOCUMENT_REVISION,
             pageCount: 1_000_001,
             mappedPageCount: 2,
@@ -82,19 +76,20 @@ describe('document text catalog page-scoped decoders', () => {
     });
 
     it('rejects duplicate or out-of-range availability page numbers', () => {
-        expect(decodeDocumentOcrAvailability({
-            documentRevision: DOCUMENT_REVISION,
-            pageCount: 2,
-            pageNumbers: [
-                1,
-                1,
-            ],
-        })).toBeNull();
-        expect(decodeDocumentOcrAvailability({
-            documentRevision: DOCUMENT_REVISION,
-            pageCount: 2,
-            pageNumbers: [3],
-        })).toBeNull();
+        expect(
+            decodeDocumentOcrAvailability({
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 2,
+                pageNumbers: [1, 1],
+            }),
+        ).toBeNull();
+        expect(
+            decodeDocumentOcrAvailability({
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 2,
+                pageNumbers: [3],
+            }),
+        ).toBeNull();
     });
 
     it('rejects a page before validating an excessive word collection', () => {
@@ -105,13 +100,12 @@ describe('document text catalog page-scoped decoders', () => {
             width: 1,
             height: 1,
         };
-        expect(decodeDocumentOcrPageSnapshot({
-            documentRevision: DOCUMENT_REVISION,
-            pageCount: 1,
-            page: createPage(Array.from(
-                {length: MAX_DOCUMENT_TEXT_CATALOG_PAGE_WORDS + 1},
-                () => word,
-            )),
-        })).toBeNull();
+        expect(
+            decodeDocumentOcrPageSnapshot({
+                documentRevision: DOCUMENT_REVISION,
+                pageCount: 1,
+                page: createPage(Array.from({length: MAX_DOCUMENT_TEXT_CATALOG_PAGE_WORDS + 1}, () => word)),
+            }),
+        ).toBeNull();
     });
 });

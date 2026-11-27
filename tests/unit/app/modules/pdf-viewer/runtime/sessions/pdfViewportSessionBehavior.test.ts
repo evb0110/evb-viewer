@@ -1,48 +1,20 @@
-import type { IPdfRenderTraceEntry } from '@contracts/pdfDiagnostics';
-import { findInitialRenderAuthorityViolations } from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
+import type {IPdfRenderTraceEntry} from '@contracts/pdfDiagnostics';
+import {findInitialRenderAuthorityViolations} from '@tests/e2e/electron/helpers/viewerCommittedSurfaceContract';
 import type * as PdfPageRendererModule from '@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer';
-import type {
-    IPdfDocument, IPdfPage,
-} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import type {IPdfDocument, IPdfPage} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
 // @vitest-environment happy-dom
 
-import {
-    requirePageIndex,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
+import {requirePageIndex, requirePageNumber} from '@contracts/pageNumbers';
 import {getLayoutPageTop} from '@app/modules/document-viewer/public';
-import {
-    requireDocumentRevisionToken,
-    type TDocumentRevisionToken,
-} from '@contracts/documentRevision';
-import {
-    computed,
-    createApp,
-    defineComponent,
-    nextTick,
-    ref,
-    shallowRef,
-    watch,
-} from 'vue';
-import {
-    afterAll,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {requireDocumentRevisionToken, type TDocumentRevisionToken} from '@contracts/documentRevision';
+import {computed, createApp, defineComponent, nextTick, ref, shallowRef, watch} from 'vue';
+import {afterAll, describe, expect, it, vi} from 'vitest';
 import {yieldToBrowser} from '@app/utils/yieldToBrowser';
-import type {
-    IPdfDocumentTransition,
-    TPdfDocumentView,
-} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
-import {
-    createPdfViewportSession,
-    type IPdfViewportDemand,
-} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
+import type {IPdfDocumentTransition, TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import {createPdfViewportSession, type IPdfViewportDemand} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import {createPdfPageRasterScheduler} from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import {createWorkspaceSurfaceBudgetController} from '@app/modules/document-viewer/runtime/workspaceSurfaceBudgetController';
-import { createPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
+import {createPdfRenderingSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import type {
     IPdfPageRasterScheduler,
     IPdfRasterDemand,
@@ -50,12 +22,12 @@ import type {
     IPdfRasterRenderTarget,
     TPdfRasterOutcome,
 } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
-import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
+import {resolvePdfRenderPerformancePolicy} from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
 import {
     createDocumentOpenSurfaceSession,
     type IDocumentOpenSurfaceSession,
 } from '@app/modules/document-viewer/runtime/documentOpenSurfaceSession';
-import { createDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import {createDocumentViewerRuntime} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
 import {
     createPageNavigationRequest,
     type IDocumentNavigationTicket,
@@ -66,12 +38,12 @@ import {
     fenceDocumentViewportPaneRelocationScroll,
     observeDocumentViewportWheelInteraction,
 } from '@app/modules/document-viewer/runtime/documentViewportWritePort';
-import type { IPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import type { IDocumentViewerRuntime } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
-import { createTestPdfViewportWritePort } from '@tests/helpers/createTestPdfViewportWritePort';
-import { usePdfViewerWheelZoom } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom';
-import { ZOOM } from '@app/constants/pdfLayout';
+import type {IPdfViewportWritePort} from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import type {IDocumentViewerRuntime} from '@app/modules/document-viewer/runtime/documentViewerRuntime';
+import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
+import {usePdfViewerWheelZoom} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerWheelZoom';
+import {ZOOM} from '@app/constants/pdfLayout';
 import type {IFailureToastTarget} from '@app/composables/useFailureToast';
 import {renderToString} from 'vue/server-renderer';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -82,11 +54,13 @@ const toasts: Array<Parameters<IFailureToastTarget['add']>[0]> = [];
 vi.stubGlobal('useToast', () => ({add: (toast: Parameters<IFailureToastTarget['add']>[0]) => toasts.push(toast)}));
 vi.mock('vue-i18n', async () => {
     const {default: messages} = await import('@i18n-app/messages/en');
-    return {useI18n: () => ({
-        locale: ref('en'),
-        t: (key: string) => key,
-        getLocaleMessage: () => messages,
-    })};
+    return {
+        useI18n: () => ({
+            locale: ref('en'),
+            t: (key: string) => key,
+            getLocaleMessage: () => messages,
+        }),
+    };
 });
 afterAll(() => vi.unstubAllGlobals());
 
@@ -102,19 +76,21 @@ vi.mock('@app/utils/browserLogger', () => ({
     setBrowserLogSink: vi.fn(),
 }));
 
-vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer', async importOriginal => {
+vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer', async (importOriginal) => {
     const original = await importOriginal<typeof PdfPageRendererModule>();
-    return {usePdfPageRenderer: (...args: Parameters<typeof original.usePdfPageRenderer>) => ({
-        ...original.usePdfPageRenderer(...args),
-        // These canvas behavior fixtures do not acquire pages for optional DOM layers.
-        renderLayerPromotions: async () => {},
-        renderCommittedPageLayers: async (
-            _commit: Parameters<ReturnType<typeof original.usePdfPageRenderer>['renderCommittedPageLayers']>[0],
-            publishRaster?: (layers: 'canvas-only') => boolean,
-        ) => {
-            publishRaster?.('canvas-only');
-        },
-    })};
+    return {
+        usePdfPageRenderer: (...args: Parameters<typeof original.usePdfPageRenderer>) => ({
+            ...original.usePdfPageRenderer(...args),
+            // These canvas behavior fixtures do not acquire pages for optional DOM layers.
+            renderLayerPromotions: async () => {},
+            renderCommittedPageLayers: async (
+                _commit: Parameters<ReturnType<typeof original.usePdfPageRenderer>['renderCommittedPageLayers']>[0],
+                publishRaster?: (layers: 'canvas-only') => boolean,
+            ) => {
+                publishRaster?.('canvas-only');
+            },
+        }),
+    };
 });
 
 const performancePolicy = resolvePdfRenderPerformancePolicy({
@@ -178,7 +154,7 @@ function installGeometryObservers() {
         }
     } as unknown as typeof ResizeObserver;
     return {
-        isObserved: (element: Element) => [...observers].some(record => record.elements.has(element)),
+        isObserved: (element: Element) => [...observers].some((record) => record.elements.has(element)),
         deliver(element: Element) {
             for (const record of observers) {
                 if (record.elements.has(element)) {
@@ -194,10 +170,12 @@ function installGeometryObservers() {
 
 function createDocumentFixture(pageCount = 100) {
     const subscribers: Array<(transition: IPdfDocumentTransition) => void | Promise<void>> = [];
-    const pageMetrics = ref(Array.from({ length: pageCount }, () => ({
-        width: 600,
-        height: 900,
-    })));
+    const pageMetrics = ref(
+        Array.from({length: pageCount}, () => ({
+            width: 600,
+            height: 900,
+        })),
+    );
     const pageMetricsVersion = ref(0);
     const document = {numPages: pageCount} as IPdfDocument;
     const loadToken = ref(1);
@@ -276,27 +254,29 @@ function createChassisAuthority(surface: IDocumentOpenSurfaceSession) {
     return createDocumentViewerRuntime(ref('pdf'), surface);
 }
 
-function createViewportFixture(input: {
-    bufferPages?: number;
-    documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
-    chassisAuthority?: IDocumentViewerRuntime;
-    continuousScroll?: boolean;
-    fitMode?: Ref<'width' | 'height'>;
-    isActive?: Ref<boolean>;
-    isResizing?: Ref<boolean>;
-    isPageFreshlyRenderedForNavigation?: (pageNumber: number) => boolean;
-    pageCount?: number;
-    /** Holds every page-metric read until it settles, from before the view mounts. */
-    pageMetricsGate?: Promise<boolean>;
-    /** Attaches a rendering session whose rasters go through this scheduler. */
-    rasterScheduler?: IPdfPageRasterScheduler;
-    rasterDemand?: Ref<IPdfViewportDemand>;
-    /** The view's real write port, for sequences whose verdict the port owns. */
-    viewportWritePort?: IPdfViewportWritePort;
-    viewMode?: 'single' | 'facing' | 'facing-first-single';
-    zoom?: Ref<number>;
-    zoomMode?: 'custom' | 'fit-width' | 'fit-height';
-} = {}) {
+function createViewportFixture(
+    input: {
+        bufferPages?: number;
+        documentRevisionToken?: Ref<TDocumentRevisionToken | null>;
+        chassisAuthority?: IDocumentViewerRuntime;
+        continuousScroll?: boolean;
+        fitMode?: Ref<'width' | 'height'>;
+        isActive?: Ref<boolean>;
+        isResizing?: Ref<boolean>;
+        isPageFreshlyRenderedForNavigation?: (pageNumber: number) => boolean;
+        pageCount?: number;
+        /** Holds every page-metric read until it settles, from before the view mounts. */
+        pageMetricsGate?: Promise<boolean>;
+        /** Attaches a rendering session whose rasters go through this scheduler. */
+        rasterScheduler?: IPdfPageRasterScheduler;
+        rasterDemand?: Ref<IPdfViewportDemand>;
+        /** The view's real write port, for sequences whose verdict the port owns. */
+        viewportWritePort?: IPdfViewportWritePort;
+        viewMode?: 'single' | 'facing' | 'facing-first-single';
+        zoom?: Ref<number>;
+        zoomMode?: 'custom' | 'fit-width' | 'fit-height';
+    } = {},
+) {
     const container = document.createElement('div');
     defineDimension(container, 'clientHeight', 800);
     defineDimension(container, 'clientWidth', 800);
@@ -304,7 +284,9 @@ function createViewportFixture(input: {
     container.scrollTop = 0;
     const viewerContainer = ref<HTMLElement | null>(container);
     const documentSession = createDocumentFixture(input.pageCount);
-    if (input.pageMetricsGate) documentSession.ensurePageMetricsInRange.mockReturnValue(input.pageMetricsGate);
+    if (input.pageMetricsGate) {
+        documentSession.ensurePageMetricsInRange.mockReturnValue(input.pageMetricsGate);
+    }
     const zoom = input.zoom ?? ref(1);
     const outputScale = ref(1);
     const zoomMode = ref(input.zoomMode ?? 'fit-width');
@@ -319,81 +301,84 @@ function createViewportFixture(input: {
     const cancelSupersededRasters = vi.fn(() => rendering?.cancelSupersededRasters());
     let viewport: ReturnType<typeof createPdfViewportSession> | undefined;
     const root = document.createElement('div');
-    const app = createApp(defineComponent({
-        name: 'PdfViewportSessionBehaviorFixture',
-        setup() {
-            viewport = createPdfViewportSession({
-                document: documentSession,
-                chassisAuthority: input.chassisAuthority ?? null,
-                performancePolicy,
-                maxBufferCanvasPixels: 100,
-                settledMaxCanvasPixels: 1_000_000,
-                viewerContainer,
-                viewportWritePort: port,
-                zoom: computed(() => zoom.value),
-                zoomMode: computed(() => zoomMode.value),
-                fitMode: computed(() => fitMode.value),
-                viewMode: computed(() => viewMode.value),
-                continuousScroll: computed(() => input.continuousScroll ?? true),
-                bufferPages: computed(() => input.bufferPages ?? 3),
-                isActive: computed(() => isActive.value),
-                isResizing: computed(() => input.isResizing?.value ?? false),
-                outputScale,
-                isPageFreshlyRenderedForNavigation:
-                    input.isPageFreshlyRenderedForNavigation ?? (() => true),
-                cancelSupersededRasters,
-                adoptResidentCanvas: pageNumber => rendering?.adoptResidentCanvas(pageNumber),
-                reconcileCommittedVisual: () => rendering?.reconcileCommittedVisual(),
-                selectionMarkupStyle: computed(() => null),
-                classState: {
-                    isAnySaving: computed(() => false),
-                    isDragging: ref(false),
-                    isViewerPanDragModeActive: computed(() => false),
-                    isSelectionMarkupToolActive: computed(() => false),
-                    isTextSelectionModeActive: computed(() => false),
-                    fitMode: computed(() => fitMode.value),
-                    zoomMode: computed(() => zoomMode.value),
-                },
-                emitZoomState: state => {
-                    if (state.kind === 'custom') zoom.value = state.scale;
-                },
-                summarizeViewerStateForLog: vi.fn(),
-            });
-            watch(viewport.currentPage, page => emittedPages.push(page), {
-                flush: 'sync',
-                immediate: true,
-            });
-            if (input.rasterScheduler) {
-                documentSession.rasterScheduler = input.rasterScheduler;
-                rendering = createPdfRenderingSession({
+    const app = createApp(
+        defineComponent({
+            name: 'PdfViewportSessionBehaviorFixture',
+            setup() {
+                viewport = createPdfViewportSession({
                     document: documentSession,
-                    viewport: {
-                        ...viewport,
-                        demand: input.rasterDemand ?? viewport.demand,
-                    },
-                    chassisAuthority: null,
-                    openSurfaceRenderOwner: undefined,
+                    chassisAuthority: input.chassisAuthority ?? null,
                     performancePolicy,
-                    viewerContainer,
-                    isActive: computed(() => isActive.value),
-                    isResizing: computed(() => false),
-                    viewMode: computed(() => viewMode.value),
-                    outputScale,
-                    rasterDisplayProfile: computed(() => null),
-                    bufferPages: computed(() => input.bufferPages ?? 3),
-                    searchPageMatches: computed(() => new Map()),
-                    currentSearchMatch: computed(() => null),
-                    currentSearchMatchNavigationId: computed(() => 0),
-                    workingCopyPath: computed(() => null),
-                    documentRevisionToken: computed(() => input.documentRevisionToken?.value ?? null),
                     maxBufferCanvasPixels: 100,
-                    emitInitialVisualReady: vi.fn(),
-                    emitLoadError: vi.fn(),
+                    settledMaxCanvasPixels: 1_000_000,
+                    viewerContainer,
+                    viewportWritePort: port,
+                    zoom: computed(() => zoom.value),
+                    zoomMode: computed(() => zoomMode.value),
+                    fitMode: computed(() => fitMode.value),
+                    viewMode: computed(() => viewMode.value),
+                    continuousScroll: computed(() => input.continuousScroll ?? true),
+                    bufferPages: computed(() => input.bufferPages ?? 3),
+                    isActive: computed(() => isActive.value),
+                    isResizing: computed(() => input.isResizing?.value ?? false),
+                    outputScale,
+                    isPageFreshlyRenderedForNavigation: input.isPageFreshlyRenderedForNavigation ?? (() => true),
+                    cancelSupersededRasters,
+                    adoptResidentCanvas: (pageNumber) => rendering?.adoptResidentCanvas(pageNumber),
+                    reconcileCommittedVisual: () => rendering?.reconcileCommittedVisual(),
+                    selectionMarkupStyle: computed(() => null),
+                    classState: {
+                        isAnySaving: computed(() => false),
+                        isDragging: ref(false),
+                        isViewerPanDragModeActive: computed(() => false),
+                        isSelectionMarkupToolActive: computed(() => false),
+                        isTextSelectionModeActive: computed(() => false),
+                        fitMode: computed(() => fitMode.value),
+                        zoomMode: computed(() => zoomMode.value),
+                    },
+                    emitZoomState: (state) => {
+                        if (state.kind === 'custom') {
+                            zoom.value = state.scale;
+                        }
+                    },
+                    summarizeViewerStateForLog: vi.fn(),
                 });
-            }
-            return () => null;
-        },
-    }));
+                watch(viewport.currentPage, (page) => emittedPages.push(page), {
+                    flush: 'sync',
+                    immediate: true,
+                });
+                if (input.rasterScheduler) {
+                    documentSession.rasterScheduler = input.rasterScheduler;
+                    rendering = createPdfRenderingSession({
+                        document: documentSession,
+                        viewport: {
+                            ...viewport,
+                            demand: input.rasterDemand ?? viewport.demand,
+                        },
+                        chassisAuthority: null,
+                        openSurfaceRenderOwner: undefined,
+                        performancePolicy,
+                        viewerContainer,
+                        isActive: computed(() => isActive.value),
+                        isResizing: computed(() => false),
+                        viewMode: computed(() => viewMode.value),
+                        outputScale,
+                        rasterDisplayProfile: computed(() => null),
+                        bufferPages: computed(() => input.bufferPages ?? 3),
+                        searchPageMatches: computed(() => new Map()),
+                        currentSearchMatch: computed(() => null),
+                        currentSearchMatchNavigationId: computed(() => 0),
+                        workingCopyPath: computed(() => null),
+                        documentRevisionToken: computed(() => input.documentRevisionToken?.value ?? null),
+                        maxBufferCanvasPixels: 100,
+                        emitInitialVisualReady: vi.fn(),
+                        emitLoadError: vi.fn(),
+                    });
+                }
+                return () => null;
+            },
+        }),
+    );
     app.mount(root);
     if (!viewport) {
         throw new Error('Failed to create PDF viewport session fixture');
@@ -449,7 +434,7 @@ function createDiscardingRasterScheduler() {
             input: TInput;
             policy: IPdfRasterDemandPolicy<TInput>;
             target: IPdfRasterRenderTarget<TPrepared>;
-        }) => request.policy.expand(request.input).forEach(demand => discard(demand, request.target)),
+        }) => request.policy.expand(request.input).forEach((demand) => discard(demand, request.target)),
         request: async <TPrepared>(request: {
             demand: IPdfRasterDemand;
             target: IPdfRasterRenderTarget<TPrepared>;
@@ -474,22 +459,25 @@ function createDiscardingRasterScheduler() {
 /** Collects the ids of the mandatory raster requests the viewport publishes. */
 function recordMandatoryRasterRequests(viewport: ReturnType<typeof createPdfViewportSession>) {
     const ids = new Set<number>();
-    const stop = watch(viewport.demand, (demand) => {
-        if (demand.mandatoryRaster) ids.add(demand.mandatoryRaster.id);
-    }, {
-        flush: 'sync',
-        immediate: true,
-    });
+    const stop = watch(
+        viewport.demand,
+        (demand) => {
+            if (demand.mandatoryRaster) {
+                ids.add(demand.mandatoryRaster.id);
+            }
+        },
+        {
+            flush: 'sync',
+            immediate: true,
+        },
+    );
     return {
         ids,
         stop,
     };
 }
 
-function setCurrentPage(
-    viewport: ReturnType<typeof createPdfViewportSession>,
-    page: number,
-) {
+function setCurrentPage(viewport: ReturnType<typeof createPdfViewportSession>, page: number) {
     // The user has moved the viewport to the top of this page.
     viewport.singlePageScroll.cancelProgrammaticNavigation('test-user-scroll', {
         affinity: 'start',
@@ -501,10 +489,7 @@ function setCurrentPage(
     });
 }
 
-function transition(
-    phase: IPdfDocumentTransition['phase'],
-    plan: IPdfDocumentTransition['plan'],
-): IPdfDocumentTransition {
+function transition(phase: IPdfDocumentTransition['phase'], plan: IPdfDocumentTransition['plan']): IPdfDocumentTransition {
     return {
         phase,
         isSameDocumentRewrite: false,
@@ -521,216 +506,225 @@ function transition(
 }
 
 describe('PdfViewportSession behavior', () => {
-    it.each([
-        'zoom',
-        'Retry',
-        'relayout after failure',
-    ] as const)('keeps a queued %s raster alive when demand is published again', async reason => {
-        const lease = Promise.withResolvers<undefined>();
-        const signals: AbortSignal[] = [];
-        let fail = reason !== 'zoom';
-        const page = Object.assign(Object.create(null), {
-            pageNumber: 1,
-            rotate: 0,
-            getAnnotations: async () => [],
-            getViewport: ({scale}: {scale: number}) => ({
-                width: 600 * scale,
-                height: 900 * scale,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 600,
-                    pageHeight: 900,
-                },
-            }),
-            render: () => ({
-                promise: fail ? Promise.reject(new Error('page failed')) : Promise.resolve(),
-                cancel() {},
-            }),
-        });
-        let holdLease = false;
-        const scheduler = createPdfPageRasterScheduler({
-            documentFence: {
-                loadToken: 1,
-                documentVersion: 1,
-                documentRevision: 'revision-1',
-            },
-            maxConcurrency: 1,
-            leasePage: async (_page, _retention, signal) => {
-                if (holdLease) {
-                    signals.push(signal!);
-                    await lease.promise;
-                }
-                return {
-                    page,
-                    release() {},
-                };
-            },
-            surfaceBudget: createWorkspaceSurfaceBudgetController(10_000_000),
-        });
-        const animation = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(0);
-        const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
-        const fixture = createViewportFixture({
-            pageCount: 1,
-            bufferPages: 0,
-            rasterScheduler: scheduler,
-            zoomMode: 'custom',
-        });
-        document.body.append(fixture.container);
-        appendRasterTarget(fixture.container, 1);
-        fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
-        fixture.viewport.markPageMounted(requirePageNumber(1));
-        const rendering = fixture.rendering!;
-        try {
-            await rendering.renderVisiblePages({
-                start: 1,
-                end: 1,
-            });
-            expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(fail);
-            const previousCanvas = fixture.container.querySelector('canvas');
-            fail = false;
-            holdLease = true;
-            fixture.zoom.value = 2;
-            const raster = rendering.renderVisiblePages({
-                start: 1,
-                end: 1,
-            }, {forceRerender: reason === 'Retry'});
-            await expect.poll(() => signals.length).toBe(1);
-            const republished = rendering.renderVisiblePages({
-                start: 1,
-                end: 1,
-            });
-            await nextTick();
-            await Promise.resolve();
-            expect(signals[0]!.aborted).toBe(false);
-            lease.resolve(undefined);
-            await Promise.all([
-                raster,
-                republished,
-            ]);
-            expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(true);
-            expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(false);
-            const canvas = fixture.container.querySelector('canvas');
-            expect(canvas).not.toBe(previousCanvas);
-            expect(canvas!.width * canvas!.height).toBeGreaterThan(0);
-        } finally {
-            lease.resolve(undefined);
-            await fixture.dispose();
-            await scheduler.dispose();
-            fixture.container.remove();
-            context.mockRestore();
-            animation.mockRestore();
-        }
-    });
-
-    it.each([
-        false,
-        true,
-    ])('explains an invalid viewport without re-demanding it, and redraws it on Retry (relayout: %s)', async (relayout) => {
-        toasts.length = 0;
-        vi.mocked(BrowserLogger.error).mockReturnValue({
-            eventId: '0123456789abcdef0123456789abcdef',
-            code: 'RENDERER_PDF_PAGE_RENDER_FAILED',
-            occurredAt: requireEpochMs(Date.now()),
-            severity: 'error',
-        });
-        let invalid = true;
-        let hold = false;
-        const held = Promise.withResolvers<undefined>();
-        const started = Promise.withResolvers<undefined>();
-        const cancelled = new Error('Render cancelled by Retry');
-        cancelled.name = 'RenderingCancelledException';
-        const page = cast<IPdfPage>({
-            pageNumber: 1,
-            rotate: 0,
-            getAnnotations: async () => [],
-            getViewport: ({scale}: {scale: number}) => ({
-                width: invalid ? Infinity : 600 * scale,
-                height: invalid ? Infinity : 900 * scale,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 600,
-                    pageHeight: 900,
-                },
-            }),
-            render: () => {
-                if (!hold) return {
-                    promise: Promise.resolve(),
+    it.each(['zoom', 'Retry', 'relayout after failure'] as const)(
+        'keeps a queued %s raster alive when demand is published again',
+        async (reason) => {
+            const lease = Promise.withResolvers<undefined>();
+            const signals: AbortSignal[] = [];
+            let fail = reason !== 'zoom';
+            const page = Object.assign(Object.create(null), {
+                pageNumber: 1,
+                rotate: 0,
+                getAnnotations: async () => [],
+                getViewport: ({scale}: {scale: number}) => ({
+                    width: 600 * scale,
+                    height: 900 * scale,
+                    userUnit: 1,
+                    rawDims: {
+                        pageWidth: 600,
+                        pageHeight: 900,
+                    },
+                }),
+                render: () => ({
+                    promise: fail ? Promise.reject(new Error('page failed')) : Promise.resolve(),
                     cancel() {},
-                };
-                started.resolve(undefined);
-                return {
-                    promise: held.promise,
-                    cancel: () => held.reject(cancelled),
-                };
-            },
-        });
-        const scheduler = createPdfPageRasterScheduler({
-            documentFence: {
-                loadToken: 1,
-                documentVersion: 1,
-                documentRevision: 'revision-1',
-            },
-            leasePage: async () => ({
-                page,
-                release() {},
-            }),
-            surfaceBudget: createWorkspaceSurfaceBudgetController(10_000_000),
-        });
-        const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
-        const fixture = createViewportFixture({
-            pageCount: 1,
-            bufferPages: 0,
-            rasterScheduler: scheduler,
-        });
-        document.body.append(fixture.container);
-        appendRasterTarget(fixture.container, 1);
-        fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
-        fixture.viewport.markPageMounted(requirePageNumber(1));
-        try {
-            let settled = false;
-            const raster = fixture.rendering!.renderVisiblePages({
-                start: 1,
-                end: 1,
-            }).then(() => {settled = true;});
-            await expect.poll(() => toasts.length, {timeout: 1_000}).toBe(1);
-            await expect.poll(() => settled, {timeout: 500}).toBe(true);
-            await raster;
-            expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(true);
-            expect(fixture.container.querySelector('canvas')).toBeNull();
-            const description = toasts[0]!.description;
-            if (typeof description !== 'function') throw new Error('Expected a failure description');
-            expect(await renderToString(description())).toContain('Unable to render this page');
-            const retry = toasts[0]!.actions?.find(action => action.label === 'Retry');
-            expect(retry).toBeDefined();
-            await new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
-            expect(toasts).toHaveLength(1);
-            expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(true);
-            invalid = false;
-            if (relayout) {
-                hold = true;
-                fixture.zoomMode.value = 'custom';
-                fixture.zoom.value = 2;
-                await nextTick();
-                void fixture.rendering!.renderVisiblePages({
+                }),
+            });
+            let holdLease = false;
+            const scheduler = createPdfPageRasterScheduler({
+                documentFence: {
+                    loadToken: 1,
+                    documentVersion: 1,
+                    documentRevision: 'revision-1',
+                },
+                maxConcurrency: 1,
+                leasePage: async (_page, _retention, signal) => {
+                    if (holdLease) {
+                        signals.push(signal!);
+                        await lease.promise;
+                    }
+                    return {
+                        page,
+                        release() {},
+                    };
+                },
+                surfaceBudget: createWorkspaceSurfaceBudgetController(10_000_000),
+            });
+            const animation = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(0);
+            const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
+            const fixture = createViewportFixture({
+                pageCount: 1,
+                bufferPages: 0,
+                rasterScheduler: scheduler,
+                zoomMode: 'custom',
+            });
+            document.body.append(fixture.container);
+            appendRasterTarget(fixture.container, 1);
+            fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            const rendering = fixture.rendering!;
+            try {
+                await rendering.renderVisiblePages({
                     start: 1,
                     end: 1,
                 });
-                await started.promise;
-                hold = false;
+                expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(fail);
+                const previousCanvas = fixture.container.querySelector('canvas');
+                fail = false;
+                holdLease = true;
+                fixture.zoom.value = 2;
+                const raster = rendering.renderVisiblePages(
+                    {
+                        start: 1,
+                        end: 1,
+                    },
+                    {forceRerender: reason === 'Retry'},
+                );
+                await expect.poll(() => signals.length).toBe(1);
+                const republished = rendering.renderVisiblePages({
+                    start: 1,
+                    end: 1,
+                });
+                await nextTick();
+                await Promise.resolve();
+                expect(signals[0]!.aborted).toBe(false);
+                lease.resolve(undefined);
+                await Promise.all([raster, republished]);
+                expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(true);
+                expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(false);
+                const canvas = fixture.container.querySelector('canvas');
+                expect(canvas).not.toBe(previousCanvas);
+                expect(canvas!.width * canvas!.height).toBeGreaterThan(0);
+            } finally {
+                lease.resolve(undefined);
+                await fixture.dispose();
+                await scheduler.dispose();
+                fixture.container.remove();
+                context.mockRestore();
+                animation.mockRestore();
             }
-            retry!.onClick();
-            await expect.poll(() => fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(true);
-            expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(false);
-            expect(fixture.container.querySelector('canvas')!.width).toBeGreaterThan(0);
-        } finally {
-            if (relayout) held.reject(cancelled);
-            await fixture.dispose();
-            await scheduler.dispose();
-            fixture.container.remove();
-            context.mockRestore();
-            vi.mocked(BrowserLogger.error).mockReset();
-        }
-    });
+        },
+    );
+
+    it.each([false, true])(
+        'explains an invalid viewport without re-demanding it, and redraws it on Retry (relayout: %s)',
+        async (relayout) => {
+            toasts.length = 0;
+            vi.mocked(BrowserLogger.error).mockReturnValue({
+                eventId: '0123456789abcdef0123456789abcdef',
+                code: 'RENDERER_PDF_PAGE_RENDER_FAILED',
+                occurredAt: requireEpochMs(Date.now()),
+                severity: 'error',
+            });
+            let invalid = true;
+            let hold = false;
+            const held = Promise.withResolvers<undefined>();
+            const started = Promise.withResolvers<undefined>();
+            const cancelled = new Error('Render cancelled by Retry');
+            cancelled.name = 'RenderingCancelledException';
+            const page = cast<IPdfPage>({
+                pageNumber: 1,
+                rotate: 0,
+                getAnnotations: async () => [],
+                getViewport: ({scale}: {scale: number}) => ({
+                    width: invalid ? Infinity : 600 * scale,
+                    height: invalid ? Infinity : 900 * scale,
+                    userUnit: 1,
+                    rawDims: {
+                        pageWidth: 600,
+                        pageHeight: 900,
+                    },
+                }),
+                render: () => {
+                    if (!hold) {
+                        return {
+                            promise: Promise.resolve(),
+                            cancel() {},
+                        };
+                    }
+                    started.resolve(undefined);
+                    return {
+                        promise: held.promise,
+                        cancel: () => held.reject(cancelled),
+                    };
+                },
+            });
+            const scheduler = createPdfPageRasterScheduler({
+                documentFence: {
+                    loadToken: 1,
+                    documentVersion: 1,
+                    documentRevision: 'revision-1',
+                },
+                leasePage: async () => ({
+                    page,
+                    release() {},
+                }),
+                surfaceBudget: createWorkspaceSurfaceBudgetController(10_000_000),
+            });
+            const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(Object.create(null));
+            const fixture = createViewportFixture({
+                pageCount: 1,
+                bufferPages: 0,
+                rasterScheduler: scheduler,
+            });
+            document.body.append(fixture.container);
+            appendRasterTarget(fixture.container, 1);
+            fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
+            fixture.viewport.markPageMounted(requirePageNumber(1));
+            try {
+                let settled = false;
+                const raster = fixture
+                    .rendering!.renderVisiblePages({
+                        start: 1,
+                        end: 1,
+                    })
+                    .then(() => {
+                        settled = true;
+                    });
+                await expect.poll(() => toasts.length, {timeout: 1_000}).toBe(1);
+                await expect.poll(() => settled, {timeout: 500}).toBe(true);
+                await raster;
+                expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(true);
+                expect(fixture.container.querySelector('canvas')).toBeNull();
+                const description = toasts[0]!.description;
+                if (typeof description !== 'function') {
+                    throw new Error('Expected a failure description');
+                }
+                expect(await renderToString(description())).toContain('Unable to render this page');
+                const retry = toasts[0]!.actions?.find((action) => action.label === 'Retry');
+                expect(retry).toBeDefined();
+                await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+                expect(toasts).toHaveLength(1);
+                expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(true);
+                invalid = false;
+                if (relayout) {
+                    hold = true;
+                    fixture.zoomMode.value = 'custom';
+                    fixture.zoom.value = 2;
+                    await nextTick();
+                    void fixture.rendering!.renderVisiblePages({
+                        start: 1,
+                        end: 1,
+                    });
+                    await started.promise;
+                    hold = false;
+                }
+                retry!.onClick();
+                await expect.poll(() => fixture.rendering!.isPageVisualReady(requirePageNumber(1))).toBe(true);
+                expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(false);
+                expect(fixture.container.querySelector('canvas')!.width).toBeGreaterThan(0);
+            } finally {
+                if (relayout) {
+                    held.reject(cancelled);
+                }
+                await fixture.dispose();
+                await scheduler.dispose();
+                fixture.container.remove();
+                context.mockRestore();
+                vi.mocked(BrowserLogger.error).mockReset();
+            }
+        },
+    );
 
     it('lets deliberate navigation present its failure after replacing a failed buffer', async () => {
         toasts.length = 0;
@@ -746,7 +740,7 @@ describe('PdfViewportSession behavior', () => {
                 documentVersion: 1,
                 documentRevision: 'revision-1',
             },
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: cast<IPdfPage>({
                     pageNumber,
                     rotate: 0,
@@ -796,12 +790,14 @@ describe('PdfViewportSession behavior', () => {
             expect(toasts).toHaveLength(0);
             navigationMetrics.resolve(false);
             await expect.poll(() => toasts.length).toBe(1);
-            await new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
+            await new Promise((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
             expect(toasts).toHaveLength(1);
             const description = toasts[0]!.description;
-            if (typeof description !== 'function') throw new Error('Expected a failure description');
+            if (typeof description !== 'function') {
+                throw new Error('Expected a failure description');
+            }
             expect(await renderToString(description())).toContain('Unable to render this page');
-            expect(toasts[0]!.actions?.filter(action => action.label === 'Retry')).toHaveLength(1);
+            expect(toasts[0]!.actions?.filter((action) => action.label === 'Retry')).toHaveLength(1);
             expect(fixture.container.querySelector('[data-page="2"] canvas')).toBeNull();
         } finally {
             navigationMetrics.resolve(false);
@@ -835,12 +831,7 @@ describe('PdfViewportSession behavior', () => {
                     pageHeight: 900,
                 },
             }),
-            render: ({
-                canvas, annotationMode,
-            }: {
-                canvas: HTMLCanvasElement;
-                annotationMode: number
-            }) => {
+            render: ({canvas, annotationMode}: {canvas: HTMLCanvasElement; annotationMode: number}) => {
                 canvas.dataset.annotations = String(annotationMode !== 0);
                 preparationStarted.resolve(undefined);
                 return {
@@ -894,7 +885,9 @@ describe('PdfViewportSession behavior', () => {
                 end: 1,
             });
             await preparationStarted.promise;
-            for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+            for (let turn = 0; turn < 20; turn += 1) {
+                await Promise.resolve();
+            }
             expect(fixture.container.querySelector('canvas')).toBeNull();
             ownership.resolve(undefined);
             await raster;
@@ -1048,13 +1041,16 @@ describe('PdfViewportSession behavior', () => {
                 residentPages: [],
                 mandatoryRaster: null,
             };
-            await fixture.rendering!.renderVisiblePages({
-                start: 2,
-                end: 2,
-            }, {
-                rasterDemandPages: [],
-                suppressResidentRasterDemand: true,
-            });
+            await fixture.rendering!.renderVisiblePages(
+                {
+                    start: 2,
+                    end: 2,
+                },
+                {
+                    rasterDemandPages: [],
+                    suppressResidentRasterDemand: true,
+                },
+            );
             expect(fixture.container.querySelector('canvas')).toBe(replacementCanvas);
             expect(replacementCanvas.width * replacementCanvas.height).toBeGreaterThan(0);
             expect(fixture.rendering!.isPageRenderedForClass(requirePageNumber(1))).toBe(true);
@@ -1081,9 +1077,7 @@ describe('PdfViewportSession behavior', () => {
             retained: true,
             publication: true,
         },
-    ])('settles failed annotation rendering once with retained=$retained and publication=$publication', async ({
-        retained, publication,
-    }) => {
+    ])('settles failed annotation rendering once with retained=$retained and publication=$publication', async ({retained, publication}) => {
         const projectionReady = ref(!retained);
         let failRender = !retained;
         let failedAttempts = 0;
@@ -1105,7 +1099,9 @@ describe('PdfViewportSession behavior', () => {
                 let promise = Promise.resolve();
                 if (failRender) {
                     failedAttempts += 1;
-                    promise = new Promise<void>((_resolve, reject) => {rejectPendingAttempt = reject;});
+                    promise = new Promise<void>((_resolve, reject) => {
+                        rejectPendingAttempt = reject;
+                    });
                 }
                 return {
                     promise,
@@ -1162,10 +1158,17 @@ describe('PdfViewportSession behavior', () => {
             failRender = true;
             expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(retained);
             let settled = false;
-            const wait = rendering.renderVisiblePages({
-                start: 1,
-                end: 1,
-            }, {forceRerender: true}).then(() => {settled = true;});
+            const wait = rendering
+                .renderVisiblePages(
+                    {
+                        start: 1,
+                        end: 1,
+                    },
+                    {forceRerender: true},
+                )
+                .then(() => {
+                    settled = true;
+                });
             await expect.poll(() => failedAttempts).toBe(1);
             expect(settled).toBe(false);
             rejectPendingAttempt(new Error('annotation appearance failed'));
@@ -1175,26 +1178,35 @@ describe('PdfViewportSession behavior', () => {
             await wait;
             expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(true);
             expect(fixture.container.querySelector('canvas')).toBe(oldCanvas);
-            if (oldCanvas) expect(oldCanvas.width * oldCanvas.height).toBeGreaterThan(0);
+            if (oldCanvas) {
+                expect(oldCanvas.width * oldCanvas.height).toBeGreaterThan(0);
+            }
             failRender = false;
             if (publication) {
-                await expect(rendering.publishAnnotationPaint(requirePageNumber(1), {
-                    signature: '',
-                    prepare: async () => ({
-                        document: fixture.documentSession.pdfDocument.value!,
-                        original: null,
-                        annotations: [],
-                        semanticInputs: [],
-                        excludedIds: new Set<string>(),
+                await expect(
+                    rendering.publishAnnotationPaint(requirePageNumber(1), {
                         signature: '',
+                        prepare: async () => ({
+                            document: fixture.documentSession.pdfDocument.value!,
+                            original: null,
+                            annotations: [],
+                            semanticInputs: [],
+                            excludedIds: new Set<string>(),
+                            signature: '',
+                        }),
+                        isCurrent: () => true,
+                        commit: () => undefined,
                     }),
-                    isCurrent: () => true,
-                    commit: () => undefined,
-                })).resolves.toBe(true);
-            } else await rendering.renderVisiblePages({
-                start: 1,
-                end: 1,
-            }, {forceRerender: true});
+                ).resolves.toBe(true);
+            } else {
+                await rendering.renderVisiblePages(
+                    {
+                        start: 1,
+                        end: 1,
+                    },
+                    {forceRerender: true},
+                );
+            }
             expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(true);
             expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(false);
             expect(fixture.container.querySelector('canvas')).not.toBe(oldCanvas);
@@ -1209,34 +1221,33 @@ describe('PdfViewportSession behavior', () => {
     });
 
     it('keeps a page current when only another page changes its annotation paint', async () => {
-        const pages = [
-            1,
-            2,
-        ].map(pageNumber => cast<IPdfPage>({
-            pageNumber,
-            rotate: 0,
-            getAnnotations: async () => [],
-            getViewport: ({scale}: {scale: number}) => ({
-                width: 600 * scale,
-                height: 900 * scale,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 600,
-                    pageHeight: 900,
-                },
+        const pages = [1, 2].map((pageNumber) =>
+            cast<IPdfPage>({
+                pageNumber,
+                rotate: 0,
+                getAnnotations: async () => [],
+                getViewport: ({scale}: {scale: number}) => ({
+                    width: 600 * scale,
+                    height: 900 * scale,
+                    userUnit: 1,
+                    rawDims: {
+                        pageWidth: 600,
+                        pageHeight: 900,
+                    },
+                }),
+                render: () => ({
+                    promise: Promise.resolve(),
+                    cancel() {},
+                }),
             }),
-            render: () => ({
-                promise: Promise.resolve(),
-                cancel() {},
-            }),
-        }));
+        );
         const scheduler = createPdfPageRasterScheduler({
             documentFence: {
                 loadToken: 1,
                 documentVersion: 1,
                 documentRevision: 'revision-1',
             },
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: pages[pageNumber - 1]!,
                 release() {},
             }),
@@ -1251,19 +1262,10 @@ describe('PdfViewportSession behavior', () => {
                     start: 1,
                     end: 2,
                 },
-                requiredPages: [
-                    1,
-                    2,
-                ],
+                requiredPages: [1, 2],
                 nearbyPages: [],
-                residentPages: [
-                    1,
-                    2,
-                ],
-                mountedPages: [
-                    1,
-                    2,
-                ],
+                residentPages: [1, 2],
+                mountedPages: [1, 2],
                 currentPage: 1,
                 destinationPage: null,
                 operational: true,
@@ -1278,23 +1280,19 @@ describe('PdfViewportSession behavior', () => {
         appendRasterTarget(fixture.container, 2);
         fixture.documentSession.ensurePageMetricsInRange.mockResolvedValue(false);
         const rendering = fixture.rendering!;
-        const paintIdentities = ref(new Map([
-            [
-                1,
-                'first page note',
-            ],
-            [
-                2,
-                'second page note',
-            ],
-        ]));
+        const paintIdentities = ref(
+            new Map([
+                [1, 'first page note'],
+                [2, 'second page note'],
+            ]),
+        );
         rendering.attachAnnotationProjection({
             annotationProjectionReady: ref(true),
             hiddenAnnotationIds: ref(new Set<string>()),
             canvasHiddenAnnotationIds: ref(new Set<string>()),
             thumbnailHiddenAnnotationIds: ref(new Set<string>()),
-            paintIdentity: pageNumber => paintIdentities.value.get(pageNumber) ?? '',
-            preparePagePaint: page => ({
+            paintIdentity: (pageNumber) => paintIdentities.value.get(pageNumber) ?? '',
+            preparePagePaint: (page) => ({
                 document: fixture.documentSession.pdfDocument.value!,
                 original: null,
                 annotations: [],
@@ -1312,14 +1310,8 @@ describe('PdfViewportSession behavior', () => {
             expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(true);
             expect(rendering.isPageVisualReady(requirePageNumber(2))).toBe(true);
             paintIdentities.value = new Map([
-                [
-                    1,
-                    'first page note, moved',
-                ],
-                [
-                    2,
-                    'second page note',
-                ],
+                [1, 'first page note, moved'],
+                [2, 'second page note'],
             ]);
             expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(false);
             expect(rendering.isPageVisualReady(requirePageNumber(2))).toBe(true);
@@ -1340,27 +1332,26 @@ describe('PdfViewportSession behavior', () => {
     });
 
     it('keeps a shown nearby raster charged when demand narrows and disposes it under budget pressure', async () => {
-        const pages = [
-            1,
-            2,
-        ].map(pageNumber => cast<IPdfPage>({
-            pageNumber,
-            rotate: 0,
-            getAnnotations: async () => [],
-            getViewport: ({scale}: {scale: number}) => ({
-                width: 600 * scale,
-                height: 900 * scale,
-                userUnit: 1,
-                rawDims: {
-                    pageWidth: 600,
-                    pageHeight: 900,
-                },
+        const pages = [1, 2].map((pageNumber) =>
+            cast<IPdfPage>({
+                pageNumber,
+                rotate: 0,
+                getAnnotations: async () => [],
+                getViewport: ({scale}: {scale: number}) => ({
+                    width: 600 * scale,
+                    height: 900 * scale,
+                    userUnit: 1,
+                    rawDims: {
+                        pageWidth: 600,
+                        pageHeight: 900,
+                    },
+                }),
+                render: () => ({
+                    promise: Promise.resolve(),
+                    cancel() {},
+                }),
             }),
-            render: () => ({
-                promise: Promise.resolve(),
-                cancel() {},
-            }),
-        }));
+        );
         const budget = createWorkspaceSurfaceBudgetController(100_000_000);
         const scheduler = createPdfPageRasterScheduler({
             documentFence: {
@@ -1368,7 +1359,7 @@ describe('PdfViewportSession behavior', () => {
                 documentVersion: 1,
                 documentRevision: 'revision-1',
             },
-            leasePage: async pageNumber => ({
+            leasePage: async (pageNumber) => ({
                 page: pages[pageNumber - 1]!,
                 release() {},
             }),
@@ -1385,14 +1376,8 @@ describe('PdfViewportSession behavior', () => {
                 },
                 requiredPages: [1],
                 nearbyPages: [2],
-                residentPages: [
-                    1,
-                    2,
-                ],
-                mountedPages: [
-                    1,
-                    2,
-                ],
+                residentPages: [1, 2],
+                mountedPages: [1, 2],
                 currentPage: 1,
                 destinationPage: null,
                 operational: true,
@@ -1417,20 +1402,25 @@ describe('PdfViewportSession behavior', () => {
             const nearbyCanvas = fixture.container.querySelector<HTMLCanvasElement>('[data-page="2"] canvas')!;
             const charged = budget.getSnapshot().reservedBytes;
             // A narrower raster request drops the nearby page from the scheduler's demand, not the view's.
-            await rendering.renderVisiblePages({
-                start: 1,
-                end: 1,
-            }, {
-                bufferOverride: 0,
-                suppressResidentRasterDemand: true,
-            });
+            await rendering.renderVisiblePages(
+                {
+                    start: 1,
+                    end: 1,
+                },
+                {
+                    bufferOverride: 0,
+                    suppressResidentRasterDemand: true,
+                },
+            );
             expect(fixture.container.querySelector('[data-page="2"] canvas')).toBe(nearbyCanvas);
             expect(budget.getSnapshot().reservedBytes).toBe(charged);
-            expect(budget.tryReserve({
-                scopeId: 'pressure',
-                category: 'pdf-thumbnail-canvas',
-                bytes: 100_000_000 - charged + 1,
-            })).not.toBeNull();
+            expect(
+                budget.tryReserve({
+                    scopeId: 'pressure',
+                    category: 'pdf-thumbnail-canvas',
+                    bytes: 100_000_000 - charged + 1,
+                }),
+            ).not.toBeNull();
             expect(fixture.container.querySelector('[data-page="2"] canvas')).toBeNull();
             expect(nearbyCanvas.width * nearbyCanvas.height).toBe(0);
             expect(fixture.container.querySelector('[data-page="1"] canvas')).toBe(visibleCanvas);
@@ -1490,35 +1480,14 @@ describe('PdfViewportSession behavior', () => {
             await nextTick();
 
             const settlingRow: HTMLElement[] = [];
-            for (const [
-                page,
-                top,
-            ] of [
-                    [
-                        9,
-                        0,
-                    ],
-                    [
-                        10,
-                        0,
-                    ],
-                    [
-                        11,
-                        400,
-                    ],
-                    [
-                        12,
-                        400,
-                    ],
-                    [
-                        13,
-                        810,
-                    ],
-                    [
-                        14,
-                        810,
-                    ],
-                ] as const) {
+            for (const [page, top] of [
+                [9, 0],
+                [10, 0],
+                [11, 400],
+                [12, 400],
+                [13, 810],
+                [14, 810],
+            ] as const) {
                 const element = appendPageBox(fixture.container, page, {
                     height: 390,
                     top,
@@ -1533,7 +1502,7 @@ describe('PdfViewportSession behavior', () => {
                 end: 12,
             });
             // Row 11-12 settles 20px shorter; the browser reports its resize.
-            settlingRow.forEach(element => defineDimension(element, 'offsetTop', 790));
+            settlingRow.forEach((element) => defineDimension(element, 'offsetTop', 790));
             const settledRowAbove = fixture.container.querySelector('.page_container[data-page="11"]')!;
             expect(geometry.isObserved(settledRowAbove)).toBe(true);
             geometry.deliver(settledRowAbove);
@@ -1547,14 +1516,7 @@ describe('PdfViewportSession behavior', () => {
                 start: 9,
                 end: 14,
             });
-            expect(fixture.viewport.demand.value.requiredPages).toEqual([
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-            ]);
+            expect(fixture.viewport.demand.value.requiredPages).toEqual([9, 10, 11, 12, 13, 14]);
 
             // An unmounted page is no longer observed.
             fixture.viewport.markPageUnmounted(requirePageNumber(11));
@@ -1578,7 +1540,10 @@ describe('PdfViewportSession behavior', () => {
             // A horizontal scrollbar appears; its fit settles the layout.
             defineDimension(fixture.container, 'clientHeight', 785);
             await fixture.viewport.whenLayoutPlaced();
-            for (const [page, top] of [[1, 0], [2, 795]] as const) {
+            for (const [page, top] of [
+                [1, 0],
+                [2, 795],
+            ] as const) {
                 appendPageBox(fixture.container, page, {
                     height: 790,
                     top,
@@ -1599,10 +1564,7 @@ describe('PdfViewportSession behavior', () => {
                 start: 1,
                 end: 2,
             });
-            expect(fixture.viewport.demand.value.requiredPages).toEqual([
-                1,
-                2,
-            ]);
+            expect(fixture.viewport.demand.value.requiredPages).toEqual([1, 2]);
         } finally {
             fixture.app.unmount();
         }
@@ -1628,7 +1590,7 @@ describe('PdfViewportSession behavior', () => {
                 expect(fixture.viewport.viewportWork.activeWorkKind.value).toBe('navigation');
             });
             const published: number[] = [];
-            const stop = watch(fixture.viewport.demand, demand => published.push(demand.revision), {flush: 'sync'});
+            const stop = watch(fixture.viewport.demand, (demand) => published.push(demand.revision), {flush: 'sync'});
 
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-transaction-end');
 
@@ -1666,32 +1628,18 @@ describe('PdfViewportSession behavior', () => {
             await nextTick();
 
             expect(fixture.viewport.demand.value.requiredPages).toEqual([43]);
-            expect(fixture.viewport.demand.value.nearbyPages).toEqual([
-                44,
-                42,
-            ]);
-            expect(fixture.viewport.demand.value.residentPages).toEqual([
-                43,
-                44,
-                42,
-            ]);
+            expect(fixture.viewport.demand.value.nearbyPages).toEqual([44, 42]);
+            expect(fixture.viewport.demand.value.residentPages).toEqual([43, 44, 42]);
 
             fixture.viewport.markPageUnmounted(requirePageNumber(44));
-            expect(fixture.viewport.demand.value.residentPages).toEqual([
-                43,
-                42,
-                45,
-            ]);
+            expect(fixture.viewport.demand.value.residentPages).toEqual([43, 42, 45]);
             expect(fixture.viewport.demand.value.residentPages).not.toContain(44);
         } finally {
             fixture.app.unmount();
         }
     });
 
-    it.each([
-        'wheel',
-        'scroll',
-    ] as const)('retains the physical raster until %s supersedes a distant navigation', async (interaction) => {
+    it.each(['wheel', 'scroll'] as const)('retains the physical raster until %s supersedes a distant navigation', async (interaction) => {
         const fixture = createViewportFixture({
             bufferPages: 0,
             isPageFreshlyRenderedForNavigation: () => false,
@@ -1716,10 +1664,7 @@ describe('PdfViewportSession behavior', () => {
             await vi.waitFor(() => {
                 expect(fixture.viewport.demand.value.requiredPages).toContain(64);
             });
-            expect(fixture.viewport.demand.value.residentPages).toEqual(expect.arrayContaining([
-                1,
-                64,
-            ]));
+            expect(fixture.viewport.demand.value.residentPages).toEqual(expect.arrayContaining([1, 64]));
             const cancellations = fixture.cancelSupersededRasters.mock.calls.length;
             if (interaction === 'wheel') {
                 // The chassis reports the packet to the write port first.
@@ -1730,7 +1675,6 @@ describe('PdfViewportSession behavior', () => {
                 fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
             }
             expect(fixture.cancelSupersededRasters).toHaveBeenCalledTimes(cancellations + 1);
-
         } finally {
             fixture.viewport.singlePageScroll.cancelProgrammaticNavigation('test-cleanup');
             fixture.app.unmount();
@@ -1785,7 +1729,7 @@ describe('PdfViewportSession behavior', () => {
         const paintedPages = new Set<number>();
         const fixture = createViewportFixture({
             bufferPages: 0,
-            isPageFreshlyRenderedForNavigation: page => paintedPages.has(page),
+            isPageFreshlyRenderedForNavigation: (page) => paintedPages.has(page),
             pageCount: 100,
         });
         const nextMandatoryRaster = async (afterId: number) => {
@@ -1932,8 +1876,7 @@ describe('PdfViewportSession behavior', () => {
             await nextTick();
 
             expect(fixture.viewport.visibleRange.value.start).toBeGreaterThan(provisionalStart);
-            expect(fixture.viewport.viewModel.pagesToRender.value)
-                .toContain(fixture.viewport.visibleRange.value.start);
+            expect(fixture.viewport.viewModel.pagesToRender.value).toContain(fixture.viewport.visibleRange.value.start);
             expect(fixture.viewport.viewModel.pagesToRender.value).not.toContain(provisionalStart);
         } finally {
             fixture.app.unmount();
@@ -1984,18 +1927,20 @@ describe('PdfViewportSession behavior', () => {
             const scrollBefore = fixture.container.scrollTop;
 
             // A sparse PDF learns that its first ten pages are twice as tall.
-            fixture.documentSession.pageMetrics.value = fixture.documentSession.pageMetrics.value.map((metric, index) => (
-                index < 10 ? {
-                    ...metric,
-                    height: 1_800,
-                } : metric
-            ));
+            fixture.documentSession.pageMetrics.value = fixture.documentSession.pageMetrics.value.map((metric, index) =>
+                index < 10
+                    ? {
+                          ...metric,
+                          height: 1_800,
+                      }
+                    : metric,
+            );
             fixture.documentSession.pageMetricsVersion.value += 1;
             await nextTick();
 
             const layoutAfter = fixture.viewport.viewModel.pageLayout.value!;
-            const shift = getLayoutPageTop(layoutAfter, requirePageIndex(page - 1))!
-                - getLayoutPageTop(layoutBefore, requirePageIndex(page - 1))!;
+            const shift =
+                getLayoutPageTop(layoutAfter, requirePageIndex(page - 1))! - getLayoutPageTop(layoutBefore, requirePageIndex(page - 1))!;
             expect(shift).toBeGreaterThan(0);
             expect(fixture.container.scrollTop).toBeCloseTo(scrollBefore + shift, 0);
             expect(fixture.viewport.currentPage.value).toBe(page);
@@ -2131,11 +2076,9 @@ describe('PdfViewportSession behavior', () => {
                 return Math.max(0, Math.min(top + 1_000, documentTop + viewportHeight) - Math.max(top, documentTop));
             };
             const firstVisible = Math.floor((documentTop - 20) / pitch) + 1;
-            const expectedPage = [
-                firstVisible,
-                firstVisible + 1,
-                firstVisible + 2,
-            ].reduce((best, page) => visibleArea(page) > visibleArea(best) ? page : best);
+            const expectedPage = [firstVisible, firstVisible + 1, firstVisible + 2].reduce((best, page) =>
+                visibleArea(page) > visibleArea(best) ? page : best,
+            );
 
             fixture.container.scrollTop = documentTop;
             fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
@@ -2198,8 +2141,7 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.viewport.singlePageScroll.navigationAnchorPage.value).toBeNull();
             expect(fixture.viewport.currentPage.value).toBeGreaterThan(1);
             expect(fixture.viewport.visibleRange.value.start).toBeGreaterThan(1);
-            expect(fixture.viewport.viewModel.pagesToRender.value)
-                .toContain(fixture.viewport.visibleRange.value.start);
+            expect(fixture.viewport.viewModel.pagesToRender.value).toContain(fixture.viewport.visibleRange.value.start);
             expect(fixture.viewport.viewModel.pagesToRender.value).not.toContain(1);
         } finally {
             fixture.app.unmount();
@@ -2221,10 +2163,7 @@ describe('PdfViewportSession behavior', () => {
             await nextTick();
             // The write port recognizes the first scroll as the echo of the
             // viewer's own write.
-            vi.spyOn(
-                fixture.viewport.viewportWritePort,
-                'consumeAuthorityScroll',
-            ).mockReturnValueOnce(true).mockReturnValue(false);
+            vi.spyOn(fixture.viewport.viewportWritePort, 'consumeAuthorityScroll').mockReturnValueOnce(true).mockReturnValue(false);
             const epoch = fixture.viewport.viewportWritePort.getInteractionEpoch();
 
             // The echo moves the rendered range but does not reinterpret the
@@ -2411,13 +2350,15 @@ describe('PdfViewportSession behavior', () => {
                 const port = fixture.viewport.viewportWritePort;
                 fixture.container.scrollTop = 3_500;
                 fixture.viewport.handleTrustedScroll({isTrusted: true} as Event);
-                await fixture.documentSession.emit(transition('invalidated', {
-                    isReload: false,
-                    isSelectiveReload: false,
-                    pagesToInvalidate: null,
-                    preserveVisibleContent: false,
-                    preservePageStructure: false,
-                }));
+                await fixture.documentSession.emit(
+                    transition('invalidated', {
+                        isReload: false,
+                        isSelectiveReload: false,
+                        pagesToInvalidate: null,
+                        preserveVisibleContent: false,
+                        preservePageStructure: false,
+                    }),
+                );
                 const before = port.getInteractionEpoch();
 
                 defineDimension(fixture.container, 'scrollHeight', 1_800);
@@ -2483,11 +2424,7 @@ describe('PdfViewportSession behavior', () => {
                 const before = port.getInteractionEpoch();
 
                 // The chassis reports each pinch packet, then the viewer handles it.
-                for (const timeStamp of [
-                    1_000,
-                    1_016,
-                    1_032,
-                ]) {
+                for (const timeStamp of [1_000, 1_016, 1_032]) {
                     const packet = zoomPacket(timeStamp);
                     observeDocumentViewportWheelInteraction(port, packet, fixture.container);
                     handleViewerWheel(packet);
@@ -2632,13 +2569,15 @@ describe('PdfViewportSession behavior', () => {
     it('places the opening page before the document reports its length', async () => {
         const fixture = createViewportFixture({pageCount: 0});
         try {
-            await fixture.documentSession.emit(transition('loading', {
-                isReload: false,
-                isSelectiveReload: false,
-                pagesToInvalidate: null,
-                preserveVisibleContent: false,
-                preservePageStructure: false,
-            }));
+            await fixture.documentSession.emit(
+                transition('loading', {
+                    isReload: false,
+                    isSelectiveReload: false,
+                    pagesToInvalidate: null,
+                    preserveVisibleContent: false,
+                    preservePageStructure: false,
+                }),
+            );
 
             expect(fixture.emittedPages).toEqual([1]);
 
@@ -2663,11 +2602,15 @@ describe('PdfViewportSession behavior', () => {
             preserveVisibleContent: false,
             preservePageStructure: false,
         };
-        const stop = watch(fixture.viewport.demand, (demand) => {
-            if (demand.mandatoryRaster) {
-                fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
-            }
-        }, {flush: 'post'});
+        const stop = watch(
+            fixture.viewport.demand,
+            (demand) => {
+                if (demand.mandatoryRaster) {
+                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                }
+            },
+            {flush: 'post'},
+        );
         try {
             appendPageBox(fixture.container, 2, {
                 height: 900,
@@ -2676,14 +2619,18 @@ describe('PdfViewportSession behavior', () => {
             fixture.viewport.markPageMounted(requirePageNumber(2));
             setCurrentPage(fixture.viewport, 2);
             await fixture.documentSession.emit(transition('loading', reloadPlan));
-            expect(fixture.viewport.singlePageScroll.submitNavigationRequest(createPageNavigationRequest(2, 'restore', {
-                page: 2,
-                pageXFraction: 0.5,
-                pageYFraction: (230 + 400) / 900,
-                viewportXFraction: 0.5,
-                viewportYFraction: 0.5,
-                affinity: 'center',
-            }))).toBe(true);
+            expect(
+                fixture.viewport.singlePageScroll.submitNavigationRequest(
+                    createPageNavigationRequest(2, 'restore', {
+                        page: 2,
+                        pageXFraction: 0.5,
+                        pageYFraction: (230 + 400) / 900,
+                        viewportXFraction: 0.5,
+                        viewportYFraction: 0.5,
+                        affinity: 'center',
+                    }),
+                ),
+            ).toBe(true);
             await vi.waitFor(() => {
                 expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
                 expect(fixture.container.scrollTop).toBe(1_170);
@@ -2798,11 +2745,13 @@ describe('PdfViewportSession behavior', () => {
             documentRevision: 'revision-1',
         });
         surface.metadataReady(10);
-        expect(surface.commitGeometry(generation, {
-            width: 600,
-            height: 900,
-            margin: 20,
-        })).toBe(true);
+        expect(
+            surface.commitGeometry(generation, {
+                width: 600,
+                height: 900,
+                margin: 20,
+            }),
+        ).toBe(true);
         const fixture = createViewportFixture({
             chassisAuthority: createChassisAuthority(surface),
             pageCount: 0,
@@ -2828,11 +2777,13 @@ describe('PdfViewportSession behavior', () => {
             }));
             fixture.documentSession.pageMetricsVersion.value += 1;
 
-            await vi.waitFor(() => expect(surface.snapshot.value.committedViewport).toMatchObject({
-                documentRevision: 'revision-1',
-                pageNumber: 1,
-                viewportIntentId: renderFence!.viewportIntentId,
-            }));
+            await vi.waitFor(() =>
+                expect(surface.snapshot.value.committedViewport).toMatchObject({
+                    documentRevision: 'revision-1',
+                    pageNumber: 1,
+                    viewportIntentId: renderFence!.viewportIntentId,
+                }),
+            );
             expect(fixture.container.scrollTop).toBe(0);
         } finally {
             fixture.app.unmount();
@@ -2846,11 +2797,13 @@ describe('PdfViewportSession behavior', () => {
             documentRevision: 'revision-1',
         });
         surface.metadataReady(10);
-        expect(surface.commitGeometry(generation, {
-            width: 600,
-            height: 900,
-            margin: 20,
-        })).toBe(true);
+        expect(
+            surface.commitGeometry(generation, {
+                width: 600,
+                height: 900,
+                margin: 20,
+            }),
+        ).toBe(true);
         expect(surface.requestNavigation(6)).toBe(6);
         const fixture = createViewportFixture({
             chassisAuthority: createChassisAuthority(surface),
@@ -2881,16 +2834,18 @@ describe('PdfViewportSession behavior', () => {
             });
             expect(renderFence).not.toBeNull();
             expect(surface.commitCanvas(renderFence!)).toBe(true);
-            expect(surface.commitViewport({
-                generation,
-                documentRevision: 'revision-1',
-                viewportIntentId: renderFence!.viewportIntentId,
-                documentGeometryRevision: 1,
-                interactionEpoch: 0,
-                pageNumber: 6,
-                left: 0,
-                top: 0,
-            })).toBe(true);
+            expect(
+                surface.commitViewport({
+                    generation,
+                    documentRevision: 'revision-1',
+                    viewportIntentId: renderFence!.viewportIntentId,
+                    documentGeometryRevision: 1,
+                    interactionEpoch: 0,
+                    pageNumber: 6,
+                    left: 0,
+                    top: 0,
+                }),
+            ).toBe(true);
             expect(surface.viewportSession.value.lifecycle).toBe('opening');
 
             expect(surface.markReady(renderFence!)).toBe(true);
@@ -2898,10 +2853,12 @@ describe('PdfViewportSession behavior', () => {
             // The placement commit already named the page the viewport settled on.
             expect(surface.viewportSession.value.observedPage ?? surface.viewportSession.value.committedPage).toBe(6);
             expect(fixture.viewport.scale.effectiveScale.value).toBeCloseTo(845 / 612);
-            expect(surface.reportNavigation(surface.navigationTicket.value!, {
-                kind: 'arrived',
-                page: 6,
-            })).toBe(true);
+            expect(
+                surface.reportNavigation(surface.navigationTicket.value!, {
+                    kind: 'arrived',
+                    page: 6,
+                }),
+            ).toBe(true);
         } finally {
             fixture.app.unmount();
         }
@@ -2914,11 +2871,13 @@ describe('PdfViewportSession behavior', () => {
             documentRevision: 'revision-1',
         });
         surface.metadataReady(10);
-        expect(surface.commitGeometry(generation, {
-            width: 600,
-            height: 900,
-            margin: 20,
-        })).toBe(true);
+        expect(
+            surface.commitGeometry(generation, {
+                width: 600,
+                height: 900,
+                margin: 20,
+            }),
+        ).toBe(true);
         const fixture = createViewportFixture({
             chassisAuthority: createChassisAuthority(surface),
             pageCount: 0,
@@ -2976,17 +2935,17 @@ describe('PdfViewportSession behavior', () => {
         try {
             fixture.container.scrollTop = 1_170;
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
-            surface.navigate(createPageNavigationRequest(2, 'restore', {
-                page: 2,
-                pageXFraction: 0.5,
-                pageYFraction: 0.7,
-                viewportXFraction: 0.5,
-                viewportYFraction: 0.5,
-                affinity: 'center',
-            }));
-            await vi.waitFor(() => expect(
-                fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
-            ).toBe(true));
+            surface.navigate(
+                createPageNavigationRequest(2, 'restore', {
+                    page: 2,
+                    pageXFraction: 0.5,
+                    pageYFraction: 0.7,
+                    viewportXFraction: 0.5,
+                    viewportYFraction: 0.5,
+                    affinity: 'center',
+                }),
+            );
+            await vi.waitFor(() => expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(true));
             const renderFence = surface.createRenderFence({
                 generation,
                 documentRevision: 'revision-1',
@@ -3015,11 +2974,13 @@ describe('PdfViewportSession behavior', () => {
             documentRevision: 'revision-1',
         });
         surface.metadataReady(10);
-        expect(surface.commitGeometry(generation, {
-            width: 600,
-            height: 900,
-            margin: 20,
-        })).toBe(true);
+        expect(
+            surface.commitGeometry(generation, {
+                width: 600,
+                height: 900,
+                margin: 20,
+            }),
+        ).toBe(true);
         const fixture = createViewportFixture({
             chassisAuthority: createChassisAuthority(surface),
             pageCount: 10,
@@ -3029,9 +2990,7 @@ describe('PdfViewportSession behavior', () => {
             fixture.viewport.markPageMounted(requirePageNumber(2));
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(surface.navigationTicket.value);
-            await vi.waitFor(() => expect(
-                fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
-            ).toBe(true));
+            await vi.waitFor(() => expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(true));
             const navigation = surface.navigationTicket.value;
             expect(navigation?.request.target).toEqual({
                 kind: 'page',
@@ -3075,9 +3034,7 @@ describe('PdfViewportSession behavior', () => {
             fixture.viewport.markPageMounted(requirePageNumber(2));
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(2))).toBe(surface.navigationTicket.value);
-            await vi.waitFor(() => expect(
-                fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
-            ).toBe(true));
+            await vi.waitFor(() => expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(true));
 
             // Another document starts loading in this viewer.
             surface.begin({
@@ -3085,13 +3042,15 @@ describe('PdfViewportSession behavior', () => {
                 documentRevision: 'revision-2',
             });
             fixture.documentSession.loadToken.value = 2;
-            await fixture.documentSession.emit(transition('loading', {
-                isReload: false,
-                isSelectiveReload: false,
-                pagesToInvalidate: null,
-                preserveVisibleContent: false,
-                preservePageStructure: false,
-            }));
+            await fixture.documentSession.emit(
+                transition('loading', {
+                    isReload: false,
+                    isSelectiveReload: false,
+                    pagesToInvalidate: null,
+                    preserveVisibleContent: false,
+                    preservePageStructure: false,
+                }),
+            );
             expect(fixture.viewport.demand.value.destinationPage).not.toBe(2);
 
             // The old navigation's layout arrives after the new load began; it
@@ -3109,16 +3068,22 @@ describe('PdfViewportSession behavior', () => {
     describe('one opening reconciliation', () => {
         function beginOpening(documentId: string, initialPage = 1) {
             const surface = createDocumentOpenSurfaceSession();
-            const generation = surface.begin({
-                documentId,
-                documentRevision: 'revision-1',
-            }, null, initialPage);
+            const generation = surface.begin(
+                {
+                    documentId,
+                    documentRevision: 'revision-1',
+                },
+                null,
+                initialPage,
+            );
             surface.metadataReady(10);
-            expect(surface.commitGeometry(generation, {
-                width: 600,
-                height: 900,
-                margin: 20,
-            })).toBe(true);
+            expect(
+                surface.commitGeometry(generation, {
+                    width: 600,
+                    height: 900,
+                    margin: 20,
+                }),
+            ).toBe(true);
             const placements = vi.spyOn(surface, 'commitViewport');
             return {
                 surface,
@@ -3127,19 +3092,24 @@ describe('PdfViewportSession behavior', () => {
                 /** Pages the opening placed, in order. */
                 placedPages: () => placements.mock.calls.map(([commit]) => commit.pageNumber),
                 /** The distinct places the view was put, in order. */
-                placedPositions: () => [...new Set(placements.mock.calls.map(([commit]) => `${String(commit.pageNumber)}@${String(commit.top)}`))],
+                placedPositions: () => [
+                    ...new Set(placements.mock.calls.map(([commit]) => `${String(commit.pageNumber)}@${String(commit.top)}`)),
+                ],
             };
         }
         /** A view whose page raster is fresh only once the test paints it. */
-        function createOpeningFixture(surface: IDocumentOpenSurfaceSession, input: {
-            isActive?: Ref<boolean>;
-            pageMetricsGate?: Promise<boolean>;
-        } = {}) {
+        function createOpeningFixture(
+            surface: IDocumentOpenSurfaceSession,
+            input: {
+                isActive?: Ref<boolean>;
+                pageMetricsGate?: Promise<boolean>;
+            } = {},
+        ) {
             const paintedPages = new Set<number>();
             const fixture = createViewportFixture({
                 bufferPages: 0,
                 chassisAuthority: createChassisAuthority(surface),
-                isPageFreshlyRenderedForNavigation: page => paintedPages.has(page),
+                isPageFreshlyRenderedForNavigation: (page) => paintedPages.has(page),
                 pageCount: 10,
                 ...input,
             });
@@ -3149,11 +3119,7 @@ describe('PdfViewportSession behavior', () => {
             };
         }
         /** The opening canvas lands and the placement's raster settles, as the renderer does. */
-        async function paintOpening(
-            view: ReturnType<typeof createOpeningFixture>,
-            opening: ReturnType<typeof beginOpening>,
-            page: number,
-        ) {
+        async function paintOpening(view: ReturnType<typeof createOpeningFixture>, opening: ReturnType<typeof beginOpening>, page: number) {
             let rasterId = 0;
             await vi.waitFor(() => {
                 const raster = view.fixture.viewport.demand.value.mandatoryRaster;
@@ -3180,10 +3146,7 @@ describe('PdfViewportSession behavior', () => {
             return fence!;
         }
 
-        it.each([
-            1,
-            6,
-        ])('places a cold open at page %i once and does not place it again once ready', async (page) => {
+        it.each([1, 6])('places a cold open at page %i once and does not place it again once ready', async (page) => {
             const opening = beginOpening(`cold-open-${String(page)}.pdf`, page);
             const view = createOpeningFixture(opening.surface);
             try {
@@ -3251,7 +3214,7 @@ describe('PdfViewportSession behavior', () => {
 
                 // The navigation reports its one place again when its raster
                 // settles; the view is put on page 4 once and never on page 1.
-                expect(opening.placedPages().every(page => page === 4)).toBe(true);
+                expect(opening.placedPages().every((page) => page === 4)).toBe(true);
                 expect(opening.placedPositions()).toEqual([`4@${String(view.fixture.container.scrollTop)}`]);
                 expect(opening.surface.viewportSession.value).toMatchObject({
                     lifecycle: 'ready',
@@ -3272,9 +3235,9 @@ describe('PdfViewportSession behavior', () => {
                 view.fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
                 const search = view.fixture.viewport.singlePageScroll.revealSearchNavigationTarget(3);
                 expect(search).toBe(opening.surface.navigationTicket.value);
-                await vi.waitFor(() => expect(
-                    view.fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.kind,
-                ).toBe('search'));
+                await vi.waitFor(() =>
+                    expect(view.fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.kind).toBe('search'),
+                );
 
                 // The reader closes search before its page was placed.
                 view.fixture.viewport.singlePageScroll.endSearchNavigation();
@@ -3347,9 +3310,9 @@ describe('PdfViewportSession behavior', () => {
                 await vi.waitFor(() => expect(view.fixture.viewport.demand.value.mandatoryRaster).not.toBeNull());
                 view.fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
                 view.fixture.viewport.singlePageScroll.revealSearchNavigationTarget(3);
-                await vi.waitFor(() => expect(
-                    view.fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.kind,
-                ).toBe('search'));
+                await vi.waitFor(() =>
+                    expect(view.fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.kind).toBe('search'),
+                );
                 view.fixture.documentSession.ensurePageMetricsInRange.mockRejectedValue(new Error('metrics unreadable'));
                 view.fixture.viewport.singlePageScroll.endSearchNavigation();
                 metrics.resolve(true);
@@ -3373,22 +3336,30 @@ describe('PdfViewportSession behavior', () => {
             const view = createOpeningFixture(surface);
             try {
                 expect(surface.navigationTicket.value).toBeNull();
-                const generation = surface.begin({
-                    documentId: 'same-tick-withdraw.pdf',
-                    documentRevision: 'revision-1',
-                }, null, 1);
+                const generation = surface.begin(
+                    {
+                        documentId: 'same-tick-withdraw.pdf',
+                        documentRevision: 'revision-1',
+                    },
+                    null,
+                    1,
+                );
                 surface.metadataReady(10);
-                expect(surface.commitGeometry(generation, {
-                    width: 600,
-                    height: 900,
-                    margin: 20,
-                })).toBe(true);
+                expect(
+                    surface.commitGeometry(generation, {
+                        width: 600,
+                        height: 900,
+                        margin: 20,
+                    }),
+                ).toBe(true);
                 const search = surface.navigate(createPageNavigationRequest(3, 'search'));
                 expect(search).not.toBeNull();
-                expect(surface.reportNavigation(search!, {
-                    kind: 'abandoned',
-                    by: 'command',
-                })).toBe(true);
+                expect(
+                    surface.reportNavigation(search!, {
+                        kind: 'abandoned',
+                        by: 'command',
+                    }),
+                ).toBe(true);
                 expect(surface.navigationTicket.value).toBeNull();
 
                 await yieldToBrowser();
@@ -3418,10 +3389,12 @@ describe('PdfViewportSession behavior', () => {
             const opening = beginOpening('mounted-after-withdraw.pdf', 1);
             const search = opening.surface.navigate(createPageNavigationRequest(3, 'search'));
             expect(search).not.toBeNull();
-            expect(opening.surface.reportNavigation(search!, {
-                kind: 'abandoned',
-                by: 'command',
-            })).toBe(true);
+            expect(
+                opening.surface.reportNavigation(search!, {
+                    kind: 'abandoned',
+                    by: 'command',
+                }),
+            ).toBe(true);
             expect(opening.surface.navigationTicket.value).toBeNull();
 
             const view = createOpeningFixture(opening.surface);
@@ -3463,9 +3436,9 @@ describe('PdfViewportSession behavior', () => {
                 view.fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
                 const search = view.fixture.viewport.singlePageScroll.revealSearchNavigationTarget(3);
                 expect(search).toBe(opening.surface.navigationTicket.value);
-                await vi.waitFor(() => expect(
-                    view.fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.kind,
-                ).toBe('search'));
+                await vi.waitFor(() =>
+                    expect(view.fixture.viewport.singlePageScroll.viewportAuthority.activeIntent.value?.kind).toBe('search'),
+                );
 
                 view.fixture.viewport.singlePageScroll.endSearchNavigation();
                 metrics.resolve(true);
@@ -3490,21 +3463,21 @@ describe('PdfViewportSession behavior', () => {
             const opening = beginOpening('closed-during-open.pdf', 6);
             const view = createOpeningFixture(opening.surface);
             try {
-                await vi.waitFor(() => expect(
-                    view.fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
-                ).toBe(true));
+                await vi.waitFor(() => expect(view.fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(true));
 
                 opening.surface.reset();
                 view.fixture.documentSession.numPages.value = 0;
                 view.fixture.documentSession.pageMetrics.value = [];
                 view.fixture.documentSession.pdfDocument.value = null;
-                await view.fixture.documentSession.emit(transition('invalidated', {
-                    isReload: false,
-                    isSelectiveReload: false,
-                    pagesToInvalidate: null,
-                    preserveVisibleContent: false,
-                    preservePageStructure: false,
-                }));
+                await view.fixture.documentSession.emit(
+                    transition('invalidated', {
+                        isReload: false,
+                        isSelectiveReload: false,
+                        pagesToInvalidate: null,
+                        preserveVisibleContent: false,
+                        preservePageStructure: false,
+                    }),
+                );
                 await expect(opening.openingTicket.finished).resolves.toEqual({kind: 'document-ended'});
                 await yieldToBrowser();
 
@@ -3520,9 +3493,7 @@ describe('PdfViewportSession behavior', () => {
             const opening = beginOpening('view-closed-during-open.pdf', 6);
             const view = createOpeningFixture(opening.surface);
             try {
-                await vi.waitFor(() => expect(
-                    view.fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
-                ).toBe(true));
+                await vi.waitFor(() => expect(view.fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(true));
             } finally {
                 await view.fixture.dispose();
             }
@@ -3591,7 +3562,9 @@ describe('PdfViewportSession behavior', () => {
                 const {viewport} = view.fixture;
 
                 const ticket = viewport.singlePageScroll.scrollToPage(requirePageNumber(6));
-                if (!ticket || ticket === true) throw new Error('Expected a navigation ticket');
+                if (!ticket || ticket === true) {
+                    throw new Error('Expected a navigation ticket');
+                }
                 await vi.waitFor(() => {
                     expect(viewport.singlePageScroll.viewportAuthority.phase.value).toBe('awaiting-visual');
                     expect(viewport.currentPage.value).toBe(6);
@@ -3642,10 +3615,7 @@ describe('PdfViewportSession behavior', () => {
         });
     });
 
-    it.each([
-        false,
-        true,
-    ])('closes with pending navigation after metadata clears (continuous: %s)', async (continuousScroll) => {
+    it.each([false, true])('closes with pending navigation after metadata clears (continuous: %s)', async (continuousScroll) => {
         const fixture = createViewportFixture({
             pageCount: 100,
             continuousScroll,
@@ -3656,20 +3626,20 @@ describe('PdfViewportSession behavior', () => {
             fixture.viewport.markPageMounted(requirePageNumber(38));
             fixture.documentSession.ensurePageMetricsInRange.mockReturnValueOnce(metrics.promise);
             expect(fixture.viewport.singlePageScroll.scrollToPage(requirePageNumber(39))).toBe(true);
-            await vi.waitFor(() => expect(
-                fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value,
-            ).toBe(true));
+            await vi.waitFor(() => expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(true));
 
             fixture.documentSession.numPages.value = 0;
             fixture.documentSession.pageMetrics.value = [];
             fixture.documentSession.pdfDocument.value = null;
-            await fixture.documentSession.emit(transition('invalidated', {
-                isReload: false,
-                isSelectiveReload: false,
-                pagesToInvalidate: null,
-                preserveVisibleContent: false,
-                preservePageStructure: false,
-            }));
+            await fixture.documentSession.emit(
+                transition('invalidated', {
+                    isReload: false,
+                    isSelectiveReload: false,
+                    pagesToInvalidate: null,
+                    preserveVisibleContent: false,
+                    preservePageStructure: false,
+                }),
+            );
 
             expect(fixture.viewport.singlePageScroll.isProgrammaticNavigationActive.value).toBe(false);
             expect(fixture.viewport.demand.value.operational).toBe(false);
@@ -3716,15 +3686,19 @@ describe('PdfViewportSession behavior', () => {
         ) {
             const fixture = createViewportFixture({pageCount: 20});
             prepare?.(fixture.documentSession);
-            const stop = watch(fixture.viewport.demand, (demand) => {
-                if (demand.mandatoryRaster) {
-                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
-                }
-            }, {flush: 'post'});
+            const stop = watch(
+                fixture.viewport.demand,
+                (demand) => {
+                    if (demand.mandatoryRaster) {
+                        fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                    }
+                },
+                {flush: 'post'},
+            );
             try {
                 fixture.container.scrollTop = 4_000;
                 const read = fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()!;
-                const admission = fixture.viewport.admitReload(page => page + 1);
+                const admission = fixture.viewport.admitReload((page) => page + 1);
                 await fixture.documentSession.emit(transition('invalidated', reloadPlan));
                 await fixture.documentSession.emit(transition('loading', reloadPlan));
                 if (readerMovesDuringReload) {
@@ -3736,8 +3710,9 @@ describe('PdfViewportSession behavior', () => {
                     fixture,
                     outcome: await admission.finished,
                     read,
-                    placedWrites: fixture.viewportWrites.writes.slice(writesBeforeReady)
-                        .filter(write => write.reason === 'document-restore'),
+                    placedWrites: fixture.viewportWrites.writes
+                        .slice(writesBeforeReady)
+                        .filter((write) => write.reason === 'document-restore'),
                 };
             } catch (error) {
                 await fixture.dispose();
@@ -3748,9 +3723,7 @@ describe('PdfViewportSession behavior', () => {
         }
 
         it('places the reading point on the page its map moves it to, then reports it placed', async () => {
-            const {
-                fixture, outcome, read, placedWrites,
-            } = await reloadWithAdmission(false);
+            const {fixture, outcome, read, placedWrites} = await reloadWithAdmission(false);
             try {
                 expect(read.page).toBeGreaterThan(1);
                 expect(outcome).toBe('placed');
@@ -3771,11 +3744,15 @@ describe('PdfViewportSession behavior', () => {
                 zoom: ref(1.5),
                 zoomMode: 'custom',
             });
-            const stop = watch(fixture.viewport.demand, (demand) => {
-                if (demand.mandatoryRaster) {
-                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
-                }
-            }, {flush: 'post'});
+            const stop = watch(
+                fixture.viewport.demand,
+                (demand) => {
+                    if (demand.mandatoryRaster) {
+                        fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                    }
+                },
+                {flush: 'post'},
+            );
             try {
                 const firstPage = appendPageBox(fixture.container, 1, {
                     height: 900,
@@ -3783,7 +3760,7 @@ describe('PdfViewportSession behavior', () => {
                 });
                 fixture.container.scrollTop = 4_000;
                 const read = fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()!;
-                const admission = fixture.viewport.admitReload(page => page);
+                const admission = fixture.viewport.admitReload((page) => page);
                 await fixture.documentSession.emit(transition('invalidated', reloadPlan));
                 await fixture.documentSession.emit(transition('loading', reloadPlan));
                 // The owner's zoom moved while the document reloaded.
@@ -3796,8 +3773,7 @@ describe('PdfViewportSession behavior', () => {
                 expect(await admission.finished).toBe('placed');
                 expect(fixture.zoom.value).toBe(1.5);
                 // The relayout the restored zoom asked for yields to the reload's one placement.
-                expect(fixture.viewportWrites.writes.slice(writesBeforeReady).map(write => write.reason))
-                    .toEqual(['document-restore']);
+                expect(fixture.viewportWrites.writes.slice(writesBeforeReady).map((write) => write.reason)).toEqual(['document-restore']);
                 expect(firstPage.style.width).toBe('900px');
                 expect(firstPage.style.height).toBe('1350px');
                 expect(fixture.viewport.currentPage.value).toBe(read.page);
@@ -3817,12 +3793,16 @@ describe('PdfViewportSession behavior', () => {
                 start: number;
                 end: number;
             }> = [];
-            const stop = watch(fixture.viewport.demand, (demand) => {
-                if (demand.mandatoryRaster) {
-                    mandatoryRanges.push({...demand.mandatoryRaster.range});
-                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
-                }
-            }, {flush: 'post'});
+            const stop = watch(
+                fixture.viewport.demand,
+                (demand) => {
+                    if (demand.mandatoryRaster) {
+                        mandatoryRanges.push({...demand.mandatoryRaster.range});
+                        fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                    }
+                },
+                {flush: 'post'},
+            );
             try {
                 fixture.container.scrollTop = 4_000;
                 const read = fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()!;
@@ -3833,7 +3813,7 @@ describe('PdfViewportSession behavior', () => {
                     preserveVisibleContent: true,
                     preservePageStructure: true,
                 };
-                const admission = fixture.viewport.admitReload(page => page);
+                const admission = fixture.viewport.admitReload((page) => page);
                 await fixture.documentSession.emit(transition('invalidated', rotationPlan));
                 await fixture.documentSession.emit(transition('loading', rotationPlan));
                 const writesBeforeReady = fixture.viewportWrites.writes.length;
@@ -3842,8 +3822,7 @@ describe('PdfViewportSession behavior', () => {
                 await fixture.documentSession.emit(transition('ready', rotationPlan));
 
                 expect(await admission.finished).toBe('placed');
-                expect(fixture.viewportWrites.writes.slice(writesBeforeReady).map(write => write.reason))
-                    .toEqual(['document-restore']);
+                expect(fixture.viewportWrites.writes.slice(writesBeforeReady).map((write) => write.reason)).toEqual(['document-restore']);
                 expect(fixture.viewport.currentPage.value).toBe(read.page);
                 expect(mandatoryRanges[rangesBeforeReady]).toEqual({
                     start: read.page,
@@ -3882,10 +3861,7 @@ describe('PdfViewportSession behavior', () => {
                 () => `${fixture.viewport.currentPage.value}:${fixture.viewport.viewModel.pagesToRender.value.join(',')}`,
                 () => {
                     const nextPage = fixture.viewport.currentPage.value;
-                    if (
-                        !fixture.viewport.viewModel.pagesToRender.value.includes(nextPage)
-                        || Number(mountedEl.dataset.page) === nextPage
-                    ) {
+                    if (!fixture.viewport.viewModel.pagesToRender.value.includes(nextPage) || Number(mountedEl.dataset.page) === nextPage) {
                         return;
                     }
                     const oldPage = requirePageNumber(Number(mountedEl.dataset.page));
@@ -3896,11 +3872,15 @@ describe('PdfViewportSession behavior', () => {
                 },
                 {flush: 'post'},
             );
-            const stopRaster = watch(fixture.viewport.demand, (demand) => {
-                if (demand.mandatoryRaster) {
-                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
-                }
-            }, {flush: 'post'});
+            const stopRaster = watch(
+                fixture.viewport.demand,
+                (demand) => {
+                    if (demand.mandatoryRaster) {
+                        fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                    }
+                },
+                {flush: 'post'},
+            );
             try {
                 const selectiveReorderPlan = {
                     isReload: true,
@@ -3909,7 +3889,7 @@ describe('PdfViewportSession behavior', () => {
                     preserveVisibleContent: true,
                     preservePageStructure: false,
                 };
-                const admission = fixture.viewport.admitReload(page => (page === 1 ? 12 : page));
+                const admission = fixture.viewport.admitReload((page) => (page === 1 ? 12 : page));
                 await fixture.documentSession.emit(transition('invalidated', selectiveReorderPlan));
                 await fixture.documentSession.emit(transition('loading', selectiveReorderPlan));
                 await fixture.documentSession.emit(transition('ready', selectiveReorderPlan));
@@ -3929,9 +3909,7 @@ describe('PdfViewportSession behavior', () => {
         });
 
         it('leaves the view where the reader moved it during the reload', async () => {
-            const {
-                fixture, outcome, read, placedWrites,
-            } = await reloadWithAdmission(true);
+            const {fixture, outcome, read, placedWrites} = await reloadWithAdmission(true);
             try {
                 expect(outcome).toBe('superseded');
                 expect(placedWrites).toHaveLength(0);
@@ -3947,7 +3925,7 @@ describe('PdfViewportSession behavior', () => {
             try {
                 fixture.container.scrollTop = 4_000;
                 const read = fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()!;
-                const admission = fixture.viewport.admitReload(page => page + 1);
+                const admission = fixture.viewport.admitReload((page) => page + 1);
                 admission.withdraw();
                 await expect(admission.finished).resolves.toBe('withdrawn');
                 await fixture.documentSession.emit(transition('invalidated', reloadPlan));
@@ -3968,21 +3946,29 @@ describe('PdfViewportSession behavior', () => {
                 chassisAuthority: createChassisAuthority(surface),
                 pageCount: 20,
             });
-            const stop = watch(fixture.viewport.demand, (demand) => {
-                if (demand.mandatoryRaster) {
-                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
-                }
-            }, {flush: 'post'});
+            const stop = watch(
+                fixture.viewport.demand,
+                (demand) => {
+                    if (demand.mandatoryRaster) {
+                        fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                    }
+                },
+                {flush: 'post'},
+            );
             try {
                 fixture.container.scrollTop = 4_000;
                 const read = fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()!;
-                const admission = fixture.viewport.admitReload(page => page + 1);
+                const admission = fixture.viewport.admitReload((page) => page + 1);
                 await fixture.documentSession.emit(transition('invalidated', reloadPlan));
                 // A revision the views could not stage opens a new generation at the page-top of its current page.
-                surface.begin({
-                    documentId: 'reloaded.pdf',
-                    documentRevision: 'revision-2',
-                }, null, read.page);
+                surface.begin(
+                    {
+                        documentId: 'reloaded.pdf',
+                        documentRevision: 'revision-2',
+                    },
+                    null,
+                    read.page,
+                );
                 const openingTicket = surface.navigationTicket.value;
                 await fixture.documentSession.emit(transition('loading', reloadPlan));
 
@@ -3998,10 +3984,12 @@ describe('PdfViewportSession behavior', () => {
                 });
                 await fixture.documentSession.emit(transition('ready', reloadPlan));
                 // The ticket's execution places the point; its terminal outcome settles the admission.
-                await vi.waitFor(() => expect(fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()).toMatchObject({
-                    page: read.page + 1,
-                    pageYFraction: expect.closeTo(read.pageYFraction, 2),
-                }));
+                await vi.waitFor(() =>
+                    expect(fixture.viewport.singlePageScroll.captureCurrentSemanticAnchor()).toMatchObject({
+                        page: read.page + 1,
+                        pageYFraction: expect.closeTo(read.pageYFraction, 2),
+                    }),
+                );
                 const outcome = await ticket!.finished;
                 await expect(admission.finished).resolves.toBe(outcome.kind === 'arrived' ? 'placed' : 'superseded');
             } finally {
@@ -4010,55 +3998,63 @@ describe('PdfViewportSession behavior', () => {
             }
         });
 
-        it.each([
-            false,
-            true,
-        ])('settles a retargeted opening ticket as superseded once the reader moved (input after issue: %s)', async (readerMoves) => {
-            const surface = createDocumentOpenSurfaceSession();
-            surface.begin({
-                documentId: 'reloaded.pdf',
-                documentRevision: 'revision-1',
-            });
-            const fixture = createViewportFixture({
-                chassisAuthority: createChassisAuthority(surface),
-                pageCount: 20,
-            });
-            const stop = watch(fixture.viewport.demand, (demand) => {
-                if (demand.mandatoryRaster) {
-                    fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
-                }
-            }, {flush: 'post'});
-            const arrival = Promise.withResolvers<TDocumentNavigationOutcome>();
-            try {
-                fixture.container.scrollTop = 4_000;
-                const admission = fixture.viewport.admitReload(page => page + 1);
-                await fixture.documentSession.emit(transition('invalidated', reloadPlan));
+        it.each([false, true])(
+            'settles a retargeted opening ticket as superseded once the reader moved (input after issue: %s)',
+            async (readerMoves) => {
+                const surface = createDocumentOpenSurfaceSession();
                 surface.begin({
                     documentId: 'reloaded.pdf',
-                    documentRevision: 'revision-2',
-                }, null, 3);
-                const navigate = vi.spyOn(surface, 'navigate').mockReturnValue(cast<IDocumentNavigationTicket>({finished: arrival.promise}));
-                await fixture.documentSession.emit(transition('loading', reloadPlan));
-                expect(navigate).toHaveBeenCalledOnce();
-                if (readerMoves) {
-                    fixture.viewportWrites.port.observeUserInteraction();
-                }
-                await fixture.documentSession.emit(transition('ready', reloadPlan));
-                arrival.resolve({
-                    kind: 'arrived',
-                    page: 4,
+                    documentRevision: 'revision-1',
                 });
-                await expect(admission.finished).resolves.toBe(readerMoves ? 'superseded' : 'placed');
-            } finally {
-                stop();
-                await fixture.dispose();
-            }
-        });
+                const fixture = createViewportFixture({
+                    chassisAuthority: createChassisAuthority(surface),
+                    pageCount: 20,
+                });
+                const stop = watch(
+                    fixture.viewport.demand,
+                    (demand) => {
+                        if (demand.mandatoryRaster) {
+                            fixture.viewport.settleMandatoryRaster(demand.mandatoryRaster.id, true);
+                        }
+                    },
+                    {flush: 'post'},
+                );
+                const arrival = Promise.withResolvers<TDocumentNavigationOutcome>();
+                try {
+                    fixture.container.scrollTop = 4_000;
+                    const admission = fixture.viewport.admitReload((page) => page + 1);
+                    await fixture.documentSession.emit(transition('invalidated', reloadPlan));
+                    surface.begin(
+                        {
+                            documentId: 'reloaded.pdf',
+                            documentRevision: 'revision-2',
+                        },
+                        null,
+                        3,
+                    );
+                    const navigate = vi
+                        .spyOn(surface, 'navigate')
+                        .mockReturnValue(cast<IDocumentNavigationTicket>({finished: arrival.promise}));
+                    await fixture.documentSession.emit(transition('loading', reloadPlan));
+                    expect(navigate).toHaveBeenCalledOnce();
+                    if (readerMoves) {
+                        fixture.viewportWrites.port.observeUserInteraction();
+                    }
+                    await fixture.documentSession.emit(transition('ready', reloadPlan));
+                    arrival.resolve({
+                        kind: 'arrived',
+                        page: 4,
+                    });
+                    await expect(admission.finished).resolves.toBe(readerMoves ? 'superseded' : 'placed');
+                } finally {
+                    stop();
+                    await fixture.dispose();
+                }
+            },
+        );
 
         it('maps a view that did not stage the pending page mutation through the admitted map', async () => {
-            const {
-                fixture, outcome, read,
-            } = await reloadWithAdmission(false, (documentSession) => {
+            const {fixture, outcome, read} = await reloadWithAdmission(false, (documentSession) => {
                 // Another linked view staged the swap; this one did not, so its carry keeps the page.
                 documentSession.pendingPageMutationRevisionSwap = cast({
                     revision: 'revision-2',
@@ -4081,7 +4077,7 @@ describe('PdfViewportSession behavior', () => {
 
         it('settles an admission that is still waiting when the view closes', async () => {
             const fixture = createViewportFixture({pageCount: 20});
-            const admission = fixture.viewport.admitReload(page => page);
+            const admission = fixture.viewport.admitReload((page) => page);
             await fixture.dispose();
             await expect(admission.finished).resolves.toBe('superseded');
         });
@@ -4092,13 +4088,15 @@ describe('PdfViewportSession behavior', () => {
         try {
             fixture.viewport.markPageMounted(requirePageNumber(1));
 
-            await fixture.documentSession.emit(transition('invalidated', {
-                isReload: true,
-                isSelectiveReload: false,
-                pagesToInvalidate: null,
-                preserveVisibleContent: false,
-                preservePageStructure: false,
-            }));
+            await fixture.documentSession.emit(
+                transition('invalidated', {
+                    isReload: true,
+                    isSelectiveReload: false,
+                    pagesToInvalidate: null,
+                    preserveVisibleContent: false,
+                    preservePageStructure: false,
+                }),
+            );
 
             expect(fixture.documentSession.nextReloadPreservesVisibleContent).toBe(false);
         } finally {
@@ -4145,7 +4143,9 @@ describe('PdfViewportSession layout placement receipt', () => {
     /** Records when the receipt settles, without awaiting it. */
     function track(receipt: Promise<void>) {
         const state = {settled: false};
-        void receipt.then(() => { state.settled = true; });
+        void receipt.then(() => {
+            state.settled = true;
+        });
         return state;
     }
 
@@ -4187,7 +4187,7 @@ describe('PdfViewportSession layout placement receipt', () => {
         }
     });
 
-    it('settles at once for a hidden view, whose box is not the reader\'s', async () => {
+    it("settles at once for a hidden view, whose box is not the reader's", async () => {
         const fixture = createViewportFixture();
         try {
             await nextTick();

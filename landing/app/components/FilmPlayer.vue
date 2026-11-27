@@ -15,7 +15,7 @@
       </div>
       <div
         class="film-screen"
-        :style="{ aspectRatio: `${film.width} / ${film.height}` }"
+        :style="{aspectRatio: `${film.width} / ${film.height}`}"
       >
         <video
           v-if="mounted"
@@ -68,7 +68,7 @@
       >
         <div
           class="film-fill"
-          :style="{ width: `${(time / Math.max(duration, 0.001)) * 100}%` }"
+          :style="{width: `${(time / Math.max(duration, 0.001)) * 100}%`}"
         />
       </div>
       <span class="film-time">{{ time.toFixed(1) }}s</span>
@@ -77,38 +77,34 @@
 </template>
 
 <script setup lang="ts">
-import {
-    useIntersectionObserver,
-    usePreferredReducedMotion,
-    useRafFn,
-} from '@vueuse/core';
+import {useIntersectionObserver, usePreferredReducedMotion, useRafFn} from '@vueuse/core';
 import viewerFilm from '~/films/viewer.json';
 
 type TFilmTheme = 'light' | 'dark';
 
 interface IFilmIndex {
-    fps: number
-    /** First frame after the opening fade: the poster, and where playback starts. */
-    intro: number
-    width: number
-    height: number
-    variants: Record<string, {
-        frames: number
-        still: number
-    }>
+  fps: number;
+  /** First frame after the opening fade: the poster, and where playback starts. */
+  intro: number;
+  width: number;
+  height: number;
+  variants: Record<
+    string,
+    {
+      frames: number;
+      still: number;
+    }
+  >;
 }
 
-const {
-    locale,
-    theme,
-} = defineProps<{
-    locale: string
-    theme: TFilmTheme
-    label: string
-    playLabel: string
-    pauseLabel: string
-    positionLabel: string
-    title: string
+const {locale, theme} = defineProps<{
+  locale: string;
+  theme: TFilmTheme;
+  label: string;
+  playLabel: string;
+  pauseLabel: string;
+  positionLabel: string;
+  title: string;
 }>();
 
 // Rendered by recorder/render.mjs: one video per locale and theme, with a poster and a still.
@@ -125,62 +121,57 @@ const duration = ref(0);
 
 /** The recording for this locale and theme, else English in the same theme, else any English one. */
 function resolveVariant(variantTheme: TFilmTheme) {
-    return [
-        `${locale}-${variantTheme}`,
-        `en-${variantTheme}`,
-        'en-dark',
-        'en-light',
-    ].find(candidate => candidate in film.variants) ?? null;
+  return [`${locale}-${variantTheme}`, `en-${variantTheme}`, 'en-dark', 'en-light'].find((candidate) => candidate in film.variants) ?? null;
 }
 
 const variant = computed(() => resolveVariant(theme));
 const still = computed(() => reducedMotion.value === 'reduce');
 const posterStyle = computed(() => {
-    const posterFor = (posterTheme: TFilmTheme) => {
-        const name = resolveVariant(posterTheme);
-        return name ? `url(${FILM_BASE}/${name}-${still.value ? 'still' : 'poster'}.jpg)` : 'none';
-    };
-    return {
-        '--poster-light': posterFor('light'),
-        '--poster-dark': posterFor('dark'),
-    };
+  const posterFor = (posterTheme: TFilmTheme) => {
+    const name = resolveVariant(posterTheme);
+    return name ? `url(${FILM_BASE}/${name}-${still.value ? 'still' : 'poster'}.jpg)` : 'none';
+  };
+  return {
+    '--poster-light': posterFor('light'),
+    '--poster-dark': posterFor('dark'),
+  };
 });
 
 function play() {
-    showPoster.value = false;
-    void video.value?.play().catch(() => {});
+  showPoster.value = false;
+  void video.value?.play().catch(() => {});
 }
 
 function onMetadata() {
-    const element = video.value;
-    const info = variant.value ? film.variants[variant.value] : undefined;
-    if (!element || !info) {
-        return;
-    }
-    duration.value = element.duration;
-    element.currentTime = (still.value ? info.still : film.intro) / film.fps;
-    time.value = element.currentTime;
-    if (visible.value && !still.value) {
-        play();
-    }
+  const element = video.value;
+  const info = variant.value ? film.variants[variant.value] : undefined;
+  if (!element || !info) {
+    return;
+  }
+  duration.value = element.duration;
+  element.currentTime = (still.value ? info.still : film.intro) / film.fps;
+  time.value = element.currentTime;
+  if (visible.value && !still.value) {
+    play();
+  }
 }
 
 function toggle() {
-    if (video.value?.paused) {
-        play();
-    } else {
-        video.value?.pause();
-    }
+  if (video.value?.paused) {
+    play();
+  } else {
+    video.value?.pause();
+  }
 }
 
 function seekTo(seconds: number) {
-    const element = video.value;
-    if (!element || !duration.value) {
-        return;
-    }
-    element.currentTime = Math.min(duration.value, Math.max(0, seconds));
-    time.value = element.currentTime;
-    showPoster.value = false;
+  const element = video.value;
+  if (!element || !duration.value) {
+    return;
+  }
+  element.currentTime = Math.min(duration.value, Math.max(0, seconds));
+  time.value = element.currentTime;
+  showPoster.value = false;
 }
 
 // A scrub belongs to the pointer that started it. Capture keeps its moves on the track, and the
@@ -188,63 +179,63 @@ function seekTo(seconds: number) {
 let scrubPointerId: number | null = null;
 
 function seekFromPointer(event: PointerEvent) {
-    if (!(event.currentTarget instanceof HTMLElement)) {
-        return;
-    }
-    const rect = event.currentTarget.getBoundingClientRect();
-    seekTo(Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)) * duration.value);
+  if (!(event.currentTarget instanceof HTMLElement)) {
+    return;
+  }
+  const rect = event.currentTarget.getBoundingClientRect();
+  seekTo(Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)) * duration.value);
 }
 
 function startScrub(event: PointerEvent) {
-    if (!(event.currentTarget instanceof HTMLElement)) {
-        return;
-    }
-    scrubPointerId = event.pointerId;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    seekFromPointer(event);
+  if (!(event.currentTarget instanceof HTMLElement)) {
+    return;
+  }
+  scrubPointerId = event.pointerId;
+  event.currentTarget.setPointerCapture(event.pointerId);
+  seekFromPointer(event);
 }
 
 function moveScrub(event: PointerEvent) {
-    if (event.pointerId === scrubPointerId) {
-        seekFromPointer(event);
-    }
+  if (event.pointerId === scrubPointerId) {
+    seekFromPointer(event);
+  }
 }
 
 function endScrub() {
-    scrubPointerId = null;
+  scrubPointerId = null;
 }
 
 // timeupdate fires only a few times a second; follow the playhead every frame instead.
 useRafFn(() => {
-    if (video.value && playing.value) {
-        time.value = video.value.currentTime;
-    }
+  if (video.value && playing.value) {
+    time.value = video.value.currentTime;
+  }
 });
 
 // Another locale or theme loads another recording; its poster shows until it plays.
 watch(variant, () => {
-    playing.value = false;
-    showPoster.value = true;
-    time.value = 0;
+  playing.value = false;
+  showPoster.value = true;
+  time.value = 0;
 });
 
 // Plays only while on screen.
 useIntersectionObserver(video, ([entry]) => {
-    visible.value = Boolean(entry?.isIntersecting);
-    const element = video.value;
-    if (!element || still.value || element.readyState < 1) {
-        return;
-    }
-    if (visible.value) {
-        play();
-    } else {
-        element.pause();
-    }
+  visible.value = Boolean(entry?.isIntersecting);
+  const element = video.value;
+  if (!element || still.value || element.readyState < 1) {
+    return;
+  }
+  if (visible.value) {
+    play();
+  } else {
+    element.pause();
+  }
 });
 
 onMounted(() => {
-    // The color mode and the reduced-motion preference are known only in the browser.
-    mounted.value = true;
+  // The color mode and the reduced-motion preference are known only in the browser.
+  mounted.value = true;
 });
 </script>
 

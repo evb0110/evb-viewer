@@ -1,27 +1,11 @@
 import type * as TViMockJobBroker from '@electron/resources/jobBroker';
-import {
-    mkdtemp,
-    readFile,
-    rm,
-    truncate,
-    writeFile,
-} from 'fs/promises';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import {
-    PDFDocument,
-    PDFName,
-} from 'pdf-lib';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { PdfPageOpsCapabilityError } from '@electron/features/page-ops/main/pageOpsErrors';
-import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
+import {mkdtemp, readFile, rm, truncate, writeFile} from 'fs/promises';
+import {tmpdir} from 'os';
+import {join} from 'path';
+import {PDFDocument, PDFName} from 'pdf-lib';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {PdfPageOpsCapabilityError} from '@electron/features/page-ops/main/pageOpsErrors';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
     broker: null as InstanceType<typeof TViMockJobBroker.JobBroker> | null,
@@ -30,13 +14,15 @@ const mocks = vi.hoisted(() => ({
     runNativeToolCommand: vi.fn(),
 }));
 
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-})}));
-vi.mock('@electron/resources/jobBroker', async importOriginal => {
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+    }),
+}));
+vi.mock('@electron/resources/jobBroker', async (importOriginal) => {
     const actual = await importOriginal<typeof TViMockJobBroker>();
     return {
         ...actual,
@@ -53,7 +39,7 @@ vi.mock('@electron/resources/jobBroker', async importOriginal => {
     };
 });
 vi.mock('fs/promises', async () => {
-    const actual = await vi.importActual('fs/promises') as {
+    const actual = (await vi.importActual('fs/promises')) as {
         [key: string]: unknown;
         readFile: typeof readFile;
     };
@@ -65,24 +51,19 @@ vi.mock('fs/promises', async () => {
         },
     };
 });
-vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args)}));
+vi.mock('@electron/native-tools/runNativeToolCommand', () => ({
+    runNativeToolCommand: (...args: unknown[]) => mocks.runNativeToolCommand(...args),
+}));
 vi.mock('@electron/features/page-ops/main/resolveNativePageOpsPath', () => ({resolveNativePageOpsPath: () => mocks.nativePageOpsPath}));
 
-const { JobBroker } = await import('@electron/resources/jobBroker');
-const {
-    cropPages,
-    getPageGeometry,
-    removeCropFromPages,
-} = await import('@electron/features/page-ops/main/crop');
+const {JobBroker} = await import('@electron/resources/jobBroker');
+const {cropPages, getPageGeometry, removeCropFromPages} = await import('@electron/features/page-ops/main/crop');
 
-const originalEnv = { ...process.env };
+const originalEnv = {...process.env};
 
-async function createPdf(path: string, options?: { inheritedCropBox?: [number, number, number, number] }) {
+async function createPdf(path: string, options?: {inheritedCropBox?: [number, number, number, number]}) {
     const pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([
-        200,
-        100,
-    ]);
+    const page = pdfDoc.addPage([200, 100]);
 
     if (options?.inheritedCropBox) {
         page.node.Parent()?.set(PDFName.of('CropBox'), pdfDoc.context.obj(options.inheritedCropBox));
@@ -105,13 +86,13 @@ describe('page crop operations', () => {
         });
         mocks.readFileCount = 0;
         mocks.nativePageOpsPath = null;
-        process.env = { ...originalEnv };
+        process.env = {...originalEnv};
         tempDir = await mkdtemp(join(tmpdir(), 'page-crop-test-'));
         pdfPath = join(tempDir, 'sample.pdf');
     });
 
     afterEach(async () => {
-        process.env = { ...originalEnv };
+        process.env = {...originalEnv};
         if (tempDir) {
             await rm(tempDir, {
                 recursive: true,
@@ -121,12 +102,7 @@ describe('page crop operations', () => {
     });
 
     it('uses native page geometry without loading the PDF in JavaScript', async () => {
-        await createPdf(pdfPath, { inheritedCropBox: [
-            20,
-            10,
-            180,
-            90,
-        ] });
+        await createPdf(pdfPath, {inheritedCropBox: [20, 10, 180, 90]});
         mocks.nativePageOpsPath = '/native/evb-pdf-page-ops';
         mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
             expect(args.slice(0, 1)).toEqual(['page-geometry']);
@@ -201,12 +177,14 @@ describe('page crop operations', () => {
         const loadSpy = vi.spyOn(PDFDocument, 'load');
 
         try {
-            await expect(cropPages(pdfPath, [1], {
-                top: 1,
-                bottom: 1,
-                left: 1,
-                right: 1,
-            })).rejects.toBeInstanceOf(PdfPageOpsCapabilityError);
+            await expect(
+                cropPages(pdfPath, [1], {
+                    top: 1,
+                    bottom: 1,
+                    left: 1,
+                    right: 1,
+                }),
+            ).rejects.toBeInstanceOf(PdfPageOpsCapabilityError);
             await expect(removeCropFromPages(pdfPath, [1])).rejects.toMatchObject({
                 name: 'PdfPageOpsCapabilityError',
                 code: 'native-unavailable',
@@ -227,17 +205,17 @@ describe('page crop operations', () => {
     it('propagates cancellation while native page geometry is running', async () => {
         await createPdf(pdfPath);
         mocks.nativePageOpsPath = '/native/evb-pdf-page-ops';
-        mocks.runNativeToolCommand.mockImplementation(async (
-            _binaryPath: string,
-            _args: string[],
-            options: {signal?: AbortSignal},
-        ) => {
+        mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, _args: string[], options: {signal?: AbortSignal}) => {
             await new Promise<never>((_resolve, reject) => {
-                options.signal?.addEventListener('abort', () => {
-                    const error = new Error('Operation aborted');
-                    error.name = 'AbortError';
-                    reject(error);
-                }, {once: true});
+                options.signal?.addEventListener(
+                    'abort',
+                    () => {
+                        const error = new Error('Operation aborted');
+                        error.name = 'AbortError';
+                        reject(error);
+                    },
+                    {once: true},
+                );
             });
             throw new Error('unreachable');
         });
@@ -286,13 +264,15 @@ describe('page crop operations', () => {
         expect(capturedArgs).toContain('--append');
         expect(capturedArgs).toContain('--append-in-place');
         expect(capturedMutations).toEqual({
-            pageCrops: [{
-                pageIndex: 0,
-                top: 10,
-                bottom: 10,
-                left: 10,
-                right: 10,
-            }],
+            pageCrops: [
+                {
+                    pageIndex: 0,
+                    top: 10,
+                    bottom: 10,
+                    left: 10,
+                    right: 10,
+                },
+            ],
         });
         await expect(readFile(pdfPath, 'utf8')).resolves.toBe('%PDF-1.7\nnative crop');
     });
@@ -300,17 +280,20 @@ describe('page crop operations', () => {
     it.each([
         [
             'crop',
-            () => cropPages(pdfPath, [1], {
-                top: 1,
-                bottom: 2,
-                left: 3,
-                right: 4,
-            }, 9),
+            () =>
+                cropPages(
+                    pdfPath,
+                    [1],
+                    {
+                        top: 1,
+                        bottom: 2,
+                        left: 3,
+                        right: 4,
+                    },
+                    9,
+                ),
         ],
-        [
-            'removeCrop',
-            () => removeCropFromPages(pdfPath, [1], 9),
-        ],
+        ['removeCrop', () => removeCropFromPages(pdfPath, [1], 9)],
     ])('queues %s behind an active native lease and releases when finished', async (_kind, runOp) => {
         await createPdf(pdfPath);
         mocks.nativePageOpsPath = '/native/evb-pdf-page-ops';
@@ -331,22 +314,25 @@ describe('page crop operations', () => {
             return originalRun(request, work);
         });
         const blockerGate = Promise.withResolvers<void>();
-        const blockerDone = originalRun({
-            ownerId: 'blocker',
-            kind: 'native-command',
-            priority: 'user',
-            resources: {
-                cpuTokens: 1,
-                estimatedResidentBytes: 64 * 1024 * 1024,
-                nativeProcesses: 1,
-                ioWeight: 1,
+        const blockerDone = originalRun(
+            {
+                ownerId: 'blocker',
+                kind: 'native-command',
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 64 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
             },
-        }, () => blockerGate.promise);
+            () => blockerGate.promise,
+        );
 
         const opPromise = runOp();
         try {
             await queued.promise;
-            await new Promise<void>(resolve => queueMicrotask(resolve));
+            await new Promise<void>((resolve) => queueMicrotask(resolve));
             expect(mocks.runNativeToolCommand).not.toHaveBeenCalled();
             expect(mocks.broker!.getSnapshot()).toMatchObject({
                 active: 1,
@@ -368,29 +354,34 @@ describe('page crop operations', () => {
     it.each([
         [
             'crop',
-            () => cropPages(pdfPath, [1], {
-                top: 1,
-                bottom: 1,
-                left: 1,
-                right: 1,
-            }, 9),
+            () =>
+                cropPages(
+                    pdfPath,
+                    [1],
+                    {
+                        top: 1,
+                        bottom: 1,
+                        left: 1,
+                        right: 1,
+                    },
+                    9,
+                ),
         ],
-        [
-            'removeCrop',
-            () => removeCropFromPages(pdfPath, [1], 9),
-        ],
+        ['removeCrop', () => removeCropFromPages(pdfPath, [1], 9)],
     ])('retains its broker lease when %s ends without termination proof', async (_kind, runOp) => {
         await createPdf(pdfPath);
         mocks.nativePageOpsPath = '/native/evb-pdf-page-ops';
         const unproven = markUnprovenNativeTermination(new Error('crop child hung'), 'crop child still alive');
-        mocks.runNativeToolCommand.mockImplementationOnce(async (
-            _binaryPath: string,
-            _args: string[],
-            options: { brokerRun?: { onTerminationProof?: (proof: Promise<boolean>) => void } },
-        ) => {
-            options.brokerRun?.onTerminationProof?.(Promise.resolve(false));
-            throw unproven;
-        });
+        mocks.runNativeToolCommand.mockImplementationOnce(
+            async (
+                _binaryPath: string,
+                _args: string[],
+                options: {brokerRun?: {onTerminationProof?: (proof: Promise<boolean>) => void}},
+            ) => {
+                options.brokerRun?.onTerminationProof?.(Promise.resolve(false));
+                throw unproven;
+            },
+        );
 
         await expect(runOp()).rejects.toMatchObject({
             name: 'PdfPageOpsCapabilityError',
@@ -399,7 +390,7 @@ describe('page crop operations', () => {
         });
         expect(mocks.broker!.getSnapshot()).toMatchObject({
             active: 1,
-            used: { nativeProcesses: 1 },
+            used: {nativeProcesses: 1},
         });
     });
 });

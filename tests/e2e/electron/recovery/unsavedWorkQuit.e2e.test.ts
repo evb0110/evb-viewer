@@ -1,33 +1,23 @@
-import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import {
-    copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
-} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+import {randomUUID} from 'node:crypto';
+import {copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
+import {join, resolve} from 'node:path';
+import {afterEach, describe, expect, it} from 'vitest';
+import {readPdfAnnotationSummary, readPdfTextAnnotationRecords} from '@tests/e2e/electron/helpers/fixtures';
+import {createCanonicalTextBoxWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {activateMenuItemAsUser, clickFoundAsUser} from '@tests/e2e/electron/helpers/userInput';
+import {openPdfInApp, waitForPdfLoaded, waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
 import {
-    join, resolve,
-} from 'node:path';
-import {
-    afterEach, describe, expect, it, 
-} from 'vitest';
-import {
-    readPdfAnnotationSummary, readPdfTextAnnotationRecords,
-} from '@tests/e2e/electron/helpers/fixtures';
-import { createCanonicalTextBoxWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
-import {
-    activateMenuItemAsUser, clickFoundAsUser,
-} from '@tests/e2e/electron/helpers/userInput';
-import {
-    openPdfInApp, waitForPdfLoaded, waitForViewerInteractive, 
-} from '@tests/e2e/electron/helpers/viewerCore';
-import {
-    startElectronE2ESession, startHostVisibleElectronE2ESession, type IElectronE2ESession,
+    startElectronE2ESession,
+    startHostVisibleElectronE2ESession,
+    type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import { createE2ERunScopedSessionName } from '@scripts/electron-run/electronRunRunId';
-import { getSessionInfo } from '@scripts/electron-run/electronRunSessionArtifacts';
-import { isProcessAlive } from '@scripts/electron-run/electronRunProcessTree';
-import { electronUserDataPath } from '@scripts/electron-run/electronRunSessionPaths';
-import { NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS } from '@electron/window/windowCloseHandshake';
+import {createE2ERunScopedSessionName} from '@scripts/electron-run/electronRunRunId';
+import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
+import {isProcessAlive} from '@scripts/electron-run/electronRunProcessTree';
+import {electronUserDataPath} from '@scripts/electron-run/electronRunSessionPaths';
+import {NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS} from '@electron/window/windowCloseHandshake';
 
 async function startQuitSession(name: string, initialOpenPaths: string[]) {
     // Linux reaches the real window through X11 input, so its Xvfb window
@@ -42,30 +32,22 @@ async function startQuitSession(name: string, initialOpenPaths: string[]) {
 
 function readElectronPid(session: IElectronE2ESession) {
     const electronPid = getSessionInfo(session.name)?.electronPid;
-    if (typeof electronPid !== 'number') throw new Error('The Electron pid was missing');
+    if (typeof electronPid !== 'number') {
+        throw new Error('The Electron pid was missing');
+    }
     return electronPid;
 }
 
 async function quitAsUser(session: IElectronE2ESession) {
     if (process.platform === 'linux') {
-        const windowId = execFileSync('xdotool', [
-            'search',
-            '--onlyvisible',
-            '--pid',
-            String(readElectronPid(session)),
-        ], { encoding: 'utf8' })
-            .trim().split('\n')[0];
-        if (!windowId || !/^\d+$/u.test(windowId)) throw new Error('The visible Electron window id was missing');
-        execFileSync('xdotool', [
-            'windowfocus',
-            '--sync',
-            windowId,
-        ]);
-        execFileSync('xdotool', [
-            'key',
-            '--clearmodifiers',
-            'ctrl+q',
-        ]);
+        const windowId = execFileSync('xdotool', ['search', '--onlyvisible', '--pid', String(readElectronPid(session))], {encoding: 'utf8'})
+            .trim()
+            .split('\n')[0];
+        if (!windowId || !/^\d+$/u.test(windowId)) {
+            throw new Error('The visible Electron window id was missing');
+        }
+        execFileSync('xdotool', ['windowfocus', '--sync', windowId]);
+        execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+q']);
     } else {
         // Renderer key events never reach the application menu's accelerators,
         // on macOS (Cmd-Q) or Windows (Ctrl+Q), so the page cannot press Quit.
@@ -80,101 +62,130 @@ describe('unsaved work on app Quit', () => {
     afterEach(async () => {
         await session?.stop();
         session = null;
-        if (outputDirectory) rmSync(outputDirectory, {
-            recursive: true,
-            force: true,
-        });
+        if (outputDirectory) {
+            rmSync(outputDirectory, {
+                recursive: true,
+                force: true,
+            });
+        }
         outputDirectory = null;
     });
 
     it.each([
         {
             destination: 'a saved PDF',
-            requiresSaveAs: false, 
+            requiresSaveAs: false,
         },
         {
             destination: 'a generated PDF requiring Save As',
-            requiresSaveAs: true, 
+            requiresSaveAs: true,
         },
-    ])('asks before quitting $destination and Cancel keeps the unsaved edit and source intact', async ({ requiresSaveAs }) => {
-        const fixturePath = resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf');
-        outputDirectory = mkdtempSync(join(tmpdir(), 'evb-quit-unsaved-'));
-        const sourcePath = join(outputDirectory, 'quit-source.pdf');
-        copyFileSync(fixturePath, sourcePath);
-        session = await startQuitSession('e2e-quit-unsaved', requiresSaveAs ? [] : [sourcePath]);
+    ])(
+        'asks before quitting $destination and Cancel keeps the unsaved edit and source intact',
+        async ({requiresSaveAs}) => {
+            const fixturePath = resolve(process.cwd(), 'tests/fixtures/electron/test-scanned.pdf');
+            outputDirectory = mkdtempSync(join(tmpdir(), 'evb-quit-unsaved-'));
+            const sourcePath = join(outputDirectory, 'quit-source.pdf');
+            copyFileSync(fixturePath, sourcePath);
+            session = await startQuitSession('e2e-quit-unsaved', requiresSaveAs ? [] : [sourcePath]);
 
-        let documentPath = sourcePath;
-        if (requiresSaveAs) {
-            // Scan cleanup output under the profile is what the app treats as
-            // generated, so its first save needs a destination.
-            const generatedDirectory = join(electronUserDataPath(session.name), 'scan-cleanup', 'output', randomUUID());
-            mkdirSync(generatedDirectory, { recursive: true });
-            documentPath = join(generatedDirectory, 'quit-generated.pdf');
-            copyFileSync(fixturePath, documentPath);
-            await openPdfInApp(session.page, documentPath, 60_000);
-        }
-        await waitForPdfLoaded(session.page, 60_000);
-        await waitForViewerInteractive(session.page, 60_000);
-        const originalBytes = readFileSync(documentPath);
-        const originalAnnotationSummary = await readPdfAnnotationSummary(documentPath);
-        const marker = `Quit unsaved ${Date.now()}`;
-        await createCanonicalTextBoxWithPointer(session.page, marker, {
-            x: 0.4,
-            y: 0.3,
-        });
+            let documentPath = sourcePath;
+            if (requiresSaveAs) {
+                // Scan cleanup output under the profile is what the app treats as
+                // generated, so its first save needs a destination.
+                const generatedDirectory = join(electronUserDataPath(session.name), 'scan-cleanup', 'output', randomUUID());
+                mkdirSync(generatedDirectory, {recursive: true});
+                documentPath = join(generatedDirectory, 'quit-generated.pdf');
+                copyFileSync(fixturePath, documentPath);
+                await openPdfInApp(session.page, documentPath, 60_000);
+            }
+            await waitForPdfLoaded(session.page, 60_000);
+            await waitForViewerInteractive(session.page, 60_000);
+            const originalBytes = readFileSync(documentPath);
+            const originalAnnotationSummary = await readPdfAnnotationSummary(documentPath);
+            const marker = `Quit unsaved ${Date.now()}`;
+            await createCanonicalTextBoxWithPointer(session.page, marker, {
+                x: 0.4,
+                y: 0.3,
+            });
 
-        await quitAsUser(session);
-        const quitOutcome = await Promise.race([
-            session.page.waitForFunction(() => Boolean(document.querySelector('[role="dialog"]')), { timeout: 15_000 })
-                .then(() => 'prompt' as const, () => 'no-prompt' as const),
-            new Promise<'closed'>(resolve => session!.page.once('close', () => resolve('closed'))),
-        ]);
-        expect.soft(quitOutcome).toBe('prompt');
-        expect.soft(readFileSync(documentPath)).toEqual(originalBytes);
-        if (quitOutcome !== 'prompt') return;
-        const dialogText = await session.page.$eval('[role="dialog"]', element => element.textContent ?? '');
-        expect(dialogText).toContain('Save changes');
-        expect(dialogText).toContain('Discard changes');
-        expect(dialogText).toContain('Cancel');
+            await quitAsUser(session);
+            const quitOutcome = await Promise.race([
+                session.page
+                    .waitForFunction(() => Boolean(document.querySelector('[role="dialog"]')), {timeout: 15_000})
+                    .then(
+                        () => 'prompt' as const,
+                        () => 'no-prompt' as const,
+                    ),
+                new Promise<'closed'>((resolve) => session!.page.once('close', () => resolve('closed'))),
+            ]);
+            expect.soft(quitOutcome).toBe('prompt');
+            expect.soft(readFileSync(documentPath)).toEqual(originalBytes);
+            if (quitOutcome !== 'prompt') {
+                return;
+            }
+            const dialogText = await session.page.$eval('[role="dialog"]', (element) => element.textContent ?? '');
+            expect(dialogText).toContain('Save changes');
+            expect(dialogText).toContain('Discard changes');
+            expect(dialogText).toContain('Cancel');
 
-        const cancel = await session.page.evaluate(() => {
-            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                .find(candidate => candidate.textContent?.trim().includes('Cancel'));
-            const bounds = button?.getBoundingClientRect();
-            return bounds ? {
-                x: bounds.left + bounds.width / 2,
-                y: bounds.top + bounds.height / 2,
-            } : null;
-        });
-        expect(cancel).not.toBeNull();
-        if (!cancel) throw new Error('Quit decision did not offer Cancel');
-        await session.page.mouse.click(cancel.x, cancel.y);
+            const cancel = await session.page.evaluate(() => {
+                const button = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find((candidate) =>
+                    candidate.textContent?.trim().includes('Cancel'),
+                );
+                const bounds = button?.getBoundingClientRect();
+                return bounds
+                    ? {
+                          x: bounds.left + bounds.width / 2,
+                          y: bounds.top + bounds.height / 2,
+                      }
+                    : null;
+            });
+            expect(cancel).not.toBeNull();
+            if (!cancel) {
+                throw new Error('Quit decision did not offer Cancel');
+            }
+            await session.page.mouse.click(cancel.x, cancel.y);
 
-        await session.page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
-        await session.page.waitForFunction((text: string) => Array.from(
-            document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]'),
-        ).some(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === text), { timeout: 10_000 }, marker);
-        expect(session.page.isClosed()).toBe(false);
-        expect((await readPdfAnnotationSummary(documentPath)).total).toBe(originalAnnotationSummary.total);
-        expect(readFileSync(documentPath)).toEqual(originalBytes);
+            await session.page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
+            await session.page.waitForFunction(
+                (text: string) =>
+                    Array.from(
+                        document.querySelectorAll<HTMLElement>(
+                            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+                        ),
+                    ).some((entity) => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === text),
+                {timeout: 10_000},
+                marker,
+            );
+            expect(session.page.isClosed()).toBe(false);
+            expect((await readPdfAnnotationSummary(documentPath)).total).toBe(originalAnnotationSummary.total);
+            expect(readFileSync(documentPath)).toEqual(originalBytes);
 
-        const windowClosed = new Promise<void>(resolve => session!.page.once('close', () => resolve()));
-        await session.page.evaluate(() => window.electronAPI?.windowTabs.closeCurrentWindow());
-        await session.page.waitForFunction(() => Boolean(document.querySelector('[role="dialog"]')));
-        const discard = await session.page.evaluate(() => {
-            const button = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'))
-                .find(candidate => candidate.textContent?.trim().includes('Discard changes'));
-            const bounds = button?.getBoundingClientRect();
-            return bounds ? {
-                x: bounds.left + bounds.width / 2,
-                y: bounds.top + bounds.height / 2,
-            } : null;
-        });
-        expect(discard).not.toBeNull();
-        if (!discard) throw new Error('Window close decision did not offer Discard changes');
-        await session.page.mouse.click(discard.x, discard.y);
-        await windowClosed;
-    }, 150_000);
+            const windowClosed = new Promise<void>((resolve) => session!.page.once('close', () => resolve()));
+            await session.page.evaluate(() => window.electronAPI?.windowTabs.closeCurrentWindow());
+            await session.page.waitForFunction(() => Boolean(document.querySelector('[role="dialog"]')));
+            const discard = await session.page.evaluate(() => {
+                const button = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find((candidate) =>
+                    candidate.textContent?.trim().includes('Discard changes'),
+                );
+                const bounds = button?.getBoundingClientRect();
+                return bounds
+                    ? {
+                          x: bounds.left + bounds.width / 2,
+                          y: bounds.top + bounds.height / 2,
+                      }
+                    : null;
+            });
+            expect(discard).not.toBeNull();
+            if (!discard) {
+                throw new Error('Window close decision did not offer Discard changes');
+            }
+            await session.page.mouse.click(discard.x, discard.y);
+            await windowClosed;
+        },
+        150_000,
+    );
 
     it('saves and quits when Save changes is chosen after the Quit prompt has been open for a while', async () => {
         outputDirectory = mkdtempSync(join(tmpdir(), 'evb-quit-late-save-'));
@@ -191,24 +202,38 @@ describe('unsaved work on app Quit', () => {
         });
 
         await quitAsUser(session);
-        await session.page.waitForFunction(() => Array.from(document.querySelectorAll('[role="dialog"] button'))
-            .some(button => button.textContent?.trim() === 'Save changes'), {timeout: 15_000});
+        await session.page.waitForFunction(
+            () =>
+                Array.from(document.querySelectorAll('[role="dialog"] button')).some(
+                    (button) => button.textContent?.trim() === 'Save changes',
+                ),
+            {timeout: 15_000},
+        );
         // A person reading the prompt takes longer than the main process's
         // deadline for the renderer to answer a close request (#968). The
         // hold is that deadline plus a clear margin, so it follows the deadline.
-        await new Promise(resolveWait => setTimeout(resolveWait, NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS + 3_000));
+        await new Promise((resolveWait) => setTimeout(resolveWait, NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS + 3_000));
         let pageClosed = false;
         session.page.once('close', () => {
             pageClosed = true;
         });
-        await clickFoundAsUser(session.page, () => Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button'))
-            .find(button => button.textContent?.trim() === 'Save changes'), undefined, {description: 'Save changes and quit'});
+        await clickFoundAsUser(
+            session.page,
+            () =>
+                Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"] button')).find(
+                    (button) => button.textContent?.trim() === 'Save changes',
+                ),
+            undefined,
+            {description: 'Save changes and quit'},
+        );
 
         // One 15 s budget covers both the window closing and the app exiting.
         await expect.poll(() => pageClosed && !isProcessAlive(electronPid), {timeout: 15_000}).toBe(true);
-        expect((await readPdfTextAnnotationRecords(documentPath))
-            .filter(record => record.subtype === '/FreeText')
-            .map(record => record.contents)).toEqual([marker]);
+        expect(
+            (await readPdfTextAnnotationRecords(documentPath))
+                .filter((record) => record.subtype === '/FreeText')
+                .map((record) => record.contents),
+        ).toEqual([marker]);
     }, 150_000);
 });
 
@@ -224,10 +249,12 @@ describe.runIf(process.platform === 'linux' || process.platform === 'darwin')('C
     afterEach(async () => {
         await session?.stop();
         session = null;
-        if (outputDirectory) rmSync(outputDirectory, {
-            recursive: true,
-            force: true,
-        });
+        if (outputDirectory) {
+            rmSync(outputDirectory, {
+                recursive: true,
+                force: true,
+            });
+        }
         outputDirectory = null;
     });
 
@@ -241,56 +268,57 @@ describe.runIf(process.platform === 'linux' || process.platform === 'darwin')('C
         const startSession = process.platform === 'linux' ? startHostVisibleElectronE2ESession : startElectronE2ESession;
         session = await startSession(createE2ERunScopedSessionName(`e2e-close-tab-shortcut-${Date.now()}`), {
             clean: true,
-            initialOpenPaths: [
-                firstPath,
-                secondPath,
-            ],
+            initialOpenPaths: [firstPath, secondPath],
         });
-        const readTabs = () => session!.page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.map(tab => ({
-            label: tab.querySelector('.tab-label')?.textContent?.trim() ?? '',
-            active: tab.classList.contains('is-active'),
-        })));
-        await session.page.waitForFunction(() => Array.from(document.querySelectorAll('.tab-list .tab[data-tab-id] .tab-label'))
-            .map(label => label.textContent?.trim()).join() === 'first-tab.pdf,second-tab.pdf', {timeout: 60_000});
+        const readTabs = () =>
+            session!.page.$$eval('.tab-list .tab[data-tab-id]', (tabs) =>
+                tabs.map((tab) => ({
+                    label: tab.querySelector('.tab-label')?.textContent?.trim() ?? '',
+                    active: tab.classList.contains('is-active'),
+                })),
+            );
+        await session.page.waitForFunction(
+            () =>
+                Array.from(document.querySelectorAll('.tab-list .tab[data-tab-id] .tab-label'))
+                    .map((label) => label.textContent?.trim())
+                    .join() === 'first-tab.pdf,second-tab.pdf',
+            {timeout: 60_000},
+        );
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
         const before = await readTabs();
-        const activeLabel = before.find(tab => tab.active)?.label;
+        const activeLabel = before.find((tab) => tab.active)?.label;
         expect(activeLabel).toBeTruthy();
 
-        const windowClosed = new Promise<'window closed'>(resolveClosed => session!.page.once('close', () => resolveClosed('window closed')));
+        const windowClosed = new Promise<'window closed'>((resolveClosed) =>
+            session!.page.once('close', () => resolveClosed('window closed')),
+        );
         if (process.platform === 'linux') {
             const electronPid = getSessionInfo(session.name)?.electronPid;
             expect(electronPid).toEqual(expect.any(Number));
-            const windowId = execFileSync('xdotool', [
-                'search',
-                '--onlyvisible',
-                '--pid',
-                String(electronPid),
-            ], { encoding: 'utf8' })
-                .trim().split('\n')[0];
-            if (!windowId) throw new Error('The visible Electron window id was missing');
-            execFileSync('xdotool', [
-                'windowfocus',
-                '--sync',
-                windowId,
-            ]);
-            execFileSync('xdotool', [
-                'key',
-                '--clearmodifiers',
-                'ctrl+w',
-            ]);
+            const windowId = execFileSync('xdotool', ['search', '--onlyvisible', '--pid', String(electronPid)], {encoding: 'utf8'})
+                .trim()
+                .split('\n')[0];
+            if (!windowId) {
+                throw new Error('The visible Electron window id was missing');
+            }
+            execFileSync('xdotool', ['windowfocus', '--sync', windowId]);
+            execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+w']);
         } else {
             await activateMenuItemAsUser(session.page, {accelerator: 'CmdOrCtrl+W'});
         }
 
         const outcome = await Promise.race([
-            session.page.waitForFunction(() => document.querySelectorAll('.tab-list .tab[data-tab-id]').length === 1, {timeout: 15_000})
+            session.page
+                .waitForFunction(() => document.querySelectorAll('.tab-list .tab[data-tab-id]').length === 1, {timeout: 15_000})
                 // The wait fails as the renderer goes away, just before the page reports it closed.
-                .then(() => 'one tab closed' as const, () => windowClosed),
+                .then(
+                    () => 'one tab closed' as const,
+                    () => windowClosed,
+                ),
             windowClosed,
         ]);
         expect(outcome).toBe('one tab closed');
-        expect((await readTabs()).map(tab => tab.label)).toEqual(before.map(tab => tab.label).filter(label => label !== activeLabel));
+        expect((await readTabs()).map((tab) => tab.label)).toEqual(before.map((tab) => tab.label).filter((label) => label !== activeLabel));
     }, 150_000);
 });

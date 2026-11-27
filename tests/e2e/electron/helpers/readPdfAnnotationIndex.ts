@@ -1,8 +1,6 @@
-import {
-    mkdtempSync, readFileSync, rmSync, 
-} from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import {mkdtempSync, readFileSync, rmSync} from 'fs';
+import {tmpdir} from 'os';
+import {join} from 'path';
 
 interface IPdfAnnotationObjectRef {
     objectNumber: number;
@@ -30,9 +28,9 @@ function parseObjectRef(value: unknown): IPdfAnnotationObjectRef | null {
         const match = /^(\d+)\s+(\d+)\s+R$/u.exec(value.trim());
         return match
             ? {
-                objectNumber: Number(match[1]),
-                generationNumber: Number(match[2]),
-            }
+                  objectNumber: Number(match[1]),
+                  generationNumber: Number(match[2]),
+              }
             : null;
     }
     if (value && typeof value === 'object') {
@@ -61,26 +59,17 @@ export async function readPdfAnnotationIndex(filePath: string): Promise<IPdfAnno
     const directory = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'evb-annotation-index-'));
     const outputPath = join(directory, 'index.jsonl');
     try {
-        await runNativeToolCommand(pageOps, [
-            'annotation-index',
-            '--input',
-            filePath,
-            '--output',
-            outputPath,
-        ], {commandLabel: 'pdf-page-ops E2E annotation index'});
-        const [
-            header,
-            ...lines
-        ] = readFileSync(outputPath, 'utf8')
+        await runNativeToolCommand(pageOps, ['annotation-index', '--input', filePath, '--output', outputPath], {
+            commandLabel: 'pdf-page-ops E2E annotation index',
+        });
+        const [header, ...lines] = readFileSync(outputPath, 'utf8')
             .split('\n')
-            .filter(line => line.trim().length > 0)
-            .map(line => JSON.parse(line) as Record<string, unknown>);
+            .filter((line) => line.trim().length > 0)
+            .map((line) => JSON.parse(line) as Record<string, unknown>);
         const entries = lines.flatMap((line) => {
             const pageIndex = line.pageIndex;
-            const rawEntries = Array.isArray(line.entries)
-                ? line.entries
-                : Array.isArray(line.annotations) ? line.annotations : [line];
-            return (rawEntries as Array<Record<string, unknown>>).map(entry => ({
+            const rawEntries = Array.isArray(line.entries) ? line.entries : Array.isArray(line.annotations) ? line.annotations : [line];
+            return (rawEntries as Array<Record<string, unknown>>).map((entry) => ({
                 pageIndex: Number(entry.pageIndex ?? pageIndex),
                 objectNumber: Number(entry.objectNumber),
                 generationNumber: Number(entry.generationNumber),

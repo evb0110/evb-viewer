@@ -1,9 +1,9 @@
-import type { ILogger } from '@electron/utils/createLogger';
-import type { BrowserWindow } from 'electron';
-import { shell } from 'electron';
-import { inspectAllowedExternalUrl } from '@contracts/externalUrl';
-import { getErrorMessage } from '@electron/utils/error';
-import { isTrustedRendererUrl as matchesTrustedRendererUrl } from '@electron/security/isTrustedRendererUrl';
+import type {ILogger} from '@electron/utils/createLogger';
+import type {BrowserWindow} from 'electron';
+import {shell} from 'electron';
+import {inspectAllowedExternalUrl} from '@contracts/externalUrl';
+import {getErrorMessage} from '@electron/utils/error';
+import {isTrustedRendererUrl as matchesTrustedRendererUrl} from '@electron/security/isTrustedRendererUrl';
 
 interface ICreateWindowSecurityOptions {
     getTrustedRendererUrl: () => string;
@@ -59,9 +59,9 @@ export function createWindowSecurity(options: ICreateWindowSecurityOptions) {
     }
 
     function hardenWindowWebContents(window: BrowserWindow) {
-        window.webContents.setWindowOpenHandler(({ url }) => {
+        window.webContents.setWindowOpenHandler(({url}) => {
             openExternalSafely(window, url, 'window-open');
-            return { action: 'deny' };
+            return {action: 'deny'};
         });
 
         window.webContents.on('will-navigate', (event, url) => {

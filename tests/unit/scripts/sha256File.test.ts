@@ -1,22 +1,8 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { execFileSync } from 'node:child_process';
-import {
-    mkdirSync,
-    mkdtempSync,
-    rmSync,
-    symlinkSync,
-    writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {afterEach, describe, expect, it} from 'vitest';
+import {execFileSync} from 'node:child_process';
+import {mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join, resolve} from 'node:path';
 
 const tempDirs: string[] = [];
 const helperPath = resolve(process.cwd(), 'scripts/sha256-file.sh');
@@ -29,23 +15,13 @@ function createTempDir() {
 }
 
 function runSha256WithPath(pathValue: string, filePath: string) {
-    return execFileSync(
-        '/bin/bash',
-        [
-            '-lc',
-            'source "$1"; sha256_file "$2"',
-            'bash',
-            helperPath,
-            filePath,
-        ],
-        {
-            encoding: 'utf8',
-            env: {
-                ...process.env,
-                PATH: pathValue,
-            },
+    return execFileSync('/bin/bash', ['-lc', 'source "$1"; sha256_file "$2"', 'bash', helperPath, filePath], {
+        encoding: 'utf8',
+        env: {
+            ...process.env,
+            PATH: pathValue,
         },
-    ).trim();
+    }).trim();
 }
 
 function addRequiredUnixTools(binDir: string) {
@@ -72,11 +48,7 @@ describe('sha256_file shell helper', () => {
         const sha256sumPath = join(binDir, 'sha256sum');
         mkdirSync(binDir);
         addRequiredUnixTools(binDir);
-        writeFileSync(
-            sha256sumPath,
-            `#!/bin/sh\nprintf '\\\\%s  %s\\n' '${expectedSha256}' "$1"\n`,
-            { mode: 0o755 },
-        );
+        writeFileSync(sha256sumPath, `#!/bin/sh\nprintf '\\\\%s  %s\\n' '${expectedSha256}' "$1"\n`, {mode: 0o755});
 
         expect(runSha256WithPath(binDir, filePath)).toBe(expectedSha256);
     });
@@ -93,8 +65,11 @@ describe('sha256_file shell helper', () => {
         addRequiredUnixTools(binDir);
         writeFileSync(
             certutilPath,
-            `#!/bin/sh\nprintf '%s\\n' 'SHA256 hash of file payload.txt:' '${expectedSha256.toUpperCase().replace(/(.{2})/gu, '$1 ').trim()}' 'CertUtil: -hashfile command completed successfully.'\n`,
-            { mode: 0o755 },
+            `#!/bin/sh\nprintf '%s\\n' 'SHA256 hash of file payload.txt:' '${expectedSha256
+                .toUpperCase()
+                .replace(/(.{2})/gu, '$1 ')
+                .trim()}' 'CertUtil: -hashfile command completed successfully.'\n`,
+            {mode: 0o755},
         );
 
         expect(runSha256WithPath(binDir, filePath)).toBe(expectedSha256);

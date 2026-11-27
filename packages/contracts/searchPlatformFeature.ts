@@ -11,12 +11,7 @@ import {
     type IPdfSearchProgress,
     type IPdfSearchRequestOptions,
 } from '@contracts/search';
-import {
-    definePlatformFeature,
-    type TFeatureCapability,
-    type TFeatureEventMap,
-    type TFeatureInvokeMap,
-} from '@contracts/platformFeature';
+import {definePlatformFeature, type TFeatureCapability, type TFeatureEventMap, type TFeatureInvokeMap} from '@contracts/platformFeature';
 import type {TRequestId} from '@contracts/shared';
 import * as v from 'valibot';
 
@@ -50,13 +45,15 @@ export const SEARCH_PLATFORM_FEATURE = definePlatformFeature({
                 result: pdfSearchResponseSchema,
                 timeoutMs: 30 * 60 * 1_000,
             },
-            client: {mapArgs: (
-                pdfPath: string, query: string, options?: IPdfSearchRequestOptions,
-            ): [INormalizedPdfSearchRequest] => [normalizePdfSearchRequestPayload({
-                pdfPath,
-                query,
-                ...options,
-            })]},
+            client: {
+                mapArgs: (pdfPath: string, query: string, options?: IPdfSearchRequestOptions): [INormalizedPdfSearchRequest] => [
+                    normalizePdfSearchRequestPayload({
+                        pdfPath,
+                        query,
+                        ...options,
+                    }),
+                ],
+            },
             main: {
                 method: 'run',
                 context: 'sender',
@@ -72,12 +69,14 @@ export const SEARCH_PLATFORM_FEATURE = definePlatformFeature({
                 result: booleanResult,
                 timeoutMs: 30 * 60 * 1_000,
             },
-            client: {mapArgs: (
-                pdfPath: string, options?: IPdfSearchRequestOptions,
-            ): [INormalizedPdfSearchWarmIndexRequest] => [normalizePdfSearchWarmIndexPayload({
-                pdfPath,
-                ...options,
-            })]},
+            client: {
+                mapArgs: (pdfPath: string, options?: IPdfSearchRequestOptions): [INormalizedPdfSearchWarmIndexRequest] => [
+                    normalizePdfSearchWarmIndexPayload({
+                        pdfPath,
+                        ...options,
+                    }),
+                ],
+            },
             main: {
                 method: 'warmIndex',
                 context: 'sender',
@@ -115,33 +114,36 @@ export const SEARCH_PLATFORM_FEATURE = definePlatformFeature({
             lazy: 'forwarded',
         },
     },
-    events: {onProgress: {
-        kind: 'event',
-        channel: 'pdf:search:progress',
-        payload: pdfSearchProgressSchema,
-        subscription: {
-            channel: 'pdf:search:progress:subscribe',
-            request: 'once-per-preload-event-channel',
-            main: {
-                method: 'subscribeProgress',
-                context: 'sender',
+    events: {
+        onProgress: {
+            kind: 'event',
+            channel: 'pdf:search:progress',
+            payload: pdfSearchProgressSchema,
+            subscription: {
+                channel: 'pdf:search:progress:subscribe',
+                request: 'once-per-preload-event-channel',
+                main: {
+                    method: 'subscribeProgress',
+                    context: 'sender',
+                },
+                replay: {
+                    owner: 'ipc-progress-pump',
+                    mode: 'latest-per-key',
+                    key: (progress: IPdfSearchProgress) => progress.requestId,
+                    terminal: (progress: IPdfSearchProgress) =>
+                        progress.status === 'success' ||
+                        progress.status === 'canceled' ||
+                        progress.status === 'failed' ||
+                        progress.canceled === true ||
+                        progress.processed >= progress.total,
+                    intervalMs: 50,
+                    terminalRetentionMs: 30_000,
+                },
             },
-            replay: {
-                owner: 'ipc-progress-pump',
-                mode: 'latest-per-key',
-                key: (progress: IPdfSearchProgress) => progress.requestId,
-                terminal: (progress: IPdfSearchProgress) => progress.status === 'success'
-                        || progress.status === 'canceled'
-                        || progress.status === 'failed'
-                        || progress.canceled === true
-                        || progress.processed >= progress.total,
-                intervalMs: 50,
-                terminalRetentionMs: 30_000,
-            },
+            browser: {method: 'onProgress'},
+            lazy: 'forwarded',
         },
-        browser: {method: 'onProgress'},
-        lazy: 'forwarded',
-    }},
+    },
 });
 export type ISearchCapability = TFeatureCapability<typeof SEARCH_PLATFORM_FEATURE>;
 export type ISearchInvokeMap = TFeatureInvokeMap<typeof SEARCH_PLATFORM_FEATURE>;

@@ -1,15 +1,9 @@
-import {
-    h,
-    type VNode,
-} from 'vue';
+import {h, type VNode} from 'vue';
 import AppFailureToastDescription from '@app/components/AppFailureToastDescription.vue';
 import type {IPresentedFailureCapture} from '@app/utils/failureReporter';
-import {
-    isFailureSeverity,
-    type FailureReceipt,
-} from '@contracts/diagnostics/failureReceipt';
-import { isRecord } from '@contracts/runtimeGuards';
-import { isEpochMs } from '@contracts/timestamps';
+import {isFailureSeverity, type FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {isRecord} from '@contracts/runtimeGuards';
+import {isEpochMs} from '@contracts/timestamps';
 import type {TTranslateFn} from '@i18n-app';
 
 export interface IFailureToastAction {
@@ -76,14 +70,11 @@ export function getFailureErrorId(receipt: FailureReceipt) {
 }
 
 export function getNonEmptyDetails(values: Array<string | undefined>) {
-    return values.filter(line => line !== undefined && line.trim().length > 0).join('\n');
+    return values.filter((line) => line !== undefined && line.trim().length > 0).join('\n');
 }
 
 export function formatFailurePresentationDescription(presentation: IFailurePresentation, t: TTranslateFn) {
-    return getNonEmptyDetails([
-        presentation.description,
-        `${t('errors.runtime.errorId')}: ${getFailureErrorId(presentation.failure)}`,
-    ]);
+    return getNonEmptyDetails([presentation.description, `${t('errors.runtime.errorId')}: ${getFailureErrorId(presentation.failure)}`]);
 }
 
 export function formatFailurePresentationCopy(presentation: IFailurePresentation) {
@@ -109,13 +100,15 @@ export async function copyTextToClipboard(text: string) {
 }
 
 function isFailureReceiptShape(value: unknown): value is FailureReceipt {
-    return isRecord(value)
-        && typeof value.eventId === 'string'
-        && value.eventId.length > 0
-        && typeof value.code === 'string'
-        && value.code.length > 0
-        && isEpochMs(value.occurredAt)
-        && isFailureSeverity(value.severity);
+    return (
+        isRecord(value) &&
+        typeof value.eventId === 'string' &&
+        value.eventId.length > 0 &&
+        typeof value.code === 'string' &&
+        value.code.length > 0 &&
+        isEpochMs(value.occurredAt) &&
+        isFailureSeverity(value.severity)
+    );
 }
 
 export function isFailurePresentation(value: unknown): value is IFailurePresentation {
@@ -159,7 +152,7 @@ export function createFailureToastPresenter(
                 icon: copied ? 'i-ph-check' : 'i-ph-copy',
                 color: 'neutral',
                 variant: 'outline',
-                onMousedown: event => event.preventDefault(),
+                onMousedown: (event) => event.preventDefault(),
                 onClick: () => {
                     void copyFailurePresentation(presentation).then((didCopy) => {
                         if (didCopy) {
@@ -179,11 +172,12 @@ export function createFailureToastPresenter(
             ui: {root: 'app-toast-failure'},
             title: presentation.title,
             // The reason reads first; the Error ID is a quiet second line for support.
-            description: () => h(AppFailureToastDescription, {
-                reason: presentation.description,
-                errorIdLabel: t('errors.runtime.errorId'),
-                errorId: getFailureErrorId(presentation.failure),
-            }),
+            description: () =>
+                h(AppFailureToastDescription, {
+                    reason: presentation.description,
+                    errorIdLabel: t('errors.runtime.errorId'),
+                    errorId: getFailureErrorId(presentation.failure),
+                }),
             actions: actions(false),
             duration,
             ...(presentation.persistent ? {progress: false} : {}),
@@ -193,9 +187,7 @@ export function createFailureToastPresenter(
 
 export function createNoticeToastPresenter(toast: IFailureToastTarget) {
     return function presentNoticeToast(notice: INoticePresentation) {
-        const {
-            tone, onDismiss, ...options
-        } = notice;
+        const {tone, onDismiss, ...options} = notice;
         toast.add({
             ...options,
             color: tone,
@@ -213,7 +205,7 @@ export function createNoticeToastPresenter(toast: IFailureToastTarget) {
  */
 export const useFailureToast = () => {
     const toast = useToast();
-    const { t } = useTypedI18n();
+    const {t} = useTypedI18n();
     const presentFailureToast = createFailureToastPresenter(toast, t);
     const presentNoticeToast = createNoticeToastPresenter(toast);
 

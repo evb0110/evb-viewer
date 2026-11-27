@@ -16,18 +16,17 @@ import * as v from 'valibot';
 const HOST_OS_SCALE_FACTOR_MAX = 8;
 /** Carries the window's host snapshot to its preload, so the first layout can use it. */
 export const HOST_ENVIRONMENT_ARGUMENT_PREFIX = '--evb-host-environment=';
-const hostEnvironmentSchema = v.object({
-    platform: v.picklist([
-        'darwin',
-        'win32',
-        'linux',
-    ], 'invalid host environment'),
-    osScaleFactor: v.pipe(
-        v.number('invalid host environment'),
-        v.finite('invalid host environment'),
-        v.check(value => value > 0 && value <= HOST_OS_SCALE_FACTOR_MAX, 'invalid host environment'),
-    ),
-}, 'invalid host environment');
+const hostEnvironmentSchema = v.object(
+    {
+        platform: v.picklist(['darwin', 'win32', 'linux'], 'invalid host environment'),
+        osScaleFactor: v.pipe(
+            v.number('invalid host environment'),
+            v.finite('invalid host environment'),
+            v.check((value) => value > 0 && value <= HOST_OS_SCALE_FACTOR_MAX, 'invalid host environment'),
+        ),
+    },
+    'invalid host environment',
+);
 
 export type IHostEnvironmentSnapshot = v.InferOutput<typeof hostEnvironmentSchema>;
 export type THostPlatform = IHostEnvironmentSnapshot['platform'];
@@ -37,10 +36,13 @@ export function decodeHostEnvironmentSnapshot(value: unknown): IHostEnvironmentS
     return result.success ? result.output : null;
 }
 
-const hostZenModeStateSchema = v.object({
-    active: v.boolean('invalid host zen mode state'),
-    supported: v.boolean('invalid host zen mode state'),
-}, 'invalid host zen mode state');
+const hostZenModeStateSchema = v.object(
+    {
+        active: v.boolean('invalid host zen mode state'),
+        supported: v.boolean('invalid host zen mode state'),
+    },
+    'invalid host zen mode state',
+);
 export type IHostZenModeState = v.InferOutput<typeof hostZenModeStateSchema>;
 
 // A whole number of device-independent pixels a window can have.
@@ -50,23 +52,29 @@ const windowDimension = v.pipe(
     v.minValue(1, 'invalid host window size'),
     v.maxValue(32_768, 'invalid host window size'),
 );
-const hostWindowSizeSchema = v.strictObject({
-    width: windowDimension,
-    height: windowDimension,
-}, 'invalid host window size');
+const hostWindowSizeSchema = v.strictObject(
+    {
+        width: windowDimension,
+        height: windowDimension,
+    },
+    'invalid host window size',
+);
 /** A width and height in device-independent pixels: a content area or a display's work area. */
 export type IHostWindowSize = v.InferOutput<typeof hostWindowSizeSchema>;
 
 /** Native placement of the window: fullscreen and maximized both override its own size. */
-const hostWindowStateSchema = v.object({
-    fullScreen: v.boolean('invalid host window state'),
-    maximized: v.boolean('invalid host window state'),
-    supported: v.boolean('invalid host window state'),
-    /** The native content size the window reached, where the host can tell. */
-    contentSize: v.optional(hostWindowSizeSchema),
-    /** The work area of the display the window is on, which bounds its size. */
-    workAreaSize: v.optional(hostWindowSizeSchema),
-}, 'invalid host window state');
+const hostWindowStateSchema = v.object(
+    {
+        fullScreen: v.boolean('invalid host window state'),
+        maximized: v.boolean('invalid host window state'),
+        supported: v.boolean('invalid host window state'),
+        /** The native content size the window reached, where the host can tell. */
+        contentSize: v.optional(hostWindowSizeSchema),
+        /** The work area of the display the window is on, which bounds its size. */
+        workAreaSize: v.optional(hostWindowSizeSchema),
+    },
+    'invalid host window state',
+);
 export type IHostWindowState = v.InferOutput<typeof hostWindowStateSchema>;
 
 /** Serialized bug report. Content free by construction; see the writer. */
@@ -78,48 +86,54 @@ export type IHostBugReportWriteResult = v.InferOutput<typeof hostBugReportWriteR
 const HOST_BUG_REPORT_MAX_JSON_CHARS = 256 * 1024;
 /** Longer than any path a filesystem accepts, so a real one always fits. */
 const HOST_BUG_REPORT_MAX_SOURCE_PATH_CHARS = 4_096;
-const hostBugReportBundleSchema = v.object({
-    reportJson: v.pipe(
-        v.string('invalid host bug report bundle'),
-        v.minLength(1, 'invalid host bug report bundle'),
-        v.maxLength(HOST_BUG_REPORT_MAX_JSON_CHARS, 'invalid host bug report bundle'),
-    ),
-    sourcePath: v.pipe(
-        v.string('invalid host bug report bundle'),
-        v.maxLength(HOST_BUG_REPORT_MAX_SOURCE_PATH_CHARS, 'invalid host bug report bundle'),
-    ),
-}, 'invalid host bug report bundle');
-const hostBugReportWriteResultSchema = v.object({
-    directoryName: v.string('invalid host bug report write result'),
-    screenshotWritten: v.boolean('invalid host bug report write result'),
-    written: v.boolean('invalid host bug report write result'),
-}, 'invalid host bug report write result');
+const hostBugReportBundleSchema = v.object(
+    {
+        reportJson: v.pipe(
+            v.string('invalid host bug report bundle'),
+            v.minLength(1, 'invalid host bug report bundle'),
+            v.maxLength(HOST_BUG_REPORT_MAX_JSON_CHARS, 'invalid host bug report bundle'),
+        ),
+        sourcePath: v.pipe(
+            v.string('invalid host bug report bundle'),
+            v.maxLength(HOST_BUG_REPORT_MAX_SOURCE_PATH_CHARS, 'invalid host bug report bundle'),
+        ),
+    },
+    'invalid host bug report bundle',
+);
+const hostBugReportWriteResultSchema = v.object(
+    {
+        directoryName: v.string('invalid host bug report write result'),
+        screenshotWritten: v.boolean('invalid host bug report write result'),
+        written: v.boolean('invalid host bug report write result'),
+    },
+    'invalid host bug report write result',
+);
 
 const hostRasterBudgetSchema = v.pipe(
-    v.strictObject({
-        maxRasterSurfaceBytes: v.pipe(
-            v.number('invalid host raster budget'),
-            v.integer('invalid host raster budget'),
-            v.minValue(HOST_WINDOW_RASTER_SHARE_MIN_BYTES, 'invalid host raster budget'),
-            v.maxValue(HOST_RASTER_POOL_MAX_BYTES, 'invalid host raster budget'),
-        ),
-        hostPoolBytes: v.pipe(
-            v.number('invalid host raster budget'),
-            v.integer('invalid host raster budget'),
-            v.minValue(HOST_RASTER_POOL_MIN_BYTES, 'invalid host raster budget'),
-            v.maxValue(HOST_RASTER_POOL_MAX_BYTES, 'invalid host raster budget'),
-        ),
-        windowCount: v.pipe(
-            v.number('invalid host raster budget'),
-            v.integer('invalid host raster budget'),
-            v.minValue(1, 'invalid host raster budget'),
-            v.maxValue(HOST_RASTER_BUDGET_MAX_WINDOWS, 'invalid host raster budget'),
-        ),
-    }, 'invalid host raster budget'),
-    v.check(
-        value => value.maxRasterSurfaceBytes <= value.hostPoolBytes,
+    v.strictObject(
+        {
+            maxRasterSurfaceBytes: v.pipe(
+                v.number('invalid host raster budget'),
+                v.integer('invalid host raster budget'),
+                v.minValue(HOST_WINDOW_RASTER_SHARE_MIN_BYTES, 'invalid host raster budget'),
+                v.maxValue(HOST_RASTER_POOL_MAX_BYTES, 'invalid host raster budget'),
+            ),
+            hostPoolBytes: v.pipe(
+                v.number('invalid host raster budget'),
+                v.integer('invalid host raster budget'),
+                v.minValue(HOST_RASTER_POOL_MIN_BYTES, 'invalid host raster budget'),
+                v.maxValue(HOST_RASTER_POOL_MAX_BYTES, 'invalid host raster budget'),
+            ),
+            windowCount: v.pipe(
+                v.number('invalid host raster budget'),
+                v.integer('invalid host raster budget'),
+                v.minValue(1, 'invalid host raster budget'),
+                v.maxValue(HOST_RASTER_BUDGET_MAX_WINDOWS, 'invalid host raster budget'),
+            ),
+        },
         'invalid host raster budget',
     ),
+    v.check((value) => value.maxRasterSurfaceBytes <= value.hostPoolBytes, 'invalid host raster budget'),
 );
 export type IHostRasterBudgetSnapshot = v.InferOutput<typeof hostRasterBudgetSchema>;
 
@@ -174,10 +188,7 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
         restoreNormalWindow: defineForwardedPlatformMethod({
             name: 'restoreNormalWindow',
             channel: 'host:restoreNormalWindow',
-            args: v.union([
-                v.strictTuple([]),
-                v.strictTuple([hostWindowSizeSchema]),
-            ]),
+            args: v.union([v.strictTuple([]), v.strictTuple([hostWindowSizeSchema])]),
             result: hostWindowStateSchema,
             main: 'restoreHostNormalWindowForWindow',
         }),
@@ -209,10 +220,7 @@ export const HOST_PLATFORM_FEATURE = definePlatformFeature({
         onWheelScrollSequenceChange: defineForwardedPlatformEvent({
             name: 'onWheelScrollSequenceChange',
             channel: 'host:wheelScrollSequenceChanged',
-            payload: v.picklist([
-                'begin',
-                'end',
-            ]),
+            payload: v.picklist(['begin', 'end']),
         }),
     },
 });

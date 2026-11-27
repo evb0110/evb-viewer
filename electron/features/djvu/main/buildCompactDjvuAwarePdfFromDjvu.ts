@@ -1,26 +1,11 @@
-import { randomUUID } from 'node:crypto';
-import { createAbortError } from '@contracts/isAbortError';
-import {
-    closeSync,
-    createReadStream,
-    openSync,
-    writeSync,
-} from 'node:fs';
-import {
-    appendFile,
-    mkdir,
-    readFile,
-    rm,
-    stat,
-    writeFile,
-} from 'fs/promises';
-import {
-    dirname,
-    join,
-} from 'path';
-import { fileURLToPath } from 'url';
-import { createInterface } from 'node:readline';
-import { limitAsync } from 'es-toolkit/promise';
+import {randomUUID} from 'node:crypto';
+import {createAbortError} from '@contracts/isAbortError';
+import {closeSync, createReadStream, openSync, writeSync} from 'node:fs';
+import {appendFile, mkdir, readFile, rm, stat, writeFile} from 'fs/promises';
+import {dirname, join} from 'path';
+import {fileURLToPath} from 'url';
+import {createInterface} from 'node:readline';
+import {limitAsync} from 'es-toolkit/promise';
 import {
     DJVU_COMPACT_FOREGROUND_DOMINANT_NON_WHITE_MAX,
     DJVU_COMPACT_FOREGROUND_SUBSAMPLE,
@@ -32,28 +17,19 @@ import {
     type IDjvuConversionPageMetrics,
     type TDjvuCompactFidelityPreset,
 } from '@contracts/djvuConversionPolicy';
-import { runDjvuEngine } from '@electron/features/djvu/main/djvuEnginePool';
-import {
-    renderDjvuPageToImage,
-    runRegisteredDjvuProcess,
-    withDjvuNativeResourceLease,
-} from '@electron/features/djvu/main/ddjvuConversion';
-import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
-import { probeNativeNetpbm } from '@electron/features/djvu/main/probeNativeNetpbm';
-import { withCompactDjvuResourceLease } from '@electron/features/djvu/main/withCompactDjvuResourceLease';
-import type {
-    IJobBrokerRunContext,
-    TTerminationProofSink,
-} from '@electron/resources/jobBroker';
+import {runDjvuEngine} from '@electron/features/djvu/main/djvuEnginePool';
+import {renderDjvuPageToImage, runRegisteredDjvuProcess, withDjvuNativeResourceLease} from '@electron/features/djvu/main/ddjvuConversion';
+import {resolveNativeToolPath} from '@electron/native-tools/resolveNativeToolPath';
+import {probeNativeNetpbm} from '@electron/features/djvu/main/probeNativeNetpbm';
+import {withCompactDjvuResourceLease} from '@electron/features/djvu/main/withCompactDjvuResourceLease';
+import type {IJobBrokerRunContext, TTerminationProofSink} from '@electron/resources/jobBroker';
 import {createPdfCombineProgressHandler} from '@evb/scan-cleanup/core/createPdfCombineProgressHandler';
 import {readPpmDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import {
-    getUnprovenNativeTerminationDetail, markUnprovenNativeTermination,
-} from '@electron/utils/nativeTerminationProof';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import { openCompactDjvuFidelityManifestWriter } from '@electron/features/djvu/main/openCompactDjvuFidelityManifestWriter';
+import {openCompactDjvuFidelityManifestWriter} from '@electron/features/djvu/main/openCompactDjvuFidelityManifestWriter';
 import {
     loadOrBuildCompactDjvuPage,
     openCompactDjvuCheckpointJob,
@@ -119,12 +95,7 @@ interface IPbmMaskStats extends INetpbmInfo {
 
 const DJVU_COMPACT_MAX_PAGE_BYTES = 0xffffffff;
 const positiveIntegerSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
-const boundedPageBytesSchema = v.pipe(
-    v.number(),
-    v.safeInteger(),
-    v.minValue(0),
-    v.maxValue(DJVU_COMPACT_MAX_PAGE_BYTES),
-);
+const boundedPageBytesSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(DJVU_COMPACT_MAX_PAGE_BYTES));
 const djvuPageInfoSchema = v.object({
     width: positiveIntegerSchema,
     height: positiveIntegerSchema,
@@ -198,24 +169,29 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
     let structureReady = false;
     let consumersReleased = false;
     try {
-        await writeFile(manifestPath, `${JSON.stringify({
-            format: COMPACT_MANIFEST_JSONL_FORMAT,
-            schemaVersion: COMPACT_MANIFEST_JSONL_SCHEMA_VERSION,
-            pageCount: selectedPageCount,
-        })}\n`, 'utf8');
+        await writeFile(
+            manifestPath,
+            `${JSON.stringify({
+                format: COMPACT_MANIFEST_JSONL_FORMAT,
+                schemaVersion: COMPACT_MANIFEST_JSONL_SCHEMA_VERSION,
+                pageCount: selectedPageCount,
+            })}\n`,
+            'utf8',
+        );
         fidelityWriter = await openCompactDjvuFidelityManifestWriter(options.tempDir, options.qualityPreset);
         const activeFidelityWriter = fidelityWriter;
         await withDjvuNativeResourceLease({
             jobId: options.jobId,
             kind: 'structure',
             ...(options.signal ? {signal: options.signal} : {}),
-            task: () => readDjvuPageStructures(
-                options.djvuPath,
-                options.jobId,
-                options.signal,
-                structurePath,
-                options.pages ? selectedPages : undefined,
-            ),
+            task: () =>
+                readDjvuPageStructures(
+                    options.djvuPath,
+                    options.jobId,
+                    options.signal,
+                    structurePath,
+                    options.pages ? selectedPages : undefined,
+                ),
         });
         structureReady = true;
 
@@ -232,14 +208,11 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
             options.onProgress?.(nextProgress);
         };
 
-        for await (const {
-            pages,
-            pageStructures,
-        } of iterateDjvuPageStructureWindows(
-                structurePath,
-                pageWindows(options.pages ? selectedPages : undefined, options.pageCount),
-                options.signal,
-            )) {
+        for await (const {pages, pageStructures} of iterateDjvuPageStructureWindows(
+            structurePath,
+            pageWindows(options.pages ? selectedPages : undefined, options.pageCount),
+            options.signal,
+        )) {
             throwIfAborted(options.signal);
             const checkpointJob = await openCompactDjvuCheckpointJob(
                 options.djvuPath,
@@ -261,10 +234,7 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                 const pageTempDir = join(checkpointJob.directory, 'compact-pages');
                 await mkdir(pageTempDir, {recursive: true});
                 quotaMonitor = await createDjvuDiskQuotaMonitor({
-                    paths: [
-                        checkpointJob.directory,
-                        options.outputPath,
-                    ],
+                    paths: [checkpointJob.directory, options.outputPath],
                     fileSystemPath: checkpointJob.directory,
                     maxTotalBytes: checkpointJob.maxTotalBytes,
                     ...(options.signal ? {signal: options.signal} : {}),
@@ -277,21 +247,24 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                 const workerCount = Math.min(DJVU_COMPACT_MAX_PAGE_WORKERS, pages.length);
                 const buildPageWithLimit = limitAsync(async (pageNumber: number, pageIndex: number) => {
                     throwIfAborted(activeQuotaMonitor.signal);
-                    const pageSpec = await loadOrBuildCompactDjvuPage(checkpointJob, pageIndex, () => withCompactDjvuResourceLease({
-                        jobId: options.jobId,
-                        kind: 'page',
-                        signal: activeQuotaMonitor.signal,
-                        task: brokerRun => buildCompactPageSpec(
-                            {
-                                ...conversionOptions,
-                                brokerRun,
-                                onTerminationProof: brokerRun.onTerminationProof,
-                            },
-                            pageTempDir,
-                            pageNumber,
-                            pageStructures.get(pageNumber) ?? null,
-                        ),
-                    }));
+                    const pageSpec = await loadOrBuildCompactDjvuPage(checkpointJob, pageIndex, () =>
+                        withCompactDjvuResourceLease({
+                            jobId: options.jobId,
+                            kind: 'page',
+                            signal: activeQuotaMonitor.signal,
+                            task: (brokerRun) =>
+                                buildCompactPageSpec(
+                                    {
+                                        ...conversionOptions,
+                                        brokerRun,
+                                        onTerminationProof: brokerRun.onTerminationProof,
+                                    },
+                                    pageTempDir,
+                                    pageNumber,
+                                    pageStructures.get(pageNumber) ?? null,
+                                ),
+                        }),
+                    );
                     await activeQuotaMonitor.checkNow();
                     throwIfAborted(activeQuotaMonitor.signal);
                     // Count each page as it finishes; a window holds up to 32
@@ -308,14 +281,12 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                 } catch (error) {
                     activeQuotaMonitor.cancel(error);
                     const settled = await Promise.allSettled(pageTasks);
-                    const unproven = settled.find(result => result.status === 'rejected'
-                        && getUnprovenNativeTerminationDetail(result.reason) !== undefined);
+                    const unproven = settled.find(
+                        (result) => result.status === 'rejected' && getUnprovenNativeTerminationDetail(result.reason) !== undefined,
+                    );
                     if (unproven?.status === 'rejected') {
                         throw markUnprovenNativeTermination(
-                            new AggregateError([
-                                error,
-                                unproven.reason,
-                            ], getErrorMessage(error)),
+                            new AggregateError([error, unproven.reason], getErrorMessage(error)),
                             getUnprovenNativeTerminationDetail(unproven.reason)!,
                         );
                     }
@@ -324,20 +295,24 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                     }
                     throw error;
                 }
-                await appendFile(
-                    manifestPath,
-                    `${pageSpecs.map(spec => spec.manifestLine).join('\n')}\n`,
-                    'utf8',
-                );
+                await appendFile(manifestPath, `${pageSpecs.map((spec) => spec.manifestLine).join('\n')}\n`, 'utf8');
                 await activeFidelityWriter.append(pageSpecs);
                 if (resultPageSpecs.length < DJVU_COMPACT_RESULT_SPEC_LIMIT) {
                     resultPageSpecs.push(...pageSpecs.slice(0, DJVU_COMPACT_RESULT_SPEC_LIMIT - resultPageSpecs.length));
                 }
                 for (const pageSpec of pageSpecs) {
-                    if (pageSpec.kind === 'layered') layeredCount += 1;
-                    if (pageSpec.kind === 'layered-color') layeredColorCount += 1;
-                    if (pageSpec.kind === 'bitonal') bitonalCount += 1;
-                    if (pageSpec.kind === 'photo') photoCount += 1;
+                    if (pageSpec.kind === 'layered') {
+                        layeredCount += 1;
+                    }
+                    if (pageSpec.kind === 'layered-color') {
+                        layeredColorCount += 1;
+                    }
+                    if (pageSpec.kind === 'bitonal') {
+                        bitonalCount += 1;
+                    }
+                    if (pageSpec.kind === 'photo') {
+                        photoCount += 1;
+                    }
                 }
                 await activeQuotaMonitor.checkNow();
             } finally {
@@ -386,13 +361,7 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                 const combined = await runRegisteredDjvuProcess(
                     `${options.jobId}-compact-combine`,
                     binaryPath,
-                    [
-                        '--output',
-                        options.outputPath,
-                        '--json-progress',
-                        '--compact-manifest',
-                        manifestPath,
-                    ],
+                    ['--output', options.outputPath, '--json-progress', '--compact-manifest', manifestPath],
                     {
                         signal: combineSignal,
                         brokerRun,
@@ -407,33 +376,27 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                         },
                         onStdout: createPdfCombineProgressHandler(
                             selectedPageCount,
-                            (processed, total) => emitProgress(PROGRESS_COMBINE_START + Math.round(
-                                (processed / total) * (PROGRESS_COMBINE_CAP - PROGRESS_COMBINE_START),
-                            )),
-                            line => logger.debug(`Ignoring malformed native compact PDF progress: ${line}`),
+                            (processed, total) =>
+                                emitProgress(
+                                    PROGRESS_COMBINE_START +
+                                        Math.round((processed / total) * (PROGRESS_COMBINE_CAP - PROGRESS_COMBINE_START)),
+                                ),
+                            (line) => logger.debug(`Ignoring malformed native compact PDF progress: ${line}`),
                         ),
                     },
                 );
                 // Thrown inside the lease, so a combiner not proven gone keeps it charged.
-                const unprovenTermination = combined.success
-                    ? undefined
-                    : getUnprovenNativeTerminationDetail(combined.cause);
+                const unprovenTermination = combined.success ? undefined : getUnprovenNativeTerminationDetail(combined.cause);
                 if (!combined.success && unprovenTermination !== undefined) {
-                    throw combined.cause instanceof Error
-                        ? combined.cause
-                        : new Error(`${combined.error}: ${unprovenTermination}`);
+                    throw combined.cause instanceof Error ? combined.cause : new Error(`${combined.error}: ${unprovenTermination}`);
                 }
                 return combined;
             },
         });
         if (!result.success) {
-            const nativeCode = typeof result.cause === 'object'
-                && result.cause !== null
-                && 'code' in result.cause
-                ? result.cause.code
-                : undefined;
-            if (nativeCode === PDF_COMBINE_OUTPUT_POLICY.tooLargeCode
-                || isPdfCombineOutputTooLargeError(result.cause)) {
+            const nativeCode =
+                typeof result.cause === 'object' && result.cause !== null && 'code' in result.cause ? result.cause.code : undefined;
+            if (nativeCode === PDF_COMBINE_OUTPUT_POLICY.tooLargeCode || isPdfCombineOutputTooLargeError(result.cause)) {
                 await rm(options.outputPath, {force: true}).catch(() => undefined);
                 throw createPdfCombineOutputTooLargeError(result.error);
             }
@@ -470,7 +433,9 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
         if (structureReady) {
             await rm(structurePath, {force: true}).catch(() => undefined);
         }
-        if (!consumersReleased) await releaseCompactBatchJobs(batchDirectoriesPath, {remove: false}).catch(() => undefined);
+        if (!consumersReleased) {
+            await releaseCompactBatchJobs(batchDirectoriesPath, {remove: false}).catch(() => undefined);
+        }
         await rm(batchDirectoriesPath, {force: true}).catch(() => undefined);
     }
 }
@@ -484,7 +449,9 @@ async function releaseCompactBatchJobs(path: string, options: {remove: boolean})
     });
     try {
         for await (const line of lines) {
-            if (line.trim()) await releaseDjvuArtifactConsumer(line, options);
+            if (line.trim()) {
+                await releaseDjvuArtifactConsumer(line, options);
+            }
         }
     } finally {
         lines.close();
@@ -501,54 +468,58 @@ async function readDjvuPageStructures(
 ): Promise<string> {
     let fileDescriptor: number | null = null;
     try {
-        const rawStructures = await runDjvuEngine({
-            type: 'getPageStructures',
-            djvuPath,
-            ...(pageNumbers ? { pageNumbers } : {}),
-        }, {
-            ...(signal ? { signal } : {}),
-            timeoutMs: DJVU_COMPACT_DUMP_TIMEOUT_MS,
-        });
+        const rawStructures = await runDjvuEngine(
+            {
+                type: 'getPageStructures',
+                djvuPath,
+                ...(pageNumbers ? {pageNumbers} : {}),
+            },
+            {
+                ...(signal ? {signal} : {}),
+                timeoutMs: DJVU_COMPACT_DUMP_TIMEOUT_MS,
+            },
+        );
         fileDescriptor = openSync(outputPath, 'w');
         for (const raw of rawStructures) {
-            const pageInfo = raw.info && raw.info.width > 0 && raw.info.height > 0 && raw.info.dpi > 0
-                ? {
-                    width: raw.info.width,
-                    height: raw.info.height,
-                    dpi: raw.info.dpi,
-                }
-                : null;
+            const pageInfo =
+                raw.info && raw.info.width > 0 && raw.info.height > 0 && raw.info.dpi > 0
+                    ? {
+                          width: raw.info.width,
+                          height: raw.info.height,
+                          dpi: raw.info.dpi,
+                      }
+                    : null;
             const background = raw.background
                 ? createDjvuLayerInfo(
-                    raw.background.kind,
-                    raw.background.bytes,
-                    raw.background.width !== null
-                        && raw.background.height !== null
-                        && raw.background.width > 0
-                        && raw.background.height > 0
-                        ? {
-                            width: raw.background.width,
-                            height: raw.background.height,
-                        }
-                        : null,
-                    pageInfo,
-                )
+                      raw.background.kind,
+                      raw.background.bytes,
+                      raw.background.width !== null &&
+                          raw.background.height !== null &&
+                          raw.background.width > 0 &&
+                          raw.background.height > 0
+                          ? {
+                                width: raw.background.width,
+                                height: raw.background.height,
+                            }
+                          : null,
+                      pageInfo,
+                  )
                 : null;
             const foreground = raw.foreground
                 ? createDjvuLayerInfo(
-                    raw.foreground.kind,
-                    raw.foreground.bytes,
-                    raw.foreground.width !== null
-                        && raw.foreground.height !== null
-                        && raw.foreground.width > 0
-                        && raw.foreground.height > 0
-                        ? {
-                            width: raw.foreground.width,
-                            height: raw.foreground.height,
-                        }
-                        : null,
-                    pageInfo,
-                )
+                      raw.foreground.kind,
+                      raw.foreground.bytes,
+                      raw.foreground.width !== null &&
+                          raw.foreground.height !== null &&
+                          raw.foreground.width > 0 &&
+                          raw.foreground.height > 0
+                          ? {
+                                width: raw.foreground.width,
+                                height: raw.foreground.height,
+                            }
+                          : null,
+                      pageInfo,
+                  )
                 : null;
             const structure: IDjvuPageStructure = {
                 pageNumber: raw.pageNumber,
@@ -581,7 +552,9 @@ async function readDjvuPageStructures(
         if (getUnprovenNativeTerminationDetail(error) !== undefined) {
             throw error;
         }
-        throw new Error(`DjVu layer structure inspection failed; compact export stopped without flattening the document: ${getErrorMessage(error)}`);
+        throw new Error(
+            `DjVu layer structure inspection failed; compact export stopped without flattening the document: ${getErrorMessage(error)}`,
+        );
     }
 }
 
@@ -624,7 +597,9 @@ async function* iterateDjvuPageStructureWindows(
                     } catch {
                         pending = null;
                     }
-                    if (!pending) continue;
+                    if (!pending) {
+                        continue;
+                    }
                     continue;
                 }
                 if (!Number.isSafeInteger(next.pageNumber)) {
@@ -659,7 +634,7 @@ function createDjvuLayerInfo(
     bytes: number,
     dimensions: {
         width: number;
-        height: number
+        height: number;
     } | null,
     pageInfo: IDjvuPageInfo | null,
 ): IDjvuLayerInfo {
@@ -676,7 +651,7 @@ function deriveLayerSubsample(
     pageInfo: IDjvuPageInfo,
     dimensions: {
         width: number;
-        height: number
+        height: number;
     },
 ) {
     if (dimensions.width <= 0 || dimensions.height <= 0) {
@@ -686,9 +661,9 @@ function deriveLayerSubsample(
     const heightRatio = pageInfo.height / dimensions.height;
     const rounded = Math.round(Math.max(widthRatio, heightRatio));
     if (
-        !Number.isFinite(rounded)
-        || rounded < DJVU_COMPACT_MIN_SUBSAMPLE
-        || Math.abs(widthRatio - heightRatio) > DJVU_COMPACT_LAYER_DIMENSION_MATCH_TOLERANCE * Math.max(1, rounded)
+        !Number.isFinite(rounded) ||
+        rounded < DJVU_COMPACT_MIN_SUBSAMPLE ||
+        Math.abs(widthRatio - heightRatio) > DJVU_COMPACT_LAYER_DIMENSION_MATCH_TOLERANCE * Math.max(1, rounded)
     ) {
         return DJVU_NATIVE_LAYER_DEFAULT_SUBSAMPLE;
     }
@@ -696,9 +671,7 @@ function deriveLayerSubsample(
 }
 
 function hasRealForegroundMask(structure: IDjvuPageStructure) {
-    return structure.hasMask
-        && typeof structure.maskBytes === 'number'
-        && structure.maskBytes >= DJVU_COMPACT_REAL_MASK_MIN_BYTES;
+    return structure.hasMask && typeof structure.maskBytes === 'number' && structure.maskBytes >= DJVU_COMPACT_REAL_MASK_MIN_BYTES;
 }
 
 async function buildCompactPageSpec(
@@ -714,31 +687,15 @@ async function buildCompactPageSpec(
     }
 
     if (!hasRealForegroundMask(structure)) {
-        return buildPhotoPageSpec(
-            options,
-            pagePrefix,
-            pageNumber,
-            structure,
-            noRealMaskPhotoReason(structure),
-        );
+        return buildPhotoPageSpec(options, pagePrefix, pageNumber, structure, noRealMaskPhotoReason(structure));
     }
 
     const maskPath = await renderMaskLayer(options, pagePrefix, pageNumber);
     const maskStats = await readPbmMaskStats(maskPath, options);
-    const pageSize = resolvePageSizePoints(
-        options.pageSizes?.[pageNumber - 1] ?? null,
-        options.sourceDpi,
-        maskStats,
-        1,
-        structure,
-    );
+    const pageSize = resolvePageSizePoints(options.pageSizes?.[pageNumber - 1] ?? null, options.sourceDpi, maskStats, 1, structure);
 
-    const foregroundColorPath = structure.foreground
-        ? await renderForegroundLayer(options, pagePrefix, pageNumber, structure)
-        : null;
-    const foregroundColor = foregroundColorPath
-        ? await analyzeForegroundColor(foregroundColorPath, options)
-        : null;
+    const foregroundColorPath = structure.foreground ? await renderForegroundLayer(options, pagePrefix, pageNumber, structure) : null;
+    const foregroundColor = foregroundColorPath ? await analyzeForegroundColor(foregroundColorPath, options) : null;
 
     if (foregroundColor && hasDjvuCompactForegroundColor(foregroundColor)) {
         return buildPhotoPageSpec(
@@ -778,23 +735,11 @@ async function buildCompactPageSpec(
         reason: 'DjVu native mask and background layers',
         effectivePpi: Math.min(structure.info?.dpi ?? options.sourceDpi, fidelity.ppiCap),
         jpegQuality: fidelity.backgroundQuality,
-        manifestLine: createManifestLine(
-            'layered-jpeg',
-            pageSize,
-            [
-                backgroundPath,
-                maskPath,
-            ],
-            {jpegQuality: fidelity.backgroundQuality},
-        ),
+        manifestLine: createManifestLine('layered-jpeg', pageSize, [backgroundPath, maskPath], {jpegQuality: fidelity.backgroundQuality}),
     };
 }
 
-async function renderMaskLayer(
-    options: ICompactDjvuPdfExportOptions,
-    pagePrefix: string,
-    pageNumber: number,
-) {
+async function renderMaskLayer(options: ICompactDjvuPdfExportOptions, pagePrefix: string, pageNumber: number) {
     const outputPath = `${pagePrefix}-mask.pbm`;
     throwIfAborted(options.signal);
     const result = await renderDjvuPageToImage(
@@ -913,23 +858,14 @@ async function buildPhotoPageSpec(
         reason,
         effectivePpi: Math.min(structure?.info?.dpi ?? options.pageSizes?.[pageNumber - 1]?.dpi ?? options.sourceDpi, fidelity.ppiCap),
         jpegQuality: fidelity.photoQuality,
-        manifestLine: createManifestLine(
-            'photo-jpeg',
-            pageSize,
-            [photoPath],
-            {
-                jpegQuality: fidelity.photoQuality,
-                ppiCap: fidelity.ppiCap,
-            },
-        ),
+        manifestLine: createManifestLine('photo-jpeg', pageSize, [photoPath], {
+            jpegQuality: fidelity.photoQuality,
+            ppiCap: fidelity.ppiCap,
+        }),
     };
 }
 
-function resolvePhotoRenderOptions(
-    options: ICompactDjvuPdfExportOptions,
-    pageNumber: number,
-    structure: IDjvuPageStructure | null,
-) {
+function resolvePhotoRenderOptions(options: ICompactDjvuPdfExportOptions, pageNumber: number, structure: IDjvuPageStructure | null) {
     const pageInfo = structure?.info;
     const metrics = options.pageSizes?.[pageNumber - 1] ?? null;
     const dpi = positiveNumber(pageInfo?.dpi) ?? positiveNumber(metrics?.dpi) ?? positiveNumber(options.sourceDpi) ?? DEFAULT_DPI;
@@ -953,9 +889,8 @@ function resolvePhotoRenderOptions(
 
 function noRealMaskPhotoReason(structure: IDjvuPageStructure) {
     if (structure.background) {
-        const maskDescription = structure.maskBytes === null
-            ? 'without a foreground mask'
-            : `with tiny foreground mask (${structure.maskBytes} bytes)`;
+        const maskDescription =
+            structure.maskBytes === null ? 'without a foreground mask' : `with tiny foreground mask (${structure.maskBytes} bytes)`;
         return `DjVu page has continuous-tone background ${maskDescription}; rendering capped photo page`;
     }
     return 'DjVu page has no real foreground mask; rendering capped photo page';
@@ -984,12 +919,9 @@ async function analyzeForegroundColor(
     };
 }
 
-
 function resolveNativePdfImageCombinePath() {
     const isPackaged = __dirname.includes('app.asar');
-    const binaryName = process.platform === 'win32'
-        ? 'evb-pdf-image-combine.exe'
-        : 'evb-pdf-image-combine';
+    const binaryName = process.platform === 'win32' ? 'evb-pdf-image-combine.exe' : 'evb-pdf-image-combine';
     return resolveNativeToolPath({
         binaryName,
         crateName: 'pdf-image-combine',
@@ -1001,8 +933,9 @@ function resolveNativePdfImageCombinePath() {
 
 function normalizePages(pages: number[] | undefined, pageCount: number) {
     if (pages) {
-        return Array.from(new Set(pages.filter(page => Number.isInteger(page) && page >= 1 && page <= pageCount)))
-            .sort((left, right) => left - right);
+        return Array.from(new Set(pages.filter((page) => Number.isInteger(page) && page >= 1 && page <= pageCount))).sort(
+            (left, right) => left - right,
+        );
     }
     return [];
 }
@@ -1033,16 +966,9 @@ function resolvePageSizePoints(
 ) {
     // An indirect document's index holds no page INFO; the page's own
     // resolution then comes with its size.
-    const dpi = positiveNumber(structure?.info?.dpi)
-        ?? positiveNumber(metrics?.dpi)
-        ?? positiveNumber(sourceDpi)
-        ?? DEFAULT_DPI;
-    const width = positiveNumber(metrics?.width)
-        ?? positiveNumber(structure?.info?.width)
-        ?? renderedInfo.width * renderedSubsample;
-    const height = positiveNumber(metrics?.height)
-        ?? positiveNumber(structure?.info?.height)
-        ?? renderedInfo.height * renderedSubsample;
+    const dpi = positiveNumber(structure?.info?.dpi) ?? positiveNumber(metrics?.dpi) ?? positiveNumber(sourceDpi) ?? DEFAULT_DPI;
+    const width = positiveNumber(metrics?.width) ?? positiveNumber(structure?.info?.width) ?? renderedInfo.width * renderedSubsample;
+    const height = positiveNumber(metrics?.height) ?? positiveNumber(structure?.info?.height) ?? renderedInfo.height * renderedSubsample;
     return {
         widthPoints: pointsFromPixels(width, dpi),
         heightPoints: pointsFromPixels(height, dpi),
@@ -1050,7 +976,7 @@ function resolvePageSizePoints(
 }
 
 function pointsFromPixels(pixels: number, dpi: number) {
-    return Math.max(1, pixels / Math.max(1, dpi) * 72);
+    return Math.max(1, (pixels / Math.max(1, dpi)) * 72);
 }
 
 function positiveNumber(value: unknown) {
@@ -1077,49 +1003,30 @@ function createManifestLine(
             throw new Error(`Compact PDF manifest path is not representable: ${path}`);
         }
     }
-    const fields = [
-        kind,
-        pageSize.widthPoints.toFixed(4),
-        pageSize.heightPoints.toFixed(4),
-    ];
+    const fields = [kind, pageSize.widthPoints.toFixed(4), pageSize.heightPoints.toFixed(4)];
     if (kind === 'image-jpeg' || kind === 'layered-jpeg' || kind === 'layered-color-jpeg') {
         fields.push(String(options.jpegQuality ?? DJVU_COMPACT_BACKGROUND_JPEG_QUALITY));
     }
     if (kind === 'photo-jpeg') {
-        fields.push(
-            String(options.jpegQuality ?? DJVU_COMPACT_PHOTO_JPEG_QUALITY),
-            String(options.ppiCap ?? DJVU_COMPACT_PHOTO_PPI_CAP),
-        );
+        fields.push(String(options.jpegQuality ?? DJVU_COMPACT_PHOTO_JPEG_QUALITY), String(options.ppiCap ?? DJVU_COMPACT_PHOTO_PPI_CAP));
     }
     fields.push(...paths);
     if (kind === 'layered-color-jpeg') {
-        const color = options.foregroundColor ?? [
-            0,
-            0,
-            0,
-        ];
-        fields.push(...color.map(channel => String(Math.min(255, Math.max(0, Math.round(channel))))));
+        const color = options.foregroundColor ?? [0, 0, 0];
+        fields.push(...color.map((channel) => String(Math.min(255, Math.max(0, Math.round(channel))))));
     }
     return fields.join('\t');
 }
 
 function canRepresentManifestPath(path: string) {
-    return path.length > 0
-        && path.trim() === path
-        && !/[\r\n\t]/u.test(path);
+    return path.length > 0 && path.trim() === path && !/[\r\n\t]/u.test(path);
 }
 
-function readNativeNetpbmProbe(
-    path: string,
-    options?: Pick<ICompactDjvuPdfExportOptions, 'brokerRun' | 'signal'>,
-) {
+function readNativeNetpbmProbe(path: string, options?: Pick<ICompactDjvuPdfExportOptions, 'brokerRun' | 'signal'>) {
     return probeNativeNetpbm(resolveNativePdfImageCombinePath(), path, options);
 }
 
-async function readNetpbmStats(
-    path: string,
-    options?: Pick<ICompactDjvuPdfExportOptions, 'brokerRun' | 'signal'>,
-) {
+async function readNetpbmStats(path: string, options?: Pick<ICompactDjvuPdfExportOptions, 'brokerRun' | 'signal'>) {
     const nativeProbe = await readNativeNetpbmProbe(path, options);
     if (nativeProbe) {
         if (nativeProbe.magic === 'P4') {
@@ -1189,23 +1096,12 @@ async function readDominantForegroundColor(path: string): Promise<[number, numbe
     }
 
     if (weightTotal <= 0) {
-        return [
-            0,
-            0,
-            0,
-        ];
+        return [0, 0, 0];
     }
-    return [
-        Math.round(redTotal / weightTotal),
-        Math.round(greenTotal / weightTotal),
-        Math.round(blueTotal / weightTotal),
-    ];
+    return [Math.round(redTotal / weightTotal), Math.round(greenTotal / weightTotal), Math.round(blueTotal / weightTotal)];
 }
 
-async function readPbmMaskStats(
-    path: string,
-    options?: Pick<ICompactDjvuPdfExportOptions, 'brokerRun' | 'signal'>,
-) {
+async function readPbmMaskStats(path: string, options?: Pick<ICompactDjvuPdfExportOptions, 'brokerRun' | 'signal'>) {
     const nativeProbe = await readNativeNetpbmProbe(path, options);
     if (nativeProbe) {
         if (nativeProbe.magic !== 'P4') {
@@ -1257,7 +1153,6 @@ async function readPbmMaskStatsFallback(path: string) {
     } satisfies IPbmMaskStats;
 }
 
-
 async function assertNetpbmReadSafe(path: string) {
     const fileStat = await stat(path);
     if (!fileStat.isFile()) {
@@ -1303,11 +1198,7 @@ function parseNetpbmInfo(data: Buffer): INetpbmInfo {
     };
 }
 
-function readNetpbmNumber(
-    data: Buffer,
-    state: {offset: number},
-    label: string,
-) {
+function readNetpbmNumber(data: Buffer, state: {offset: number}, label: string) {
     skipNetpbmWhitespaceAndComments(data, state);
     let raw = '';
     while (state.offset < data.byteLength && !isWhitespaceByte(data[state.offset]!)) {
@@ -1356,7 +1247,9 @@ function throwIfCanceledRenderResult(
     },
     signal: AbortSignal | undefined,
 ) {
-    if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) throw result.cause;
+    if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) {
+        throw result.cause;
+    }
     throwIfAborted(signal);
     if (!result.success && result.error?.includes('DjVu conversion canceled')) {
         throw createAbortError('DjVu conversion canceled');

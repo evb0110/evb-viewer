@@ -1,13 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    inspectAllowedExternalUrl,
-    normalizeAllowedExternalUrl,
-    sanitizeAllowedExternalUrl,
-} from '@contracts/externalUrl';
+import {describe, expect, it} from 'vitest';
+import {inspectAllowedExternalUrl, normalizeAllowedExternalUrl, sanitizeAllowedExternalUrl} from '@contracts/externalUrl';
 
 describe('external URL helpers', () => {
     it('normalizes allowed external URLs', () => {
@@ -17,9 +9,7 @@ describe('external URL helpers', () => {
 
     it('rejects unsupported external URL protocols', () => {
         expect(normalizeAllowedExternalUrl('javascript:alert(1)')).toBeNull();
-        expect(() => sanitizeAllowedExternalUrl('file:///tmp/test.pdf')).toThrow(
-            'Unsupported external URL protocol: file:',
-        );
+        expect(() => sanitizeAllowedExternalUrl('file:///tmp/test.pdf')).toThrow('Unsupported external URL protocol: file:');
     });
 
     it('returns structured rejection reasons for invalid or blocked URLs', () => {

@@ -77,10 +77,9 @@ export function retainScanCleanupDetectionResultStoreOwner(ownerId: string) {
 }
 
 /** Register one completed document-scale result store for the next run. */
-export function registerScanCleanupDetectionResultStore(input: Omit<
-    IScanCleanupDetectionResultStoreLease,
-    'release' | 'storeId'
-> & {ownerKey: string}) {
+export function registerScanCleanupDetectionResultStore(
+    input: Omit<IScanCleanupDetectionResultStoreLease, 'release' | 'storeId'> & {ownerKey: string},
+) {
     const storeId = `scan-cleanup-results-${randomUUID()}`;
     const previousStoreId = currentStoreByOwnerKey.get(input.ownerKey);
     if (previousStoreId !== undefined) {
@@ -115,11 +114,11 @@ export function claimScanCleanupDetectionResultStore(
 ): IScanCleanupDetectionResultStoreLease | null {
     const registered = registeredStores.get(storeId);
     if (
-        registered === undefined
-        || registered.documentRevision !== owner.documentRevision
-        || registered.ownerId !== owner.ownerId
-        || registered.sourcePdfPath !== owner.sourcePdfPath
-        || registered.detectionSignature !== owner.detectionSignature
+        registered === undefined ||
+        registered.documentRevision !== owner.documentRevision ||
+        registered.ownerId !== owner.ownerId ||
+        registered.sourcePdfPath !== owner.sourcePdfPath ||
+        registered.detectionSignature !== owner.detectionSignature
     ) {
         return null;
     }
@@ -175,7 +174,7 @@ export async function releaseScanCleanupDetectionResultStoreOwner(ownerId: strin
     openOwners.delete(ownerId);
     await Promise.all(
         [...registeredStores.values()]
-            .filter(store => store.ownerId === ownerId)
-            .map(store => releaseScanCleanupDetectionResultStore(store.storeId)),
+            .filter((store) => store.ownerId === ownerId)
+            .map((store) => releaseScanCleanupDetectionResultStore(store.storeId)),
     );
 }

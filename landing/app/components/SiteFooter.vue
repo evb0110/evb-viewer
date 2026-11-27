@@ -27,10 +27,10 @@
 </template>
 
 <script setup lang="ts">
-import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
+import {GITHUB_REPOSITORY_URL} from '~/constants/githubRepositoryUrl';
 import SentryAcknowledgement from './SentryAcknowledgement.vue';
 import SiteCopyright from './SiteCopyright.vue';
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const localePath = useLocalePath();
 </script>

@@ -1,9 +1,6 @@
 import {createHash} from 'node:crypto';
 import {isAbsolute} from 'node:path';
-import {
-    isBrowserStoreFileIdentity,
-    TYPED_STAGED_ARTIFACT_SCHEMA,
-} from '@contracts/stagedArtifacts';
+import {isBrowserStoreFileIdentity, TYPED_STAGED_ARTIFACT_SCHEMA} from '@contracts/stagedArtifacts';
 import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 
 import * as v from 'valibot';
@@ -15,52 +12,39 @@ const positiveSafeIntegerSchema = v.pipe(v.number(), v.safeInteger(), v.minValue
 const absolutePathSchema = v.pipe(v.string(), v.check(isAbsolute));
 const stagedArtifactSchema = TYPED_STAGED_ARTIFACT_SCHEMA;
 /** Checks a PDF a save wrote before the main process publishes it. */
-const validateRequestSchema = v.pipe(v.object({
-    type: v.literal('validate'),
-    sourcePath: absolutePathSchema,
-    expectedBytes: positiveSafeIntegerSchema,
-    validationBinary: v.optional(absolutePathSchema),
-    changedObjectRefs: v.optional(v.pipe(
-        v.array(v.pipe(v.string(), v.regex(PDF_OBJECT_REF_PATTERN))),
-        v.maxLength(MAX_CHANGED_OBJECT_REFS),
-    )),
-    stagedArtifact: v.optional(stagedArtifactSchema),
-}),
-v.check(({
-    sourcePath,
-    expectedBytes,
-    stagedArtifact,
-}) => stagedArtifact === undefined || (stagedArtifact.path === sourcePath && stagedArtifact.size === expectedBytes)),
-// Keep optional protocol keys absent when in-process callers supply undefined.
-v.transform(({
-    type,
-    sourcePath,
-    expectedBytes,
-    validationBinary,
-    changedObjectRefs,
-    stagedArtifact,
-}) => ({
-    type,
-    sourcePath,
-    expectedBytes,
-    ...(validationBinary === undefined ? {} : {validationBinary}),
-    ...(changedObjectRefs === undefined ? {} : {changedObjectRefs}),
-    ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
-})));
+const validateRequestSchema = v.pipe(
+    v.object({
+        type: v.literal('validate'),
+        sourcePath: absolutePathSchema,
+        expectedBytes: positiveSafeIntegerSchema,
+        validationBinary: v.optional(absolutePathSchema),
+        changedObjectRefs: v.optional(
+            v.pipe(v.array(v.pipe(v.string(), v.regex(PDF_OBJECT_REF_PATTERN))), v.maxLength(MAX_CHANGED_OBJECT_REFS)),
+        ),
+        stagedArtifact: v.optional(stagedArtifactSchema),
+    }),
+    v.check(
+        ({sourcePath, expectedBytes, stagedArtifact}) =>
+            stagedArtifact === undefined || (stagedArtifact.path === sourcePath && stagedArtifact.size === expectedBytes),
+    ),
+    // Keep optional protocol keys absent when in-process callers supply undefined.
+    v.transform(({type, sourcePath, expectedBytes, validationBinary, changedObjectRefs, stagedArtifact}) => ({
+        type,
+        sourcePath,
+        expectedBytes,
+        ...(validationBinary === undefined ? {} : {validationBinary}),
+        ...(changedObjectRefs === undefined ? {} : {changedObjectRefs}),
+        ...(stagedArtifact === undefined ? {} : {stagedArtifact}),
+    })),
+);
 const inspectRequestSchema = v.object({
     type: v.literal('inspect'),
     sourcePath: absolutePathSchema,
     expectedBytes: positiveSafeIntegerSchema,
 });
-const documentSaveUtilityRequestSchema = v.variant('type', [
-    inspectRequestSchema,
-    validateRequestSchema,
-]);
+const documentSaveUtilityRequestSchema = v.variant('type', [inspectRequestSchema, validateRequestSchema]);
 
-export type IDocumentSaveUtilityValidateRequest = Extract<
-    v.InferOutput<typeof documentSaveUtilityRequestSchema>,
-    {type: 'validate'}
->;
+export type IDocumentSaveUtilityValidateRequest = Extract<v.InferOutput<typeof documentSaveUtilityRequestSchema>, {type: 'validate'}>;
 export type TDocumentSaveUtilityRequest = v.InferOutput<typeof documentSaveUtilityRequestSchema>;
 
 const shutdownRequestSchema = v.object({
@@ -106,18 +90,14 @@ export function decodeDocumentSaveUtilityRequest(value: unknown): TDocumentSaveU
 
 export function createChangedObjectRefsSha256(changedObjectRefs: readonly string[]) {
     const normalizedRefs = [...new Set(changedObjectRefs)].sort();
-    return createHash('sha256')
-        .update(JSON.stringify(normalizedRefs))
-        .digest('hex');
+    return createHash('sha256').update(JSON.stringify(normalizedRefs)).digest('hex');
 }
 
 export function createNativeIncrementalMutationSemanticScopeSha256() {
     return nativePdfSemanticScope;
 }
 
-export function getDocumentSaveUtilityReusePlan(
-    request: IDocumentSaveUtilityValidateRequest,
-): IDocumentSaveUtilityReusePlan {
+export function getDocumentSaveUtilityReusePlan(request: IDocumentSaveUtilityValidateRequest): IDocumentSaveUtilityReusePlan {
     const artifact = request.stagedArtifact;
     if (artifact && isBrowserStoreFileIdentity(artifact.fileIdentity)) {
         return {
@@ -128,23 +108,22 @@ export function getDocumentSaveUtilityReusePlan(
             changedObjectRefsCheck: false,
         };
     }
-    const receiptReuseEnabled = process.platform !== 'win32'
-        && artifact?.receiptVersion === 1
-        && artifact.fileIdentity.platform === 'posix';
+    const receiptReuseEnabled =
+        process.platform !== 'win32' && artifact?.receiptVersion === 1 && artifact.fileIdentity.platform === 'posix';
     const changedObjectRefs = request.changedObjectRefs ?? [];
-    const nativeIncrementalCheck = receiptReuseEnabled
-        && artifact.validations.semanticCheck === true
-        && artifact.validations.semanticScopeSha256
-            === createNativeIncrementalMutationSemanticScopeSha256();
+    const nativeIncrementalCheck =
+        receiptReuseEnabled &&
+        artifact.validations.semanticCheck === true &&
+        artifact.validations.semanticScopeSha256 === createNativeIncrementalMutationSemanticScopeSha256();
     return {
         fingerprint: receiptReuseEnabled,
         tailCheck: receiptReuseEnabled && artifact.validations.tailCheck === true,
         qpdfCheck: receiptReuseEnabled && artifact.validations.qpdfCheck === true,
         nativeIncrementalCheck,
-        changedObjectRefsCheck: receiptReuseEnabled
-            && changedObjectRefs.length > 0
-            && artifact.validations.changedObjectRefsSha256
-                === createChangedObjectRefsSha256(changedObjectRefs),
+        changedObjectRefsCheck:
+            receiptReuseEnabled &&
+            changedObjectRefs.length > 0 &&
+            artifact.validations.changedObjectRefsSha256 === createChangedObjectRefsSha256(changedObjectRefs),
     };
 }
 

@@ -1,23 +1,8 @@
 import {execFileSync} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
-import {
-    existsSync,
-    mkdirSync,
-    mkdtempSync,
-    readdirSync,
-    realpathSync,
-    rmSync,
-} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {
-    basename,
-    dirname,
-    isAbsolute,
-    join,
-    relative,
-    resolve,
-    sep,
-} from 'node:path';
+import {basename, dirname, isAbsolute, join, relative, resolve, sep} from 'node:path';
 import {
     buildHeadlessAutomationEnv,
     listMacOSNestedHelperApps,
@@ -44,20 +29,9 @@ const AUTOMATION_COPY_SUFFIX = /\.automation-[0-9a-f]{8}$/u;
 const LSREGISTER = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister';
 
 function readInfoPlistString(infoPlistPath: string, key: string) {
-    return execFileSync('/usr/bin/plutil', [
-        '-extract',
-        key,
-        'raw',
-        '-o',
-        '-',
-        infoPlistPath,
-    ], {
+    return execFileSync('/usr/bin/plutil', ['-extract', key, 'raw', '-o', '-', infoPlistPath], {
         encoding: 'utf8',
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
 }
 
@@ -82,14 +56,12 @@ export function preparePackagedAutomationLaunch(options: {
     }
 
     const sourceAppPath = dirname(dirname(dirname(executablePath)));
-    if (!sourceAppPath.endsWith('.app')
-        || dirname(executablePath) !== join(sourceAppPath, 'Contents', 'MacOS')) {
+    if (!sourceAppPath.endsWith('.app') || dirname(executablePath) !== join(sourceAppPath, 'Contents', 'MacOS')) {
         throw new Error('macOS packaged automation requires an executable inside a .app/Contents/MacOS bundle.');
     }
     const sourceInfoPlistPath = join(sourceAppPath, 'Contents', 'Info.plist');
     const bundleExecutable = readInfoPlistString(sourceInfoPlistPath, 'CFBundleExecutable');
-    if (bundleExecutable !== basename(executablePath)
-        || bundleExecutable !== basename(sourceAppPath, '.app')) {
+    if (bundleExecutable !== basename(executablePath) || bundleExecutable !== basename(sourceAppPath, '.app')) {
         throw new Error('Packaged automation executable must match CFBundleExecutable and the app bundle name.');
     }
     // A copy that kept the installed identifier would read and write the installed
@@ -103,8 +75,10 @@ export function preparePackagedAutomationLaunch(options: {
         existingWorkAncestor = dirname(existingWorkAncestor);
     }
     const sourceRelativeWork = relative(sourceRealPath, realpathSync(existingWorkAncestor));
-    if (!sourceRelativeWork || (sourceRelativeWork !== '..'
-        && !sourceRelativeWork.startsWith(`..${sep}`) && !isAbsolute(sourceRelativeWork))) {
+    if (
+        !sourceRelativeWork ||
+        (sourceRelativeWork !== '..' && !sourceRelativeWork.startsWith(`..${sep}`) && !isAbsolute(sourceRelativeWork))
+    ) {
         throw new Error('Packaged automation workDirectory must be outside the source app bundle.');
     }
     mkdirSync(options.workDirectory, {recursive: true});
@@ -119,8 +93,10 @@ export function preparePackagedAutomationLaunch(options: {
             destinationRoot: bundleDirectory,
             bundleIdentifier,
         });
-        console.info(`Packaged automation uses an LSUIElement copy at ${bundle.appPath} with bundle identifier ${bundleIdentifier}. `
-            + `Original artifact: ${sourceAppPath}. This run does not verify the original bundle signature or Dock behavior.`);
+        console.info(
+            `Packaged automation uses an LSUIElement copy at ${bundle.appPath} with bundle identifier ${bundleIdentifier}. ` +
+                `Original artifact: ${sourceAppPath}. This run does not verify the original bundle signature or Dock behavior.`,
+        );
         return {
             executablePath: bundle.executablePath,
             env,
@@ -141,20 +117,13 @@ export function preparePackagedAutomationLaunch(options: {
  * Deletes only the launched copy's defaults and records after its owner stops it.
  * The installed app and concurrent automation copies keep their own records.
  */
-export function removeMacOSAutomationCopyRecords(
-    bundleIdentifier: string,
-    libraryDirectory = join(homedir(), 'Library'),
-) {
+export function removeMacOSAutomationCopyRecords(bundleIdentifier: string, libraryDirectory = join(homedir(), 'Library')) {
     if (!AUTOMATION_COPY_SUFFIX.test(bundleIdentifier)) {
         throw new Error(`Not an automation copy identifier: ${bundleIdentifier}`);
     }
-    const isCopyRecord = (name: string) => name === bundleIdentifier
-        || name.startsWith(`${bundleIdentifier}.`);
+    const isCopyRecord = (name: string) => name === bundleIdentifier || name.startsWith(`${bundleIdentifier}.`);
     try {
-        execFileSync('/usr/bin/defaults', [
-            'delete',
-            bundleIdentifier,
-        ], {stdio: 'ignore'});
+        execFileSync('/usr/bin/defaults', ['delete', bundleIdentifier], {stdio: 'ignore'});
     } catch {
         // `defaults` reports a missing domain as an error; the copy wrote none.
     }
@@ -169,15 +138,9 @@ export function removeMacOSAutomationCopyRecords(
  * copy stays registered after its run unless this runs before its bundle goes.
  */
 export function unregisterMacOSAutomationCopy(appPath: string) {
-    for (const bundlePath of [
-        appPath,
-        ...listMacOSNestedHelperApps(appPath),
-    ]) {
+    for (const bundlePath of [appPath, ...listMacOSNestedHelperApps(appPath)]) {
         try {
-            execFileSync(LSREGISTER, [
-                '-u',
-                bundlePath,
-            ], {stdio: 'ignore'});
+            execFileSync(LSREGISTER, ['-u', bundlePath], {stdio: 'ignore'});
         } catch {
             // lsregister exits non-zero for a bundle that never checked in, which leaves nothing to remove.
         }

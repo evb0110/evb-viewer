@@ -1,7 +1,9 @@
-import type { BrowserWindow } from 'electron';
-import { getErrorMessage } from '@electron/utils/error';
+import type {BrowserWindow} from 'electron';
+import {getErrorMessage} from '@electron/utils/error';
 
-interface IStartupPlaceholderLogger {warn(msg: string): void;}
+interface IStartupPlaceholderLogger {
+    warn(msg: string): void;
+}
 
 function buildStartupPlaceholderHtml(title: string) {
     return `<!doctype html>

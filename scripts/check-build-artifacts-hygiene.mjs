@@ -1,18 +1,9 @@
-import {
-    readFile,
-    readdir,
-    stat,
-} from 'node:fs/promises';
+import {readFile, readdir, stat} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const artifactRoots = [
-    'dist-electron',
-    'nuxt-output',
-    '.vercel/output',
-    '.output',
-];
+const artifactRoots = ['dist-electron', 'nuxt-output', '.vercel/output', '.output'];
 
 const ignoredMissingRoots = new Set(artifactRoots);
 const allowedLicensePattern = /(?:^|[/\\])(?:LICENSE|LICENSE_[^/\\]+|LICENSE-[^/\\]+)(?:\.[^/\\]+)?$/iu;
@@ -37,7 +28,7 @@ export function isForbiddenPublicArtifactPath(relativePath) {
     if (allowedLicensePattern.test(relativePath)) {
         return false;
     }
-    return forbiddenPublicArtifactPathPatterns.some(pattern => pattern.test(relativePath));
+    return forbiddenPublicArtifactPathPatterns.some((pattern) => pattern.test(relativePath));
 }
 
 /** @param {string} relativePath @returns {boolean} */
@@ -46,10 +37,7 @@ export function shouldScanPublicArtifactContent(relativePath) {
 }
 
 /** @param {string | Buffer} content @param {{target: string}} options @returns {string[]} */
-export function collectPublicArtifactContentViolations(
-    content,
-    {target},
-) {
+export function collectPublicArtifactContentViolations(content, {target}) {
     const text = Buffer.isBuffer(content) ? content.toString('utf8') : String(content);
     const violations = [];
 
@@ -82,7 +70,7 @@ async function collectFiles(dirPath, relativeRoot) {
             if (entry.name === 'node_modules') {
                 continue;
             }
-            files.push(...await collectFiles(absolutePath, relativePath));
+            files.push(...(await collectFiles(absolutePath, relativePath)));
             continue;
         }
         if (entry.isFile()) {
@@ -96,10 +84,7 @@ async function collectFiles(dirPath, relativeRoot) {
 }
 
 /** @param {{rootPath: string, target: string}} options @returns {Promise<string[]>} */
-export async function scanPublicArtifactDirectory({
-    rootPath,
-    target,
-}) {
+export async function scanPublicArtifactDirectory({rootPath, target}) {
     const files = await collectFiles(rootPath, '');
     const violations = [];
 
@@ -128,13 +113,7 @@ async function collectArtifactFiles(relativeRoot, root) {
             return [];
         }
     } catch (error) {
-        if (
-            error
-            && typeof error === 'object'
-            && 'code' in error
-            && error.code === 'ENOENT'
-            && ignoredMissingRoots.has(relativeRoot)
-        ) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT' && ignoredMissingRoots.has(relativeRoot)) {
             return [];
         }
         throw error;
@@ -179,8 +158,7 @@ export async function runBuildArtifactHygiene({root = projectRoot} = {}) {
     return violations;
 }
 
-const isDirectCliRun = process.argv[1]
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
     const violations = await runBuildArtifactHygiene();

@@ -1,55 +1,23 @@
-import {
-    execFile,
-    spawn,
-} from 'node:child_process';
-import {
-    APP_LOG_FILE_NAME,
-    decodeLogRecord,
-    formatLogData,
-} from '@contracts/logRecord';
+import {execFile, spawn} from 'node:child_process';
+import {APP_LOG_FILE_NAME, decodeLogRecord, formatLogData} from '@contracts/logRecord';
 import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
-import {
-    copyFile,
-    readFile,
-    writeFile,
-} from 'node:fs/promises';
+import {copyFile, readFile, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {promisify} from 'node:util';
 import puppeteer from 'puppeteer-core';
-import type {
-    Browser,
-    Page,
-} from 'puppeteer-core';
-import {
-    collectDescendantPidsUnix,
-    findFreePort,
-} from '@scripts/electron-run/electronRunProcessTree';
+import type {Browser, Page} from 'puppeteer-core';
+import {collectDescendantPidsUnix, findFreePort} from '@scripts/electron-run/electronRunProcessTree';
 import {emulateAutomationFocus} from '@scripts/electron-run/emulateAutomationFocus';
-import {
-    startOwnedPackagedProcess,
-    type TOwnedHelperCleanup,
-} from '@scripts/release/runPackagedAutomation';
+import {startOwnedPackagedProcess, type TOwnedHelperCleanup} from '@scripts/release/runPackagedAutomation';
 import {establishUserEnvironment} from '@tests/e2e/electron/helpers/userEnvironment';
 import {clickAsUser} from '@tests/e2e/electron/helpers/userInput';
 import {activatePaneByTab} from '@tests/e2e/electron/helpers/workspaceTabs';
-import {
-    evaluateInPage,
-    installPageEvaluationShims,
-    waitForFunctionInPage,
-} from '@tests/e2e/electron/helpers/pageRuntime';
-import {
-    clickVisibleToolbarButton,
-    openPdfInApp,
-    waitForPdfLoaded,
-    waitForViewerInteractive,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {evaluateInPage, installPageEvaluationShims, waitForFunctionInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {clickVisibleToolbarButton, openPdfInApp, waitForPdfLoaded, waitForViewerInteractive} from '@tests/e2e/electron/helpers/viewerCore';
 import type {IWorkspaceExposeProbeWindow} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {
-    waitForPackagedCdpEndpoint,
-    waitForPackagedRendererPage,
-} from '@scripts/release/waitForPackagedCdpEndpoint';
+import {waitForPackagedCdpEndpoint, waitForPackagedRendererPage} from '@scripts/release/waitForPackagedCdpEndpoint';
 import {
     SCAN_CLEANUP_RUN_METER_SELECTOR,
     SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR,
@@ -107,20 +75,22 @@ interface IResourceSample {
 
 // Windows has no owned-tree RSS sampler in the shared process mechanism, so
 // its footprint is reported unsupported, never as a measured zero.
-type TResourceSummary = {
-    status: 'measured';
-    peakProcessCount: number;
-    peakRssBytes: number;
-    failedSamples: number;
-    samples: IResourceSample[];
-} | {
-    status: 'unsupported' | 'failed';
-    reason: string;
-    peakProcessCount: null;
-    peakRssBytes: null;
-    failedSamples: number;
-    samples: IResourceSample[];
-};
+type TResourceSummary =
+    | {
+          status: 'measured';
+          peakProcessCount: number;
+          peakRssBytes: number;
+          failedSamples: number;
+          samples: IResourceSample[];
+      }
+    | {
+          status: 'unsupported' | 'failed';
+          reason: string;
+          peakProcessCount: null;
+          peakRssBytes: null;
+          failedSamples: number;
+          samples: IResourceSample[];
+      };
 
 interface INewTabEvidence {
     activeTabIdAfter: string;
@@ -141,84 +111,54 @@ async function sha256(filePath: string) {
     const digest = createHash('sha256');
     await new Promise<void>((resolve, reject) => {
         const input = createReadStream(filePath);
-        input.on('data', chunk => digest.update(chunk));
+        input.on('data', (chunk) => digest.update(chunk));
         input.once('error', reject);
         input.once('end', resolve);
     });
     return digest.digest('hex');
 }
 
-async function preserveFinalPdfIdentity(
-    args: IArguments,
-    sourcePath: string,
-    outputPath: string,
-) {
-    const [
-        pdfImages,
-        pdfInfo,
-        executableSha256,
-        outputSha256,
-        sourceSha256,
-    ] = await Promise.all([
-        execFileAsync('pdfimages', [
-            '-list',
-            outputPath,
-        ]),
-        execFileAsync('pdfinfo', [
-            '-f',
-            '1',
-            '-l',
-            String(args.expectedPageCount),
-            '-box',
-            outputPath,
-        ]),
+async function preserveFinalPdfIdentity(args: IArguments, sourcePath: string, outputPath: string) {
+    const [pdfImages, pdfInfo, executableSha256, outputSha256, sourceSha256] = await Promise.all([
+        execFileAsync('pdfimages', ['-list', outputPath]),
+        execFileAsync('pdfinfo', ['-f', '1', '-l', String(args.expectedPageCount), '-box', outputPath]),
         sha256(args.executablePath),
         sha256(outputPath),
         sha256(sourcePath),
     ]);
     await Promise.all([
-        writeFile(
-            path.join(args.artifactDir, 'pdfimages-list.txt'),
-            pdfImages.stdout,
-        ),
-        writeFile(
-            path.join(args.artifactDir, 'pdfinfo-box.txt'),
-            pdfInfo.stdout,
-        ),
+        writeFile(path.join(args.artifactDir, 'pdfimages-list.txt'), pdfImages.stdout),
+        writeFile(path.join(args.artifactDir, 'pdfinfo-box.txt'), pdfInfo.stdout),
         writeFile(
             path.join(args.artifactDir, 'checksums.json'),
-            `${JSON.stringify({
-                executable: {
-                    path: args.executablePath,
-                    sha256: executableSha256,
+            `${JSON.stringify(
+                {
+                    executable: {
+                        path: args.executablePath,
+                        sha256: executableSha256,
+                    },
+                    outputPdf: {
+                        path: outputPath,
+                        sha256: outputSha256,
+                    },
+                    sourcePdf: {
+                        path: sourcePath,
+                        sha256: sourceSha256,
+                    },
                 },
-                outputPdf: {
-                    path: outputPath,
-                    sha256: outputSha256,
-                },
-                sourcePdf: {
-                    path: sourcePath,
-                    sha256: sourceSha256,
-                },
-            }, null, 2)}\n`,
+                null,
+                2,
+            )}\n`,
         ),
     ]);
 }
 
 async function sampleProcessTreeRss(rootPid: number): Promise<IResourceSample> {
-    const pids = [
-        rootPid,
-        ...collectDescendantPidsUnix(rootPid),
-    ].filter((pid, index, values) => values.indexOf(pid) === index);
-    const {stdout} = await execFileAsync('/bin/ps', [
-        '-o',
-        'rss=',
-        '-p',
-        pids.join(','),
-    ]);
+    const pids = [rootPid, ...collectDescendantPidsUnix(rootPid)].filter((pid, index, values) => values.indexOf(pid) === index);
+    const {stdout} = await execFileAsync('/bin/ps', ['-o', 'rss=', '-p', pids.join(',')]);
     const rssKilobytes = stdout
         .split(/\s+/u)
-        .map(value => Number.parseInt(value, 10))
+        .map((value) => Number.parseInt(value, 10))
         .filter(Number.isFinite)
         .reduce((sum, value) => sum + value, 0);
     return {
@@ -229,24 +169,26 @@ async function sampleProcessTreeRss(rootPid: number): Promise<IResourceSample> {
 }
 
 async function detectionSample(page: Page): Promise<IDetectionSample | null> {
-    return evaluateInPage(page, (toolbarCountSelector: string) => {
-        const status = document.querySelector<HTMLElement>(toolbarCountSelector);
-        const text = status?.getAttribute('aria-label') ?? status?.textContent ?? '';
-        // The counter copy is localized prose ("2 of 4 pages"), not a fixed
-        // "2 / 4"; accept any non-digit separator between the two counts.
-        const match = /(\d+)\D+(\d+)/u.exec(text);
-        if (!match) {
-            return null;
-        }
-        return {
-            completed: Number(match[1]),
-            pendingThumbnails: document.querySelectorAll(
-                '.scan-thumbnail-detection-pending',
-            ).length,
-            text: text.trim(),
-            total: Number(match[2]),
-        };
-    }, SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR);
+    return evaluateInPage(
+        page,
+        (toolbarCountSelector: string) => {
+            const status = document.querySelector<HTMLElement>(toolbarCountSelector);
+            const text = status?.getAttribute('aria-label') ?? status?.textContent ?? '';
+            // The counter copy is localized prose ("2 of 4 pages"), not a fixed
+            // "2 / 4"; accept any non-digit separator between the two counts.
+            const match = /(\d+)\D+(\d+)/u.exec(text);
+            if (!match) {
+                return null;
+            }
+            return {
+                completed: Number(match[1]),
+                pendingThumbnails: document.querySelectorAll('.scan-thumbnail-detection-pending').length,
+                text: text.trim(),
+                total: Number(match[2]),
+            };
+        },
+        SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR,
+    );
 }
 
 async function waitForCompleteDetection(page: Page, expectedPageCount: number) {
@@ -257,73 +199,58 @@ async function waitForCompleteDetection(page: Page, expectedPageCount: number) {
         const sample = await detectionSample(page);
         if (sample && sample.completed !== lastCompleted) {
             if (sample.completed < lastCompleted) {
-                throw new Error(
-                    `Detection counter moved backward: ${lastCompleted} -> ${sample.completed}`,
-                );
+                throw new Error(`Detection counter moved backward: ${lastCompleted} -> ${sample.completed}`);
             }
             if (sample.total !== expectedPageCount) {
-                throw new Error(
-                    `Detection counter total is ${sample.total}; expected ${expectedPageCount}`,
-                );
+                throw new Error(`Detection counter total is ${sample.total}; expected ${expectedPageCount}`);
             }
             samples.push(sample);
             lastCompleted = sample.completed;
         }
-        const state = await evaluateInPage(page, (
-            primaryActionSelector: string,
-            cancelDetectionSelector: string,
-        ) => ({
-            actionEnabled: document.querySelector<HTMLButtonElement>(
-                primaryActionSelector,
-            )?.disabled === false,
-            cancelVisible: document.querySelector(
-                cancelDetectionSelector,
-            ) !== null,
-            pendingThumbnails: document.querySelectorAll(
-                '.scan-thumbnail-detection-pending',
-            ).length,
-        }), SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
-        if (
-            !state.cancelVisible
-            && state.actionEnabled
-            && lastCompleted >= 0
-            && state.pendingThumbnails === 0
-        ) {
+        const state = await evaluateInPage(
+            page,
+            (primaryActionSelector: string, cancelDetectionSelector: string) => ({
+                actionEnabled: document.querySelector<HTMLButtonElement>(primaryActionSelector)?.disabled === false,
+                cancelVisible: document.querySelector(cancelDetectionSelector) !== null,
+                pendingThumbnails: document.querySelectorAll('.scan-thumbnail-detection-pending').length,
+            }),
+            SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
+            SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR,
+        );
+        if (!state.cancelVisible && state.actionEnabled && lastCompleted >= 0 && state.pendingThumbnails === 0) {
             return samples;
         }
         await delay(200);
     }
     throw new Error(
-        `Packaged detection did not reach ${expectedPageCount}/${expectedPageCount}; `
-        + `last completed count was ${lastCompleted}`,
+        `Packaged detection did not reach ${expectedPageCount}/${expectedPageCount}; ` + `last completed count was ${lastCompleted}`,
     );
 }
 
-async function verifyCleanupQueuedDuringDetection(
-    page: Page,
-    expectedPageCount: number,
-): Promise<IQueuedCleanupEvidence> {
-    await waitForFunctionInPage(page, (
-        expected: number,
-        primaryActionSelector: string,
-        toolbarCountSelector: string,
-        cancelDetectionSelector: string,
-    ) => {
-        const action = document.querySelector<HTMLButtonElement>(
-            primaryActionSelector,
-        );
-        const status = document.querySelector<HTMLElement>(toolbarCountSelector);
-        const text = status?.getAttribute('aria-label') ?? status?.textContent ?? '';
-        // The counter copy is localized prose ("2 of 4 pages"), not a fixed
-        // "2 / 4"; accept any non-digit separator between the two counts.
-        const match = /(\d+)\D+(\d+)/u.exec(text);
-        return action?.disabled === false
-            && document.querySelector(cancelDetectionSelector) !== null
-            && match !== null
-            && Number(match[2]) === expected
-            && Number(match[1]) < expected;
-    }, {timeout: STARTUP_TIMEOUT_MS}, expectedPageCount, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
-    SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+async function verifyCleanupQueuedDuringDetection(page: Page, expectedPageCount: number): Promise<IQueuedCleanupEvidence> {
+    await waitForFunctionInPage(
+        page,
+        (expected: number, primaryActionSelector: string, toolbarCountSelector: string, cancelDetectionSelector: string) => {
+            const action = document.querySelector<HTMLButtonElement>(primaryActionSelector);
+            const status = document.querySelector<HTMLElement>(toolbarCountSelector);
+            const text = status?.getAttribute('aria-label') ?? status?.textContent ?? '';
+            // The counter copy is localized prose ("2 of 4 pages"), not a fixed
+            // "2 / 4"; accept any non-digit separator between the two counts.
+            const match = /(\d+)\D+(\d+)/u.exec(text);
+            return (
+                action?.disabled === false &&
+                document.querySelector(cancelDetectionSelector) !== null &&
+                match !== null &&
+                Number(match[2]) === expected &&
+                Number(match[1]) < expected
+            );
+        },
+        {timeout: STARTUP_TIMEOUT_MS},
+        expectedPageCount,
+        SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
+        SCAN_CLEANUP_TOOLBAR_COUNT_SELECTOR,
+        SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR,
+    );
     const before = await detectionSample(page);
     if (!before) {
         throw new Error('Packaged queued-cleanup verification found no detection counter');
@@ -332,34 +259,42 @@ async function verifyCleanupQueuedDuringDetection(
     await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
     // The redesigned run meter (#70) renders its status as child text spans
     // instead of an aria-valuetext attribute.
-    await waitForFunctionInPage(page, (runMeterSelector: string, primaryActionSelector: string) => {
-        const meter = document.querySelector<HTMLElement>(runMeterSelector);
-        const action = document.querySelector<HTMLButtonElement>(
-            primaryActionSelector,
-        );
-        return meter !== null
-            && meter.textContent.trim().length > 0
-            && action?.disabled === false;
-    }, {timeout: 10_000}, SCAN_CLEANUP_RUN_METER_SELECTOR, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
-    const queuedStatus = await evaluateInPage(page, (runMeterSelector: string) => {
-        const meter = document.querySelector<HTMLElement>(runMeterSelector);
-        return {
-            phase: meter?.dataset.phase ?? '',
-            text: meter?.textContent.trim() ?? '',
-        };
-    }, SCAN_CLEANUP_RUN_METER_SELECTOR);
+    await waitForFunctionInPage(
+        page,
+        (runMeterSelector: string, primaryActionSelector: string) => {
+            const meter = document.querySelector<HTMLElement>(runMeterSelector);
+            const action = document.querySelector<HTMLButtonElement>(primaryActionSelector);
+            return meter !== null && meter.textContent.trim().length > 0 && action?.disabled === false;
+        },
+        {timeout: 10_000},
+        SCAN_CLEANUP_RUN_METER_SELECTOR,
+        SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR,
+    );
+    const queuedStatus = await evaluateInPage(
+        page,
+        (runMeterSelector: string) => {
+            const meter = document.querySelector<HTMLElement>(runMeterSelector);
+            return {
+                phase: meter?.dataset.phase ?? '',
+                text: meter?.textContent.trim() ?? '',
+            };
+        },
+        SCAN_CLEANUP_RUN_METER_SELECTOR,
+    );
     const queuedStatusText = queuedStatus.text;
     if (queuedStatus.phase !== 'analyze' || queuedStatusText === '') {
-        throw new Error(
-            `Cleanup click did not expose a queued analysis state: "${queuedStatusText}"`,
-        );
+        throw new Error(`Cleanup click did not expose a queued analysis state: "${queuedStatusText}"`);
     }
 
     await clickAsUser(page, SCAN_CLEANUP_TOOLBAR_PRIMARY_ACTION_SELECTOR);
-    await waitForFunctionInPage(page, (runMeterSelector: string, cancelDetectionSelector: string) => (
-        document.querySelector(runMeterSelector) === null
-        && document.querySelector(cancelDetectionSelector) !== null
-    ), {timeout: 10_000}, SCAN_CLEANUP_RUN_METER_SELECTOR, SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR);
+    await waitForFunctionInPage(
+        page,
+        (runMeterSelector: string, cancelDetectionSelector: string) =>
+            document.querySelector(runMeterSelector) === null && document.querySelector(cancelDetectionSelector) !== null,
+        {timeout: 10_000},
+        SCAN_CLEANUP_RUN_METER_SELECTOR,
+        SCAN_CLEANUP_TOOLBAR_CANCEL_DETECTION_SELECTOR,
+    );
     const after = await detectionSample(page);
     if (!after) {
         throw new Error('Pre-analysis disappeared after canceling queued cleanup');
@@ -370,10 +305,7 @@ async function verifyCleanupQueuedDuringDetection(
         detectionContinuedAfterCancel: after.total === expectedPageCount,
         queuedStatusText,
     };
-    console.log(
-        'Packaged verification stage: cleanup queued and canceled during pre-analysis '
-        + 'without canceling detection',
-    );
+    console.log('Packaged verification stage: cleanup queued and canceled during pre-analysis ' + 'without canceling detection');
     return evidence;
 }
 
@@ -387,9 +319,9 @@ async function sampleGeometry(page: Page): Promise<IGeometry> {
             const bounds = element?.getBoundingClientRect();
             return bounds
                 ? {
-                    height: Math.round(bounds.height * 100) / 100,
-                    top: Math.round(bounds.top * 100) / 100,
-                }
+                      height: Math.round(bounds.height * 100) / 100,
+                      top: Math.round(bounds.top * 100) / 100,
+                  }
                 : null;
         };
         return {
@@ -403,23 +335,29 @@ async function sampleGeometry(page: Page): Promise<IGeometry> {
 
 async function activatePane(page: Page, paneId: string, toolbarSelector: string) {
     await activatePaneByTab(page, paneId, 30_000);
-    await waitForFunctionInPage(page, (
-        targetPaneId: string,
-        targetToolbarSelector: string,
-    ) => (
-        document.querySelector<HTMLElement>('.editor-pane.is-active')
-            ?.dataset.editorPaneId === targetPaneId
-        && document.querySelector(targetToolbarSelector) !== null
-    ), {timeout: 30_000}, paneId, toolbarSelector);
-    await evaluateInPage(page, () => new Promise<boolean>(resolve => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
-    }));
+    await waitForFunctionInPage(
+        page,
+        (targetPaneId: string, targetToolbarSelector: string) =>
+            document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId === targetPaneId &&
+            document.querySelector(targetToolbarSelector) !== null,
+        {timeout: 30_000},
+        paneId,
+        toolbarSelector,
+    );
+    await evaluateInPage(
+        page,
+        () =>
+            new Promise<boolean>((resolve) => {
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
+            }),
+    );
 }
 
 async function verifyPaneGeometry(page: Page, sourcePath: string) {
-    const cleanupPaneId = await evaluateInPage(page, () =>
-        document.querySelector<HTMLElement>('.editor-pane.is-active')
-            ?.dataset.editorPaneId ?? null);
+    const cleanupPaneId = await evaluateInPage(
+        page,
+        () => document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? null,
+    );
     if (!cleanupPaneId) {
         throw new Error('Packaged cleanup pane has no editor-pane identity');
     }
@@ -436,19 +374,16 @@ async function verifyPaneGeometry(page: Page, sourcePath: string) {
     }
     console.log('Packaged verification stage: split request completed');
     try {
-        await waitForFunctionInPage(
-            page,
-            () => document.querySelectorAll('.editor-pane').length === 2,
-            {timeout: 10_000},
-        );
+        await waitForFunctionInPage(page, () => document.querySelectorAll('.editor-pane').length === 2, {timeout: 10_000});
     } catch {
         const state = await evaluateInPage(page, () => ({
-            activePaneId: document.querySelector<HTMLElement>('.editor-pane.is-active')
-                ?.dataset.editorPaneId ?? null,
-            paneIds: Array.from(document.querySelectorAll<HTMLElement>('.editor-pane'))
-                .map(candidate => candidate.dataset.editorPaneId ?? null),
-            paneSlotIds: Array.from(document.querySelectorAll<HTMLElement>('.editor-pane-slot'))
-                .map(candidate => candidate.dataset.editorPaneSlot ?? null),
+            activePaneId: document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? null,
+            paneIds: Array.from(document.querySelectorAll<HTMLElement>('.editor-pane')).map(
+                (candidate) => candidate.dataset.editorPaneId ?? null,
+            ),
+            paneSlotIds: Array.from(document.querySelectorAll<HTMLElement>('.editor-pane-slot')).map(
+                (candidate) => candidate.dataset.editorPaneSlot ?? null,
+            ),
         }));
         throw new Error(`Packaged split request did not create two panes: ${JSON.stringify(state)}`);
     }
@@ -456,9 +391,10 @@ async function verifyPaneGeometry(page: Page, sourcePath: string) {
     await openPdfInApp(page, sourcePath, STARTUP_TIMEOUT_MS);
     await waitForPdfLoaded(page, STARTUP_TIMEOUT_MS);
     await waitForViewerInteractive(page, STARTUP_TIMEOUT_MS);
-    const pdfPaneId = await evaluateInPage(page, () =>
-        document.querySelector<HTMLElement>('.editor-pane.is-active')
-            ?.dataset.editorPaneId ?? null);
+    const pdfPaneId = await evaluateInPage(
+        page,
+        () => document.querySelector<HTMLElement>('.editor-pane.is-active')?.dataset.editorPaneId ?? null,
+    );
     if (!pdfPaneId || pdfPaneId === cleanupPaneId) {
         throw new Error('Packaged PDF pane did not become independently active');
     }
@@ -480,43 +416,40 @@ async function verifyPaneGeometry(page: Page, sourcePath: string) {
         });
     }
     const baseline = samples[0]?.value;
-    if (!baseline || samples.some(sample => JSON.stringify(sample.value) !== JSON.stringify(baseline))) {
+    if (!baseline || samples.some((sample) => JSON.stringify(sample.value) !== JSON.stringify(baseline))) {
         throw new Error(`Packaged pane geometry shifted: ${JSON.stringify(samples)}`);
     }
-    await activatePane(
-        page,
-        cleanupPaneId,
-        '#editor-global-toolbar-host .scan-cleanup-toolbar',
-    );
+    await activatePane(page, cleanupPaneId, '#editor-global-toolbar-host .scan-cleanup-toolbar');
     console.log('Packaged verification stage: six pane switches retained exact geometry');
     return samples;
 }
 
 async function verifyNewTabAfterScale(page: Page): Promise<INewTabEvidence> {
     const before = await evaluateInPage(page, () => ({
-        activeTabId: document.querySelector<HTMLElement>('.tab[aria-selected="true"]')
-            ?.dataset.tabId ?? null,
+        activeTabId: document.querySelector<HTMLElement>('.tab[aria-selected="true"]')?.dataset.tabId ?? null,
         tabCount: document.querySelectorAll('.tab[data-tab-id]').length,
     }));
     if (!before.activeTabId) {
         throw new Error('Packaged scale verification found no active tab before new-tab check');
     }
     await clickAsUser(page, '.tab-new');
-    await waitForFunctionInPage(page, (
-        previousActiveTabId: string,
-        previousTabCount: number,
-    ) => {
-        const activeTabId = document.querySelector<HTMLElement>(
-            '.tab[aria-selected="true"]',
-        )?.dataset.tabId;
-        return document.querySelectorAll('.tab[data-tab-id]').length === previousTabCount + 1
-            && typeof activeTabId === 'string'
-            && activeTabId !== previousActiveTabId
-            && document.querySelector('.empty-state') !== null;
-    }, {timeout: STARTUP_TIMEOUT_MS}, before.activeTabId, before.tabCount);
+    await waitForFunctionInPage(
+        page,
+        (previousActiveTabId: string, previousTabCount: number) => {
+            const activeTabId = document.querySelector<HTMLElement>('.tab[aria-selected="true"]')?.dataset.tabId;
+            return (
+                document.querySelectorAll('.tab[data-tab-id]').length === previousTabCount + 1 &&
+                typeof activeTabId === 'string' &&
+                activeTabId !== previousActiveTabId &&
+                document.querySelector('.empty-state') !== null
+            );
+        },
+        {timeout: STARTUP_TIMEOUT_MS},
+        before.activeTabId,
+        before.tabCount,
+    );
     const after = await evaluateInPage(page, () => ({
-        activeTabId: document.querySelector<HTMLElement>('.tab[aria-selected="true"]')
-            ?.dataset.tabId ?? null,
+        activeTabId: document.querySelector<HTMLElement>('.tab[aria-selected="true"]')?.dataset.tabId ?? null,
         emptyStateVisible: document.querySelector('.empty-state') !== null,
         tabCount: document.querySelectorAll('.tab[data-tab-id]').length,
     }));
@@ -530,25 +463,24 @@ async function verifyNewTabAfterScale(page: Page): Promise<INewTabEvidence> {
         tabCountAfter: after.tabCount,
         tabCountBefore: before.tabCount,
     };
-    console.log(
-        'Packaged verification stage: new empty tab created after full detection',
-    );
+    console.log('Packaged verification stage: new empty tab created after full detection');
     return evidence;
 }
 
 async function waitForCleanedOutput(page: Page, sourcePath: string) {
-    await waitForFunctionInPage(page, (source: string) => {
-        const active = (window as IWorkspaceExposeProbeWindow)
-            .__evbTestApi
-            ?.readActiveWorkspaceStateValues(['originalPath']);
-        return typeof active?.originalPath === 'string'
-            && active.originalPath !== source
-            && active.originalPath.endsWith('— cleaned.pdf');
-    }, {timeout: CLEANUP_TIMEOUT_MS}, sourcePath);
+    await waitForFunctionInPage(
+        page,
+        (source: string) => {
+            const active = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.readActiveWorkspaceStateValues(['originalPath']);
+            return (
+                typeof active?.originalPath === 'string' && active.originalPath !== source && active.originalPath.endsWith('— cleaned.pdf')
+            );
+        },
+        {timeout: CLEANUP_TIMEOUT_MS},
+        sourcePath,
+    );
     const outputPath = await evaluateInPage(page, () => {
-        const active = (window as IWorkspaceExposeProbeWindow)
-            .__evbTestApi
-            ?.readActiveWorkspaceStateValues(['originalPath']);
+        const active = (window as IWorkspaceExposeProbeWindow).__evbTestApi?.readActiveWorkspaceStateValues(['originalPath']);
         return typeof active?.originalPath === 'string' ? active.originalPath : null;
     });
     if (!outputPath) {
@@ -573,23 +505,14 @@ async function waitForLogEvidence(logPath: string, pattern: RegExp) {
     return false;
 }
 
-async function runArtifactAudit(
-    args: IArguments,
-    sourcePath: string,
-    outputPath: string,
-) {
+async function runArtifactAudit(args: IArguments, sourcePath: string, outputPath: string) {
     const metadataDir = path.join(args.artifactDir, 'native-metadata');
     const synthetic = args.syntheticSpecPath !== null;
     const scriptPath = path.resolve(
         process.cwd(),
-        synthetic
-            ? 'scripts/diagnostics/scan-cleanup-synthetic-audit.py'
-            : 'scripts/diagnostics/scan-cleanup-artifact-audit.py',
+        synthetic ? 'scripts/diagnostics/scan-cleanup-synthetic-audit.py' : 'scripts/diagnostics/scan-cleanup-artifact-audit.py',
     );
-    const artifactDir = path.join(
-        args.artifactDir,
-        synthetic ? 'synthetic-artifact-audit' : 'artifact-audit',
-    );
+    const artifactDir = path.join(args.artifactDir, synthetic ? 'synthetic-artifact-audit' : 'artifact-audit');
     const auditArguments = [
         scriptPath,
         '--source-pdf',
@@ -606,46 +529,34 @@ async function runArtifactAudit(
         '200',
         ...(args.sourcePages
             ? [
-                '--source-pages',
-                args.sourcePages,
-                '--metadata-pages',
-                Array.from(
-                    {length: args.expectedPageCount},
-                    (_value, index) => String(index + 1),
-                ).join(','),
-            ]
+                  '--source-pages',
+                  args.sourcePages,
+                  '--metadata-pages',
+                  Array.from({length: args.expectedPageCount}, (_value, index) => String(index + 1)).join(','),
+              ]
             : []),
-        ...(args.syntheticSpecPath
-            ? [
-                '--fixture-spec',
-                args.syntheticSpecPath,
-            ]
-            : []),
+        ...(args.syntheticSpecPath ? ['--fixture-spec', args.syntheticSpecPath] : []),
     ];
     const auditPython = process.env.EVB_SCAN_CLEANUP_AUDIT_PYTHON ?? 'python3';
     await new Promise<void>((resolve, reject) => {
         const audit = spawn(auditPython, auditArguments, {
             cwd: process.cwd(),
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
+            stdio: ['ignore', 'pipe', 'pipe'],
         });
         let auditStdout = '';
         let auditStderr = '';
-        audit.stdout.on('data', data => {
+        audit.stdout.on('data', (data) => {
             const text = String(data);
             auditStdout += text;
             process.stdout.write(text);
         });
-        audit.stderr.on('data', data => {
+        audit.stderr.on('data', (data) => {
             const text = String(data);
             auditStderr += text;
             process.stderr.write(text);
         });
         audit.once('error', reject);
-        audit.once('exit', code => {
+        audit.once('exit', (code) => {
             void Promise.all([
                 writeFile(path.join(args.artifactDir, 'artifact-audit-stdout.log'), auditStdout),
                 writeFile(path.join(args.artifactDir, 'artifact-audit-stderr.log'), auditStderr),
@@ -691,11 +602,7 @@ export async function runPackagedScanCleanupVerification(args: IArguments) {
             EVB_SCAN_CLEANUP_EVIDENCE_DIR: nativeMetadataPath,
             ELECTRON_FILE_LOG_LEVEL: 'debug',
         },
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['ignore', 'pipe', 'pipe'],
     });
     const {child} = owned;
     const appLogPath = path.join(owned.logDirectory, APP_LOG_FILE_NAME);
@@ -705,18 +612,18 @@ export async function runPackagedScanCleanupVerification(args: IArguments) {
     // instead of reaching Node's default exit mid-cleanup.
     const stopOnSignal = (signal: NodeJS.Signals) => {
         failures.push(new Error(`Packaged scan-cleanup verification interrupted by ${signal}`));
-        void owned.stop({force: true}).catch(error => console.error(error));
+        void owned.stop({force: true}).catch((error) => console.error(error));
     };
     process.on('SIGINT', stopOnSignal);
     process.on('SIGTERM', stopOnSignal);
     let stdout = '';
     let stderr = '';
-    child.stdout?.on('data', data => {
+    child.stdout?.on('data', (data) => {
         const text = String(data);
         stdout += text;
         process.stdout.write(text);
     });
-    child.stderr?.on('data', data => {
+    child.stderr?.on('data', (data) => {
         const text = String(data);
         stderr += text;
         process.stderr.write(text);
@@ -762,8 +669,8 @@ export async function runPackagedScanCleanupVerification(args: IArguments) {
         }
         return {
             status: 'measured',
-            peakProcessCount: Math.max(...resourceSamples.map(sample => sample.processCount)),
-            peakRssBytes: Math.max(...resourceSamples.map(sample => sample.rssBytes)),
+            peakProcessCount: Math.max(...resourceSamples.map((sample) => sample.processCount)),
+            peakRssBytes: Math.max(...resourceSamples.map((sample) => sample.rssBytes)),
             failedSamples: failedResourceSamples,
             samples: resourceSamples,
         };
@@ -779,11 +686,7 @@ export async function runPackagedScanCleanupVerification(args: IArguments) {
         // the first tab.
         await copyFile(args.sourcePath, geometryCopyPath);
         const browserWSEndpoint = await Promise.race([
-            waitForPackagedCdpEndpoint(
-                cdpPort,
-                STARTUP_TIMEOUT_MS,
-                'Packaged EVB Viewer',
-            ),
+            waitForPackagedCdpEndpoint(cdpPort, STARTUP_TIMEOUT_MS, 'Packaged EVB Viewer'),
             owned.exited.then((code) => {
                 throw new Error(`Packaged EVB Viewer exited with code ${String(code)} before its CDP endpoint was ready`);
             }),
@@ -793,11 +696,7 @@ export async function runPackagedScanCleanupVerification(args: IArguments) {
             defaultViewport: null,
             protocolTimeout: CLEANUP_TIMEOUT_MS,
         });
-        const page = await waitForPackagedRendererPage(
-            browser,
-            STARTUP_TIMEOUT_MS,
-            'Packaged EVB Viewer',
-        );
+        const page = await waitForPackagedRendererPage(browser, STARTUP_TIMEOUT_MS, 'Packaged EVB Viewer');
         // The hidden window never has OS focus. The same focus owner and
         // canonical renderer state the hidden E2E sessions use apply here,
         // held by this connection for the whole run.
@@ -813,14 +712,9 @@ export async function runPackagedScanCleanupVerification(args: IArguments) {
             visible: true,
         });
         console.log('Packaged verification stage: cleanup surface opened');
-        const queuedCleanupEvidence = await verifyCleanupQueuedDuringDetection(
-            page,
-            args.expectedPageCount,
-        );
+        const queuedCleanupEvidence = await verifyCleanupQueuedDuringDetection(page, args.expectedPageCount);
         const detectionSamples = await waitForCompleteDetection(page, args.expectedPageCount);
-        console.log(
-            `Packaged verification stage: detection completed ${String(args.expectedPageCount)}/${String(args.expectedPageCount)}`,
-        );
+        console.log(`Packaged verification stage: detection completed ${String(args.expectedPageCount)}/${String(args.expectedPageCount)}`);
         const geometrySamples = await verifyPaneGeometry(page, geometryCopyPath);
         const commonEvidence = {
             detectionSamples,
@@ -839,21 +733,25 @@ export async function runPackagedScanCleanupVerification(args: IArguments) {
             const resourceSummary = await stopResourceSampling();
             await writeFile(
                 path.join(args.artifactDir, 'packaged-verification.json'),
-                `${JSON.stringify({
-                    ...commonEvidence,
-                    newTabEvidence,
-                    resourceSummary,
-                    scaleOnly: true,
-                }, null, 2)}\n`,
+                `${JSON.stringify(
+                    {
+                        ...commonEvidence,
+                        newTabEvidence,
+                        resourceSummary,
+                        scaleOnly: true,
+                    },
+                    null,
+                    2,
+                )}\n`,
             );
             // Windows reports unsupported as a stated gap; a supported platform must measure.
             if (resourceSummary.status === 'failed') {
                 throw new Error(`Packaged scan-cleanup resource sampling failed: ${resourceSummary.reason}`);
             }
             console.log(
-                'Packaged scan-cleanup scale verification passed: '
-                + `${String(args.expectedPageCount)} pages analyzed, `
-                + 'second pane opened, and new tab created',
+                'Packaged scan-cleanup scale verification passed: ' +
+                    `${String(args.expectedPageCount)} pages analyzed, ` +
+                    'second pane opened, and new tab created',
             );
             verified = true;
             await delay(500);
@@ -865,30 +763,29 @@ export async function runPackagedScanCleanupVerification(args: IArguments) {
             await copyFile(generatedOutputPath, outputCopyPath);
             await preserveFinalPdfIdentity(args, sourceCopyPath, outputCopyPath);
             console.log('Packaged verification stage: final PDF identity preserved');
-            const planEvidence = new RegExp(
-                `page-plan evidence: pinned=${String(args.expectedPageCount)} absent=0 mismatched=0`,
-                'u',
-            );
+            const planEvidence = new RegExp(`page-plan evidence: pinned=${String(args.expectedPageCount)} absent=0 mismatched=0`, 'u');
             const logEvidence = await waitForLogEvidence(appLogPath, planEvidence);
             if (!logEvidence) {
-                throw new Error(
-                    'Packaged cleanup logs lack exact pinned/absent/mismatched evidence',
-                );
+                throw new Error('Packaged cleanup logs lack exact pinned/absent/mismatched evidence');
             }
             console.log('Packaged verification stage: rasterized final-PDF audit started');
             await runArtifactAudit(args, sourceCopyPath, outputCopyPath);
             console.log('Packaged verification stage: rasterized final-PDF audit passed');
             await writeFile(
                 path.join(args.artifactDir, 'packaged-verification.json'),
-                `${JSON.stringify({
-                    ...commonEvidence,
-                    outputCopyPath,
-                    auditSourcePath: args.auditSourcePath,
-                    referenceMetadataDir: args.referenceMetadataDir,
-                    scaleOnly: false,
-                    sourcePages: args.sourcePages,
-                    syntheticSpecPath: args.syntheticSpecPath,
-                }, null, 2)}\n`,
+                `${JSON.stringify(
+                    {
+                        ...commonEvidence,
+                        outputCopyPath,
+                        auditSourcePath: args.auditSourcePath,
+                        referenceMetadataDir: args.referenceMetadataDir,
+                        scaleOnly: false,
+                        sourcePages: args.sourcePages,
+                        syntheticSpecPath: args.syntheticSpecPath,
+                    },
+                    null,
+                    2,
+                )}\n`,
             );
             console.log(`Packaged scan-cleanup verification passed: ${outputCopyPath}`);
             verified = true;
@@ -916,10 +813,7 @@ export async function runPackagedScanCleanupVerification(args: IArguments) {
     // owned processes are killed outright.
     try {
         helperCleanup = await owned.stop({force: true});
-        await writeFile(
-            path.join(args.artifactDir, 'packaged-process-cleanup.json'),
-            `${JSON.stringify({helperCleanup}, null, 2)}\n`,
-        );
+        await writeFile(path.join(args.artifactDir, 'packaged-process-cleanup.json'), `${JSON.stringify({helperCleanup}, null, 2)}\n`);
     } catch (error) {
         failures.push(error);
     } finally {

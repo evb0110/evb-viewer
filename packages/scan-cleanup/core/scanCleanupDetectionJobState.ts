@@ -14,11 +14,7 @@ import type {IScanCleanupDetectionOutcome} from '@evb/scan-cleanup/core/createSc
  * to nothing, which the progress contract accepts only when marked so.
  */
 export function normalizeDetectionProgress(progress: TScanCleanupProgress): TScanCleanupProgress {
-    if (
-        progress.completedUnits > 0
-        && progress.completedPageNumbers?.length === 0
-        && progress.completedPageNumbersTruncated !== true
-    ) {
+    if (progress.completedUnits > 0 && progress.completedPageNumbers?.length === 0 && progress.completedPageNumbersTruncated !== true) {
         return {
             ...progress,
             completedPageNumbersTruncated: true,
@@ -66,7 +62,9 @@ export function runningScanCleanupDetectionJobState(
 }
 
 /** A finished detection, and the id its store is registered under when it outlives the job. */
-export interface IScanCleanupDetectionJobResult extends IScanCleanupDetectionOutcome {resultStoreId?: string;}
+export interface IScanCleanupDetectionJobResult extends IScanCleanupDetectionOutcome {
+    resultStoreId?: string;
+}
 
 /**
  * A detection job's terminal state: its final counts, the matched-canvas
@@ -79,9 +77,7 @@ export function completeScanCleanupDetectionJobState(
 ): TScanCleanupDetectionJobState {
     const resultCount = result.resultStore.resultCount;
     const pageCount = result.resultStore.pageCount;
-    const results = resultCount <= SCAN_CLEANUP_STREAMING_BATCH_PAGES
-        ? result.results
-        : [];
+    const results = resultCount <= SCAN_CLEANUP_STREAMING_BATCH_PAGES ? result.results : [];
     return {
         jobId: latest.jobId,
         status: 'completed',
@@ -90,37 +86,35 @@ export function completeScanCleanupDetectionJobState(
             stage: 'detecting',
             completedUnits: resultCount,
             totalUnits: pageCount,
-            percent: pageCount === 0 ? 100 : resultCount / pageCount * 100,
-            ...completedPageProgress(new Set(results.map(item => item.pageNumber)), resultCount),
+            percent: pageCount === 0 ? 100 : (resultCount / pageCount) * 100,
+            ...completedPageProgress(new Set(results.map((item) => item.pageNumber)), resultCount),
         },
         resultCount,
         blankPageCount: result.blankPageCount,
-        ...(result.resultStoreId === undefined
-            ? {}
-            : {detectionResultStoreId: result.resultStoreId}),
-        ...(result.placementAnchorSummary === undefined
-            ? {}
-            : {placementAnchorSummary: result.placementAnchorSummary}),
+        ...(result.resultStoreId === undefined ? {} : {detectionResultStoreId: result.resultStoreId}),
+        ...(result.placementAnchorSummary === undefined ? {} : {placementAnchorSummary: result.placementAnchorSummary}),
         results,
         updatedAtMs: createEpochMs(),
     };
 }
 
-const deliveredSignature = (result: IScanCleanupDetectionResult) => result.revision ?? JSON.stringify([
-    result.classification,
-    result.confidence,
-    result.cutterXPx,
-    result.tier1Verdict,
-    result.reconciled,
-    result.clusterAgreement,
-    result.documentPrior,
-    result.textAxis,
-    result.recommendedOutputMode,
-    result.recommendedOutputModeConfidence,
-    result.recommendedOutputModeReason,
-    result.softAlphaForegroundRecommendation,
-    result.pagePlanEvidence,
-]);
+const deliveredSignature = (result: IScanCleanupDetectionResult) =>
+    result.revision ??
+    JSON.stringify([
+        result.classification,
+        result.confidence,
+        result.cutterXPx,
+        result.tier1Verdict,
+        result.reconciled,
+        result.clusterAgreement,
+        result.documentPrior,
+        result.textAxis,
+        result.recommendedOutputMode,
+        result.recommendedOutputModeConfidence,
+        result.recommendedOutputModeReason,
+        result.softAlphaForegroundRecommendation,
+        result.pagePlanEvidence,
+    ]);
 
 /**
  * The results a live small-document state carries that its subscriber has not
@@ -131,7 +125,7 @@ export function selectUndeliveredScanCleanupDetectionResults(
     delivered: Map<number, number | string>,
     results: readonly IScanCleanupDetectionResult[],
 ) {
-    return results.filter(result => {
+    return results.filter((result) => {
         const signature = deliveredSignature(result);
         if (delivered.get(result.pageNumber) === signature) {
             return false;

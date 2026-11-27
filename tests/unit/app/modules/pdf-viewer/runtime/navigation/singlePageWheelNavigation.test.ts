@@ -1,12 +1,5 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    resolveWheelDirection,
-    resolveWheelTargetPage,
-} from '@app/modules/document-viewer/single-page-wheel/singlePageWheelNavigation';
+import {describe, expect, it} from 'vitest';
+import {resolveWheelDirection, resolveWheelTargetPage} from '@app/modules/document-viewer/single-page-wheel/singlePageWheelNavigation';
 
 describe('singlePageWheelNavigation', () => {
     it('resolves wheel direction from normalized wheel delta', () => {

@@ -119,12 +119,46 @@ pub fn threshold_global(image: &GrayImage, threshold: u8) -> BinaryImage {
 }
 
 pub fn threshold_global_biased(image: &GrayImage, threshold: u8, bias: i16) -> BinaryImage {
+    const PARALLEL_PIXELS: usize = 65_536;
     let threshold = (i16::from(threshold) + bias).clamp(0, 255) as u8;
-    let mut output = BinaryImage::new(image.width(), image.height());
-    for y in 0..image.height() {
-        for x in 0..image.width() {
-            output.set(x, y, image.get(x, y) < threshold);
+    let width = image.width();
+    let height = image.height();
+    let mut output = BinaryImage::new(width, height);
+    if width == 0 || height == 0 {
+        return output;
+    }
+    let words_per_line = output.words_per_line();
+    let threshold_row = |(y, output_row): (usize, &mut [u32])| {
+        let source_row = image.row(y);
+        let mut chunks = source_row.chunks_exact(32);
+        for (target, chunk) in output_row.iter_mut().zip(&mut chunks) {
+            let mut word = 0u32;
+            for (bit, &value) in chunk.iter().enumerate() {
+                word |= u32::from(value < threshold) << (31 - bit);
+            }
+            *target = word;
         }
+        let remainder = chunks.remainder();
+        if !remainder.is_empty() {
+            let mut word = 0u32;
+            for (bit, &value) in remainder.iter().enumerate() {
+                word |= u32::from(value < threshold) << (31 - bit);
+            }
+            output_row[output_row.len() - 1] = word;
+        }
+    };
+    if width.saturating_mul(height) >= PARALLEL_PIXELS {
+        output
+            .words_mut()
+            .par_chunks_mut(words_per_line)
+            .enumerate()
+            .for_each(threshold_row);
+    } else {
+        output
+            .words_mut()
+            .chunks_mut(words_per_line)
+            .enumerate()
+            .for_each(threshold_row);
     }
     output
 }
@@ -324,6 +358,11 @@ impl MaskedIntegralImages {
     /// pixels in the clamped square window centered on `(x, y)`, or `None`
     /// when the window holds no included pixel.
     pub fn mean_and_deviation(&self, x: usize, y: usize, radius: usize) -> Option<(f64, f64)> {
+        let (mean, variance) = self.mean_and_variance(x, y, radius)?;
+        Some((mean, variance.sqrt()))
+    }
+
+    fn mean_and_variance(&self, x: usize, y: usize, radius: usize) -> Option<(f64, f64)> {
         assert!(x < self.width && y < self.height);
         let x0 = x.saturating_sub(radius);
         let y0 = y.saturating_sub(radius);
@@ -337,8 +376,17 @@ impl MaskedIntegralImages {
         let squared_sum = self.rectangle_sum(&self.squared_sums, x0, y0, x1, y1);
         let count = count as f64;
         let mean = sum as f64 / count;
-        let deviation = (squared_sum as f64 / count - mean * mean).max(0.0).sqrt();
-        Some((mean, deviation))
+        let variance = (squared_sum as f64 / count - mean * mean).max(0.0);
+        Some((mean, variance))
+    }
+
+    fn has_included_samples(&self, x: usize, y: usize, radius: usize) -> bool {
+        assert!(x < self.width && y < self.height);
+        let x0 = x.saturating_sub(radius);
+        let y0 = y.saturating_sub(radius);
+        let x1 = x.saturating_add(radius).min(self.width - 1) + 1;
+        let y1 = y.saturating_add(radius).min(self.height - 1) + 1;
+        self.rectangle_sum(&self.counts, x0, y0, x1, y1) > 0
     }
 
     fn rectangle_sum(&self, integral: &[u64], x0: usize, y0: usize, x1: usize, y1: usize) -> u64 {
@@ -473,6 +521,11 @@ impl IntegralImages {
     /// Returns the population mean and standard deviation for the clamped
     /// square window centered on `(x, y)`.
     pub fn mean_and_deviation(&self, x: usize, y: usize, radius: usize) -> (f64, f64) {
+        let (mean, variance) = self.mean_and_variance(x, y, radius);
+        (mean, variance.sqrt())
+    }
+
+    fn mean_and_variance(&self, x: usize, y: usize, radius: usize) -> (f64, f64) {
         assert!(x < self.width && y < self.height);
         let x0 = x.saturating_sub(radius);
         let y0 = y.saturating_sub(radius);
@@ -482,8 +535,8 @@ impl IntegralImages {
         let squared_sum = self.rectangle_sum(&self.squared_sums, x0, y0, x1, y1);
         let count = ((x1 - x0) * (y1 - y0)) as f64;
         let mean = sum as f64 / count;
-        let deviation = (squared_sum as f64 / count - mean * mean).max(0.0).sqrt();
-        (mean, deviation)
+        let variance = (squared_sum as f64 / count - mean * mean).max(0.0);
+        (mean, variance)
     }
 
     fn rectangle_sum(&self, integral: &[u64], x0: usize, y0: usize, x1: usize, y1: usize) -> u64 {
@@ -829,11 +882,7 @@ fn local_threshold_in_strips<const N: usize>(
                     windows.advance_to(y);
                     for x in 0..width {
                         for (index, maximum) in maxima.iter_mut().enumerate() {
-                            *maximum = maximum.max(
-                                windows
-                                    .mean_and_deviation(index, x)
-                                    .map_or(0.0, |statistics| statistics.1),
-                            );
+                            *maximum = maximum.max(windows.variance(index, x).unwrap_or(0.0));
                         }
                     }
                 }
@@ -842,7 +891,8 @@ fn local_threshold_in_strips<const N: usize>(
             .reduce(
                 || [1.0; N],
                 |left, right| std::array::from_fn(|index| left[index].max(right[index])),
-            ),
+            )
+            .map(f64::sqrt),
         LocalThreshold::Sauvola { .. } => [1.0; N],
     };
     let low_variance: [bool; N] = std::array::from_fn(|index| {
@@ -865,13 +915,28 @@ fn local_threshold_in_strips<const N: usize>(
             for (local_y, output_row) in output_rows.chunks_mut(words_per_line).enumerate() {
                 let y = strip * strip_rows + local_y;
                 windows.advance_to(y);
-                for x in 0..width {
+                let source_row = image.row(y);
+                for (x, &value) in source_row.iter().enumerate() {
                     if excluded.is_some_and(|excluded| excluded.get(x, y)) {
                         continue;
                     }
-                    let value = image.get(x, y);
                     let mut black = [false; N];
                     for (index, black) in black.iter_mut().enumerate() {
+                        match method {
+                            LocalThreshold::Wolf { hard_ink, .. } if value <= hard_ink => {
+                                if windows.has_included_samples(index, x) {
+                                    *black = true;
+                                }
+                                continue;
+                            }
+                            LocalThreshold::Wolf { hard_paper, .. } if value >= hard_paper => {
+                                continue;
+                            }
+                            LocalThreshold::Wolf { .. } if low_variance[index] => {
+                                continue;
+                            }
+                            _ => {}
+                        }
                         let Some((mean, deviation)) = windows.mean_and_deviation(index, x) else {
                             continue;
                         };
@@ -892,12 +957,7 @@ fn local_threshold_in_strips<const N: usize>(
                                 mean - k * (1.0 - normalized) * (mean - f64::from(global_min))
                             }
                         };
-                        *black = match method {
-                            LocalThreshold::Wolf { hard_ink, .. } if value <= hard_ink => true,
-                            LocalThreshold::Wolf { hard_paper, .. } if value >= hard_paper => false,
-                            LocalThreshold::Wolf { .. } if low_variance[index] => false,
-                            _ => f64::from(value) < (threshold + f64::from(bias)).clamp(0.0, 255.0),
-                        };
+                        *black = f64::from(value) < (threshold + f64::from(bias)).clamp(0.0, 255.0);
                     }
                     if decide(x, y, black) {
                         output_row[x / 32] |= 1 << (31 - x % 32);
@@ -961,6 +1021,26 @@ impl<'a, const N: usize> RowWindows<'a, N> {
             Self::Streamed(windows) => windows.mean_and_deviation(index, x),
             Self::Table { table, radii, y } => Some(table.mean_and_deviation(x, *y, radii[index])),
             Self::MaskedTable { table, radii, y } => table.mean_and_deviation(x, *y, radii[index]),
+        }
+    }
+
+    fn variance(&self, index: usize, x: usize) -> Option<f64> {
+        match self {
+            Self::Streamed(windows) => windows.mean_and_variance(index, x).map(|(_, v)| v),
+            Self::Table { table, radii, y } => Some(table.mean_and_variance(x, *y, radii[index]).1),
+            Self::MaskedTable { table, radii, y } => {
+                table.mean_and_variance(x, *y, radii[index]).map(|(_, v)| v)
+            }
+        }
+    }
+
+    fn has_included_samples(&self, index: usize, x: usize) -> bool {
+        match self {
+            Self::Streamed(windows) => windows.has_included_samples(index, x),
+            Self::Table { .. } => true,
+            Self::MaskedTable { table, radii, y } => {
+                table.has_included_samples(x, *y, radii[index])
+            }
         }
     }
 }
@@ -1082,6 +1162,11 @@ impl<'a, const N: usize> StreamingWindows<'a, N> {
     /// `(x, y)`, where `y` is the row last passed to `advance_to`. Unmasked
     /// windows are never empty.
     fn mean_and_deviation(&self, index: usize, x: usize) -> Option<(f64, f64)> {
+        let (mean, variance) = self.mean_and_variance(index, x)?;
+        Some((mean, variance.sqrt()))
+    }
+
+    fn mean_and_variance(&self, index: usize, x: usize) -> Option<(f64, f64)> {
         let window = &self.windows[index];
         let x0 = x.saturating_sub(window.radius);
         let x1 = x.saturating_add(window.radius).min(self.image.width() - 1) + 1;
@@ -1098,8 +1183,18 @@ impl<'a, const N: usize> StreamingWindows<'a, N> {
             ((x1 - x0) * (window.end - window.first)) as f64
         };
         let mean = sum as f64 / count;
-        let deviation = (squared_sum as f64 / count - mean * mean).max(0.0).sqrt();
-        Some((mean, deviation))
+        let variance = (squared_sum as f64 / count - mean * mean).max(0.0);
+        Some((mean, variance))
+    }
+
+    fn has_included_samples(&self, index: usize, x: usize) -> bool {
+        if self.excluded.is_none() {
+            return true;
+        }
+        let window = &self.windows[index];
+        let x0 = x.saturating_sub(window.radius);
+        let x1 = x.saturating_add(window.radius).min(self.image.width() - 1) + 1;
+        window.prefix.counts[x1] > window.prefix.counts[x0]
     }
 }
 
@@ -2222,5 +2317,63 @@ mod tests {
             "P2 wolf 2550x3300 radius=32: before={before_elapsed:?} after={after_elapsed:?} speedup={:.2}x",
             before_elapsed.as_secs_f64() / after_elapsed.as_secs_f64()
         );
+    }
+
+    #[test]
+    fn threshold_global_biased_word_path_matches_pixel_loop_across_sizes() {
+        let mut state = 0x474c_4f42_414c_5448_u64;
+        for (width, height, pad) in [(0, 0, 0), (1, 1, 0), (33, 17, 5), (257, 263, 3)] {
+            let mut image = GrayImage::with_stride(width, height, width + pad, 0);
+            for y in 0..height {
+                for x in 0..width {
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1_442_695_040_888_963_407);
+                    image.set(x, y, (state >> 56) as u8);
+                }
+            }
+            for (threshold, bias) in [(0, 0), (128, -10), (200, 100), (10, -50)] {
+                let effective = (i16::from(threshold) + bias).clamp(0, 255) as u8;
+                let mut expected = BinaryImage::new(width, height);
+                for y in 0..height {
+                    for x in 0..width {
+                        expected.set(x, y, image.get(x, y) < effective);
+                    }
+                }
+                assert_eq!(
+                    threshold_global_biased(&image, threshold, bias),
+                    expected,
+                    "{width}x{height} threshold={threshold} bias={bias}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wolf_short_circuits_preserve_empty_masked_window_guard() {
+        let mut image = GrayImage::new(16, 16, 10);
+        image.set(8, 8, 250);
+        // Build a masked integral table where every pixel is excluded so
+        // `mean_and_deviation` returns `None`, while passing an empty `excluded`
+        // mask to verify `hard_ink` still respects `count == 0`.
+        let all_excluded = BinaryImage::new(16, 16).invert();
+        let none_excluded = BinaryImage::new(16, 16);
+        let integrals = MaskedIntegralImages::new(&image, &all_excluded);
+        let method = LocalThreshold::Wolf {
+            k: 0.25,
+            deviation_floor: 2.0,
+            minimum_percentile: 0.01,
+            hard_ink: 48,
+            hard_paper: 248,
+        };
+        let actual = threshold_local_biased_excluding_with_integrals_for_consensus(
+            &image,
+            &none_excluded,
+            &integrals,
+            2,
+            method,
+            0,
+        );
+        assert_eq!(actual.count_black(), 0);
     }
 }

@@ -1,33 +1,27 @@
-import type { TAnnotationTool } from '@app/types/annotations';
-import { isAgentRecord } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
+import type {TAnnotationTool} from '@app/types/annotations';
+import {isAgentRecord} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentInputs';
 import type {
     IAgentOcrRunOptions,
     IUseDocumentWorkspaceAgentOptions,
     TWorkspaceAgentSidebarTab,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
-import type { TDocumentContext } from '@app/modules/workspace-shell/documentContext';
-import type { TDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
-import {
-    createDefaultWorkspaceViewerCapabilities,
-    type IWorkspaceAgentCommandContext,
-} from '@app/types/workspaceExpose';
-import { createDocumentAgentAnnotations } from '@app/modules/workspace-shell/agent/createDocumentAgentAnnotations';
-import { createDocumentAgentAnnotationNoteActions } from '@app/modules/workspace-shell/agent/createDocumentAgentAnnotationNoteActions';
-import { createDocumentAgentBookmarks } from '@app/modules/workspace-shell/agent/createDocumentAgentBookmarks';
-import { createDocumentAgentFilePageHistoryActions } from '@app/modules/workspace-shell/agent/createDocumentAgentFilePageHistoryActions';
-import { createDocumentAgentPageImageCapture } from '@app/modules/workspace-shell/agent/createDocumentAgentPageImageCapture';
-import { createDocumentAgentPageLabels } from '@app/modules/workspace-shell/agent/createDocumentAgentPageLabels';
-import { createDocumentAgentResources } from '@app/modules/workspace-shell/agent/createDocumentAgentResources';
+import type {TDocumentContext} from '@app/modules/workspace-shell/documentContext';
+import type {TDocumentViewContext} from '@app/modules/workspace-shell/documentViewContext';
+import {createDefaultWorkspaceViewerCapabilities, type IWorkspaceAgentCommandContext} from '@app/types/workspaceExpose';
+import {createDocumentAgentAnnotations} from '@app/modules/workspace-shell/agent/createDocumentAgentAnnotations';
+import {createDocumentAgentAnnotationNoteActions} from '@app/modules/workspace-shell/agent/createDocumentAgentAnnotationNoteActions';
+import {createDocumentAgentBookmarks} from '@app/modules/workspace-shell/agent/createDocumentAgentBookmarks';
+import {createDocumentAgentFilePageHistoryActions} from '@app/modules/workspace-shell/agent/createDocumentAgentFilePageHistoryActions';
+import {createDocumentAgentPageImageCapture} from '@app/modules/workspace-shell/agent/createDocumentAgentPageImageCapture';
+import {createDocumentAgentPageLabels} from '@app/modules/workspace-shell/agent/createDocumentAgentPageLabels';
+import {createDocumentAgentResources} from '@app/modules/workspace-shell/agent/createDocumentAgentResources';
 import {
     createAgentActionHandlerRegistry,
     type IAgentActionExecutionPolicy,
 } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentActionRegistry';
-import { createDocumentWorkspaceAgentParsers } from '@app/modules/workspace-shell/agent/createDocumentWorkspaceAgentParsers';
-import {
-    pageSelectionCount,
-    requirePageNumber,
-} from '@pdf-core/pdfPageSelection';
-export type { IOcrPopupAgentExpose } from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
+import {createDocumentWorkspaceAgentParsers} from '@app/modules/workspace-shell/agent/createDocumentWorkspaceAgentParsers';
+import {pageSelectionCount, requirePageNumber} from '@pdf-core/pdfPageSelection';
+export type {IOcrPopupAgentExpose} from '@app/modules/workspace-shell/agent/documentWorkspaceAgentTypes';
 export const DOCUMENT_WORKSPACE_AGENT_PRIMARY_ACTION_IDS = [
     'ui.open_sidebar_tab',
     'ui.toggle_sidebar',
@@ -204,18 +198,16 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
 
     function getSelectedPagePayload() {
         const selection = selectedPageSelection?.value;
-        return selection?.pageCount === totalPages.value
-            ? selection
-            : selectedThumbnailPages.value;
+        return selection?.pageCount === totalPages.value ? selection : selectedThumbnailPages.value;
     }
 
     function describeSelectedPagePayload(payload: ReturnType<typeof getSelectedPagePayload>) {
         return Array.isArray(payload)
             ? {selectedPages: payload}
             : {
-                selectedPageCount: pageSelectionCount(payload),
-                selectedPageSelection: payload,
-            };
+                  selectedPageCount: pageSelectionCount(payload),
+                  selectedPageSelection: payload,
+              };
     }
 
     const pageLabelsAgent = createDocumentAgentPageLabels({
@@ -267,7 +259,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         setAgentBookmarkTree,
         updateAgentBookmark,
     } = bookmarksAgent;
-    const { captureAgentPageImage } = pageImageAgent;
+    const {captureAgentPageImage} = pageImageAgent;
     const {
         findAgentAnnotationComment,
         getAgentPointNoteCreateOptions,
@@ -276,7 +268,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         normalizeAgentAnnotationComment,
         patchLatestAgentPointNoteMarkerRect,
     } = annotationsAgent;
-    const { readAgentResource: readDocumentAgentResource } = createDocumentAgentResources({
+    const {readAgentResource: readDocumentAgentResource} = createDocumentAgentResources({
         annotationComments,
         annotationCommentsStatus,
         annotationInventory,
@@ -310,14 +302,17 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         parseAgentSidebarTab,
         parseAgentViewModeInput,
         parseEmptyAgentActionInput,
-    } = createDocumentWorkspaceAgentParsers({ totalPages });
+    } = createDocumentWorkspaceAgentParsers({totalPages});
 
     async function waitForAgentMutationStateSettled() {
         await nextTick();
         await nextTick();
     }
 
-    function createSettledMutationRunner(applyMutation: (input: Record<string, unknown>, actionId: string) => object, settle: () => Promise<void> = waitForAgentMutationStateSettled) {
+    function createSettledMutationRunner(
+        applyMutation: (input: Record<string, unknown>, actionId: string) => object,
+        settle: () => Promise<void> = waitForAgentMutationStateSettled,
+    ) {
         return async (input: Record<string, unknown>, actionId: string) => {
             const snapshot = applyMutation(input, actionId);
             await settle();
@@ -325,10 +320,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         };
     }
 
-    function createAgentActionResult(
-        actionId: string,
-        extra: object = {},
-    ): Record<string, unknown> {
+    function createAgentActionResult(actionId: string, extra: object = {}): Record<string, unknown> {
         const payload = extra as Record<string, unknown>;
         return {
             ok: true,
@@ -346,10 +338,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         return error;
     }
 
-    function assertDocumentIdentityMatches(
-        expected: IWorkspaceAgentCommandContext['documentIdentity'],
-        allowRevisionChange: boolean,
-    ) {
+    function assertDocumentIdentityMatches(expected: IWorkspaceAgentCommandContext['documentIdentity'], allowRevisionChange: boolean) {
         if (!expected) {
             return;
         }
@@ -397,10 +386,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             };
         }
         context?.assertCurrentDocument();
-        const {
-            completed, ...result
-        } = await run();
-        if (!completed) throw new Error('The page operation did not complete.');
+        const {completed, ...result} = await run();
+        if (!completed) {
+            throw new Error('The page operation did not complete.');
+        }
         return result;
     }
 
@@ -461,13 +450,18 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             policy: {mutatesDocument: true},
             parse: getAgentOcrRunOptions,
             async run(runOptions: IAgentOcrRunOptions, _actionId, context) {
-                if (runOptions.open !== false) handleDropdownOpen('ocr', true);
+                if (runOptions.open !== false) {
+                    handleDropdownOpen('ocr', true);
+                }
                 await nextTick();
                 context?.assertCurrentDocument();
-                return ocr.runOcrForAgent(runOptions, context && {
-                    signal: context.signal,
-                    assertCurrentDocument: () => context.assertCurrentDocument(),
-                });
+                return ocr.runOcrForAgent(
+                    runOptions,
+                    context && {
+                        signal: context.signal,
+                        assertCurrentDocument: () => context.assertCurrentDocument(),
+                    },
+                );
             },
         },
         {
@@ -480,34 +474,23 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             },
         },
         {
-            ids: [
-                'document.capture_page_image',
-                'document.screenshot_page',
-            ],
+            ids: ['document.capture_page_image', 'document.screenshot_page'],
             parse: parseAgentPageImageInput,
-            run: (captureInput: Record<string, unknown>, actionId, context) => captureAgentPageImage(captureInput, actionId, () => context?.assertCurrentDocument()),
+            run: (captureInput: Record<string, unknown>, actionId, context) =>
+                captureAgentPageImage(captureInput, actionId, () => context?.assertCurrentDocument()),
         },
         {
-            ids: [
-                'page_labels.read',
-                'page_numbering.read',
-            ],
+            ids: ['page_labels.read', 'page_numbering.read'],
             parse: parseEmptyAgentActionInput,
             run: () => createAgentPageLabelSnapshot(),
         },
         {
-            ids: [
-                'page_labels.preview',
-                'page_numbering.preview',
-            ],
+            ids: ['page_labels.preview', 'page_numbering.preview'],
             parse: (input, actionId) => previewAgentPageLabelPlan(input, actionId),
             run: (plan: object) => plan,
         },
         {
-            ids: [
-                'page_labels.apply_plan',
-                'page_numbering.apply_plan',
-            ],
+            ids: ['page_labels.apply_plan', 'page_numbering.apply_plan'],
             policy: {mutatesDocument: true},
             parse: (input, actionId) => {
                 previewAgentPageLabelPlan(input, actionId);
@@ -516,10 +499,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             run: createSettledMutationRunner(applyAgentPageLabelPlan, nextTick),
         },
         {
-            ids: [
-                'page_labels.set_ranges',
-                'page_numbering.set_ranges',
-            ],
+            ids: ['page_labels.set_ranges', 'page_numbering.set_ranges'],
             policy: {mutatesDocument: true},
             parse: (input, actionId) => getAgentPageLabelRangesInput(input, actionId),
             async run(ranges: ReturnType<typeof getAgentPageLabelRangesInput>) {
@@ -529,10 +509,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             },
         },
         {
-            ids: [
-                'page_labels.apply_range',
-                'page_numbering.apply_range',
-            ],
+            ids: ['page_labels.apply_range', 'page_numbering.apply_range'],
             policy: {mutatesDocument: true},
             parse: parseAgentPageLabelApplyRangeInput,
             async run(rangeInput: Record<string, unknown>, actionId) {
@@ -542,10 +519,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             },
         },
         {
-            ids: [
-                'page_labels.set_labels',
-                'page_numbering.set_labels',
-            ],
+            ids: ['page_labels.set_labels', 'page_numbering.set_labels'],
             policy: {mutatesDocument: true},
             parse: parseAgentPageLabelSetLabelsInput,
             async run(labelsInput: Record<string, unknown>, actionId) {
@@ -555,36 +529,29 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             },
         },
         {
-            ids: [
-                'page_labels.clear',
-                'page_numbering.clear',
-            ],
+            ids: ['page_labels.clear', 'page_numbering.clear'],
             policy: {mutatesDocument: true},
             parse: parseEmptyAgentActionInput,
             async run() {
-                const snapshot = updateAgentPageLabelRanges([{
-                    startPage: 1,
-                    style: 'D',
-                    prefix: '',
-                    startNumber: 1,
-                }]);
+                const snapshot = updateAgentPageLabelRanges([
+                    {
+                        startPage: 1,
+                        style: 'D',
+                        prefix: '',
+                        startNumber: 1,
+                    },
+                ]);
                 await nextTick();
                 return snapshot;
             },
         },
         {
-            ids: [
-                'bookmarks.read',
-                'toc.read',
-            ],
+            ids: ['bookmarks.read', 'toc.read'],
             parse: parseEmptyAgentActionInput,
             run: () => createAgentBookmarkSnapshot(),
         },
         {
-            ids: [
-                'bookmarks.preview_tree',
-                'toc.preview_tree',
-            ],
+            ids: ['bookmarks.preview_tree', 'toc.preview_tree'],
             parse: parseAgentActionInput,
             async run(input: Record<string, unknown>, actionId, context) {
                 await waitForDocumentOpenSettled();
@@ -593,10 +560,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             },
         },
         {
-            ids: [
-                'bookmarks.apply_plan',
-                'toc.apply_plan',
-            ],
+            ids: ['bookmarks.apply_plan', 'toc.apply_plan'],
             policy: {mutatesDocument: true},
             parse: parseAgentActionInput,
             async run(planInput: Record<string, unknown>, actionId, context) {
@@ -608,10 +572,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             },
         },
         {
-            ids: [
-                'bookmarks.set_tree',
-                'toc.set_tree',
-            ],
+            ids: ['bookmarks.set_tree', 'toc.set_tree'],
             policy: {mutatesDocument: true},
             parse: parseAgentActionInput,
             async run(treeInput: Record<string, unknown>, actionId, context) {
@@ -623,55 +584,37 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             },
         },
         {
-            ids: [
-                'bookmarks.add',
-                'toc.add',
-            ],
+            ids: ['bookmarks.add', 'toc.add'],
             policy: {mutatesDocument: true},
             parse: parseAgentActionInput,
             run: createSettledMutationRunner(addAgentBookmark),
         },
         {
-            ids: [
-                'bookmarks.add_batch',
-                'toc.add_batch',
-            ],
+            ids: ['bookmarks.add_batch', 'toc.add_batch'],
             policy: {mutatesDocument: true},
             parse: parseAgentBookmarkBatchInput,
             run: createSettledMutationRunner(addAgentBookmarks),
         },
         {
-            ids: [
-                'bookmarks.update',
-                'toc.update',
-            ],
+            ids: ['bookmarks.update', 'toc.update'],
             policy: {mutatesDocument: true},
             parse: parseAgentBookmarkPathInput,
             run: createSettledMutationRunner(updateAgentBookmark),
         },
         {
-            ids: [
-                'bookmarks.delete',
-                'toc.delete',
-            ],
+            ids: ['bookmarks.delete', 'toc.delete'],
             policy: {mutatesDocument: true},
             parse: parseAgentBookmarkPathInput,
             run: createSettledMutationRunner(deleteAgentBookmark),
         },
         {
-            ids: [
-                'bookmarks.delete_batch',
-                'toc.delete_batch',
-            ],
+            ids: ['bookmarks.delete_batch', 'toc.delete_batch'],
             policy: {mutatesDocument: true},
             parse: parseAgentBookmarkPathBatchInput,
             run: createSettledMutationRunner(deleteAgentBookmarks),
         },
         {
-            ids: [
-                'bookmarks.set_style',
-                'toc.set_style',
-            ],
+            ids: ['bookmarks.set_style', 'toc.set_style'],
             policy: {mutatesDocument: true},
             parse: parseAgentBookmarkStyleInput,
             run: createSettledMutationRunner(setAgentBookmarkStyle),
@@ -716,26 +659,22 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             },
         },
         {
-            ids: [
-                'annotation.create_note',
-                'annotation.start_note_placement',
-            ],
+            ids: ['annotation.create_note', 'annotation.start_note_placement'],
             policy: {mutatesDocument: true},
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 context?.assertCurrentDocument();
-                if (annotationTool.value !== 'note' && await handleQuickNoteAction() === false) return {
-                    ok: false,
-                    annotationTool: annotationTool.value,
-                };
+                if (annotationTool.value !== 'note' && (await handleQuickNoteAction()) === false) {
+                    return {
+                        ok: false,
+                        annotationTool: annotationTool.value,
+                    };
+                }
                 return {annotationTool: annotationTool.value};
             },
         },
         {
-            ids: [
-                'annotation.create_note_at_point',
-                'annotation.place_note',
-            ],
+            ids: ['annotation.create_note_at_point', 'annotation.place_note'],
             policy: {mutatesDocument: true},
             parse: getAgentPointNoteCreateOptions,
             async run(createOptions: ReturnType<typeof getAgentPointNoteCreateOptions>, _actionId, context) {
@@ -757,24 +696,20 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             },
         },
         {
-            ids: [
-                'annotation.select_tool',
-                'annotation.set_tool',
-            ],
+            ids: ['annotation.select_tool', 'annotation.set_tool'],
             parse: parseAgentAnnotationToolInput,
             async run(tool: TAnnotationTool) {
-                if (await handleAnnotationToolChange(tool) === false) return {
-                    ok: false,
-                    annotationTool: annotationTool.value,
-                };
+                if ((await handleAnnotationToolChange(tool)) === false) {
+                    return {
+                        ok: false,
+                        annotationTool: annotationTool.value,
+                    };
+                }
                 return {annotationTool: annotationTool.value};
             },
         },
         {
-            ids: [
-                'annotation.create_text_markup',
-                'annotation.mark_text',
-            ],
+            ids: ['annotation.create_text_markup', 'annotation.mark_text'],
             policy: {mutatesDocument: true},
             parse: getAgentTextMarkupCreateOptions,
             async run(createOptions: ReturnType<typeof getAgentTextMarkupCreateOptions>, _actionId, context) {
@@ -790,10 +725,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             },
         },
         {
-            ids: [
-                'annotation.create_shape',
-                'annotation.draw_shape',
-            ],
+            ids: ['annotation.create_shape', 'annotation.draw_shape'],
             policy: {mutatesDocument: true},
             parse: getAgentShapeCreateOptions,
             async run(createOptions: ReturnType<typeof getAgentShapeCreateOptions>, _actionId, context) {
@@ -819,15 +751,17 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 await waitForAgentMutationStateSettled();
                 context?.assertCurrentDocument();
                 const hadPendingSave = canSave.value;
-                const saveSucceeded = !hadPendingSave || await handleSave(context?.recordDocumentCommit);
+                const saveSucceeded = !hadPendingSave || (await handleSave(context?.recordDocumentCommit));
                 await waitForAgentMutationStateSettled();
                 if (!saveSucceeded) {
-                    throw new Error(`Save did not complete; EVB Viewer still reports pending changes. ${JSON.stringify({
-                        annotationDirty: annotationDirty.value,
-                        bookmarksDirty: bookmarksDirty.value,
-                        canSave: canSave.value,
-                        pageLabelsDirty: pageLabelsDirty.value,
-                    })}`);
+                    throw new Error(
+                        `Save did not complete; EVB Viewer still reports pending changes. ${JSON.stringify({
+                            annotationDirty: annotationDirty.value,
+                            bookmarksDirty: bookmarksDirty.value,
+                            canSave: canSave.value,
+                            pageLabelsDirty: pageLabelsDirty.value,
+                        })}`,
+                    );
                 }
                 return {
                     saved: hadPendingSave,
@@ -844,7 +778,9 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 context?.assertCurrentDocument();
-                if (!await handleSaveAs()) throw new Error('Save As did not complete.');
+                if (!(await handleSaveAs())) {
+                    throw new Error('Save As did not complete.');
+                }
                 return {};
             },
         },
@@ -987,7 +923,11 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
                     return {
-                        completed: await pageOpsDelete(selection, totalPages.value, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
+                        completed: await pageOpsDelete(
+                            selection,
+                            totalPages.value,
+                            ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : []),
+                        ),
                         ...describeSelectedPagePayload(selection),
                     };
                 }, context);
@@ -1015,7 +955,11 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
                     return {
-                        completed: await handlePageRotate(selection, 90, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
+                        completed: await handlePageRotate(
+                            selection,
+                            90,
+                            ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : []),
+                        ),
                         ...describeSelectedPagePayload(selection),
                     };
                 }, context);
@@ -1029,7 +973,11 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
                 return runPdfPageOperationAgentAction(async () => {
                     const selection = getSelectedPagePayload();
                     return {
-                        completed: await handlePageRotate(selection, 270, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : [])),
+                        completed: await handlePageRotate(
+                            selection,
+                            270,
+                            ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : []),
+                        ),
                         ...describeSelectedPagePayload(selection),
                     };
                 }, context);
@@ -1041,7 +989,13 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseAgentInsertPagesInput,
             async run(afterPage: number, _actionId, context) {
                 return runPdfPageOperationAgentAction(async () => {
-                    return {completed: await pageOpsInsert(totalPages.value, afterPage, ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : []))};
+                    return {
+                        completed: await pageOpsInsert(
+                            totalPages.value,
+                            afterPage,
+                            ...(context?.recordDocumentCommit ? [context.recordDocumentCommit] : []),
+                        ),
+                    };
                 }, context);
             },
         },
@@ -1093,10 +1047,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         return createAgentActionResult(actionId, result);
     }
 
-    async function readAgentResource(
-        uri: string,
-        context?: IWorkspaceAgentCommandContext,
-    ): Promise<Record<string, unknown>> {
+    async function readAgentResource(uri: string, context?: IWorkspaceAgentCommandContext): Promise<Record<string, unknown>> {
         assertAgentCommandContext(context);
         const result = await readDocumentAgentResource(uri);
         assertAgentCommandContext(context);
@@ -1114,10 +1065,8 @@ export const useDocumentWorkspaceAgent = (
     viewContext: TDocumentViewContext,
     waitForDocumentOpenSettled: () => Promise<void>,
 ) => {
-    const { t } = useTypedI18n();
-    const viewerCapabilities = computed(() => (
-        document.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities()
-    ));
+    const {t} = useTypedI18n();
+    const viewerCapabilities = computed(() => document.viewerCapabilities.value ?? createDefaultWorkspaceViewerCapabilities());
 
     return createDocumentWorkspaceAgent({
         ...document.annotations,

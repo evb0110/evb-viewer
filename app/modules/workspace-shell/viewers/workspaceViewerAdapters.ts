@@ -1,20 +1,16 @@
-import type { Component } from 'vue';
-import {
-    createDefaultWorkspaceViewerCapabilities,
-    type IWorkspaceViewerCapabilities,
-} from '@app/types/workspaceExpose';
+import type {Component} from 'vue';
+import {createDefaultWorkspaceViewerCapabilities, type IWorkspaceViewerCapabilities} from '@app/types/workspaceExpose';
 import type {
     IWorkspaceViewerAdapter,
     IWorkspaceViewerResolveContext,
     TWorkspaceViewerAdapterId,
     TWorkspaceViewerDocumentType,
 } from '@app/modules/workspace-shell/viewers/workspaceViewerAdapterTypes';
-import { workspaceViewerChunkLoaders } from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
-import type { TPdfViewMode } from '@contracts/shared';
+import {workspaceViewerChunkLoaders} from '@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders';
+import type {TPdfViewMode} from '@contracts/shared';
 
-const DocumentViewerChassis = defineAsyncComponent(
-    () => workspaceViewerChunkLoaders.chassis()
-        .then(componentModule => componentModule.default),
+const DocumentViewerChassis = defineAsyncComponent(() =>
+    workspaceViewerChunkLoaders.chassis().then((componentModule) => componentModule.default),
 ) as Component;
 
 const PDF_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
@@ -67,10 +63,7 @@ export const WORKSPACE_VIEWER_ADAPTERS: readonly IWorkspaceViewerAdapter[] = [
             sourceKind: 'pdf',
         },
         component: DocumentViewerChassis,
-        documentTypes: [
-            'pdf',
-            'image',
-        ],
+        documentTypes: ['pdf', 'image'],
         capabilities: PDF_VIEWER_CAPABILITIES,
     },
     {
@@ -89,16 +82,14 @@ export const WORKSPACE_VIEWER_ADAPTERS: readonly IWorkspaceViewerAdapter[] = [
 ] as const satisfies readonly IWorkspaceViewerAdapter[];
 
 export function getWorkspaceViewerAdapter(adapterId: TWorkspaceViewerAdapterId): IWorkspaceViewerAdapter {
-    const adapter = WORKSPACE_VIEWER_ADAPTERS.find(candidate => candidate.id === adapterId);
+    const adapter = WORKSPACE_VIEWER_ADAPTERS.find((candidate) => candidate.id === adapterId);
     if (!adapter) {
         throw new Error(`Workspace viewer adapter "${adapterId}" is not registered.`);
     }
     return adapter;
 }
 
-export function resolveWorkspaceViewerAdapter(
-    context: IWorkspaceViewerResolveContext,
-): IWorkspaceViewerAdapter | null {
+export function resolveWorkspaceViewerAdapter(context: IWorkspaceViewerResolveContext): IWorkspaceViewerAdapter | null {
     if (context.isDjvuMode && context.djvuSourcePath && !context.pdfSourcePath) {
         return getWorkspaceViewerAdapter('djvu');
     }
@@ -118,20 +109,14 @@ const DEFAULT_VIEWER_ADAPTER_ID_BY_DOCUMENT_TYPE: Record<TWorkspaceViewerDocumen
     djvu: 'djvu',
 };
 
-export function getWorkspaceViewerAdapterForDocumentType(
-    documentType: TWorkspaceViewerDocumentType,
-): IWorkspaceViewerAdapter {
+export function getWorkspaceViewerAdapterForDocumentType(documentType: TWorkspaceViewerDocumentType): IWorkspaceViewerAdapter {
     return getWorkspaceViewerAdapter(DEFAULT_VIEWER_ADAPTER_ID_BY_DOCUMENT_TYPE[documentType]);
 }
 
-export function getWorkspaceViewerCapabilitiesForDocumentType(
-    documentType: TWorkspaceViewerDocumentType,
-): IWorkspaceViewerCapabilities {
+export function getWorkspaceViewerCapabilitiesForDocumentType(documentType: TWorkspaceViewerDocumentType): IWorkspaceViewerCapabilities {
     return getWorkspaceViewerAdapterForDocumentType(documentType).capabilities;
 }
 
-export function hasWorkspaceViewerDocumentCapabilities(
-    capabilities: IWorkspaceViewerCapabilities | undefined,
-) {
+export function hasWorkspaceViewerDocumentCapabilities(capabilities: IWorkspaceViewerCapabilities | undefined) {
     return capabilities?.closeableDocument === true;
 }

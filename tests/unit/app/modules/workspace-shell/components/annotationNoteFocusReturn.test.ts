@@ -2,32 +2,13 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    computed,
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    reactive,
-    ref,
-} from 'vue';
+import {afterEach, expect, it, vi} from 'vitest';
+import {computed, createApp, defineComponent, h, nextTick, reactive, ref} from 'vue';
 import {requireEpochMs} from '@contracts/timestamps';
 import WorkspaceAnnotationOverlays from '@app/modules/workspace-shell/components/WorkspaceAnnotationOverlays.vue';
-import {
-    provideDocumentContext,
-    type TDocumentContext,
-} from '@app/modules/workspace-shell/documentContext';
-import {
-    provideDocumentViewContext,
-    type TDocumentViewContext,
-} from '@app/modules/workspace-shell/documentViewContext';
-import { cast } from '@tests/helpers/cast';
+import {provideDocumentContext, type TDocumentContext} from '@app/modules/workspace-shell/documentContext';
+import {provideDocumentViewContext, type TDocumentViewContext} from '@app/modules/workspace-shell/documentViewContext';
+import {cast} from '@tests/helpers/cast';
 import type {IAnnotationNoteWindowEntry} from '@app/modules/workspace-shell/annotations/annotationNoteWindowEntry';
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
@@ -41,7 +22,7 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 const selectedLocale = ref('en');
 
 const disposals: Array<() => void> = [];
-afterEach(() => disposals.splice(0).forEach(dispose => dispose()));
+afterEach(() => disposals.splice(0).forEach((dispose) => dispose()));
 
 function mountNotes(viewer: Record<string, unknown> = {}) {
     const host = document.createElement('div');
@@ -49,23 +30,25 @@ function mountNotes(viewer: Record<string, unknown> = {}) {
     const editor = document.createElement('div');
     editor.tabIndex = 0;
     host.append(editor);
-    const notes = reactive<IAnnotationNoteWindowEntry[]>([{
-        annotationId: 'note-1',
-        pageIndex: 0,
-        pageNumber: 1,
-        author: null,
-        createdAt: null,
-        modifiedAt: null,
-        markerRect: null,
-        subtype: 'Text',
-        source: 'pdf',
-        hasNote: true,
-        draftText: 'Note',
-        saving: false,
-        error: null,
-        order: 1,
-        isMinimized: false,
-    }]);
+    const notes = reactive<IAnnotationNoteWindowEntry[]>([
+        {
+            annotationId: 'note-1',
+            pageIndex: 0,
+            pageNumber: 1,
+            author: null,
+            createdAt: null,
+            modifiedAt: null,
+            markerRect: null,
+            subtype: 'Text',
+            source: 'pdf',
+            hasNote: true,
+            draftText: 'Note',
+            saving: false,
+            error: null,
+            order: 1,
+            isMinimized: false,
+        },
+    ]);
     const state = reactive({visible: true});
     const focusReturned = vi.fn(() => editor.focus());
     const overlayHost = document.createElement('div');
@@ -74,8 +57,10 @@ function mountNotes(viewer: Record<string, unknown> = {}) {
         sortedAnnotationNoteWindows: computed(() => notes),
         annotationNotePositions: ref({}),
         minimizeAnnotationNote: (id: string) => {
-            const note = notes.find(item => item.annotationId === id);
-            if (note) note.isMinimized = true;
+            const note = notes.find((item) => item.annotationId === id);
+            if (note) {
+                note.isMinimized = true;
+            }
         },
         updateAnnotationNoteText: vi.fn(),
         updateAnnotationNotePosition: vi.fn(),
@@ -130,16 +115,26 @@ function mountNotes(viewer: Record<string, unknown> = {}) {
             effectiveZoom: ref(1),
         },
     };
-    const app = createApp(defineComponent({setup: () => {
-        provideDocumentContext(cast<TDocumentContext>(context));
-        provideDocumentViewContext(cast<TDocumentViewContext>(viewContext));
-        return () => h(WorkspaceAnnotationOverlays, {visible: state.visible});
-    }}));
+    const app = createApp(
+        defineComponent({
+            setup: () => {
+                provideDocumentContext(cast<TDocumentContext>(context));
+                provideDocumentViewContext(cast<TDocumentViewContext>(viewContext));
+                return () => h(WorkspaceAnnotationOverlays, {visible: state.visible});
+            },
+        }),
+    );
     app.component('UIcon', defineComponent({setup: () => () => h('span')}));
-    app.component('AppTooltip', defineComponent({
-        inheritAttrs: false,
-        setup: (_props, {slots}) => () => slots.default?.(),
-    }));
+    app.component(
+        'AppTooltip',
+        defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    slots.default?.(),
+        }),
+    );
     app.mount(overlayHost);
     disposals.push(() => {
         app.unmount();
@@ -211,11 +206,7 @@ it('does not return focus after the workspace becomes inactive', async () => {
     expect(mounted.focusReturned).not.toHaveBeenCalled();
 });
 
-it.each([
-    'modified',
-    'created',
-    'missing',
-] as const)('updates the popup %s date in place with the selected language', async (kind) => {
+it.each(['modified', 'created', 'missing'] as const)('updates the popup %s date in place with the selected language', async (kind) => {
     selectedLocale.value = 'en';
     const mounted = mountNotes();
     const note = mounted.notes[0]!;
@@ -229,10 +220,12 @@ it.each([
     await nextTick();
     const timestamp = note.modifiedAt ?? note.createdAt;
     if (timestamp) {
-        expect(date()).toBe(new Intl.DateTimeFormat('ru', {
-            dateStyle: 'medium',
-            timeStyle: 'short',
-        }).format(timestamp));
+        expect(date()).toBe(
+            new Intl.DateTimeFormat('ru', {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+            }).format(timestamp),
+        );
         expect(date()).not.toBe(english);
     } else {
         expect(date()).toBe('noteWindow.noDate');
@@ -264,20 +257,23 @@ it('offers no note fallback on a page that waits for its rotation re-read', asyn
         width: 0.25,
         height: 0.1,
     };
-    mounted.notes.push({
-        ...open,
-        annotationId: 'minimized-on-rotated-page',
-        order: 2,
-        isMinimized: true,
-    }, {
-        // No inline marker renders for this note: it keeps its fallback throughout.
-        ...open,
-        annotationId: 'minimized-without-marker',
-        pageIndex: 1,
-        pageNumber: 2,
-        order: 3,
-        isMinimized: true,
-    });
+    mounted.notes.push(
+        {
+            ...open,
+            annotationId: 'minimized-on-rotated-page',
+            order: 2,
+            isMinimized: true,
+        },
+        {
+            // No inline marker renders for this note: it keeps its fallback throughout.
+            ...open,
+            annotationId: 'minimized-without-marker',
+            pageIndex: 1,
+            pageNumber: 2,
+            order: 3,
+            isMinimized: true,
+        },
+    );
     await nextTick();
     await nextTick();
     const openAnchor = () => rotatedPage!.querySelector<HTMLElement>('.pdf-note-open-anchor[data-annotation-id="note-1"]')!;
@@ -292,6 +288,6 @@ it('offers no note fallback on a page that waits for its rotation re-read', asyn
     await nextTick();
     expect(openAnchor().style.display).not.toBe('none');
     expect([openAnchor().style.left, openAnchor().style.top]).toEqual(['50%', '25%']);
-    expect(indicators(rotatedPage!).map(indicator => [indicator.style.left, indicator.style.top])).toEqual([['50%', '25%']]);
+    expect(indicators(rotatedPage!).map((indicator) => [indicator.style.left, indicator.style.top])).toEqual([['50%', '25%']]);
     expect(indicators(otherPage!)).toHaveLength(1);
 });

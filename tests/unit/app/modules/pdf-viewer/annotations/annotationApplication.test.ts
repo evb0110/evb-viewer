@@ -1,16 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    AnnotationApplication,
-    toCanonicalShapeEntity,
-} from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import {
-    asAnnotationId,
-    type INoteEntity,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {describe, expect, it} from 'vitest';
+import {AnnotationApplication, toCanonicalShapeEntity} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {asAnnotationId, type INoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {mapPdfAnnotationParseEntity} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -44,13 +34,15 @@ describe('AnnotationApplication', () => {
         const application = new AnnotationApplication('document');
         application.store.createNote(note());
         let comments = application.listCommentSummaries();
-        application.store.subscribe(snapshotIncludingDeleted => comments = application.listCommentSummaries(snapshotIncludingDeleted));
+        application.store.subscribe((snapshotIncludingDeleted) => (comments = application.listCommentSummaries(snapshotIncludingDeleted)));
 
-        expect(application.listCommentSummaries()).toEqual([expect.objectContaining({
-            appAnnotationId: 'note-1',
-            text: 'hello',
-            pageNumber: 1,
-        })]);
+        expect(application.listCommentSummaries()).toEqual([
+            expect.objectContaining({
+                appAnnotationId: 'note-1',
+                text: 'hello',
+                pageNumber: 1,
+            }),
+        ]);
         expect(comments).toEqual(application.listCommentSummaries());
         comments[0]!.markerRect!.left = 0.9;
         expect(application.listCommentSummaries()[0]!.markerRect!.left).toBe(0.1);
@@ -90,11 +82,13 @@ describe('AnnotationApplication', () => {
             replies: [reply],
         });
         application.store.import(parent);
-        expect(application.listCommentSummaries()).toEqual([expect.objectContaining({
-            appAnnotationId: 'highlight-parent',
-            text: 'Parent comment',
-            replies: [reply],
-        })]);
+        expect(application.listCommentSummaries()).toEqual([
+            expect.objectContaining({
+                appAnnotationId: 'highlight-parent',
+                text: 'Parent comment',
+                replies: [reply],
+            }),
+        ]);
         expect(application.store.dirtyEntities()).toEqual([]);
         const comments = application.listCommentSummaries();
         comments[0]!.replies![0]!.contents = 'Changed projection';
@@ -116,10 +110,12 @@ describe('AnnotationApplication', () => {
         application.store.createNote(note());
         const session = application.beginSave();
 
-        application.acknowledgeSave(session, null, [{
-            annotationId: 'note-1',
-            pdfRef: '11 0 R',
-        }]);
+        application.acknowledgeSave(session, null, [
+            {
+                annotationId: 'note-1',
+                pdfRef: '11 0 R',
+            },
+        ]);
 
         expect(application.store.get(asAnnotationId('note-1'))).toMatchObject({
             persistedRevision: 0,

@@ -1,7 +1,4 @@
-import type {
-    IPdfPageSize,
-    IPdfPageSizeStore,
-} from '@electron/pdf/pdfPageSizes';
+import type {IPdfPageSize, IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {resolveScanCleanupRasterPageSizeStore} from '@electron/features/scan-cleanup/resolveScanCleanupRasterPageSizeStore';
 import {detectPageRasterFromPageSize} from '@evb/scan-cleanup/core/types';
 import type {IScanCleanupPreviewRequest} from '@contracts/scan-cleanup/electronApiScanCleanup';
@@ -36,15 +33,19 @@ export function resolveScanCleanupDocumentMeasurement<TValue>(
         slot.write(pending);
         const started = pending;
         void started.catch(() => {
-            if (slot.read() === started) slot.write(null);
+            if (slot.read() === started) {
+                slot.write(null);
+            }
         });
     }
     const shared = pending;
     return new Promise<TValue>((resolve, reject) => {
         const onAbort = () => {
-            reject(signal.reason instanceof Error
-                ? signal.reason
-                : new DOMException('Scan cleanup document measurement was abandoned', 'AbortError'));
+            reject(
+                signal.reason instanceof Error
+                    ? signal.reason
+                    : new DOMException('Scan cleanup document measurement was abandoned', 'AbortError'),
+            );
         };
         signal.addEventListener('abort', onAbort, {once: true});
         shared.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
@@ -67,7 +68,7 @@ export function resolveScanCleanupDocumentPageMeasurement<TValue>(
                 }
                 return pending ?? null;
             },
-            write: value => {
+            write: (value) => {
                 if (value === null) {
                     slots.delete(pageNumber);
                 } else {
@@ -75,7 +76,9 @@ export function resolveScanCleanupDocumentPageMeasurement<TValue>(
                     slots.set(pageNumber, value);
                     while (slots.size > PAGE_MEASUREMENT_CACHE_MAX_ENTRIES) {
                         const oldest = slots.keys().next().value;
-                        if (oldest === undefined) break;
+                        if (oldest === undefined) {
+                            break;
+                        }
                         slots.delete(oldest);
                     }
                 }
@@ -91,46 +94,46 @@ export function createScanCleanupRasterMeasurements(input: {
     documentGenerations: WeakMap<IRetainedDocument, number>;
     disposed: () => boolean;
 }) {
-    const resolvePageCount = (document: IRetainedDocument, signal: AbortSignal) => resolveScanCleanupDocumentMeasurement(
-        {
-            read: () => document.pageCount,
-            write: value => {
-                document.pageCount = value;
+    const resolvePageCount = (document: IRetainedDocument, signal: AbortSignal) =>
+        resolveScanCleanupDocumentMeasurement(
+            {
+                read: () => document.pageCount,
+                write: (value) => {
+                    document.pageCount = value;
+                },
             },
-        },
-        signal,
-        () => input.dependencies.getPageCount(document.sourcePdfPath, {signal: document.lifetime.signal}),
-    );
+            signal,
+            () => input.dependencies.getPageCount(document.sourcePdfPath, {signal: document.lifetime.signal}),
+        );
     const observePageSize = (document: IRetainedDocument, page: IPdfPageSize) => {
         const raster = detectPageRasterFromPageSize(page);
         if (raster !== undefined) {
             document.pageGeometryDpi = Math.max(document.pageGeometryDpi ?? 0, raster.dpi);
         }
     };
-    const observePageSizeStore = (
-        document: IRetainedDocument,
-        store: IPdfPageSizeStore,
-    ): IPdfPageSizeStore => {
-        const fork = store.fork === undefined
-            ? undefined
-            : () => observePageSizeStore(document, store.fork!());
+    const observePageSizeStore = (document: IRetainedDocument, store: IPdfPageSizeStore): IPdfPageSizeStore => {
+        const fork = store.fork === undefined ? undefined : () => observePageSizeStore(document, store.fork!());
         return {
             get pageCount() {
                 return store.pageCount;
             },
-            getPage: async pageNumber => {
+            getPage: async (pageNumber) => {
                 const page = await store.getPage(pageNumber);
                 observePageSize(document, page);
                 return page;
             },
             readRange: async (firstPageNumber, lastPageNumberExclusive) => {
                 const pages = await store.readRange(firstPageNumber, lastPageNumberExclusive);
-                for (const page of pages) observePageSize(document, page);
+                for (const page of pages) {
+                    observePageSize(document, page);
+                }
                 return pages;
             },
-            forEachChunk: async onChunk => {
-                await store.forEachChunk(async chunk => {
-                    for (const page of chunk.pages) observePageSize(document, page);
+            forEachChunk: async (onChunk) => {
+                await store.forEachChunk(async (chunk) => {
+                    for (const page of chunk.pages) {
+                        observePageSize(document, page);
+                    }
                     await onChunk(chunk);
                 });
             },
@@ -138,24 +141,26 @@ export function createScanCleanupRasterMeasurements(input: {
             ...(fork === undefined ? {} : {fork}),
         };
     };
-    const resolvePageSizeStore = (document: IRetainedDocument, signal: AbortSignal) => resolveScanCleanupDocumentMeasurement(
-        {
-            read: () => document.pageSizeStore,
-            write: value => {
-                document.pageSizeStore = value;
+    const resolvePageSizeStore = (document: IRetainedDocument, signal: AbortSignal) =>
+        resolveScanCleanupDocumentMeasurement(
+            {
+                read: () => document.pageSizeStore,
+                write: (value) => {
+                    document.pageSizeStore = value;
+                },
             },
-        },
-        signal,
-        () => resolveScanCleanupRasterPageSizeStore({
-            dependencies: input.dependencies,
-            document,
             signal,
-            disposed: input.disposed,
-            generation: input.documentGenerations.get(document) ?? 0,
-            currentGeneration: () => input.documentGenerations.get(document) ?? 0,
-            observePageSizeStore,
-        }),
-    );
+            () =>
+                resolveScanCleanupRasterPageSizeStore({
+                    dependencies: input.dependencies,
+                    document,
+                    signal,
+                    disposed: input.disposed,
+                    generation: input.documentGenerations.get(document) ?? 0,
+                    currentGeneration: () => input.documentGenerations.get(document) ?? 0,
+                    observePageSizeStore,
+                }),
+        );
     return {
         resolvePageCount,
         resolvePageSizeStore,
@@ -165,13 +170,9 @@ export function createScanCleanupRasterMeasurements(input: {
 /** Matched-canvas summaries kept per retained document. */
 const PREVIEW_CANVAS_SIGNATURES_RETAINED = 4;
 
-async function forEachDocumentPage(
-    store: IPdfPageSizeStore,
-    totalPages: number,
-    visit: (page: IPdfPageSize) => void,
-) {
+async function forEachDocumentPage(store: IPdfPageSizeStore, totalPages: number, visit: (page: IPdfPageSize) => void) {
     let expectedPageNumber = 1;
-    await store.forEachChunk(chunk => {
+    await store.forEachChunk((chunk) => {
         if (chunk.pageCount !== totalPages) {
             throw new Error(
                 `Scan cleanup page-size store reported ${String(chunk.pageCount)} pages for ${String(totalPages)} document pages`,
@@ -210,23 +211,21 @@ export async function readBoundedPreviewGeometry(
     const facts = await resolveScanCleanupDocumentMeasurement<IScanCleanupPreviewDocumentFacts>(
         {
             read: () => document.previewDocumentFacts,
-            write: value => {
+            write: (value) => {
                 document.previewDocumentFacts = value;
             },
         },
         signal,
         async () => {
             const documentFacts = createScanCleanupPreviewDocumentFacts();
-            await forEachDocumentPage(store, totalPages, page => documentFacts.add(page));
+            await forEachDocumentPage(store, totalPages, (page) => documentFacts.add(page));
             return documentFacts.seal();
         },
     );
     const accumulator = request.options.matchPageSize
         ? await resolvePreviewCanvas(document, store, totalPages, request, signal)
         : createScanCleanupDocumentCanvasAccumulator();
-    const pageSize = request.pageNumber >= 1 && request.pageNumber <= totalPages
-        ? await store.getPage(request.pageNumber)
-        : undefined;
+    const pageSize = request.pageNumber >= 1 && request.pageNumber <= totalPages ? await store.getPage(request.pageNumber) : undefined;
     return {
         accumulator,
         pageSize,
@@ -241,10 +240,7 @@ function resolvePreviewCanvas(
     request: Pick<IScanCleanupPreviewRequest, 'layoutByPage' | 'options'>,
     signal: AbortSignal,
 ) {
-    const signature = JSON.stringify([
-        request.options,
-        request.layoutByPage ?? null,
-    ]);
+    const signature = JSON.stringify([request.options, request.layoutByPage ?? null]);
     const canvases = document.previewCanvasBySignature;
     const retained = canvases.get(signature);
     if (retained !== undefined) {
@@ -255,7 +251,7 @@ function resolvePreviewCanvas(
     return resolveScanCleanupDocumentMeasurement<IScanCleanupDocumentCanvasAccumulator>(
         {
             read: () => canvases.get(signature) ?? null,
-            write: value => {
+            write: (value) => {
                 if (value === null) {
                     canvases.delete(signature);
                     return;
@@ -269,12 +265,9 @@ function resolvePreviewCanvas(
         signal,
         async () => {
             const accumulator = createScanCleanupDocumentCanvasAccumulator();
-            await forEachDocumentPage(store, totalPages, page => addScanCleanupDocumentCanvasPage(
-                accumulator,
-                page,
-                request.options,
-                request.layoutByPage?.[String(page.pageNumber)],
-            ));
+            await forEachDocumentPage(store, totalPages, (page) =>
+                addScanCleanupDocumentCanvasPage(accumulator, page, request.options, request.layoutByPage?.[String(page.pageNumber)]),
+            );
             return accumulator;
         },
     );

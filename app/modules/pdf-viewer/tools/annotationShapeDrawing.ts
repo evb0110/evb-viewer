@@ -1,23 +1,20 @@
-import type { TPageIndex } from '@contracts/pageNumbers';
-import { createEpochMs } from '@contracts/timestamps';
+import type {TPageIndex} from '@contracts/pageNumbers';
+import {createEpochMs} from '@contracts/timestamps';
 
-import type {
-    IAnnotationSettings,
-    IShapeAnnotation,
-    IShapePoint,
-    TDrawableShapeType,
-} from '@app/types/annotations';
-import type { IShapeAnnotationConstructionOptions } from '@app/types/shapeAnnotationConstructionOptions';
-import { generateManagedShapeStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/generateManagedShapeStableKey';
-import { getPointMinMaxBounds } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getPointMinMaxBounds';
-import { toShapeRect } from '@app/modules/pdf-viewer/engine/pdf-shape-resize/toShapeRect';
-import { getAllShapePoints } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getAllShapePoints';
-import { getShapeStrokePointSets } from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getShapeStrokePointSets';
-import { createBrowserSafeId } from '@app/utils/browserSafe';
+import type {IAnnotationSettings, IShapeAnnotation, IShapePoint, TDrawableShapeType} from '@app/types/annotations';
+import type {IShapeAnnotationConstructionOptions} from '@app/types/shapeAnnotationConstructionOptions';
+import {generateManagedShapeStableKey} from '@app/modules/pdf-viewer/annotations/pdf-refs/generateManagedShapeStableKey';
+import {getPointMinMaxBounds} from '@app/modules/pdf-viewer/engine/pdf-shape-resize/getPointMinMaxBounds';
+import {toShapeRect} from '@app/modules/pdf-viewer/engine/pdf-shape-resize/toShapeRect';
+import {getAllShapePoints} from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getAllShapePoints';
+import {getShapeStrokePointSets} from '@app/modules/pdf-viewer/engine/pdf-shape-strokes/getShapeStrokePointSets';
+import {createBrowserSafeId} from '@app/utils/browserSafe';
 
 const MIN_DRAWN_SHAPE_SIZE = 0.005;
 
-export interface IBuildShapeAnnotationOptions extends IShapeAnnotationConstructionOptions {pageIndex: TPageIndex;}
+export interface IBuildShapeAnnotationOptions extends IShapeAnnotationConstructionOptions {
+    pageIndex: TPageIndex;
+}
 
 interface IShapeDrawingOrigin {
     x: number;
@@ -67,12 +64,7 @@ function appendDrawPoint(points: IShapePoint[], x: number, y: number) {
 // not move it. Only an identical point is dropped.
 function appendBoundaryPoint(points: IShapePoint[], point: IShapePoint) {
     const lastPoint = points[points.length - 1];
-    return lastPoint && lastPoint.x === point.x && lastPoint.y === point.y
-        ? points
-        : [
-            ...points,
-            point,
-        ];
+    return lastPoint && lastPoint.x === point.x && lastPoint.y === point.y ? points : [...points, point];
 }
 
 function isInsidePage(point: IShapeDrawingOrigin) {
@@ -109,23 +101,14 @@ function extendInkStrokes(strokes: IShapePoint[][], previous: IShapeDrawingOrigi
     const head = strokes.slice(0, -1);
     const last = strokes[strokes.length - 1] ?? [];
     if (wasInside && isInside) {
-        return [
-            ...head,
-            appendDrawPoint(last, current.x, current.y),
-        ];
+        return [...head, appendDrawPoint(last, current.x, current.y)];
     }
     if (wasInside) {
-        return [
-            ...head,
-            appendBoundaryPoint(last, pageEdgeCrossing(previous, current)),
-        ];
+        return [...head, appendBoundaryPoint(last, pageEdgeCrossing(previous, current))];
     }
     if (isInside) {
         const reentry = appendBoundaryPoint([], pageEdgeCrossing(current, previous));
-        return [
-            ...strokes,
-            appendDrawPoint(reentry, current.x, current.y),
-        ];
+        return [...strokes, appendDrawPoint(reentry, current.x, current.y)];
     }
     return strokes;
 }
@@ -191,15 +174,11 @@ function clampUnit(value: number) {
 }
 
 function normalizeOptionalPoint(value: number | undefined, fallback: number) {
-    return typeof value === 'number' && Number.isFinite(value)
-        ? clampUnit(value)
-        : fallback;
+    return typeof value === 'number' && Number.isFinite(value) ? clampUnit(value) : fallback;
 }
 
 function normalizeOptionalPositiveNumber(value: number | undefined, fallback: number) {
-    return typeof value === 'number' && Number.isFinite(value)
-        ? Math.max(0, value)
-        : fallback;
+    return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : fallback;
 }
 
 function normalizeStyleColor(value: string | undefined, fallback: string) {
@@ -215,34 +194,22 @@ function normalizeGeometryPoint(point: IShapePoint): IShapePoint {
 }
 
 function normalizeGeometryPoints(points: IShapePoint[] | undefined) {
-    const normalized = points
-        ?.filter(point => Number.isFinite(point.x) && Number.isFinite(point.y))
-        .map(normalizeGeometryPoint)
-        ?? [];
+    const normalized = points?.filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y)).map(normalizeGeometryPoint) ?? [];
     return normalized.length > 0 ? normalized : null;
 }
 
 function normalizeGeometryStrokes(strokes: IShapePoint[][] | undefined) {
-    const normalized = strokes
-        ?.map(points => normalizeGeometryPoints(points) ?? [])
-        .filter(points => points.length > 0)
-        ?? [];
+    const normalized = strokes?.map((points) => normalizeGeometryPoints(points) ?? []).filter((points) => points.length > 0) ?? [];
     return normalized.length > 0 ? normalized : null;
 }
 
-function resolveGeometryFillColor(
-    tool: TDrawableShapeType,
-    settings: IAnnotationSettings,
-    fillColor: string | null | undefined,
-) {
+function resolveGeometryFillColor(tool: TDrawableShapeType, settings: IAnnotationSettings, fillColor: string | null | undefined) {
     if (fillColor === null || fillColor === 'transparent') {
         return undefined;
     }
 
     const normalized = fillColor?.trim();
-    return normalized && normalized.length > 0
-        ? normalized
-        : resolveDrawingFillColor(tool, settings);
+    return normalized && normalized.length > 0 ? normalized : resolveDrawingFillColor(tool, settings);
 }
 
 function applyGeometryStyle(
@@ -291,14 +258,8 @@ function applyBoxGeometry(shape: IShapeAnnotation, options: IBuildShapeAnnotatio
 function applyLineGeometry(shape: IShapeAnnotation, options: IBuildShapeAnnotationOptions): IShapeAnnotation {
     const x = clampUnit(options.x);
     const y = clampUnit(options.y);
-    const x2 = normalizeOptionalPoint(
-        options.x2,
-        Math.min(1, x + normalizeOptionalPositiveNumber(options.width, 0)),
-    );
-    const y2 = normalizeOptionalPoint(
-        options.y2,
-        Math.min(1, y + normalizeOptionalPositiveNumber(options.height, 0)),
-    );
+    const x2 = normalizeOptionalPoint(options.x2, Math.min(1, x + normalizeOptionalPositiveNumber(options.width, 0)));
+    const y2 = normalizeOptionalPoint(options.y2, Math.min(1, y + normalizeOptionalPositiveNumber(options.height, 0)));
 
     return {
         ...shape,
@@ -323,8 +284,7 @@ function applyInkGeometry(shape: IShapeAnnotation, options: IBuildShapeAnnotatio
         },
     ];
     const normalizedPoints = normalizeGeometryPoints(options.points);
-    const strokes = normalizeGeometryStrokes(options.strokes)
-        ?? (normalizedPoints ? [normalizedPoints] : [fallbackPoints]);
+    const strokes = normalizeGeometryStrokes(options.strokes) ?? (normalizedPoints ? [normalizedPoints] : [fallbackPoints]);
     const points = strokes[0] ?? fallbackPoints;
     return {
         ...shape,
@@ -367,7 +327,7 @@ function createArrowDrawingGeometry(tool: TDrawableShapeType) {
         return {};
     }
 
-    return { lineEndStyle: 'closedArrow' as const };
+    return {lineEndStyle: 'closedArrow' as const};
 }
 
 export function createDrawingShape(
@@ -402,18 +362,9 @@ export function createDrawingShape(
     };
 }
 
-export function buildShapeAnnotation(
-    options: IBuildShapeAnnotationOptions,
-    settings: IAnnotationSettings,
-): IShapeAnnotation | null {
+export function buildShapeAnnotation(options: IBuildShapeAnnotationOptions, settings: IAnnotationSettings): IShapeAnnotation | null {
     const baseShape = applyGeometryStyle(
-        createDrawingShape(
-            options.pageIndex,
-            options.tool,
-            options.x,
-            options.y,
-            settings,
-        ),
+        createDrawingShape(options.pageIndex, options.tool, options.x, options.y, settings),
         options.tool,
         settings,
         options,
@@ -434,7 +385,7 @@ export function buildShapeAnnotation(
 function isDrawableFinishedShape(shape: IShapeAnnotation) {
     if (shape.type === 'polyline') {
         const length = getShapeStrokePointSets(shape)
-            .filter(points => points.length >= 2)
+            .filter((points) => points.length >= 2)
             .reduce((total, points) => total + getShapePathLength(points), 0);
         return length >= MIN_DRAWN_SHAPE_SIZE;
     }
@@ -460,7 +411,7 @@ export function finishDrawingShape(shape: IShapeAnnotation): IShapeAnnotation | 
     if (shape.type !== 'polyline') {
         return shape;
     }
-    const strokes = getShapeStrokePointSets(shape).filter(points => getShapePathLength(points) > 0);
+    const strokes = getShapeStrokePointSets(shape).filter((points) => getShapePathLength(points) > 0);
     const points = strokes[0] ?? [];
     return {
         ...shape,

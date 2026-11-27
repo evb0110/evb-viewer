@@ -19,10 +19,7 @@
 </template>
 
 <script setup lang="ts">
-import {
-    useEventListener,
-    useTimeoutFn,
-} from '@vueuse/core';
+import {useEventListener, useTimeoutFn} from '@vueuse/core';
 
 type TVariant = 'grid' | 'panel';
 
@@ -57,25 +54,26 @@ const resolvedStyle = computed(() => {
     return style;
 });
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 const documentTarget = typeof document === 'undefined' ? undefined : document;
 const menuElement = ref<HTMLElement | null>(null);
 let previouslyFocusedElement: HTMLElement | null = null;
 let pointerFocusPending = false;
 let lastInputWasKeyboard = false;
-const {
-    start: startPointerFocusReset,
-    stop: stopPointerFocusReset,
-} = useTimeoutFn(() => {
-    pointerFocusPending = false;
-}, 0, { immediate: false });
+const {start: startPointerFocusReset, stop: stopPointerFocusReset} = useTimeoutFn(
+    () => {
+        pointerFocusPending = false;
+    },
+    0,
+    {immediate: false},
+);
 
 function getMenuItems() {
     return Array.from(
         menuElement.value?.querySelectorAll<HTMLElement>(
             'button:not(:disabled), a[href], [role="menuitem"], [tabindex]:not([tabindex="-1"])',
         ) ?? [],
-    ).filter(element => !element.hasAttribute('disabled') && !element.hasAttribute('aria-hidden'));
+    ).filter((element) => !element.hasAttribute('disabled') && !element.hasAttribute('aria-hidden'));
 }
 
 function focusMenuEntry() {
@@ -94,9 +92,7 @@ function clearActiveItem() {
 
 function handleMenuPointerMove(event: PointerEvent) {
     const target = event.target;
-    const item = target instanceof Element
-        ? getMenuItems().find(element => element.contains(target))
-        : undefined;
+    const item = target instanceof Element ? getMenuItems().find((element) => element.contains(target)) : undefined;
     if (!item) {
         clearActiveItem();
         return;
@@ -107,12 +103,7 @@ function handleMenuPointerMove(event: PointerEvent) {
 }
 
 function handleMenuKeydown(event: KeyboardEvent) {
-    if (![
-        'ArrowDown',
-        'ArrowUp',
-        'Home',
-        'End',
-    ].includes(event.key)) {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
         return;
     }
 
@@ -125,11 +116,12 @@ function handleMenuKeydown(event: KeyboardEvent) {
 
     event.preventDefault();
     const activeIndex = items.indexOf(document.activeElement as HTMLElement);
-    const nextIndex = event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-            ? items.length - 1
-            : (activeIndex < 0 ? 0 : activeIndex + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
+    const nextIndex =
+        event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? items.length - 1
+              : (activeIndex < 0 ? 0 : activeIndex + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
     items[nextIndex]?.focus({preventScroll: true});
 }
 
@@ -153,10 +145,15 @@ function markPointerFocus() {
     startPointerFocusReset();
 }
 
-useEventListener(documentTarget, 'keydown', markKeyboardInput, { capture: true });
-useEventListener(documentTarget, 'pointerdown', () => {
-    lastInputWasKeyboard = false;
-}, { capture: true });
+useEventListener(documentTarget, 'keydown', markKeyboardInput, {capture: true});
+useEventListener(
+    documentTarget,
+    'pointerdown',
+    () => {
+        lastInputWasKeyboard = false;
+    },
+    {capture: true},
+);
 
 function removeFocusListeners() {
     if (typeof document !== 'undefined') {
@@ -175,32 +172,38 @@ function restoreFocus() {
             // A menu action may focus an editor or a dialog as it closes.
             // Returning focus to the opener would blur and commit that editor.
             const active = document.activeElement;
-            if (active && active !== document.body && active !== element) return;
+            if (active && active !== document.body && active !== element) {
+                return;
+            }
             element.focus({preventScroll: true});
         });
     }
 }
 
-watch(() => visible, (isVisible) => {
-    if (!isVisible) {
-        removeFocusListeners();
-        restoreFocus();
-        return;
-    }
-
-    if (typeof document !== 'undefined') {
-        const activeElement = document.activeElement;
-        if (activeElement instanceof HTMLElement && activeElement !== menuElement.value) {
-            previouslyFocusedElement = activeElement;
+watch(
+    () => visible,
+    (isVisible) => {
+        if (!isVisible) {
+            removeFocusListeners();
+            restoreFocus();
+            return;
         }
-        document.addEventListener('focusin', containMenuFocus);
-        document.addEventListener('pointerdown', markPointerFocus, true);
-    }
-    void nextTick(focusMenuEntry);
-}, {
-    flush: 'post',
-    immediate: true,
-});
+
+        if (typeof document !== 'undefined') {
+            const activeElement = document.activeElement;
+            if (activeElement instanceof HTMLElement && activeElement !== menuElement.value) {
+                previouslyFocusedElement = activeElement;
+            }
+            document.addEventListener('focusin', containMenuFocus);
+            document.addEventListener('pointerdown', markPointerFocus, true);
+        }
+        void nextTick(focusMenuEntry);
+    },
+    {
+        flush: 'post',
+        immediate: true,
+    },
+);
 
 onBeforeUnmount(() => {
     removeFocusListeners();

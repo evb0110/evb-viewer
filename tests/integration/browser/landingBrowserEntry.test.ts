@@ -1,17 +1,11 @@
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {resolve} from 'node:path';
-import {
-    afterAll, beforeAll, expect, it, vi,
-} from 'vitest';
+import {afterAll, beforeAll, expect, it, vi} from 'vitest';
 import type {Browser} from 'playwright';
 import {buildNuxtDevServerEnv} from '@scripts/electron-run/electronRunLaunchConfig';
-import {
-    findFreePort, killProcessTree,
-} from '@scripts/electron-run/electronRunProcessTree';
-import {
-    closeChromiumBrowser, connectOrLaunchChromium,
-} from './browserIntegrationChromium';
+import {findFreePort, killProcessTree} from '@scripts/electron-run/electronRunProcessTree';
+import {closeChromiumBrowser, connectOrLaunchChromium} from './browserIntegrationChromium';
 
 let server: ReturnType<typeof spawn>;
 let browser: Browser;
@@ -25,20 +19,13 @@ beforeAll(async () => {
     const capture = (chunk: Buffer) => {
         output = `${output}${chunk.toString()}`.slice(-10_000);
     };
-    server = spawn(process.execPath, [
-        resolve('node_modules/nuxt/bin/nuxt.mjs'),
-        'build',
-    ], {
+    server = spawn(process.execPath, [resolve('node_modules/nuxt/bin/nuxt.mjs'), 'build'], {
         cwd: resolve('landing'),
         env: {
             ...env,
             NITRO_PRESET: 'node-server',
         },
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['ignore', 'pipe', 'pipe'],
     });
     server.stdout?.on('data', capture);
     server.stderr?.on('data', capture);
@@ -51,20 +38,23 @@ beforeAll(async () => {
             NITRO_HOST: '127.0.0.1',
             NITRO_PORT: String(port),
         },
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['ignore', 'pipe', 'pipe'],
     });
     server.stdout?.on('data', capture);
     server.stderr?.on('data', capture);
     await once(server, 'spawn');
-    await vi.waitFor(async () => {
-        if (server.exitCode !== null) throw new Error(output);
-        const status = await fetch(`${origin}/`).then(response => response.status).catch(() => 0);
-        expect(status, output).toBe(200);
-    }, {timeout: 90_000});
+    await vi.waitFor(
+        async () => {
+            if (server.exitCode !== null) {
+                throw new Error(output);
+            }
+            const status = await fetch(`${origin}/`)
+                .then((response) => response.status)
+                .catch(() => 0);
+            expect(status, output).toBe(200);
+        },
+        {timeout: 90_000},
+    );
     browser = await connectOrLaunchChromium();
 }, 180_000);
 
@@ -72,7 +62,9 @@ afterAll(async () => {
     try {
         await closeChromiumBrowser(browser);
     } finally {
-        if (server?.pid) await killProcessTree(server.pid);
+        if (server?.pid) {
+            await killProcessTree(server.pid);
+        }
     }
 });
 
@@ -81,10 +73,7 @@ afterAll(async () => {
 it('keeps browser entry links on the matching primary or Vercel host', async () => {
     const context = await browser.newContext();
     try {
-        for (const hostname of [
-            'evb-viewer.vercel.app',
-            'evb-viewer.com',
-        ]) {
+        for (const hostname of ['evb-viewer.vercel.app', 'evb-viewer.com']) {
             await context.route(`https://${hostname}/**`, async (route) => {
                 const url = new URL(route.request().url());
                 const response = await route.fetch({
@@ -98,37 +87,26 @@ it('keeps browser entry links on the matching primary or Vercel host', async () 
                 await route.fulfill({response});
             });
         }
-        for (const hostname of [
-            'web.evb-viewer.com',
-            'evb-viewer-web.vercel.app',
-        ]) {
-            await context.route(`https://${hostname}/**`, route => route.fulfill({
-                contentType: 'text/html',
-                body: '<!doctype html><title>Navigation destination</title>',
-            }));
+        for (const hostname of ['web.evb-viewer.com', 'evb-viewer-web.vercel.app']) {
+            await context.route(`https://${hostname}/**`, (route) =>
+                route.fulfill({
+                    contentType: 'text/html',
+                    body: '<!doctype html><title>Navigation destination</title>',
+                }),
+            );
         }
-        await context.route('**/api/releases/latest', route => route.fulfill({
-            status: 503,
-            contentType: 'application/json',
-            body: '{"statusMessage":"Release lookup is outside this navigation test"}',
-        }));
+        await context.route('**/api/releases/latest', (route) =>
+            route.fulfill({
+                status: 503,
+                contentType: 'application/json',
+                body: '{"statusMessage":"Release lookup is outside this navigation test"}',
+            }),
+        );
         const page = await context.newPage();
-        for (const hostname of [
-            'evb-viewer.vercel.app',
-            'evb-viewer.com',
-        ]) {
-            const expectedHost = hostname.endsWith('.vercel.app')
-                ? 'evb-viewer-web.vercel.app'
-                : 'web.evb-viewer.com';
-            for (const locale of [
-                '',
-                '/ru',
-            ]) {
-                for (const path of [
-                    '',
-                    '/features',
-                    '/docs',
-                ]) {
+        for (const hostname of ['evb-viewer.vercel.app', 'evb-viewer.com']) {
+            const expectedHost = hostname.endsWith('.vercel.app') ? 'evb-viewer-web.vercel.app' : 'web.evb-viewer.com';
+            for (const locale of ['', '/ru']) {
+                for (const path of ['', '/features', '/docs']) {
                     const response = await page.goto(`https://${hostname}${locale}${path}`);
                     expect(response?.status(), await page.locator('body').innerText()).toBe(200);
                     const label = locale ? 'Использовать в браузере' : 'Use in browser';

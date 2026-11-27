@@ -1,20 +1,8 @@
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    nextTick,
-    type Ref,
-} from 'vue';
-import { useWorkspaceHostTeleportAvailability } from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, nextTick, type Ref} from 'vue';
+import {useWorkspaceHostTeleportAvailability} from '@app/modules/workspace-shell/composables/useWorkspaceHostTeleportAvailability';
 
 const TOOLBAR_HOST_ID = 'workspace-toolbar-teleport-host';
 const STATUS_HOST_ID = 'workspace-status-teleport-host';
@@ -26,15 +14,17 @@ function mountAvailability() {
     };
     const host = document.createElement('div');
     document.body.append(host);
-    const app = createApp(defineComponent({
-        setup() {
-            result = useWorkspaceHostTeleportAvailability({
-                toolbarHostId: TOOLBAR_HOST_ID,
-                statusHostId: STATUS_HOST_ID,
-            });
-            return () => null;
-        },
-    }));
+    const app = createApp(
+        defineComponent({
+            setup() {
+                result = useWorkspaceHostTeleportAvailability({
+                    toolbarHostId: TOOLBAR_HOST_ID,
+                    statusHostId: STATUS_HOST_ID,
+                });
+                return () => null;
+            },
+        }),
+    );
     app.mount(host);
     return {
         ...result,

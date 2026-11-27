@@ -1,25 +1,17 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import {describe, expect, it} from 'vitest';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import {requirePageIndex} from '@contracts/pageNumbers';
-import {
-    createAgentPageLabelPlan,
-    createAgentPageLabelSnapshot,
-} from '@app/modules/workspace-shell/agent/createDocumentAgentPageLabels';
-import {
-    createAgentBookmarkPlan,
-    createAgentBookmarkSnapshot,
-} from '@app/modules/workspace-shell/agent/createDocumentAgentBookmarks';
+import {createAgentPageLabelPlan, createAgentPageLabelSnapshot} from '@app/modules/workspace-shell/agent/createDocumentAgentPageLabels';
+import {createAgentBookmarkPlan, createAgentBookmarkSnapshot} from '@app/modules/workspace-shell/agent/createDocumentAgentBookmarks';
 
-const DEFAULT_RANGES = [{
-    startPage: 1,
-    style: 'D' as const,
-    prefix: '',
-    startNumber: 1,
-}];
+const DEFAULT_RANGES = [
+    {
+        startPage: 1,
+        style: 'D' as const,
+        prefix: '',
+        startNumber: 1,
+    },
+];
 
 function bookmark(overrides: Partial<IPdfBookmarkEntry>): IPdfBookmarkEntry {
     return {
@@ -36,19 +28,24 @@ function bookmark(overrides: Partial<IPdfBookmarkEntry>): IPdfBookmarkEntry {
 
 describe('agentMetadataPlans', () => {
     it('keeps nested bookmark depths equal to the flat view and summary maximum', () => {
-        const snapshot = createAgentBookmarkSnapshot([
-            bookmark({
-                title: 'Parent',
-                items: [bookmark({
-                    title: 'Child',
-                    items: [bookmark({title: 'Grandchild'})],
-                })],
-            }),
-            bookmark({title: 'Other root'}),
-        ], {dirty: false});
+        const snapshot = createAgentBookmarkSnapshot(
+            [
+                bookmark({
+                    title: 'Parent',
+                    items: [
+                        bookmark({
+                            title: 'Child',
+                            items: [bookmark({title: 'Grandchild'})],
+                        }),
+                    ],
+                }),
+                bookmark({title: 'Other root'}),
+            ],
+            {dirty: false},
+        );
         const nestedEntries: Array<{
             path: unknown;
-            depth: unknown
+            depth: unknown;
         }> = [];
         const visit = (entries: Array<Record<string, unknown>>) => {
             for (const entry of entries) {
@@ -61,20 +58,15 @@ describe('agentMetadataPlans', () => {
         };
         visit(snapshot.bookmarks);
 
-        expect(nestedEntries).toEqual(snapshot.flat.map(({
-            path, depth,
-        }) => ({
-            path,
-            depth,
-        })));
-        expect(nestedEntries.map(entry => entry.depth)).toEqual([
-            0,
-            1,
-            2,
-            0,
-        ]);
+        expect(nestedEntries).toEqual(
+            snapshot.flat.map(({path, depth}) => ({
+                path,
+                depth,
+            })),
+        );
+        expect(nestedEntries.map((entry) => entry.depth)).toEqual([0, 1, 2, 0]);
         expect(snapshot.summary.maxDepth).toBe(2);
-        expect(snapshot.summary.maxDepth).toBe(Math.max(...nestedEntries.map(entry => Number(entry.depth))));
+        expect(snapshot.summary.maxDepth).toBe(Math.max(...nestedEntries.map((entry) => Number(entry.depth))));
     });
 
     it('previews page numbering from inclusive segments with samples and diffs', () => {
@@ -148,12 +140,14 @@ describe('agentMetadataPlans', () => {
         const snapshot = createAgentPageLabelSnapshot({
             totalPages: 3,
             dirty: true,
-            pageLabelRanges: [{
-                startPage: 1,
-                style: null,
-                prefix: 'Cover',
-                startNumber: 1,
-            }],
+            pageLabelRanges: [
+                {
+                    startPage: 1,
+                    style: null,
+                    prefix: 'Cover',
+                    startNumber: 1,
+                },
+            ],
             pageLabels: null,
         });
 
@@ -171,13 +165,17 @@ describe('agentMetadataPlans', () => {
     it('keeps million-page agent plans range-based and reports a bounded diff', () => {
         const totalPages = 1_000_000;
         const plan = createAgentPageLabelPlan({
-            input: {segments: [{
-                startPage: 400_000,
-                endPage: 400_010,
-                style: 'roman-lower',
-                prefix: 'Section ',
-                startNumber: 1,
-            }]},
+            input: {
+                segments: [
+                    {
+                        startPage: 400_000,
+                        endPage: 400_010,
+                        style: 'roman-lower',
+                        prefix: 'Section ',
+                        startNumber: 1,
+                    },
+                ],
+            },
             totalPages,
             currentRanges: DEFAULT_RANGES,
             currentLabels: null,
@@ -195,12 +193,16 @@ describe('agentMetadataPlans', () => {
             firstChangedPage: 400_000,
             lastChangedPage: 400_010,
         });
-        expect(plan.proposed.segments).toEqual(expect.arrayContaining([expect.objectContaining({
-            startPage: 400_000,
-            endPage: 400_010,
-            startLabel: 'Section i',
-            endLabel: 'Section xi',
-        })]));
+        expect(plan.proposed.segments).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    startPage: 400_000,
+                    endPage: 400_010,
+                    startLabel: 'Section i',
+                    endLabel: 'Section xi',
+                }),
+            ]),
+        );
     });
 
     it('keeps the small agent snapshot labels exactly compatible with ranges', () => {
@@ -224,16 +226,7 @@ describe('agentMetadataPlans', () => {
             pageLabels: null,
         });
 
-        expect(snapshot.labels).toEqual([
-            'Front i',
-            'Front ii',
-            'Front iii',
-            'Body 1',
-            'Body 2',
-            'Body 3',
-            'Body 4',
-            'Body 5',
-        ]);
+        expect(snapshot.labels).toEqual(['Front i', 'Front ii', 'Front iii', 'Body 1', 'Body 2', 'Body 3', 'Body 4', 'Body 5']);
         expect(snapshot.segments).toEqual([
             expect.objectContaining({
                 startPage: 1,
@@ -252,24 +245,26 @@ describe('agentMetadataPlans', () => {
 
     it('previews nested bookmarks from flat outline entries', () => {
         const plan = createAgentBookmarkPlan({
-            input: {entries: [
-                {
-                    level: 1,
-                    title: 'Introduction',
-                    page: 1,
-                },
-                {
-                    level: 2,
-                    title: 'Scope',
-                    page: 2,
-                },
-                {
-                    level: 1,
-                    title: 'Chapter 1',
-                    page: 5,
-                    bold: true,
-                },
-            ]},
+            input: {
+                entries: [
+                    {
+                        level: 1,
+                        title: 'Introduction',
+                        page: 1,
+                    },
+                    {
+                        level: 2,
+                        title: 'Scope',
+                        page: 2,
+                    },
+                    {
+                        level: 1,
+                        title: 'Chapter 1',
+                        page: 5,
+                        bold: true,
+                    },
+                ],
+            },
             currentBookmarks: [],
             totalPages: 8,
             dirty: false,
@@ -282,10 +277,12 @@ describe('agentMetadataPlans', () => {
             expect.objectContaining({
                 title: 'Introduction',
                 pageIndex: requirePageIndex(0),
-                items: [expect.objectContaining({
-                    title: 'Scope',
-                    pageIndex: 1,
-                })],
+                items: [
+                    expect.objectContaining({
+                        title: 'Scope',
+                        pageIndex: 1,
+                    }),
+                ],
             }),
             expect.objectContaining({
                 title: 'Chapter 1',
@@ -306,10 +303,7 @@ describe('agentMetadataPlans', () => {
                 title: 'Introduction',
             }),
             expect.objectContaining({
-                path: [
-                    0,
-                    0,
-                ],
+                path: [0, 0],
                 depth: 1,
                 title: 'Scope',
             }),
@@ -323,14 +317,20 @@ describe('agentMetadataPlans', () => {
 
     it('accepts children as a nested bookmark alias', () => {
         const plan = createAgentBookmarkPlan({
-            input: {bookmarks: [{
-                title: 'Part I',
-                page: 1,
-                children: [{
-                    title: 'Chapter 1',
-                    page: 2,
-                }],
-            }]},
+            input: {
+                bookmarks: [
+                    {
+                        title: 'Part I',
+                        page: 1,
+                        children: [
+                            {
+                                title: 'Chapter 1',
+                                page: 2,
+                            },
+                        ],
+                    },
+                ],
+            },
             currentBookmarks: [],
             totalPages: 4,
             dirty: false,
@@ -339,22 +339,30 @@ describe('agentMetadataPlans', () => {
         });
 
         expect(plan.inputMode).toBe('nested');
-        expect(plan.bookmarks).toEqual([expect.objectContaining({
-            title: 'Part I',
-            items: [expect.objectContaining({
-                title: 'Chapter 1',
-                pageIndex: 1,
-            })],
-        })]);
+        expect(plan.bookmarks).toEqual([
+            expect.objectContaining({
+                title: 'Part I',
+                items: [
+                    expect.objectContaining({
+                        title: 'Chapter 1',
+                        pageIndex: 1,
+                    }),
+                ],
+            }),
+        ]);
     });
 
     it('preserves pageYRatio anchors in bookmark plans and snapshots', () => {
         const plan = createAgentBookmarkPlan({
-            input: {bookmarks: [{
-                title: 'Lesson 5',
-                page: 12,
-                pageYRatio: 0.375,
-            }]},
+            input: {
+                bookmarks: [
+                    {
+                        title: 'Lesson 5',
+                        page: 12,
+                        pageYRatio: 0.375,
+                    },
+                ],
+            },
             currentBookmarks: [],
             totalPages: 20,
             dirty: false,
@@ -379,20 +387,24 @@ describe('agentMetadataPlans', () => {
 
     it('flags child bookmark clusters that reuse the exact parent destination', () => {
         const plan = createAgentBookmarkPlan({
-            input: {bookmarks: [{
-                title: 'Lesson 5',
-                page: 10,
-                children: [
+            input: {
+                bookmarks: [
                     {
-                        title: '10 Paragraph',
+                        title: 'Lesson 5',
                         page: 10,
-                    },
-                    {
-                        title: '11 Paragraph',
-                        page: 10,
+                        children: [
+                            {
+                                title: '10 Paragraph',
+                                page: 10,
+                            },
+                            {
+                                title: '11 Paragraph',
+                                page: 10,
+                            },
+                        ],
                     },
                 ],
-            }]},
+            },
             currentBookmarks: [],
             totalPages: 20,
             dirty: false,
@@ -400,31 +412,39 @@ describe('agentMetadataPlans', () => {
             actionId: 'bookmarks.preview_tree',
         });
 
-        expect(plan.issues).toEqual(expect.arrayContaining([expect.objectContaining({
-            severity: 'error',
-            code: 'bookmark_children_share_parent_destination',
-            path: [0],
-        })]));
+        expect(plan.issues).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    severity: 'error',
+                    code: 'bookmark_children_share_parent_destination',
+                    path: [0],
+                }),
+            ]),
+        );
     });
 
     it('allows same-page children when their pageYRatio anchors differ from the parent', () => {
         const plan = createAgentBookmarkPlan({
-            input: {bookmarks: [{
-                title: 'Lesson 5',
-                page: 10,
-                children: [
+            input: {
+                bookmarks: [
                     {
-                        title: '10 Paragraph',
+                        title: 'Lesson 5',
                         page: 10,
-                        pageYRatio: 0.2,
-                    },
-                    {
-                        title: '11 Paragraph',
-                        page: 10,
-                        pageYRatio: 0.6,
+                        children: [
+                            {
+                                title: '10 Paragraph',
+                                page: 10,
+                                pageYRatio: 0.2,
+                            },
+                            {
+                                title: '11 Paragraph',
+                                page: 10,
+                                pageYRatio: 0.6,
+                            },
+                        ],
                     },
                 ],
-            }]},
+            },
             currentBookmarks: [],
             totalPages: 20,
             dirty: false,
@@ -432,36 +452,44 @@ describe('agentMetadataPlans', () => {
             actionId: 'bookmarks.preview_tree',
         });
 
-        expect(plan.issues).not.toEqual(expect.arrayContaining([expect.objectContaining({code: 'bookmark_children_share_parent_destination'})]));
+        expect(plan.issues).not.toEqual(
+            expect.arrayContaining([expect.objectContaining({code: 'bookmark_children_share_parent_destination'})]),
+        );
     });
 
     it('reports bookmark validation hints for awkward assistant plans', () => {
         const plan = createAgentBookmarkPlan({
-            input: {entries: [
-                {
-                    depth: 2,
-                    title: 'Orphaned deep heading',
-                    page: 2,
-                },
-                {
-                    depth: 0,
-                    title: 'No destination',
-                },
-            ]},
-            currentBookmarks: [bookmark({
-                title: 'Old',
-                pageIndex: requirePageIndex(0),
-            })],
+            input: {
+                entries: [
+                    {
+                        depth: 2,
+                        title: 'Orphaned deep heading',
+                        page: 2,
+                    },
+                    {
+                        depth: 0,
+                        title: 'No destination',
+                    },
+                ],
+            },
+            currentBookmarks: [
+                bookmark({
+                    title: 'Old',
+                    pageIndex: requirePageIndex(0),
+                }),
+            ],
             totalPages: 4,
             dirty: false,
             untitledTitle: 'Untitled',
             actionId: 'bookmarks.preview_tree',
         });
 
-        expect(plan.issues).toEqual(expect.arrayContaining([
-            expect.objectContaining({code: 'flat_bookmark_missing_parent'}),
-            expect.objectContaining({code: 'bookmark_without_destination'}),
-        ]));
+        expect(plan.issues).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({code: 'flat_bookmark_missing_parent'}),
+                expect.objectContaining({code: 'bookmark_without_destination'}),
+            ]),
+        );
 
         const snapshot = createAgentBookmarkSnapshot(plan.bookmarks, {dirty: false});
         expect(snapshot.summary).toMatchObject({
@@ -473,10 +501,7 @@ describe('agentMetadataPlans', () => {
 });
 
 describe('page-label duplicate analysis completeness', () => {
-    it.each([
-        200,
-        201,
-    ])('reports restarted numbering honestly at %i pages', (totalPages) => {
+    it.each([200, 201])('reports restarted numbering honestly at %i pages', (totalPages) => {
         const snapshot = createAgentPageLabelSnapshot({
             totalPages,
             dirty: false,
@@ -505,30 +530,32 @@ describe('page-label duplicate analysis completeness', () => {
         }
     });
 
-    it.each([
-        200,
-        201,
-        1_000_000,
-    ])('counts distinct repeated literal labels at %i pages', (totalPages) => {
+    it.each([200, 201, 1_000_000])('counts distinct repeated literal labels at %i pages', (totalPages) => {
         const snapshot = createAgentPageLabelSnapshot({
             totalPages,
             dirty: false,
-            pageLabelRanges: [{
-                startPage: 1,
-                style: null,
-                prefix: 'Cover',
-                startNumber: 1,
-            }],
+            pageLabelRanges: [
+                {
+                    startPage: 1,
+                    style: null,
+                    prefix: 'Cover',
+                    startNumber: 1,
+                },
+            ],
         });
         expect(snapshot.summary).toMatchObject({
             duplicateLabelCount: 1,
             duplicateLabelAnalysisComplete: true,
         });
-        expect(snapshot.issues).toContainEqual(expect.objectContaining({
-            code: 'duplicate_page_label',
-            message: `Page label "Cover" appears on ${totalPages} pages.`,
-        }));
-        if (totalPages > 200) expect(snapshot.labels).toBeNull();
+        expect(snapshot.issues).toContainEqual(
+            expect.objectContaining({
+                code: 'duplicate_page_label',
+                message: `Page label "Cover" appears on ${totalPages} pages.`,
+            }),
+        );
+        if (totalPages > 200) {
+            expect(snapshot.labels).toBeNull();
+        }
     });
 
     it('does not claim a partial literal count is a complete mixed-range result', () => {
@@ -554,9 +581,11 @@ describe('page-label duplicate analysis completeness', () => {
             duplicateLabelCount: null,
             duplicateLabelAnalysisComplete: false,
         });
-        expect(snapshot.issues).toContainEqual(expect.objectContaining({
-            code: 'duplicate_page_label',
-            message: expect.stringContaining('at least 100 pages'),
-        }));
+        expect(snapshot.issues).toContainEqual(
+            expect.objectContaining({
+                code: 'duplicate_page_label',
+                message: expect.stringContaining('at least 100 pages'),
+            }),
+        );
     });
 });

@@ -1,7 +1,4 @@
-import type {
-    ComputedRef,
-    Ref,
-} from 'vue';
+import type {ComputedRef, Ref} from 'vue';
 import {clamp} from 'es-toolkit/math';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import type {TPdfSource} from '@app/types/pdfUi';
@@ -13,7 +10,7 @@ interface IUsePdfViewerRenderStallRecoveryOptions {
     currentPage: Ref<number>;
     visibleRange: Ref<{
         start: number;
-        end: number
+        end: number;
     }>;
     viewerContainer: Ref<HTMLElement | null>;
     summarizeViewerMetricsForLog: (container: HTMLElement | null) => unknown;

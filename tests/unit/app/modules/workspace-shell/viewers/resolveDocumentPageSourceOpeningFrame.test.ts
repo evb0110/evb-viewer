@@ -1,14 +1,6 @@
 // @vitest-environment happy-dom
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    readArrivedViewportClientSize,
-    resolveDocumentPageSourceOpeningFrame,
-} from '@app/modules/document-viewer/public';
+import {describe, expect, it, vi} from 'vitest';
+import {readArrivedViewportClientSize, resolveDocumentPageSourceOpeningFrame} from '@app/modules/document-viewer/public';
 
 const geometry = {
     documentId: '/documents/scan.djvu',
@@ -37,36 +29,42 @@ describe('resolveDocumentPageSourceOpeningFrame', () => {
     });
 
     it('uses the live viewport height for fit-height and the zoom policy for custom scale', () => {
-        expect(resolveDocumentPageSourceOpeningFrame({
-            geometry,
-            viewport: {
-                width: 900,
-                height: 832,
-            },
-            zoom: 1,
-            zoomMode: 'fit-height',
-        })?.height).toBe(792);
-        expect(resolveDocumentPageSourceOpeningFrame({
-            geometry,
-            viewport: {
-                width: 900,
-                height: 832,
-            },
-            zoom: 1.25,
-            zoomMode: 'custom',
-        })?.width).toBe(1500);
+        expect(
+            resolveDocumentPageSourceOpeningFrame({
+                geometry,
+                viewport: {
+                    width: 900,
+                    height: 832,
+                },
+                zoom: 1,
+                zoomMode: 'fit-height',
+            })?.height,
+        ).toBe(792);
+        expect(
+            resolveDocumentPageSourceOpeningFrame({
+                geometry,
+                viewport: {
+                    width: 900,
+                    height: 832,
+                },
+                zoom: 1.25,
+                zoomMode: 'custom',
+            })?.width,
+        ).toBe(1500);
     });
 
     it('refuses to claim a frame without a usable live viewport', () => {
-        expect(resolveDocumentPageSourceOpeningFrame({
-            geometry,
-            viewport: {
-                width: 0,
-                height: 537,
-            },
-            zoom: 1,
-            zoomMode: 'fit-width',
-        })).toBeNull();
+        expect(
+            resolveDocumentPageSourceOpeningFrame({
+                geometry,
+                viewport: {
+                    width: 0,
+                    height: 537,
+                },
+                zoom: 1,
+                zoomMode: 'fit-width',
+            }),
+        ).toBeNull();
     });
 });
 
@@ -89,51 +87,78 @@ describe('readArrivedViewportClientSize', () => {
             scrollWidth: {value: box.scrollWidth},
         });
         // The chassis suppresses scrolling with an inline overflow.
-        if (box.suppressed ?? true) viewport.style.overflow = 'hidden';
+        if (box.suppressed ?? true) {
+            viewport.style.overflow = 'hidden';
+        }
         return viewport;
     }
 
-    it('takes a wide page\'s horizontal scrollbar from an opening viewport that still hides overflow', () => {
-        expect(readArrivedViewportClientSize(createViewport({
-            clientHeight: 548,
-            scrollWidth: 1400,
-        }))).toEqual({
+    it("takes a wide page's horizontal scrollbar from an opening viewport that still hides overflow", () => {
+        expect(
+            readArrivedViewportClientSize(
+                createViewport({
+                    clientHeight: 548,
+                    scrollWidth: 1400,
+                }),
+            ),
+        ).toEqual({
             width: 885,
             height: 533,
         });
     });
 
     it('keeps the live height of a page that fits, and of a renderer that locks the horizontal axis', () => {
-        expect(readArrivedViewportClientSize(createViewport({
-            clientHeight: 548,
-            scrollWidth: 885,
-        })).height).toBe(548);
-        expect(readArrivedViewportClientSize(createViewport({
-            clientHeight: 548,
-            scrollWidth: 1400,
-        }), true).height).toBe(548);
+        expect(
+            readArrivedViewportClientSize(
+                createViewport({
+                    clientHeight: 548,
+                    scrollWidth: 885,
+                }),
+            ).height,
+        ).toBe(548);
+        expect(
+            readArrivedViewportClientSize(
+                createViewport({
+                    clientHeight: 548,
+                    scrollWidth: 1400,
+                }),
+                true,
+            ).height,
+        ).toBe(548);
     });
 
     it('is the live client size once the view scrolls again, whatever its overflow', () => {
         // A fit-width page a pixel wider than the box, with the axis locked by CSS: no bar.
-        expect(readArrivedViewportClientSize(createViewport({
-            clientHeight: 548,
-            scrollWidth: 886,
-            suppressed: false,
-        })).height).toBe(548);
+        expect(
+            readArrivedViewportClientSize(
+                createViewport({
+                    clientHeight: 548,
+                    scrollWidth: 886,
+                    suppressed: false,
+                }),
+            ).height,
+        ).toBe(548);
         // At a fractional scale the shown bar can round a pixel thinner than the gutter.
-        expect(readArrivedViewportClientSize(createViewport({
-            clientHeight: 534,
-            scrollWidth: 1400,
-            suppressed: false,
-        })).height).toBe(534);
+        expect(
+            readArrivedViewportClientSize(
+                createViewport({
+                    clientHeight: 534,
+                    scrollWidth: 1400,
+                    suppressed: false,
+                }),
+            ).height,
+        ).toBe(534);
     });
 
     it('takes only the part of the bar not shown yet', () => {
-        expect(readArrivedViewportClientSize(createViewport({
-            clientHeight: 534,
-            scrollWidth: 1400,
-        })).height).toBe(533);
+        expect(
+            readArrivedViewportClientSize(
+                createViewport({
+                    clientHeight: 534,
+                    scrollWidth: 1400,
+                }),
+            ).height,
+        ).toBe(533);
     });
 
     it('takes one bar when the gutter is stable on both edges', () => {
@@ -158,10 +183,14 @@ describe('readArrivedViewportClientSize', () => {
     });
 
     it('never returns a negative height for a viewport smaller than the bar', () => {
-        expect(readArrivedViewportClientSize(createViewport({
-            clientHeight: 10,
-            offsetHeight: 10,
-            scrollWidth: 1400,
-        })).height).toBe(0);
+        expect(
+            readArrivedViewportClientSize(
+                createViewport({
+                    clientHeight: 10,
+                    offsetHeight: 10,
+                    scrollWidth: 1400,
+                }),
+            ).height,
+        ).toBe(0);
     });
 });

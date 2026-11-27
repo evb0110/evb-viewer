@@ -22,16 +22,11 @@ export function createTextChunkAccumulator(maxBytes: number): ITextChunkAccumula
         const targetTailBytes = Math.max(1, Math.floor(maxBytes * 0.9));
         const nextChunks: Buffer[] = [];
         let nextByteLength = 0;
-        for (const source of [
-            ...chunks,
-            chunk,
-        ].reverse()) {
+        for (const source of [...chunks, chunk].reverse()) {
             if (nextByteLength >= targetTailBytes) {
                 break;
             }
-            const tail = source.subarray(
-                Math.max(0, source.byteLength - (targetTailBytes - nextByteLength)),
-            );
+            const tail = source.subarray(Math.max(0, source.byteLength - (targetTailBytes - nextByteLength)));
             nextChunks.unshift(tail);
             nextByteLength += tail.byteLength;
         }

@@ -1,6 +1,6 @@
-import type { ComputedRef } from 'vue';
-import { clamp } from 'es-toolkit/math';
-import type { IPdfSemanticAnchor } from '@contracts/recentReadingView';
+import type {ComputedRef} from 'vue';
+import {clamp} from 'es-toolkit/math';
+import type {IPdfSemanticAnchor} from '@contracts/recentReadingView';
 import {
     DETACHED_ZOOM_ACCESS,
     type IZoomStateAccess,
@@ -9,37 +9,22 @@ import {
     type TPdfViewRotation,
     type TZoomMode,
 } from '@contracts/shared';
-import {
-    requirePageIndex,
-    requirePageNumber,
-} from '@contracts/pageNumbers';
-import { buildPageLayoutMetrics } from '@app/modules/document-viewer/layout/buildPageLayoutMetrics';
-import {
-    normalizePageMetrics,
-    projectPdfPageMetricForView,
-} from '@app/modules/document-viewer/layout/normalizePageMetrics';
-import { getPageRowBoundsForViewMode } from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
-import { resolveCurrentSpreadBaseWidth } from '@app/modules/document-viewer/layout/resolveCurrentSpreadBaseWidth';
-import { resolvePdfFitWidthDimensions } from '@app/modules/document-viewer/layout/resolvePdfFitWidthDimensions';
-import {
-    getLayoutPageTop,
-    resolveLayoutPhysicalScrollOrigin,
-} from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
+import {requirePageIndex, requirePageNumber} from '@contracts/pageNumbers';
+import {buildPageLayoutMetrics} from '@app/modules/document-viewer/layout/buildPageLayoutMetrics';
+import {normalizePageMetrics, projectPdfPageMetricForView} from '@app/modules/document-viewer/layout/normalizePageMetrics';
+import {getPageRowBoundsForViewMode} from '@app/modules/document-viewer/layout/getPageRowBoundsForViewMode';
+import {resolveCurrentSpreadBaseWidth} from '@app/modules/document-viewer/layout/resolveCurrentSpreadBaseWidth';
+import {resolvePdfFitWidthDimensions} from '@app/modules/document-viewer/layout/resolvePdfFitWidthDimensions';
+import {getLayoutPageTop, resolveLayoutPhysicalScrollOrigin} from '@app/modules/document-viewer/layout/pdfPageLayoutMetrics';
 import {
     createPdfViewportGeometryFromLayout,
     getViewportGeometryRowForPage,
     resolveScrollForPageRect,
 } from '@app/modules/document-viewer/layout/pdfViewportGeometry';
-import {
-    createDocumentWheelZoomHandler,
-    type IDocumentWheelInteraction,
-} from '@app/modules/document-viewer/input/documentWheelInteraction';
-import { createPageNavigationRequest } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
-import { getViewColumnCount } from '@app/utils/pdfViewMode';
-import {
-    clampDocumentFitScale,
-    clampDocumentManualZoom,
-} from '@app/modules/document-viewer/zoomPolicy';
+import {createDocumentWheelZoomHandler, type IDocumentWheelInteraction} from '@app/modules/document-viewer/input/documentWheelInteraction';
+import {createPageNavigationRequest} from '@app/modules/document-viewer/navigation/documentNavigationRequest';
+import {getViewColumnCount} from '@app/utils/pdfViewMode';
+import {clampDocumentFitScale, clampDocumentManualZoom} from '@app/modules/document-viewer/zoomPolicy';
 import type {
     IDocumentOpenSurfacePageGeometry,
     IDocumentOpenSurfaceSession,
@@ -48,7 +33,7 @@ import {
     resolveAnchoredViewportHeight,
     resolveDocumentPageSourceOpeningFrame,
 } from '@app/modules/document-viewer/layout/resolveDocumentPageSourceOpeningFrame';
-import { DOCUMENT_PAGE_GUTTER_PX } from '@app/modules/document-viewer/layout/documentPageGutterPx';
+import {DOCUMENT_PAGE_GUTTER_PX} from '@app/modules/document-viewer/layout/documentPageGutterPx';
 
 export interface IDocumentOpeningPageFramePolicy {
     readonly viewRotation?: TPdfViewRotation | undefined;
@@ -121,10 +106,10 @@ function resolvePdfOpeningPageFrameStyle(
 ) {
     const pageMargin = DOCUMENT_PAGE_GUTTER_PX;
     if (
-        !Number.isFinite(viewport.width)
-        || !Number.isFinite(viewport.height)
-        || viewport.width <= pageMargin * 2
-        || viewport.height <= pageMargin * 2
+        !Number.isFinite(viewport.width) ||
+        !Number.isFinite(viewport.height) ||
+        viewport.width <= pageMargin * 2 ||
+        viewport.height <= pageMargin * 2
     ) {
         return null;
     }
@@ -135,17 +120,22 @@ function resolvePdfOpeningPageFrameStyle(
     // widest page as the view shows it (ADR 0006), so the skeleton matches
     // PDF.js's first layout: a quarter-turned view's widest is its tallest.
     const fitWidthBase = policy.continuousScroll
-        ? Math.max(shown.width, projectPdfPageMetricForView({
-            width: geometry.widestPageWidth ?? geometry.width,
-            height: geometry.tallestPageHeight ?? geometry.height,
-        }, policy.viewRotation ?? 0).width)
+        ? Math.max(
+              shown.width,
+              projectPdfPageMetricForView(
+                  {
+                      width: geometry.widestPageWidth ?? geometry.width,
+                      height: geometry.tallestPageHeight ?? geometry.height,
+                  },
+                  policy.viewRotation ?? 0,
+              ).width,
+          )
         : shown.width;
-    const fitScale = policy.zoomMode === 'fit-height'
-        ? (viewport.height - pageMargin * 2) / shown.height
-        : (viewport.width - pageMargin * (columns + 1)) / (fitWidthBase * columns);
-    const scale = policy.zoomMode === 'custom'
-        ? clampDocumentManualZoom(policy.zoom)
-        : clampDocumentFitScale(fitScale);
+    const fitScale =
+        policy.zoomMode === 'fit-height'
+            ? (viewport.height - pageMargin * 2) / shown.height
+            : (viewport.width - pageMargin * (columns + 1)) / (fitWidthBase * columns);
+    const scale = policy.zoomMode === 'custom' ? clampDocumentManualZoom(policy.zoom) : clampDocumentFitScale(fitScale);
     const placed = geometry.pages ? placeOnPageLayout(geometry, geometry.pages, policy, anchor, viewport) : null;
     const width = placed?.width ?? shown.width * scale;
     const height = placed?.height ?? shown.height * scale;
@@ -157,9 +147,9 @@ function resolvePdfOpeningPageFrameStyle(
         height: `${String(height)}px`,
         ...(placed
             ? {
-                top: `${String(placed.top)}px`,
-                left: `${String(placed.left)}px`,
-            }
+                  top: `${String(placed.top)}px`,
+                  left: `${String(placed.left)}px`,
+              }
             : {}),
     });
 }
@@ -208,7 +198,7 @@ function placeOnPageLayout(
         viewMode: policy.viewMode,
         totalPages: geometry.pageCount,
     });
-    const rowHeight = Math.max(...metrics.slice(row.start - 1, row.end).map(metric => metric.height));
+    const rowHeight = Math.max(...metrics.slice(row.start - 1, row.end).map((metric) => metric.height));
     const fitWidth = resolvePdfFitWidthDimensions({
         metrics,
         rawSize: viewport.width,
@@ -218,11 +208,14 @@ function placeOnPageLayout(
         totalPages: geometry.pageCount,
         continuousScroll: policy.continuousScroll,
     });
-    const scale = policy.zoomMode === 'custom'
-        ? clampDocumentManualZoom(policy.zoom)
-        : clampDocumentFitScale(policy.zoomMode === 'fit-height'
-            ? (viewport.height - gutter * 2) / rowHeight
-            : fitWidth.availableSize / fitWidth.baseDimension);
+    const scale =
+        policy.zoomMode === 'custom'
+            ? clampDocumentManualZoom(policy.zoom)
+            : clampDocumentFitScale(
+                  policy.zoomMode === 'fit-height'
+                      ? (viewport.height - gutter * 2) / rowHeight
+                      : fitWidth.availableSize / fitWidth.baseDimension,
+              );
     const layout = buildPageLayoutMetrics({
         pageMetrics: metrics,
         totalPages: geometry.pageCount,
@@ -239,11 +232,16 @@ function placeOnPageLayout(
     const origin = policy.continuousScroll
         ? resolveLayoutPhysicalScrollOrigin(layout, getLayoutPageTop(layout, requirePageIndex(page - 1)) ?? 0, viewport.height, 0)
         : 0;
-    const laidOut = createPdfViewportGeometryFromLayout(layout, {
-        width: viewport.width,
-        height: viewport.height,
-        paddingInline: gutter,
-    }, 0, origin);
+    const laidOut = createPdfViewportGeometryFromLayout(
+        layout,
+        {
+            width: viewport.width,
+            height: viewport.height,
+            paddingInline: gutter,
+        },
+        0,
+        origin,
+    );
     const rect = laidOut.pageRects[page - 1];
     const laidOutRow = getViewportGeometryRowForPage(laidOut, page);
     if (!rect || !laidOutRow) {
@@ -252,37 +250,43 @@ function placeOnPageLayout(
     // Paged mode's content is the page's spread alone, from the top inset.
     const placedPage = policy.continuousScroll
         ? {
-            ...rect,
-            top: rect.top - origin,
-        }
+              ...rect,
+              top: rect.top - origin,
+          }
         : {
-            ...rect,
-            top: rect.top - laidOutRow.rect.top + gutter,
-        };
+              ...rect,
+              top: rect.top - laidOutRow.rect.top + gutter,
+          };
     const content = policy.continuousScroll
         ? {
-            width: laidOut.contentWidth,
-            height: Math.max(viewport.height, laidOut.physicalScrollHeight),
-        }
+              width: laidOut.contentWidth,
+              height: Math.max(viewport.height, laidOut.physicalScrollHeight),
+          }
         : {
-            width: Math.max(viewport.width, laidOutRow.rect.width + gutter * 2),
-            height: laidOutRow.rect.height + gutter * 2,
-        };
+              width: Math.max(viewport.width, laidOutRow.rect.width + gutter * 2),
+              height: laidOutRow.rect.height + gutter * 2,
+          };
     // A content wider than the viewport brings a horizontal scrollbar, which
     // the viewer's viewport height excludes. The browser compares whole
     // pixels: its scroll width is the content width rounded.
     const viewportHeight = Math.round(content.width) > viewport.width ? viewport.height - (viewport.scrollbar ?? 0) : viewport.height;
-    const scroll = resolveScrollForPageRect(placedPage, anchor ?? {
-        page: geometry.pageNumber,
-        pageXFraction: 0.5,
-        pageYFraction: 0,
-        viewportXFraction: 0.5,
-        viewportYFraction: 0,
-        affinity: 'start',
-    }, {
-        width: viewport.width,
-        height: viewportHeight,
-    }, content, gutter);
+    const scroll = resolveScrollForPageRect(
+        placedPage,
+        anchor ?? {
+            page: geometry.pageNumber,
+            pageXFraction: 0.5,
+            pageYFraction: 0,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0,
+            affinity: 'start',
+        },
+        {
+            width: viewport.width,
+            height: viewportHeight,
+        },
+        content,
+        gutter,
+    );
     return {
         top: placedPage.top - scroll.top,
         left: placedPage.left - scroll.left,
@@ -304,39 +308,34 @@ function resolveOpeningPageFrameStyle(
     if (!isDjvuDocument(geometry.documentId)) {
         return resolvePdfOpeningPageFrameStyle(geometry, viewport, policy, anchor);
     }
-    return resolveDocumentPageSourceOpeningFrame({
-        anchor,
-        continuousScroll: policy.continuousScroll,
-        geometry,
-        viewport,
-        zoom: policy.zoom,
-        zoomMode: policy.zoomMode,
-    })?.style ?? null;
+    return (
+        resolveDocumentPageSourceOpeningFrame({
+            anchor,
+            continuousScroll: policy.continuousScroll,
+            geometry,
+            viewport,
+            zoom: policy.zoom,
+            zoomMode: policy.zoomMode,
+        })?.style ?? null
+    );
 }
 
-const PREPARABLE_PHASES: ReadonlySet<string> = new Set([
-    'pending',
-    'geometry-committed',
-    'canvas-committed',
-    'viewport-committed',
-]);
+const PREPARABLE_PHASES: ReadonlySet<string> = new Set(['pending', 'geometry-committed', 'canvas-committed', 'viewport-committed']);
 
-export function createDocumentOpeningPageFrame(
-    options: ICreateDocumentOpeningPageFrameOptions,
-): IDocumentOpeningPageFrame {
+export function createDocumentOpeningPageFrame(options: ICreateDocumentOpeningPageFrameOptions): IDocumentOpeningPageFrame {
     const ownerId = `document-viewer-runtime:${String(++nextOpeningPageFrameId)}`;
     // An open that starts where its reader left it shows that view.
     function readFramePolicy(geometry: IDocumentOpenSurfacePageGeometry): IDocumentOpeningPageFramePolicy {
         const reading = geometry.readingView;
         return reading
             ? {
-                ...options.readPolicy(),
-                zoom: reading.zoom,
-                zoomMode: reading.zoomMode,
-                viewMode: reading.viewMode,
-                continuousScroll: reading.continuousScroll,
-                viewRotation: reading.viewRotation,
-            }
+                  ...options.readPolicy(),
+                  zoom: reading.zoom,
+                  zoomMode: reading.zoomMode,
+                  viewMode: reading.viewMode,
+                  continuousScroll: reading.continuousScroll,
+                  viewRotation: reading.viewRotation,
+              }
             : options.readPolicy();
     }
     const readViewportSize = () => ({
@@ -349,7 +348,7 @@ export function createDocumentOpeningPageFrame(
     const shell = computed<IDocumentOpeningPageShell | null>(() => {
         const snapshot = options.openSurface.snapshot.value;
         const frame = snapshot.openingPageFrame;
-        if (!PREPARABLE_PHASES.has(snapshot.phase) || frame?.generation !== undefined && frame.generation !== snapshot.generation) {
+        if (!PREPARABLE_PHASES.has(snapshot.phase) || (frame?.generation !== undefined && frame.generation !== snapshot.generation)) {
             return null;
         }
         // The page the open presents, which a restore or a navigation during the
@@ -382,37 +381,43 @@ export function createDocumentOpeningPageFrame(
     // keeps the page point under the pointer: the open's restore navigation
     // then places that point, and the frame follows both.
     const zoomOpeningShell = createDocumentWheelZoomHandler(
-        {get value() {
-            // The shell's scale: its width over the page's width as the view shows it.
-            const geometry = options.openSurface.snapshot.value.openingPageGeometry;
-            const width = readShell()?.getBoundingClientRect().width ?? 0;
-            return geometry && width > 0
-                ? width / projectPdfPageMetricForView(geometry, readFramePolicy(geometry).viewRotation ?? 0).width
-                : 1;
-        }},
+        {
+            get value() {
+                // The shell's scale: its width over the page's width as the view shows it.
+                const geometry = options.openSurface.snapshot.value.openingPageGeometry;
+                const width = readShell()?.getBoundingClientRect().width ?? 0;
+                return geometry && width > 0
+                    ? width / projectPdfPageMetricForView(geometry, readFramePolicy(geometry).viewRotation ?? 0).width
+                    : 1;
+            },
+        },
         options.readZoom ?? (() => DETACHED_ZOOM_ACCESS),
-        {beforeZoom: ({event}) => {
-            const shellRect = readShell()?.getBoundingClientRect();
-            const viewport = options.readViewport?.();
-            const page = options.openSurface.viewportSession.value.requestedPage;
-            if (!shellRect?.width || !shellRect.height || !viewport || page === null) {
-                return;
-            }
-            const viewportRect = viewport.getBoundingClientRect();
-            const size = readViewportSize();
-            options.openSurface.navigate(createPageNavigationRequest(page, 'restore', {
-                page,
-                pageXFraction: clamp((event.clientX - shellRect.left) / shellRect.width, 0, 1),
-                pageYFraction: clamp((event.clientY - shellRect.top) / shellRect.height, 0, 1),
-                viewportXFraction: clamp((event.clientX - viewportRect.left - viewport.clientLeft) / size.width, 0, 1),
-                viewportYFraction: clamp(
-                    (event.clientY - viewportRect.top - viewport.clientTop) / resolveAnchoredViewportHeight(shellRect.width, size),
-                    0,
-                    1,
-                ),
-                affinity: 'center',
-            }));
-        }},
+        {
+            beforeZoom: ({event}) => {
+                const shellRect = readShell()?.getBoundingClientRect();
+                const viewport = options.readViewport?.();
+                const page = options.openSurface.viewportSession.value.requestedPage;
+                if (!shellRect?.width || !shellRect.height || !viewport || page === null) {
+                    return;
+                }
+                const viewportRect = viewport.getBoundingClientRect();
+                const size = readViewportSize();
+                options.openSurface.navigate(
+                    createPageNavigationRequest(page, 'restore', {
+                        page,
+                        pageXFraction: clamp((event.clientX - shellRect.left) / shellRect.width, 0, 1),
+                        pageYFraction: clamp((event.clientY - shellRect.top) / shellRect.height, 0, 1),
+                        viewportXFraction: clamp((event.clientX - viewportRect.left - viewport.clientLeft) / size.width, 0, 1),
+                        viewportYFraction: clamp(
+                            (event.clientY - viewportRect.top - viewport.clientTop) / resolveAnchoredViewportHeight(shellRect.width, size),
+                            0,
+                            1,
+                        ),
+                        affinity: 'center',
+                    }),
+                );
+            },
+        },
     );
 
     return Object.freeze({
@@ -423,13 +428,12 @@ export function createDocumentOpeningPageFrame(
             const geometry = snapshot.openingPageGeometry;
             // A frame is prepared for the page the open requests, once its shape is known.
             if (
-                snapshot.generation !== generation
-                || geometry === null
-                || !PREPARABLE_PHASES.has(snapshot.phase)
-                || !snapshot.identity?.documentId
-                || geometry.pageNumber !== options.openSurface.viewportSession.value.requestedPage
-                || snapshot.openingPageFrame !== null
-                    && snapshot.openingPageFrame.ownerId !== ownerId
+                snapshot.generation !== generation ||
+                geometry === null ||
+                !PREPARABLE_PHASES.has(snapshot.phase) ||
+                !snapshot.identity?.documentId ||
+                geometry.pageNumber !== options.openSurface.viewportSession.value.requestedPage ||
+                (snapshot.openingPageFrame !== null && snapshot.openingPageFrame.ownerId !== ownerId)
             ) {
                 return false;
             }

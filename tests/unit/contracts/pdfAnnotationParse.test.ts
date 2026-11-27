@@ -1,16 +1,11 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {PDF_ANNOTATION_PARSE_MAX_ENTRIES} from '@contracts/pdfAnnotationParseTypes';
 import {DOCUMENT_WORKING_COPY_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
 
 const token = requireDocumentRevisionToken('drt1:annotation-parse-test');
-const workingCopyParseCodec = DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs[
-    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.parsePdfAnnotations
-]!;
+const workingCopyParseCodec =
+    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs[DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.parsePdfAnnotations]!;
 
 // Decodes each entry through the parsePdfAnnotations result codec, keeping entry order.
 function decodeEntries<T extends {entries: ReadonlyArray<{kind: string}>}>(chunk: T) {
@@ -51,42 +46,50 @@ describe('PDF annotation parse IPC contracts', () => {
             fontSize: 12,
             color: '#336699',
         };
-        const decode = (entry: typeof textBox) => decodeEntries({
-            offset: 0,
-            nextOffset: null,
-            byteLength: 0,
-            done: true,
-            entries: [entry],
-        });
+        const decode = (entry: typeof textBox) =>
+            decodeEntries({
+                offset: 0,
+                nextOffset: null,
+                byteLength: 0,
+                done: true,
+                entries: [entry],
+            });
         expect(decode(textBox).entries[0]).toMatchObject({
             rect: textBox.rect,
             rotation: 90,
         });
-        expect(() => decode({
-            ...textBox,
-            rotation: 32.5,
-        })).toThrow(/must be 0, 90, 180, or 270/iu);
-        expect(() => decode({
-            ...textBox,
-            rotation: 0,
-        })).toThrow(/normalized page bounds/iu);
-        expect(() => decode({
-            ...textBox,
-            rect: {
-                ...textBox.rect,
-                left: -1,
-            },
-        })).toThrow(/normalized page bounds/iu);
-        expect(() => decode({
-            ...textBox,
-            rect: {
-                left: 0.4,
-                top: 0.4,
-                width: 0.9,
-                height: 0.9,
-            },
-        }))
-            .toThrow(/normalized page bounds/iu);
+        expect(() =>
+            decode({
+                ...textBox,
+                rotation: 32.5,
+            }),
+        ).toThrow(/must be 0, 90, 180, or 270/iu);
+        expect(() =>
+            decode({
+                ...textBox,
+                rotation: 0,
+            }),
+        ).toThrow(/normalized page bounds/iu);
+        expect(() =>
+            decode({
+                ...textBox,
+                rect: {
+                    ...textBox.rect,
+                    left: -1,
+                },
+            }),
+        ).toThrow(/normalized page bounds/iu);
+        expect(() =>
+            decode({
+                ...textBox,
+                rect: {
+                    left: 0.4,
+                    top: 0.4,
+                    width: 0.9,
+                    height: 0.9,
+                },
+            }),
+        ).toThrow(/normalized page bounds/iu);
     });
 
     it('decodes bounded replies on a supported non-note parent', () => {
@@ -100,67 +103,86 @@ describe('PDF annotation parse IPC contracts', () => {
             createdAt: null,
             modifiedAt: null,
             subtype: 'Highlight',
-            quadPoints: [{
-                left: 0.1,
-                top: 0.2,
-                width: 0.3,
-                height: 0.1,
-            }],
+            quadPoints: [
+                {
+                    left: 0.1,
+                    top: 0.2,
+                    width: 0.3,
+                    height: 0.1,
+                },
+            ],
             color: '#ffcc00',
             opacity: 1,
             contents: 'Parent comment',
-            replies: [{
-                objectNumber: 18,
-                generationNumber: 0,
-                contents: '',
-                state: 'Accepted',
-                stateModel: 'Review',
-                author: 'Reader',
-                createdAt: null,
-                modifiedAt: null,
-            }],
+            replies: [
+                {
+                    objectNumber: 18,
+                    generationNumber: 0,
+                    contents: '',
+                    state: 'Accepted',
+                    stateModel: 'Review',
+                    author: 'Reader',
+                    createdAt: null,
+                    modifiedAt: null,
+                },
+            ],
         };
-        const decode = (replies: unknown) => decodeEntries({entries: [{
-            ...entry,
-            replies,
-        }]});
+        const decode = (replies: unknown) =>
+            decodeEntries({
+                entries: [
+                    {
+                        ...entry,
+                        replies,
+                    },
+                ],
+            });
         expect(decode(entry.replies).entries).toEqual([entry]);
         expect(() => decode(Array.from({length: 4_097}, () => entry.replies[0]))).toThrow(/4096/iu);
-        expect(() => decode([{
-            ...entry.replies[0],
-            extra: true,
-        }])).toThrow(/unsupported field/iu);
+        expect(() =>
+            decode([
+                {
+                    ...entry.replies[0],
+                    extra: true,
+                },
+            ]),
+        ).toThrow(/unsupported field/iu);
     });
 
     it('reads a date before 1970 as unknown instead of rejecting the note', () => {
         // D:19691231235959Z parses to -1000 ms.
-        const decoded = decodeEntries({entries: [{
-            kind: 'note' as const,
-            pageIndex: 0,
-            objectNumber: 18,
-            generationNumber: 0,
-            name: 'note-18',
-            author: null,
-            createdAt: -1_000,
-            modifiedAt: 1_788_091_200_000,
-            position: {
-                left: 0.4,
-                top: 0.1,
-                width: 0.1,
-                height: 0.1,
-            },
-            contents: 'An old note',
-            color: '#ff0000',
-            open: false,
-            replies: [{
-                objectNumber: 24,
-                generationNumber: 0,
-                contents: 'An old reply',
-                author: null,
-                createdAt: null,
-                modifiedAt: -1_000,
-            }],
-        }]});
+        const decoded = decodeEntries({
+            entries: [
+                {
+                    kind: 'note' as const,
+                    pageIndex: 0,
+                    objectNumber: 18,
+                    generationNumber: 0,
+                    name: 'note-18',
+                    author: null,
+                    createdAt: -1_000,
+                    modifiedAt: 1_788_091_200_000,
+                    position: {
+                        left: 0.4,
+                        top: 0.1,
+                        width: 0.1,
+                        height: 0.1,
+                    },
+                    contents: 'An old note',
+                    color: '#ff0000',
+                    open: false,
+                    replies: [
+                        {
+                            objectNumber: 24,
+                            generationNumber: 0,
+                            contents: 'An old reply',
+                            author: null,
+                            createdAt: null,
+                            modifiedAt: -1_000,
+                        },
+                    ],
+                },
+            ],
+        });
 
         expect(decoded.entries[0]).toMatchObject({
             contents: 'An old note',
@@ -209,14 +231,16 @@ describe('PDF annotation parse IPC contracts', () => {
             contents: 'A note',
             color: '#ff0000',
             open: true,
-            replies: [{
-                objectNumber: 24,
-                generationNumber: 0,
-                contents: 'A reply',
-                author: null,
-                createdAt: 1_788_091_320_000,
-                modifiedAt: null,
-            }],
+            replies: [
+                {
+                    objectNumber: 24,
+                    generationNumber: 0,
+                    contents: 'A reply',
+                    author: null,
+                    createdAt: 1_788_091_320_000,
+                    modifiedAt: null,
+                },
+            ],
         };
         const foreign = {
             kind: 'foreign' as const,
@@ -237,12 +261,14 @@ describe('PDF annotation parse IPC contracts', () => {
             createdAt: null,
             modifiedAt: 1_788_091_300_000,
             subtype: 'Highlight' as const,
-            quadPoints: [{
-                left: 0.2,
-                top: 0.3,
-                width: 0.4,
-                height: 0.05,
-            }],
+            quadPoints: [
+                {
+                    left: 0.2,
+                    top: 0.3,
+                    width: 0.4,
+                    height: 0.05,
+                },
+            ],
             color: '#ffcc00',
             opacity: 0.5,
             contents: 'A highlight',
@@ -302,22 +328,10 @@ describe('PDF annotation parse IPC contracts', () => {
             nextOffset: null,
             byteLength: 512,
             done: true,
-            entries: [
-                textBox,
-                note,
-                foreign,
-                highlight,
-                stamp,
-                shape,
-            ],
+            entries: [textBox, note, foreign, highlight, stamp, shape],
         };
 
-        const threadedEntries = [
-            textBox,
-            highlight,
-            stamp,
-            shape,
-        ].map(entry => ({
+        const threadedEntries = [textBox, highlight, stamp, shape].map((entry) => ({
             ...entry,
             replies: note.replies,
         }));
@@ -325,36 +339,33 @@ describe('PDF annotation parse IPC contracts', () => {
 
         const decodedChunk = decodeEntries(chunk);
         expect(decodedChunk).toEqual(chunk);
-        expect(decodedChunk.entries.map(entry => entry.kind)).toEqual([
-            'text-box',
-            'note',
-            'foreign',
-            'highlight',
-            'stamp',
-            'shape',
-        ]);
+        expect(decodedChunk.entries.map((entry) => entry.kind)).toEqual(['text-box', 'note', 'foreign', 'highlight', 'stamp', 'shape']);
         expect(decodedChunk.entries[1]).toMatchObject({
             kind: 'note',
-            replies: [{
-                objectNumber: 24,
-                generationNumber: 0,
-                contents: 'A reply',
-                author: null,
-                createdAt: 1_788_091_320_000,
-                modifiedAt: null,
-            }],
+            replies: [
+                {
+                    objectNumber: 24,
+                    generationNumber: 0,
+                    contents: 'A reply',
+                    author: null,
+                    createdAt: 1_788_091_320_000,
+                    modifiedAt: null,
+                },
+            ],
         });
         expect(decodedChunk.entries[3]).toMatchObject({
             kind: 'highlight',
             subtype: 'Highlight',
             color: '#ffcc00',
             opacity: 0.5,
-            quadPoints: [{
-                left: 0.2,
-                top: 0.3,
-                width: 0.4,
-                height: 0.05,
-            }],
+            quadPoints: [
+                {
+                    left: 0.2,
+                    top: 0.3,
+                    width: 0.4,
+                    height: 0.05,
+                },
+            ],
         });
         expect(decodedChunk.entries[4]).toMatchObject({
             kind: 'stamp',
@@ -366,32 +377,33 @@ describe('PDF annotation parse IPC contracts', () => {
         });
         const arbitraryStampRotationChunk = {
             ...chunk,
-            entries: chunk.entries.map(entry => entry.kind === 'stamp'
-                ? {
-                    ...entry,
-                    rotation: 32.5,
-                }
-                : entry),
-        };
-        expect(decodeEntries(arbitraryStampRotationChunk).entries[4])
-            .toMatchObject({
-                kind: 'stamp',
-                rotation: 32.5,
-            });
-        for (const rotation of [
-            Number.NaN,
-            Number.POSITIVE_INFINITY,
-            Number.NEGATIVE_INFINITY,
-        ]) {
-            expect(() => decodeEntries({
-                ...chunk,
-                entries: chunk.entries.map(entry => entry.kind === 'stamp'
+            entries: chunk.entries.map((entry) =>
+                entry.kind === 'stamp'
                     ? {
-                        ...entry,
-                        rotation,
-                    }
-                    : entry),
-            })).toThrow(/finite/iu);
+                          ...entry,
+                          rotation: 32.5,
+                      }
+                    : entry,
+            ),
+        };
+        expect(decodeEntries(arbitraryStampRotationChunk).entries[4]).toMatchObject({
+            kind: 'stamp',
+            rotation: 32.5,
+        });
+        for (const rotation of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+            expect(() =>
+                decodeEntries({
+                    ...chunk,
+                    entries: chunk.entries.map((entry) =>
+                        entry.kind === 'stamp'
+                            ? {
+                                  ...entry,
+                                  rotation,
+                              }
+                            : entry,
+                    ),
+                }),
+            ).toThrow(/finite/iu);
         }
         expect(decodedChunk.entries[5]).toMatchObject({
             kind: 'shape',
@@ -403,15 +415,17 @@ describe('PDF annotation parse IPC contracts', () => {
         });
         const uppercaseStampChunk = {
             ...chunk,
-            entries: chunk.entries.map(entry => entry.kind === 'stamp'
-                ? {
-                    ...entry,
-                    image: {
-                        ...entry.image,
-                        sha256: 'A'.repeat(64),
-                    },
-                }
-                : entry),
+            entries: chunk.entries.map((entry) =>
+                entry.kind === 'stamp'
+                    ? {
+                          ...entry,
+                          image: {
+                              ...entry.image,
+                              sha256: 'A'.repeat(64),
+                          },
+                      }
+                    : entry,
+            ),
         };
         const normalizedStampChunk = decodeEntries(uppercaseStampChunk);
         expect(normalizedStampChunk.entries[4]).toMatchObject({
@@ -420,114 +434,110 @@ describe('PDF annotation parse IPC contracts', () => {
         });
         const invalidStampChunk = {
             ...chunk,
-            entries: chunk.entries.map(entry => entry.kind === 'stamp'
-                ? {
-                    ...entry,
-                    image: {
-                        ...entry.image,
-                        sha256: 'not-a-sha256',
-                    },
-                }
-                : entry),
+            entries: chunk.entries.map((entry) =>
+                entry.kind === 'stamp'
+                    ? {
+                          ...entry,
+                          image: {
+                              ...entry.image,
+                              sha256: 'not-a-sha256',
+                          },
+                      }
+                    : entry,
+            ),
         };
-        expect(() => decodeEntries(invalidStampChunk))
-            .toThrow(/sha256/iu);
+        expect(() => decodeEntries(invalidStampChunk)).toThrow(/sha256/iu);
         const noteWithUnknownReply = {
             ...chunk,
-            entries: chunk.entries.map(entry => entry.kind === 'note'
-                ? {
-                    ...entry,
-                    replies: entry.replies.map(reply => ({
-                        ...reply,
-                        unexpected: true,
-                    })),
-                }
-                : entry),
+            entries: chunk.entries.map((entry) =>
+                entry.kind === 'note'
+                    ? {
+                          ...entry,
+                          replies: entry.replies.map((reply) => ({
+                              ...reply,
+                              unexpected: true,
+                          })),
+                      }
+                    : entry,
+            ),
         };
-        expect(() => decodeEntries(noteWithUnknownReply))
-            .toThrow(/unsupported field/iu);
+        expect(() => decodeEntries(noteWithUnknownReply)).toThrow(/unsupported field/iu);
 
         const shapeWithUnknownPointField = {
             ...shape,
-            points: [{
-                x: 0.1,
-                y: 0.2,
-                unexpected: true,
-            }],
+            points: [
+                {
+                    x: 0.1,
+                    y: 0.2,
+                    unexpected: true,
+                },
+            ],
         };
-        expect(() => decodeEntries({
-            ...chunk,
-            entries: [
-                textBox,
-                note,
-                foreign,
-                highlight,
-                stamp,
-                shapeWithUnknownPointField,
-            ],
-        })).toThrow(/unsupported field/iu);
+        expect(() =>
+            decodeEntries({
+                ...chunk,
+                entries: [textBox, note, foreign, highlight, stamp, shapeWithUnknownPointField],
+            }),
+        ).toThrow(/unsupported field/iu);
 
-        expect(() => decodeEntries({
-            ...chunk,
-            entries: [
-                {
-                    ...textBox,
-                    fontSize: 512.01,
-                },
-                note,
-                foreign,
-                highlight,
-                stamp,
-                shape,
-            ],
-        })).toThrow(/fontSize.*512/iu);
+        expect(() =>
+            decodeEntries({
+                ...chunk,
+                entries: [
+                    {
+                        ...textBox,
+                        fontSize: 512.01,
+                    },
+                    note,
+                    foreign,
+                    highlight,
+                    stamp,
+                    shape,
+                ],
+            }),
+        ).toThrow(/fontSize.*512/iu);
 
-        expect(() => decodeEntries({
-            ...chunk,
-            entries: [
-                textBox,
-                note,
-                foreign,
-                {
-                    ...highlight,
-                    opacity: 1.01,
-                },
-                stamp,
-                shape,
-            ],
-        })).toThrow(/highlight\.opacity.*1/iu);
+        expect(() =>
+            decodeEntries({
+                ...chunk,
+                entries: [
+                    textBox,
+                    note,
+                    foreign,
+                    {
+                        ...highlight,
+                        opacity: 1.01,
+                    },
+                    stamp,
+                    shape,
+                ],
+            }),
+        ).toThrow(/highlight\.opacity.*1/iu);
 
-        expect(() => decodeEntries({
-            ...chunk,
-            entries: [
-                textBox,
-                note,
-                foreign,
-                highlight,
-                stamp,
-                {
-                    ...shape,
-                    opacity: 1.01,
-                },
-            ],
-        })).toThrow(/shape\.opacity.*1/iu);
+        expect(() =>
+            decodeEntries({
+                ...chunk,
+                entries: [
+                    textBox,
+                    note,
+                    foreign,
+                    highlight,
+                    stamp,
+                    {
+                        ...shape,
+                        opacity: 1.01,
+                    },
+                ],
+            }),
+        ).toThrow(/shape\.opacity.*1/iu);
 
         const parseResult = {
             documentRevisionToken: token,
             pageCount: 1,
-            entities: [
-                textBox,
-                note,
-                highlight,
-                stamp,
-                shape,
-            ],
+            entities: [textBox, note, highlight, stamp, shape],
             foreign: [foreign],
         };
-        expect(workingCopyParseCodec.decodeArgs([
-            '/tmp/document.pdf',
-            {expectedDocumentRevisionToken: token},
-        ])).toEqual([
+        expect(workingCopyParseCodec.decodeArgs(['/tmp/document.pdf', {expectedDocumentRevisionToken: token}])).toEqual([
             '/tmp/document.pdf',
             {expectedDocumentRevisionToken: token},
         ]);
@@ -535,128 +545,103 @@ describe('PDF annotation parse IPC contracts', () => {
     });
 
     it('rejects missing revisions, invalid entities, and oversized results', () => {
-        expect(() => workingCopyParseCodec.decodeArgs([
-            '/tmp/document.pdf',
-            {},
-        ])).toThrow(/invalid document revision options/iu);
-        expect(() => decodeEntries({
-            offset: 0,
-            nextOffset: null,
-            byteLength: 0,
-            done: true,
-            entries: [{
-                kind: 'text-box',
-                pageIndex: 0,
-                objectNumber: 1,
-                generationNumber: 0,
-                name: 'invalid',
-                author: null,
-                createdAt: null,
-                modifiedAt: null,
-                text: 'bad',
-                rect: {
-                    left: 0.9,
-                    top: 0.9,
-                    width: 0.2,
-                    height: 0.2,
-                },
-                rotation: 0,
-                fontSize: 12,
-                color: '#336699',
-            }],
-        })).toThrow(/normalized page bounds/iu);
-        expect(() => decodeEntries({
-            offset: 0,
-            nextOffset: null,
-            byteLength: 0,
-            done: true,
-            entries: [{
-                kind: 'foreign',
-                pageIndex: 0,
-                objectNumber: 1,
-                generationNumber: 0,
-                name: 'foreign',
-                subtype: 'Link',
-                reason: 'unsupported',
-                unexpected: true,
-            }],
-        })).toThrow(/unsupported field/iu);
+        expect(() => workingCopyParseCodec.decodeArgs(['/tmp/document.pdf', {}])).toThrow(/invalid document revision options/iu);
+        expect(() =>
+            decodeEntries({
+                offset: 0,
+                nextOffset: null,
+                byteLength: 0,
+                done: true,
+                entries: [
+                    {
+                        kind: 'text-box',
+                        pageIndex: 0,
+                        objectNumber: 1,
+                        generationNumber: 0,
+                        name: 'invalid',
+                        author: null,
+                        createdAt: null,
+                        modifiedAt: null,
+                        text: 'bad',
+                        rect: {
+                            left: 0.9,
+                            top: 0.9,
+                            width: 0.2,
+                            height: 0.2,
+                        },
+                        rotation: 0,
+                        fontSize: 12,
+                        color: '#336699',
+                    },
+                ],
+            }),
+        ).toThrow(/normalized page bounds/iu);
+        expect(() =>
+            decodeEntries({
+                offset: 0,
+                nextOffset: null,
+                byteLength: 0,
+                done: true,
+                entries: [
+                    {
+                        kind: 'foreign',
+                        pageIndex: 0,
+                        objectNumber: 1,
+                        generationNumber: 0,
+                        name: 'foreign',
+                        subtype: 'Link',
+                        reason: 'unsupported',
+                        unexpected: true,
+                    },
+                ],
+            }),
+        ).toThrow(/unsupported field/iu);
 
-        expect(() => workingCopyParseCodec.decodeResult({
-            documentRevisionToken: token,
-            pageCount: 1,
-            entities: new Array(PDF_ANNOTATION_PARSE_MAX_ENTRIES + 1).fill(null),
-            foreign: [],
-        })).toThrow(/more than/iu);
+        expect(() =>
+            workingCopyParseCodec.decodeResult({
+                documentRevisionToken: token,
+                pageCount: 1,
+                entities: new Array(PDF_ANNOTATION_PARSE_MAX_ENTRIES + 1).fill(null),
+                foreign: [],
+            }),
+        ).toThrow(/more than/iu);
     });
 
     it('carries a page scope only as distinct ascending page indices', () => {
-        const parseOf = (pageIndices: unknown) => workingCopyParseCodec.decodeArgs([
-            '/tmp/document.pdf',
-            {
-                expectedDocumentRevisionToken: token,
-                pageIndices,
-            },
-        ]);
-        expect(parseOf([
-            0,
-            3,
-            21600,
-        ])[1]).toEqual({
+        const parseOf = (pageIndices: unknown) =>
+            workingCopyParseCodec.decodeArgs([
+                '/tmp/document.pdf',
+                {
+                    expectedDocumentRevisionToken: token,
+                    pageIndices,
+                },
+            ]);
+        expect(parseOf([0, 3, 21600])[1]).toEqual({
             expectedDocumentRevisionToken: token,
-            pageIndices: [
-                0,
-                3,
-                21600,
-            ],
+            pageIndices: [0, 3, 21600],
         });
-        for (const pageIndices of [
-            [],
-            [
-                3,
-                0,
-            ],
-            [
-                2,
-                2,
-            ],
-            [-1],
-            [0.5],
-        ]) {
+        for (const pageIndices of [[], [3, 0], [2, 2], [-1], [0.5]]) {
             expect(() => parseOf(pageIndices)).toThrow(/pageIndices/iu);
         }
-        expect(workingCopyParseCodec.decodeResult({
-            documentRevisionToken: token,
-            pageCount: 21601,
-            pageIndices: [21600],
-            entities: [],
-            foreign: [],
-        }).pageIndices).toEqual([21600]);
+        expect(
+            workingCopyParseCodec.decodeResult({
+                documentRevisionToken: token,
+                pageCount: 21601,
+                pageIndices: [21600],
+                entities: [],
+                foreign: [],
+            }).pageIndices,
+        ).toEqual([21600]);
     });
 });
 
 it('admits exact native text-box source descriptors and bounded original appearance recovery', () => {
     const source = {
         version: 1,
-        settlementRect: [
-            10,
-            20,
-            100,
-            60,
-        ],
-        rawRD: [
-            15,
-            0,
-            15,
-            0,
-        ],
+        settlementRect: [10, 20, 100, 60],
+        rawRD: [15, 0, 15, 0],
         borderWidth: 1.5,
-        borderColor: [
-            0.1,
-            0.2,
-            0.3,
-            0.4,
-        ],
+        borderColor: [0.1, 0.2, 0.3, 0.4],
         background: [0.8],
         staleFill: false,
     };
@@ -679,28 +664,30 @@ it('admits exact native text-box source descriptors and bounded original appeara
         source,
         recoveryData: '0011',
     };
-    const decode = (value: unknown) => workingCopyParseCodec.decodeResult({
-        documentRevisionToken: token,
-        pageCount: 1,
-        entities: [value],
-        foreign: [],
-    });
+    const decode = (value: unknown) =>
+        workingCopyParseCodec.decodeResult({
+            documentRevisionToken: token,
+            pageCount: 1,
+            entities: [value],
+            foreign: [],
+        });
     expect(decode(entry).entities[0]).toMatchObject({
         source,
         recoveryData: '0011',
     });
-    expect(() => decode({
-        ...entry,
-        source: {
-            ...source,
-            borderColor: [
-                0.1,
-                0.2,
-            ],
-        },
-    })).toThrow();
-    expect(() => decode({
-        ...entry,
-        recoveryData: 'not-hex',
-    })).toThrow();
+    expect(() =>
+        decode({
+            ...entry,
+            source: {
+                ...source,
+                borderColor: [0.1, 0.2],
+            },
+        }),
+    ).toThrow();
+    expect(() =>
+        decode({
+            ...entry,
+            recoveryData: 'not-hex',
+        }),
+    ).toThrow();
 });

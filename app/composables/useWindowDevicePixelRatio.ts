@@ -1,9 +1,7 @@
-import { useEventListener } from '@vueuse/core';
+import {useEventListener} from '@vueuse/core';
 
 function readWindowDevicePixelRatio() {
-    return typeof window !== 'undefined'
-        ? window.devicePixelRatio || 1
-        : 1;
+    return typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
 }
 
 export const useWindowDevicePixelRatio = () => {

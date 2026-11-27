@@ -26,8 +26,15 @@
         @drop.prevent.stop="handleDrop"
         @dragend="emit('drag-end')"
     >
-        <span v-if="editMode" class="pdf-bookmark-item-drag-handle" aria-hidden="true">
-            <UIcon name="i-ph-dots-six-vertical" class="size-3.5" />
+        <span
+            v-if="editMode"
+            class="pdf-bookmark-item-drag-handle"
+            aria-hidden="true"
+        >
+            <UIcon
+                name="i-ph-dots-six-vertical"
+                class="size-3.5"
+            />
         </span>
         <button
             v-if="item.children.length > 0"
@@ -39,8 +46,14 @@
             @click.stop="emit('toggle-expand', item.id)"
             @keydown.enter.stop
             @keydown.space.stop
-        ><UIcon :name="isExpanded ? 'i-ph-caret-down' : 'i-ph-caret-right'" class="size-4" /></button>
-        <span v-else class="document-bookmark-item__spacer" />
+            ><UIcon
+                :name="isExpanded ? 'i-ph-caret-down' : 'i-ph-caret-right'"
+                class="size-4"
+        /></button>
+        <span
+            v-else
+            class="document-bookmark-item__spacer"
+        />
         <input
             v-if="isEditing"
             ref="titleInputRef"
@@ -53,8 +66,12 @@
             @keydown.enter.prevent="commitEdit"
             @keydown.escape.prevent="emit('cancel-edit')"
             @blur="commitEdit"
+        />
+        <AppTooltip
+            v-else
+            :text="displayTitle"
+            :delay-duration="800"
         >
-        <AppTooltip v-else :text="displayTitle" :delay-duration="800">
             <span
                 class="document-bookmark-item__title"
                 :class="{
@@ -63,9 +80,14 @@
                 }"
                 dir="auto"
                 :style="titleColorStyle"
-            >{{ displayTitle }}</span>
+                >{{ displayTitle }}</span
+            >
         </AppTooltip>
-        <AppTooltip v-if="editMode" :text="t('bookmarks.actions')" :delay-duration="800">
+        <AppTooltip
+            v-if="editMode"
+            :text="t('bookmarks.actions')"
+            :delay-duration="800"
+        >
             <button
                 type="button"
                 class="pdf-bookmark-item-actions-trigger"
@@ -73,19 +95,18 @@
                 @click.stop="openActionsFromButton"
                 @keydown.enter.stop
                 @keydown.space.stop
-            ><UIcon name="i-ph-dots-three" class="size-4" /></button>
+                ><UIcon
+                    name="i-ph-dots-three"
+                    class="size-4"
+            /></button>
         </AppTooltip>
     </div>
 </template>
 
 <script setup lang="ts">
-import { whenever } from '@vueuse/core';
+import {whenever} from '@vueuse/core';
 import type {IDocumentBookmarkTreeItem} from '@app/modules/document-viewer/public';
-import type {
-    IBookmarkDropPayload,
-    IBookmarkMenuPayload,
-    TBookmarkDropPosition,
-} from '@app/types/pdfOutline';
+import type {IBookmarkDropPayload, IBookmarkMenuPayload, TBookmarkDropPosition} from '@app/types/pdfOutline';
 import {getEventCurrentTarget} from '@app/utils/getEventCurrentTarget';
 
 const {
@@ -115,10 +136,12 @@ const emit = defineEmits<{
     activate: [id: string, event: MouseEvent | KeyboardEvent];
     'toggle-expand': [id: string];
     'open-actions': [payload: IBookmarkMenuPayload];
-    'save-edit': [payload: {
-        id: string;
-        title: string
-    }];
+    'save-edit': [
+        payload: {
+            id: string;
+            title: string;
+        },
+    ];
     'cancel-edit': [];
     'drag-start': [payload: {id: string}];
     'drag-hover': [payload: IBookmarkDropPayload];
@@ -131,16 +154,18 @@ const titleInputRef = ref<HTMLInputElement | null>(null);
 const editingTitle = ref('');
 const displayTitle = computed(() => item.title || t('bookmarks.untitled'));
 const rowCssVars = computed(() => ({'--bookmark-depth': String(depth)}));
-const titleColorStyle = computed(() => (
-    item.color ? {'--bookmark-color': item.color} : undefined
-));
+const titleColorStyle = computed(() => (item.color ? {'--bookmark-color': item.color} : undefined));
 
-whenever(() => isEditing, async () => {
-    editingTitle.value = item.title;
-    await nextTick();
-    titleInputRef.value?.focus();
-    titleInputRef.value?.select();
-}, {immediate: true});
+whenever(
+    () => isEditing,
+    async () => {
+        editingTitle.value = item.title;
+        await nextTick();
+        titleInputRef.value?.focus();
+        titleInputRef.value?.select();
+    },
+    {immediate: true},
+);
 
 function activate(event: MouseEvent | KeyboardEvent) {
     if (!isEditing && !(event instanceof MouseEvent && event.button !== 0)) {
@@ -404,5 +429,4 @@ function handleDrop(event: DragEvent) {
     opacity: 1;
     pointer-events: auto;
 }
-
 </style>

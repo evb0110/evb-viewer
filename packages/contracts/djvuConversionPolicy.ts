@@ -36,11 +36,7 @@ export function resolveDjvuCompactFidelityPreset(subsample: number | undefined):
     return 'archival';
 }
 
-export const DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES = [
-    1,
-    2,
-    4,
-] as const;
+export const DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES = [1, 2, 4] as const;
 
 export const DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT = 8_000_000_000;
 
@@ -48,18 +44,14 @@ const FALLBACK_BOOK_PAGE_AREA_SQUARE_INCHES = 8.5 * 11;
 export const DEFAULT_DJVU_SOURCE_DPI = 300;
 
 function normalizePositiveInteger(value: number, fallback: number) {
-    return Number.isFinite(value) && value > 0
-        ? Math.max(1, Math.trunc(value))
-        : fallback;
+    return Number.isFinite(value) && value > 0 ? Math.max(1, Math.trunc(value)) : fallback;
 }
 
 export function normalizeDjvuPdfSubsample(value: number | undefined) {
     return normalizePositiveInteger(value ?? 1, 1);
 }
 
-export function resolveDjvuPdfExportStrategy(
-    strategy: TDjvuPdfExportStrategy | undefined,
-): TDjvuPdfResolvedExportStrategy {
+export function resolveDjvuPdfExportStrategy(strategy: TDjvuPdfExportStrategy | undefined): TDjvuPdfResolvedExportStrategy {
     switch (strategy ?? 'direct') {
         case 'auto':
         case 'direct':
@@ -71,8 +63,8 @@ export function resolveDjvuPdfExportStrategy(
 
 function estimateSourcePixels(metrics: IDjvuPdfConversionMetrics) {
     const pagePixels = (metrics.pageSizes ?? [])
-        .filter(size => Number.isFinite(size.width) && size.width > 0 && Number.isFinite(size.height) && size.height > 0)
-        .reduce((total, size) => total + (Math.trunc(size.width) * Math.trunc(size.height)), 0);
+        .filter((size) => Number.isFinite(size.width) && size.width > 0 && Number.isFinite(size.height) && size.height > 0)
+        .reduce((total, size) => total + Math.trunc(size.width) * Math.trunc(size.height), 0);
     if (pagePixels > 0) {
         return pagePixels;
     }
@@ -96,9 +88,10 @@ export function estimateDjvuPdfConversionSource(metrics: IDjvuPdfConversionMetri
     const sourcePixels = estimateSourcePixels(metrics);
     return {
         sourcePixels,
-        recommendedSubsample: DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES.find(subsample =>
-            estimateEffectivePixels(sourcePixels, subsample) <= DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT,
-        ) ?? DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES.at(-1)!,
+        recommendedSubsample:
+            DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES.find(
+                (subsample) => estimateEffectivePixels(sourcePixels, subsample) <= DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT,
+            ) ?? DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES.at(-1)!,
     };
 }
 
@@ -113,8 +106,8 @@ export function evaluateDjvuPdfConversionPolicy(
         subsample: normalizedSubsample,
         recommendedSubsample: source.recommendedSubsample,
         effectivePixels,
-        isAllowed: normalizedSubsample >= source.recommendedSubsample
-            || effectivePixels <= DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT,
+        isAllowed:
+            normalizedSubsample >= source.recommendedSubsample || effectivePixels <= DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT,
     };
 }
 
@@ -139,11 +132,14 @@ export const DJVU_COMPACT_FIDELITY = {
         photoQuality: 95,
         ppiCap: 1200,
     },
-} as const satisfies Record<TDjvuCompactFidelityPreset, {
-    backgroundQuality: number;
-    photoQuality: number;
-    ppiCap: number
-}>;
+} as const satisfies Record<
+    TDjvuCompactFidelityPreset,
+    {
+        backgroundQuality: number;
+        photoQuality: number;
+        ppiCap: number;
+    }
+>;
 
 export function getDjvuCompactFidelity(preset: TDjvuCompactFidelityPreset | undefined) {
     return DJVU_COMPACT_FIDELITY[preset ?? 'balanced'];
@@ -185,19 +181,23 @@ export function isDjvuCompactFlatBackground(stats: IDjvuCompactRasterStats) {
     }
 
     const colorTotalRatio = stats.colorRatio * stats.nonWhiteRatio;
-    return stats.darkRatio === 0
-        && stats.minChannel >= BACKGROUND_FLAT_MIN_CHANNEL
-        && stats.maxChannel - stats.minChannel <= BACKGROUND_FLAT_CHANNEL_RANGE
-        && colorTotalRatio <= BACKGROUND_FLAT_COLOR_RATIO;
+    return (
+        stats.darkRatio === 0 &&
+        stats.minChannel >= BACKGROUND_FLAT_MIN_CHANNEL &&
+        stats.maxChannel - stats.minChannel <= BACKGROUND_FLAT_CHANNEL_RANGE &&
+        colorTotalRatio <= BACKGROUND_FLAT_COLOR_RATIO
+    );
 }
 
 /** A colored foreground a black mask would lose: the page is kept as a photo. */
 export function hasDjvuCompactForegroundColor(analysis: IDjvuCompactForegroundColor) {
     const spread = Math.max(...analysis.dominantColor) - Math.min(...analysis.dominantColor);
     const maxChannel = Math.max(...analysis.dominantColor);
-    return analysis.colorRatio > FOREGROUND_COLOR_RATIO_MIN
-        && spread > FOREGROUND_COLOR_SATURATION_MIN
-        && maxChannel >= FOREGROUND_NEAR_BLACK_MAX;
+    return (
+        analysis.colorRatio > FOREGROUND_COLOR_RATIO_MIN &&
+        spread > FOREGROUND_COLOR_SATURATION_MIN &&
+        maxChannel >= FOREGROUND_NEAR_BLACK_MAX
+    );
 }
 
 /**
@@ -222,8 +222,8 @@ export function measureDjvuCompactRasterStats(
         for (let x = 0; x < width; x += 1) {
             const offset = (y * width + x) * channels;
             const red = pixels[offset] ?? 255;
-            const green = channels === 1 ? red : pixels[offset + 1] ?? 255;
-            const blue = channels === 1 ? red : pixels[offset + 2] ?? 255;
+            const green = channels === 1 ? red : (pixels[offset + 1] ?? 255);
+            const blue = channels === 1 ? red : (pixels[offset + 2] ?? 255);
             const min = Math.min(red, green, blue);
             const max = Math.max(red, green, blue);
             minChannel = Math.min(minChannel, min);

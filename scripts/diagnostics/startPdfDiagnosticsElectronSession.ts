@@ -6,9 +6,7 @@ import {
 
 export type {IElectronE2ESession};
 
-export async function startPdfDiagnosticsElectronSession(
-    scenarioName: string,
-): Promise<IElectronE2ESession> {
+export async function startPdfDiagnosticsElectronSession(scenarioName: string): Promise<IElectronE2ESession> {
     return startElectronE2ESession(`diagnostics-${scenarioName}-${Date.now()}`);
 }
 
@@ -16,8 +14,6 @@ export async function startPdfDiagnosticsElectronSession(
  * Starts a real host-visible window for operator-run viewport diagnostics.
  * Vitest suites must use their hidden fixture or the isolated lifecycle lane.
  */
-export async function startHostVisiblePdfDiagnosticsElectronSession(
-    scenarioName: string,
-): Promise<IElectronE2ESession> {
+export async function startHostVisiblePdfDiagnosticsElectronSession(scenarioName: string): Promise<IElectronE2ESession> {
     return startHostVisibleElectronE2ESession(`diagnostics-visible-${scenarioName}-${Date.now()}`);
 }

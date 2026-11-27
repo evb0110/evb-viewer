@@ -1,7 +1,4 @@
-import type {
-    DeepReadonly,
-    ShallowRef,
-} from 'vue';
+import type {DeepReadonly, ShallowRef} from 'vue';
 
 interface IScanCleanupDragPoint {
     x: number;
@@ -22,16 +19,10 @@ interface IScanCleanupDragSnapshot<TGeometry> {
 }
 
 interface IScanCleanupDragTransaction<TGeometry> {
-    commit: (
-        geometry: TGeometry,
-        snapshot: IScanCleanupDragSnapshot<TGeometry>,
-    ) => void;
+    commit: (geometry: TGeometry, snapshot: IScanCleanupDragSnapshot<TGeometry>) => void;
     snapshot: IScanCleanupDragSnapshot<TGeometry>;
     target: HTMLElement;
-    update: (
-        event: PointerEvent,
-        snapshot: IScanCleanupDragSnapshot<TGeometry>,
-    ) => TGeometry;
+    update: (event: PointerEvent, snapshot: IScanCleanupDragSnapshot<TGeometry>) => TGeometry;
 }
 
 interface IStartScanCleanupDragOptions<TGeometry> {
@@ -84,11 +75,8 @@ export const useScanCleanupDragTransaction = <TGeometry>(): IScanCleanupDragTran
 
     function releasePointer(target: HTMLElement, pointerId: number) {
         if (
-            typeof target.releasePointerCapture === 'function'
-            && (
-                typeof target.hasPointerCapture !== 'function'
-                || target.hasPointerCapture(pointerId)
-            )
+            typeof target.releasePointerCapture === 'function' &&
+            (typeof target.hasPointerCapture !== 'function' || target.hasPointerCapture(pointerId))
         ) {
             target.releasePointerCapture(pointerId);
         }

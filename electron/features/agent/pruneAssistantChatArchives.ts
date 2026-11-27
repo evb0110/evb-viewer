@@ -1,8 +1,4 @@
-import {
-    readdir,
-    rm,
-    stat,
-} from 'fs/promises';
+import {readdir, rm, stat} from 'fs/promises';
 import {join} from 'path';
 import {isErrnoException} from '@contracts/runtimeGuards';
 
@@ -18,8 +14,11 @@ export async function pruneAssistantChatArchives(
     try {
         for (const entry of await readdir(archiveDir, {withFileTypes: true})) {
             // Migration backups retain nonselected conversations and suppress re-import.
-            if (!entry.isFile() || !entry.name.endsWith('.jsonl')
-                || /\.scope-(?:migrated|backup)\.\d+\.[a-f0-9]+\.jsonl$/u.test(entry.name)) {
+            if (
+                !entry.isFile() ||
+                !entry.name.endsWith('.jsonl') ||
+                /\.scope-(?:migrated|backup)\.\d+\.[a-f0-9]+\.jsonl$/u.test(entry.name)
+            ) {
                 continue;
             }
             const filePath = join(archiveDir, entry.name);

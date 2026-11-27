@@ -1,35 +1,12 @@
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    writeFile,
-    rm,
-} from 'node:fs/promises';
-import {
-    createServer,
-    type Server,
-    type ServerResponse,
-} from 'node:http';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {mkdir, mkdtemp, readFile, writeFile, rm} from 'node:fs/promises';
+import {createServer, type Server, type ServerResponse} from 'node:http';
+import {join, resolve} from 'node:path';
 import {build} from 'esbuild';
 import {decode as decodePng} from 'fast-png';
 import type {Download} from 'playwright';
 import UTIF, {type IUtifFrame} from 'utif';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    closeChromiumBrowser,
-    connectOrLaunchChromium,
-    readDownloadBytes,
-} from './browserIntegrationChromium';
+import {afterAll, beforeAll, describe, expect, it} from 'vitest';
+import {closeChromiumBrowser, connectOrLaunchChromium, readDownloadBytes} from './browserIntegrationChromium';
 import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
 
 interface IBrowserImageExportAcceptance {
@@ -40,23 +17,9 @@ interface IBrowserImageExportAcceptance {
     bytesBase64: string;
 }
 
-const PNG_SIGNATURE = [
-    137,
-    80,
-    78,
-    71,
-];
-const JPEG_SIGNATURE = [
-    255,
-    216,
-    255,
-];
-const TIFF_SIGNATURE = [
-    77,
-    77,
-    0,
-    42,
-];
+const PNG_SIGNATURE = [137, 80, 78, 71];
+const JPEG_SIGNATURE = [255, 216, 255];
+const TIFF_SIGNATURE = [77, 77, 0, 42];
 const PAGE_DPI = {
     x: 300,
     y: 300,
@@ -128,9 +91,7 @@ function bytesOf(result: IBrowserImageExportAcceptance) {
 // pdf.js loads its worker and version stamp from the vendored directory; nothing outside it is served.
 async function respondWithPdfjsAsset(requestUrl: string, response: ServerResponse) {
     const assetPath = resolve(PDFJS_ASSET_DIR, requestUrl.slice('/pdf/'.length));
-    const bytes = assetPath.startsWith(`${PDFJS_ASSET_DIR}/`)
-        ? await readFile(assetPath).catch(() => null)
-        : null;
+    const bytes = assetPath.startsWith(`${PDFJS_ASSET_DIR}/`) ? await readFile(assetPath).catch(() => null) : null;
     if (bytes === null) {
         response.writeHead(404);
         response.end();
@@ -158,14 +119,17 @@ beforeAll(async () => {
     // two-page boundary. The separate metadata test covers the 32-bit limit.
     const realTiffModule = resolve(process.cwd(), 'packages/pdf-core/tiffEncoding.ts');
     const boundedTiffModule = join(temporaryDirectory, 'bounded-tiff.ts');
-    await writeFile(boundedTiffModule, `
+    await writeFile(
+        boundedTiffModule,
+        `
         import * as real from ${JSON.stringify(realTiffModule)};
         export * from ${JSON.stringify(realTiffModule)};
         export function splitTiffPageDescriptorsForClassicLimit(pages, encoder) {
             return Reflect.get(real, 'splitTiffPageDescriptorsForClassicLimit')(pages, encoder,
                 Reflect.get(real, 'estimateMultiPageTiffByteLength')(pages.slice(0, 2), encoder));
         }
-    `);
+    `,
+    );
     boundedBundlePath = join(temporaryDirectory, 'bounded-browser-export.js');
     await build({
         bundle: true,
@@ -189,11 +153,7 @@ beforeAll(async () => {
     });
     combineWorkerBytes = await readFile(workerPath);
     const saveWorkers = new Map<string, Buffer>();
-    for (const name of [
-        'browserDjvuEngine.worker',
-        'browserQpdfEngine.worker',
-        'browserPageOps.worker',
-    ]) {
+    for (const name of ['browserDjvuEngine.worker', 'browserQpdfEngine.worker', 'browserPageOps.worker']) {
         const path = join(temporaryDirectory, `${name}.js`);
         await build({
             bundle: true,
@@ -219,10 +179,16 @@ beforeAll(async () => {
             return;
         }
         if (/^\/wasm\/(?:evb-djvulibre\.(?:mjs|wasm)|evb-qpdf\.(?:mjs|wasm)|evb-pdf-page-ops\.wasm)$/u.test(pathname)) {
-            void readFile(resolve(process.cwd(), 'public', pathname.slice(1))).then(bytes => {
-                response.writeHead(200, {'content-type': pathname.endsWith('.mjs') ? 'text/javascript' : 'application/wasm'});
-                response.end(bytes);
-            }, () => {response.writeHead(404); response.end();});
+            void readFile(resolve(process.cwd(), 'public', pathname.slice(1))).then(
+                (bytes) => {
+                    response.writeHead(200, {'content-type': pathname.endsWith('.mjs') ? 'text/javascript' : 'application/wasm'});
+                    response.end(bytes);
+                },
+                () => {
+                    response.writeHead(404);
+                    response.end();
+                },
+            );
             return;
         }
         if (_request.url === '/browserPdfCombine.worker.ts') {
@@ -275,7 +241,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
     if (server) {
-        await new Promise<void>(resolveClose => server.close(() => resolveClose()));
+        await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     }
     await rm(temporaryDirectory, {
         force: true,
@@ -321,10 +287,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
     it('exports compact bytes through the worker and cancels its pending WASM load with trusted input', async () => {
         const browser = await connectOrLaunchChromium();
         try {
-            for (const cancel of [
-                false,
-                true,
-            ]) {
+            for (const cancel of [false, true]) {
                 const page = await browser.newPage();
                 try {
                     await page.goto(origin);
@@ -332,8 +295,10 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                         path: bundlePath,
                         type: 'module',
                     });
-                    await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbInstallBrowserCompactDjvuAcceptance') === 'function');
-                    await page.evaluate(async shouldCancel => {
+                    await page.waitForFunction(
+                        () => typeof Reflect.get(globalThis, '__evbInstallBrowserCompactDjvuAcceptance') === 'function',
+                    );
+                    await page.evaluate(async (shouldCancel) => {
                         const install = Reflect.get(globalThis, '__evbInstallBrowserCompactDjvuAcceptance');
                         if (typeof install !== 'function') {
                             throw new Error('Compact DjVu acceptance controls were not installed');
@@ -411,17 +376,15 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 type: 'module',
             });
             await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance') === 'function');
-            const runExport = (chosenName: string) => page.evaluate<IBrowserImageExportAcceptance, string>(
-                name => Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance')(name),
-                chosenName,
-            );
+            const runExport = (chosenName: string) =>
+                page.evaluate<IBrowserImageExportAcceptance, string>(
+                    (name) => Reflect.get(globalThis, '__evbRunBrowserDjvuImageExportAcceptance')(name),
+                    chosenName,
+                );
             const pngResult = await runExport('page-001.png');
             const jpegResult = await runExport('page-001.jpg');
             const tiffResult = await runExport('page-001.tif');
-            for (const name of [
-                'chosen.TIF',
-                'chosen.TIFF',
-            ]) {
+            for (const name of ['chosen.TIF', 'chosen.TIFF']) {
                 const result = await runExport(name);
                 expect(result.storedName).toBe(name);
                 expect(UTIF.decode(bytesOf(result))).toHaveLength(1);
@@ -460,17 +423,15 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 type: 'module',
             });
             await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserPdfImageExportAcceptance') === 'function');
-            const runExport = (chosenName: string) => page.evaluate<IBrowserImageExportAcceptance, string>(
-                name => Reflect.get(globalThis, '__evbRunBrowserPdfImageExportAcceptance')(name),
-                chosenName,
-            );
+            const runExport = (chosenName: string) =>
+                page.evaluate<IBrowserImageExportAcceptance, string>(
+                    (name) => Reflect.get(globalThis, '__evbRunBrowserPdfImageExportAcceptance')(name),
+                    chosenName,
+                );
 
             const pngResult = await runExport('page-001.png');
             const tiffResult = await runExport('page-001.tif');
-            for (const name of [
-                'chosen.TIF',
-                'chosen.TIFF',
-            ]) {
+            for (const name of ['chosen.TIF', 'chosen.TIFF']) {
                 const result = await runExport(name);
                 expect(result.storedName).toBe(name);
                 expect(UTIF.decode(bytesOf(result))).toHaveLength(1);
@@ -499,7 +460,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
         const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
-            page.on('pageerror', error => console.log('[browser export acceptance]', error.message));
+            page.on('pageerror', (error) => console.log('[browser export acceptance]', error.message));
             await page.goto(origin);
             await page.addScriptTag({
                 path: bundlePath,
@@ -509,7 +470,9 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             await page.evaluate(() => Reflect.get(globalThis, '__evbInstallTypedPdfSaveAcceptance')());
             await page.locator('#typed-pdf-save').click();
             await page.waitForFunction(() => Reflect.has(globalThis, '__evbTypedSaveResult'));
-            expect(await page.locator('#typed-save-message').innerText()).toBe('Le fichier n’a pas été enregistré. Choisissez un nom de fichier se terminant par .pdf.');
+            expect(await page.locator('#typed-save-message').innerText()).toBe(
+                'Le fichier n’a pas été enregistré. Choisissez un nom de fichier se terminant par .pdf.',
+            );
             const result = await page.evaluate(() => Reflect.get(globalThis, '__evbTypedSaveResult'));
             expect(result.saved).toBeNull();
             expect(result.bytes).toBe('sentinel bytes');
@@ -519,11 +482,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
         }
     });
 
-    it.each([
-        1,
-        2,
-        3,
-    ])('keeps every image from two overlapping folder exports: run %s', async () => {
+    it.each([1, 2, 3])('keeps every image from two overlapping folder exports: run %s', async () => {
         const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
@@ -542,15 +501,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 files: Array<{
                     name: string;
                     bytesBase64: string;
-                    decodable: boolean
+                    decodable: boolean;
                 }>;
             };
-            expect(outcome.results.map(result => result.success)).toEqual([
-                true,
-                true,
-            ]);
+            expect(outcome.results.map((result) => result.success)).toEqual([true, true]);
             expect(outcome.savedPages).toBe(2);
-            expect(outcome.files.map(file => file.name)).toEqual([
+            expect(outcome.files.map((file) => file.name)).toEqual([
                 'document-pages-001-1.jpg',
                 'document-pages-001.jpg',
                 'document-pages-002-1.jpg',
@@ -565,234 +521,207 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
         }
     });
 
-    it.each([
-        'encode',
-        'open',
-        'write',
-        'replaced',
-        'nonempty',
-        'changed-empty',
-        'abort-unknown',
-        'close-unknown',
-    ])('keeps completed folder images and only cleans a provably empty failed page: %s', async mode => {
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage();
-            page.on('pageerror', error => console.log('[browser export acceptance]', error.message));
-            await page.goto(origin);
-            await page.addScriptTag({
-                path: bundlePath,
-                type: 'module',
-            });
-            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbInstallFolderFailureAcceptance') === 'function');
-            await page.evaluate(value => Reflect.get(globalThis, '__evbInstallFolderFailureAcceptance')(value), mode);
-            await page.locator('#folder-failure-export').click();
-            if (mode === 'encode') {
-                const failedFiles = await page.evaluate(() => Reflect.get(globalThis, '__evbReadFailedFolderImages')());
-                expect(failedFiles.map((file: {name: string}) => file.name)).toEqual(['document-pages-001.jpg']);
+    it.each(['encode', 'open', 'write', 'replaced', 'nonempty', 'changed-empty', 'abort-unknown', 'close-unknown'])(
+        'keeps completed folder images and only cleans a provably empty failed page: %s',
+        async (mode) => {
+            const browser = await connectOrLaunchChromium();
+            try {
+                const page = await browser.newPage();
+                page.on('pageerror', (error) => console.log('[browser export acceptance]', error.message));
+                await page.goto(origin);
+                await page.addScriptTag({
+                    path: bundlePath,
+                    type: 'module',
+                });
+                await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbInstallFolderFailureAcceptance') === 'function');
+                await page.evaluate((value) => Reflect.get(globalThis, '__evbInstallFolderFailureAcceptance')(value), mode);
+                await page.locator('#folder-failure-export').click();
+                if (mode === 'encode') {
+                    const failedFiles = await page.evaluate(() => Reflect.get(globalThis, '__evbReadFailedFolderImages')());
+                    expect(failedFiles.map((file: {name: string}) => file.name)).toEqual(['document-pages-001.jpg']);
+                }
+                await expect.poll(() => page.locator('#folder-failure-result').textContent()).not.toBe('');
+                const outcome = JSON.parse(await page.locator('#folder-failure-result').innerText()) as {
+                    error: string;
+                    failed: Array<{
+                        name: string;
+                        bytesBase64: string;
+                        decodable: boolean;
+                    }>;
+                    retried: Array<{
+                        name: string;
+                        bytesBase64: string;
+                        decodable: boolean;
+                    }>;
+                    retainedOutputs: boolean[];
+                };
+                expect(outcome.error).not.toBe('');
+                const removesEmpty = ['encode', 'open', 'write'].includes(mode);
+                expect(outcome.failed.map((file) => file.name)).toEqual(
+                    removesEmpty ? ['document-pages-001.jpg'] : ['document-pages-001.jpg', 'document-pages-002.jpg'],
+                );
+                expect(outcome.failed[0]?.decodable).toBe(true);
+                expect(outcome.retainedOutputs.filter(Boolean)).toEqual([]);
+                if (mode === 'replaced' || mode === 'nonempty') {
+                    expect(Buffer.from(outcome.failed[1]!.bytesBase64, 'base64').toString()).toBe('external revision');
+                }
+                if (mode === 'close-unknown') {
+                    expect(outcome.failed[1]?.decodable).toBe(true);
+                }
+                if (mode === 'encode') {
+                    expect(outcome.retried.map((file) => file.name)).toEqual([
+                        'document-pages-001-1.jpg',
+                        'document-pages-001.jpg',
+                        'document-pages-002.jpg',
+                    ]);
+                    expect(outcome.retried.every((file) => file.decodable)).toBe(true);
+                    expect(outcome.retried.find((file) => file.name === 'document-pages-001.jpg')?.bytesBase64).toBe(
+                        outcome.failed[0]!.bytesBase64,
+                    );
+                }
+            } finally {
+                await closeChromiumBrowser(browser);
             }
-            await expect.poll(() => page.locator('#folder-failure-result').textContent()).not.toBe('');
-            const outcome = JSON.parse(await page.locator('#folder-failure-result').innerText()) as {
-                error: string;
-                failed: Array<{
-                    name: string;
-                    bytesBase64: string;
-                    decodable: boolean
-                }>;
-                retried: Array<{
-                    name: string;
-                    bytesBase64: string;
-                    decodable: boolean
-                }>;
-                retainedOutputs: boolean[];
-            };
-            expect(outcome.error).not.toBe('');
-            const removesEmpty = [
-                'encode',
-                'open',
-                'write',
-            ].includes(mode);
-            expect(outcome.failed.map(file => file.name)).toEqual(removesEmpty ? ['document-pages-001.jpg'] : [
-                'document-pages-001.jpg',
-                'document-pages-002.jpg',
-            ]);
-            expect(outcome.failed[0]?.decodable).toBe(true);
-            expect(outcome.retainedOutputs.filter(Boolean)).toEqual([]);
-            if (mode === 'replaced' || mode === 'nonempty') {
-                expect(Buffer.from(outcome.failed[1]!.bytesBase64, 'base64').toString()).toBe('external revision');
-            }
-            if (mode === 'close-unknown') expect(outcome.failed[1]?.decodable).toBe(true);
-            if (mode === 'encode') {
-                expect(outcome.retried.map(file => file.name)).toEqual([
-                    'document-pages-001-1.jpg',
-                    'document-pages-001.jpg',
-                    'document-pages-002.jpg',
-                ]);
-                expect(outcome.retried.every(file => file.decodable)).toBe(true);
-                expect(outcome.retried.find(file => file.name === 'document-pages-001.jpg')?.bytesBase64).toBe(outcome.failed[0]!.bytesBase64);
-            }
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    });
+        },
+    );
 
     it.each([
-        [
-            'pdf',
-            'directory',
-            false,
-            false,
-        ],
-        [
-            'pdf',
-            'directory',
-            true,
-            false,
-        ],
-        [
-            'pdf',
-            'directory',
-            false,
-            true,
-        ],
-        [
-            'pdf',
-            'download',
-            false,
-            false,
-        ],
-        [
-            'pdf',
-            'cancel',
-            false,
-            false,
-        ],
-        [
-            'djvu',
-            'directory',
-            false,
-            false,
-        ],
-        [
-            'djvu',
-            'download',
-            false,
-            false,
-        ],
-    ] as const)('streams every bounded TIFF part with trusted input: %s %s collision=%s failure=%s', async (kind, destination, collision, failPage) => {
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage({acceptDownloads: true});
-            await page.goto(origin);
-            await page.addScriptTag({
-                path: boundedBundlePath,
-                type: 'module',
-            });
-            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbInstallTiffPartsAcceptance') === 'function');
-            await page.evaluate(([
-                sourceKind,
-                target,
-                occupied,
-                fail,
-            ]) => Reflect.get(globalThis, '__evbInstallTiffPartsAcceptance')(sourceKind, target, occupied, fail), [
-                kind,
-                destination,
-                collision,
-                failPage,
-            ] as const);
-            const downloads: Download[] = [];
-            const allDownloads = Promise.withResolvers<undefined>();
-            page.on('download', download => {downloads.push(download); if (downloads.length === 3) allDownloads.resolve(undefined);});
-            await page.locator('#tiff-parts-export').click();
-            await page.waitForFunction(() => Boolean(document.querySelector('#tiff-parts-result')?.textContent));
-            const outcome = JSON.parse(await page.locator('#tiff-parts-result').innerText()) as {
-                result: {
-                    success: boolean;
-                    canceled?: boolean;
-                    outputPaths?: string[];
-                    error?: string
+        ['pdf', 'directory', false, false],
+        ['pdf', 'directory', true, false],
+        ['pdf', 'directory', false, true],
+        ['pdf', 'download', false, false],
+        ['pdf', 'cancel', false, false],
+        ['djvu', 'directory', false, false],
+        ['djvu', 'download', false, false],
+    ] as const)(
+        'streams every bounded TIFF part with trusted input: %s %s collision=%s failure=%s',
+        async (kind, destination, collision, failPage) => {
+            const browser = await connectOrLaunchChromium();
+            try {
+                const page = await browser.newPage({acceptDownloads: true});
+                await page.goto(origin);
+                await page.addScriptTag({
+                    path: boundedBundlePath,
+                    type: 'module',
+                });
+                await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbInstallTiffPartsAcceptance') === 'function');
+                await page.evaluate(
+                    ([sourceKind, target, occupied, fail]) =>
+                        Reflect.get(globalThis, '__evbInstallTiffPartsAcceptance')(sourceKind, target, occupied, fail),
+                    [kind, destination, collision, failPage] as const,
+                );
+                const downloads: Download[] = [];
+                const allDownloads = Promise.withResolvers<undefined>();
+                page.on('download', (download) => {
+                    downloads.push(download);
+                    if (downloads.length === 3) {
+                        allDownloads.resolve(undefined);
+                    }
+                });
+                await page.locator('#tiff-parts-export').click();
+                await page.waitForFunction(() => Boolean(document.querySelector('#tiff-parts-result')?.textContent));
+                const outcome = JSON.parse(await page.locator('#tiff-parts-result').innerText()) as {
+                    result: {
+                        success: boolean;
+                        canceled?: boolean;
+                        outputPaths?: string[];
+                        error?: string;
+                    };
+                    files: Array<{
+                        name: string;
+                        bytesBase64: string;
+                    }>;
+                    progress: number[];
                 };
-                files: Array<{
-                    name: string;
-                    bytesBase64: string
-                }>;
-                progress: number[];
-            };
-            if (destination === 'cancel') {
-                expect(outcome.result).toMatchObject({
-                    success: false,
-                    canceled: true,
-                });
-                expect(outcome.files).toEqual([]);
-                expect(downloads).toEqual([]);
-                return;
-            }
-            const base = kind === 'pdf' ? 'browser-pdf-image-export' : 'document';
-            const extension = kind === 'pdf' ? 'tif' : 'tiff';
-            if (failPage) {
-                expect(outcome.result).toMatchObject({
-                    success: false,
-                    error: 'third page raster failed',
-                });
-                expect(outcome.files.map(file => file.name)).toEqual([`${base}-part-001.${extension}`]);
-                expect(UTIF.decode(Buffer.from(outcome.files[0]!.bytesBase64, 'base64'))).toHaveLength(2);
-                expect(outcome.progress.at(-1)).toBeLessThan(100);
-                return;
-            }
-            expect(outcome.result.success).toBe(true);
-            expect(outcome.result.outputPaths).toHaveLength(3);
-            expect(outcome.progress.every((percent, index) => index === 0 || percent >= outcome.progress[index - 1]!)).toBe(true);
-            expect(outcome.progress.at(-1)).toBe(100);
-            let files: Array<{
-                name: string;
-                bytes: Uint8Array
-            }>;
-            if (destination === 'download') {
-                await allDownloads.promise;
-                files = await Promise.all(downloads.map(async download => ({
-                    name: download.suggestedFilename(),
-                    bytes: await readDownloadBytes(download),
-                })));
-            } else {
-                files = outcome.files.filter(file => !collision || file.name !== `${base}-part-001.${extension}`).map(file => ({
-                    name: file.name,
-                    bytes: Buffer.from(file.bytesBase64, 'base64'),
-                }));
-                if (collision) expect(Buffer.from(outcome.files.find(file => file.name === `${base}-part-001.${extension}`)!.bytesBase64, 'base64').toString()).toBe('earlier TIFF');
-            }
-            files.sort((a, b) => a.name.localeCompare(b.name));
-            expect(files.map(file => file.name)).toEqual([
-                `${base}-part-001${collision ? '-1' : ''}.${extension}`,
-                `${base}-part-002.${extension}`,
-                `${base}-part-003.${extension}`,
-            ]);
-            expect(files.map(file => UTIF.decode(file.bytes).length)).toEqual([
-                2,
-                2,
-                1,
-            ]);
-            let pageNumber = 0;
-            for (const file of files) {
-                for (const frame of UTIF.decode(file.bytes)) {
-                    const offset = firstNumber(frame.t273)!;
-                    const length = firstNumber(frame.t279)!;
-                    expect(offset).toBeGreaterThan(8);
-                    expect(offset + length).toBeLessThanOrEqual(file.bytes.byteLength);
-                    expect(readTiffFrameDpi(frame)).toEqual(kind === 'pdf' ? {
-                        x: 300,
-                        y: 300,
-                    } : PAGE_DPI);
-                    UTIF.decodeImage(file.bytes, frame);
-                    const rgba = UTIF.toRGBA8(frame);
-                    if (kind === 'pdf') expect(Math.abs(rgba[0]! - Math.round((pageNumber + 1) * 25.5))).toBeLessThanOrEqual(1);
-                    pageNumber += 1;
+                if (destination === 'cancel') {
+                    expect(outcome.result).toMatchObject({
+                        success: false,
+                        canceled: true,
+                    });
+                    expect(outcome.files).toEqual([]);
+                    expect(downloads).toEqual([]);
+                    return;
                 }
+                const base = kind === 'pdf' ? 'browser-pdf-image-export' : 'document';
+                const extension = kind === 'pdf' ? 'tif' : 'tiff';
+                if (failPage) {
+                    expect(outcome.result).toMatchObject({
+                        success: false,
+                        error: 'third page raster failed',
+                    });
+                    expect(outcome.files.map((file) => file.name)).toEqual([`${base}-part-001.${extension}`]);
+                    expect(UTIF.decode(Buffer.from(outcome.files[0]!.bytesBase64, 'base64'))).toHaveLength(2);
+                    expect(outcome.progress.at(-1)).toBeLessThan(100);
+                    return;
+                }
+                expect(outcome.result.success).toBe(true);
+                expect(outcome.result.outputPaths).toHaveLength(3);
+                expect(outcome.progress.every((percent, index) => index === 0 || percent >= outcome.progress[index - 1]!)).toBe(true);
+                expect(outcome.progress.at(-1)).toBe(100);
+                let files: Array<{
+                    name: string;
+                    bytes: Uint8Array;
+                }>;
+                if (destination === 'download') {
+                    await allDownloads.promise;
+                    files = await Promise.all(
+                        downloads.map(async (download) => ({
+                            name: download.suggestedFilename(),
+                            bytes: await readDownloadBytes(download),
+                        })),
+                    );
+                } else {
+                    files = outcome.files
+                        .filter((file) => !collision || file.name !== `${base}-part-001.${extension}`)
+                        .map((file) => ({
+                            name: file.name,
+                            bytes: Buffer.from(file.bytesBase64, 'base64'),
+                        }));
+                    if (collision) {
+                        expect(
+                            Buffer.from(
+                                outcome.files.find((file) => file.name === `${base}-part-001.${extension}`)!.bytesBase64,
+                                'base64',
+                            ).toString(),
+                        ).toBe('earlier TIFF');
+                    }
+                }
+                files.sort((a, b) => a.name.localeCompare(b.name));
+                expect(files.map((file) => file.name)).toEqual([
+                    `${base}-part-001${collision ? '-1' : ''}.${extension}`,
+                    `${base}-part-002.${extension}`,
+                    `${base}-part-003.${extension}`,
+                ]);
+                expect(files.map((file) => UTIF.decode(file.bytes).length)).toEqual([2, 2, 1]);
+                let pageNumber = 0;
+                for (const file of files) {
+                    for (const frame of UTIF.decode(file.bytes)) {
+                        const offset = firstNumber(frame.t273)!;
+                        const length = firstNumber(frame.t279)!;
+                        expect(offset).toBeGreaterThan(8);
+                        expect(offset + length).toBeLessThanOrEqual(file.bytes.byteLength);
+                        expect(readTiffFrameDpi(frame)).toEqual(
+                            kind === 'pdf'
+                                ? {
+                                      x: 300,
+                                      y: 300,
+                                  }
+                                : PAGE_DPI,
+                        );
+                        UTIF.decodeImage(file.bytes, frame);
+                        const rgba = UTIF.toRGBA8(frame);
+                        if (kind === 'pdf') {
+                            expect(Math.abs(rgba[0]! - Math.round((pageNumber + 1) * 25.5))).toBeLessThanOrEqual(1);
+                        }
+                        pageNumber += 1;
+                    }
+                }
+                expect(pageNumber).toBe(5);
+            } finally {
+                await closeChromiumBrowser(browser);
             }
-            expect(pageNumber).toBe(5);
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    });
+        },
+    );
 
     it('writes a multi-page DjVu TIFF into the chosen folder with each page density', async () => {
         const browser = await connectOrLaunchChromium();
@@ -803,24 +732,28 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 path: bundlePath,
                 type: 'module',
             });
-            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance') === 'function');
+            await page.waitForFunction(
+                () => typeof Reflect.get(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance') === 'function',
+            );
             for (const chosenName of ['document.tiff']) {
-                const result = await page.evaluate<{
-                    bytesBase64: string;
-                    storedName: string;
-                    savedName: string;
-                }, string>(
-                    name => Reflect.get(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance')(name),
-                    chosenName,
-                );
+                const result = await page.evaluate<
+                    {
+                        bytesBase64: string;
+                        storedName: string;
+                        savedName: string;
+                    },
+                    string
+                >((name) => Reflect.get(globalThis, '__evbRunBrowserDjvuMultiPageTiffExportAcceptance')(name), chosenName);
                 expect(result.storedName).toBe(chosenName);
                 expect(result.savedName).toBe(chosenName);
                 const frames = UTIF.decode(Buffer.from(result.bytesBase64, 'base64'));
-                expect(frames.map(frame => ({
-                    width: firstNumber(frame.t256),
-                    height: firstNumber(frame.t257),
-                    dpi: readTiffFrameDpi(frame),
-                }))).toEqual([
+                expect(
+                    frames.map((frame) => ({
+                        width: firstNumber(frame.t256),
+                        height: firstNumber(frame.t257),
+                        dpi: readTiffFrameDpi(frame),
+                    })),
+                ).toEqual([
                     {
                         width: 640,
                         height: 480,
@@ -850,16 +783,18 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 path: bundlePath,
                 type: 'module',
             });
-            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance') === 'function');
+            await page.waitForFunction(
+                () => typeof Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance') === 'function',
+            );
             for (const chosenName of ['browser-pdf-image-export.tif']) {
-                const result = await page.evaluate<{
-                    bytesBase64: string;
-                    storedName: string;
-                    savedName: string;
-                }, string>(
-                    name => Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance')(name),
-                    chosenName,
-                );
+                const result = await page.evaluate<
+                    {
+                        bytesBase64: string;
+                        storedName: string;
+                        savedName: string;
+                    },
+                    string
+                >((name) => Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance')(name), chosenName);
                 expect(result.storedName).toBe(chosenName);
                 expect(result.savedName).toBe(chosenName);
                 expect(UTIF.decode(Buffer.from(result.bytesBase64, 'base64'))).toHaveLength(2);
@@ -879,34 +814,34 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 path: bundlePath,
                 type: 'module',
             });
-            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserLargeMultiPageTiffExportAcceptance') === 'function');
-            const runExport = (sourceKind: 'djvu' | 'pdf', pageCount: number) => page.evaluate<{
-                success: boolean;
-                error?: string;
-                saved?: {
-                    byteLength: number;
-                    frames: Array<{
-                        width: number;
-                        height: number
-                    }>
-                } | null;
-            }, [string, number]>(
-                ([
-                    kind,
-                    count,
-                ]) => Reflect.get(globalThis, '__evbRunBrowserLargeMultiPageTiffExportAcceptance')(kind, count),
-                [
-                    sourceKind,
-                    pageCount,
-                ],
+            await page.waitForFunction(
+                () => typeof Reflect.get(globalThis, '__evbRunBrowserLargeMultiPageTiffExportAcceptance') === 'function',
             );
+            const runExport = (sourceKind: 'djvu' | 'pdf', pageCount: number) =>
+                page.evaluate<
+                    {
+                        success: boolean;
+                        error?: string;
+                        saved?: {
+                            byteLength: number;
+                            frames: Array<{
+                                width: number;
+                                height: number;
+                            }>;
+                        } | null;
+                    },
+                    [string, number]
+                >(
+                    ([kind, count]) => Reflect.get(globalThis, '__evbRunBrowserLargeMultiPageTiffExportAcceptance')(kind, count),
+                    [sourceKind, pageCount],
+                );
 
             // Seventy 512 x 512 DjVu pages decode to 70 MiB of RGBA.
             const djvu = await runExport('djvu', 70);
             expect(djvu).toMatchObject({success: true});
             expect(djvu.saved!.byteLength).toBeGreaterThan(70 * 1024 * 1024);
             expect(djvu.saved!.frames).toHaveLength(70);
-            expect(djvu.saved!.frames.every(frame => frame.width === 512 && frame.height === 512)).toBe(true);
+            expect(djvu.saved!.frames.every((frame) => frame.width === 512 && frame.height === 512)).toBe(true);
 
             // Ten Letter pages at 300 DPI decode to 321 MiB of RGBA.
             const download = page.waitForEvent('download');
@@ -917,14 +852,8 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             expect(downloaded.byteLength).toBeGreaterThan(64 * 1024 * 1024);
             const frames = UTIF.decode(downloaded);
             expect(frames).toHaveLength(10);
-            expect(frames.map(frame => [
-                firstNumber(frame.t256),
-                firstNumber(frame.t257),
-            ])).toEqual(
-                Array.from({length: 10}, () => [
-                    2550,
-                    3300,
-                ]),
+            expect(frames.map((frame) => [firstNumber(frame.t256), firstNumber(frame.t257)])).toEqual(
+                Array.from({length: 10}, () => [2550, 3300]),
             );
         } finally {
             await closeChromiumBrowser(browser);
@@ -943,30 +872,27 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 type: 'module',
             });
             await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserBatchImageExportAcceptance') === 'function');
-            const runExport = (sourceKind: 'djvu' | 'pdf', pageCount: number, withDirectoryPicker: boolean) => page.evaluate<{
-                success: boolean;
-                outputCount: number | null;
-                prompts: {
-                    directory: number;
-                    save: number
-                };
-                files: Array<{
-                    name: string;
-                    head: number[];
-                    text: string | null
-                }>;
-            }, [string, number, boolean]>(
-                ([
-                    kind,
-                    count,
-                    directory,
-                ]) => Reflect.get(globalThis, '__evbRunBrowserBatchImageExportAcceptance')(kind, count, directory),
-                [
-                    sourceKind,
-                    pageCount,
-                    withDirectoryPicker,
-                ],
-            );
+            const runExport = (sourceKind: 'djvu' | 'pdf', pageCount: number, withDirectoryPicker: boolean) =>
+                page.evaluate<
+                    {
+                        success: boolean;
+                        outputCount: number | null;
+                        prompts: {
+                            directory: number;
+                            save: number;
+                        };
+                        files: Array<{
+                            name: string;
+                            head: number[];
+                            text: string | null;
+                        }>;
+                    },
+                    [string, number, boolean]
+                >(
+                    ([kind, count, directory]) =>
+                        Reflect.get(globalThis, '__evbRunBrowserBatchImageExportAcceptance')(kind, count, directory),
+                    [sourceKind, pageCount, withDirectoryPicker],
+                );
 
             const pdf = await runExport('pdf', 5, true);
             expect(pdf).toMatchObject({
@@ -978,7 +904,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 },
             });
             // The earlier export keeps its name and bytes; the new first page takes "-1".
-            expect(pdf.files.map(file => file.name)).toEqual([
+            expect(pdf.files.map((file) => file.name)).toEqual([
                 'document-pages-001-1.jpg',
                 'document-pages-001.jpg',
                 'document-pages-002.jpg',
@@ -986,8 +912,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 'document-pages-004.jpg',
                 'document-pages-005.jpg',
             ]);
-            expect(pdf.files.find(file => file.name === 'document-pages-001.jpg')?.text).toBe('earlier export');
-            expect(pdf.files.filter(file => file.name !== 'document-pages-001.jpg').every(file => file.head.join() === JPEG_SIGNATURE.join())).toBe(true);
+            expect(pdf.files.find((file) => file.name === 'document-pages-001.jpg')?.text).toBe('earlier export');
+            expect(
+                pdf.files
+                    .filter((file) => file.name !== 'document-pages-001.jpg')
+                    .every((file) => file.head.join() === JPEG_SIGNATURE.join()),
+            ).toBe(true);
 
             const djvu = await runExport('djvu', 3, true);
             expect(djvu).toMatchObject({
@@ -998,7 +928,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                     save: 0,
                 },
             });
-            expect(djvu.files.map(file => file.name)).toEqual([
+            expect(djvu.files.map((file) => file.name)).toEqual([
                 'document-pages-001.jpg',
                 'document-pages-page-001.jpg',
                 'document-pages-page-002.jpg',
@@ -1019,9 +949,9 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             // Walk the STORED local entries the archive opens with.
             const entries: Array<{
                 name: string;
-                head: number[]
+                head: number[];
             }> = [];
-            for (let offset = 0; archive.readUInt32LE(offset) === 0x04034B50;) {
+            for (let offset = 0; archive.readUInt32LE(offset) === 0x04034b50;) {
                 const size = archive.readUInt32LE(offset + 18);
                 const nameLength = archive.readUInt16LE(offset + 26);
                 const dataStart = offset + 30 + nameLength + archive.readUInt16LE(offset + 28);
@@ -1031,13 +961,13 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 });
                 offset = dataStart + size;
             }
-            expect(entries.map(entry => entry.name)).toEqual([
+            expect(entries.map((entry) => entry.name)).toEqual([
                 'document-pages-001.jpg',
                 'document-pages-002.jpg',
                 'document-pages-003.jpg',
                 'document-pages-004.jpg',
             ]);
-            expect(entries.every(entry => entry.head.join() === JPEG_SIGNATURE.join())).toBe(true);
+            expect(entries.every((entry) => entry.head.join() === JPEG_SIGNATURE.join())).toBe(true);
         } finally {
             await closeChromiumBrowser(browser);
         }
@@ -1059,7 +989,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             for (let offset = 8; offset < bytes.length; offset += bytes.readUInt32BE(offset) + 12) {
                 types.push(bytes.toString('ascii', offset + 4, offset + 8));
             }
-            expect(types.filter(type => type === 'pHYs')).toHaveLength(1);
+            expect(types.filter((type) => type === 'pHYs')).toHaveLength(1);
             expect(types.indexOf('pHYs')).toBeLessThan(types.indexOf('IDAT'));
             expect(readPngDpi(bytes)).toEqual(PAGE_DPI);
         } finally {
@@ -1077,32 +1007,42 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 type: 'module',
             });
             await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserPdfImageExportAcceptance') === 'function');
-            for (const extension of [
-                'png',
-                'jpg',
-                'tif',
-            ]) {
-                const result = await page.evaluate(ext => Reflect.get(globalThis, '__evbRunBrowserPdfImageExportAcceptance')(`density.${ext}`), extension);
+            for (const extension of ['png', 'jpg', 'tif']) {
+                const result = await page.evaluate(
+                    (ext) => Reflect.get(globalThis, '__evbRunBrowserPdfImageExportAcceptance')(`density.${ext}`),
+                    extension,
+                );
                 const bytes = bytesOf(result);
-                const dpi = extension === 'png' ? readPngDpi(bytes) : extension === 'jpg' ? readJpegDpi(bytes) : readTiffFrameDpi(UTIF.decode(bytes)[0]!);
+                const dpi =
+                    extension === 'png'
+                        ? readPngDpi(bytes)
+                        : extension === 'jpg'
+                          ? readJpegDpi(bytes)
+                          : readTiffFrameDpi(UTIF.decode(bytes)[0]!);
                 expect(dpi, extension).toEqual({
                     x: 300,
                     y: 300,
                 });
             }
-            const result = await page.evaluate(() => Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance')('density.tif'));
-            expect(UTIF.decode(bytesOf(result)).map(frame => ({
-                width: firstNumber(frame.t256),
-                height: firstNumber(frame.t257),
-                dpi: readTiffFrameDpi(frame),
-            }))).toEqual(Array.from({length: 2}, () => ({
-                width: 300,
-                height: 600,
-                dpi: {
-                    x: 300,
-                    y: 300,
-                },
-            })));
+            const result = await page.evaluate(() =>
+                Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance')('density.tif'),
+            );
+            expect(
+                UTIF.decode(bytesOf(result)).map((frame) => ({
+                    width: firstNumber(frame.t256),
+                    height: firstNumber(frame.t257),
+                    dpi: readTiffFrameDpi(frame),
+                })),
+            ).toEqual(
+                Array.from({length: 2}, () => ({
+                    width: 300,
+                    height: 600,
+                    dpi: {
+                        x: 300,
+                        y: 300,
+                    },
+                })),
+            );
         } finally {
             await closeChromiumBrowser(browser);
         }
@@ -1117,22 +1057,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 path: bundlePath,
                 type: 'module',
             });
-            await page.waitForFunction(() => typeof Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance') === 'function');
-            for (const runner of [
-                '__evbRunBrowserDjvuMultiPageTiffExportAcceptance',
-                '__evbRunBrowserPdfMultiPageTiffExportAcceptance',
-            ]) {
-                for (const chosenName of [
-                    'doc.png',
-                    'page.',
-                    'x.tif.png',
-                    'document',
-                    'document.tiff ',
-                ]) {
-                    const result = await page.evaluate(([
-                        name,
-                        entry,
-                    ]) => Reflect.get(globalThis, entry)(name, true), [
+            await page.waitForFunction(
+                () => typeof Reflect.get(globalThis, '__evbRunBrowserPdfMultiPageTiffExportAcceptance') === 'function',
+            );
+            for (const runner of ['__evbRunBrowserDjvuMultiPageTiffExportAcceptance', '__evbRunBrowserPdfMultiPageTiffExportAcceptance']) {
+                for (const chosenName of ['doc.png', 'page.', 'x.tif.png', 'document', 'document.tiff ']) {
+                    const result = await page.evaluate(([name, entry]) => Reflect.get(globalThis, entry)(name, true), [
                         chosenName,
                         runner,
                     ] as const);
@@ -1143,10 +1073,9 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                     });
                     expect(result.error).toContain('.tif');
                     expect(result.pickerOptions).toMatchObject({excludeAcceptAllOption: true});
-                    expect(result.pickerOptions.types.flatMap((type: {accept: Record<string, string[]>}) => Object.values(type.accept).flat())).toEqual([
-                        '.tif',
-                        '.tiff',
-                    ]);
+                    expect(
+                        result.pickerOptions.types.flatMap((type: {accept: Record<string, string[]>}) => Object.values(type.accept).flat()),
+                    ).toEqual(['.tif', '.tiff']);
                 }
             }
         } finally {
@@ -1175,12 +1104,14 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 // admitted requests to make the overlap deterministic.
                 Reflect.set(globalThis, '__compactPosted', 0);
                 const post = Worker.prototype.postMessage;
-                Worker.prototype.postMessage = function(message, options) {
-                    if (message.type === 'combinePdfs') Reflect.set(globalThis, '__compactPosted', Reflect.get(globalThis, '__compactPosted') + 1);
+                Worker.prototype.postMessage = function (message, options) {
+                    if (message.type === 'combinePdfs') {
+                        Reflect.set(globalThis, '__compactPosted', Reflect.get(globalThis, '__compactPosted') + 1);
+                    }
                     return post.call(this, message, Array.isArray(options) ? {transfer: options} : options);
                 };
             });
-            await page.route('**/wasm/evb-pdf-image-combine.wasm', async route => {
+            await page.route('**/wasm/evb-pdf-image-combine.wasm', async (route) => {
                 await releaseWasm.promise;
                 await route.continue().catch(() => undefined);
             });

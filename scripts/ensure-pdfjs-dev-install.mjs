@@ -1,11 +1,6 @@
 import {execFileSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
-import {
-    basename,
-    dirname,
-    join,
-    resolve,
-} from 'node:path';
+import {basename, dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -25,11 +20,7 @@ function resolvePdfjsArchive(root = projectRoot) {
 }
 
 function readArchiveVersion(archivePath) {
-    const packageJson = execFileSync('tar', [
-        '-xOzf',
-        basename(archivePath),
-        'package/package.json',
-    ], {
+    const packageJson = execFileSync('tar', ['-xOzf', basename(archivePath), 'package/package.json'], {
         encoding: 'utf8',
         cwd: dirname(archivePath),
     });
@@ -89,22 +80,15 @@ export function formatPdfjsDevIdentityFailure(identity, problems) {
 
 export function ensurePdfjsDevInstall({
     root = projectRoot,
-    install = () => execFileSync(
-        process.platform === 'win32' ? 'cmd.exe' : 'pnpm',
-        process.platform === 'win32' ? [
-            '/d',
-            '/s',
-            '/c',
-            'pnpm.cmd install --frozen-lockfile',
-        ] : [
-            'install',
-            '--frozen-lockfile',
-        ],
-        {
-            cwd: root,
-            stdio: 'inherit',
-        },
-    ),
+    install = () =>
+        execFileSync(
+            process.platform === 'win32' ? 'cmd.exe' : 'pnpm',
+            process.platform === 'win32' ? ['/d', '/s', '/c', 'pnpm.cmd install --frozen-lockfile'] : ['install', '--frozen-lockfile'],
+            {
+                cwd: root,
+                stdio: 'inherit',
+            },
+        ),
     readIdentity = () => readPdfjsDevIdentity(root),
 } = {}) {
     let identity = readIdentity();

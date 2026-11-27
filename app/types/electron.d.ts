@@ -1,6 +1,6 @@
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
-import type { IEvbTestApi } from '@app/types/evbTestApi';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
+import type {IEvbTestApi} from '@app/types/evbTestApi';
 
 /**
  * Opaque handle for the raw preload bridge exposed on `window.electronAPI`.
@@ -22,9 +22,7 @@ declare global {
         __deferDocumentOpenForAutomation?: (path: TDocumentRef) => boolean;
         __releaseDocumentOpenForAutomation?: (path: TDocumentRef) => boolean;
         __evbTestApi?: IEvbTestApi;
-        __stagedPdfNativeMutationCommitBarrierForAutomation?: (
-            stagedArtifact: ITypedStagedArtifact,
-        ) => Promise<void> | void;
+        __stagedPdfNativeMutationCommitBarrierForAutomation?: (stagedArtifact: ITypedStagedArtifact) => Promise<void> | void;
         __openFileDirect?: (path: TDocumentRef) => Promise<boolean>;
         __handleSave?: () => Promise<unknown>;
         __appReady?: boolean;

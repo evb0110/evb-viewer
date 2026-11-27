@@ -1,8 +1,4 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 import {
     ANNOTATION_COMMENT_ROW_GAP_REM,
     ANNOTATION_COMMENT_ROW_HEIGHT_REM,
@@ -12,18 +8,11 @@ import {
     ANNOTATION_COMMENT_ROW_STRIDE_REM,
     resolveAnnotationCommentRowMetrics,
 } from '@app/utils/pdfAnnotationCommentRowMetrics';
-import { BASE_ROOT_FONT_SIZE_PX } from '@app/utils/rootFontSize';
+import {BASE_ROOT_FONT_SIZE_PX} from '@app/utils/rootFontSize';
 
 // The four first-class UI-scale presets (`useUiScale.ts`) plus the extremes of
 // the Windows auto-compensation band, which clamps to [0.85, 1].
-const UI_SCALE_MATRIX = [
-    0.85,
-    0.9,
-    0.95,
-    1,
-    1.1,
-    1.25,
-];
+const UI_SCALE_MATRIX = [0.85, 0.9, 0.95, 1, 1.1, 1.25];
 
 function rootFontSizeFor(scale: number) {
     return BASE_ROOT_FONT_SIZE_PX * scale;
@@ -31,8 +20,7 @@ function rootFontSizeFor(scale: number) {
 
 describe('annotation comment row metrics', () => {
     it('keeps the rem geometry additive', () => {
-        expect(ANNOTATION_COMMENT_ROW_STRIDE_REM)
-            .toBe(ANNOTATION_COMMENT_ROW_HEIGHT_REM + ANNOTATION_COMMENT_ROW_GAP_REM);
+        expect(ANNOTATION_COMMENT_ROW_STRIDE_REM).toBe(ANNOTATION_COMMENT_ROW_HEIGHT_REM + ANNOTATION_COMMENT_ROW_GAP_REM);
     });
 
     it.each(UI_SCALE_MATRIX)('makes the row box and the stride agree at scale %s', (scale) => {
@@ -58,10 +46,8 @@ describe('annotation comment row metrics', () => {
         const rootFontSizePx = rootFontSizeFor(scale);
         const metrics = resolveAnnotationCommentRowMetrics(rootFontSizePx);
 
-        expect(metrics.rowStridePx)
-            .toBeCloseTo(ANNOTATION_COMMENT_ROW_STRIDE_REM * rootFontSizePx, 0);
-        expect(metrics.rowGapPx)
-            .toBeCloseTo(ANNOTATION_COMMENT_ROW_GAP_REM * rootFontSizePx, 0);
+        expect(metrics.rowStridePx).toBeCloseTo(ANNOTATION_COMMENT_ROW_STRIDE_REM * rootFontSizePx, 0);
+        expect(metrics.rowGapPx).toBeCloseTo(ANNOTATION_COMMENT_ROW_GAP_REM * rootFontSizePx, 0);
     });
 
     it('reproduces the historical default-scale stride', () => {
@@ -75,8 +61,7 @@ describe('annotation comment row metrics', () => {
         const base = resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX);
         const withReply = resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX, [{contents: 'reply'}]);
 
-        expect(withReply.rowStridePx - base.rowStridePx)
-            .toBe(Math.round(ANNOTATION_COMMENT_REPLY_BLOCK_REM * BASE_ROOT_FONT_SIZE_PX));
+        expect(withReply.rowStridePx - base.rowStridePx).toBe(Math.round(ANNOTATION_COMMENT_REPLY_BLOCK_REM * BASE_ROOT_FONT_SIZE_PX));
         expect(withReply.rowHeightPx + withReply.rowGapPx).toBe(withReply.rowStridePx);
     });
 
@@ -93,34 +78,21 @@ describe('annotation comment row metrics', () => {
     });
 
     it('diverges from the historical stride at every non-default preset', () => {
-        const strides = [
-            0.9,
-            1.1,
-            1.25,
-        ].map(scale => resolveAnnotationCommentRowMetrics(rootFontSizeFor(scale)).rowStridePx);
+        const strides = [0.9, 1.1, 1.25].map((scale) => resolveAnnotationCommentRowMetrics(rootFontSizeFor(scale)).rowStridePx);
 
-        expect(strides).toStrictEqual([
-            101,
-            123,
-            140,
-        ]);
+        expect(strides).toStrictEqual([101, 123, 140]);
     });
 
     it('grows monotonically with the root font size', () => {
-        const strides = UI_SCALE_MATRIX
-            .map(scale => resolveAnnotationCommentRowMetrics(rootFontSizeFor(scale)).rowStridePx);
+        const strides = UI_SCALE_MATRIX.map((scale) => resolveAnnotationCommentRowMetrics(rootFontSizeFor(scale)).rowStridePx);
 
         expect(strides).toStrictEqual([...strides].sort((left, right) => left - right));
     });
 
-    it.each([
-        Number.NaN,
-        0,
-        -12,
-        Number.POSITIVE_INFINITY,
-    ])('falls back to the base root font size for %s', (rootFontSizePx) => {
-        expect(resolveAnnotationCommentRowMetrics(rootFontSizePx))
-            .toStrictEqual(resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX));
+    it.each([Number.NaN, 0, -12, Number.POSITIVE_INFINITY])('falls back to the base root font size for %s', (rootFontSizePx) => {
+        expect(resolveAnnotationCommentRowMetrics(rootFontSizePx)).toStrictEqual(
+            resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX),
+        );
     });
 
     it('keeps a usable row box at absurdly small root font sizes', () => {

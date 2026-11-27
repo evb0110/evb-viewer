@@ -1,19 +1,8 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    OCR_PAGE_SELECTION_EXPANSION_LIMIT,
-    parseOcrPageSelection,
-    parsePageRange,
-} from '@app/utils/ocr/parsePageRange';
+import {describe, expect, it} from 'vitest';
+import {OCR_PAGE_SELECTION_EXPANSION_LIMIT, parseOcrPageSelection, parsePageRange} from '@app/utils/ocr/parsePageRange';
 
 describe('parsePageRange', () => {
-    it.each([
-        100_001,
-        1_000_001,
-    ])('keeps all-page selection scalar for %i pages', (totalPages) => {
+    it.each([100_001, 1_000_001])('keeps all-page selection scalar for %i pages', (totalPages) => {
         const selection = parseOcrPageSelection('all', '', 1, totalPages);
 
         expect(Array.isArray(selection)).toBe(false);
@@ -51,13 +40,7 @@ describe('parsePageRange', () => {
 
     describe('rangeType "all"', () => {
         it('returns all pages from 1 to totalPages', () => {
-            expect(parsePageRange('all', '', 1, 5)).toEqual([
-                1,
-                2,
-                3,
-                4,
-                5,
-            ]);
+            expect(parsePageRange('all', '', 1, 5)).toEqual([1, 2, 3, 4, 5]);
         });
 
         it('handles single-page document', () => {
@@ -71,47 +54,23 @@ describe('parsePageRange', () => {
         });
 
         it('parses comma-separated pages', () => {
-            expect(parsePageRange('custom', '1, 3, 5', 1, 10)).toEqual([
-                1,
-                3,
-                5,
-            ]);
+            expect(parsePageRange('custom', '1, 3, 5', 1, 10)).toEqual([1, 3, 5]);
         });
 
         it('parses a range like "2-5"', () => {
-            expect(parsePageRange('custom', '2-5', 1, 10)).toEqual([
-                2,
-                3,
-                4,
-                5,
-            ]);
+            expect(parsePageRange('custom', '2-5', 1, 10)).toEqual([2, 3, 4, 5]);
         });
 
         it('parses mixed ranges and individual pages', () => {
-            expect(parsePageRange('custom', '1, 3-5, 8', 1, 10)).toEqual([
-                1,
-                3,
-                4,
-                5,
-                8,
-            ]);
+            expect(parsePageRange('custom', '1, 3-5, 8', 1, 10)).toEqual([1, 3, 4, 5, 8]);
         });
 
         it('deduplicates overlapping ranges', () => {
-            expect(parsePageRange('custom', '1-3, 2-4', 1, 10)).toEqual([
-                1,
-                2,
-                3,
-                4,
-            ]);
+            expect(parsePageRange('custom', '1-3, 2-4', 1, 10)).toEqual([1, 2, 3, 4]);
         });
 
         it('clamps ranges to totalPages', () => {
-            expect(parsePageRange('custom', '8-15', 1, 10)).toEqual([
-                8,
-                9,
-                10,
-            ]);
+            expect(parsePageRange('custom', '8-15', 1, 10)).toEqual([8, 9, 10]);
         });
 
         it('ignores page numbers below 1', () => {
@@ -131,11 +90,7 @@ describe('parsePageRange', () => {
         });
 
         it('returns sorted results', () => {
-            expect(parsePageRange('custom', '5, 1, 3', 1, 10)).toEqual([
-                1,
-                3,
-                5,
-            ]);
+            expect(parsePageRange('custom', '5, 1, 3', 1, 10)).toEqual([1, 3, 5]);
         });
 
         it('handles empty custom range string', () => {
@@ -143,11 +98,7 @@ describe('parsePageRange', () => {
         });
 
         it('handles ranges with spaces around the dash', () => {
-            expect(parsePageRange('custom', '2 - 4', 1, 10)).toEqual([
-                2,
-                3,
-                4,
-            ]);
+            expect(parsePageRange('custom', '2 - 4', 1, 10)).toEqual([2, 3, 4]);
         });
 
         it('rejects tokens that only start with a valid page number', () => {

@@ -1,4 +1,5 @@
 use rayon::prelude::*;
+use std::borrow::Cow;
 
 /// Owned tightly packed 8-bit RGB image.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -75,11 +76,11 @@ impl RgbImage {
             return self.area_average_to_dimensions(out_width, out_height);
         }
         let intermediate = if out_width < self.width {
-            self.area_average_to_dimensions(out_width, self.height)
+            Cow::Owned(self.area_average_to_dimensions(out_width, self.height))
         } else if out_height < self.height {
-            self.area_average_to_dimensions(self.width, out_height)
+            Cow::Owned(self.area_average_to_dimensions(self.width, out_height))
         } else {
-            self.clone()
+            Cow::Borrowed(self)
         };
         let x_map = crate::gray::axis_samples(intermediate.width, out_width);
         let y_map = crate::gray::axis_samples(intermediate.height, out_height);
@@ -90,11 +91,13 @@ impl RgbImage {
             .enumerate()
             .for_each(|(output_y, row)| {
                 let (y0, y1, wy) = y_map[output_y];
+                let top_row = intermediate.row(y0);
+                let bottom_row = intermediate.row(y1);
                 for (target, &(x0, x1, wx)) in row.chunks_exact_mut(3).zip(&x_map) {
-                    let top_left = intermediate.get(x0, y0);
-                    let top_right = intermediate.get(x1, y0);
-                    let bottom_left = intermediate.get(x0, y1);
-                    let bottom_right = intermediate.get(x1, y1);
+                    let top_left = &top_row[x0 * 3..x0 * 3 + 3];
+                    let top_right = &top_row[x1 * 3..x1 * 3 + 3];
+                    let bottom_left = &bottom_row[x0 * 3..x0 * 3 + 3];
+                    let bottom_right = &bottom_row[x1 * 3..x1 * 3 + 3];
                     for (channel, value) in target.iter_mut().enumerate() {
                         let top = f64::from(top_left[channel]) * (1.0 - wx)
                             + f64::from(top_right[channel]) * wx;
@@ -108,24 +111,34 @@ impl RgbImage {
     }
 
     fn area_average_to_dimensions(&self, out_width: usize, out_height: usize) -> Self {
-        let x_taps = crate::gray::area_taps(self.width, out_width);
-        let y_taps = crate::gray::area_taps(self.height, out_height);
+        let x_taps = crate::gray::AreaTaps::new(self.width, out_width);
+        let y_taps = crate::gray::AreaTaps::new(self.height, out_height);
         let area = self.width as u64 * self.height as u64;
         let mut output = Self::new(out_width, out_height, [255; 3]);
         output
             .data_mut()
             .par_chunks_mut(out_width * 3)
             .enumerate()
-            .for_each(|(output_y, row)| {
-                let mut columns = vec![0u64; self.width * 3];
-                crate::gray::accumulate_rows(&mut columns, &y_taps[output_y], |y| self.row(y));
-                for (target, taps) in row.chunks_exact_mut(3).zip(&x_taps) {
-                    for (channel, value) in target.iter_mut().enumerate() {
-                        *value =
-                            (crate::gray::weighted_sum(&columns, taps, 3, channel) / area) as u8;
+            .for_each_init(
+                || vec![0u64; self.width * 3],
+                |columns, (output_y, row)| {
+                    columns.fill(0);
+                    crate::gray::accumulate_rows(columns, y_taps.get(output_y), |y| self.row(y));
+                    for (ox, target) in row.chunks_exact_mut(3).enumerate() {
+                        let (first, weights) = x_taps.get(ox);
+                        let mut sums = [0u64; 3];
+                        for (offset, &weight) in weights.iter().enumerate() {
+                            let base = (first + offset) * 3;
+                            sums[0] += weight * columns[base];
+                            sums[1] += weight * columns[base + 1];
+                            sums[2] += weight * columns[base + 2];
+                        }
+                        target[0] = (sums[0] / area) as u8;
+                        target[1] = (sums[1] / area) as u8;
+                        target[2] = (sums[2] / area) as u8;
                     }
-                }
-            });
+                },
+            );
         output
     }
 }

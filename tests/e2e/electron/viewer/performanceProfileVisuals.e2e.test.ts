@@ -1,31 +1,13 @@
-import {
-    mkdtempSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import {
-    PDFDocument,
-    StandardFonts,
-} from 'pdf-lib';
-import type { Page } from 'puppeteer-core';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    resolveHostWindowRasterShare,
-    type THostResourceTier,
-} from '@contracts/hostResourceProfile';
-import type { IHostRasterBudgetSnapshot } from '@contracts/hostPlatformFeature';
-import { moveTabToNewWindow } from '@tests/e2e/electron/helpers/moveTabToNewWindow';
-import {
-    openPdfInApp,
-    waitForPdfLoaded,
-} from '@tests/e2e/electron/helpers/viewerCore';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {PDFDocument, StandardFonts} from 'pdf-lib';
+import type {Page} from 'puppeteer-core';
+import {afterEach, describe, expect, it} from 'vitest';
+import {resolveHostWindowRasterShare, type THostResourceTier} from '@contracts/hostResourceProfile';
+import type {IHostRasterBudgetSnapshot} from '@contracts/hostPlatformFeature';
+import {moveTabToNewWindow} from '@tests/e2e/electron/helpers/moveTabToNewWindow';
+import {openPdfInApp, waitForPdfLoaded} from '@tests/e2e/electron/helpers/viewerCore';
 import {startConfiguredElectronE2ESession} from '@tests/e2e/electron/helpers/startConfiguredElectronE2ESession';
 import type {IElectronE2ESession} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 
@@ -46,10 +28,9 @@ interface IGraphicsStyleSnapshot {
 }
 
 async function waitForAppReady(session: IElectronE2ESession) {
-    await session.page.waitForFunction(
-        () => (window as Window & {__appReady?: boolean}).__appReady === true,
-        {timeout: APP_READY_TIMEOUT_MS},
-    );
+    await session.page.waitForFunction(() => (window as Window & {__appReady?: boolean}).__appReady === true, {
+        timeout: APP_READY_TIMEOUT_MS,
+    });
 }
 
 async function resetReducedMotionPreference(session: IElectronE2ESession) {
@@ -58,10 +39,14 @@ async function resetReducedMotionPreference(session: IElectronE2ESession) {
     // the host profile, so establish the neutral media baseline explicitly.
     const client = await session.page.createCDPSession();
     try {
-        await client.send('Emulation.setEmulatedMedia', {features: [{
-            name: 'prefers-reduced-motion',
-            value: 'no-preference',
-        }]});
+        await client.send('Emulation.setEmulatedMedia', {
+            features: [
+                {
+                    name: 'prefers-reduced-motion',
+                    value: 'no-preference',
+                },
+            ],
+        });
     } finally {
         await client.detach();
     }
@@ -78,15 +63,12 @@ async function readRootProfileSnapshot(session: IElectronE2ESession): Promise<IR
             appLowGraphics: document.documentElement.classList.contains('app-low-graphics'),
             profileAccessWasSynchronous: !microtaskReached && !(profile && 'then' in profile),
             profileTier: profile?.tier ?? null,
-            tierClasses: [...document.documentElement.classList]
-                .filter(className => className.startsWith('performance-tier-')),
+            tierClasses: [...document.documentElement.classList].filter((className) => className.startsWith('performance-tier-')),
         };
     });
 }
 
-async function readGraphicsStyleSnapshot(
-    session: IElectronE2ESession,
-): Promise<IGraphicsStyleSnapshot> {
+async function readGraphicsStyleSnapshot(session: IElectronE2ESession): Promise<IGraphicsStyleSnapshot> {
     // Scoped component declarations gate on html.app-low-graphics but only
     // exist once their components mount, which needs opened documents; the
     // real-app proof here is the token layer plus the root-class mechanism.
@@ -122,10 +104,7 @@ async function createMultiPagePdfFixture(filePath: string) {
     const document = await PDFDocument.create();
     const font = await document.embedFont(StandardFonts.Helvetica);
     for (let pageNumber = 1; pageNumber <= 2; pageNumber += 1) {
-        const page = document.addPage([
-            612,
-            792,
-        ]);
+        const page = document.addPage([612, 792]);
         page.drawText(`Raster share multi-window page ${pageNumber}`, {
             x: 72,
             y: 700,
@@ -138,9 +117,7 @@ async function createMultiPagePdfFixture(filePath: string) {
 
 async function waitForSurfaceBudgetMaxBytes(page: Page, expectedMaxBytes: number) {
     await page.waitForFunction(
-        (targetMaxBytes: number) => (
-            (window as ISurfaceBudgetProbeWindow).__getWorkspaceSurfaceBudgetForE2E?.().maxBytes === targetMaxBytes
-        ),
+        (targetMaxBytes: number) => (window as ISurfaceBudgetProbeWindow).__getWorkspaceSurfaceBudgetForE2E?.().maxBytes === targetMaxBytes,
         {timeout: APP_READY_TIMEOUT_MS},
         expectedMaxBytes,
     );
@@ -172,137 +149,146 @@ describe('Electron E2E - Performance Profile Visuals', () => {
         }
     });
 
-    it('installs the low tier synchronously and disables expensive visuals', async () => {
-        session = await startConfiguredElectronE2ESession(
-            `e2e-performance-visuals-low-${Date.now()}`,
-            'low',
-        );
-        await resetReducedMotionPreference(session);
-        await waitForAppReady(session);
+    it(
+        'installs the low tier synchronously and disables expensive visuals',
+        async () => {
+            session = await startConfiguredElectronE2ESession(`e2e-performance-visuals-low-${Date.now()}`, 'low');
+            await resetReducedMotionPreference(session);
+            await waitForAppReady(session);
 
-        expect(await readRootProfileSnapshot(session)).toMatchObject({
-            appLowGraphics: true,
-            profileAccessWasSynchronous: true,
-            profileTier: 'low',
-            tierClasses: ['performance-tier-low'],
-        });
-        expectGraphicsTokens(await readGraphicsStyleSnapshot(session));
-    }, E2E_TIMEOUT_MS);
+            expect(await readRootProfileSnapshot(session)).toMatchObject({
+                appLowGraphics: true,
+                profileAccessWasSynchronous: true,
+                profileTier: 'low',
+                tierClasses: ['performance-tier-low'],
+            });
+            expectGraphicsTokens(await readGraphicsStyleSnapshot(session));
+        },
+        E2E_TIMEOUT_MS,
+    );
 
-    it('toggles low graphics with reduced motion while preserving medium visuals', async () => {
-        session = await startConfiguredElectronE2ESession(
-            `e2e-performance-visuals-medium-${Date.now()}`,
-            'medium',
-        );
-        await resetReducedMotionPreference(session);
-        await waitForAppReady(session);
+    it(
+        'toggles low graphics with reduced motion while preserving medium visuals',
+        async () => {
+            session = await startConfiguredElectronE2ESession(`e2e-performance-visuals-medium-${Date.now()}`, 'medium');
+            await resetReducedMotionPreference(session);
+            await waitForAppReady(session);
 
-        expect(await readRootProfileSnapshot(session)).toMatchObject({
-            appLowGraphics: false,
-            profileAccessWasSynchronous: true,
-            profileTier: 'medium',
-            tierClasses: ['performance-tier-medium'],
-        });
-        expectGraphicsTokens(await readGraphicsStyleSnapshot(session));
-
-        const client = await session.page.createCDPSession();
-        try {
-            await client.send('Emulation.setEmulatedMedia', {features: [{
-                name: 'prefers-reduced-motion',
-                value: 'reduce',
-            }]});
-            await session.page.waitForFunction(
-                () => document.documentElement.classList.contains('app-low-graphics'),
-            );
+            expect(await readRootProfileSnapshot(session)).toMatchObject({
+                appLowGraphics: false,
+                profileAccessWasSynchronous: true,
+                profileTier: 'medium',
+                tierClasses: ['performance-tier-medium'],
+            });
             expectGraphicsTokens(await readGraphicsStyleSnapshot(session));
 
-            await client.send('Emulation.setEmulatedMedia', {features: [{
-                name: 'prefers-reduced-motion',
-                value: 'no-preference',
-            }]});
-            await session.page.waitForFunction(
-                () => !document.documentElement.classList.contains('app-low-graphics'),
-            );
+            const client = await session.page.createCDPSession();
+            try {
+                await client.send('Emulation.setEmulatedMedia', {
+                    features: [
+                        {
+                            name: 'prefers-reduced-motion',
+                            value: 'reduce',
+                        },
+                    ],
+                });
+                await session.page.waitForFunction(() => document.documentElement.classList.contains('app-low-graphics'));
+                expectGraphicsTokens(await readGraphicsStyleSnapshot(session));
+
+                await client.send('Emulation.setEmulatedMedia', {
+                    features: [
+                        {
+                            name: 'prefers-reduced-motion',
+                            value: 'no-preference',
+                        },
+                    ],
+                });
+                await session.page.waitForFunction(() => !document.documentElement.classList.contains('app-low-graphics'));
+                expectGraphicsTokens(await readGraphicsStyleSnapshot(session));
+            } finally {
+                await client.detach();
+            }
+        },
+        E2E_TIMEOUT_MS,
+    );
+
+    it(
+        'keeps high-tier visuals unchanged with exactly one tier class',
+        async () => {
+            session = await startConfiguredElectronE2ESession(`e2e-performance-visuals-high-${Date.now()}`, 'high');
+            await resetReducedMotionPreference(session);
+            await waitForAppReady(session);
+
+            expect(await readRootProfileSnapshot(session)).toMatchObject({
+                appLowGraphics: false,
+                profileAccessWasSynchronous: true,
+                profileTier: 'high',
+                tierClasses: ['performance-tier-high'],
+            });
             expectGraphicsTokens(await readGraphicsStyleSnapshot(session));
-        } finally {
-            await client.detach();
-        }
-    }, E2E_TIMEOUT_MS);
+        },
+        E2E_TIMEOUT_MS,
+    );
 
-    it('keeps high-tier visuals unchanged with exactly one tier class', async () => {
-        session = await startConfiguredElectronE2ESession(
-            `e2e-performance-visuals-high-${Date.now()}`,
-            'high',
-        );
-        await resetReducedMotionPreference(session);
-        await waitForAppReady(session);
+    it(
+        'pushes reduced per-window raster shares across two real windows and restores on close',
+        async () => {
+            const fixtureDir = mkdtempSync(join(tmpdir(), 'evb-raster-share-e2e-'));
+            tempDirectories.push(fixtureDir);
+            const pdfPath = join(fixtureDir, 'raster-share.pdf');
+            await createMultiPagePdfFixture(pdfPath);
+            session = await startConfiguredElectronE2ESession(`e2e-raster-share-multi-window-${Date.now()}`, 'high');
+            await waitForAppReady(session);
+            await openPdfInApp(session.page, pdfPath);
+            await waitForPdfLoaded(session.page);
 
-        expect(await readRootProfileSnapshot(session)).toMatchObject({
-            appLowGraphics: false,
-            profileAccessWasSynchronous: true,
-            profileTier: 'high',
-            tierClasses: ['performance-tier-high'],
-        });
-        expectGraphicsTokens(await readGraphicsStyleSnapshot(session));
-    }, E2E_TIMEOUT_MS);
+            const profile = await session.page.evaluate(() => window.electronAPI!.host.getResourceProfile());
+            expect(profile).not.toBeNull();
+            const oneWindowShare = resolveHostWindowRasterShare({
+                totalRamBytes: profile!.totalRamBytes,
+                windowCount: 1,
+            });
+            const twoWindowShare = resolveHostWindowRasterShare({
+                totalRamBytes: profile!.totalRamBytes,
+                windowCount: 2,
+            });
+            expect(twoWindowShare.maxRasterSurfaceBytes).toBeLessThan(oneWindowShare.maxRasterSurfaceBytes);
 
-    it('pushes reduced per-window raster shares across two real windows and restores on close', async () => {
-        const fixtureDir = mkdtempSync(join(tmpdir(), 'evb-raster-share-e2e-'));
-        tempDirectories.push(fixtureDir);
-        const pdfPath = join(fixtureDir, 'raster-share.pdf');
-        await createMultiPagePdfFixture(pdfPath);
-        session = await startConfiguredElectronE2ESession(
-            `e2e-raster-share-multi-window-${Date.now()}`,
-            'high',
-        );
-        await waitForAppReady(session);
-        await openPdfInApp(session.page, pdfPath);
-        await waitForPdfLoaded(session.page);
+            await waitForSurfaceBudgetMaxBytes(session.page, oneWindowShare.maxRasterSurfaceBytes);
+            const singleWindowState = await readWindowRasterBudgetState(session.page);
+            expect(singleWindowState.hostBudget).toEqual(oneWindowShare);
+            expect(singleWindowState.surfaceBudget).toMatchObject({
+                maxBytes: oneWindowShare.maxRasterSurfaceBytes,
+            });
+            expect(singleWindowState.surfaceBudget!.reservedBytes).toBeGreaterThan(0);
+            expect(singleWindowState.surfaceBudget!.reservedBytes).toBeLessThanOrEqual(singleWindowState.surfaceBudget!.effectiveMaxBytes);
 
-        const profile = await session.page.evaluate(() => window.electronAPI!.host.getResourceProfile());
-        expect(profile).not.toBeNull();
-        const oneWindowShare = resolveHostWindowRasterShare({
-            totalRamBytes: profile!.totalRamBytes,
-            windowCount: 1,
-        });
-        const twoWindowShare = resolveHostWindowRasterShare({
-            totalRamBytes: profile!.totalRamBytes,
-            windowCount: 2,
-        });
-        expect(twoWindowShare.maxRasterSurfaceBytes).toBeLessThan(oneWindowShare.maxRasterSurfaceBytes);
+            // Open a second real Electron window through the real Move Tab to New Window flow.
+            const secondWindow = await moveTabToNewWindow(session.page, {tabTitle: 'raster-share'});
+            await waitForSurfaceBudgetMaxBytes(session.page, twoWindowShare.maxRasterSurfaceBytes);
+            await waitForSurfaceBudgetMaxBytes(secondWindow, twoWindowShare.maxRasterSurfaceBytes);
 
-        await waitForSurfaceBudgetMaxBytes(session.page, oneWindowShare.maxRasterSurfaceBytes);
-        const singleWindowState = await readWindowRasterBudgetState(session.page);
-        expect(singleWindowState.hostBudget).toEqual(oneWindowShare);
-        expect(singleWindowState.surfaceBudget).toMatchObject({
-            maxBytes: oneWindowShare.maxRasterSurfaceBytes,
-        });
-        expect(singleWindowState.surfaceBudget!.reservedBytes).toBeGreaterThan(0);
-        expect(singleWindowState.surfaceBudget!.reservedBytes)
-            .toBeLessThanOrEqual(singleWindowState.surfaceBudget!.effectiveMaxBytes);
+            const firstWindowWithTwo = await readWindowRasterBudgetState(session.page);
+            const secondWindowWithTwo = await readWindowRasterBudgetState(secondWindow);
+            expect(firstWindowWithTwo.hostBudget).toEqual(twoWindowShare);
+            expect(secondWindowWithTwo.hostBudget).toEqual(twoWindowShare);
+            expect(firstWindowWithTwo.surfaceBudget!.maxBytes).toBe(twoWindowShare.maxRasterSurfaceBytes);
+            expect(secondWindowWithTwo.surfaceBudget!.maxBytes).toBe(twoWindowShare.maxRasterSurfaceBytes);
+            expect(secondWindowWithTwo.surfaceBudget!.reservedBytes).toBeGreaterThan(0);
+            expect(firstWindowWithTwo.surfaceBudget!.reservedBytes).toBeLessThanOrEqual(
+                firstWindowWithTwo.surfaceBudget!.effectiveMaxBytes,
+            );
+            expect(secondWindowWithTwo.surfaceBudget!.reservedBytes).toBeLessThanOrEqual(
+                secondWindowWithTwo.surfaceBudget!.effectiveMaxBytes,
+            );
 
-        // Open a second real Electron window through the real Move Tab to New Window flow.
-        const secondWindow = await moveTabToNewWindow(session.page, {tabTitle: 'raster-share'});
-        await waitForSurfaceBudgetMaxBytes(session.page, twoWindowShare.maxRasterSurfaceBytes);
-        await waitForSurfaceBudgetMaxBytes(secondWindow, twoWindowShare.maxRasterSurfaceBytes);
-
-        const firstWindowWithTwo = await readWindowRasterBudgetState(session.page);
-        const secondWindowWithTwo = await readWindowRasterBudgetState(secondWindow);
-        expect(firstWindowWithTwo.hostBudget).toEqual(twoWindowShare);
-        expect(secondWindowWithTwo.hostBudget).toEqual(twoWindowShare);
-        expect(firstWindowWithTwo.surfaceBudget!.maxBytes).toBe(twoWindowShare.maxRasterSurfaceBytes);
-        expect(secondWindowWithTwo.surfaceBudget!.maxBytes).toBe(twoWindowShare.maxRasterSurfaceBytes);
-        expect(secondWindowWithTwo.surfaceBudget!.reservedBytes).toBeGreaterThan(0);
-        expect(firstWindowWithTwo.surfaceBudget!.reservedBytes)
-            .toBeLessThanOrEqual(firstWindowWithTwo.surfaceBudget!.effectiveMaxBytes);
-        expect(secondWindowWithTwo.surfaceBudget!.reservedBytes)
-            .toBeLessThanOrEqual(secondWindowWithTwo.surfaceBudget!.effectiveMaxBytes);
-
-        // Closing the second window broadcasts the restored 1-window share to the survivor.
-        await secondWindow.close();
-        await waitForSurfaceBudgetMaxBytes(session.page, oneWindowShare.maxRasterSurfaceBytes);
-        const restoredState = await readWindowRasterBudgetState(session.page);
-        expect(restoredState.hostBudget).toEqual(oneWindowShare);
-        expect(restoredState.surfaceBudget!.maxBytes).toBe(oneWindowShare.maxRasterSurfaceBytes);
-    }, E2E_TIMEOUT_MS);
+            // Closing the second window broadcasts the restored 1-window share to the survivor.
+            await secondWindow.close();
+            await waitForSurfaceBudgetMaxBytes(session.page, oneWindowShare.maxRasterSurfaceBytes);
+            const restoredState = await readWindowRasterBudgetState(session.page);
+            expect(restoredState.hostBudget).toEqual(oneWindowShare);
+            expect(restoredState.surfaceBudget!.maxBytes).toBe(oneWindowShare.maxRasterSurfaceBytes);
+        },
+        E2E_TIMEOUT_MS,
+    );
 });

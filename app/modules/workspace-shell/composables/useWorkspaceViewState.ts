@@ -1,27 +1,10 @@
-import type { Ref } from 'vue';
-import type {
-    TFitMode,
-    TPdfZoomState,
-    TZoomMode,
-} from '@contracts/shared';
-import type {
-    IAnnotationEditorState,
-    TAnnotationTool,
-} from '@app/types/annotations';
-import type {
-    IDocumentViewerExpose,
-    IScrollToPageOptions,
-    TPdfSidebarTab,
-} from '@app/modules/pdf-viewer/public';
-import type {
-    IDocumentNavigationRequest,
-    IDocumentNavigationTicket,
-} from '@app/modules/document-viewer/public';
-import {
-    createPdfPageNavigationRequest,
-    isAuthoringAnnotationTool,
-} from '@app/modules/pdf-viewer/public';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
+import type {Ref} from 'vue';
+import type {TFitMode, TPdfZoomState, TZoomMode} from '@contracts/shared';
+import type {IAnnotationEditorState, TAnnotationTool} from '@app/types/annotations';
+import type {IDocumentViewerExpose, IScrollToPageOptions, TPdfSidebarTab} from '@app/modules/pdf-viewer/public';
+import type {IDocumentNavigationRequest, IDocumentNavigationTicket} from '@app/modules/document-viewer/public';
+import {createPdfPageNavigationRequest, isAuthoringAnnotationTool} from '@app/modules/pdf-viewer/public';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 
 interface IWorkspaceViewStateDeps {
     zoomMode: Readonly<Ref<TZoomMode>>;
@@ -42,23 +25,21 @@ interface IWorkspaceViewStateDeps {
 }
 
 export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
-    const isFitWidthActive = computed(
-        () => deps.zoomMode.value === 'fit-width',
-    );
-    const isFitHeightActive = computed(
-        () => deps.zoomMode.value === 'fit-height',
-    );
+    const isFitWidthActive = computed(() => deps.zoomMode.value === 'fit-width');
+    const isFitHeightActive = computed(() => deps.zoomMode.value === 'fit-height');
     // A command in the app-owned annotation history is undoable before the
     // document reports a dirty annotation state.
-    const hasAppAnnotationHistoryUndoState = computed(() => (
-        deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true
-        || deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
-    ));
+    const hasAppAnnotationHistoryUndoState = computed(
+        () =>
+            deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true ||
+            deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true,
+    );
     const isAnnotationUndoContext = computed(
-        () => isAuthoringAnnotationTool(deps.annotationTool.value)
-            || hasAppAnnotationHistoryUndoState.value
-            || deps.annotationEditorState.value.hasSomethingToRedo
-            || deps.appAnnotationUndoDepth.value > 0,
+        () =>
+            isAuthoringAnnotationTool(deps.annotationTool.value) ||
+            hasAppAnnotationHistoryUndoState.value ||
+            deps.annotationEditorState.value.hasSomethingToRedo ||
+            deps.appAnnotationUndoDepth.value > 0,
     );
     const annotationCursorMode = computed(() => {
         if (deps.hasOpenAnnotationNotes.value) {
@@ -74,13 +55,10 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         // is the only state that should fully disable annotation interaction.
         return true;
     });
-    const canUndoAnnotation = computed(() => (
-        deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true
-        || deps.appAnnotationUndoDepth.value > 0
-    ));
-    const canRedoAnnotation = computed(() => (
-        deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
-    ));
+    const canUndoAnnotation = computed(
+        () => deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true || deps.appAnnotationUndoDepth.value > 0,
+    );
+    const canRedoAnnotation = computed(() => deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true);
     // The workspace command stack is the sole undo/redo authority. Annotation
     // state remains exposed for context-sensitive UI, never as a second route.
     const canUndo = computed(() => deps.canUndoHistory.value);

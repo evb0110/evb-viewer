@@ -1,10 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { resolveDocumentPageSourceSearchHighlights } from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceSearchHighlights';
-import type { IDocumentSearchMatch } from '@app/modules/document-viewer/search/documentSearch';
+import {describe, expect, it} from 'vitest';
+import {resolveDocumentPageSourceSearchHighlights} from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceSearchHighlights';
+import type {IDocumentSearchMatch} from '@app/modules/document-viewer/search/documentSearch';
 
 function createMatch(overrides: Partial<IDocumentSearchMatch> = {}): IDocumentSearchMatch {
     return {
@@ -14,13 +10,15 @@ function createMatch(overrides: Partial<IDocumentSearchMatch> = {}): IDocumentSe
         endOffset: 4,
         pageWidth: 200,
         pageHeight: 400,
-        words: [{
-            text: 'word',
-            x: 20,
-            y: 80,
-            width: 60,
-            height: 40,
-        }],
+        words: [
+            {
+                text: 'word',
+                x: 20,
+                y: 80,
+                width: 60,
+                height: 40,
+            },
+        ],
         ...overrides,
     };
 }
@@ -33,13 +31,15 @@ describe('resolveDocumentPageSourceSearchHighlights', () => {
                 createMatch(),
                 createMatch({
                     matchIndex: 8,
-                    words: [{
-                        text: 'next',
-                        x: 100,
-                        y: 200,
-                        width: 20,
-                        height: 80,
-                    }],
+                    words: [
+                        {
+                            text: 'next',
+                            x: 100,
+                            y: 200,
+                            width: 20,
+                            height: 80,
+                        },
+                    ],
                 }),
                 createMatch({
                     pageIndex: 2,
@@ -75,10 +75,12 @@ describe('resolveDocumentPageSourceSearchHighlights', () => {
         });
         const twoSeventy = resolveDocumentPageSourceSearchHighlights({
             pageNumber: 2,
-            results: [{
-                ...base,
-                rotation: 270,
-            }],
+            results: [
+                {
+                    ...base,
+                    rotation: 270,
+                },
+            ],
             currentResultIndex: 0,
         });
 
@@ -98,13 +100,17 @@ describe('resolveDocumentPageSourceSearchHighlights', () => {
             results: [
                 createMatch({words: []}),
                 createMatch({pageWidth: 0}),
-                createMatch({words: [{
-                    text: 'outside',
-                    x: 500,
-                    y: 500,
-                    width: 20,
-                    height: 20,
-                }]}),
+                createMatch({
+                    words: [
+                        {
+                            text: 'outside',
+                            x: 500,
+                            y: 500,
+                            width: 20,
+                            height: 20,
+                        },
+                    ],
+                }),
             ],
             currentResultIndex: 0,
         });

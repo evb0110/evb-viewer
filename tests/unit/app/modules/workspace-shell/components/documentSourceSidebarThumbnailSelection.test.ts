@@ -2,27 +2,12 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    defineComponent,
-    h,
-    nextTick,
-    shallowRef,
-} from 'vue';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {defineComponent, h, nextTick, shallowRef} from 'vue';
 import type {PropType} from 'vue';
-import { requireDocumentRef } from '@contracts/documentRef';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type {IDocumentBookmarkTreeItem} from '@app/modules/document-viewer/bookmarks/documentBookmarks';
-import type {
-    IDocumentPageSource,
-    IDocumentRenderLease,
-} from '@app/modules/document-viewer/public';
+import type {IDocumentPageSource, IDocumentRenderLease} from '@app/modules/document-viewer/public';
 import type {TDocumentSidebarTab} from '@app/modules/document-viewer/sidebar/documentSidebarTabs';
 import type {IDocumentThumbnailCommittedState} from '@app/modules/document-viewer/thumbnails/createDocumentThumbnailScheduler';
 import type {IDocumentThumbnailVirtualItem} from '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController';
@@ -55,10 +40,9 @@ const controller = vi.hoisted(() => ({
     virtualItems: [] as IDocumentThumbnailVirtualItem[],
 }));
 
-vi.mock(
-    '@app/modules/document-viewer/thumbnails/useDocumentThumbnailController',
-    () => ({useDocumentThumbnailController: () => controller}),
-);
+vi.mock('@app/modules/document-viewer/thumbnails/useDocumentThumbnailController', () => ({
+    useDocumentThumbnailController: () => controller,
+}));
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
@@ -69,16 +53,22 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 }));
 
 function stub(marker: string) {
-    return {default: defineComponent({
-        inheritAttrs: false,
-        setup: (_props, {
-            attrs,
-            slots,
-        }) => () => h('div', {
-            ...attrs,
-            [marker]: '',
-        }, slots.default?.()),
-    })};
+    return {
+        default: defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {attrs, slots}) =>
+                () =>
+                    h(
+                        'div',
+                        {
+                            ...attrs,
+                            [marker]: '',
+                        },
+                        slots.default?.(),
+                    ),
+        }),
+    };
 }
 
 vi.mock('@app/components/document-viewer/DocumentBookmarkToolbar.vue', () => stub('data-bookmark-toolbar-stub'));
@@ -87,35 +77,56 @@ vi.mock('@app/components/document-viewer/DocumentBookmarkToolbar.vue', () => stu
 // for here so the activation path stays reachable.
 vi.mock('@app/components/document-viewer/DocumentBookmarkTree.vue', async () => {
     const vue = await import('vue');
-    return {default: vue.defineComponent({
-        props: {items: {
-            type: Array as PropType<IDocumentBookmarkTreeItem[]>,
-            required: true,
-        }},
-        emits: ['activate'],
-        setup: (props, {emit}) => () => vue.h('div', props.items.map(item => vue.h('button', {
-            'data-bookmark-row': item.id,
-            onClick: (event: MouseEvent) => emit('activate', item.id, event),
-        }, item.title))),
-    })};
+    return {
+        default: vue.defineComponent({
+            props: {
+                items: {
+                    type: Array as PropType<IDocumentBookmarkTreeItem[]>,
+                    required: true,
+                },
+            },
+            emits: ['activate'],
+            setup:
+                (props, {emit}) =>
+                () =>
+                    vue.h(
+                        'div',
+                        props.items.map((item) =>
+                            vue.h(
+                                'button',
+                                {
+                                    'data-bookmark-row': item.id,
+                                    onClick: (event: MouseEvent) => emit('activate', item.id, event),
+                                },
+                                item.title,
+                            ),
+                        ),
+                    ),
+        }),
+    };
 });
 vi.mock('@app/components/document-viewer/DocumentSearchPanel.vue', () => stub('data-search-stub'));
 vi.mock('@app/components/sidebar/AppSidebarShell.vue', async () => {
     const vue = await import('vue');
-    return {default: vue.defineComponent({
-        props: {
-            modelValue: {
-                type: String,
-                required: true,
+    return {
+        default: vue.defineComponent({
+            props: {
+                modelValue: {
+                    type: String,
+                    required: true,
+                },
+                tabs: {
+                    type: Array,
+                    required: true,
+                },
             },
-            tabs: {
-                type: Array,
-                required: true,
-            },
-        },
-        emits: ['update:model-value'],
-        setup: (_props, {slots}) => () => vue.h('aside', {'data-shell-stub': ''}, slots.default?.()),
-    })};
+            emits: ['update:model-value'],
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    vue.h('aside', {'data-shell-stub': ''}, slots.default?.()),
+        }),
+    };
 });
 
 function createSurfaceLease(): IDocumentRenderLease {
@@ -133,11 +144,16 @@ function createSource(): IDocumentPageSource {
         kind: 'djvu',
         documentRef: requireDocumentRef('/tmp/test.djvu'),
         pageCount: 4,
-        outlineProvider: {getOutline: () => Promise.resolve([{
-            title: 'Part two',
-            pageNumber: 2,
-            children: [],
-        }])},
+        outlineProvider: {
+            getOutline: () =>
+                Promise.resolve([
+                    {
+                        title: 'Part two',
+                        pageNumber: 2,
+                        children: [],
+                    },
+                ]),
+        },
         thumbnailProvider: {renderThumbnail: vi.fn(async () => createSurfaceLease())},
         getPageMetrics: vi.fn(async () => ({
             widthPoints: 500,
@@ -163,11 +179,7 @@ beforeEach(() => {
     controller.retryRender.mockClear();
     controller.states.clear();
     controller.virtualItems.length = 0;
-    for (const pageNumber of [
-        1,
-        2,
-        3,
-    ]) {
+    for (const pageNumber of [1, 2, 3]) {
         controller.virtualItems.push({
             aspectRatio: '5 / 7',
             height: 200,
@@ -192,28 +204,35 @@ async function mountSidebar(tab: TDocumentSidebarTab) {
     const activeTab = shallowRef<TDocumentSidebarTab>(tab);
     const navigations: INavigation[] = [];
     const mountedHost = await mountDocumentSidebarHost(
-        () => h(DocumentSourceSidebar, {
-            activeTab: activeTab.value,
-            availableTabs: ['thumbnails', 'bookmarks'],
-            currentPage: 1,
-            searchSession: createDocumentSearchSessionDouble(),
-            source: createSource(),
-            'onUpdate:activeTab': (value: TDocumentSidebarTab) => {
-                activeTab.value = value;
-            },
-            onGoToPage: (pageNumber: number, event?: MouseEvent) => navigations.push({
-                event,
-                pageNumber,
+        () =>
+            h(DocumentSourceSidebar, {
+                activeTab: activeTab.value,
+                availableTabs: ['thumbnails', 'bookmarks'],
+                currentPage: 1,
+                searchSession: createDocumentSearchSessionDouble(),
+                source: createSource(),
+                'onUpdate:activeTab': (value: TDocumentSidebarTab) => {
+                    activeTab.value = value;
+                },
+                onGoToPage: (pageNumber: number, event?: MouseEvent) =>
+                    navigations.push({
+                        event,
+                        pageNumber,
+                    }),
             }),
-        }),
-        app => {
-            app.component('UIcon', defineComponent({
-                props: {name: {
-                    type: String,
-                    required: true,
-                }},
-                setup: props => () => h('span', {'data-icon': props.name}),
-            }));
+        (app) => {
+            app.component(
+                'UIcon',
+                defineComponent({
+                    props: {
+                        name: {
+                            type: String,
+                            required: true,
+                        },
+                    },
+                    setup: (props) => () => h('span', {'data-icon': props.name}),
+                }),
+            );
         },
     );
     return {
@@ -277,9 +296,11 @@ describe('DocumentSourceSidebar thumbnail selection', () => {
         row?.dispatchEvent(new MouseEvent('click', {bubbles: true}));
         await nextTick();
 
-        expect(sidebar.navigations).toEqual([{
-            event: undefined,
-            pageNumber: 2,
-        }]);
+        expect(sidebar.navigations).toEqual([
+            {
+                event: undefined,
+                pageNumber: 2,
+            },
+        ]);
     });
 });

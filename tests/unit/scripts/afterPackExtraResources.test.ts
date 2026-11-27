@@ -1,21 +1,9 @@
-import { createRequire } from 'node:module';
-import {
-    chmod,
-    mkdir,
-    mkdtemp,
-    rm,
-    readFile,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import {createRequire} from 'node:module';
+import {chmod, mkdir, mkdtemp, rm, readFile, stat, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { getErrorMessage } from '@contracts/getErrorMessage';
+import {describe, expect, it} from 'vitest';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 
 type TRequiredExtraResourceType = 'directory' | 'file';
 
@@ -24,7 +12,7 @@ interface IAfterPackContext {
     arch: number | string;
     electronPlatformName: string;
     packager: {
-        appInfo: { productFilename: string };
+        appInfo: {productFilename: string};
         getResourcesDir: (appOutDir: string) => string;
     };
 }
@@ -48,14 +36,20 @@ interface IAfterPackModule {
     configureWindowsNsisArchiveFilter: (context: IAfterPackContext) => void;
     pruneChromiumLocales: (context: IAfterPackContext) => void;
     removeNativeBuildReceipts: (context: IAfterPackContext) => void;
-    assertRequiredExtraResources: (context: IAfterPackContext, options?: {
-        projectRoot?: string;
-        resourcesDir?: string;
-    }) => void;
-    requiredExtraResourcesForContext: (context: IAfterPackContext, options?: {
-        projectRoot?: string;
-        resourcesDir?: string;
-    }) => IRequiredExtraResource[];
+    assertRequiredExtraResources: (
+        context: IAfterPackContext,
+        options?: {
+            projectRoot?: string;
+            resourcesDir?: string;
+        },
+    ) => void;
+    requiredExtraResourcesForContext: (
+        context: IAfterPackContext,
+        options?: {
+            projectRoot?: string;
+            resourcesDir?: string;
+        },
+    ) => IRequiredExtraResource[];
 }
 
 const requireScript = createRequire(import.meta.url);
@@ -75,7 +69,7 @@ function createContext(platform: string, arch: string, resourcesDir: string): IA
         arch,
         electronPlatformName: platform,
         packager: {
-            appInfo: { productFilename: 'EVB Viewer' },
+            appInfo: {productFilename: 'EVB Viewer'},
             getResourcesDir: () => resourcesDir,
         },
     };
@@ -92,16 +86,15 @@ async function createRequiredPath(filePath: string, type: TRequiredExtraResource
 }
 
 async function createRequiredPaths(entries: IRequiredExtraResource[], side: 'source' | 'staged') {
-    await Promise.all(entries.map(async (entry) => {
-        const rootPath = side === 'source' ? entry.sourcePath : entry.stagedPath;
-        await createRequiredPath(rootPath, entry.type);
-        for (const packagedEntry of entry.packagedEntries ?? []) {
-            await createRequiredPath(
-                path.join(rootPath, packagedEntry.relativePath),
-                packagedEntry.type,
-            );
-        }
-    }));
+    await Promise.all(
+        entries.map(async (entry) => {
+            const rootPath = side === 'source' ? entry.sourcePath : entry.stagedPath;
+            await createRequiredPath(rootPath, entry.type);
+            for (const packagedEntry of entry.packagedEntries ?? []) {
+                await createRequiredPath(path.join(rootPath, packagedEntry.relativePath), packagedEntry.type);
+            }
+        }),
+    );
 }
 
 function captureErrorMessage(action: () => void) {
@@ -179,33 +172,22 @@ describe('afterPack extraResources preflight', () => {
         const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-after-pack-receipts-'));
         const resourcesDir = path.join(tempRoot, 'app-out', 'resources');
         const context = createContext('linux', 'x64', resourcesDir);
-        const entries = requiredExtraResourcesForContext(context, {projectRoot: tempRoot})
-            .filter(entry => (
-                entry.type === 'directory'
-                && entry.packagedEntries !== undefined
-                && entry.label !== 'tessdata directory'
-            ));
+        const entries = requiredExtraResourcesForContext(context, {projectRoot: tempRoot}).filter(
+            (entry) => entry.type === 'directory' && entry.packagedEntries !== undefined && entry.label !== 'tessdata directory',
+        );
 
         try {
             for (const entry of entries) {
                 await mkdir(entry.stagedPath, {recursive: true});
-                await writeFile(
-                    path.join(entry.stagedPath, 'build-receipt.json'),
-                    '{}',
-                    'utf8',
-                );
+                await writeFile(path.join(entry.stagedPath, 'build-receipt.json'), '{}', 'utf8');
                 await writeFile(path.join(entry.stagedPath, 'runtime-marker'), 'keep', 'utf8');
             }
 
             removeNativeBuildReceipts(context);
 
             for (const entry of entries) {
-                await expect(
-                    stat(path.join(entry.stagedPath, 'build-receipt.json')),
-                ).rejects.toMatchObject({code: 'ENOENT'});
-                await expect(
-                    stat(path.join(entry.stagedPath, 'runtime-marker')),
-                ).resolves.toBeDefined();
+                await expect(stat(path.join(entry.stagedPath, 'build-receipt.json'))).rejects.toMatchObject({code: 'ENOENT'});
+                await expect(stat(path.join(entry.stagedPath, 'runtime-marker'))).resolves.toBeDefined();
             }
         } finally {
             await rm(tempRoot, {
@@ -218,78 +200,47 @@ describe('afterPack extraResources preflight', () => {
     it.each([
         {
             platform: 'darwin',
-            retained: [
-                'de',
-                'en',
-                'es',
-                'fr',
-                'it',
-                'nl',
-                'pt_BR',
-                'pt_PT',
-                'ru',
-            ],
+            retained: ['de', 'en', 'es', 'fr', 'it', 'nl', 'pt_BR', 'pt_PT', 'ru'],
             removed: 'ja',
         },
         {
             platform: 'linux',
-            retained: [
-                'de',
-                'en-US',
-                'es',
-                'fr',
-                'it',
-                'nl',
-                'pt-BR',
-                'pt-PT',
-                'ru',
-            ],
+            retained: ['de', 'en-US', 'es', 'fr', 'it', 'nl', 'pt-BR', 'pt-PT', 'ru'],
             removed: 'ja',
         },
         {
             platform: 'win32',
-            retained: [
-                'de',
-                'en-US',
-                'es',
-                'fr',
-                'it',
-                'nl',
-                'pt-BR',
-                'pt-PT',
-                'ru',
-            ],
+            retained: ['de', 'en-US', 'es', 'fr', 'it', 'nl', 'pt-BR', 'pt-PT', 'ru'],
             removed: 'ja',
         },
     ])('prunes Chromium locales to the nine supported product locales on $platform', async (fixture) => {
         const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-after-pack-locales-'));
-        const resourcesDir = fixture.platform === 'darwin'
-            ? path.join(tempRoot, 'EVB Viewer.app', 'Contents', 'Resources')
-            : path.join(tempRoot, 'resources');
+        const resourcesDir =
+            fixture.platform === 'darwin'
+                ? path.join(tempRoot, 'EVB Viewer.app', 'Contents', 'Resources')
+                : path.join(tempRoot, 'resources');
         const context = createContext(fixture.platform, 'arm64', resourcesDir);
         context.appOutDir = tempRoot;
-        const localeRoot = fixture.platform === 'darwin'
-            ? path.join(
-                tempRoot,
-                'EVB Viewer.app',
-                'Contents',
-                'Frameworks',
-                'Electron Framework.framework',
-                'Versions',
-                'A',
-                'Resources',
-            )
-            : path.join(tempRoot, 'locales');
+        const localeRoot =
+            fixture.platform === 'darwin'
+                ? path.join(
+                      tempRoot,
+                      'EVB Viewer.app',
+                      'Contents',
+                      'Frameworks',
+                      'Electron Framework.framework',
+                      'Versions',
+                      'A',
+                      'Resources',
+                  )
+                : path.join(tempRoot, 'locales');
 
         try {
-            for (const locale of [
-                ...fixture.retained,
-                fixture.removed,
-                ...(fixture.platform === 'darwin' ? ['en_FEMININE'] : []),
-            ]) {
-                const localePath = fixture.platform === 'darwin'
-                    ? path.join(localeRoot, `${locale}.lproj`, 'locale.pak')
-                    : path.join(localeRoot, `${locale}.pak`);
+            for (const locale of [...fixture.retained, fixture.removed, ...(fixture.platform === 'darwin' ? ['en_FEMININE'] : [])]) {
+                const localePath =
+                    fixture.platform === 'darwin'
+                        ? path.join(localeRoot, `${locale}.lproj`, 'locale.pak')
+                        : path.join(localeRoot, `${locale}.pak`);
                 await mkdir(path.dirname(localePath), {recursive: true});
                 await writeFile(localePath, locale, 'utf8');
             }
@@ -297,17 +248,19 @@ describe('afterPack extraResources preflight', () => {
             pruneChromiumLocales(context);
 
             for (const locale of fixture.retained) {
-                const localePath = fixture.platform === 'darwin'
-                    ? path.join(localeRoot, `${locale}.lproj`, 'locale.pak')
-                    : path.join(localeRoot, `${locale}.pak`);
+                const localePath =
+                    fixture.platform === 'darwin'
+                        ? path.join(localeRoot, `${locale}.lproj`, 'locale.pak')
+                        : path.join(localeRoot, `${locale}.pak`);
                 await expect(stat(localePath)).resolves.toBeDefined();
             }
             if (fixture.platform === 'darwin') {
                 await expect(stat(path.join(localeRoot, 'en_FEMININE.lproj', 'locale.pak'))).resolves.toBeDefined();
             }
-            const removedPath = fixture.platform === 'darwin'
-                ? path.join(localeRoot, `${fixture.removed}.lproj`)
-                : path.join(localeRoot, `${fixture.removed}.pak`);
+            const removedPath =
+                fixture.platform === 'darwin'
+                    ? path.join(localeRoot, `${fixture.removed}.lproj`)
+                    : path.join(localeRoot, `${fixture.removed}.pak`);
             await expect(stat(removedPath)).rejects.toMatchObject({code: 'ENOENT'});
         } finally {
             await rm(tempRoot, {
@@ -349,10 +302,9 @@ describe('afterPack extraResources preflight', () => {
     });
 
     it('maps every required platform extraResource for the target tag', () => {
-        const entries = requiredExtraResourcesForContext(
-            createContext('darwin', 'arm64', '/app/EVB Viewer.app/Contents/Resources'),
-            {projectRoot: '/repo'},
-        );
+        const entries = requiredExtraResourcesForContext(createContext('darwin', 'arm64', '/app/EVB Viewer.app/Contents/Resources'), {
+            projectRoot: '/repo',
+        });
 
         expect(entries).toEqual([
             expect.objectContaining({
@@ -386,11 +338,7 @@ describe('afterPack extraResources preflight', () => {
             expect.objectContaining({
                 label: 'macOS PDF print dialog helper (darwin-arm64)',
                 sourcePath: path.join('/repo', '.tmp', 'pdf-print-dialog', 'darwin-arm64'),
-                stagedPath: path.join(
-                    '/app/EVB Viewer.app/Contents/Resources',
-                    'pdf-print-dialog',
-                    'darwin-arm64',
-                ),
+                stagedPath: path.join('/app/EVB Viewer.app/Contents/Resources', 'pdf-print-dialog', 'darwin-arm64'),
                 tag: 'darwin-arm64',
                 type: 'directory',
             }),
@@ -416,7 +364,7 @@ describe('afterPack extraResources preflight', () => {
                 type: 'directory',
             }),
         ]);
-        expect(entries.map(entry => entry.sourcePath).join('\n')).not.toContain('page-processing');
+        expect(entries.map((entry) => entry.sourcePath).join('\n')).not.toContain('page-processing');
     });
 
     it('fails with useful source-path messages when required extraResources are absent', async () => {
@@ -450,22 +398,18 @@ describe('afterPack extraResources preflight', () => {
 
             const message = captureErrorMessage(() => assertRequiredExtraResources(context, {projectRoot: tempRoot}));
 
-            expect(message).toContain(`packaged PDF image combine native tool (win32-arm64): ${path.join(resourcesDir, 'pdf-image-combine', 'win32-arm64')}`);
+            expect(message).toContain(
+                `packaged PDF image combine native tool (win32-arm64): ${path.join(resourcesDir, 'pdf-image-combine', 'win32-arm64')}`,
+            );
 
             await createRequiredPaths(entries, 'staged');
 
             expect(() => assertRequiredExtraResources(context, {projectRoot: tempRoot})).not.toThrow();
 
-            const pdfImageCombine = entries.find(entry => entry.label.startsWith('PDF image combine native tool'))!;
-            const pdfImageCombineBinary = pdfImageCombine.packagedEntries?.find(entry => (
-                entry.label === 'evb-pdf-image-combine binary'
-            ));
+            const pdfImageCombine = entries.find((entry) => entry.label.startsWith('PDF image combine native tool'))!;
+            const pdfImageCombineBinary = pdfImageCombine.packagedEntries?.find((entry) => entry.label === 'evb-pdf-image-combine binary');
             expect(pdfImageCombineBinary).toBeDefined();
-            await writeFile(
-                path.join(pdfImageCombine.stagedPath, pdfImageCombineBinary!.relativePath),
-                'stale-binary',
-                'utf8',
-            );
+            await writeFile(path.join(pdfImageCombine.stagedPath, pdfImageCombineBinary!.relativePath), 'stale-binary', 'utf8');
             const mismatchMessage = captureErrorMessage(() => assertRequiredExtraResources(context, {projectRoot: tempRoot}));
             expect(mismatchMessage).toContain('packaged evb-pdf-image-combine binary differs from staged build');
         } finally {

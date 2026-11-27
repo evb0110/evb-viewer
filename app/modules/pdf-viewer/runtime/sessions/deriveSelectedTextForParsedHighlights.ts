@@ -1,16 +1,10 @@
 import {createPdfAnnotationPreviewTextResolver} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/resolvePdfAnnotationPreviewText';
 import type {IPdfTextPreviewItem} from '@app/modules/pdf-viewer/engine/annotations/pdf-annotation-preview-text/pdfAnnotationPreviewTextTypes';
 import {pdfAnnotationRefKey} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
-import type {
-    IPdfDocumentTransition,
-    TPdfDocumentView,
-} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {IPdfDocumentTransition, TPdfDocumentView} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
-import {
-    pageIndexToPageNumber,
-    requirePageIndex,
-} from '@contracts/pageNumbers';
+import {pageIndexToPageNumber, requirePageIndex} from '@contracts/pageNumbers';
 
 type TParsedHighlight = Extract<IPdfAnnotationParseResult['entities'][number], {kind: 'highlight'}>;
 type TParsedHighlightPage = [number, TParsedHighlight[]];
@@ -76,10 +70,7 @@ export async function deriveSelectedTextForParsedHighlights({
             entries.forEach((entry) => {
                 selectedTextByPdfRef.set(
                     pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber),
-                    resolvePreviewText(
-                        entry.subtype,
-                        entry.quadPoints,
-                    ),
+                    resolvePreviewText(entry.subtype, entry.quadPoints),
                 );
             });
             return true;
@@ -88,16 +79,9 @@ export async function deriveSelectedTextForParsedHighlights({
                 stale = true;
                 return false;
             }
-            BrowserLogger.warn(
-                'annotations',
-                `Failed to derive selected text for parsed highlights on page ${pageIndex + 1}`,
-                error,
-            );
+            BrowserLogger.warn('annotations', `Failed to derive selected text for parsed highlights on page ${pageIndex + 1}`, error);
             entries.forEach((entry) => {
-                selectedTextByPdfRef.set(
-                    pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber),
-                    null,
-                );
+                selectedTextByPdfRef.set(pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber), null);
             });
             return true;
         } finally {
@@ -105,18 +89,15 @@ export async function deriveSelectedTextForParsedHighlights({
         }
     };
 
-    const workers = Array.from(
-        {length: concurrency},
-        async () => {
-            while (!stale) {
-                const pageEntry = pageEntries[nextPageIndex];
-                nextPageIndex += 1;
-                if (!pageEntry || !await resolvePage(pageEntry)) {
-                    return;
-                }
+    const workers = Array.from({length: concurrency}, async () => {
+        while (!stale) {
+            const pageEntry = pageEntries[nextPageIndex];
+            nextPageIndex += 1;
+            if (!pageEntry || !(await resolvePage(pageEntry))) {
+                return;
             }
-        },
-    );
+        }
+    });
     await Promise.all(workers);
     return stale || !transition.isCurrent() ? null : selectedTextByPdfRef;
 }

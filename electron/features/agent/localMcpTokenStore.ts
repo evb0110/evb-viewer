@@ -1,15 +1,8 @@
-import { randomBytes } from 'node:crypto';
-import { constants as fsConstants } from 'node:fs';
-import type { Stats } from 'node:fs';
-import {
-    chmod,
-    lstat,
-    mkdir,
-    open,
-    rename,
-    rm,
-} from 'node:fs/promises';
-import { join } from 'node:path';
+import {randomBytes} from 'node:crypto';
+import {constants as fsConstants} from 'node:fs';
+import type {Stats} from 'node:fs';
+import {chmod, lstat, mkdir, open, rename, rm} from 'node:fs/promises';
+import {join} from 'node:path';
 
 const TOKEN_DIRECTORY_NAME = 'agent-mcp';
 const TOKEN_FILE_NAME = 'bearer-token';
@@ -20,15 +13,11 @@ const MAX_TOKEN_FILE_BYTES = 128;
 const MAX_PATH_IDENTITY_RETRIES = 3;
 
 function isMissingPathError(error: unknown) {
-    return error instanceof Error
-        && 'code' in error
-        && error.code === 'ENOENT';
+    return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
 function isExistingPathError(error: unknown) {
-    return error instanceof Error
-        && 'code' in error
-        && error.code === 'EEXIST';
+    return error instanceof Error && 'code' in error && error.code === 'EEXIST';
 }
 
 function usesPosixPermissions() {
@@ -73,9 +62,7 @@ function hasPrivateTokenMode(stats: Stats) {
 }
 
 function getReadFlags() {
-    return process.platform === 'win32'
-        ? fsConstants.O_RDONLY
-        : fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
+    return process.platform === 'win32' ? fsConstants.O_RDONLY : fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
 }
 
 async function readTokenWithStableIdentity(tokenPath: string) {
@@ -110,10 +97,7 @@ async function readTokenWithStableIdentity(tokenPath: string) {
             const descriptorStats = await handle.stat();
             assertSafeTokenFile(descriptorStats);
             const currentPathStats = await lstat(tokenPath);
-            if (
-                !pathsHaveSameIdentity(pathStats, descriptorStats)
-                || !pathsHaveSameIdentity(descriptorStats, currentPathStats)
-            ) {
+            if (!pathsHaveSameIdentity(pathStats, descriptorStats) || !pathsHaveSameIdentity(descriptorStats, currentPathStats)) {
                 continue;
             }
             if (descriptorStats.size > MAX_TOKEN_FILE_BYTES) {
@@ -124,14 +108,14 @@ async function readTokenWithStableIdentity(tokenPath: string) {
             }
             const token = (await handle.readFile('utf8')).trim();
             return TOKEN_PATTERN.test(token)
-                ? {
-                    kind: 'token',
-                    token,
-                } as const
-                : {
-                    kind: 'rotate',
-                    stats: descriptorStats,
-                } as const;
+                ? ({
+                      kind: 'token',
+                      token,
+                  } as const)
+                : ({
+                      kind: 'rotate',
+                      stats: descriptorStats,
+                  } as const);
         } finally {
             await handle.close();
         }
@@ -152,20 +136,9 @@ async function writeExclusiveToken(tokenPath: string, token: string) {
     }
 }
 
-async function replaceTokenAtomically(
-    directoryPath: string,
-    tokenPath: string,
-    token: string,
-    expectedStats: Stats,
-) {
-    const temporaryPath = join(
-        directoryPath,
-        `.bearer-token.${process.pid}.${randomBytes(12).toString('hex')}.tmp`,
-    );
-    const backupPath = join(
-        directoryPath,
-        `.bearer-token.${process.pid}.${randomBytes(12).toString('hex')}.backup`,
-    );
+async function replaceTokenAtomically(directoryPath: string, tokenPath: string, token: string, expectedStats: Stats) {
+    const temporaryPath = join(directoryPath, `.bearer-token.${process.pid}.${randomBytes(12).toString('hex')}.tmp`);
+    const backupPath = join(directoryPath, `.bearer-token.${process.pid}.${randomBytes(12).toString('hex')}.backup`);
     let hasBackup = false;
     try {
         await writeExclusiveToken(temporaryPath, token);
@@ -210,10 +183,7 @@ export function getLocalMcpTokenStoragePaths(userDataPath: string) {
 }
 
 export async function ensureSecurePersistentLocalMcpToken(userDataPath: string) {
-    const {
-        directoryPath,
-        tokenPath,
-    } = getLocalMcpTokenStoragePaths(userDataPath);
+    const {directoryPath, tokenPath} = getLocalMcpTokenStoragePaths(userDataPath);
     const initialDirectoryStats = await ensurePrivateTokenDirectory(directoryPath);
 
     for (let attempt = 0; attempt < MAX_PATH_IDENTITY_RETRIES; attempt += 1) {

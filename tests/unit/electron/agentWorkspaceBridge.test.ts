@@ -1,24 +1,11 @@
-import { EventEmitter } from 'events';
-import type {
-    BrowserWindow,
-    IpcMainInvokeEvent,
-    WebContents,
-} from 'electron';
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import type {
-    IAgentWorkspaceSnapshot,
-    IAgentWorkspaceSnapshotRequest,
-} from '@contracts/agent';
-import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
-import { requireIsoTimestamp } from '@contracts/timestamps';
-import { requireTabId } from '@contracts/windowTabs';
-import { requireSessionId } from '@contracts/shared';
+import {EventEmitter} from 'events';
+import type {BrowserWindow, IpcMainInvokeEvent, WebContents} from 'electron';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import type {IAgentWorkspaceSnapshot, IAgentWorkspaceSnapshotRequest} from '@contracts/agent';
+import {AGENT_PLATFORM_FEATURE} from '@contracts/agentPlatformFeature';
+import {requireIsoTimestamp} from '@contracts/timestamps';
+import {requireTabId} from '@contracts/windowTabs';
+import {requireSessionId} from '@contracts/shared';
 import type * as AgentWorkspaceBridgeModule from '@electron/features/agent/workspaceBridge';
 
 const mocks = vi.hoisted(() => ({fromWebContents: vi.fn()}));
@@ -61,19 +48,23 @@ function createFakeWindow(id = 101): IFakeWindow {
 }
 
 function isWebContentsTestDouble(value: IFakeWebContents): value is IFakeWebContents & WebContents {
-    return typeof value.isDestroyed === 'function'
-        && typeof value.once === 'function'
-        && typeof value.on === 'function'
-        && typeof value.removeListener === 'function'
-        && typeof value.send === 'function';
+    return (
+        typeof value.isDestroyed === 'function' &&
+        typeof value.once === 'function' &&
+        typeof value.on === 'function' &&
+        typeof value.removeListener === 'function' &&
+        typeof value.send === 'function'
+    );
 }
 
 function isBrowserWindowTestDouble(value: IFakeWindow): value is IFakeWindow & BrowserWindow {
-    return typeof value.id === 'number'
-        && typeof value.isDestroyed === 'function'
-        && typeof value.once === 'function'
-        && typeof value.removeListener === 'function'
-        && isWebContentsTestDouble(value.webContents);
+    return (
+        typeof value.id === 'number' &&
+        typeof value.isDestroyed === 'function' &&
+        typeof value.once === 'function' &&
+        typeof value.removeListener === 'function' &&
+        isWebContentsTestDouble(value.webContents)
+    );
 }
 
 function toBrowserWindow(window: IFakeWindow) {
@@ -93,17 +84,15 @@ function createResponseEvent(window: IFakeWindow): Pick<IpcMainInvokeEvent, 'sen
 }
 
 function isSnapshotRequest(value: unknown): value is IAgentWorkspaceSnapshotRequest & {windowId: number} {
-    return typeof value === 'object'
-        && value !== null
-        && 'requestId' in value
-        && typeof value.requestId === 'string'
-        && 'windowId' in value
-        && typeof value.windowId === 'number'
-        && (
-            !('lastSeenRevision' in value)
-            || value.lastSeenRevision === undefined
-            || typeof value.lastSeenRevision === 'number'
-        );
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        'requestId' in value &&
+        typeof value.requestId === 'string' &&
+        'windowId' in value &&
+        typeof value.windowId === 'number' &&
+        (!('lastSeenRevision' in value) || value.lastSeenRevision === undefined || typeof value.lastSeenRevision === 'number')
+    );
 }
 
 function getSnapshotRequest(window: IFakeWindow, index = 0) {
@@ -156,10 +145,7 @@ describe('agent workspace bridge', () => {
                 .catch((error: unknown) => error);
 
             await vi.advanceTimersByTimeAsync(DEFAULT_AGENT_REQUEST_TIMEOUT_MS - 1);
-            await expect(Promise.race([
-                pending,
-                Promise.resolve('pending'),
-            ])).resolves.toBe('pending');
+            await expect(Promise.race([pending, Promise.resolve('pending')])).resolves.toBe('pending');
 
             await vi.advanceTimersByTimeAsync(1);
             const expectedMessage = `Agent renderer request timed out after ${DEFAULT_AGENT_REQUEST_TIMEOUT_MS}ms`;
@@ -181,10 +167,14 @@ describe('agent workspace bridge', () => {
     it('rejects pending command requests when the target renderer exits', async () => {
         const window = createFakeWindow();
 
-        const pending = requestAgentCommand(toBrowserWindow(window), {
-            name: 'activate_tab',
-            arguments: {tabId: requireTabId('tab-1')},
-        }, 30_000);
+        const pending = requestAgentCommand(
+            toBrowserWindow(window),
+            {
+                name: 'activate_tab',
+                arguments: {tabId: requireTabId('tab-1')},
+            },
+            30_000,
+        );
         window.webContents.emit('render-process-gone');
 
         await expect(pending).rejects.toThrow('target window renderer exited');
@@ -202,11 +192,11 @@ describe('agent workspace bridge', () => {
 
             await vi.advanceTimersByTimeAsync(DEFAULT_AGENT_REQUEST_TIMEOUT_MS);
 
-            await expect(pending).resolves.toMatchObject({message: `Agent renderer request timed out after ${DEFAULT_AGENT_REQUEST_TIMEOUT_MS}ms`});
-            expect(window.webContents.send.mock.calls[0]?.[0])
-                .toBe(AGENT_PLATFORM_FEATURE.eventChannels.onCommandRequest);
-            expect(window.webContents.send.mock.calls[1]?.[0])
-                .toBe(AGENT_PLATFORM_FEATURE.eventChannels.onCommandCancelRequest);
+            await expect(pending).resolves.toMatchObject({
+                message: `Agent renderer request timed out after ${DEFAULT_AGENT_REQUEST_TIMEOUT_MS}ms`,
+            });
+            expect(window.webContents.send.mock.calls[0]?.[0]).toBe(AGENT_PLATFORM_FEATURE.eventChannels.onCommandRequest);
+            expect(window.webContents.send.mock.calls[1]?.[0]).toBe(AGENT_PLATFORM_FEATURE.eventChannels.onCommandCancelRequest);
             expect(window.webContents.send.mock.calls[1]?.[1]).toMatchObject({
                 requestId: expect.any(String),
                 windowId: window.id,
@@ -238,61 +228,74 @@ describe('agent workspace bridge', () => {
                 requestId: expect.any(String),
                 windowId: window.id,
             });
-            const requestId = typeof request === 'object' && request !== null && 'requestId' in request
-                ? request.requestId
-                : null;
+            const requestId = typeof request === 'object' && request !== null && 'requestId' in request ? request.requestId : null;
             if (typeof requestId !== 'string') {
                 throw new Error('Expected command request id');
             }
 
-            expect(submitAgentCommandResponse(
-                createResponseEvent(window),
-                {
+            expect(
+                submitAgentCommandResponse(createResponseEvent(window), {
                     requestId,
                     windowId: window.id,
                     ok: true,
-                    result: { saved: true },
-                },
-            )).toEqual({ accepted: true });
+                    result: {saved: true},
+                }),
+            ).toEqual({accepted: true});
 
-            await expect(pending).resolves.toEqual({ saved: true });
+            await expect(pending).resolves.toEqual({saved: true});
         } finally {
             vi.useRealTimers();
         }
     });
 
     it('uses command-specific timeouts for long-running file actions', () => {
-        expect(resolveAgentCommandRequestTimeoutMs({
-            name: 'run_action',
-            arguments: { id: 'file.save' },
-        })).toBe(LONG_AGENT_COMMAND_REQUEST_TIMEOUT_MS);
-        expect(resolveAgentCommandRequestTimeoutMs({
-            name: 'run_action',
-            arguments: { id: 'file.repair_save' },
-        })).toBe(LONG_AGENT_COMMAND_REQUEST_TIMEOUT_MS);
-        expect(resolveAgentCommandRequestTimeoutMs({
-            name: 'go_to_page',
-            arguments: { page: 3 },
-        })).toBe(DEFAULT_AGENT_REQUEST_TIMEOUT_MS);
-        expect(resolveAgentCommandRequestTimeoutMs({
-            name: 'run_action',
-            arguments: { id: 'file.save' },
-        }, 12_345)).toBe(12_345);
+        expect(
+            resolveAgentCommandRequestTimeoutMs({
+                name: 'run_action',
+                arguments: {id: 'file.save'},
+            }),
+        ).toBe(LONG_AGENT_COMMAND_REQUEST_TIMEOUT_MS);
+        expect(
+            resolveAgentCommandRequestTimeoutMs({
+                name: 'run_action',
+                arguments: {id: 'file.repair_save'},
+            }),
+        ).toBe(LONG_AGENT_COMMAND_REQUEST_TIMEOUT_MS);
+        expect(
+            resolveAgentCommandRequestTimeoutMs({
+                name: 'go_to_page',
+                arguments: {page: 3},
+            }),
+        ).toBe(DEFAULT_AGENT_REQUEST_TIMEOUT_MS);
+        expect(
+            resolveAgentCommandRequestTimeoutMs(
+                {
+                    name: 'run_action',
+                    arguments: {id: 'file.save'},
+                },
+                12_345,
+            ),
+        ).toBe(12_345);
     });
 
     it('sends a renderer cancel event when the caller aborts a command request', async () => {
         const window = createFakeWindow();
         const abortController = new AbortController();
 
-        const pending = requestAgentCommand(toBrowserWindow(window), {
-            name: 'activate_tab',
-            arguments: {tabId: requireTabId('tab-1')},
-        }, DEFAULT_AGENT_REQUEST_TIMEOUT_MS, undefined, abortController.signal);
+        const pending = requestAgentCommand(
+            toBrowserWindow(window),
+            {
+                name: 'activate_tab',
+                arguments: {tabId: requireTabId('tab-1')},
+            },
+            DEFAULT_AGENT_REQUEST_TIMEOUT_MS,
+            undefined,
+            abortController.signal,
+        );
         abortController.abort();
 
         await expect(pending).rejects.toThrow('aborted by the caller');
-        expect(window.webContents.send.mock.calls[1]?.[0])
-            .toBe(AGENT_PLATFORM_FEATURE.eventChannels.onCommandCancelRequest);
+        expect(window.webContents.send.mock.calls[1]?.[0]).toBe(AGENT_PLATFORM_FEATURE.eventChannels.onCommandCancelRequest);
     });
 
     it('rejects pre-aborted command requests without sending them to the renderer', async () => {
@@ -300,10 +303,16 @@ describe('agent workspace bridge', () => {
         const abortController = new AbortController();
         abortController.abort();
 
-        const pending = requestAgentCommand(toBrowserWindow(window), {
-            name: 'activate_tab',
-            arguments: {tabId: requireTabId('tab-1')},
-        }, DEFAULT_AGENT_REQUEST_TIMEOUT_MS, undefined, abortController.signal);
+        const pending = requestAgentCommand(
+            toBrowserWindow(window),
+            {
+                name: 'activate_tab',
+                arguments: {tabId: requireTabId('tab-1')},
+            },
+            DEFAULT_AGENT_REQUEST_TIMEOUT_MS,
+            undefined,
+            abortController.signal,
+        );
 
         await expect(pending).rejects.toThrow('aborted by the caller');
         expect(window.webContents.send).not.toHaveBeenCalled();
@@ -345,17 +354,14 @@ describe('agent workspace bridge', () => {
         const pending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
         const request = getSnapshotRequest(window);
 
-        const accepted = submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
-                requestId: request.requestId,
-                windowId: request.windowId,
-                ok: true,
-                snapshot,
-            },
-        );
+        const accepted = submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
+            requestId: request.requestId,
+            windowId: request.windowId,
+            ok: true,
+            snapshot,
+        });
 
-        expect(accepted).toEqual({ accepted: true });
+        expect(accepted).toEqual({accepted: true});
         await expect(pending).resolves.toBe(snapshot);
         expect(window.listenerCount('closed')).toBe(1);
         expect(window.webContents.listenerCount('render-process-gone')).toBe(1);
@@ -373,16 +379,15 @@ describe('agent workspace bridge', () => {
 
         const firstPending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
         const firstRequest = getSnapshotRequest(window);
-        expect(submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
                 requestId: firstRequest.requestId,
                 windowId: firstRequest.windowId,
                 ok: true,
                 revision: 1,
                 snapshot: firstSnapshot,
-            },
-        )).toEqual({ accepted: true });
+            }),
+        ).toEqual({accepted: true});
         await expect(firstPending).resolves.toBe(firstSnapshot);
 
         window.webContents.emit('did-start-navigation', {}, 'app://reload', false, true);
@@ -393,28 +398,21 @@ describe('agent workspace bridge', () => {
         const secondPending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
         const secondRequest = getSnapshotRequest(window, 1);
         expect(secondRequest.lastSeenRevision).toBeUndefined();
-        expect(submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
                 requestId: secondRequest.requestId,
                 windowId: secondRequest.windowId,
                 ok: true,
                 revision: 1,
                 snapshot: secondSnapshot,
-            },
-        )).toEqual({ accepted: true });
+            }),
+        ).toEqual({accepted: true});
         await expect(secondPending).resolves.toBe(secondSnapshot);
     });
 
     it.each([
-        [
-            'renderer exit',
-            (window: IFakeWindow) => window.webContents.emit('render-process-gone'),
-        ],
-        [
-            'window close',
-            (window: IFakeWindow) => window.emit('closed'),
-        ],
+        ['renderer exit', (window: IFakeWindow) => window.webContents.emit('render-process-gone')],
+        ['window close', (window: IFakeWindow) => window.emit('closed')],
     ])('invalidates a completed snapshot after %s', async (_name, emitLifecycleEvent) => {
         const window = createFakeWindow(_name === 'renderer exit' ? 708 : 709);
         mocks.fromWebContents.mockReturnValue(window);
@@ -422,16 +420,15 @@ describe('agent workspace bridge', () => {
 
         const firstPending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
         const firstRequest = getSnapshotRequest(window);
-        expect(submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
                 requestId: firstRequest.requestId,
                 windowId: firstRequest.windowId,
                 ok: true,
                 revision: 1,
                 snapshot,
-            },
-        )).toEqual({ accepted: true });
+            }),
+        ).toEqual({accepted: true});
         await expect(firstPending).resolves.toBe(snapshot);
 
         emitLifecycleEvent(window);
@@ -451,32 +448,30 @@ describe('agent workspace bridge', () => {
         const firstRequest = getSnapshotRequest(window);
 
         expect(firstRequest.lastSeenRevision).toBeUndefined();
-        expect(submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
                 requestId: firstRequest.requestId,
                 windowId: firstRequest.windowId,
                 ok: true,
                 revision: 7,
                 snapshot,
-            },
-        )).toEqual({ accepted: true });
+            }),
+        ).toEqual({accepted: true});
         await expect(firstPending).resolves.toBe(snapshot);
 
         const secondPending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
         const secondRequest = getSnapshotRequest(window, 1);
 
         expect(secondRequest.lastSeenRevision).toBe(7);
-        expect(submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
                 requestId: secondRequest.requestId,
                 windowId: secondRequest.windowId,
                 ok: true,
                 revision: 7,
                 unchanged: true,
-            },
-        )).toEqual({ accepted: true });
+            }),
+        ).toEqual({accepted: true});
         await expect(secondPending).resolves.toBe(snapshot);
     });
 
@@ -487,16 +482,15 @@ describe('agent workspace bridge', () => {
         const pending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
         const request = getSnapshotRequest(window);
 
-        expect(submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
                 requestId: request.requestId,
                 windowId: request.windowId,
                 ok: true,
                 revision: 1,
                 unchanged: true,
-            },
-        )).toEqual({ accepted: true });
+            }),
+        ).toEqual({accepted: true});
 
         await expect(pending).rejects.toThrow('no cached snapshot is available');
     });
@@ -508,16 +502,15 @@ describe('agent workspace bridge', () => {
         const pending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
         const request = getSnapshotRequest(window);
 
-        expect(submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
                 requestId: request.requestId,
                 windowId: request.windowId,
                 ok: true,
                 revision: 7,
-                snapshot: { tabs: [] },
-            },
-        )).toEqual({
+                snapshot: {tabs: []},
+            }),
+        ).toEqual({
             accepted: false,
             reason: 'invalid-payload',
         });
@@ -532,16 +525,15 @@ describe('agent workspace bridge', () => {
         const snapshot = createWorkspaceSnapshot();
 
         expect(nextRequest.lastSeenRevision).toBeUndefined();
-        expect(submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
                 requestId: nextRequest.requestId,
                 windowId: nextRequest.windowId,
                 ok: true,
                 revision: 8,
                 snapshot,
-            },
-        )).toEqual({ accepted: true });
+            }),
+        ).toEqual({accepted: true});
 
         await expect(nextPending).resolves.toBe(snapshot);
     });
@@ -552,9 +544,8 @@ describe('agent workspace bridge', () => {
         const pending = requestAgentWorkspaceSnapshot(toBrowserWindow(window), 30_000);
         const request = getSnapshotRequest(window);
 
-        expect(submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
                 requestId: request.requestId,
                 windowId: request.windowId,
                 ok: true,
@@ -562,8 +553,8 @@ describe('agent workspace bridge', () => {
                     ...createWorkspaceSnapshot(),
                     panes: [42],
                 },
-            },
-        )).toEqual({
+            }),
+        ).toEqual({
             accepted: false,
             reason: 'invalid-payload',
         });
@@ -577,16 +568,15 @@ describe('agent workspace bridge', () => {
         const pending = requestAgentWorkspaceSnapshot(toBrowserWindow(window));
         const request = getSnapshotRequest(window);
 
-        expect(submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
                 requestId: request.requestId,
                 windowId: request.windowId,
                 ok: true,
                 revision: Number.MAX_SAFE_INTEGER + 1,
                 snapshot: createWorkspaceSnapshot(),
-            },
-        )).toEqual({
+            }),
+        ).toEqual({
             accepted: false,
             reason: 'invalid-payload',
         });
@@ -603,14 +593,13 @@ describe('agent workspace bridge', () => {
         });
         const requestId = getCommandRequestId(window);
 
-        expect(submitAgentCommandResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentCommandResponse(createResponseEvent(window), {
                 requestId,
                 ok: true,
                 result: 'not-a-record',
-            },
-        )).toEqual({
+            }),
+        ).toEqual({
             accepted: false,
             reason: 'invalid-payload',
         });
@@ -618,15 +607,22 @@ describe('agent workspace bridge', () => {
         await expect(pending).rejects.toThrow('did not match the expected contract');
     });
 
-    it('hands a command\'s successor to its caller before acknowledging the response', async () => {
+    it("hands a command's successor to its caller before acknowledging the response", async () => {
         const window = createFakeWindow(610);
         mocks.fromWebContents.mockReturnValue(window);
         const order: string[] = [];
         const onSuccessor = vi.fn(() => order.push('successor'));
-        const pending = requestAgentCommand(toBrowserWindow(window), {
-            name: 'activate_tab',
-            arguments: {tabId: requireTabId('tab-1')},
-        }, undefined, undefined, undefined, onSuccessor);
+        const pending = requestAgentCommand(
+            toBrowserWindow(window),
+            {
+                name: 'activate_tab',
+                arguments: {tabId: requireTabId('tab-1')},
+            },
+            undefined,
+            undefined,
+            undefined,
+            onSuccessor,
+        );
         const successor = {
             commandTarget: {
                 kind: 'revision',
@@ -649,10 +645,7 @@ describe('agent workspace bridge', () => {
 
         expect(ack).toEqual({accepted: true});
         expect(onSuccessor).toHaveBeenCalledWith(successor);
-        expect(order).toEqual([
-            'successor',
-            'ack',
-        ]);
+        expect(order).toEqual(['successor', 'ack']);
         await expect(pending).resolves.toEqual({});
     });
 
@@ -660,24 +653,22 @@ describe('agent workspace bridge', () => {
         const window = createFakeWindow(303);
         mocks.fromWebContents.mockReturnValue(window);
 
-        expect(submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
                 requestId: '',
                 ok: true,
-            },
-        )).toEqual({
+            }),
+        ).toEqual({
             accepted: false,
             reason: 'invalid-payload',
         });
 
-        expect(submitAgentWorkspaceSnapshotResponse(
-            createResponseEvent(window),
-            {
+        expect(
+            submitAgentWorkspaceSnapshotResponse(createResponseEvent(window), {
                 requestId: 'missing-request',
                 ok: false,
-            },
-        )).toEqual({
+            }),
+        ).toEqual({
             accepted: false,
             reason: 'unknown-request',
         });

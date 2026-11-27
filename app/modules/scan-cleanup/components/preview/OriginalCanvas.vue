@@ -6,7 +6,7 @@
             class="preview-pixel is-outgoing"
             :src="pixelSwap.outgoingUrl"
             alt=""
-        >
+        />
         <img
             v-if="pixelSwap.currentUrl"
             :key="pixelSwap.currentUrl"
@@ -16,7 +16,7 @@
             :alt="alt"
             @transitionend="emit('complete', pixelSwap.currentUrl)"
             @transitioncancel="emit('complete', pixelSwap.currentUrl)"
-        >
+        />
         <img
             v-if="pixelSwap.incomingUrl"
             :key="pixelSwap.incomingUrl"
@@ -24,7 +24,7 @@
             :src="pixelSwap.incomingUrl"
             alt=""
             @load="emit('load', pixelSwap.incomingUrl)"
-        >
+        />
         <span
             v-for="(style, index) in cropOverlayStyles"
             :key="`lossless-crop-${String(index)}`"

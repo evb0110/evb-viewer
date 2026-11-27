@@ -8,23 +8,8 @@
   font-display: swap;
   src: url('/fonts/space-grotesk-latin-ext.woff2') format('woff2');
   unicode-range:
-    U+0100-02BA,
-    U+02BD-02C5,
-    U+02C7-02CC,
-    U+02CE-02D7,
-    U+02DD-02FF,
-    U+0304,
-    U+0308,
-    U+0329,
-    U+1D00-1DBF,
-    U+1E00-1E9F,
-    U+1EF2-1EFF,
-    U+2020,
-    U+20A0-20AB,
-    U+20AD-20C0,
-    U+2113,
-    U+2C60-2C7F,
-    U+A720-A7FF;
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 @font-face {
@@ -34,25 +19,8 @@
   font-display: swap;
   src: url('/fonts/space-grotesk-latin.woff2') format('woff2');
   unicode-range:
-    U+0000-00FF,
-    U+0131,
-    U+0152-0153,
-    U+02BB-02BC,
-    U+02C6,
-    U+02DA,
-    U+02DC,
-    U+0304,
-    U+0308,
-    U+0329,
-    U+2000-206F,
-    U+20AC,
-    U+2122,
-    U+2191,
-    U+2193,
-    U+2212,
-    U+2215,
-    U+FEFF,
-    U+FFFD;
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
@@ -80,23 +48,8 @@
   font-display: swap;
   src: url('/fonts/ibm-plex-mono-400-latin-ext.woff2') format('woff2');
   unicode-range:
-    U+0100-02BA,
-    U+02BD-02C5,
-    U+02C7-02CC,
-    U+02CE-02D7,
-    U+02DD-02FF,
-    U+0304,
-    U+0308,
-    U+0329,
-    U+1D00-1DBF,
-    U+1E00-1E9F,
-    U+1EF2-1EFF,
-    U+2020,
-    U+20A0-20AB,
-    U+20AD-20C0,
-    U+2113,
-    U+2C60-2C7F,
-    U+A720-A7FF;
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 @font-face {
@@ -106,25 +59,8 @@
   font-display: swap;
   src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2');
   unicode-range:
-    U+0000-00FF,
-    U+0131,
-    U+0152-0153,
-    U+02BB-02BC,
-    U+02C6,
-    U+02DA,
-    U+02DC,
-    U+0304,
-    U+0308,
-    U+0329,
-    U+2000-206F,
-    U+20AC,
-    U+2122,
-    U+2191,
-    U+2193,
-    U+2212,
-    U+2215,
-    U+FEFF,
-    U+FFFD;
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @font-face {
@@ -152,23 +88,8 @@
   font-display: swap;
   src: url('/fonts/ibm-plex-mono-500-latin-ext.woff2') format('woff2');
   unicode-range:
-    U+0100-02BA,
-    U+02BD-02C5,
-    U+02C7-02CC,
-    U+02CE-02D7,
-    U+02DD-02FF,
-    U+0304,
-    U+0308,
-    U+0329,
-    U+1D00-1DBF,
-    U+1E00-1E9F,
-    U+1EF2-1EFF,
-    U+2020,
-    U+20A0-20AB,
-    U+20AD-20C0,
-    U+2113,
-    U+2C60-2C7F,
-    U+A720-A7FF;
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 @font-face {
@@ -178,25 +99,8 @@
   font-display: swap;
   src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2');
   unicode-range:
-    U+0000-00FF,
-    U+0131,
-    U+0152-0153,
-    U+02BB-02BC,
-    U+02C6,
-    U+02DA,
-    U+02DC,
-    U+0304,
-    U+0308,
-    U+0329,
-    U+2000-206F,
-    U+20AC,
-    U+2122,
-    U+2191,
-    U+2193,
-    U+2212,
-    U+2215,
-    U+FEFF,
-    U+FFFD;
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 @theme static {
@@ -263,981 +167,978 @@
 }
 
 @layer base {
-
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#__nuxt {
-  min-height: 100%;
-}
-
-body {
-  margin: 0;
-  font-family: var(--font-sans);
-  background: var(--landing-background);
-  color: var(--landing-ink);
-}
-
-a {
-  color: inherit;
-}
-
-.landing-root {
-  position: relative;
-  min-height: 100vh;
-  overflow-x: clip;
-}
-
-.landing-container {
-  position: relative;
-  z-index: 2;
-  padding-top: clamp(1rem, 2vw, 1.5rem);
-  padding-bottom: clamp(2.5rem, 4vw, 4rem);
-}
-
-/* The home page film needs more width than the reading pages. */
-.landing-container-wide {
-  --ui-container: 90rem;
-}
-
-.site-header {
-  display: flex;
-  position: relative;
-  z-index: 4;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.35rem 0;
-  margin-bottom: clamp(2rem, 5vw, 4rem);
-  min-height: auto;
-}
-
-.brand-link {
-  display: inline-flex;
-  align-items: baseline;
-  flex: 0 0 auto;
-  gap: 0.75rem;
-  text-decoration: none;
-}
-
-.brand-mark {
-  display: inline-flex;
-  justify-content: center;
-  align-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  border-radius: 0.56rem;
-  font-family: var(--font-mono);
-  font-weight: 500;
-  font-size: 0.7rem;
-  letter-spacing: 0.05em;
-  background: var(--landing-ink);
-  color: var(--landing-background);
-}
-
-.brand-name {
-  font-size: 1rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.home-brand {
-  display: inline-flex;
-  align-items: baseline;
-  flex: 0 0 auto;
-  gap: 0.9rem;
-}
-
-.home-version {
-  font-family: var(--font-mono);
-  font-size: 0.82rem;
-  color: var(--landing-muted);
-  white-space: nowrap;
-}
-
-.home-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1.25rem;
-  margin-bottom: 0;
-  padding-bottom: clamp(1rem, 2vw, 1.4rem);
-  border-bottom: 1px solid var(--landing-border);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.home-topbar::-webkit-scrollbar {
-  display: none;
-}
-
-.home-actions {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  gap: 0.7rem;
-  white-space: nowrap;
-}
-
-.header-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.language-switcher {
-  display: inline-flex;
-  flex: 0 0 auto;
-}
-
-.language-switcher-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  min-width: 12rem;
-  padding: 0.25rem;
-}
-
-.language-switcher-option {
-  justify-content: flex-start;
-  width: 100%;
-}
-
-.release-sidebar-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 1rem;
-}
-
-.release-sidebar-platform-list {
-  display: grid;
-  gap: 0.7rem;
-  margin-top: 1rem;
-}
-
-.release-sidebar-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.85rem 0.95rem;
-  border: 1px solid var(--landing-border);
-  border-radius: 0.8rem;
-  background: var(--landing-surface-strong);
-}
-
-.release-sidebar-os {
-  margin: 0;
-  font-weight: 600;
-}
-
-.release-sidebar-arch {
-  margin: 0.18rem 0 0;
-  color: var(--landing-muted);
-  font-size: 0.86rem;
-}
-
-.release-sidebar-type {
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
-  color: var(--landing-muted);
-  text-align: right;
-}
-
-.content-section {
-  margin-top: clamp(2.5rem, 6vw, 4.5rem);
-}
-
-.page-intro {
-  margin-top: clamp(0.5rem, 2vw, 1rem);
-}
-
-.page-title {
-  margin: 0.85rem 0 0;
-  max-width: 22ch;
-  font-size: clamp(2rem, 6vw, 3.35rem);
-  line-height: 1.06;
-  letter-spacing: -0.02em;
-  text-wrap: balance;
-}
-
-.page-subtitle {
-  margin: 0.9rem 0 0;
-  max-width: 68ch;
-  color: var(--landing-muted);
-  line-height: 1.62;
-}
-
-.section-head {
-  margin-bottom: 1rem;
-}
-
-.section-head h2 {
-  margin: 0;
-  font-size: clamp(1.5rem, 3.8vw, 2.05rem);
-  letter-spacing: -0.015em;
-}
-
-.section-head p {
-  margin: 0.45rem 0 0;
-  max-width: 66ch;
-  color: var(--landing-muted);
-}
-
-.installer-card,
-.stat-card,
-.feature-card,
-.doc-card,
-.release-sidebar {
-  border-radius: 1rem;
-  border: 1px solid var(--landing-border);
-  background: var(--landing-surface);
-  box-shadow: var(--landing-shadow);
-}
-
-.installer-card {
-  padding: clamp(1rem, 3vw, 1.75rem);
-  box-shadow: none;
-}
-
-.installer-card-compact {
-  padding: 0;
-  border: none;
-  background: transparent;
-  box-shadow: none;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: 27.5rem;
-
-  --installer-row-height: 5.875rem;
-
-  /* Platform bar + gap + three rows with their separators and border + gap + hint.
-     The release fetch is deliberately client-side (release cohorts must not be
-     shared through a cache), so the loading, error, and empty states reserve the
-     height of a typical loaded card: the Windows tab's two builds and Store row. */
-  --installer-reserved-height: calc(
-    2.875rem + 0.875rem + (var(--installer-row-height) * 3) + 4px + 0.875rem + 2.25rem
-  );
-
-  min-height: var(--installer-reserved-height);
-}
-
-.home-bottom {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 1rem 2rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid color-mix(in srgb, var(--landing-border) 70%, transparent);
-}
-
-.home-copyright {
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  color: var(--landing-muted);
-  letter-spacing: 0.02em;
-}
-
-/* Occupies the reserved height so nothing below the card moves, and carries the
-   list's own chrome so the wait reads as a card being filled in rather than a
-   blank gap in the page. */
-.installer-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.8rem;
-  min-height: var(--installer-reserved-height);
-  padding: 1rem;
-  background: var(--landing-surface);
-  border: 1px solid var(--landing-border);
-  border-radius: 1rem;
-  color: var(--landing-muted);
-  text-align: center;
-}
-
-.installer-content {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.875rem;
-  max-width: 27.5rem;
-  margin: 0 auto;
-  width: 100%;
-}
-
-/* Auto columns instead of a fixed count: the tab list is built from whichever
-   platforms the current release actually publishes, so a fourth entry must
-   share the row rather than wrap under the first one. */
-.installer-platforms {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  gap: 0.1875rem;
-  padding: 0.25rem;
-  width: 100%;
-  max-width: 27.5rem;
-  background: var(--landing-surface);
-  border-radius: 0.75rem;
-  border: 1px solid var(--landing-border);
-}
-
-.installer-platform-button {
-  min-width: 0;
-  min-height: 2.25rem;
-  justify-content: center;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.installer-list {
-  --installer-mirror-column: 0rem;
-
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: 27.5rem;
-  background: var(--landing-surface);
-  border: 1px solid var(--landing-border);
-  border-radius: 1rem;
-  overflow: hidden;
-  box-shadow:
-    0 1px 2px rgba(28, 26, 22, 0.04),
-    0 18px 40px -28px rgba(28, 26, 22, 0.26);
-}
-
-.installer-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 3rem;
-  align-items: center;
-  gap: 0.875rem;
-  width: 100%;
-  height: var(--installer-row-height);
-  padding: 0.9375rem 1.0625rem;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  transition: background-color 0.15s;
-  text-align: left;
-  font-family: inherit;
-  color: inherit;
-}
-
-/* One grid per row, so the download chip sits in the same column on every row
-   whether or not that build has a mirror. Rows without one keep an empty cell
-   rather than stretching into the mirror column. */
-.installer-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--installer-mirror-column);
-  width: 100%;
-}
-
-.installer-list-mirrored {
-  --installer-mirror-column: 4.5rem;
-}
-
-/* The tint belongs to the whole row, not just the download cell. Tinting the
-   cell alone left the mirror column looking like a detached panel. */
-.installer-row-recommended {
-  background: var(--landing-accent-tint);
-}
-
-.installer-row + .installer-row {
-  border-top: 1px solid var(--landing-border);
-}
-
-.installer-mirror-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-left: 1px solid var(--landing-border);
-}
-
-.installer-mirror-link {
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: var(--landing-muted);
-  text-decoration: none;
-  transition: background-color 0.15s, color 0.15s;
-}
-
-.installer-mirror-link:hover {
-  background: color-mix(in srgb, var(--landing-ink) 4%, transparent);
-  color: var(--landing-ink);
-}
-
-.installer-item:hover {
-  background: color-mix(in srgb, var(--landing-ink) 4%, transparent);
-}
-
-.installer-item-store {
-  text-decoration: none;
-}
-
-.installer-item-recommended:hover {
-  background: color-mix(in srgb, var(--landing-accent) 12%, transparent);
-}
-
-.installer-item-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1875rem;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.installer-item-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5625rem;
-  flex-wrap: nowrap;
-  min-width: 0;
-}
-
-.installer-item-variant {
-  flex: 0 1 auto;
-  font-weight: 600;
-  font-size: 0.9375rem;
-  letter-spacing: 0;
-  color: var(--landing-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.installer-badge {
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  font-weight: 500;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  padding: 0.125rem 0.4375rem;
-  border-radius: 100px;
-  background: transparent;
-  border: 1px solid color-mix(in srgb, var(--landing-accent) 30%, transparent);
-  color: var(--landing-accent);
-  white-space: nowrap;
-  flex: none;
-}
-
-.installer-item-meta {
-  font-family: var(--font-mono);
-  font-size: 0.71875rem;
-  color: var(--landing-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.installer-item-detail {
-  font-size: 0.75rem;
-  line-height: 1.25;
-  color: var(--landing-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.installer-item-chip {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 0.625rem;
-  background: var(--landing-background);
-  border: 1px solid var(--landing-border-strong);
-  color: var(--landing-ink-soft);
-}
-
-.installer-item-recommended .installer-item-chip {
-  background: var(--landing-accent);
-  border-color: var(--landing-accent);
-  color: var(--landing-on-accent);
-}
-
-.installer-item-icon {
-  font-size: 1.125rem;
-  color: inherit;
-  flex-shrink: 0;
-}
-
-.installer-hint {
-  display: flex;
-  align-items: center;
-  min-height: 2.25rem;
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  line-height: 1.5;
-  color: var(--landing-muted);
-}
-
-.installer-browse {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4375rem;
-  margin-top: 0.25rem;
-  font-size: 0.84375rem;
-  font-weight: 600;
-  color: var(--landing-accent);
-  text-decoration: underline;
-  text-underline-offset: 4px;
-  text-decoration-thickness: 1.5px;
-}
-
-.installer-browse:hover {
-  text-decoration-thickness: 2px;
-}
-
-.installer-browse-icon {
-  font-size: 0.9375rem;
-}
-
-.stats-grid {
-  display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-bottom: 0.85rem;
-}
-
-.stat-value {
-  margin: 0;
-  font-size: 1.65rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--landing-ink);
-}
-
-.stat-label {
-  margin: 0.4rem 0 0;
-  font-size: 0.88rem;
-  color: var(--landing-muted);
-}
-
-.features-grid {
-  display: grid;
-  gap: 0.85rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.feature-card h3 {
-  margin: 0.95rem 0 0.35rem;
-  font-size: 1.05rem;
-}
-
-.feature-card p {
-  margin: 0;
-  color: var(--landing-muted);
-  line-height: 1.55;
-}
-
-.feature-icon {
-  display: inline-flex;
-  width: 1.28rem;
-  height: 1.28rem;
-  color: var(--landing-accent);
-}
-
-.docs-grid {
-  display: grid;
-  gap: 0.85rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.section-actions {
-  margin-top: 0.95rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-}
-
-.workflow-grid {
-  display: grid;
-  gap: 0.85rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.workflow-card {
-  border-radius: 1rem;
-  border: 1px solid var(--landing-border);
-  background: var(--landing-surface);
-  box-shadow: var(--landing-shadow);
-}
-
-.workflow-card h3 {
-  margin: 0.32rem 0 0.35rem;
-}
-
-.workflow-card p {
-  margin: 0;
-  color: var(--landing-muted);
-  line-height: 1.55;
-}
-
-.workflow-index {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  letter-spacing: 0.08em;
-  color: var(--landing-muted);
-}
-
-.table-card {
-  border-radius: 1rem;
-  border: 1px solid var(--landing-border);
-  background: var(--landing-surface);
-  box-shadow: var(--landing-shadow);
-  overflow: hidden;
-}
-
-.table-wrap {
-  overflow-x: auto;
-}
-
-.platform-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 38rem;
-}
-
-.platform-table th,
-.platform-table td {
-  text-align: left;
-  padding: 0.82rem 0.9rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--landing-border) 85%, transparent);
-}
-
-.platform-table thead th {
-  font-size: 0.82rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--landing-muted);
-}
-
-.platform-table tbody td {
-  font-size: 0.94rem;
-}
-
-.platform-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.docs-layout {
-  margin-top: clamp(1.5rem, 3vw, 2rem);
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
-}
-
-.docs-bookmark-column {
-  position: sticky;
-  top: var(--sticky-anchor-offset);
-  align-self: start;
-}
-
-.docs-bookmark-card {
-  border-radius: 1rem;
-  border: 1px solid var(--landing-border);
-  background: var(--landing-surface);
-  box-shadow: var(--landing-shadow);
-}
-
-.bookmark-title {
-  margin: 0;
-  font-size: 0.82rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--landing-muted);
-}
-
-.bookmark-nav {
-  margin: 0.55rem 0 0.9rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.14rem;
-}
-
-.bookmark-link {
-  border: none;
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  text-decoration: none;
-  padding: 0.38rem 0.52rem;
-  border-radius: 0.5rem;
-  color: color-mix(in srgb, var(--landing-ink) 84%, var(--landing-muted) 16%);
-  font-size: 0.92rem;
-  font-family: var(--font-sans);
-  cursor: pointer;
-}
-
-.bookmark-link:hover,
-.bookmark-link:focus-visible {
-  background: color-mix(in srgb, var(--landing-surface-strong) 88%, white 12%);
-  outline: none;
-}
-
-.docs-main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-
-.docs-section {
-  border-radius: 1rem;
-  border: 1px solid var(--landing-border);
-  background: var(--landing-surface);
-  box-shadow: var(--landing-shadow);
-  padding: 1rem;
-  scroll-margin-top: var(--sticky-anchor-offset);
-}
-
-.docs-section h2 {
-  margin: 0;
-  font-size: clamp(1.24rem, 2.5vw, 1.5rem);
-  letter-spacing: -0.01em;
-}
-
-.docs-section p {
-  margin: 0.62rem 0 0;
-  color: var(--landing-muted);
-  line-height: 1.6;
-}
-
-.docs-list {
-  margin: 0.62rem 0 0;
-  padding-left: 1.18rem;
-  color: var(--landing-muted);
-}
-
-.docs-list li + li {
-  margin-top: 0.35rem;
-}
-
-.entry-point-list {
-  flex: 1;
-  margin-top: 0;
-}
-
-.docs-code {
-  margin: 0.62rem 0 0;
-  border-radius: 0.82rem;
-  border: 1px solid var(--landing-border);
-  background: color-mix(in srgb, var(--landing-surface-strong) 72%, black 28%);
-  color: color-mix(in srgb, var(--landing-ink) 94%, white 6%);
-  padding: 0.82rem 0.92rem;
-  font-family: var(--font-mono);
-  font-size: 0.83rem;
-  line-height: 1.45;
-  overflow-x: auto;
-}
-
-.doc-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-}
-
-.release-sidebar-head h3 {
-  margin: 0.3rem 0 0;
-  font-size: 1.18rem;
-}
-
-.release-sidebar-head p {
-  margin: 0.45rem 0 0;
-  color: var(--landing-muted);
-  line-height: 1.55;
-}
-
-.doc-card h3 {
-  margin: 0;
-  font-size: 1.08rem;
-}
-
-.doc-card p {
-  margin: 0;
-  color: var(--landing-muted);
-  flex: 1;
-}
-
-.doc-icon {
-  width: 1.2rem;
-  height: 1.2rem;
-  color: var(--landing-accent);
-}
-
-.site-footer {
-  margin-top: clamp(2.1rem, 4vw, 3.2rem);
-  padding-top: 1.15rem;
-  border-top: 1px solid var(--landing-border);
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 0.8rem;
-}
-
-.site-footer p {
-  margin: 0;
-}
-
-.footer-copy {
-  display: grid;
-  gap: 0.3rem;
-  max-width: 40rem;
-}
-
-.footer-title {
-  font-size: 1rem;
-  font-weight: 700;
-}
-
-.footer-description,
-.footer-meta {
-  font-size: 0.88rem;
-  color: var(--landing-muted);
-}
-
-.footer-links {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.34rem;
-}
-
-@media (width <= 1024px) {
-
-  .workflow-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
   }
 
-  .features-grid,
-  .docs-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  html,
+  body,
+  #__nuxt {
+    min-height: 100%;
   }
 
-  .docs-layout {
-    grid-template-columns: 1fr;
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background: var(--landing-background);
+    color: var(--landing-ink);
   }
 
-  .docs-bookmark-column {
-    position: static;
+  a {
+    color: inherit;
   }
 
-  .docs-bookmark-card {
-    position: static;
+  .landing-root {
+    position: relative;
+    min-height: 100vh;
+    overflow-x: clip;
   }
 
-  .bookmark-nav {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .landing-container {
+    position: relative;
+    z-index: 2;
+    padding-top: clamp(1rem, 2vw, 1.5rem);
+    padding-bottom: clamp(2.5rem, 4vw, 4rem);
   }
-}
 
-@media (width <= 760px) {
+  /* The home page film needs more width than the reading pages. */
+  .landing-container-wide {
+    --ui-container: 90rem;
+  }
+
   .site-header {
-    position: static;
-    flex-wrap: wrap;
+    display: flex;
+    position: relative;
+    z-index: 4;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.35rem 0;
+    margin-bottom: clamp(2rem, 5vw, 4rem);
+    min-height: auto;
+  }
+
+  .brand-link {
+    display: inline-flex;
+    align-items: baseline;
+    flex: 0 0 auto;
+    gap: 0.75rem;
+    text-decoration: none;
+  }
+
+  .brand-mark {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.56rem;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+    background: var(--landing-ink);
+    color: var(--landing-background);
+  }
+
+  .brand-name {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .home-brand {
+    display: inline-flex;
+    align-items: baseline;
+    flex: 0 0 auto;
+    gap: 0.9rem;
+  }
+
+  .home-version {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    color: var(--landing-muted);
+    white-space: nowrap;
   }
 
   .home-topbar {
-    align-items: flex-start;
-    padding-bottom: 0.35rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.25rem;
+    margin-bottom: 0;
+    padding-bottom: clamp(1rem, 2vw, 1.4rem);
+    border-bottom: 1px solid var(--landing-border);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .home-topbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .home-actions {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    gap: 0.7rem;
+    white-space: nowrap;
   }
 
   .header-actions {
-    justify-content: flex-start;
-    flex-wrap: wrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
   }
 
-  .stats-grid,
-  .features-grid,
-  .docs-grid,
-  .workflow-grid {
-    grid-template-columns: 1fr;
+  .language-switcher {
+    display: inline-flex;
+    flex: 0 0 auto;
+  }
+
+  .language-switcher-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 12rem;
+    padding: 0.25rem;
+  }
+
+  .language-switcher-option {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .release-sidebar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 1rem;
+  }
+
+  .release-sidebar-platform-list {
+    display: grid;
+    gap: 0.7rem;
+    margin-top: 1rem;
+  }
+
+  .release-sidebar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 0.95rem;
+    border: 1px solid var(--landing-border);
+    border-radius: 0.8rem;
+    background: var(--landing-surface-strong);
+  }
+
+  .release-sidebar-os {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .release-sidebar-arch {
+    margin: 0.18rem 0 0;
+    color: var(--landing-muted);
+    font-size: 0.86rem;
+  }
+
+  .release-sidebar-type {
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--landing-muted);
+    text-align: right;
+  }
+
+  .content-section {
+    margin-top: clamp(2.5rem, 6vw, 4.5rem);
+  }
+
+  .page-intro {
+    margin-top: clamp(0.5rem, 2vw, 1rem);
   }
 
   .page-title {
-    max-width: 100%;
+    margin: 0.85rem 0 0;
+    max-width: 22ch;
+    font-size: clamp(2rem, 6vw, 3.35rem);
+    line-height: 1.06;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
   }
 
-  .platform-table {
-    min-width: 31rem;
+  .page-subtitle {
+    margin: 0.9rem 0 0;
+    max-width: 68ch;
+    color: var(--landing-muted);
+    line-height: 1.62;
   }
 
-  .bookmark-nav {
-    grid-template-columns: 1fr;
+  .section-head {
+    margin-bottom: 1rem;
   }
 
-  .installer-card-compact {
-    --installer-row-height: 6rem;
+  .section-head h2 {
+    margin: 0;
+    font-size: clamp(1.5rem, 3.8vw, 2.05rem);
+    letter-spacing: -0.015em;
   }
 
-  .installer-content {
-    max-width: none;
+  .section-head p {
+    margin: 0.45rem 0 0;
+    max-width: 66ch;
+    color: var(--landing-muted);
+  }
+
+  .installer-card,
+  .stat-card,
+  .feature-card,
+  .doc-card,
+  .release-sidebar {
+    border-radius: 1rem;
+    border: 1px solid var(--landing-border);
+    background: var(--landing-surface);
+    box-shadow: var(--landing-shadow);
   }
 
   .installer-card {
-    padding: 1.25rem;
+    padding: clamp(1rem, 3vw, 1.75rem);
+    box-shadow: none;
   }
 
+  .installer-card-compact {
+    padding: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 27.5rem;
+
+    --installer-row-height: 5.875rem;
+
+    /* Platform bar + gap + three rows with their separators and border + gap + hint.
+     The release fetch is deliberately client-side (release cohorts must not be
+     shared through a cache), so the loading, error, and empty states reserve the
+     height of a typical loaded card: the Windows tab's two builds and Store row. */
+    --installer-reserved-height: calc(2.875rem + 0.875rem + (var(--installer-row-height) * 3) + 4px + 0.875rem + 2.25rem);
+
+    min-height: var(--installer-reserved-height);
+  }
+
+  .home-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem 2rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid color-mix(in srgb, var(--landing-border) 70%, transparent);
+  }
+
+  .home-copyright {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--landing-muted);
+    letter-spacing: 0.02em;
+  }
+
+  /* Occupies the reserved height so nothing below the card moves, and carries the
+   list's own chrome so the wait reads as a card being filled in rather than a
+   blank gap in the page. */
+  .installer-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.8rem;
+    min-height: var(--installer-reserved-height);
+    padding: 1rem;
+    background: var(--landing-surface);
+    border: 1px solid var(--landing-border);
+    border-radius: 1rem;
+    color: var(--landing-muted);
+    text-align: center;
+  }
+
+  .installer-content {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.875rem;
+    max-width: 27.5rem;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  /* Auto columns instead of a fixed count: the tab list is built from whichever
+   platforms the current release actually publishes, so a fourth entry must
+   share the row rather than wrap under the first one. */
   .installer-platforms {
-    max-width: none;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    gap: 0.1875rem;
+    padding: 0.25rem;
+    width: 100%;
+    max-width: 27.5rem;
+    background: var(--landing-surface);
+    border-radius: 0.75rem;
+    border: 1px solid var(--landing-border);
   }
 
-  /* Narrow phones have roughly 20rem of card to split between the download
-     cell and the mirror column. Tighten the mirror column and the row padding
-     so variant names and sizes stay readable instead of ellipsising. */
-  .installer-list-mirrored {
-    --installer-mirror-column: 3.25rem;
+  .installer-platform-button {
+    min-width: 0;
+    min-height: 2.25rem;
+    justify-content: center;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
-  .installer-mirror-link {
-    font-size: 0.625rem;
+  .installer-list {
+    --installer-mirror-column: 0rem;
+
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 27.5rem;
+    background: var(--landing-surface);
+    border: 1px solid var(--landing-border);
+    border-radius: 1rem;
+    overflow: hidden;
+    box-shadow:
+      0 1px 2px rgba(28, 26, 22, 0.04),
+      0 18px 40px -28px rgba(28, 26, 22, 0.26);
   }
 
   .installer-item {
-    gap: 0.625rem;
-    padding-inline: 0.75rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 3rem;
+    align-items: center;
+    gap: 0.875rem;
+    width: 100%;
+    height: var(--installer-row-height);
+    padding: 0.9375rem 1.0625rem;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    transition: background-color 0.15s;
+    text-align: left;
+    font-family: inherit;
+    color: inherit;
+  }
+
+  /* One grid per row, so the download chip sits in the same column on every row
+   whether or not that build has a mirror. Rows without one keep an empty cell
+   rather than stretching into the mirror column. */
+  .installer-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--installer-mirror-column);
+    width: 100%;
+  }
+
+  .installer-list-mirrored {
+    --installer-mirror-column: 4.5rem;
+  }
+
+  /* The tint belongs to the whole row, not just the download cell. Tinting the
+   cell alone left the mirror column looking like a detached panel. */
+  .installer-row-recommended {
+    background: var(--landing-accent-tint);
+  }
+
+  .installer-row + .installer-row {
+    border-top: 1px solid var(--landing-border);
+  }
+
+  .installer-mirror-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-left: 1px solid var(--landing-border);
+  }
+
+  .installer-mirror-link {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: var(--landing-muted);
+    text-decoration: none;
+    transition:
+      background-color 0.15s,
+      color 0.15s;
+  }
+
+  .installer-mirror-link:hover {
+    background: color-mix(in srgb, var(--landing-ink) 4%, transparent);
+    color: var(--landing-ink);
+  }
+
+  .installer-item:hover {
+    background: color-mix(in srgb, var(--landing-ink) 4%, transparent);
   }
 
   .installer-item-store {
-    height: auto;
-    min-height: var(--installer-row-height);
+    text-decoration: none;
   }
 
-  .installer-item-store .installer-item-header {
-    align-items: flex-start;
+  .installer-item-recommended:hover {
+    background: color-mix(in srgb, var(--landing-accent) 12%, transparent);
+  }
+
+  .installer-item-info {
+    display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 0.1875rem;
+    min-width: 0;
+    overflow: hidden;
   }
 
-  .installer-item-store .installer-item-variant {
-    overflow: visible;
-    text-overflow: clip;
+  .installer-item-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5625rem;
+    flex-wrap: nowrap;
+    min-width: 0;
   }
 
-  .installer-item-store .installer-item-detail,
-  .installer-item-store .installer-item-meta {
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
+  .installer-item-variant {
+    flex: 0 1 auto;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    letter-spacing: 0;
+    color: var(--landing-ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .installer-badge {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 0.125rem 0.4375rem;
+    border-radius: 100px;
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--landing-accent) 30%, transparent);
+    color: var(--landing-accent);
+    white-space: nowrap;
+    flex: none;
+  }
+
+  .installer-item-meta {
+    font-family: var(--font-mono);
+    font-size: 0.71875rem;
+    color: var(--landing-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .installer-item-detail {
+    font-size: 0.75rem;
+    line-height: 1.25;
+    color: var(--landing-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .installer-item-chip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.625rem;
+    background: var(--landing-background);
+    border: 1px solid var(--landing-border-strong);
+    color: var(--landing-ink-soft);
+  }
+
+  .installer-item-recommended .installer-item-chip {
+    background: var(--landing-accent);
+    border-color: var(--landing-accent);
+    color: var(--landing-on-accent);
+  }
+
+  .installer-item-icon {
+    font-size: 1.125rem;
+    color: inherit;
+    flex-shrink: 0;
+  }
+
+  .installer-hint {
+    display: flex;
+    align-items: center;
+    min-height: 2.25rem;
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--landing-muted);
+  }
+
+  .installer-browse {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4375rem;
+    margin-top: 0.25rem;
+    font-size: 0.84375rem;
+    font-weight: 600;
+    color: var(--landing-accent);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    text-decoration-thickness: 1.5px;
+  }
+
+  .installer-browse:hover {
+    text-decoration-thickness: 2px;
+  }
+
+  .installer-browse-icon {
+    font-size: 0.9375rem;
+  }
+
+  .stats-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-bottom: 0.85rem;
+  }
+
+  .stat-value {
+    margin: 0;
+    font-size: 1.65rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--landing-ink);
+  }
+
+  .stat-label {
+    margin: 0.4rem 0 0;
+    font-size: 0.88rem;
+    color: var(--landing-muted);
+  }
+
+  .features-grid {
+    display: grid;
+    gap: 0.85rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .feature-card h3 {
+    margin: 0.95rem 0 0.35rem;
+    font-size: 1.05rem;
+  }
+
+  .feature-card p {
+    margin: 0;
+    color: var(--landing-muted);
+    line-height: 1.55;
+  }
+
+  .feature-icon {
+    display: inline-flex;
+    width: 1.28rem;
+    height: 1.28rem;
+    color: var(--landing-accent);
+  }
+
+  .docs-grid {
+    display: grid;
+    gap: 0.85rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .section-actions {
+    margin-top: 0.95rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+  }
+
+  .workflow-grid {
+    display: grid;
+    gap: 0.85rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .workflow-card {
+    border-radius: 1rem;
+    border: 1px solid var(--landing-border);
+    background: var(--landing-surface);
+    box-shadow: var(--landing-shadow);
+  }
+
+  .workflow-card h3 {
+    margin: 0.32rem 0 0.35rem;
+  }
+
+  .workflow-card p {
+    margin: 0;
+    color: var(--landing-muted);
+    line-height: 1.55;
+  }
+
+  .workflow-index {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    color: var(--landing-muted);
+  }
+
+  .table-card {
+    border-radius: 1rem;
+    border: 1px solid var(--landing-border);
+    background: var(--landing-surface);
+    box-shadow: var(--landing-shadow);
+    overflow: hidden;
+  }
+
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  .platform-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 38rem;
+  }
+
+  .platform-table th,
+  .platform-table td {
+    text-align: left;
+    padding: 0.82rem 0.9rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--landing-border) 85%, transparent);
+  }
+
+  .platform-table thead th {
+    font-size: 0.82rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--landing-muted);
+  }
+
+  .platform-table tbody td {
+    font-size: 0.94rem;
+  }
+
+  .platform-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .docs-layout {
+    margin-top: clamp(1.5rem, 3vw, 2rem);
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
+  }
+
+  .docs-bookmark-column {
+    position: sticky;
+    top: var(--sticky-anchor-offset);
+    align-self: start;
+  }
+
+  .docs-bookmark-card {
+    border-radius: 1rem;
+    border: 1px solid var(--landing-border);
+    background: var(--landing-surface);
+    box-shadow: var(--landing-shadow);
+  }
+
+  .bookmark-title {
+    margin: 0;
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--landing-muted);
+  }
+
+  .bookmark-nav {
+    margin: 0.55rem 0 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.14rem;
+  }
+
+  .bookmark-link {
+    border: none;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    text-decoration: none;
+    padding: 0.38rem 0.52rem;
+    border-radius: 0.5rem;
+    color: color-mix(in srgb, var(--landing-ink) 84%, var(--landing-muted) 16%);
+    font-size: 0.92rem;
+    font-family: var(--font-sans);
+    cursor: pointer;
+  }
+
+  .bookmark-link:hover,
+  .bookmark-link:focus-visible {
+    background: color-mix(in srgb, var(--landing-surface-strong) 88%, white 12%);
+    outline: none;
+  }
+
+  .docs-main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .docs-section {
+    border-radius: 1rem;
+    border: 1px solid var(--landing-border);
+    background: var(--landing-surface);
+    box-shadow: var(--landing-shadow);
+    padding: 1rem;
+    scroll-margin-top: var(--sticky-anchor-offset);
+  }
+
+  .docs-section h2 {
+    margin: 0;
+    font-size: clamp(1.24rem, 2.5vw, 1.5rem);
+    letter-spacing: -0.01em;
+  }
+
+  .docs-section p {
+    margin: 0.62rem 0 0;
+    color: var(--landing-muted);
+    line-height: 1.6;
+  }
+
+  .docs-list {
+    margin: 0.62rem 0 0;
+    padding-left: 1.18rem;
+    color: var(--landing-muted);
+  }
+
+  .docs-list li + li {
+    margin-top: 0.35rem;
+  }
+
+  .entry-point-list {
+    flex: 1;
+    margin-top: 0;
+  }
+
+  .docs-code {
+    margin: 0.62rem 0 0;
+    border-radius: 0.82rem;
+    border: 1px solid var(--landing-border);
+    background: color-mix(in srgb, var(--landing-surface-strong) 72%, black 28%);
+    color: color-mix(in srgb, var(--landing-ink) 94%, white 6%);
+    padding: 0.82rem 0.92rem;
+    font-family: var(--font-mono);
+    font-size: 0.83rem;
+    line-height: 1.45;
+    overflow-x: auto;
+  }
+
+  .doc-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+
+  .release-sidebar-head h3 {
+    margin: 0.3rem 0 0;
+    font-size: 1.18rem;
+  }
+
+  .release-sidebar-head p {
+    margin: 0.45rem 0 0;
+    color: var(--landing-muted);
+    line-height: 1.55;
+  }
+
+  .doc-card h3 {
+    margin: 0;
+    font-size: 1.08rem;
+  }
+
+  .doc-card p {
+    margin: 0;
+    color: var(--landing-muted);
+    flex: 1;
+  }
+
+  .doc-icon {
+    width: 1.2rem;
+    height: 1.2rem;
+    color: var(--landing-accent);
   }
 
   .site-footer {
-    flex-direction: column;
+    margin-top: clamp(2.1rem, 4vw, 3.2rem);
+    padding-top: 1.15rem;
+    border-top: 1px solid var(--landing-border);
+    display: flex;
+    justify-content: space-between;
     align-items: flex-start;
+    gap: 0.8rem;
   }
-}
 
+  .site-footer p {
+    margin: 0;
+  }
+
+  .footer-copy {
+    display: grid;
+    gap: 0.3rem;
+    max-width: 40rem;
+  }
+
+  .footer-title {
+    font-size: 1rem;
+    font-weight: 700;
+  }
+
+  .footer-description,
+  .footer-meta {
+    font-size: 0.88rem;
+    color: var(--landing-muted);
+  }
+
+  .footer-links {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.34rem;
+  }
+
+  @media (width <= 1024px) {
+    .workflow-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .features-grid,
+    .docs-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .docs-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .docs-bookmark-column {
+      position: static;
+    }
+
+    .docs-bookmark-card {
+      position: static;
+    }
+
+    .bookmark-nav {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (width <= 760px) {
+    .site-header {
+      position: static;
+      flex-wrap: wrap;
+    }
+
+    .home-topbar {
+      align-items: flex-start;
+      padding-bottom: 0.35rem;
+    }
+
+    .header-actions {
+      justify-content: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .stats-grid,
+    .features-grid,
+    .docs-grid,
+    .workflow-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .page-title {
+      max-width: 100%;
+    }
+
+    .platform-table {
+      min-width: 31rem;
+    }
+
+    .bookmark-nav {
+      grid-template-columns: 1fr;
+    }
+
+    .installer-card-compact {
+      --installer-row-height: 6rem;
+    }
+
+    .installer-content {
+      max-width: none;
+    }
+
+    .installer-card {
+      padding: 1.25rem;
+    }
+
+    .installer-platforms {
+      max-width: none;
+    }
+
+    /* Narrow phones have roughly 20rem of card to split between the download
+     cell and the mirror column. Tighten the mirror column and the row padding
+     so variant names and sizes stay readable instead of ellipsising. */
+    .installer-list-mirrored {
+      --installer-mirror-column: 3.25rem;
+    }
+
+    .installer-mirror-link {
+      font-size: 0.625rem;
+    }
+
+    .installer-item {
+      gap: 0.625rem;
+      padding-inline: 0.75rem;
+    }
+
+    .installer-item-store {
+      height: auto;
+      min-height: var(--installer-row-height);
+    }
+
+    .installer-item-store .installer-item-header {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .installer-item-store .installer-item-variant {
+      overflow: visible;
+      text-overflow: clip;
+    }
+
+    .installer-item-store .installer-item-detail,
+    .installer-item-store .installer-item-meta {
+      overflow: visible;
+      text-overflow: clip;
+      white-space: normal;
+    }
+
+    .site-footer {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
 } /* @layer base */

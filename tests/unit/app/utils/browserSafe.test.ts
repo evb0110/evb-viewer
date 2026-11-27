@@ -1,16 +1,5 @@
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createBrowserSafeId,
-    safeDecodeURIComponent,
-    safeGetSessionStorageItem,
-    safeSetSessionStorageItem,
-} from '@app/utils/browserSafe';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createBrowserSafeId, safeDecodeURIComponent, safeGetSessionStorageItem, safeSetSessionStorageItem} from '@app/utils/browserSafe';
 
 interface ITestGlobal {
     crypto?: unknown;
@@ -40,7 +29,7 @@ describe('safeDecodeURIComponent', () => {
 
 describe('createBrowserSafeId', () => {
     it('uses randomUUID when available', () => {
-        vi.stubGlobal('crypto', { randomUUID: () => 'uuid-1' });
+        vi.stubGlobal('crypto', {randomUUID: () => 'uuid-1'});
 
         expect(createBrowserSafeId('search')).toBe('search-uuid-1');
     });
@@ -70,27 +59,37 @@ describe('createBrowserSafeId', () => {
 
 describe('session storage safe helpers', () => {
     it('treats throwing storage reads as missing state', () => {
-        vi.stubGlobal('window', { sessionStorage: { getItem: () => {
-            throw new Error('blocked');
-        }}});
+        vi.stubGlobal('window', {
+            sessionStorage: {
+                getItem: () => {
+                    throw new Error('blocked');
+                },
+            },
+        });
 
         expect(safeGetSessionStorageItem('key')).toBeNull();
     });
 
     it('does not throw when storage writes fail', () => {
-        vi.stubGlobal('window', { sessionStorage: { setItem: () => {
-            throw new Error('blocked');
-        }}});
+        vi.stubGlobal('window', {
+            sessionStorage: {
+                setItem: () => {
+                    throw new Error('blocked');
+                },
+            },
+        });
 
         expect(() => safeSetSessionStorageItem('key', 'value')).not.toThrow();
     });
 
     it('reads and writes session storage when available', () => {
         const values = new Map<string, string>();
-        vi.stubGlobal('window', { sessionStorage: {
-            getItem: (key: string) => values.get(key) ?? null,
-            setItem: (key: string, value: string) => values.set(key, value),
-        }});
+        vi.stubGlobal('window', {
+            sessionStorage: {
+                getItem: (key: string) => values.get(key) ?? null,
+                setItem: (key: string, value: string) => values.set(key, value),
+            },
+        });
 
         safeSetSessionStorageItem('key', 'value');
 

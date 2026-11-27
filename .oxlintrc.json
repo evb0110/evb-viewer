@@ -1,15 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "typescript",
-    "unicorn",
-    "oxc",
-    "import",
-    "promise",
-    "vue",
-    "vitest",
-    "node"
-  ],
+  "plugins": ["typescript", "unicorn", "oxc", "import", "promise", "vue", "vitest", "node"],
   "categories": {
     "correctness": "off"
   },
@@ -28,6 +19,14 @@
   "rules": {
     "array-callback-return": "error",
     "constructor-super": "error",
+    "curly": ["error", "all"],
+    "eqeqeq": [
+      "error",
+      "always",
+      {
+        "null": "ignore"
+      }
+    ],
     "for-direction": "error",
     "getter-return": "error",
     "no-async-promise-executor": "error",
@@ -51,6 +50,7 @@
     "no-empty-static-block": "error",
     "no-eval": "error",
     "no-ex-assign": "error",
+    "no-fallthrough": "error",
     "no-func-assign": "error",
     "no-global-assign": "error",
     "no-implied-eval": "error",
@@ -89,7 +89,10 @@
       }
     ],
     "no-useless-backreference": "error",
+    "no-useless-catch": "error",
+    "no-var": "error",
     "no-with": "error",
+    "prefer-const": "error",
     "require-yield": "error",
     "use-isnan": "error",
     "valid-typeof": "error",
@@ -116,6 +119,7 @@
     "typescript/no-duplicate-enum-values": "error",
     "typescript/no-misused-new": "error",
     "typescript/no-non-null-asserted-optional-chain": "error",
+    "typescript/no-unnecessary-type-constraint": "error",
     "typescript/no-unsafe-declaration-merging": "error",
     "typescript/no-wrapper-object-types": "error",
     "unicorn/no-accessor-recursion": "error",
@@ -163,17 +167,14 @@
     "invariants/component-directory-source": "error",
     "invariants/top-level-pdf-composable": "error",
     "invariants/no-raw-red-presentation": "error",
+    "invariants/no-useless-async": "error",
     "invariants/no-core-correctness-timers": "error",
     "no-restricted-imports": [
       "error",
       {
         "patterns": [
           {
-            "group": [
-              "@i18n-core/*",
-              "@i18n-app/*",
-              "@releaseSelection/*"
-            ],
+            "group": ["@i18n-core/*", "@i18n-app/*", "@releaseSelection/*"],
             "message": "Use shared package root entrypoints."
           }
         ]
@@ -189,9 +190,7 @@
   ],
   "overrides": [
     {
-      "files": [
-        "app/**/*.{ts,vue}"
-      ],
+      "files": ["app/**/*.{ts,vue}"],
       "rules": {
         "no-restricted-globals": [
           "error",
@@ -205,34 +204,24 @@
           {
             "patterns": [
               {
-                "group": [
-                  "@i18n-core/*",
-                  "@i18n-app/*",
-                  "@releaseSelection/*"
-                ],
+                "group": ["@i18n-core/*", "@i18n-app/*", "@releaseSelection/*"],
                 "message": "Import shared packages through their root entrypoints."
               }
             ],
             "paths": [
               {
                 "name": "vue-i18n",
-                "importNames": [
-                  "useI18n"
-                ],
+                "importNames": ["useI18n"],
                 "message": "Use useTypedI18n()."
               },
               {
                 "name": "#imports",
-                "importNames": [
-                  "useI18n"
-                ],
+                "importNames": ["useI18n"],
                 "message": "Use useTypedI18n()."
               },
               {
                 "name": "#i18n",
-                "importNames": [
-                  "useI18n"
-                ],
+                "importNames": ["useI18n"],
                 "message": "Use useTypedI18n()."
               }
             ]
@@ -241,21 +230,14 @@
       }
     },
     {
-      "files": [
-        "app/composables/useTypedI18n.ts"
-      ],
+      "files": ["app/composables/useTypedI18n.ts"],
       "rules": {
         "no-restricted-globals": "off",
         "no-restricted-imports": "off"
       }
     },
     {
-      "files": [
-        "app/**",
-        "electron/**",
-        "landing/**",
-        "server/**"
-      ],
+      "files": ["app/**", "electron/**", "landing/**", "server/**"],
       "rules": {
         "no-restricted-properties": [
           "error",
@@ -268,9 +250,7 @@
       }
     },
     {
-      "files": [
-        "app/**/*.{ts,vue}"
-      ],
+      "files": ["app/**/*.{ts,vue}"],
       "rules": {
         "no-restricted-properties": [
           "error",
@@ -288,10 +268,7 @@
       }
     },
     {
-      "files": [
-        "app/utils/browserLogger.ts",
-        "app/utils/consoleErrorObserver.ts"
-      ],
+      "files": ["app/utils/browserLogger.ts", "app/utils/consoleErrorObserver.ts"],
       "rules": {
         "no-restricted-properties": [
           "error",
@@ -304,50 +281,37 @@
       }
     },
     {
-      "files": [
-        "electron/preload/installDebugLogListener.ts"
-      ],
+      "files": ["electron/preload/installDebugLogListener.ts"],
       "rules": {
         "no-restricted-properties": "off"
       }
     },
     {
-      "files": [
-        "packages/contracts/**"
-      ],
+      "files": ["packages/contracts/**"],
       "rules": {
         "no-restricted-globals": [
           "error",
           {
-            "globals": [
-              "process",
-              "Buffer"
-            ],
+            "globals": ["process", "Buffer"],
             "checkGlobalObject": true
           }
         ]
       }
     },
     {
-      "files": [
-        "tests/**"
-      ],
+      "files": ["tests/**"],
       "rules": {
         "no-unsafe-optional-chaining": "off"
       }
     },
     {
-      "files": [
-        "tests/e2e/**/*.ts"
-      ],
+      "files": ["tests/e2e/**/*.ts"],
       "rules": {
         "invariants/e2e-click-as-user": "error"
       }
     },
     {
-      "files": [
-        "tests/e2e/electron/drawing/annotationStrokeParity.e2e.test.ts"
-      ],
+      "files": ["tests/e2e/electron/drawing/annotationStrokeParity.e2e.test.ts"],
       "rules": {
         "invariants/e2e-click-as-user": "off"
       }

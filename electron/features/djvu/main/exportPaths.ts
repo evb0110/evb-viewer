@@ -1,10 +1,7 @@
-import {
-    extname,
-    resolve,
-} from 'path';
-import type { WebContents } from 'electron';
-import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
-import { isReservedTempPath } from '@electron/utils/pathValidator';
+import {extname, resolve} from 'path';
+import type {WebContents} from 'electron';
+import {onSenderLifetimeEnd} from '@electron/utils/onSenderLifetimeEnd';
+import {isReservedTempPath} from '@electron/utils/pathValidator';
 
 const DJVU_WRITE_PATH_MAX_ENTRIES = 64;
 const DJVU_WRITE_PATH_TTL_MS = 15 * 60 * 1000;
@@ -47,10 +44,7 @@ function normalizeDjvuOutputPdfPath(filePath: string) {
 }
 
 function pruneAllowedDjvuWritePaths(now = Date.now()) {
-    for (const [
-        capabilityKey,
-        capability,
-    ] of allowedDjvuWritePaths.entries()) {
+    for (const [capabilityKey, capability] of allowedDjvuWritePaths.entries()) {
         if (capability.expiresAt <= now) {
             allowedDjvuWritePaths.delete(capabilityKey);
         }
@@ -71,10 +65,7 @@ function pruneAllowedDjvuWritePaths(now = Date.now()) {
 }
 
 function removeAllowedDjvuWritePathsForOwner(ownerWebContentsId: number) {
-    for (const [
-        capabilityKey,
-        capability,
-    ] of allowedDjvuWritePaths.entries()) {
+    for (const [capabilityKey, capability] of allowedDjvuWritePaths.entries()) {
         if (capability.ownerWebContentsId === ownerWebContentsId) {
             allowedDjvuWritePaths.delete(capabilityKey);
         }
@@ -83,12 +74,7 @@ function removeAllowedDjvuWritePathsForOwner(ownerWebContentsId: number) {
 }
 
 function registerOwnerCleanup(owner: TDjvuWriteCapabilityOwner, ownerWebContentsId: number | null) {
-    if (
-        typeof owner === 'number'
-        || owner === undefined
-        || ownerWebContentsId === null
-        || ownerCleanupRegistered.has(ownerWebContentsId)
-    ) {
+    if (typeof owner === 'number' || owner === undefined || ownerWebContentsId === null || ownerCleanupRegistered.has(ownerWebContentsId)) {
         return;
     }
 
@@ -102,10 +88,14 @@ function registerOwnerCleanup(owner: TDjvuWriteCapabilityOwner, ownerWebContents
     }
 
     ownerCleanupRegistered.add(ownerWebContentsId);
-    const stop = onSenderLifetimeEnd(owner, () => {
-        stop();
-        removeAllowedDjvuWritePathsForOwner(ownerWebContentsId);
-    }, {navigation: true});
+    const stop = onSenderLifetimeEnd(
+        owner,
+        () => {
+            stop();
+            removeAllowedDjvuWritePathsForOwner(ownerWebContentsId);
+        },
+        {navigation: true},
+    );
 }
 
 export function allowDjvuWritePath(filePath: string, owner?: TDjvuWriteCapabilityOwner) {
@@ -149,19 +139,13 @@ export function consumeAllowedDjvuWritePath(filePath: string, owner?: TDjvuWrite
     const now = Date.now();
     pruneAllowedDjvuWritePaths(now);
 
-    const ownedCapability = consumeCapabilityByKey(
-        toCapabilityKey(normalizedPath, normalizedOwnerWebContentsId),
-        now,
-    );
+    const ownedCapability = consumeCapabilityByKey(toCapabilityKey(normalizedPath, normalizedOwnerWebContentsId), now);
     if (ownedCapability) {
         return ownedCapability.normalizedPath;
     }
 
     if (normalizedOwnerWebContentsId !== null) {
-        const sharedCapability = consumeCapabilityByKey(
-            toCapabilityKey(normalizedPath, null),
-            now,
-        );
+        const sharedCapability = consumeCapabilityByKey(toCapabilityKey(normalizedPath, null), now);
         if (sharedCapability) {
             return sharedCapability.normalizedPath;
         }

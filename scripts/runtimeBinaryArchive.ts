@@ -1,15 +1,6 @@
-import {
-    createHash,
-    randomUUID,
-} from 'node:crypto';
+import {createHash, randomUUID} from 'node:crypto';
 import {createReadStream} from 'node:fs';
-import {
-    mkdir,
-    open,
-    rename,
-    rm,
-    stat,
-} from 'node:fs/promises';
+import {mkdir, open, rename, rm, stat} from 'node:fs/promises';
 import path from 'node:path';
 import {
     NATIVE_RESOURCE_PLATFORM_ARCHES,
@@ -51,9 +42,7 @@ export interface IRuntimeBinaryArchiveResult {
     entry: IRuntimeBinaryManifestEntry;
 }
 
-export type TRuntimeBinaryArchiveTransport = (
-    url: string,
-) => AsyncIterable<Uint8Array> | Promise<AsyncIterable<Uint8Array>>;
+export type TRuntimeBinaryArchiveTransport = (url: string) => AsyncIterable<Uint8Array> | Promise<AsyncIterable<Uint8Array>>;
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const MAX_RUNTIME_BINARY_ARCHIVE_BYTES = 512 * 1024 * 1024;
@@ -65,10 +54,7 @@ function assertSha256(value: string, label: string) {
 }
 
 function assertFamilyId(value: TNativeToolResourceFamilyId) {
-    if (
-        !NATIVE_TOOL_RESOURCE_FAMILY_IDS.includes(value)
-        || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(value)
-    ) {
+    if (!NATIVE_TOOL_RESOURCE_FAMILY_IDS.includes(value) || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(value)) {
         throw new Error(`Runtime family id is not a safe identifier: ${value}`);
     }
 }
@@ -82,14 +68,12 @@ function canonicalManifestEntries(
     dataEntries: readonly IRuntimeBinaryDataManifestEntry[],
 ) {
     return JSON.stringify({
-        dataEntries: [...dataEntries]
-            .sort((left, right) => compareCodeUnits(left.resourceRoot, right.resourceRoot)),
+        dataEntries: [...dataEntries].sort((left, right) => compareCodeUnits(left.resourceRoot, right.resourceRoot)),
         entries: [...entries]
-            .sort((left, right) => compareCodeUnits(
-                `${left.familyId}\0${left.target.platformArch}`,
-                `${right.familyId}\0${right.target.platformArch}`,
-            ))
-            .map(entry => ({
+            .sort((left, right) =>
+                compareCodeUnits(`${left.familyId}\0${left.target.platformArch}`, `${right.familyId}\0${right.target.platformArch}`),
+            )
+            .map((entry) => ({
                 archiveKind: entry.archiveKind,
                 archiveBytes: entry.archiveBytes,
                 archiveSha256: entry.archiveSha256,
@@ -116,11 +100,11 @@ export function computeRuntimeBinaryManifestSha256(
 function assertSafeExecutableEntry(entry: string) {
     const normalized = entry.replaceAll('\\', '/');
     if (
-        normalized.length === 0
-        || normalized.startsWith('/')
-        || normalized.includes('\0')
-        || /^[a-z]:/iu.test(normalized)
-        || normalized.split('/').some(segment => segment === '..' || segment.length === 0)
+        normalized.length === 0 ||
+        normalized.startsWith('/') ||
+        normalized.includes('\0') ||
+        /^[a-z]:/iu.test(normalized) ||
+        normalized.split('/').some((segment) => segment === '..' || segment.length === 0)
     ) {
         throw new Error(`Runtime executable entry is not a safe relative path: ${entry}`);
     }
@@ -146,11 +130,11 @@ function assertTarget(target: INativeResourceTarget) {
 function assertSafeResourceRoot(resourceRoot: string) {
     const normalized = resourceRoot.replaceAll('\\', '/');
     if (
-        normalized.length === 0
-        || normalized.startsWith('/')
-        || normalized.includes('\0')
-        || /^[a-z]:/iu.test(normalized)
-        || normalized.split('/').some(segment => segment === '..' || segment.length === 0)
+        normalized.length === 0 ||
+        normalized.startsWith('/') ||
+        normalized.includes('\0') ||
+        /^[a-z]:/iu.test(normalized) ||
+        normalized.split('/').some((segment) => segment === '..' || segment.length === 0)
     ) {
         throw new Error(`Runtime resource root is not a safe relative path: ${resourceRoot}`);
     }
@@ -170,11 +154,7 @@ function assertArchiveMetadata(
     if (entry.archiveKind !== 'tar.gz' && entry.archiveKind !== 'zip') {
         throw new Error('Runtime archive kind is unsupported.');
     }
-    if (
-        !Number.isSafeInteger(entry.archiveBytes)
-        || entry.archiveBytes <= 0
-        || entry.archiveBytes > MAX_RUNTIME_BINARY_ARCHIVE_BYTES
-    ) {
+    if (!Number.isSafeInteger(entry.archiveBytes) || entry.archiveBytes <= 0 || entry.archiveBytes > MAX_RUNTIME_BINARY_ARCHIVE_BYTES) {
         throw new Error(`Runtime archive ${label} has an invalid byte length.`);
     }
     assertSha256(entry.archiveSha256, `Runtime archive ${label}`);
@@ -212,9 +192,7 @@ export function validateRuntimeBinaryManifest(manifest: IRuntimeBinaryManifest) 
 
     const computedSha256 = computeRuntimeBinaryManifestSha256(manifest.entries, manifest.dataEntries ?? []);
     if (computedSha256 !== manifest.manifestSha256) {
-        throw new Error(
-            `Runtime manifest SHA-256 ${manifest.manifestSha256} does not match ${computedSha256}.`,
-        );
+        throw new Error(`Runtime manifest SHA-256 ${manifest.manifestSha256} does not match ${computedSha256}.`);
     }
     return manifest;
 }
@@ -265,10 +243,7 @@ async function fetchVerifiedRuntimeArchiveEntry({
     });
     try {
         const cacheStats = await stat(archivePath);
-        if (
-            cacheStats.size === entry.archiveBytes
-            && await sha256File(archivePath) === entry.archiveSha256
-        ) {
+        if (cacheStats.size === entry.archiveBytes && (await sha256File(archivePath)) === entry.archiveSha256) {
             return archivePath;
         }
         await rm(archivePath, {force: true});
@@ -289,9 +264,7 @@ async function fetchVerifiedRuntimeArchiveEntry({
                 throw new Error('Runtime archive exceeded the maximum allowed size.');
             }
             if (receivedBytes > entry.archiveBytes) {
-                throw new Error(
-                    `Runtime archive ${label} exceeded its expected ${entry.archiveBytes}-byte length.`,
-                );
+                throw new Error(`Runtime archive ${label} exceeded its expected ${entry.archiveBytes}-byte length.`);
             }
             digest.update(chunk);
             const writeResult = await handle.write(chunk);
@@ -301,15 +274,11 @@ async function fetchVerifiedRuntimeArchiveEntry({
         }
         await handle.sync();
         if (receivedBytes !== entry.archiveBytes) {
-            throw new Error(
-                `Runtime archive ${label} has ${receivedBytes} bytes, expected ${entry.archiveBytes}.`,
-            );
+            throw new Error(`Runtime archive ${label} has ${receivedBytes} bytes, expected ${entry.archiveBytes}.`);
         }
         const actualSha256 = digest.digest('hex');
         if (actualSha256 !== entry.archiveSha256) {
-            throw new Error(
-                `Runtime archive ${label} SHA-256 ${actualSha256} does not match ${entry.archiveSha256}.`,
-            );
+            throw new Error(`Runtime archive ${label} SHA-256 ${actualSha256} does not match ${entry.archiveSha256}.`);
         }
         await handle.close();
         handle = null;
@@ -336,18 +305,18 @@ export async function fetchVerifiedRuntimeArchive({
     transport: TRuntimeBinaryArchiveTransport;
 }): Promise<IRuntimeBinaryArchiveResult> {
     validateRuntimeBinaryManifest(manifest);
-    const entry = manifest.entries.find(candidate => (
-        candidate.familyId === familyId && candidate.target.platformArch === target.platformArch
-    ));
+    const entry = manifest.entries.find(
+        (candidate) => candidate.familyId === familyId && candidate.target.platformArch === target.platformArch,
+    );
     if (!entry) {
         throw new Error(`Runtime manifest has no family target ${familyId}:${target.platformArch}.`);
     }
     assertTarget(target);
     if (
-        entry.target.platform !== target.platform
-        || entry.target.arch !== target.arch
-        || entry.target.exeSuffix !== target.exeSuffix
-        || entry.target.platformArch !== target.platformArch
+        entry.target.platform !== target.platform ||
+        entry.target.arch !== target.arch ||
+        entry.target.exeSuffix !== target.exeSuffix ||
+        entry.target.platformArch !== target.platformArch
     ) {
         throw new Error(`Runtime target ${target.platformArch} does not match the manifest target.`);
     }
@@ -379,12 +348,14 @@ export async function fetchVerifiedRuntimeDataArchive({
     if (!(manifest.dataEntries ?? []).includes(dataEntry)) {
         throw new Error(`Runtime manifest does not contain data resource ${dataEntry.resourceRoot}.`);
     }
-    return {archivePath: await fetchVerifiedRuntimeArchiveEntry({
-        cacheDirectory,
-        entry: dataEntry,
-        label: dataEntry.resourceRoot,
-        cacheKey: `data-${dataEntry.resourceRoot.replaceAll('/', '-')}`,
-        manifest,
-        transport,
-    })};
+    return {
+        archivePath: await fetchVerifiedRuntimeArchiveEntry({
+            cacheDirectory,
+            entry: dataEntry,
+            label: dataEntry.resourceRoot,
+            cacheKey: `data-${dataEntry.resourceRoot.replaceAll('/', '-')}`,
+            manifest,
+            transport,
+        }),
+    };
 }

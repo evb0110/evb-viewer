@@ -1,10 +1,4 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 import {
     requestShutdownSaveFlush,
@@ -14,27 +8,37 @@ import {
 import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
 
 const state = vi.hoisted(() => ({
-    listener: null as null | ((event: {
-        sender: {id: number};
-        senderFrame: unknown;
-    }, payload: unknown) => void),
+    listener: null as
+        | null
+        | ((
+              event: {
+                  sender: {id: number};
+                  senderFrame: unknown;
+              },
+              payload: unknown,
+          ) => void),
     senderFrame: null as unknown,
-    workingCopyMap: new Map<string, {
-        doc: {state: () => {current: object | null}};
-        ownerWebContentsId?: number;
-    }>(),
+    workingCopyMap: new Map<
+        string,
+        {
+            doc: {state: () => {current: object | null}};
+            ownerWebContentsId?: number;
+        }
+    >(),
 }));
 
-vi.mock('electron', () => ({ipcMain: {
-    on: vi.fn((_channel: string, listener: typeof state.listener) => {
-        state.listener = listener;
-    }),
-    removeListener: vi.fn((_channel: string, listener: typeof state.listener) => {
-        if (state.listener === listener) {
-            state.listener = null;
-        }
-    }),
-}}));
+vi.mock('electron', () => ({
+    ipcMain: {
+        on: vi.fn((_channel: string, listener: typeof state.listener) => {
+            state.listener = listener;
+        }),
+        removeListener: vi.fn((_channel: string, listener: typeof state.listener) => {
+            if (state.listener === listener) {
+                state.listener = null;
+            }
+        }),
+    },
+}));
 
 vi.mock('@electron/file-access/documentStore', () => ({openDocuments: state.workingCopyMap}));
 
@@ -90,12 +94,14 @@ describe('requestShutdownSaveFlush', () => {
             warn: vi.fn(),
         };
 
-        await expect(requestShutdownSaveFlush({
-            getWindows: () => [createWindow(() => ({error: 'save failed'}))],
-            logger,
-            timeoutMs: 1_000,
-            isTrustedSender: trustedSender,
-        })).resolves.toEqual({
+        await expect(
+            requestShutdownSaveFlush({
+                getWindows: () => [createWindow(() => ({error: 'save failed'}))],
+                logger,
+                timeoutMs: 1_000,
+                isTrustedSender: trustedSender,
+            }),
+        ).resolves.toEqual({
             dirtyWorkingCopyPaths: [workingCopyPath],
             failedWindowIds: [1],
             flushedWorkingCopyPaths: [],
@@ -138,22 +144,23 @@ describe('requestShutdownSaveFlush', () => {
             warn: vi.fn(),
         };
 
-        await expect(requestShutdownSaveFlush({
-            getWindows: () => [createWindow(() => ({flushedWorkingCopyPaths: [workingCopyPath]}))],
-            logger,
-            timeoutMs: 1_000,
-            isTrustedSender: trustedSender,
-        })).resolves.toEqual({
+        await expect(
+            requestShutdownSaveFlush({
+                getWindows: () => [createWindow(() => ({flushedWorkingCopyPaths: [workingCopyPath]}))],
+                logger,
+                timeoutMs: 1_000,
+                isTrustedSender: trustedSender,
+            }),
+        ).resolves.toEqual({
             dirtyWorkingCopyPaths: [workingCopyPath],
             failedWindowIds: [],
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
             unhandledWindowIds: [],
         });
-        expect(logger.error).toHaveBeenCalledWith(
-            expect.stringContaining('WORKING_COPY_SHUTDOWN_FLUSH_UNMATERIALIZED'),
-            {code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED'},
-        );
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('WORKING_COPY_SHUTDOWN_FLUSH_UNMATERIALIZED'), {
+            code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
+        });
     });
 
     it('preserves exact dirty paths when renderer reports conflict with a flush', async () => {
@@ -169,25 +176,28 @@ describe('requestShutdownSaveFlush', () => {
             warn: vi.fn(),
         };
 
-        await expect(requestShutdownSaveFlush({
-            getWindows: () => [createWindow(() => ({
-                dirtyWorkingCopyPaths: [workingCopyPath],
-                flushedWorkingCopyPaths: [workingCopyPath],
-            }))],
-            logger,
-            timeoutMs: 1_000,
-            isTrustedSender: trustedSender,
-        })).resolves.toEqual({
+        await expect(
+            requestShutdownSaveFlush({
+                getWindows: () => [
+                    createWindow(() => ({
+                        dirtyWorkingCopyPaths: [workingCopyPath],
+                        flushedWorkingCopyPaths: [workingCopyPath],
+                    })),
+                ],
+                logger,
+                timeoutMs: 1_000,
+                isTrustedSender: trustedSender,
+            }),
+        ).resolves.toEqual({
             dirtyWorkingCopyPaths: [workingCopyPath],
             failedWindowIds: [],
             flushedWorkingCopyPaths: [],
             timedOutWindowIds: [],
             unhandledWindowIds: [],
         });
-        expect(logger.error).toHaveBeenCalledWith(
-            expect.stringContaining('both dirty and flushed'),
-            {code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED'},
-        );
+        expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('both dirty and flushed'), {
+            code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
+        });
     });
 
     it.each([
@@ -222,12 +232,14 @@ describe('requestShutdownSaveFlush', () => {
             warn: vi.fn(),
         };
 
-        await expect(requestShutdownSaveFlush({
-            getWindows: () => [createWindow(response)],
-            logger,
-            timeoutMs: 1_000,
-            isTrustedSender: trustedSender,
-        })).resolves.toEqual({
+        await expect(
+            requestShutdownSaveFlush({
+                getWindows: () => [createWindow(response)],
+                logger,
+                timeoutMs: 1_000,
+                isTrustedSender: trustedSender,
+            }),
+        ).resolves.toEqual({
             dirtyWorkingCopyPaths: [workingCopyPath],
             failedWindowIds: expected.failedWindowIds,
             flushedWorkingCopyPaths: [],
@@ -327,44 +339,52 @@ describe('requestShutdownSaveFlush', () => {
             timedOutWindowIds: [],
             unhandledWindowIds: [7],
         },
-    ])('requires recovery preservation for incomplete renderer flush outcome %#', summary => {
+    ])('requires recovery preservation for incomplete renderer flush outcome %#', (summary) => {
         expect(shutdownSaveFlushRequiresRecoveryPreservation(summary)).toBe(true);
     });
 
     it('allows recovery cleanup only after a fully successful renderer flush', () => {
-        expect(shutdownSaveFlushRequiresRecoveryPreservation({
-            dirtyWorkingCopyPaths: [],
-            failedWindowIds: [],
-            flushedWorkingCopyPaths: ['/tmp/flushed.pdf'],
-            timedOutWindowIds: [],
-            unhandledWindowIds: [],
-        })).toBe(false);
+        expect(
+            shutdownSaveFlushRequiresRecoveryPreservation({
+                dirtyWorkingCopyPaths: [],
+                failedWindowIds: [],
+                flushedWorkingCopyPaths: ['/tmp/flushed.pdf'],
+                timedOutWindowIds: [],
+                unhandledWindowIds: [],
+            }),
+        ).toBe(false);
     });
 
     it('does not hold the quit for a renderer that has no flush handler', () => {
-        expect(shutdownSaveFlushRequiresRetryableQuit({
-            dirtyWorkingCopyPaths: [],
-            failedWindowIds: [],
-            flushedWorkingCopyPaths: [],
-            timedOutWindowIds: [],
-            unhandledWindowIds: [1],
-        })).toBe(false);
+        expect(
+            shutdownSaveFlushRequiresRetryableQuit({
+                dirtyWorkingCopyPaths: [],
+                failedWindowIds: [],
+                flushedWorkingCopyPaths: [],
+                timedOutWindowIds: [],
+                unhandledWindowIds: [1],
+            }),
+        ).toBe(false);
     });
 
     it('classifies renderer persistence failures as retryable graceful-quit failures', () => {
-        expect(shutdownSaveFlushRequiresRetryableQuit({
-            dirtyWorkingCopyPaths: [],
-            failedWindowIds: [1],
-            flushedWorkingCopyPaths: [],
-            timedOutWindowIds: [],
-            unhandledWindowIds: [],
-        })).toBe(true);
-        expect(shutdownSaveFlushRequiresRetryableQuit({
-            dirtyWorkingCopyPaths: ['/tmp/dirty.pdf'],
-            failedWindowIds: [],
-            flushedWorkingCopyPaths: [],
-            timedOutWindowIds: [],
-            unhandledWindowIds: [],
-        })).toBe(false);
+        expect(
+            shutdownSaveFlushRequiresRetryableQuit({
+                dirtyWorkingCopyPaths: [],
+                failedWindowIds: [1],
+                flushedWorkingCopyPaths: [],
+                timedOutWindowIds: [],
+                unhandledWindowIds: [],
+            }),
+        ).toBe(true);
+        expect(
+            shutdownSaveFlushRequiresRetryableQuit({
+                dirtyWorkingCopyPaths: ['/tmp/dirty.pdf'],
+                failedWindowIds: [],
+                flushedWorkingCopyPaths: [],
+                timedOutWindowIds: [],
+                unhandledWindowIds: [],
+            }),
+        ).toBe(false);
     });
 });

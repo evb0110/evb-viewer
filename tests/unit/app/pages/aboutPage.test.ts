@@ -2,21 +2,10 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-} from 'vue';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h} from 'vue';
 import AboutPage from '@app/pages/about.vue';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 
 const mocks = vi.hoisted(() => ({
     desktopRuntime: false,
@@ -29,7 +18,8 @@ const mocks = vi.hoisted(() => ({
         'about.acknowledgementsHeading': 'Acknowledgements',
         'about.sentryAcknowledgement.message': 'Thank you to Sentry for supporting EVB Viewer through its open-source program.',
         'about.sentryAcknowledgement.linkLabel': 'Learn about Sentry for Open Source',
-        'about.sentryAcknowledgement.privacyNotice': 'The Sentry acknowledgement is bundled with EVB Viewer and does not contact Sentry. Error diagnostics are controlled separately in Privacy settings.',
+        'about.sentryAcknowledgement.privacyNotice':
+            'The Sentry acknowledgement is bundled with EVB Viewer and does not contact Sentry. Error diagnostics are controlled separately in Privacy settings.',
         'about.legalHeading': 'Legal',
         'about.licenseLinkLabel': 'License',
         'about.thirdPartyNoticesLinkLabel': 'Third-party notices',
@@ -40,30 +30,36 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
     ...(await importOriginal<typeof TViMockOriginalModule>()),
-    useTypedI18n: () => ({t: (
-        key: string,
-        params?: Record<string, string>,
-    ) => {
-        const message = mocks.translations[key] ?? key;
-        return Object.entries(params ?? {}).reduce(
-            (translated, [
-                name,
-                value,
-            ]) => translated.replace(`{${name}}`, value),
-            message,
-        );
-    }}),
+    useTypedI18n: () => ({
+        t: (key: string, params?: Record<string, string>) => {
+            const message = mocks.translations[key] ?? key;
+            return Object.entries(params ?? {}).reduce((translated, [name, value]) => translated.replace(`{${name}}`, value), message);
+        },
+    }),
 }));
-vi.mock('@app/composables/useRuntimeEnvironment', () => ({useRuntimeEnvironment: () => ({isDesktopRuntime: {get value() { return mocks.desktopRuntime; }}})}));
+vi.mock('@app/composables/useRuntimeEnvironment', () => ({
+    useRuntimeEnvironment: () => ({
+        isDesktopRuntime: {
+            get value() {
+                return mocks.desktopRuntime;
+            },
+        },
+    }),
+}));
 const platformApi = createElectronPlatformApiFixture({shell: {openExternal: mocks.openExternal}});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
 
 const NuxtLinkStub = defineComponent({
-    props: {to: {
-        type: String,
-        required: true,
-    }},
-    setup: (props, {slots}) => () => h('a', {href: props.to}, slots.default?.()),
+    props: {
+        to: {
+            type: String,
+            required: true,
+        },
+    },
+    setup:
+        (props, {slots}) =>
+        () =>
+            h('a', {href: props.to}, slots.default?.()),
 });
 const IconStub = defineComponent({setup: () => () => h('span', {'aria-hidden': 'true'})});
 const activeUnmounts = new Set<() => void>();
@@ -115,7 +111,7 @@ describe('About and Acknowledgements page', () => {
         expect(host.textContent).toContain('Error diagnostics are controlled separately');
         expect(image?.getAttribute('src')).toBe('/sentry-wordmark.svg');
         expect(image?.getAttribute('alt')).toBe('Sentry');
-        expect(externalLinks.map(link => link.href)).toEqual([
+        expect(externalLinks.map((link) => link.href)).toEqual([
             'https://sentry.io/for/open-source/',
             'https://github.com/evb0110/evb-viewer/blob/main/LICENSE',
             'https://github.com/evb0110/evb-viewer/blob/main/THIRD_PARTY_NOTICES.md',
@@ -158,7 +154,7 @@ describe('About and Acknowledgements page', () => {
         const host = mountPage();
         const links = [...host.querySelectorAll<HTMLAnchorElement>('a')];
 
-        expect(links.map(link => link.textContent?.trim())).toEqual([
+        expect(links.map((link) => link.textContent?.trim())).toEqual([
             'Learn about Sentry for Open Source',
             'License',
             'Third-party notices',
@@ -174,9 +170,11 @@ describe('About and Acknowledgements page', () => {
 
 it('#1608 explains a failed desktop external link', async () => {
     const messages: string[] = [];
-    vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
-        messages.push([notice.title, notice.description].filter(Boolean).join(' '));
-    }}));
+    vi.stubGlobal('useToast', () => ({
+        add: (notice: {title: string; description?: string}) => {
+            messages.push([notice.title, notice.description].filter(Boolean).join(' '));
+        },
+    }));
     mocks.desktopRuntime = true;
     mocks.openExternal.mockRejectedValueOnce(new Error('No browser registered'));
     const host = mountPage();

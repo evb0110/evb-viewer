@@ -49,10 +49,7 @@ export class ScanCleanupPageScopeError extends Error {
  * detection starts. The returned order is canonical so every caller gets the
  * same plan for an equivalent selection.
  */
-export function resolveScanCleanupPageScope(
-    pageNumbers: readonly number[] | undefined,
-    documentPageCount: number,
-): number[] {
+export function resolveScanCleanupPageScope(pageNumbers: readonly number[] | undefined, documentPageCount: number): number[] {
     const requested = [...resolveScanCleanupPageScopeLazy(pageNumbers, documentPageCount)];
     return requested.sort((left, right) => left - right);
 }
@@ -72,37 +69,27 @@ export function resolveScanCleanupPageScopeLazy(
     }
     if (pageRange !== undefined) {
         if (
-            !Number.isSafeInteger(pageRange.startPageNumber)
-            || !Number.isSafeInteger(pageRange.endPageNumber)
-            || pageRange.startPageNumber < 1
-            || pageRange.endPageNumber < pageRange.startPageNumber
-            || pageRange.endPageNumber > documentPageCount
+            !Number.isSafeInteger(pageRange.startPageNumber) ||
+            !Number.isSafeInteger(pageRange.endPageNumber) ||
+            pageRange.startPageNumber < 1 ||
+            pageRange.endPageNumber < pageRange.startPageNumber ||
+            pageRange.endPageNumber > documentPageCount
         ) {
-            throw new ScanCleanupPageScopeError(
-                'Scan cleanup source page range is outside the document',
-                [],
-                documentPageCount,
-            );
+            throw new ScanCleanupPageScopeError('Scan cleanup source page range is outside the document', [], documentPageCount);
         }
-        return new ScanCleanupPageNumberRange(
-            pageRange.endPageNumber - pageRange.startPageNumber + 1,
-            pageRange.startPageNumber,
-        );
+        return new ScanCleanupPageNumberRange(pageRange.endPageNumber - pageRange.startPageNumber + 1, pageRange.startPageNumber);
     }
-    const requested = pageNumbers === undefined && documentPageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES
-        ? null
-        : pageNumbers === undefined
-            ? Array.from({length: documentPageCount}, (_, index) => index + 1)
-            : [...pageNumbers];
+    const requested =
+        pageNumbers === undefined && documentPageCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES
+            ? null
+            : pageNumbers === undefined
+              ? Array.from({length: documentPageCount}, (_, index) => index + 1)
+              : [...pageNumbers];
     if (requested === null) {
         return new ScanCleanupPageNumberRange(documentPageCount);
     }
     if (requested.length === 0) {
-        throw new ScanCleanupPageScopeError(
-            'Scan cleanup source page scope must not be empty',
-            requested,
-            documentPageCount,
-        );
+        throw new ScanCleanupPageScopeError('Scan cleanup source page scope must not be empty', requested, documentPageCount);
     }
     const seen = new Set<number>();
     for (const pageNumber of requested) {
@@ -114,11 +101,7 @@ export function resolveScanCleanupPageScopeLazy(
             );
         }
         if (pageNumber > documentPageCount) {
-            throw new ScanCleanupPageScopeError(
-                'Scan cleanup source page scope is outside the document',
-                requested,
-                documentPageCount,
-            );
+            throw new ScanCleanupPageScopeError('Scan cleanup source page scope is outside the document', requested, documentPageCount);
         }
         if (seen.has(pageNumber)) {
             throw new ScanCleanupPageScopeError(
@@ -134,10 +117,7 @@ export function resolveScanCleanupPageScopeLazy(
 
 export type TScanCleanupPageScope = readonly number[] | IScanCleanupPageNumberRange;
 
-export function mapScanCleanupPageScope<T>(
-    pageScope: TScanCleanupPageScope,
-    mapper: (pageNumber: number, index: number) => T,
-) {
+export function mapScanCleanupPageScope<T>(pageScope: TScanCleanupPageScope, mapper: (pageNumber: number, index: number) => T) {
     const values: T[] = [];
     let index = 0;
     for (const pageNumber of pageScope) {
@@ -147,10 +127,7 @@ export function mapScanCleanupPageScope<T>(
     return values;
 }
 
-export function getScanCleanupPageAt(
-    pageScope: TScanCleanupPageScope,
-    index: number,
-) {
+export function getScanCleanupPageAt(pageScope: TScanCleanupPageScope, index: number) {
     if (index < 0 || index >= pageScope.length || !Number.isSafeInteger(index)) {
         return undefined;
     }

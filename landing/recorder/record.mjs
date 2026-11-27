@@ -2,46 +2,26 @@
 // locale/theme pair. Linux only: run it inside a private X server, for example
 //   xvfb-run -a -s '-screen 0 1600x1000x24' node recorder/record.mjs viewer --app '/opt/EVB Viewer/evb-viewer'
 // A hidden window gets no frames, so the recorder shows the window on that private display.
-import {
-    existsSync,
-    mkdirSync,
-    mkdtempSync,
-    rmSync,
-    writeFileSync,
-} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import path from 'node:path';
-import { _electron as electron } from 'playwright-core';
-import {
-    FilmRecorder,
-    LANDING,
-    pruneSharedAssets,
-} from './recorder.mjs';
+import {_electron as electron} from 'playwright-core';
+import {FilmRecorder, LANDING, pruneSharedAssets} from './recorder.mjs';
 
 const REPO = path.resolve(LANDING, '..');
 const FILMS = path.join(REPO, '.devkit/films');
 const args = process.argv.slice(2);
 const flowName = args[0] && !args[0].startsWith('--') ? args.shift() : 'viewer';
 const {
-    default: flow, title, size = {
+    default: flow,
+    title,
+    size = {
         width: 1280,
         height: 800,
-    }, prepare,
+    },
+    prepare,
 } = await import(`./flows/${flowName}.mjs`);
-const locales = [
-    'en',
-    'ru',
-    'fr',
-    'de',
-    'es',
-    'it',
-    'pt',
-    'pt-BR',
-    'nl',
-];
-const themes = [
-    'light',
-    'dark',
-];
+const locales = ['en', 'ru', 'fr', 'de', 'es', 'it', 'pt', 'pt-BR', 'nl'];
+const themes = ['light', 'dark'];
 
 let localeFilter;
 let themeFilter;
@@ -85,10 +65,7 @@ const variants = (localeFilter ? [localeFilter] : locales).flatMap((locale) =>
     })),
 );
 
-for (const {
-    locale,
-    theme,
-} of variants) {
+for (const {locale, theme} of variants) {
     const variant = `${locale}-${theme}`;
     const profile = path.join(FILMS, 'profile', flowName, variant);
     rmSync(profile, {
@@ -96,17 +73,25 @@ for (const {
         force: true,
     });
     const userData = path.join(profile, 'config', 'EVB Viewer');
-    mkdirSync(userData, { recursive: true });
+    mkdirSync(userData, {recursive: true});
     // Missing settings fall back to defaults, so theme and locale are all the profile needs.
-    writeFileSync(path.join(userData, 'settings.json'), JSON.stringify({
-        theme,
-        locale,
-    }, null, 2));
-    const setup = prepare?.({
-        profile,
-        userData,
-        repo: REPO,
-    }) ?? {};
+    writeFileSync(
+        path.join(userData, 'settings.json'),
+        JSON.stringify(
+            {
+                theme,
+                locale,
+            },
+            null,
+            2,
+        ),
+    );
+    const setup =
+        prepare?.({
+            profile,
+            userData,
+            repo: REPO,
+        }) ?? {};
     // Chromium keeps its singleton socket in TMPDIR, and socket paths are limited to about 100 bytes.
     const appTemp = mkdtempSync('/tmp/evb-film-');
 
@@ -114,10 +99,7 @@ for (const {
     const app = await electron.launch({
         executablePath,
         // Two device pixels per CSS pixel keep the QA screenshots sharp for review.
-        args: [
-            '--no-sandbox',
-            '--force-device-scale-factor=2',
-        ],
+        args: ['--no-sandbox', '--force-device-scale-factor=2'],
         env: {
             ...process.env,
             XDG_CONFIG_HOME: path.join(profile, 'config'),
@@ -131,19 +113,15 @@ for (const {
         // Resize once the window has painted: before its first frame, the initial configure can still
         // override the request. A film recorded at another size leaves blank strips, so check first.
         await win.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        await app.evaluate(({ BrowserWindow }, {
-            width,
-            height,
-        }) => {
+        await app.evaluate(({BrowserWindow}, {width, height}) => {
             BrowserWindow.getAllWindows()[0].setContentSize(width, height);
         }, size);
-        await win.waitForFunction(({
-            width,
-            height,
-        }) => innerWidth === width && innerHeight === height, size, { timeout: 10_000 }).catch(async () => {
-            const actual = await win.evaluate(() => `${innerWidth}x${innerHeight}`);
-            throw new Error(`The window is ${actual}, not ${size.width}x${size.height}. Use a larger virtual screen.`);
-        });
+        await win
+            .waitForFunction(({width, height}) => innerWidth === width && innerHeight === height, size, {timeout: 10_000})
+            .catch(async () => {
+                const actual = await win.evaluate(() => `${innerWidth}x${innerHeight}`);
+                throw new Error(`The window is ${actual}, not ${size.width}x${size.height}. Use a larger virtual screen.`);
+            });
         await win.waitForTimeout(1500);
         const rec = new FilmRecorder(win, flowName, {
             ...size,
@@ -155,10 +133,10 @@ for (const {
             app,
             ...setup,
         });
-        await rec.save({ title });
+        await rec.save({title});
     } finally {
         // Quit without prompts about the edited document.
-        await app.evaluate(({ app: electronApp }) => electronApp.exit(0)).catch(() => {});
+        await app.evaluate(({app: electronApp}) => electronApp.exit(0)).catch(() => {});
         await app.close().catch(() => {});
         rmSync(appTemp, {
             recursive: true,

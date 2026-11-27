@@ -1,66 +1,29 @@
-import {
-    readFile,
-    stat,
-    unlink,
-    writeFile,
-} from 'fs/promises';
-import {
-    join,
-    basename,
-    dirname,
-    win32,
-} from 'path';
-import { app } from 'electron';
+import {readFile, stat, unlink, writeFile} from 'fs/promises';
+import {join, basename, dirname, win32} from 'path';
+import {app} from 'electron';
 import {waitForBoundedOperation} from '@node-runtime/waitForBoundedOperation';
-import {
-    uniq,
-    uniqBy,
-} from 'es-toolkit/array';
+import {uniq, uniqBy} from 'es-toolkit/array';
 import {isEqual} from 'es-toolkit/predicate';
-import type { IRecentFile } from '@contracts/shared';
+import type {IRecentFile} from '@contracts/shared';
 import {STORED_RECENT_READING_VIEW_SCHEMA} from '@contracts/recentReadingView';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import {
-    inferDocumentRefBackend,
-    isNativeLegacyDocumentRef,
-    parseDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import {
-    createEpochMs,
-    isEpochMs,
-    parseEpochMs,
-    type TEpochMs,
-} from '@contracts/timestamps';
+import {inferDocumentRefBackend, isNativeLegacyDocumentRef, parseDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {createEpochMs, isEpochMs, parseEpochMs, type TEpochMs} from '@contracts/timestamps';
 import {isErrnoException} from '@contracts/runtimeGuards';
-import {
-    CACHE_TTL_MS,
-    MAX_RECENT_FILES,
-} from '@electron/config/constants';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import {
-    atomicReplace,
-    makeSiblingTempPath,
-} from '@electron/utils/atomicReplace';
+import {CACHE_TTL_MS, MAX_RECENT_FILES} from '@electron/config/constants';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {atomicReplace, makeSiblingTempPath} from '@electron/utils/atomicReplace';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
-import {
-    getWorkingCopyOriginalPath,
-    isWorkingCopyDocumentPath,
-} from '@electron/file-access/documentStore';
+import {quarantineCorruptFile} from '@electron/utils/quarantineCorruptFile';
+import {getWorkingCopyOriginalPath, isWorkingCopyDocumentPath} from '@electron/file-access/documentStore';
 import * as v from 'valibot';
 
 const logger = createLogger('recentFiles');
 const STARTUP_TRACE_ENABLED = runtimeConfig.startupTrace;
 const BOOTSTRAP_DEV_PROFILE_ENABLED = runtimeConfig.automationBootstrapDevProfile;
 const RECENT_FILE_STAT_TIMEOUT_MS = 1_500;
-const BOOTSTRAP_RECENT_FILES_DIR_NAMES = [
-    'EVB Viewer Dev',
-    'EVB Viewer',
-    'EVB-Viewer',
-    'Electron',
-] as const;
+const BOOTSTRAP_RECENT_FILES_DIR_NAMES = ['EVB Viewer Dev', 'EVB Viewer', 'EVB-Viewer', 'Electron'] as const;
 
 // In-memory cache for synchronous access (needed for menu building)
 let recentFilesCache: IRecentFile[] = [];
@@ -112,24 +75,14 @@ function attachFailureReceipt(error: unknown, receipt: FailureReceipt | undefine
     return error;
 }
 
-const TRANSIENT_RECENT_FILE_STAT_ERROR_CODES = new Set([
-    'EAGAIN',
-    'EBUSY',
-    'EINTR',
-    'EMFILE',
-    'ENFILE',
-    'ETIMEDOUT',
-]);
+const TRANSIENT_RECENT_FILE_STAT_ERROR_CODES = new Set(['EAGAIN', 'EBUSY', 'EINTR', 'EMFILE', 'ENFILE', 'ETIMEDOUT']);
 
 function getStoragePath() {
     return join(app.getPath('userData'), 'recentFiles.json');
 }
 
 const recentFileSchema = v.object({
-    originalPath: v.custom<TDocumentRef>(value => (
-        isNativeLegacyDocumentRef(value)
-        && inferDocumentRefBackend(value) === 'electron'
-    )),
+    originalPath: v.custom<TDocumentRef>((value) => isNativeLegacyDocumentRef(value) && inferDocumentRefBackend(value) === 'electron'),
     backend: v.optional(v.literal('electron'), 'electron'),
     fileName: v.string(),
     timestamp: v.custom<TEpochMs>(isEpochMs),
@@ -152,10 +105,7 @@ const recentFilesDataSchema = v.pipe(
         },
     ),
     // Keep the existing partial-read behavior: invalid entries are logged and dropped individually.
-    v.transform(({
-        version,
-        files,
-    }) => ({
+    v.transform(({version, files}) => ({
         version,
         files: files.flatMap((candidate, index) => {
             const parsed = v.safeParse(recentFileSchema, candidate, {abortEarly: true});
@@ -176,9 +126,11 @@ function getBootstrapStoragePaths() {
 
     const appDataPath = app.getPath('appData');
     const currentStoragePath = getStoragePath();
-    return uniq(BOOTSTRAP_RECENT_FILES_DIR_NAMES
-        .map(dirName => join(appDataPath, dirName, 'recentFiles.json'))
-        .filter(candidatePath => candidatePath !== currentStoragePath));
+    return uniq(
+        BOOTSTRAP_RECENT_FILES_DIR_NAMES.map((dirName) => join(appDataPath, dirName, 'recentFiles.json')).filter(
+            (candidatePath) => candidatePath !== currentStoragePath,
+        ),
+    );
 }
 
 function statWithTimeout(filePath: string) {
@@ -202,7 +154,7 @@ async function inspectPath(filePath: string): Promise<IPathInspectionResult> {
         } catch (error) {
             const code = isErrnoException(error) ? error.code : undefined;
             if ((code === 'ENOENT' || code === 'ENOTDIR') && attempt === 0) {
-                await new Promise<void>(resolve => setTimeout(resolve, 25));
+                await new Promise<void>((resolve) => setTimeout(resolve, 25));
                 continue;
             }
             if (code === 'ENOENT' || code === 'ENOTDIR') {
@@ -212,14 +164,13 @@ async function inspectPath(filePath: string): Promise<IPathInspectionResult> {
                 };
             }
             const timedOut = error instanceof RecentFileStatTimeoutError;
-            const unavailable = timedOut
-                || (typeof code === 'string' && TRANSIENT_RECENT_FILE_STAT_ERROR_CODES.has(code));
+            const unavailable = timedOut || (typeof code === 'string' && TRANSIENT_RECENT_FILE_STAT_ERROR_CODES.has(code));
             logger.warn(
                 timedOut
                     ? `Recent file path stat timed out; preserving entry (${filePath})`
                     : unavailable
-                        ? `Recent file path temporarily unavailable; preserving entry (${filePath})`
-                        : `Recent file path unreadable; preserving entry (${filePath}): ${getErrorMessage(error)}`,
+                      ? `Recent file path temporarily unavailable; preserving entry (${filePath})`
+                      : `Recent file path unreadable; preserving entry (${filePath}): ${getErrorMessage(error)}`,
             );
             return {status: unavailable ? 'unavailable' : 'unreadable'};
         }
@@ -232,17 +183,16 @@ async function filterExistingFiles<TFile extends IRecentFile>(files: TFile[]): P
     let removedMissingCount = 0;
     let unreadableCount = 0;
     const checks: TFile[] = [];
-    const nativeFiles = files.filter(file => isNativeLegacyDocumentRef(file.originalPath));
+    const nativeFiles = files.filter((file) => isNativeLegacyDocumentRef(file.originalPath));
     removedMissingCount += files.length - nativeFiles.length;
-    const inspections = await Promise.all(uniqBy(nativeFiles, item => item.originalPath).map(async (file) => ({
-        file,
-        inspection: await inspectPath(file.originalPath),
-    })));
+    const inspections = await Promise.all(
+        uniqBy(nativeFiles, (item) => item.originalPath).map(async (file) => ({
+            file,
+            inspection: await inspectPath(file.originalPath),
+        })),
+    );
 
-    for (const {
-        file,
-        inspection,
-    } of inspections) {
+    for (const {file, inspection} of inspections) {
         if (inspection.status === 'missing') {
             // ENOENT can mean a temporarily unmounted volume. Keep the entry
             // until the user explicitly removes it.
@@ -252,13 +202,15 @@ async function filterExistingFiles<TFile extends IRecentFile>(files: TFile[]): P
         if (inspection.status === 'unreadable' || inspection.status === 'unavailable') {
             unreadableCount += 1;
         }
-        checks.push(inspection.status === 'exists'
-            ? {
-                ...file,
-                ...(inspection.size === undefined ? {} : {fileSize: inspection.size}),
-                ...(inspection.modifiedAt === undefined ? {} : {modifiedAt: inspection.modifiedAt}),
-            }
-            : file);
+        checks.push(
+            inspection.status === 'exists'
+                ? {
+                      ...file,
+                      ...(inspection.size === undefined ? {} : {fileSize: inspection.size}),
+                      ...(inspection.modifiedAt === undefined ? {} : {modifiedAt: inspection.modifiedAt}),
+                  }
+                : file,
+        );
     }
 
     return {
@@ -294,18 +246,14 @@ async function tryBootstrapRecentFiles(bootstrapPath: string): Promise<TRecentFi
         await saveRecentFilesData(migratedData);
         if (STARTUP_TRACE_ENABLED) {
             logger.info(
-                `[startup] recentFiles bootstrap (${filtered.files.length} file(s) from ${bootstrapPath}, `
-                + `removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount})`,
+                `[startup] recentFiles bootstrap (${filtered.files.length} file(s) from ${bootstrapPath}, ` +
+                    `removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount})`,
             );
         }
         return migratedData;
     } catch (bootstrapError) {
         if (!isErrnoException(bootstrapError) || bootstrapError.code !== 'ENOENT') {
-            logger.warn(
-                `Failed to bootstrap recent files from ${bootstrapPath}: ${
-                    getErrorMessage(bootstrapError)
-                }`,
-            );
+            logger.warn(`Failed to bootstrap recent files from ${bootstrapPath}: ${getErrorMessage(bootstrapError)}`);
         }
         return null;
     }
@@ -405,15 +353,15 @@ async function saveRecentFilesData(data: TRecentFilesData) {
 
 // Reading views stay on disk; the list and the menu show files only.
 function cloneRecentFiles(files: ReadonlyArray<IRecentFile & {readingView?: unknown}>): IRecentFile[] {
-    return files.map(({
-        readingView: _readingView,
-        ...file
-    }) => file);
+    return files.map(({readingView: _readingView, ...file}) => file);
 }
 
 function enqueueRecentFilesOperation<T>(operation: () => Promise<T>): Promise<T> {
     const run = recentFilesOperationQueue.then(operation, operation);
-    recentFilesOperationQueue = run.then(() => undefined, () => undefined);
+    recentFilesOperationQueue = run.then(
+        () => undefined,
+        () => undefined,
+    );
     return run;
 }
 
@@ -448,18 +396,20 @@ function refreshRecentFilesCache(): Promise<IRecentFile[]> {
         cacheTimestamp = Date.now();
         if (STARTUP_TRACE_ENABLED) {
             logger.info(
-                `[startup] recentFiles:get disk refresh (${filtered.files.length} file(s), `
-                + `removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount})`,
+                `[startup] recentFiles:get disk refresh (${filtered.files.length} file(s), ` +
+                    `removedMissing=${filtered.removedMissingCount}, unreadable=${filtered.unreadableCount})`,
             );
         }
         return cloneRecentFiles(recentFilesCache);
     });
     recentFilesRefreshPromise = refreshPromise;
-    void refreshPromise.finally(() => {
-        if (recentFilesRefreshPromise === refreshPromise) {
-            recentFilesRefreshPromise = null;
-        }
-    }).catch(() => {});
+    void refreshPromise
+        .finally(() => {
+            if (recentFilesRefreshPromise === refreshPromise) {
+                recentFilesRefreshPromise = null;
+            }
+        })
+        .catch(() => {});
     return refreshPromise;
 }
 
@@ -524,7 +474,7 @@ export async function addRecentFile(filePath: string, senderWebContentsId?: numb
             return false;
         }
         // Moves the entry to the front; its reading view stays, checked against the source when read.
-        const previous = data.files.find(f => f.originalPath === originalPath);
+        const previous = data.files.find((f) => f.originalPath === originalPath);
         data.files = [
             {
                 originalPath,
@@ -535,7 +485,7 @@ export async function addRecentFile(filePath: string, senderWebContentsId?: numb
                 ...(inspection.modifiedAt === undefined ? {} : {modifiedAt: inspection.modifiedAt}),
                 ...(previous?.readingView ? {readingView: previous.readingView} : {}),
             },
-            ...data.files.filter(f => f.originalPath !== originalPath),
+            ...data.files.filter((f) => f.originalPath !== originalPath),
         ].slice(0, MAX_RECENT_FILES);
         return true;
     });
@@ -558,10 +508,10 @@ export async function getRecentFiles(): Promise<IRecentFile[]> {
 /** Removes the entry, writing only when there was one and `isRemovable` still holds inside the operation. */
 export function removeRecentFile(originalPath: string, isRemovable: () => boolean | Promise<boolean> = () => true) {
     return mutateRecentFiles(async (data) => {
-        if (!data.files.some(file => file.originalPath === originalPath) || !await isRemovable()) {
+        if (!data.files.some((file) => file.originalPath === originalPath) || !(await isRemovable())) {
             return false;
         }
-        data.files = data.files.filter(file => file.originalPath !== originalPath);
+        data.files = data.files.filter((file) => file.originalPath !== originalPath);
         return true;
     });
 }
@@ -575,12 +525,7 @@ function getVolumeRoot(filePath: string) {
     if (/^[a-zA-Z]:[\\/]/u.test(filePath) || filePath.startsWith('\\\\')) {
         return win32.parse(filePath).root;
     }
-    const [
-        , top,
-        second,
-        third,
-        fourth,
-    ] = filePath.split('/');
+    const [, top, second, third, fourth] = filePath.split('/');
     if (top === 'Volumes' || top === 'mnt') {
         return second && third ? `/${top}/${second}` : null;
     }
@@ -618,9 +563,10 @@ async function isVolumeMounted(filePath: string) {
 export function removeRecentFileIfMissing(originalPath: string) {
     // The check and the removal run as one Recent operation, so a file that
     // reappears or an entry added meanwhile is not lost.
-    return removeRecentFile(originalPath, async () => (
-        (await inspectPath(originalPath)).code === 'ENOENT' && await isVolumeMounted(originalPath)
-    ));
+    return removeRecentFile(
+        originalPath,
+        async () => (await inspectPath(originalPath)).code === 'ENOENT' && (await isVolumeMounted(originalPath)),
+    );
 }
 
 export async function clearRecentFiles() {
@@ -642,7 +588,7 @@ export async function clearRecentFiles() {
  * Returns array of file paths
  */
 export function getRecentFilesSync(): string[] {
-    return recentFilesCache.map(f => f.originalPath);
+    return recentFilesCache.map((f) => f.originalPath);
 }
 
 /**

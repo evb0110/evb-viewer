@@ -1,14 +1,6 @@
-export const READER_COMMAND_CATEGORIES = [
-    'document',
-    'view',
-    'navigation',
-    'annotation',
-    'export',
-    'history',
-    'shell',
-] as const;
+export const READER_COMMAND_CATEGORIES = ['document', 'view', 'navigation', 'annotation', 'export', 'history', 'shell'] as const;
 
-export type TReaderCommandCategory = typeof READER_COMMAND_CATEGORIES[number];
+export type TReaderCommandCategory = (typeof READER_COMMAND_CATEGORIES)[number];
 export type TReaderCommandIconName = `ph:${string}`;
 
 export const READER_COMMANDS = [
@@ -40,7 +32,7 @@ export const READER_COMMANDS = [
     'zoom',
 ] as const;
 
-export type TReaderCommandId = typeof READER_COMMANDS[number];
+export type TReaderCommandId = (typeof READER_COMMANDS)[number];
 export type TReaderCommandMap = Readonly<Record<TReaderCommandId, boolean>>;
 
 export interface IReaderCommandDescriptor {

@@ -1,5 +1,8 @@
 <template>
-    <div v-show="visible" class="workspace-document-alerts-root">
+    <div
+        v-show="visible"
+        class="workspace-document-alerts-root"
+    >
         <Transition name="document-status">
             <!-- Hidden, not unmounted, while converting: the convert dialog returns focus to its button. -->
             <DjvuBanner
@@ -13,7 +16,7 @@
 </template>
 
 <script setup lang="ts">
-import { DjvuBanner } from '@app/modules/djvu-viewer/public/component-exports/djvuBanner';
+import {DjvuBanner} from '@app/modules/djvu-viewer/public/component-exports/djvuBanner';
 
 defineProps<{
     visible: boolean;

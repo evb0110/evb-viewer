@@ -1,8 +1,5 @@
-import { range } from 'es-toolkit/math';
-import type {
-    IPageMoveRangeSegment,
-    IPageMoveRanges,
-} from '@pdf-core/pdfPageSelection';
+import {range} from 'es-toolkit/math';
+import type {IPageMoveRangeSegment, IPageMoveRanges} from '@pdf-core/pdfPageSelection';
 import {
     createPageMoveRange,
     createPageMoveRanges,
@@ -11,19 +8,10 @@ import {
 } from '@pdf-core/pdfPageSelection';
 import {stringifyJson} from '@contracts/stringifyJson';
 
-export type {
-    IPageMoveRangeSegment, IPageMoveRanges,
-} from '@pdf-core/pdfPageSelection';
+export type {IPageMoveRangeSegment, IPageMoveRanges} from '@pdf-core/pdfPageSelection';
 
-export function validatePageDeleteRanges(
-    ranges: unknown,
-    totalPages: unknown,
-): asserts ranges is IPageMoveRangeSegment[] {
-    if (
-        typeof totalPages !== 'number'
-        || !Number.isSafeInteger(totalPages)
-        || totalPages < 1
-    ) {
+export function validatePageDeleteRanges(ranges: unknown, totalPages: unknown): asserts ranges is IPageMoveRangeSegment[] {
+    if (typeof totalPages !== 'number' || !Number.isSafeInteger(totalPages) || totalPages < 1) {
         throw new Error('deletePageRanges: totalPages must be a positive safe integer');
     }
     if (!Array.isArray(ranges) || ranges.length === 0) {
@@ -32,41 +20,25 @@ export function validatePageDeleteRanges(
     let previousEnd = 0;
     for (const range of ranges) {
         if (
-            !range
-            || typeof range !== 'object'
-            || typeof (range as {startPage?: unknown}).startPage !== 'number'
-            || !Number.isSafeInteger((range as {startPage: number}).startPage)
-            || typeof (range as {endPage?: unknown}).endPage !== 'number'
-            || !Number.isSafeInteger((range as {endPage: number}).endPage)
+            !range ||
+            typeof range !== 'object' ||
+            typeof (range as {startPage?: unknown}).startPage !== 'number' ||
+            !Number.isSafeInteger((range as {startPage: number}).startPage) ||
+            typeof (range as {endPage?: unknown}).endPage !== 'number' ||
+            !Number.isSafeInteger((range as {endPage: number}).endPage)
         ) {
             throw new Error('deletePageRanges: ranges must contain page numbers');
         }
-        const {
-            startPage,
-            endPage,
-        } = range as IPageMoveRangeSegment;
-        if (
-            startPage < 1
-            || endPage < startPage
-            || endPage > totalPages
-            || startPage <= previousEnd
-        ) {
+        const {startPage, endPage} = range as IPageMoveRangeSegment;
+        if (startPage < 1 || endPage < startPage || endPage > totalPages || startPage <= previousEnd) {
             throw new Error('deletePageRanges: ranges must be sorted, disjoint, and within the document');
         }
         previousEnd = endPage;
     }
 }
 
-export function validatePageMoveRanges(
-    ranges: unknown,
-    insertAt: unknown,
-    totalPages: unknown,
-): asserts ranges is IPageMoveRangeSegment[] {
-    if (
-        typeof totalPages !== 'number'
-        || !Number.isSafeInteger(totalPages)
-        || totalPages < 1
-    ) {
+export function validatePageMoveRanges(ranges: unknown, insertAt: unknown, totalPages: unknown): asserts ranges is IPageMoveRangeSegment[] {
+    if (typeof totalPages !== 'number' || !Number.isSafeInteger(totalPages) || totalPages < 1) {
         throw new Error('movePageRanges: totalPages must be a positive safe integer');
     }
     if (!Array.isArray(ranges)) {
@@ -99,12 +71,7 @@ function isValidPageNumber(value: unknown): value is number {
 }
 
 function isPageWithinTotalPages(page: number, totalPages: unknown) {
-    return (
-        typeof totalPages !== 'number'
-        || !Number.isInteger(totalPages)
-        || totalPages <= 0
-        || page <= totalPages
-    );
+    return typeof totalPages !== 'number' || !Number.isInteger(totalPages) || totalPages <= 0 || page <= totalPages;
 }
 
 export function validatePageNumbers(
@@ -154,18 +121,10 @@ export function validatePageMoveRange(
     insertAt: unknown,
     totalPages: unknown,
 ): asserts startPage is number {
-    if (
-        typeof totalPages !== 'number'
-        || !Number.isSafeInteger(totalPages)
-        || totalPages < 1
-    ) {
+    if (typeof totalPages !== 'number' || !Number.isSafeInteger(totalPages) || totalPages < 1) {
         throw new Error('movePages: totalPages must be a positive safe integer');
     }
-    if (
-        typeof startPage !== 'number'
-        || typeof endPage !== 'number'
-        || typeof insertAt !== 'number'
-    ) {
+    if (typeof startPage !== 'number' || typeof endPage !== 'number' || typeof insertAt !== 'number') {
         throw new Error('movePages: startPage, endPage, and insertAt must be safe integers');
     }
     createPageMoveRange(totalPages, startPage, endPage, insertAt);

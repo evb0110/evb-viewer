@@ -1,22 +1,8 @@
 import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 // @vitest-environment happy-dom
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    createApp,
-    defineComponent,
-    h,
-    nextTick,
-    ref,
-    shallowRef,
-    type App,
-} from 'vue';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {createApp, defineComponent, h, nextTick, ref, shallowRef, type App} from 'vue';
 import type {IFailureToastTarget} from '@app/composables/useFailureToast';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requirePageNumber} from '@contracts/pageNumbers';
@@ -27,11 +13,13 @@ const renderFailure = ref(false);
 // workspace is replaced with a renderer that can hit the reported page error.
 vi.mock('@app/modules/workspace-shell/components/DocumentWorkspace.vue', () => {
     const Page = defineComponent({
-        props: {page: {
-            type: Number,
-            required: true,
-        }},
-        setup: props => () => h('p', String(requirePageNumber(props.page, 1))),
+        props: {
+            page: {
+                type: Number,
+                required: true,
+            },
+        },
+        setup: (props) => () => h('p', String(requirePageNumber(props.page, 1))),
     });
     return {
         __esModule: true,
@@ -39,33 +27,69 @@ vi.mock('@app/modules/workspace-shell/components/DocumentWorkspace.vue', () => {
             name: 'FailingDocumentWorkspace',
             // Two descendants observe the same invalid page during one render
             // update, before the boundary can replace the failed subtree.
-            setup: () => () => h('section', Array.from({length: 2}, (_, index) => h(Page, {
-                key: index,
-                page: renderFailure.value ? 2 : 1,
-            }))),
+            setup: () => () =>
+                h(
+                    'section',
+                    Array.from({length: 2}, (_, index) =>
+                        h(Page, {
+                            key: index,
+                            page: renderFailure.value ? 2 : 1,
+                        }),
+                    ),
+                ),
         }),
     };
 });
 
 const recentOpen = vi.hoisted(() => ({followed: null as Promise<boolean> | null}));
-vi.mock('@app/modules/pdf-viewer/public/component-exports/pdfEmptyState', () => ({PdfEmptyState: defineComponent({
-    emits: ['reveal-recent', 'open-recent'],
-    setup: (_props, {emit}) => () => h('div', [
-        h('button', {onClick: () => emit('reveal-recent', {
-            originalPath: '/docs/recent.pdf', fileName: 'recent.pdf',
-        })}, 'Reveal recent'),
-        h('button', {onClick: () => emit('open-recent', {
-            originalPath: '/docs/recent.djvu', fileName: 'recent.djvu',
-        }, false, (opening: Promise<boolean>) => { recentOpen.followed = opening; })}, 'Open recent'),
-    ]),
-})}));
+vi.mock('@app/modules/pdf-viewer/public/component-exports/pdfEmptyState', () => ({
+    PdfEmptyState: defineComponent({
+        emits: ['reveal-recent', 'open-recent'],
+        setup:
+            (_props, {emit}) =>
+            () =>
+                h('div', [
+                    h(
+                        'button',
+                        {
+                            onClick: () =>
+                                emit('reveal-recent', {
+                                    originalPath: '/docs/recent.pdf',
+                                    fileName: 'recent.pdf',
+                                }),
+                        },
+                        'Reveal recent',
+                    ),
+                    h(
+                        'button',
+                        {
+                            onClick: () =>
+                                emit(
+                                    'open-recent',
+                                    {
+                                        originalPath: '/docs/recent.djvu',
+                                        fileName: 'recent.djvu',
+                                    },
+                                    false,
+                                    (opening: Promise<boolean>) => {
+                                        recentOpen.followed = opening;
+                                    },
+                                ),
+                        },
+                        'Open recent',
+                    ),
+                ]),
+    }),
+}));
 
-vi.mock('@app/composables/useRecentFiles', () => ({useRecentFiles: () => ({
-    recentFiles: ref([]),
-    isResolved: ref(true),
-    error: ref(null),
-    loadRecentFiles: async () => undefined,
-})}));
+vi.mock('@app/composables/useRecentFiles', () => ({
+    useRecentFiles: () => ({
+        recentFiles: ref([]),
+        isResolved: ref(true),
+        error: ref(null),
+        loadRecentFiles: async () => undefined,
+    }),
+}));
 
 let app: App | null = null;
 let host: HTMLElement | null = null;
@@ -85,12 +109,16 @@ describe('document workspace failure presentation (C4)', () => {
         const toasts = shallowRef(new Map<string, TToast>());
         // Nuxt UI identifies toasts by id: another add with the same id updates
         // the existing toast. Count rendered presentations, not add calls.
-        vi.stubGlobal('useToast', (): IFailureToastTarget => ({add: toast => {
-            toasts.value = new Map(toasts.value).set(toast.id ?? String(toasts.value.size), toast);
-        }}));
+        vi.stubGlobal('useToast', (): IFailureToastTarget => ({
+            add: (toast) => {
+                toasts.value = new Map(toasts.value).set(toast.id ?? String(toasts.value.size), toast);
+            },
+        }));
         const state = new Map<string, unknown>();
         vi.stubGlobal('useState', (key: string, initial: () => unknown) => {
-            if (!state.has(key)) state.set(key, ref(initial()));
+            if (!state.has(key)) {
+                state.set(key, ref(initial()));
+            }
             return state.get(key);
         });
         const loggedErrors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -98,44 +126,66 @@ describe('document workspace failure presentation (C4)', () => {
         const {default: DocumentWorkspaceTab} = await import('@app/modules/workspace-shell/components/DocumentWorkspaceTab.vue');
         host = document.createElement('div');
         document.body.append(host);
-        app = createApp(defineComponent({setup() {
-            const sessions = useWorkspaceDocumentSessions({
-                activeTabId: ref('tab-a'),
-                tabs: ref([{id: 'tab-a'}]),
-            });
-            const session = sessions.getSession('tab-a')!;
-            session.commitFile({
-                originalPath: requireDocumentRef('/docs/a.pdf'),
-                isDjvu: false,
-                revisionInfo: null,
-            });
-            return () => h('main', [
-                h(DocumentWorkspaceTab, {
-                    tabId: 'tab-a',
-                    documentSession: session,
-                    isActive: true,
-                    isRenderActive: true,
-                    isTabTransitionBusy: false,
-                    startSection: 'recent',
-                    isFullscreen: false,
-                    fullscreenSupported: true,
-                    isWorkspaceLayoutResizing: false,
-                }),
-                ...[...toasts.value.values()].map(toast => h('div', {
-                    role: 'status',
-                    'data-toast-color': toast.color,
-                }, [
-                    h('strong', toast.title),
-                    typeof toast.description === 'function' ? toast.description() : toast.description,
-                    ...toast.actions?.map(action => h('button', {onClick: action.onClick}, action.label)) ?? [],
-                ])),
-            ]);
-        }}));
-        app.component('ClientOnly', defineComponent({setup: (_props, {slots}) => () => slots.default?.()}));
-        app.component('UButton', defineComponent({
-            props: ['label'],
-            setup: props => () => h('button', props.label),
-        }));
+        app = createApp(
+            defineComponent({
+                setup() {
+                    const sessions = useWorkspaceDocumentSessions({
+                        activeTabId: ref('tab-a'),
+                        tabs: ref([{id: 'tab-a'}]),
+                    });
+                    const session = sessions.getSession('tab-a')!;
+                    session.commitFile({
+                        originalPath: requireDocumentRef('/docs/a.pdf'),
+                        isDjvu: false,
+                        revisionInfo: null,
+                    });
+                    return () =>
+                        h('main', [
+                            h(DocumentWorkspaceTab, {
+                                tabId: 'tab-a',
+                                documentSession: session,
+                                isActive: true,
+                                isRenderActive: true,
+                                isTabTransitionBusy: false,
+                                startSection: 'recent',
+                                isFullscreen: false,
+                                fullscreenSupported: true,
+                                isWorkspaceLayoutResizing: false,
+                            }),
+                            ...[...toasts.value.values()].map((toast) =>
+                                h(
+                                    'div',
+                                    {
+                                        role: 'status',
+                                        'data-toast-color': toast.color,
+                                    },
+                                    [
+                                        h('strong', toast.title),
+                                        typeof toast.description === 'function' ? toast.description() : toast.description,
+                                        ...(toast.actions?.map((action) => h('button', {onClick: action.onClick}, action.label)) ?? []),
+                                    ],
+                                ),
+                            ),
+                        ]);
+                },
+            }),
+        );
+        app.component(
+            'ClientOnly',
+            defineComponent({
+                setup:
+                    (_props, {slots}) =>
+                    () =>
+                        slots.default?.(),
+            }),
+        );
+        app.component(
+            'UButton',
+            defineComponent({
+                props: ['label'],
+                setup: (props) => () => h('button', props.label),
+            }),
+        );
         app.mount(host);
         await vi.waitFor(() => expect(host?.querySelector('.workspace-host p')?.textContent).toBe('1'));
 
@@ -143,7 +193,9 @@ describe('document workspace failure presentation (C4)', () => {
         await nextTick();
         await nextTick();
 
-        expect(host.querySelector('[role="alert"]')?.textContent).toContain('Page number must be a positive safe integer within the document');
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain(
+            'Page number must be a positive safe integer within the document',
+        );
         expect(loggedErrors).toHaveBeenCalled();
         const errorToasts = host.querySelectorAll('[role="status"][data-toast-color="error"]');
         expect(errorToasts).toHaveLength(1);
@@ -151,37 +203,70 @@ describe('document workspace failure presentation (C4)', () => {
     });
 });
 
-it.each(['reject', 'false'])('#1608 explains a failed Recent show-in-folder action (%s)', async outcome => {
+it.each(['reject', 'false'])('#1608 explains a failed Recent show-in-folder action (%s)', async (outcome) => {
     const messages: string[] = [];
-    vi.stubGlobal('useToast', () => ({add: (notice: {title: string; description?: string}) => {
-        messages.push([notice.title, notice.description].filter(Boolean).join(' '));
-    }}));
-    vi.stubGlobal('window', Object.assign(window, {electronAPI: createElectronPlatformApiFixture({documentWindow: {
-        showItemInFolder: async () => {
-            if (outcome === 'false') return false;
-            throw new Error('Recent file manager unavailable');
+    vi.stubGlobal('useToast', () => ({
+        add: (notice: {title: string; description?: string}) => {
+            messages.push([notice.title, notice.description].filter(Boolean).join(' '));
         },
-    }})}));
+    }));
+    vi.stubGlobal(
+        'window',
+        Object.assign(window, {
+            electronAPI: createElectronPlatformApiFixture({
+                documentWindow: {
+                    showItemInFolder: async () => {
+                        if (outcome === 'false') {
+                            return false;
+                        }
+                        throw new Error('Recent file manager unavailable');
+                    },
+                },
+            }),
+        }),
+    );
     const state = new Map<string, unknown>();
     vi.stubGlobal('useState', (key: string, initial: () => unknown) => {
-        if (!state.has(key)) state.set(key, ref(initial()));
+        if (!state.has(key)) {
+            state.set(key, ref(initial()));
+        }
         return state.get(key);
     });
     const {createWorkspaceDocumentController} = await import('@app/modules/workspace-shell/document-sessions/workspaceDocumentController');
     const {default: DocumentWorkspaceTab} = await import('@app/modules/workspace-shell/components/DocumentWorkspaceTab.vue');
-    host = document.createElement('div'); document.body.append(host);
+    host = document.createElement('div');
+    document.body.append(host);
     const recentSession = createWorkspaceDocumentController({tabId: 'recent'});
-    app = createApp({render: () => h(DocumentWorkspaceTab, {
-        tabId: 'recent', documentSession: recentSession,
-        isActive: true, isRenderActive: true, isTabTransitionBusy: false,
-        startSection: 'recent', isFullscreen: false, fullscreenSupported: true, isWorkspaceLayoutResizing: false,
-    })});
-    app.component('ClientOnly', defineComponent({setup: (_props, {slots}) => () => slots.default?.()}));
+    app = createApp({
+        render: () =>
+            h(DocumentWorkspaceTab, {
+                tabId: 'recent',
+                documentSession: recentSession,
+                isActive: true,
+                isRenderActive: true,
+                isTabTransitionBusy: false,
+                startSection: 'recent',
+                isFullscreen: false,
+                fullscreenSupported: true,
+                isWorkspaceLayoutResizing: false,
+            }),
+    });
+    app.component(
+        'ClientOnly',
+        defineComponent({
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    slots.default?.(),
+        }),
+    );
     app.mount(host);
     try {
         host.querySelector('button')!.click();
         await vi.waitFor(() => expect(messages.join(' ')).toMatch(/folder|reveal/i));
-    } finally {Reflect.deleteProperty(window, 'electronAPI');}
+    } finally {
+        Reflect.deleteProperty(window, 'electronAPI');
+    }
 });
 
 it('ends a cold Start Recent open whose claim another open took while its workspace mounts', async () => {
@@ -189,28 +274,50 @@ it('ends a cold Start Recent open whose claim another open took while its worksp
     vi.stubGlobal('window', Object.assign(window, {electronAPI: createElectronPlatformApiFixture()}));
     const state = new Map<string, unknown>();
     vi.stubGlobal('useState', (key: string, initial: () => unknown) => {
-        if (!state.has(key)) state.set(key, ref(initial()));
+        if (!state.has(key)) {
+            state.set(key, ref(initial()));
+        }
         return state.get(key);
     });
     const {createWorkspaceDocumentController} = await import('@app/modules/workspace-shell/document-sessions/workspaceDocumentController');
     const {default: DocumentWorkspaceTab} = await import('@app/modules/workspace-shell/components/DocumentWorkspaceTab.vue');
-    host = document.createElement('div'); document.body.append(host);
+    host = document.createElement('div');
+    document.body.append(host);
     const session = createWorkspaceDocumentController({tabId: 'cold'});
-    app = createApp({render: () => h(DocumentWorkspaceTab, {
-        tabId: 'cold', documentSession: session,
-        isActive: true, isRenderActive: true, isTabTransitionBusy: false,
-        startSection: 'recent', isFullscreen: false, fullscreenSupported: true, isWorkspaceLayoutResizing: false,
-    })});
-    app.component('ClientOnly', defineComponent({setup: (_props, {slots}) => () => slots.default?.()}));
+    app = createApp({
+        render: () =>
+            h(DocumentWorkspaceTab, {
+                tabId: 'cold',
+                documentSession: session,
+                isActive: true,
+                isRenderActive: true,
+                isTabTransitionBusy: false,
+                startSection: 'recent',
+                isFullscreen: false,
+                fullscreenSupported: true,
+                isWorkspaceLayoutResizing: false,
+            }),
+    });
+    app.component(
+        'ClientOnly',
+        defineComponent({
+            setup:
+                (_props, {slots}) =>
+                () =>
+                    slots.default?.(),
+        }),
+    );
     app.component('UProgress', defineComponent({setup: () => () => h('div')}));
     app.mount(host);
     try {
         recentOpen.followed = null;
-        [...host.querySelectorAll('button')].find(button => button.textContent === 'Open recent')!.click();
+        [...host.querySelectorAll('button')].find((button) => button.textContent === 'Open recent')!.click();
         await nextTick();
         expect(session.snapshot.value.activeTransaction?.target?.originalPath).toBe('/docs/recent.djvu');
         // The workspace never mounts; another open takes the tab meanwhile.
         session.claimOpen({kind: 'open', target: null});
         await expect(recentOpen.followed).resolves.toBe(false);
-    } finally {Reflect.deleteProperty(window, 'electronAPI');}
+    } finally {
+        Reflect.deleteProperty(window, 'electronAPI');
+    }
 });

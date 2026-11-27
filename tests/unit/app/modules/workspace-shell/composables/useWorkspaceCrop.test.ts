@@ -1,21 +1,12 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { ref } from 'vue';
-import type { IPageGeometry } from '@contracts/shared';
-import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
-import type { ICropSelectionResult } from '@app/types/crop';
-import {
-    requireDocumentRef,
-    type TDocumentRef,
-} from '@contracts/documentRef';
-import { marginsToDisplayNormalizedRect } from '@app/utils/pdfCropCoordinates';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
+import {ref} from 'vue';
+import type {IPageGeometry} from '@contracts/shared';
+import type {IPdfViewerExpose} from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
+import type {ICropSelectionResult} from '@app/types/crop';
+import {requireDocumentRef, type TDocumentRef} from '@contracts/documentRef';
+import {marginsToDisplayNormalizedRect} from '@app/utils/pdfCropCoordinates';
 import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
 
 type TCreateTextMarkupOptions = Parameters<IPdfViewerExpose['createTextMarkupFromText']>[0];
 type TCreatePointNoteOptions = Parameters<IPdfViewerExpose['createPointNoteAnnotation']>[0];
@@ -30,11 +21,13 @@ const mocks = vi.hoisted(() => ({
 
 const platformApi = createElectronPlatformApiFixture({pageOps: {getPageGeometry: mocks.getPageGeometry}});
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => platformApi}));
-vi.mock('@app/utils/browserLogger', () => ({ BrowserLogger: {
-    diagnostic: (...args: unknown[]) => mocks.diagnostic(...args),
-    diagnosticThrottled: (...args: unknown[]) => mocks.diagnosticThrottled(...args),
-    warn: (...args: unknown[]) => mocks.warn(...args),
-} }));
+vi.mock('@app/utils/browserLogger', () => ({
+    BrowserLogger: {
+        diagnostic: (...args: unknown[]) => mocks.diagnostic(...args),
+        diagnosticThrottled: (...args: unknown[]) => mocks.diagnosticThrottled(...args),
+        warn: (...args: unknown[]) => mocks.warn(...args),
+    },
+}));
 
 function createPdfViewerExpose(overrides: Partial<IPdfViewerExpose> = {}): IPdfViewerExpose {
     const viewer: IPdfViewerExpose = {
@@ -100,12 +93,7 @@ describe('useWorkspaceCrop', () => {
         vi.clearAllMocks();
     });
 
-    it.each([
-        0,
-        90,
-        180,
-        270,
-    ] as const)('reads the same page margins from a selection drawn at view rotation %i', async (viewRotation) => {
+    it.each([0, 90, 180, 270] as const)('reads the same page margins from a selection drawn at view rotation %i', async (viewRotation) => {
         const mediaBox = {
             x: 0,
             y: 0,
@@ -126,27 +114,30 @@ describe('useWorkspaceCrop', () => {
             userUnit: 2,
         });
         const displayRotation = (90 + viewRotation) % 360;
-        const displayed = displayRotation % 180 === 0
-            ? {
-                width: 200,
-                height: 100,
-            }
-            : {
-                width: 100,
-                height: 200,
-            };
+        const displayed =
+            displayRotation % 180 === 0
+                ? {
+                      width: 200,
+                      height: 100,
+                  }
+                : {
+                      width: 100,
+                      height: 200,
+                  };
         const rect = marginsToDisplayNormalizedRect(margins, mediaBox, displayRotation);
-        const viewer = createPdfViewerExpose({startCropSelection: vi.fn(async (): Promise<ICropSelectionResult> => ({
-            pageNumber: 1,
-            viewRotation,
-            pageRect: displayed,
-            pageLocalRect: {
-                x: rect.x * displayed.width,
-                y: rect.y * displayed.height,
-                width: rect.width * displayed.width,
-                height: rect.height * displayed.height,
-            },
-        }))});
+        const viewer = createPdfViewerExpose({
+            startCropSelection: vi.fn(async (): Promise<ICropSelectionResult> => ({
+                pageNumber: 1,
+                viewRotation,
+                pageRect: displayed,
+                pageLocalRect: {
+                    x: rect.x * displayed.width,
+                    y: rect.y * displayed.height,
+                    width: rect.width * displayed.width,
+                    height: rect.height * displayed.height,
+                },
+            })),
+        });
         const {useWorkspaceCrop} = await import('@app/modules/workspace-shell/composables/useWorkspaceCrop');
         const crop = useWorkspaceCrop({
             pdfViewerRef: ref<IPdfViewerExpose | null>(viewer),
@@ -166,10 +157,11 @@ describe('useWorkspaceCrop', () => {
     it('opens the crop dialog only after geometry and margins are ready', async () => {
         let resolveGeometry: ((value: IPageGeometry) => void) | undefined;
 
-        mocks.getPageGeometry.mockImplementation(() =>
-            new Promise<IPageGeometry>((resolve) => {
-                resolveGeometry = resolve;
-            }),
+        mocks.getPageGeometry.mockImplementation(
+            () =>
+                new Promise<IPageGeometry>((resolve) => {
+                    resolveGeometry = resolve;
+                }),
         );
 
         const selectionResult: ICropSelectionResult = {
@@ -189,7 +181,7 @@ describe('useWorkspaceCrop', () => {
 
         const viewer = createPdfViewerExpose({startCropSelection: vi.fn(async () => selectionResult)});
 
-        const { useWorkspaceCrop } = await import('@app/modules/workspace-shell/composables/useWorkspaceCrop');
+        const {useWorkspaceCrop} = await import('@app/modules/workspace-shell/composables/useWorkspaceCrop');
         const crop = useWorkspaceCrop({
             pdfViewerRef: ref<IPdfViewerExpose | null>(viewer),
             workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/work.pdf')),
@@ -250,12 +242,14 @@ describe('useWorkspaceCrop', () => {
             },
         };
         const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/tmp/original.pdf'));
-        const viewer = createPdfViewerExpose({startCropSelection: vi.fn(async () => {
-            workingCopyPath.value = requireDocumentRef('/tmp/replaced.pdf');
-            return selectionResult;
-        })});
+        const viewer = createPdfViewerExpose({
+            startCropSelection: vi.fn(async () => {
+                workingCopyPath.value = requireDocumentRef('/tmp/replaced.pdf');
+                return selectionResult;
+            }),
+        });
 
-        const { useWorkspaceCrop } = await import('@app/modules/workspace-shell/composables/useWorkspaceCrop');
+        const {useWorkspaceCrop} = await import('@app/modules/workspace-shell/composables/useWorkspaceCrop');
         const crop = useWorkspaceCrop({
             pdfViewerRef: ref<IPdfViewerExpose | null>(viewer),
             workingCopyPath,

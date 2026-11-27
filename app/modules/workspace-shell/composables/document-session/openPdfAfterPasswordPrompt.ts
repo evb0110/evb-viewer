@@ -1,48 +1,33 @@
-import type { TTranslateFn } from '@i18n-app';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
-import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
-import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
+import type {TTranslateFn} from '@i18n-app';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {TOpenFileResult} from '@contracts/electronApiDocuments';
+import type {TDocumentOpenOutcome} from '@app/types/documentOpenOutcome';
+import type {IPdfRasterDisplayProfileOpenOptions} from '@app/types/pdfRasterDisplayProfile';
 import {getDocumentRefBaseName} from '@app/utils/documentRef';
 import {getWorkspaceViewerAdapter} from '@app/modules/workspace-shell/viewers/workspaceViewerAdapters';
 import {dispatchStartupOpenVisualReady} from '@app/modules/workspace-shell/composables/useWorkspaceStartupReadiness';
 
 type TOpenedFileResult = Extract<TOpenFileResult, {kind: 'pdf' | 'djvu'}>;
-type TPdfPasswordFailureResult = Extract<
-    TOpenFileResult,
-    {kind: 'pdf-needs-password' | 'pdf-unsupported-encryption'}
->;
+type TPdfPasswordFailureResult = Extract<TOpenFileResult, {kind: 'pdf-needs-password' | 'pdf-unsupported-encryption'}>;
 type TOpenMethod = 'picker' | 'preselected' | 'direct' | 'batch';
 
 export function isDjvuOpenResult(result: TOpenFileResult): result is Extract<TOpenFileResult, {kind: 'djvu'}> {
-    return getWorkspaceViewerAdapter('djvu').documentTypes.some(documentType => documentType === result.kind);
+    return getWorkspaceViewerAdapter('djvu').documentTypes.some((documentType) => documentType === result.kind);
 }
 
 export function isPdfOpenResult(result: TOpenFileResult): result is Extract<TOpenFileResult, {kind: 'pdf'}> {
-    return getWorkspaceViewerAdapter('pdf').documentTypes.some(documentType => documentType === result.kind);
+    return getWorkspaceViewerAdapter('pdf').documentTypes.some((documentType) => documentType === result.kind);
 }
 
 interface IOpenPdfAfterPasswordPromptDeps {
-    requestPassword: (
-        fileName: string,
-        errorMessage?: string | null,
-    ) => Promise<string | null>;
+    requestPassword: (fileName: string, errorMessage?: string | null) => Promise<string | null>;
     closePasswordPrompt: (request: Promise<string | null>) => void;
     isCurrentOpenRequest: (requestId: string | null) => boolean;
-    openDocumentDirect: (
-        path: TDocumentRef,
-        password: string,
-    ) => Promise<TOpenFileResult | null>;
-    cleanupAbandonedPdfWorkingCopy: (
-        result: TOpenFileResult,
-        reason: string,
-    ) => Promise<void>;
+    openDocumentDirect: (path: TDocumentRef, password: string) => Promise<TOpenFileResult | null>;
+    cleanupAbandonedPdfWorkingCopy: (result: TOpenFileResult, reason: string) => Promise<void>;
     setError: (message: string) => void;
     reportUnsupportedEncryption: (openRequestId: string | null) => TDocumentOpenOutcome;
-    trackOpenedDocument: (
-        result: TOpenedFileResult,
-        openMethod: TOpenMethod,
-    ) => void;
+    trackOpenedDocument: (result: TOpenedFileResult, openMethod: TOpenMethod) => void;
     setPendingDjvuPath: (path: TDocumentRef) => void;
     finishPdfOpenResult: (
         openRequestId: string | null,
@@ -82,7 +67,7 @@ export async function openPdfAfterPasswordPrompt(
             };
         }
         if (password === null) {
-            return { status: 'cancelled' };
+            return {status: 'cancelled'};
         }
 
         // The prompt stays open while the password is checked. A wrong

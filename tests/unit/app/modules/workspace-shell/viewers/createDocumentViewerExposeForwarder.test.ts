@@ -1,11 +1,6 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { shallowRef } from 'vue';
-import { createDocumentViewerExposeForwarder } from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
+import {describe, expect, it, vi} from 'vitest';
+import {shallowRef} from 'vue';
+import {createDocumentViewerExposeForwarder} from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
 
 describe('createDocumentViewerExposeForwarder', () => {
     it('keeps one exposed port while the chassis swaps source feature packs', () => {

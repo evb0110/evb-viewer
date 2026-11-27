@@ -1,6 +1,6 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
-import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 
 export interface IAnnotationContextMenuPayload {
     comment: IAnnotationCommentSummary | null;

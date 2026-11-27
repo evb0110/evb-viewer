@@ -1,10 +1,6 @@
-import type {
-    ElementHandle,
-    MouseButton,
-    Page,
-} from 'puppeteer-core';
-import type { TApplicationMenuItemQuery } from '@electron/menu';
-import { activateElectronMenuItem } from '@scripts/electron-run/activateElectronMenuItem';
+import type {ElementHandle, MouseButton, Page} from 'puppeteer-core';
+import type {TApplicationMenuItemQuery} from '@electron/menu';
+import {activateElectronMenuItem} from '@scripts/electron-run/activateElectronMenuItem';
 
 // A person can only click what is on top. `element.click()` inside the page
 // skips hit testing, pointer and mouse-down events, focus changes and the
@@ -42,14 +38,15 @@ interface IPointerStep {
 const DEFAULT_TIMEOUT_MS = 20_000;
 
 function describeTarget(target: TClickTarget) {
-    if (typeof target === 'string') return target;
+    if (typeof target === 'string') {
+        return target;
+    }
     return 'description' in target ? target.description : 'element handle';
 }
 
 function findPointerStep(target: Element | string | null | undefined): IPointerStep | false {
-    const candidates = typeof target === 'string'
-        ? Array.from(document.querySelectorAll<HTMLElement>(target))
-        : target ? [target as HTMLElement] : [];
+    const candidates =
+        typeof target === 'string' ? Array.from(document.querySelectorAll<HTMLElement>(target)) : target ? [target as HTMLElement] : [];
     const scrolls = (overflow: string) => overflow === 'auto' || overflow === 'scroll';
     const visibleBox = (element: HTMLElement) => {
         const rect = element.getBoundingClientRect();
@@ -73,19 +70,25 @@ function findPointerStep(target: Element | string | null | undefined): IPointerS
                 bottom = Math.min(bottom, contentTop + parent.clientHeight * scaleY);
             }
         }
-        return right > left && bottom > top ? {
-            left,
-            top,
-            right,
-            bottom,
-        } : null;
+        return right > left && bottom > top
+            ? {
+                  left,
+                  top,
+                  right,
+                  bottom,
+              }
+            : null;
     };
     // Aim inside the part the person can see, including all ancestor clips.
     // Prefer an already clickable match over scrolling another copy of it.
     for (const candidate of candidates) {
-        if (!candidate.isConnected) continue;
+        if (!candidate.isConnected) {
+            continue;
+        }
         const box = visibleBox(candidate);
-        if (!box) continue;
+        if (!box) {
+            continue;
+        }
         const x = (box.left + box.right) / 2;
         const y = (box.top + box.bottom) / 2;
         const hit = document.elementFromPoint(x, y);
@@ -98,70 +101,67 @@ function findPointerStep(target: Element | string | null | undefined): IPointerS
             };
         }
     }
-    const distance = (start: number, end: number, boxStart: number, boxEnd: number) => (
-        end > boxEnd ? end - boxEnd : start < boxStart ? start - boxStart : 0
-    );
+    const distance = (start: number, end: number, boxStart: number, boxEnd: number) =>
+        end > boxEnd ? end - boxEnd : start < boxStart ? start - boxStart : 0;
     for (const candidate of candidates) {
-        if (!candidate.isConnected) continue;
+        if (!candidate.isConnected) {
+            continue;
+        }
         const rect = candidate.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) continue;
+        if (rect.width <= 0 || rect.height <= 0) {
+            continue;
+        }
         let subject = candidate;
         for (let scroller = candidate.parentElement; scroller; scroller = scroller.parentElement) {
             const style = getComputedStyle(scroller);
             const scrollX = scrolls(style.overflowX) && scroller.scrollWidth > scroller.clientWidth;
             const scrollY = scrolls(style.overflowY) && scroller.scrollHeight > scroller.clientHeight;
-            if (!scrollX && !scrollY) continue;
+            if (!scrollX && !scrollY) {
+                continue;
+            }
             const box = visibleBox(scroller);
             const subjectRect = subject.getBoundingClientRect();
             // A wheel over an offscreen panel reaches whatever is on screen
             // instead. Reveal that panel through its outer scroller first.
             subject = scroller;
-            if (!box) continue;
+            if (!box) {
+                continue;
+            }
             const deltaX = scrollX ? distance(subjectRect.left, subjectRect.right, box.left, box.right) : 0;
             const deltaY = scrollY ? distance(subjectRect.top, subjectRect.bottom, box.top, box.bottom) : 0;
-            if (deltaX === 0 && deltaY === 0) continue;
+            if (deltaX === 0 && deltaY === 0) {
+                continue;
+            }
             const insetX = Math.min(1, (box.right - box.left) / 2);
             const insetY = Math.min(1, (box.bottom - box.top) / 2);
             const points: Array<[number, number]> = [
-                [
-                    (box.left + box.right) / 2,
-                    (box.top + box.bottom) / 2,
-                ],
-                [
-                    box.right - insetX,
-                    box.top + insetY,
-                ],
-                [
-                    box.left + insetX,
-                    box.top + insetY,
-                ],
-                [
-                    box.right - insetX,
-                    box.bottom - insetY,
-                ],
-                [
-                    box.left + insetX,
-                    box.bottom - insetY,
-                ],
+                [(box.left + box.right) / 2, (box.top + box.bottom) / 2],
+                [box.right - insetX, box.top + insetY],
+                [box.left + insetX, box.top + insetY],
+                [box.right - insetX, box.bottom - insetY],
+                [box.left + insetX, box.bottom - insetY],
             ];
-            const point = points.find(([
-                x,
-                y,
-            ]) => {
+            const point = points.find(([x, y]) => {
                 const hit = document.elementFromPoint(x, y);
-                if (!hit || !scroller.contains(hit)) return false;
+                if (!hit || !scroller.contains(hit)) {
+                    return false;
+                }
                 // A descendant panel can consume the wheel before the panel
                 // we need to move. Aim at an exposed part of that panel.
                 for (let child: Element | null = hit; child && child !== scroller; child = child.parentElement) {
                     const childStyle = getComputedStyle(child);
-                    if ((deltaX !== 0 && scrolls(childStyle.overflowX) && child.scrollWidth > child.clientWidth)
-                        || (deltaY !== 0 && scrolls(childStyle.overflowY) && child.scrollHeight > child.clientHeight)) {
+                    if (
+                        (deltaX !== 0 && scrolls(childStyle.overflowX) && child.scrollWidth > child.clientWidth) ||
+                        (deltaY !== 0 && scrolls(childStyle.overflowY) && child.scrollHeight > child.clientHeight)
+                    ) {
                         return false;
                     }
                 }
                 return true;
             });
-            if (!point) continue;
+            if (!point) {
+                continue;
+            }
             return {
                 x: point[0],
                 y: point[1],
@@ -174,41 +174,49 @@ function findPointerStep(target: Element | string | null | undefined): IPointerS
 }
 
 function describeObstruction(target: Element | string | null | undefined) {
-    const candidates = typeof target === 'string'
-        ? Array.from(document.querySelectorAll<HTMLElement>(target))
-        : target ? [target as HTMLElement] : [];
-    if (candidates.length === 0) return 'not rendered';
+    const candidates =
+        typeof target === 'string' ? Array.from(document.querySelectorAll<HTMLElement>(target)) : target ? [target as HTMLElement] : [];
+    if (candidates.length === 0) {
+        return 'not rendered';
+    }
     const describe = (element: Element | null) => {
-        if (!element) return 'nothing';
+        if (!element) {
+            return 'nothing';
+        }
         const id = element.id ? `#${element.id}` : '';
-        const classes = typeof element.className === 'string' && element.className
-            ? `.${element.className.trim().split(/\s+/u).slice(0, 3).join('.')}`
-            : '';
+        const classes =
+            typeof element.className === 'string' && element.className
+                ? `.${element.className.trim().split(/\s+/u).slice(0, 3).join('.')}`
+                : '';
         return `<${element.tagName.toLowerCase()}${id}${classes}>`;
     };
-    return candidates.map((candidate) => {
-        if (!candidate.isConnected) return 'detached';
-        const rect = candidate.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return 'zero size';
-        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-        return `covered by ${describe(hit)}`;
-    }).join('; ');
+    return candidates
+        .map((candidate) => {
+            if (!candidate.isConnected) {
+                return 'detached';
+            }
+            const rect = candidate.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) {
+                return 'zero size';
+            }
+            const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+            return `covered by ${describe(hit)}`;
+        })
+        .join('; ');
 }
 
 /** Resolves once the target has the same on-screen box on consecutive painted frames. */
 function readTargetAtRest(target: Element | string | null | undefined, beforeWheel?: string) {
     return new Promise<string>((resolve) => {
-        const read = () => (typeof target === 'string'
-            ? Array.from(document.querySelectorAll(target))
-            : target ? [target] : [])
-            .filter(element => element.isConnected)
-            .map((element) => {
-                const rect = element.getBoundingClientRect();
-                return rect.width > 0 && rect.height > 0
-                    ? `${rect.left},${rect.top},${rect.width},${rect.height}` : '';
-            })
-            .filter(Boolean)
-            .join(';');
+        const read = () =>
+            (typeof target === 'string' ? Array.from(document.querySelectorAll(target)) : target ? [target] : [])
+                .filter((element) => element.isConnected)
+                .map((element) => {
+                    const rect = element.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0 ? `${rect.left},${rect.top},${rect.width},${rect.height}` : '';
+                })
+                .filter(Boolean)
+                .join(';');
         requestAnimationFrame(() => {
             const first = read();
             requestAnimationFrame(() => {
@@ -226,7 +234,13 @@ function foundTargetExpression(probe: TTargetProbe<unknown>, target: IFoundTarge
     return `(${probe.toString()})((${target.find.toString()})(${JSON.stringify(target.arg ?? null)}), ${JSON.stringify(beforeWheel ?? null)})`;
 }
 
-function waitForTargetProbe<TResult>(page: Page, target: TClickTarget, probe: TTargetProbe<TResult>, deadline: number, beforeWheel?: string) {
+function waitForTargetProbe<TResult>(
+    page: Page,
+    target: TClickTarget,
+    probe: TTargetProbe<TResult>,
+    deadline: number,
+    beforeWheel?: string,
+) {
     const options = {timeout: Math.max(1, deadline - Date.now())};
     return typeof target === 'string' || !('find' in target)
         ? page.waitForFunction(probe, options, target, beforeWheel)
@@ -234,15 +248,17 @@ function waitForTargetProbe<TResult>(page: Page, target: TClickTarget, probe: TT
 }
 
 function evaluateTargetProbe<TResult>(page: Page, target: TClickTarget, probe: TTargetProbe<TResult>) {
-    return (typeof target === 'string' || !('find' in target)
-        ? page.evaluate(probe, target)
-        : page.evaluate(foundTargetExpression(probe, target))) as Promise<TResult>;
+    return (
+        typeof target === 'string' || !('find' in target)
+            ? page.evaluate(probe, target)
+            : page.evaluate(foundTargetExpression(probe, target))
+    ) as Promise<TResult>;
 }
 
 async function waitForPointerStep(page: Page, target: TClickTarget, deadline: number) {
     try {
         const handle = await waitForTargetProbe(page, target, findPointerStep, deadline);
-        const step = await handle.jsonValue() as IPointerStep;
+        const step = (await handle.jsonValue()) as IPointerStep;
         await handle.dispose();
         return step;
     } catch (error) {
@@ -268,12 +284,10 @@ export async function revealForPointer(page: Page, target: TClickTarget, timeout
             // Read geometry and hit-test together for the press, rather than
             // using a snapshot from a wait handle across more CDP round trips.
             const settled = await evaluateTargetProbe(page, target, findPointerStep);
-            if (settled && settled.deltaX === 0 && settled.deltaY === 0
-                && settled.x === step.x && settled.y === step.y) {
+            if (settled && settled.deltaX === 0 && settled.deltaY === 0 && settled.x === step.x && settled.y === step.y) {
                 await page.mouse.move(settled.x, settled.y);
                 const press = await evaluateTargetProbe(page, target, findPointerStep);
-                if (press && press.deltaX === 0 && press.deltaY === 0
-                    && press.x === settled.x && press.y === settled.y) {
+                if (press && press.deltaX === 0 && press.deltaY === 0 && press.x === settled.x && press.y === settled.y) {
                     return {
                         x: press.x,
                         y: press.y,
@@ -284,7 +298,7 @@ export async function revealForPointer(page: Page, target: TClickTarget, timeout
         }
         await page.mouse.move(step.x, step.y);
         const boxHandle = await waitForTargetProbe(page, target, readTargetAtRest, deadline);
-        const beforeWheel = await boxHandle.jsonValue() as string;
+        const beforeWheel = (await boxHandle.jsonValue()) as string;
         await boxHandle.dispose();
         await page.mouse.wheel({
             deltaX: step.deltaX,
@@ -296,7 +310,10 @@ export async function revealForPointer(page: Page, target: TClickTarget, timeout
             await (await waitForTargetProbe(page, target, readTargetAtRest, deadline, beforeWheel)).dispose();
         } catch (error) {
             const reason = await evaluateTargetProbe(page, target, describeObstruction).catch(() => 'page unavailable');
-            throw new Error(`A person could not scroll ${describeTarget(target)} into view: wheel did not move or settle the target; ${reason}`, {cause: error});
+            throw new Error(
+                `A person could not scroll ${describeTarget(target)} into view: wheel did not move or settle the target; ${reason}`,
+                {cause: error},
+            );
         }
     }
 }
@@ -322,11 +339,15 @@ export async function clickFoundAsUser<TArg>(
     arg: TArg,
     options: IClickAsUserOptions & {description: string},
 ) {
-    await clickAsUser(page, {
-        find: find as IFoundTarget<unknown>['find'],
-        arg,
-        description: options.description,
-    }, options);
+    await clickAsUser(
+        page,
+        {
+            find: find as IFoundTarget<unknown>['find'],
+            arg,
+            description: options.description,
+        },
+        options,
+    );
 }
 
 /**

@@ -1,13 +1,10 @@
 import {isSupportedOpenPath} from '@electron/utils/documentFileTypes';
-import type { ILogger } from '@electron/utils/createLogger';
-import { existsSync } from 'fs';
-import {
-    isAbsolute,
-    resolve,
-} from 'path';
-import { fileURLToPath } from 'url';
-import { uniq } from 'es-toolkit/array';
-import { getErrorMessage } from '@electron/utils/error';
+import type {ILogger} from '@electron/utils/createLogger';
+import {existsSync} from 'fs';
+import {isAbsolute, resolve} from 'path';
+import {fileURLToPath} from 'url';
+import {uniq} from 'es-toolkit/array';
+import {getErrorMessage} from '@electron/utils/error';
 
 const EXTERNAL_OPEN_SINGLETON_BATCH_WINDOW_MS = 100;
 const EXTERNAL_OPEN_MULTI_PATH_BATCH_WINDOW_MS = 800;
@@ -15,8 +12,7 @@ const EXTERNAL_OPEN_MAX_BATCH_WAIT_MS = 10_000;
 const EXTERNAL_OPEN_RETRY_DISPATCH_MS = 1_000;
 // Dispatch is attempted only once the main renderer is ready; a batch it still
 // cannot deliver stops retrying within the pipeline's own patience budget.
-const EXTERNAL_OPEN_MAX_DISPATCH_FAILURES
-    = Math.ceil(EXTERNAL_OPEN_MAX_BATCH_WAIT_MS / EXTERNAL_OPEN_RETRY_DISPATCH_MS);
+const EXTERNAL_OPEN_MAX_DISPATCH_FAILURES = Math.ceil(EXTERNAL_OPEN_MAX_BATCH_WAIT_MS / EXTERNAL_OPEN_RETRY_DISPATCH_MS);
 const EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS = 300;
 const EXTERNAL_OPEN_PENDING_MAX_PATHS = 256;
 
@@ -37,15 +33,15 @@ interface ICreateExternalOpenManagerOptions {
 }
 
 type TExternalOpenBatchPhase =
-    | { type: 'idle'; }
+    | {type: 'idle'}
     | {
-        type: 'singleton';
-        deadline: number;
-    }
+          type: 'singleton';
+          deadline: number;
+      }
     | {
-        type: 'multi-path';
-        deadline: number;
-    };
+          type: 'multi-path';
+          deadline: number;
+      };
 
 function doesExternalOpenPathExist(filePath: string) {
     try {
@@ -65,7 +61,7 @@ function normalizeExternalOpenPath(filePath: string) {
     return isAbsolute(filePath) ? filePath : resolve(filePath);
 }
 
-export function createMacOpenFileRouter(options: { logger: ILogger; }) {
+export function createMacOpenFileRouter(options: {logger: ILogger}) {
     const pendingPaths: string[] = [];
     let externalOpenManager: IExternalOpenManagerSink | null = null;
 
@@ -115,7 +111,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     const pendingExternalOpenPathSet = new Set<string>();
     let flushPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
     let retryPendingFilesTimer: ReturnType<typeof setTimeout> | null = null;
-    let batchPhase: TExternalOpenBatchPhase = { type: 'idle' };
+    let batchPhase: TExternalOpenBatchPhase = {type: 'idle'};
     let externalOpenBootstrapReady = false;
     let ensureWindowForExternalOpenPromise: Promise<void> | null = null;
     let hasHandledInitialExternalOpenDispatch = false;
@@ -141,9 +137,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     }
 
     function normalizeOpenRequestPaths(paths: string[]) {
-        return uniq(paths
-            .filter(path => path.length > 0)
-            .map(normalizeExternalOpenPath));
+        return uniq(paths.filter((path) => path.length > 0).map(normalizeExternalOpenPath));
     }
 
     function validateClaimedOpenPaths(paths: string[], source: string) {
@@ -271,10 +265,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     }
 
     function waitForStartupExternalOpenGraceIfEmpty() {
-        if (
-            pendingExternalOpenPaths.length > 0
-            || hasHandledInitialExternalOpenDispatch
-        ) {
+        if (pendingExternalOpenPaths.length > 0 || hasHandledInitialExternalOpenDispatch) {
             return Promise.resolve();
         }
 
@@ -284,10 +275,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
 
         startupEmptyClaimGracePromise = new Promise<void>((resolve) => {
             startupEmptyClaimGraceResolve = resolve;
-            startupEmptyClaimGraceTimer = setTimeout(
-                finishStartupEmptyClaimGrace,
-                EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS,
-            );
+            startupEmptyClaimGraceTimer = setTimeout(finishStartupEmptyClaimGrace, EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS);
             startupEmptyClaimGraceTimer.unref();
         });
         return startupEmptyClaimGracePromise;
@@ -325,8 +313,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
     }
 
     function queueOpenRequestFromArgs(args: string[], workingDirectory: string) {
-        const parsedPaths = collectSupportedPathsFromArgs(args)
-            .map(filePath => resolve(workingDirectory, filePath));
+        const parsedPaths = collectSupportedPathsFromArgs(args).map((filePath) => resolve(workingDirectory, filePath));
         if (parsedPaths.length > 0) {
             options.logger.info(`Parsed external open paths (${parsedPaths.length}): ${parsedPaths.join(' | ')}`);
         }
@@ -393,7 +380,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             clearTimeout(flushPendingFilesTimer);
             flushPendingFilesTimer = null;
         }
-        batchPhase = { type: 'idle' };
+        batchPhase = {type: 'idle'};
 
         if (pendingExternalOpenPaths.length === 0) {
             clearRetryPendingFilesTimer();
@@ -452,10 +439,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             clearTimeout(flushPendingFilesTimer);
         }
 
-        flushPendingFilesTimer = setTimeout(
-            flushPendingFiles,
-            Math.min(windowMs, remainingMs),
-        );
+        flushPendingFilesTimer = setTimeout(flushPendingFiles, Math.min(windowMs, remainingMs));
         flushPendingFilesTimer.unref();
     }
 
@@ -515,7 +499,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
         }
         clearRetryPendingFilesTimer();
         finishStartupEmptyClaimGrace();
-        batchPhase = { type: 'idle' };
+        batchPhase = {type: 'idle'};
     }
 
     return {

@@ -1,15 +1,9 @@
-import { getCliErrorMessage } from './lib/cli-error.mjs';
-import { spawnSync } from 'node:child_process';
-import {
-    chmod,
-    mkdir,
-    rename,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
+import {spawnSync} from 'node:child_process';
+import {chmod, mkdir, rename, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { tsImport } from 'tsx/esm/api';
+import {fileURLToPath} from 'node:url';
+import {tsImport} from 'tsx/esm/api';
 import {
     copyCargoArtifactVerified,
     collectCargoSourceInputs,
@@ -20,13 +14,13 @@ import {
     readValidCargoBuildReceipt,
     writeCargoBuildReceipt,
 } from './cargo-artifacts.mjs';
+import {computeNativeBuildId, getNativeExternalBuildInputs} from './native-build-id.mjs';
+import {getRequestedNativeRustTarget} from './native-rust-targets.mjs';
 import {
-    computeNativeBuildId,
-    getNativeExternalBuildInputs,
-} from './native-build-id.mjs';
-import { getRequestedNativeRustTarget } from './native-rust-targets.mjs';
-import {
-    getCargoBuildEnvironment, getCargoConfigurationInputs, getCargoFingerprintEnvironment, readBuildEnvironment,
+    getCargoBuildEnvironment,
+    getCargoConfigurationInputs,
+    getCargoFingerprintEnvironment,
+    readBuildEnvironment,
 } from './lib/build-environment.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -35,12 +29,7 @@ const usage = `Usage: node scripts/build-native-tool.mjs <tool...>|--all [--dry-
 Builds one or more generated native tools from the canonical native resource manifest.
 Use --dry-run to resolve and print the build plan without invoking Cargo.`;
 
-export function createNativeToolBuildPlan({
-    projectRoot: root,
-    staticLinuxCrt = false,
-    target,
-    tool,
-}) {
+export function createNativeToolBuildPlan({projectRoot: root, staticLinuxCrt = false, target, tool}) {
     const manifestPath = `native/${tool.crateName}/Cargo.toml`;
     const binaryName = `${tool.binaryName}${target.binaryExtension}`;
     return {
@@ -52,15 +41,7 @@ export function createNativeToolBuildPlan({
             '--release',
             '--locked',
             ...target.cargoTargetArgs,
-            ...(staticLinuxCrt
-                ? [
-                    '--bin',
-                    tool.binaryName,
-                    '--',
-                    '-C',
-                    'target-feature=+crt-static',
-                ]
-                : []),
+            ...(staticLinuxCrt ? ['--bin', tool.binaryName, '--', '-C', 'target-feature=+crt-static'] : []),
         ],
         destinationPath: path.join(root, '.tmp', tool.stagingName, target.platformArch, 'bin', binaryName),
         manifestPath,
@@ -80,14 +61,8 @@ export function parseNativeToolBuildRequest(argv) {
     }
     const dryRun = argv.includes('--dry-run');
     const all = argv.includes('--all');
-    const unsupportedOptions = argv.filter(argument => (
-        argument.startsWith('-')
-        && ![
-            '--all',
-            '--dry-run',
-        ].includes(argument)
-    ));
-    const toolIds = argv.filter(argument => !argument.startsWith('-'));
+    const unsupportedOptions = argv.filter((argument) => argument.startsWith('-') && !['--all', '--dry-run'].includes(argument));
+    const toolIds = argv.filter((argument) => !argument.startsWith('-'));
     if (unsupportedOptions.length > 0 || (all && toolIds.length > 0) || (!all && toolIds.length === 0)) {
         throw new Error(usage);
     }
@@ -100,16 +75,11 @@ export function parseNativeToolBuildRequest(argv) {
 }
 
 async function resolveTools(request) {
-    const {
-        GENERATED_NATIVE_TOOL_RESOURCES,
-        getGeneratedNativeToolResource,
-    } = await tsImport(
+    const {GENERATED_NATIVE_TOOL_RESOURCES, getGeneratedNativeToolResource} = await tsImport(
         './nativeResourceManifest.ts',
         import.meta.url,
     );
-    return request.all
-        ? [...GENERATED_NATIVE_TOOL_RESOURCES]
-        : request.toolIds.map(toolId => getGeneratedNativeToolResource(toolId));
+    return request.all ? [...GENERATED_NATIVE_TOOL_RESOURCES] : request.toolIds.map((toolId) => getGeneratedNativeToolResource(toolId));
 }
 
 function commandVersion(command) {
@@ -128,21 +98,17 @@ export {getCargoBuildEnvironment} from './lib/build-environment.mjs';
 export {getCargoFingerprintEnvironment} from './lib/build-environment.mjs';
 
 async function writeNativeBuildManifest(plans, target) {
-    const manifestPath = path.join(
-        projectRoot,
-        '.tmp',
-        'native-build-manifest',
-        `${target.platformArch}.json`,
-    );
+    const manifestPath = path.join(projectRoot, '.tmp', 'native-build-manifest', `${target.platformArch}.json`);
     const manifest = {
         platformArch: target.platformArch,
         schemaVersion: 1,
-        stagingRoots: plans.map(plan => (
-            path.relative(projectRoot, path.dirname(path.dirname(plan.destinationPath)))
+        stagingRoots: plans.map((plan) =>
+            path
+                .relative(projectRoot, path.dirname(path.dirname(plan.destinationPath)))
                 .split(path.sep)
-                .join('/')
-        )),
-        tools: plans.map(plan => ({
+                .join('/'),
+        ),
+        tools: plans.map((plan) => ({
             binaryPath: path.relative(projectRoot, plan.destinationPath).split(path.sep).join('/'),
             inputFingerprint: plan.input.fingerprint,
             toolId: plan.tool.familyId,
@@ -166,9 +132,8 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
         request.toolIds.push('windows-job-launcher');
     }
     const tools = await resolveTools(request);
-    const staticLinuxCrt = target.platform === 'linux'
-        && readBuildEnvironment(process.env).EVB_NATIVE_TARGET_PLATFORM !== undefined;
-    const plans = tools.map(tool => ({
+    const staticLinuxCrt = target.platform === 'linux' && readBuildEnvironment(process.env).EVB_NATIVE_TARGET_PLATFORM !== undefined;
+    const plans = tools.map((tool) => ({
         ...createNativeToolBuildPlan({
             projectRoot,
             staticLinuxCrt,
@@ -179,22 +144,21 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
         tool,
     }));
     if (request.dryRun) {
-        console.log(JSON.stringify({
-            cargoCommands: plans.map(plan => plan.cargoArgs),
-            plans,
-        }, null, 2));
+        console.log(
+            JSON.stringify(
+                {
+                    cargoCommands: plans.map((plan) => plan.cargoArgs),
+                    plans,
+                },
+                null,
+                2,
+            ),
+        );
         return;
     }
 
-    const cargoEnvironment = getCargoBuildEnvironment({ projectRoot });
-    const metadataArgs = [
-        'metadata',
-        '--manifest-path',
-        'native/Cargo.toml',
-        '--format-version',
-        '1',
-        '--no-deps',
-    ];
+    const cargoEnvironment = getCargoBuildEnvironment({projectRoot});
+    const metadataArgs = ['metadata', '--manifest-path', 'native/Cargo.toml', '--format-version', '1', '--no-deps'];
     const metadataResult = spawnSync('cargo', metadataArgs, {
         cwd: projectRoot,
         encoding: 'utf8',
@@ -210,45 +174,45 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
         rustc: commandVersion('rustc'),
         target: target.rustTarget ?? `${process.platform}-${process.arch}`,
     };
-    const preparedPlans = await Promise.all(plans.map(async (plan) => {
-        const sourcePaths = collectCargoSourceInputs(
-            metadata,
-            path.join(projectRoot, plan.manifestPath),
-        );
-        sourcePaths.push(...getNativeExternalBuildInputs(plan.tool.crateName)
-            .map(input => path.join(projectRoot, input)));
-        sourcePaths.push(...[
-            'cargo-rustc-wrapper.mjs',
-            'cargo-rustc-wrapper.rs',
-            'cargo-rustc-launcher.mjs',
-        ].map(file => path.join(projectRoot, 'scripts', 'lib', file)));
-        sourcePaths.push(...getCargoConfigurationInputs({
-            env: cargoEnvironment.env,
-            projectRoot,
-        }));
-        const environment = getCargoFingerprintEnvironment(cargoEnvironment.env);
-        const input = await computeCargoInputFingerprint({
-            cargoArgs: plan.cargoArgs,
-            environment,
-            projectRoot,
-            sourcePaths,
-            toolchain,
-        });
-        const receiptPath = path.join(path.dirname(plan.destinationPath), '..', 'build-receipt.json');
-        const receipt = await readValidCargoBuildReceipt({
-            binaryPath: plan.destinationPath,
-            fingerprint: input.fingerprint,
-            receiptPath,
-        });
-        return {
-            ...plan,
-            input,
-            receipt,
-            receiptPath,
-        };
-    }));
-    const missingPlans = preparedPlans.filter(plan => !plan.receipt);
-    for (const plan of preparedPlans.filter(candidate => candidate.receipt)) {
+    const preparedPlans = await Promise.all(
+        plans.map(async (plan) => {
+            const sourcePaths = collectCargoSourceInputs(metadata, path.join(projectRoot, plan.manifestPath));
+            sourcePaths.push(...getNativeExternalBuildInputs(plan.tool.crateName).map((input) => path.join(projectRoot, input)));
+            sourcePaths.push(
+                ...['cargo-rustc-wrapper.mjs', 'cargo-rustc-wrapper.rs', 'cargo-rustc-launcher.mjs'].map((file) =>
+                    path.join(projectRoot, 'scripts', 'lib', file),
+                ),
+            );
+            sourcePaths.push(
+                ...getCargoConfigurationInputs({
+                    env: cargoEnvironment.env,
+                    projectRoot,
+                }),
+            );
+            const environment = getCargoFingerprintEnvironment(cargoEnvironment.env);
+            const input = await computeCargoInputFingerprint({
+                cargoArgs: plan.cargoArgs,
+                environment,
+                projectRoot,
+                sourcePaths,
+                toolchain,
+            });
+            const receiptPath = path.join(path.dirname(plan.destinationPath), '..', 'build-receipt.json');
+            const receipt = await readValidCargoBuildReceipt({
+                binaryPath: plan.destinationPath,
+                fingerprint: input.fingerprint,
+                receiptPath,
+            });
+            return {
+                ...plan,
+                input,
+                receipt,
+                receiptPath,
+            };
+        }),
+    );
+    const missingPlans = preparedPlans.filter((plan) => !plan.receipt);
+    for (const plan of preparedPlans.filter((candidate) => candidate.receipt)) {
         console.log(`Reusing fingerprinted ${plan.binaryName} (${plan.input.fingerprint.slice(0, 12)}).`);
     }
     if (missingPlans.length === 0) {
@@ -258,10 +222,8 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
         return;
     }
 
-    console.log(
-        `Building ${missingPlans.length} native tool(s) with shared metadata preparation; sccache ${cargoEnvironment.sccache}.`,
-    );
-    for (const rustTarget of new Set(missingPlans.map(plan => plan.rustTarget))) {
+    console.log(`Building ${missingPlans.length} native tool(s) with shared metadata preparation; sccache ${cargoEnvironment.sccache}.`);
+    for (const rustTarget of new Set(missingPlans.map((plan) => plan.rustTarget))) {
         discardCargoBuildFromOtherWrapperFlags({
             env: cargoEnvironment.env,
             projectRoot,
@@ -269,13 +231,12 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
             targetDirectory: cargoTargetDirectory,
         });
     }
-    const packageNameByManifest = new Map(metadata.packages
-        .filter(pkg => typeof pkg?.manifest_path === 'string' && typeof pkg?.name === 'string')
-        .map(pkg => [
-            path.resolve(pkg.manifest_path),
-            pkg.name,
-        ]));
-    const buildIdEnvKey = crateName => `EVB_NATIVE_BUILD_ID_${crateName.toUpperCase().replace(/-/gu, '_')}`;
+    const packageNameByManifest = new Map(
+        metadata.packages
+            .filter((pkg) => typeof pkg?.manifest_path === 'string' && typeof pkg?.name === 'string')
+            .map((pkg) => [path.resolve(pkg.manifest_path), pkg.name]),
+    );
+    const buildIdEnvKey = (crateName) => `EVB_NATIVE_BUILD_ID_${crateName.toUpperCase().replace(/-/gu, '_')}`;
 
     // Batch plain `cargo build` plans sharing a target into one workspace
     // invocation so Cargo compiles shared crates and independent binaries in
@@ -293,10 +254,12 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
                     plan,
                 });
             } else {
-                batchedByTarget.set(key, [{
-                    packageName,
-                    plan,
-                }]);
+                batchedByTarget.set(key, [
+                    {
+                        packageName,
+                        plan,
+                    },
+                ]);
             }
         } else {
             individualPlans.push(plan);
@@ -316,12 +279,9 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
             '--release',
             '--locked',
             ...first.cargoTargetArgs,
-            ...entries.flatMap(({packageName}) => [
-                '-p',
-                packageName,
-            ]),
+            ...entries.flatMap(({packageName}) => ['-p', packageName]),
         ];
-        const batchEnv = { ...cargoEnvironment.env };
+        const batchEnv = {...cargoEnvironment.env};
         for (const {plan} of entries) {
             const buildId = computeNativeBuildId(projectRoot, plan.tool.crateName);
             batchEnv[buildIdEnvKey(plan.tool.crateName)] = buildId;
@@ -335,9 +295,7 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
             stdio: 'inherit',
         });
         if (result.status !== 0) {
-            throw new Error(
-                `cargo ${batchArgs.join(' ')} failed with status ${result.status ?? 'unknown'}`,
-            );
+            throw new Error(`cargo ${batchArgs.join(' ')} failed with status ${result.status ?? 'unknown'}`);
         }
     }
 
@@ -353,9 +311,7 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
             stdio: 'inherit',
         });
         if (result.status !== 0) {
-            throw new Error(
-                `cargo ${plan.cargoArgs.join(' ')} failed with status ${result.status ?? 'unknown'}`,
-            );
+            throw new Error(`cargo ${plan.cargoArgs.join(' ')} failed with status ${result.status ?? 'unknown'}`);
         }
     }
 
@@ -384,8 +340,8 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
             toolchain,
         });
         console.log(
-            `Staged ${plan.binaryName} for ${plan.platformArch}: `
-            + `${path.relative(projectRoot, plan.destinationPath)} (${stagedArtifact.sha256})`,
+            `Staged ${plan.binaryName} for ${plan.platformArch}: ` +
+                `${path.relative(projectRoot, plan.destinationPath)} (${stagedArtifact.sha256})`,
         );
     }
     if (request.all) {
@@ -393,8 +349,7 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
     }
 }
 
-const isDirectRun = process.argv[1]
-    && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isDirectRun = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectRun) {
     await runNativeToolBuilder().catch((error) => {
         console.error(getCliErrorMessage(error));

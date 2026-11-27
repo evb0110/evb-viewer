@@ -1,6 +1,6 @@
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
-import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
-import type { IAnnotationCreationFailureReport } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
+import type {IAnnotationContextMenuPayload} from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
+import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
@@ -9,18 +9,11 @@ import type {
     TAnnotationSettingChange,
     TAnnotationTool,
 } from '@app/types/annotations';
-import type {
-    TPdfViewRotation,
-    TPdfViewMode,
-} from '@app/types/pdfContracts';
-import type { IZoomStateAccess } from '@contracts/shared';
-import type {
-    IPdfPageMatches,
-    IPdfSearchMatch,
-    TPdfSource,
-} from '@app/types/pdfUi';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
-import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
+import type {TPdfViewRotation, TPdfViewMode} from '@app/types/pdfContracts';
+import type {IZoomStateAccess} from '@contracts/shared';
+import type {IPdfPageMatches, IPdfSearchMatch, TPdfSource} from '@app/types/pdfUi';
+import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
 
 export interface IPdfViewerProps {
     src: TPdfSource | null;
@@ -49,7 +42,6 @@ export interface IPdfViewerProps {
     originalPath?: string | null | undefined;
     documentRevisionToken?: TDocumentRevisionToken | null | undefined;
     authorName?: string | null | undefined;
-
 }
 
 export interface IPdfViewerEmit {
@@ -65,10 +57,13 @@ export interface IPdfViewerEmit {
     (e: 'annotation-comment-click', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-tool-cancel'): void;
     (e: 'annotation-failure', failure: IAnnotationCreationFailureReport): void;
-    (e: 'shape-context-menu', payload: {
-        shapeId: string;
-        clientX: number;
-        clientY: number;
-    }): void;
-    (e: 'initial-visual-ready', payload: {pageNumber: number;}): void;
+    (
+        e: 'shape-context-menu',
+        payload: {
+            shapeId: string;
+            clientX: number;
+            clientY: number;
+        },
+    ): void;
+    (e: 'initial-visual-ready', payload: {pageNumber: number}): void;
 }

@@ -1,9 +1,6 @@
-import type {
-    TLocale,
-    TTranslateFn,
-} from '~/i18n/locales';
-import type { TI18nComposer } from '~/types/i18nComposer';
-import { useI18n } from 'vue-i18n';
+import type {TLocale, TTranslateFn} from '~/i18n/locales';
+import type {TI18nComposer} from '~/types/i18nComposer';
+import {useI18n} from 'vue-i18n';
 import {
     DEFAULT_LOCALE,
     createTypedI18nComposer,
@@ -20,9 +17,7 @@ export function useTypedI18n() {
     const baseTranslate = composer.t.bind(composer);
     const t: TTranslateFn = (key, ...args) => {
         const params = normalizeTranslationParams(args[0]);
-        const translated = params === undefined
-            ? baseTranslate(key)
-            : baseTranslate(key, params);
+        const translated = params === undefined ? baseTranslate(key) : baseTranslate(key, params);
 
         if (translated !== key || typeof composer.getLocaleMessage !== 'function') {
             return translated;

@@ -1,16 +1,10 @@
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {
     clearPdfValidationRevisionCacheForTests,
     validatePdfRevision,
 } from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
-import { requireDocumentRef } from '@contracts/documentRef';
-import { requireEpochMs } from '@contracts/timestamps';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
 
 function createRevision(size = 170_496_793, modifiedAt = 1_724_000_000_000) {
     return {
@@ -36,14 +30,12 @@ describe('PDF validation revision cache', () => {
 
         await expect(validatePdfRevision(revision, validate)).resolves.toMatchObject({cacheResult: 'miss'});
         await expect(validatePdfRevision(revision, validate)).resolves.toMatchObject({cacheResult: 'hit'});
-        await expect(validatePdfRevision(
-            createRevision(revision.size, Number(revision.modifiedAt) + 1),
-            validate,
-        )).resolves.toMatchObject({cacheResult: 'miss'});
-        await expect(validatePdfRevision(
-            createRevision(revision.size + 1, Number(revision.modifiedAt)),
-            validate,
-        )).resolves.toMatchObject({cacheResult: 'miss'});
+        await expect(validatePdfRevision(createRevision(revision.size, Number(revision.modifiedAt) + 1), validate)).resolves.toMatchObject({
+            cacheResult: 'miss',
+        });
+        await expect(validatePdfRevision(createRevision(revision.size + 1, Number(revision.modifiedAt)), validate)).resolves.toMatchObject({
+            cacheResult: 'miss',
+        });
 
         expect(validate).toHaveBeenCalledTimes(3);
     });
@@ -67,12 +59,9 @@ describe('PDF validation revision cache', () => {
         const validateFull = vi.fn(async () => validResult);
         const revision = createRevision();
 
-        await expect(validatePdfRevision(revision, validateOpening, 'opening'))
-            .resolves.toMatchObject({cacheResult: 'miss'});
-        await expect(validatePdfRevision(revision, validateOpening, 'opening'))
-            .resolves.toMatchObject({cacheResult: 'hit'});
-        await expect(validatePdfRevision(revision, validateFull, 'full'))
-            .resolves.toMatchObject({cacheResult: 'miss'});
+        await expect(validatePdfRevision(revision, validateOpening, 'opening')).resolves.toMatchObject({cacheResult: 'miss'});
+        await expect(validatePdfRevision(revision, validateOpening, 'opening')).resolves.toMatchObject({cacheResult: 'hit'});
+        await expect(validatePdfRevision(revision, validateFull, 'full')).resolves.toMatchObject({cacheResult: 'miss'});
 
         expect(validateOpening).toHaveBeenCalledOnce();
         expect(validateFull).toHaveBeenCalledOnce();

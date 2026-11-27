@@ -3,10 +3,7 @@ export interface IProductionDeployLock {
     fd: number;
 }
 
-export function acquireProductionDeployLock(options: {
-    env: NodeJS.ProcessEnv;
-    projectId: string;
-}): Promise<IProductionDeployLock>;
+export function acquireProductionDeployLock(options: {env: NodeJS.ProcessEnv; projectId: string}): Promise<IProductionDeployLock>;
 
 export function resolveViewerAppVersion(projectRoot: string): string;
 

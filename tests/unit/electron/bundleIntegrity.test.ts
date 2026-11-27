@@ -1,25 +1,13 @@
-import { execFile } from 'child_process';
-import { existsSync } from 'fs';
-import {
-    readFile,
-    readdir,
-    stat,
-} from 'fs/promises';
-import {
-    basename,
-    join,
-} from 'path';
-import { promisify } from 'util';
-import { pathToFileURL } from 'url';
-import {
-    beforeAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { WORKER_BUNDLES } from '@electron-worker-bundles/electronWorkerBundles.js';
-import type { TWorkerBundleId } from '@electron-worker-bundles/electronWorkerBundles.js';
-import type { Metafile } from 'esbuild';
+import {execFile} from 'child_process';
+import {existsSync} from 'fs';
+import {readFile, readdir, stat} from 'fs/promises';
+import {basename, join} from 'path';
+import {promisify} from 'util';
+import {pathToFileURL} from 'url';
+import {beforeAll, describe, expect, it} from 'vitest';
+import {WORKER_BUNDLES} from '@electron-worker-bundles/electronWorkerBundles.js';
+import type {TWorkerBundleId} from '@electron-worker-bundles/electronWorkerBundles.js';
+import type {Metafile} from 'esbuild';
 
 const execFileAsync = promisify(execFile);
 
@@ -31,15 +19,17 @@ interface IDynamicCodeAnalysis {
     }>;
 }
 
-interface IWorkerDynamicCodePolicyModule {analyzeDynamicCodeConstruction: (content: string) => IDynamicCodeAnalysis}
+interface IWorkerDynamicCodePolicyModule {
+    analyzeDynamicCodeConstruction: (content: string) => IDynamicCodeAnalysis;
+}
 
 const REPO_ROOT = join(import.meta.dirname, '..', '..', '..');
 
 // Resolved from this file, not the working directory, so the suite behaves the
 // same however the runner was launched.
-const {analyzeDynamicCodeConstruction} = await import(
+const {analyzeDynamicCodeConstruction} = (await import(
     pathToFileURL(join(REPO_ROOT, 'scripts/lib/worker-dynamic-code-policy.mjs')).href
-) as IWorkerDynamicCodePolicyModule;
+)) as IWorkerDynamicCodePolicyModule;
 
 const DIST_DIR = join(REPO_ROOT, 'dist-electron');
 const MAIN_METAFILE = 'main.meta.json';
@@ -70,10 +60,7 @@ type TMetafileOutputMap = Metafile['outputs'];
 type TMetafileImportKind = Metafile['outputs'][string]['imports'][number]['kind'];
 
 const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
-    'djvu-engine': [
-        'evb-djvulibre.wasm',
-        'renderPageToFile',
-    ],
+    'djvu-engine': ['evb-djvulibre.wasm', 'renderPageToFile'],
     'image-export-tiff': ['combinePagesIntoMultiPageTiffLocal'],
     'ocr-engine-host': ['OCR engine host started without a parent port'],
 };
@@ -82,11 +69,7 @@ const MAIN_BUNDLE_CHECK: IBundleCheck = {
     file: 'main.js',
     requiredSymbols: [],
 };
-const REQUIRED_DEFERRED_UPDATER_SYMBOLS = [
-    'MacUpdater',
-    'NsisUpdater',
-    'AppImageUpdater',
-];
+const REQUIRED_DEFERRED_UPDATER_SYMBOLS = ['MacUpdater', 'NsisUpdater', 'AppImageUpdater'];
 
 const PRELOAD_BUNDLE_CHECK: IBundleCheck = {
     file: 'preload.cjs',
@@ -96,16 +79,12 @@ const PRELOAD_BUNDLE_CHECK: IBundleCheck = {
 const BUNDLE_CHECKS: IBundleCheck[] = [
     MAIN_BUNDLE_CHECK,
     PRELOAD_BUNDLE_CHECK,
-    ...WORKER_BUNDLES.map(bundle => ({
+    ...WORKER_BUNDLES.map((bundle) => ({
         file: bundle.fileName,
         requiredSymbols: REQUIRED_SYMBOLS_BY_WORKER[bundle.id] ?? [],
     })),
 ];
-const BASE_BUILD_OUTPUT_FILES = [
-    ...BUNDLE_CHECKS.map(check => check.file),
-    MAIN_METAFILE,
-    PRELOAD_METAFILE,
-];
+const BASE_BUILD_OUTPUT_FILES = [...BUNDLE_CHECKS.map((check) => check.file), MAIN_METAFILE, PRELOAD_METAFILE];
 const MAIN_FORBIDDEN_EAGER_INPUT_SUBSTRINGS = [
     '/node_modules/@anthropic-ai/claude-agent-sdk/',
     '/node_modules/@sentry/core/',
@@ -136,30 +115,38 @@ const PRELOAD_FORBIDDEN_INPUT_SUBSTRINGS = [
 let latestSourceMtimeMs = 0;
 let mainBundleFixture: IElectronBundleMetafileFixture;
 
-const WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES.map(bundle => bundle.fileName));
-const ELECTRON_FREE_WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES
-    // The OCR utility process and its engine threads, plus the DjVu engine worker, run outside Electron main.
-    .filter(bundle => bundle.id === 'pdf-text' || bundle.id === 'djvu-engine' || bundle.id === 'ocr-engine-host' || bundle.id === 'ocr-engine')
-    .map(bundle => bundle.fileName));
-const STATIC_ELECTRON_IMPORT_PATTERN = /\bimport\s*(?:\{[^}]*\}|\*\s*as\s+\w+|[\w$]+(?:\s*,\s*(?:\{[^}]*\}|\*\s*as\s+\w+))?)\s*from\s*["']electron["']|\bimport\s*["']electron["']/;
+const WORKER_BUNDLE_FILES = new Set(WORKER_BUNDLES.map((bundle) => bundle.fileName));
+const ELECTRON_FREE_WORKER_BUNDLE_FILES = new Set(
+    WORKER_BUNDLES
+        // The OCR utility process and its engine threads, plus the DjVu engine worker, run outside Electron main.
+        .filter(
+            (bundle) =>
+                bundle.id === 'pdf-text' || bundle.id === 'djvu-engine' || bundle.id === 'ocr-engine-host' || bundle.id === 'ocr-engine',
+        )
+        .map((bundle) => bundle.fileName),
+);
+const STATIC_ELECTRON_IMPORT_PATTERN =
+    /\bimport\s*(?:\{[^}]*\}|\*\s*as\s+\w+|[\w$]+(?:\s*,\s*(?:\{[^}]*\}|\*\s*as\s+\w+))?)\s*from\s*["']electron["']|\bimport\s*["']electron["']/;
 const CJS_ELECTRON_REQUIRE_PATTERN = /\brequire\(\s*["']electron["']\s*\)/;
 
 function shouldTrackSourceFile(fileName: string) {
-    return fileName.endsWith('.ts')
-        || fileName.endsWith('.d.ts')
-        || fileName.endsWith('.js')
-        || fileName.endsWith('.mjs')
-        || fileName.endsWith('.cjs');
+    return (
+        fileName.endsWith('.ts') ||
+        fileName.endsWith('.d.ts') ||
+        fileName.endsWith('.js') ||
+        fileName.endsWith('.mjs') ||
+        fileName.endsWith('.cjs')
+    );
 }
 
 async function collectSourceFiles(dirPath: string): Promise<string[]> {
-    const entries = await readdir(dirPath, { withFileTypes: true });
+    const entries = await readdir(dirPath, {withFileTypes: true});
     const files: string[] = [];
 
     for (const entry of entries) {
         const entryPath = join(dirPath, entry.name);
         if (entry.isDirectory()) {
-            files.push(...await collectSourceFiles(entryPath));
+            files.push(...(await collectSourceFiles(entryPath)));
             continue;
         }
         if (entry.isFile() && shouldTrackSourceFile(entry.name)) {
@@ -172,11 +159,7 @@ async function collectSourceFiles(dirPath: string): Promise<string[]> {
 
 async function getLatestSourceMtimeMs() {
     const sourceFiles = (await Promise.all(SOURCE_ROOTS.map(collectSourceFiles))).flat();
-    const freshnessReferenceFiles = [
-        ...sourceFiles,
-        join(REPO_ROOT, 'package.json'),
-        join(REPO_ROOT, 'scripts', 'build-electron.mjs'),
-    ];
+    const freshnessReferenceFiles = [...sourceFiles, join(REPO_ROOT, 'package.json'), join(REPO_ROOT, 'scripts', 'build-electron.mjs')];
 
     let newestMtimeMs = 0;
     for (const sourceFile of freshnessReferenceFiles) {
@@ -204,11 +187,7 @@ function getDistOutputFile(outputPath: string) {
     return outputFile;
 }
 
-function collectOutputClosure(
-    outputs: TMetafileOutputMap,
-    entryOutput: string,
-    includeImport: (kind: TMetafileImportKind) => boolean,
-) {
+function collectOutputClosure(outputs: TMetafileOutputMap, entryOutput: string, includeImport: (kind: TMetafileImportKind) => boolean) {
     const closure = new Set<string>();
     const pending = [entryOutput];
     while (pending.length > 0) {
@@ -231,12 +210,9 @@ function collectOutputClosure(
 }
 
 async function loadMainBundleFixture(): Promise<IElectronBundleMetafileFixture> {
-    const metafile = JSON.parse(
-        await readFile(join(DIST_DIR, MAIN_METAFILE), 'utf8'),
-    ) as Metafile;
+    const metafile = JSON.parse(await readFile(join(DIST_DIR, MAIN_METAFILE), 'utf8')) as Metafile;
     const outputs = metafile.outputs;
-    const emittedOutputPaths = Object.keys(outputs)
-        .filter(outputPath => outputPath.endsWith('.js'));
+    const emittedOutputPaths = Object.keys(outputs).filter((outputPath) => outputPath.endsWith('.js'));
     const emittedOutputFiles = emittedOutputPaths.map(getDistOutputFile);
     const mainEntryOutput = emittedOutputPaths.find((outputPath) => {
         const entryPoint = outputs[outputPath]?.entryPoint;
@@ -245,11 +221,7 @@ async function loadMainBundleFixture(): Promise<IElectronBundleMetafileFixture> 
     if (!mainEntryOutput) {
         throw new Error('main.meta.json does not identify the electron/main.ts entry output');
     }
-    const initialMainOutputClosure = collectOutputClosure(
-        outputs,
-        mainEntryOutput,
-        kind => kind !== 'dynamic-import',
-    );
+    const initialMainOutputClosure = collectOutputClosure(outputs, mainEntryOutput, (kind) => kind !== 'dynamic-import');
     return {
         metafile,
         outputs,
@@ -264,10 +236,7 @@ async function getBuildOutputFiles() {
         return BASE_BUILD_OUTPUT_FILES;
     }
     const fixture = await loadMainBundleFixture();
-    return [
-        ...BASE_BUILD_OUTPUT_FILES,
-        ...fixture.emittedOutputFiles,
-    ];
+    return [...BASE_BUILD_OUTPUT_FILES, ...fixture.emittedOutputFiles];
 }
 
 function collectOutputInputs(outputs: TMetafileOutputMap, outputPaths: Iterable<string>) {
@@ -306,17 +275,10 @@ async function rebuildElectronBundlesIfStale() {
     }
 
     const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-    await execFileAsync(
-        pnpmCommand,
-        [
-            'run',
-            'build:electron',
-        ],
-        {
-            cwd: REPO_ROOT,
-            env: process.env,
-        },
-    );
+    await execFileAsync(pnpmCommand, ['run', 'build:electron'], {
+        cwd: REPO_ROOT,
+        env: process.env,
+    });
 
     for (const outputFile of await getBuildOutputFiles()) {
         const outputPath = join(DIST_DIR, outputFile);
@@ -363,10 +325,9 @@ describe('Electron bundle static integrity', () => {
                         throw new Error(`${check.file} not found — run "pnpm run build:electron"`);
                     }
                     const content = await readFile(bundlePath, 'utf-8');
-                    expect(
-                        content.includes(symbol),
-                        `${check.file} is missing "${symbol}" — rebuild with "pnpm run build:electron"`,
-                    ).toBe(true);
+                    expect(content.includes(symbol), `${check.file} is missing "${symbol}" — rebuild with "pnpm run build:electron"`).toBe(
+                        true,
+                    );
                 });
             }
 
@@ -379,13 +340,10 @@ describe('Electron bundle static integrity', () => {
                     const {violations} = analyzeDynamicCodeConstruction(content);
 
                     expect(
-                        violations.map(({
-                            excerpt,
-                            kind,
-                        }) => `${kind} — ${excerpt}`),
-                        `${check.file} contains a bare or explicitly prefixed eval/Function call site `
-                        + 'outside the vendored allowlist. This is a textual tripwire over this bundle '
-                        + 'only, not a proof that the bundle constructs no code at runtime.',
+                        violations.map(({excerpt, kind}) => `${kind} — ${excerpt}`),
+                        `${check.file} contains a bare or explicitly prefixed eval/Function call site ` +
+                            'outside the vendored allowlist. This is a textual tripwire over this bundle ' +
+                            'only, not a proof that the bundle constructs no code at runtime.',
                     ).toEqual([]);
                 });
             }
@@ -397,8 +355,7 @@ describe('Electron bundle static integrity', () => {
                     }
                     const content = await readFile(bundlePath, 'utf-8');
                     expect(
-                        STATIC_ELECTRON_IMPORT_PATTERN.test(content)
-                        || CJS_ELECTRON_REQUIRE_PATTERN.test(content),
+                        STATIC_ELECTRON_IMPORT_PATTERN.test(content) || CJS_ELECTRON_REQUIRE_PATTERN.test(content),
                         `${check.file} must not statically import "electron"; workers cannot rely on Electron main-process exports`,
                     ).toBe(false);
                 });
@@ -417,9 +374,7 @@ describe('Electron bundle static integrity', () => {
             if (!existsSync(bundlePath)) {
                 throw new Error(`${fileName} not found — run "pnpm run build:electron"`);
             }
-            for (const justification of analyzeDynamicCodeConstruction(
-                await readFile(bundlePath, 'utf-8'),
-            ).allowedIdioms) {
+            for (const justification of analyzeDynamicCodeConstruction(await readFile(bundlePath, 'utf-8')).allowedIdioms) {
                 justifications.add(justification);
             }
         }
@@ -431,36 +386,25 @@ describe('Electron bundle static integrity', () => {
         it('emits the main entry and every chunk in the dist-electron root', () => {
             expect(getDistOutputFile(mainBundleFixture.mainEntryOutput)).toBe('main.js');
             expect(mainBundleFixture.emittedOutputFiles).toContain('main.js');
-            expect(
-                mainBundleFixture.emittedOutputFiles.some(file => file.startsWith('main-chunk-')),
-            ).toBe(true);
-            expect(
-                mainBundleFixture.emittedOutputFiles.every(file =>
-                    file === 'main.js' || /^main-chunk-.+\.js$/u.test(file),
-                ),
-            ).toBe(true);
+            expect(mainBundleFixture.emittedOutputFiles.some((file) => file.startsWith('main-chunk-'))).toBe(true);
+            expect(mainBundleFixture.emittedOutputFiles.every((file) => file === 'main.js' || /^main-chunk-.+\.js$/u.test(file))).toBe(
+                true,
+            );
         });
 
         it('keeps every emitted main file present and fresh', async () => {
             for (const outputFile of mainBundleFixture.emittedOutputFiles) {
                 const outputPath = join(DIST_DIR, outputFile);
                 expect(existsSync(outputPath), `${outputFile} is missing`).toBe(true);
-                expect(
-                    (await stat(outputPath)).mtimeMs,
-                    `${outputFile} appears stale compared to Electron sources`,
-                ).toBeGreaterThanOrEqual(latestSourceMtimeMs);
+                expect((await stat(outputPath)).mtimeMs, `${outputFile} appears stale compared to Electron sources`).toBeGreaterThanOrEqual(
+                    latestSourceMtimeMs,
+                );
             }
         });
 
         it('resolves every relative static and dynamic chunk import', () => {
-            const chunkImportKinds = new Set<TMetafileImportKind>([
-                'dynamic-import',
-                'import-statement',
-            ]);
-            for (const [
-                outputPath,
-                output,
-            ] of Object.entries(mainBundleFixture.outputs)) {
+            const chunkImportKinds = new Set<TMetafileImportKind>(['dynamic-import', 'import-statement']);
+            for (const [outputPath, output] of Object.entries(mainBundleFixture.outputs)) {
                 for (const imported of output.imports) {
                     if (imported.external || !chunkImportKinds.has(imported.kind)) {
                         continue;
@@ -478,43 +422,37 @@ describe('Electron bundle static integrity', () => {
         });
 
         it('retains updater implementations in deferred main outputs instead of initial boot closure', async () => {
-            const initialBundleText = (await Promise.all(
-                [...mainBundleFixture.initialMainOutputClosure]
-                    .map(outputPath => readFile(join(REPO_ROOT, outputPath), 'utf8')),
-            )).join('\n');
-            const deferredOutputPaths = Object.keys(mainBundleFixture.outputs)
-                .filter(outputPath => !mainBundleFixture.initialMainOutputClosure.has(outputPath));
-            const deferredBundleText = (await Promise.all(
-                deferredOutputPaths
-                    .map(outputPath => readFile(join(REPO_ROOT, outputPath), 'utf8')),
-            )).join('\n');
+            const initialBundleText = (
+                await Promise.all(
+                    [...mainBundleFixture.initialMainOutputClosure].map((outputPath) => readFile(join(REPO_ROOT, outputPath), 'utf8')),
+                )
+            ).join('\n');
+            const deferredOutputPaths = Object.keys(mainBundleFixture.outputs).filter(
+                (outputPath) => !mainBundleFixture.initialMainOutputClosure.has(outputPath),
+            );
+            const deferredBundleText = (
+                await Promise.all(deferredOutputPaths.map((outputPath) => readFile(join(REPO_ROOT, outputPath), 'utf8')))
+            ).join('\n');
             for (const symbol of REQUIRED_DEFERRED_UPDATER_SYMBOLS) {
-                expect(initialBundleText, `initial main closure must defer "${symbol}"`)
-                    .not.toContain(symbol);
-                expect(deferredBundleText, `deferred main outputs are missing "${symbol}"`)
-                    .toContain(symbol);
+                expect(initialBundleText, `initial main closure must defer "${symbol}"`).not.toContain(symbol);
+                expect(deferredBundleText, `deferred main outputs are missing "${symbol}"`).toContain(symbol);
             }
         });
 
         it('defers heavy non-boot modules, diagnostics SDK, assistant/MCP, and non-English locales', () => {
-            const initialInputs = collectOutputInputs(
-                mainBundleFixture.outputs,
-                mainBundleFixture.initialMainOutputClosure,
+            const initialInputs = collectOutputInputs(mainBundleFixture.outputs, mainBundleFixture.initialMainOutputClosure);
+            const deferredOutputPaths = Object.keys(mainBundleFixture.outputs).filter(
+                (outputPath) => !mainBundleFixture.initialMainOutputClosure.has(outputPath),
             );
-            const deferredOutputPaths = Object.keys(mainBundleFixture.outputs)
-                .filter(outputPath => !mainBundleFixture.initialMainOutputClosure.has(outputPath));
-            const deferredInputs = collectOutputInputs(
-                mainBundleFixture.outputs,
-                deferredOutputPaths,
-            );
+            const deferredInputs = collectOutputInputs(mainBundleFixture.outputs, deferredOutputPaths);
 
             for (const forbiddenInput of MAIN_FORBIDDEN_EAGER_INPUT_SUBSTRINGS) {
                 expect(
-                    [...initialInputs].some(inputPath => inputPath.includes(forbiddenInput)),
+                    [...initialInputs].some((inputPath) => inputPath.includes(forbiddenInput)),
                     `initial main closure must not contain ${forbiddenInput}`,
                 ).toBe(false);
                 expect(
-                    [...deferredInputs].some(inputPath => inputPath.includes(forbiddenInput)),
+                    [...deferredInputs].some((inputPath) => inputPath.includes(forbiddenInput)),
                     `deferred main outputs must retain ${forbiddenInput}`,
                 ).toBe(true);
             }
@@ -524,12 +462,11 @@ describe('Electron bundle static integrity', () => {
     it('keeps heavyweight PDF and TIFF implementations out of preload', async () => {
         const metafilePath = join(DIST_DIR, PRELOAD_METAFILE);
         const metafile = JSON.parse(await readFile(metafilePath, 'utf8')) as {inputs?: Record<string, unknown>};
-        const inputPaths = Object.keys(metafile.inputs ?? {})
-            .map(inputPath => `/${inputPath.replaceAll('\\', '/')}`);
+        const inputPaths = Object.keys(metafile.inputs ?? {}).map((inputPath) => `/${inputPath.replaceAll('\\', '/')}`);
 
         for (const forbiddenInput of PRELOAD_FORBIDDEN_INPUT_SUBSTRINGS) {
             expect(
-                inputPaths.some(inputPath => inputPath.includes(forbiddenInput)),
+                inputPaths.some((inputPath) => inputPath.includes(forbiddenInput)),
                 `preload metafile must not contain ${forbiddenInput}`,
             ).toBe(false);
         }

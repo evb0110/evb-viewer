@@ -1,20 +1,11 @@
-import type {
-    IDocumentNavigationTicket,
-    IDocumentOpenSurfaceSnapshot,
-} from '@app/modules/document-viewer/public';
-import { createPageNavigationRequest } from '@app/modules/document-viewer/navigation/documentNavigationRequest';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { shallowRef } from 'vue';
-import { createPdfReloadWaiter } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
-import type { TPdfReloadOutcome } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
-import { resolvePdfReloadPage } from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/resolvePdfReloadPage';
-import { cast } from '@tests/helpers/cast';
+import type {IDocumentNavigationTicket, IDocumentOpenSurfaceSnapshot} from '@app/modules/document-viewer/public';
+import {createPageNavigationRequest} from '@app/modules/document-viewer/navigation/documentNavigationRequest';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {shallowRef} from 'vue';
+import {createPdfReloadWaiter} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter';
+import type {TPdfReloadOutcome} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/pdfReloadWaiterViewer';
+import {resolvePdfReloadPage} from '@app/modules/pdf-viewer/engine/pdf-reload-waiter/resolvePdfReloadPage';
+import {cast} from '@tests/helpers/cast';
 
 afterEach(() => vi.useRealTimers());
 
@@ -32,14 +23,16 @@ describe('createPdfReloadWaiter', () => {
     } as const;
 
     function createSurface() {
-        const snapshot = shallowRef(cast<IDocumentOpenSurfaceSnapshot>({
-            generation: 1,
-            identity: {
-                documentId: 'document',
-                documentRevision: 'revision-a',
-            },
-            ...settledSurface,
-        }));
+        const snapshot = shallowRef(
+            cast<IDocumentOpenSurfaceSnapshot>({
+                generation: 1,
+                identity: {
+                    documentId: 'document',
+                    documentRevision: 'revision-a',
+                },
+                ...settledSurface,
+            }),
+        );
         const viewportSession = shallowRef(cast<{lifecycle: string}>({lifecycle: 'ready'}));
         const navigationTicket = shallowRef<IDocumentNavigationTicket | null>(null);
         return {
@@ -83,7 +76,7 @@ describe('createPdfReloadWaiter', () => {
         };
     }
 
-    it('resolves with the viewer\'s receipt once the view settles on the reloaded document', async () => {
+    it("resolves with the viewer's receipt once the view settles on the reloaded document", async () => {
         const surface = createSurface();
         const receipt = createAdmission();
         const resetSearchCache = vi.fn();
@@ -147,14 +140,18 @@ describe('createPdfReloadWaiter', () => {
 
     it.each([
         {generation: 3},
-        {identity: {
-            documentId: 'replacement',
-            documentRevision: 'revision-b',
-        }},
-        {identity: {
-            documentId: 'document',
-            documentRevision: 'revision-c',
-        }},
+        {
+            identity: {
+                documentId: 'replacement',
+                documentRevision: 'revision-b',
+            },
+        },
+        {
+            identity: {
+                documentId: 'document',
+                documentRevision: 'revision-c',
+            },
+        },
     ])('does not finish a reload whose surface was replaced meanwhile (%s)', async (replacement) => {
         const surface = createSurface();
         const receipt = createAdmission();

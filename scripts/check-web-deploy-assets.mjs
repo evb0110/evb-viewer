@@ -1,38 +1,22 @@
-import { getCliErrorMessage } from './lib/cli-error.mjs';
-import {
-    readdir,
-    readFile,
-    stat,
-} from 'node:fs/promises';
-import { spawn } from 'node:child_process';
-import { createServer } from 'node:net';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
+import {readdir, readFile, stat} from 'node:fs/promises';
+import {spawn} from 'node:child_process';
+import {createServer} from 'node:net';
 import path from 'node:path';
-import {
-    fileURLToPath,
-    pathToFileURL,
-} from 'node:url';
-import {
-    REQUIRED_WEB_DEPLOY_ASSETS,
-    REQUIRED_WEB_OUTPUT_CONTRACTS,
-    REQUIRED_WEB_WASM_ASSETS,
-} from './web-deploy-asset-manifest.mjs';
+import {fileURLToPath, pathToFileURL} from 'node:url';
+import {REQUIRED_WEB_DEPLOY_ASSETS, REQUIRED_WEB_OUTPUT_CONTRACTS, REQUIRED_WEB_WASM_ASSETS} from './web-deploy-asset-manifest.mjs';
 import {scanPublicArtifactDirectory} from './check-build-artifacts-hygiene.mjs';
-import { countWasmBulkMemory } from './lib/lower-wasm-bulk-memory.mjs';
-import { WASM_ARTIFACTS } from './wasm-artifacts.mjs';
+import {countWasmBulkMemory} from './lib/lower-wasm-bulk-memory.mjs';
+import {WASM_ARTIFACTS} from './wasm-artifacts.mjs';
 
 // Browser WASM the build lowers: a deployed copy must have no bulk memory
 // instructions left, even if a stale build skipped the step.
-const LOWERED_WASM_RELATIVE_PATHS = new Set(WASM_ARTIFACTS
-    .filter(artifact => artifact.lowerBulkMemory)
-    .map(artifact => artifact.publicRelativePath.replace(/^public\//u, '')));
+const LOWERED_WASM_RELATIVE_PATHS = new Set(
+    WASM_ARTIFACTS.filter((artifact) => artifact.lowerBulkMemory).map((artifact) => artifact.publicRelativePath.replace(/^public\//u, '')),
+);
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES = [
-    'pdf-lib',
-    'utif',
-    'pako',
-    '@sentry/',
-];
+const FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES = ['pdf-lib', 'utif', 'pako', '@sentry/'];
 const NODE_SERVER_BOOT_TIMINGS = Object.freeze({
     default: Object.freeze({
         healthDeadlineMs: 8_000,
@@ -46,11 +30,7 @@ const NODE_SERVER_BOOT_TIMINGS = Object.freeze({
     }),
 });
 const NODE_SERVER_OUTPUT_LIMIT = 64 * 1024;
-export {
-    REQUIRED_WEB_DEPLOY_ASSETS,
-    REQUIRED_WEB_OUTPUT_CONTRACTS,
-    REQUIRED_WEB_WASM_ASSETS,
-};
+export {REQUIRED_WEB_DEPLOY_ASSETS, REQUIRED_WEB_OUTPUT_CONTRACTS, REQUIRED_WEB_WASM_ASSETS};
 
 const WEB_OUTPUT_FORBIDDEN_PATTERNS = [
     /(?:^|\/)vendor\/(?:pdfjs-dist|pdf\.js|pdfjs-source)(?:\/|$)/u,
@@ -70,7 +50,7 @@ export async function collectWebDeployOutputViolations(rootPath) {
                 await walk(absolutePath, relativePath);
                 continue;
             }
-            if (entry.isFile() && WEB_OUTPUT_FORBIDDEN_PATTERNS.some(pattern => pattern.test(relativePath))) {
+            if (entry.isFile() && WEB_OUTPUT_FORBIDDEN_PATTERNS.some((pattern) => pattern.test(relativePath))) {
                 violations.push(relativePath);
             }
         }
@@ -84,36 +64,30 @@ export function isVercelBuildOutputEnv(env = process.env) {
 }
 
 export function getExpectedWebDeployOutputRoots(env = process.env) {
-    return isVercelBuildOutputEnv(env)
-        ? ['.vercel/output/static']
-        : ['nuxt-output/public'];
+    return isVercelBuildOutputEnv(env) ? ['.vercel/output/static'] : ['nuxt-output/public'];
 }
 
 export function parseWebDeployAssetOptions(rawArgs = [], env = process.env) {
     const supportedArgs = new Set(['--vercel-output']);
-    const unknownArgs = rawArgs.filter(arg => !supportedArgs.has(arg));
+    const unknownArgs = rawArgs.filter((arg) => !supportedArgs.has(arg));
 
     if (unknownArgs.length > 0) {
         throw new Error(`Unsupported web deploy asset option: ${unknownArgs.join(', ')}`);
     }
-    const vercelOutputArgs = rawArgs.filter(arg => arg === '--vercel-output');
+    const vercelOutputArgs = rawArgs.filter((arg) => arg === '--vercel-output');
     if (vercelOutputArgs.length > 1) {
         throw new Error('Expected at most one --vercel-output option.');
     }
     const vercelOutput = vercelOutputArgs.length === 1 || isVercelBuildOutputEnv(env);
 
     return {
-        outputRoots: vercelOutput
-            ? ['.vercel/output/static']
-            : ['nuxt-output/public'],
+        outputRoots: vercelOutput ? ['.vercel/output/static'] : ['nuxt-output/public'],
         vercelOutput,
     };
 }
 
 export function getNodeServerBootTiming(platform = process.platform) {
-    return platform === 'win32'
-        ? NODE_SERVER_BOOT_TIMINGS.win32
-        : NODE_SERVER_BOOT_TIMINGS.default;
+    return platform === 'win32' ? NODE_SERVER_BOOT_TIMINGS.win32 : NODE_SERVER_BOOT_TIMINGS.default;
 }
 
 async function assertDirectory(dirPath, label) {
@@ -152,19 +126,17 @@ async function assertWasmAsset(rootPath, rootLabel, asset) {
     const fileResult = await assertFileAsset(rootPath, rootLabel, asset);
     const wasmBytes = await readFile(fileResult.path);
     const wasmModule = new WebAssembly.Module(wasmBytes);
-    const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map(entry => entry.name));
-    const missingExports = asset.requiredExports.filter(name => !exportNames.has(name));
+    const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map((entry) => entry.name));
+    const missingExports = asset.requiredExports.filter((name) => !exportNames.has(name));
     if (missingExports.length > 0) {
-        throw new Error(
-            `${rootLabel} asset ${asset.relativePath} is missing exports: ${missingExports.join(', ')}`,
-        );
+        throw new Error(`${rootLabel} asset ${asset.relativePath} is missing exports: ${missingExports.join(', ')}`);
     }
     if (LOWERED_WASM_RELATIVE_PATHS.has(asset.relativePath)) {
         const bulk = countWasmBulkMemory(wasmBytes);
         if (bulk.copy + bulk.fill > 0) {
             throw new Error(
-                `${rootLabel} asset ${asset.relativePath} has ${bulk.copy} memory.copy and ${bulk.fill} memory.fill; `
-                + 'rebuild it with node scripts/build-wasm-tool.mjs scan-cleanup',
+                `${rootLabel} asset ${asset.relativePath} has ${bulk.copy} memory.copy and ${bulk.fill} memory.fill; ` +
+                    'rebuild it with node scripts/build-wasm-tool.mjs scan-cleanup',
             );
         }
     }
@@ -203,27 +175,21 @@ function collectStaticImportSpecifiers(source) {
 }
 
 function resolveLocalAssetPath(specifier, importerPath = '/') {
-    if (
-        !specifier.startsWith('/')
-        && !specifier.startsWith('./')
-        && !specifier.startsWith('../')
-    ) {
+    if (!specifier.startsWith('/') && !specifier.startsWith('./') && !specifier.startsWith('../')) {
         return null;
     }
 
     const baseUrl = new URL(importerPath, 'https://evb.local');
     const resolvedUrl = new URL(specifier, baseUrl);
-    return resolvedUrl.origin === baseUrl.origin
-        ? decodeURIComponent(resolvedUrl.pathname)
-        : null;
+    return resolvedUrl.origin === baseUrl.origin ? decodeURIComponent(resolvedUrl.pathname) : null;
 }
 
 export async function assertInitialRendererDependencyGraph(rootPath) {
     const htmlPath = path.join(rootPath, 'electron/index.html');
     const html = await readFile(htmlPath, 'utf8');
     const modulePreloads = collectModulePreloadPaths(html)
-        .map(href => resolveLocalAssetPath(href))
-        .filter(assetPath => assetPath !== null);
+        .map((href) => resolveLocalAssetPath(href))
+        .filter((assetPath) => assetPath !== null);
     const pending = [...modulePreloads];
     const visited = new Set();
 
@@ -235,15 +201,11 @@ export async function assertInitialRendererDependencyGraph(rootPath) {
         visited.add(assetPath);
 
         const source = await readFile(path.join(rootPath, assetPath.slice(1)), 'utf8');
-        const forbiddenDependency = FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES.find(dependency => (
-            dependency.endsWith('/')
-                ? source.includes(dependency)
-                : new RegExp(`\\b${dependency}\\b`, 'iu').test(source)
-        ));
+        const forbiddenDependency = FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES.find((dependency) =>
+            dependency.endsWith('/') ? source.includes(dependency) : new RegExp(`\\b${dependency}\\b`, 'iu').test(source),
+        );
         if (forbiddenDependency) {
-            throw new Error(
-                `Initial renderer dependency graph contains ${forbiddenDependency}: ${assetPath}`,
-            );
+            throw new Error(`Initial renderer dependency graph contains ${forbiddenDependency}: ${assetPath}`);
         }
 
         for (const specifier of collectStaticImportSpecifiers(source)) {
@@ -263,18 +225,18 @@ export async function assertInitialRendererDependencyGraph(rootPath) {
 async function validateAssetRoot(rootPath, rootLabel, {requireOutputContracts = false} = {}) {
     await assertDirectory(rootPath, rootLabel);
 
-    const forbiddenOutput = requireOutputContracts
-        ? await collectWebDeployOutputViolations(rootPath)
-        : [];
+    const forbiddenOutput = requireOutputContracts ? await collectWebDeployOutputViolations(rootPath) : [];
     if (forbiddenOutput.length > 0) {
         throw new Error(`Web build output contains forbidden PDF.js artifacts: ${forbiddenOutput.join(', ')}`);
     }
 
     const assets = [];
     for (const asset of REQUIRED_WEB_DEPLOY_ASSETS) {
-        assets.push('requiredExports' in asset
-            ? await assertWasmAsset(rootPath, rootLabel, asset)
-            : await assertFileAsset(rootPath, rootLabel, asset));
+        assets.push(
+            'requiredExports' in asset
+                ? await assertWasmAsset(rootPath, rootLabel, asset)
+                : await assertFileAsset(rootPath, rootLabel, asset),
+        );
     }
     if (requireOutputContracts) {
         for (const relativePath of REQUIRED_WEB_OUTPUT_CONTRACTS) {
@@ -297,21 +259,14 @@ export async function validateWebDeployAssets({
     const outputResults = [];
     for (const outputRoot of outputRoots) {
         const outputRootPath = path.join(projectRoot, outputRoot);
-        const assets = await validateAssetRoot(
-            outputRootPath,
-            `web build output ${outputRoot}`,
-            {requireOutputContracts: true},
-        );
+        const assets = await validateAssetRoot(outputRootPath, `web build output ${outputRoot}`, {requireOutputContracts: true});
         const artifactViolations = await scanPublicArtifactDirectory({
             rootPath: outputRootPath,
-            target: outputRoot === '.vercel/output/static'
-                ? 'web-static'
-                : 'desktop-renderer',
+            target: outputRoot === '.vercel/output/static' ? 'web-static' : 'desktop-renderer',
         });
         if (artifactViolations.length > 0) {
             throw new Error(
-                `Web build output ${outputRoot} contains forbidden public artifacts:\n`
-                + artifactViolations.slice(0, 20).join('\n'),
+                `Web build output ${outputRoot} contains forbidden public artifacts:\n` + artifactViolations.slice(0, 20).join('\n'),
             );
         }
         outputResults.push({
@@ -327,15 +282,8 @@ export async function validateWebDeployAssets({
 }
 
 export async function validateVercelFunctionBoot({projectRoot = defaultProjectRoot} = {}) {
-    const entryPath = path.join(
-        projectRoot,
-        '.vercel/output/functions/__fallback.func/index.mjs',
-    );
-    await assertFileAsset(
-        path.dirname(entryPath),
-        'Vercel server function',
-        {relativePath: path.basename(entryPath)},
-    );
+    const entryPath = path.join(projectRoot, '.vercel/output/functions/__fallback.func/index.mjs');
+    await assertFileAsset(path.dirname(entryPath), 'Vercel server function', {relativePath: path.basename(entryPath)});
 
     try {
         await import(`${pathToFileURL(entryPath).href}?boot-check=${Date.now()}`);
@@ -366,11 +314,7 @@ async function reserveLoopbackPort() {
     });
 }
 
-async function waitForListeningMarker({
-    deadline,
-    getProcessFailure,
-    isListeningObserved,
-}) {
+async function waitForListeningMarker({deadline, getProcessFailure, isListeningObserved}) {
     while (Date.now() < deadline) {
         const processFailure = getProcessFailure();
         if (processFailure) {
@@ -379,29 +323,24 @@ async function waitForListeningMarker({
         if (isListeningObserved()) {
             return;
         }
-        await new Promise(resolve => setTimeout(resolve, 50));
+        await new Promise((resolve) => setTimeout(resolve, 50));
     }
     throw new Error('Nuxt server did not report its listening address before the deadline.');
 }
 
-async function pollHealthEndpoint({
-    deadline,
-    healthUrl,
-}) {
+async function pollHealthEndpoint({deadline, healthUrl}) {
     let lastError;
     while (Date.now() < deadline) {
         try {
             const response = await fetch(healthUrl, {signal: AbortSignal.timeout(1_000)});
             await response.arrayBuffer();
             if (!response.ok) {
-                throw new Error(
-                    `Nuxt server health request returned HTTP ${String(response.status)}.`,
-                );
+                throw new Error(`Nuxt server health request returned HTTP ${String(response.status)}.`);
             }
             return;
         } catch (error) {
             lastError = error;
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await new Promise((resolve) => setTimeout(resolve, 50));
         }
     }
     throw lastError ?? new Error('Nuxt server did not answer its loopback health request.');
@@ -412,13 +351,10 @@ async function shutdownChild(child, childClosed, timeoutMs) {
         child.kill('SIGTERM');
     }
     let shutdownTimer;
-    const shutdownTimeout = new Promise(resolve => {
+    const shutdownTimeout = new Promise((resolve) => {
         shutdownTimer = setTimeout(resolve, timeoutMs);
     });
-    await Promise.race([
-        childClosed,
-        shutdownTimeout,
-    ]);
+    await Promise.race([childClosed, shutdownTimeout]);
     clearTimeout(shutdownTimer);
     if (child.exitCode === null && child.signalCode === null) {
         child.kill('SIGKILL');
@@ -444,28 +380,24 @@ function startNodeServer(entryPath, port, listeningPattern) {
             NITRO_PORT: String(port),
             PORT: String(port),
         },
-        stdio: [
-            'ignore',
-            'pipe',
-            'pipe',
-        ],
+        stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
     });
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
-    child.stdout?.on('data', chunk => {
+    child.stdout?.on('data', (chunk) => {
         const updatedOutput = `${state.stdoutOutput}${chunk}`;
         state.listeningObserved ||= listeningPattern.test(updatedOutput);
         state.stdoutTruncated ||= updatedOutput.length > NODE_SERVER_OUTPUT_LIMIT;
         state.stdoutOutput = updatedOutput.slice(-NODE_SERVER_OUTPUT_LIMIT);
     });
-    child.stderr?.on('data', chunk => {
+    child.stderr?.on('data', (chunk) => {
         const updatedOutput = `${state.stderrOutput}${chunk}`;
         state.stderrTruncated ||= updatedOutput.length > NODE_SERVER_OUTPUT_LIMIT;
         state.stderrOutput = updatedOutput.slice(-NODE_SERVER_OUTPUT_LIMIT);
     });
-    const childClosed = new Promise(resolve => {
-        child.once('error', error => {
+    const childClosed = new Promise((resolve) => {
+        child.once('error', (error) => {
             state.spawnError = error;
         });
         child.once('exit', (code, signal) => {
@@ -491,48 +423,23 @@ function startNodeServer(entryPath, port, listeningPattern) {
 
 function formatNodeServerFailure(error, state) {
     const childOutput = [
-        [
-            'stderr',
-            state.stderrOutput,
-            state.stderrTruncated,
-        ],
-        [
-            'stdout',
-            state.stdoutOutput,
-            state.stdoutTruncated,
-        ],
+        ['stderr', state.stderrOutput, state.stderrTruncated],
+        ['stdout', state.stdoutOutput, state.stdoutTruncated],
     ]
-        .filter(([
-            , output,
-        ]) => output.trim().length > 0)
-        .map(([
-            streamName,
-            output,
-            truncated,
-        ]) => [
-            truncated ? `[${streamName} output truncated to the last 64 KiB]` : '',
-            output.trim(),
-        ].filter(Boolean).join('\n'))
+        .filter(([, output]) => output.trim().length > 0)
+        .map(([streamName, output, truncated]) =>
+            [truncated ? `[${streamName} output truncated to the last 64 KiB]` : '', output.trim()].filter(Boolean).join('\n'),
+        )
         .join('\n');
     const details = getCliErrorMessage(error);
-    return new Error(
-        `Nuxt node server failed to boot: ${details}${childOutput ? `\n${childOutput}` : ''}`,
-        {cause: error},
-    );
+    return new Error(`Nuxt node server failed to boot: ${details}${childOutput ? `\n${childOutput}` : ''}`, {cause: error});
 }
 
 async function runNodeServerBootProbe(entryPath, port) {
     const healthUrl = `http://127.0.0.1:${String(port)}/`;
-    const listeningPattern = new RegExp(
-        `Listening\\s+on\\s+https?://(?:127\\.0\\.0\\.1|localhost):${String(port)}(?:/|\\s|$)`,
-        'iu',
-    );
+    const listeningPattern = new RegExp(`Listening\\s+on\\s+https?://(?:127\\.0\\.0\\.1|localhost):${String(port)}(?:/|\\s|$)`, 'iu');
     const timing = getNodeServerBootTiming();
-    const {
-        child,
-        childClosed,
-        state,
-    } = startNodeServer(entryPath, port, listeningPattern);
+    const {child, childClosed, state} = startNodeServer(entryPath, port, listeningPattern);
 
     let bootError;
     try {
@@ -544,10 +451,10 @@ async function runNodeServerBootProbe(entryPath, port) {
                 }
                 return state.exit
                     ? new Error(
-                        'Nuxt server exited before reporting its listening address '
-                        + `(code ${String(state.exit.code)}, `
-                        + `signal ${String(state.exit.signal)}).`,
-                    )
+                          'Nuxt server exited before reporting its listening address ' +
+                              `(code ${String(state.exit.code)}, ` +
+                              `signal ${String(state.exit.signal)}).`,
+                      )
                     : undefined;
             },
             isListeningObserved: () => state.listeningObserved,
@@ -566,29 +473,18 @@ async function runNodeServerBootProbe(entryPath, port) {
     }
 }
 
-export async function validateNodeServerBoot({
-    port: requestedPort,
-    projectRoot = defaultProjectRoot,
-} = {}) {
-    if (
-        requestedPort !== undefined
-        && (!Number.isInteger(requestedPort) || requestedPort < 1 || requestedPort > 65_535)
-    ) {
+export async function validateNodeServerBoot({port: requestedPort, projectRoot = defaultProjectRoot} = {}) {
+    if (requestedPort !== undefined && (!Number.isInteger(requestedPort) || requestedPort < 1 || requestedPort > 65_535)) {
         throw new Error('The Nuxt boot check port must be an integer from 1 through 65535.');
     }
     const entryPath = path.join(projectRoot, 'nuxt-output/server/index.mjs');
-    await assertFileAsset(
-        path.dirname(entryPath),
-        'Nuxt node server',
-        {relativePath: path.basename(entryPath)},
-    );
+    await assertFileAsset(path.dirname(entryPath), 'Nuxt node server', {relativePath: path.basename(entryPath)});
 
-    const port = requestedPort ?? await reserveLoopbackPort();
+    const port = requestedPort ?? (await reserveLoopbackPort());
     await runNodeServerBootProbe(entryPath, port);
 }
 
-const isDirectCliRun = process.argv[1]
-    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+const isDirectCliRun = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
     try {
@@ -599,7 +495,7 @@ if (isDirectCliRun) {
         } else {
             await validateNodeServerBoot();
         }
-        const outputRoots = result.outputResults.map(entry => entry.root).join(', ');
+        const outputRoots = result.outputResults.map((entry) => entry.root).join(', ');
         console.log(`Web deploy asset check passed for ${outputRoots}.`);
     } catch (error) {
         console.error(getCliErrorMessage(error));

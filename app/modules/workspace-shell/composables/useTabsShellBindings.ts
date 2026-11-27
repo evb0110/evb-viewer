@@ -1,60 +1,46 @@
-import type {
-    InjectionKey,
-    Ref,
-} from 'vue';
-import type { TPaneDirection } from '@contracts/editorPanes';
-import { isMacClientPlatform } from '@app/utils/clientPlatform';
-import { useEventListener } from '@vueuse/core';
-import type { TDocumentRef } from '@contracts/documentRef';
-import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
-import type {
-    IEvbTestCommandResult,
-    IEvbTestApi,
-    IEvbTestWorkspaceDebugState,
-} from '@app/types/evbTestApi';
-import type {
-    IWorkspaceAutomationStateSnapshot,
-    IWorkspaceExpose,
-    IWorkspaceToolbarSnapshot,
-} from '@app/types/workspaceExpose';
-import { shouldPreferDesktopPlatform } from '@app/utils/platform';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { useFatalRuntimeError } from '@app/composables/useFatalRuntimeError';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import { useRecentFiles } from '@app/composables/useRecentFiles';
-import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
-import { traceRendererStartup } from '@app/utils/traceRendererStartup';
-import { registerTabsMenuBindings } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
-import type { ITabsMenuBindingDeps } from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
-import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import {
-    getDocumentFilesCapability,
-    getDocumentMenuCapability,
-} from '@app/utils/platformDocuments';
-import { getSettingsCapability } from '@app/utils/getSettingsCapability';
-import { getUpdatesCapability } from '@app/utils/platformUpdates';
-import { getDjvuCapability } from '@app/utils/getDjvuCapability';
-import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
-import { shouldHandleRendererMenuAccelerators } from '@app/utils/shouldHandleRendererMenuAccelerators';
-import { guardAsync } from '@app/utils/asyncGuard';
-import type { ITab } from '@app/types/tabs';
-import { restoreWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint';
-import type { TWorkspaceDocumentSessions } from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
+import type {InjectionKey, Ref} from 'vue';
+import type {TPaneDirection} from '@contracts/editorPanes';
+import {isMacClientPlatform} from '@app/utils/clientPlatform';
+import {useEventListener} from '@vueuse/core';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
+import type {IEvbTestCommandResult, IEvbTestApi, IEvbTestWorkspaceDebugState} from '@app/types/evbTestApi';
+import type {IWorkspaceAutomationStateSnapshot, IWorkspaceExpose, IWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
+import {shouldPreferDesktopPlatform} from '@app/utils/platform';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {useFatalRuntimeError} from '@app/composables/useFatalRuntimeError';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import {useRecentFiles} from '@app/composables/useRecentFiles';
+import {getOrCaptureRendererBootstrapFailure} from '@app/utils/getOrCaptureRendererBootstrapFailure';
+import {traceRendererStartup} from '@app/utils/traceRendererStartup';
+import {registerTabsMenuBindings} from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
+import type {ITabsMenuBindingDeps} from '@app/modules/workspace-shell/menu/registerTabsMenuBindings';
+import type {IWorkspaceDocumentController} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
+import {getDocumentFilesCapability, getDocumentMenuCapability} from '@app/utils/platformDocuments';
+import {getSettingsCapability} from '@app/utils/getSettingsCapability';
+import {getUpdatesCapability} from '@app/utils/platformUpdates';
+import {getDjvuCapability} from '@app/utils/getDjvuCapability';
+import {getWindowTabsCapability} from '@app/utils/platformWindowTabs';
+import {shouldHandleRendererMenuAccelerators} from '@app/utils/shouldHandleRendererMenuAccelerators';
+import {guardAsync} from '@app/utils/asyncGuard';
+import type {ITab} from '@app/types/tabs';
+import {restoreWorkspaceCheckpoint} from '@app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint';
+import type {TWorkspaceDocumentSessions} from '@app/modules/workspace-shell/document-sessions/useWorkspaceDocumentSessions';
 import {
     getWorkspaceViewerChunkTargetsForPaths,
     scheduleDesktopViewerWarmup,
     warmupDesktopViewerChunkForPaths,
     type IDesktopViewerWarmupHandle,
 } from '@app/modules/workspace-shell/viewers/warmupDesktopViewerChunks';
-import { resolveStartupWorkProfile } from '@app/utils/startupWorkProfile';
-import { registerDirectOpenAutomationDelegate } from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
+import {resolveStartupWorkProfile} from '@app/utils/startupWorkProfile';
+import {registerDirectOpenAutomationDelegate} from '@app/modules/workspace-shell/automation/directOpenAutomationDispatcher';
 import {
     getAutomationEvents,
     onAutomationEvent,
     waitForAutomationEvent,
 } from '@app/modules/workspace-shell/automation/automationReadinessEvents';
-import { isAutomationSession } from '@app/utils/isAutomationSession';
-import { readShortcutKey } from '@app/utils/shortcutKey';
+import {isAutomationSession} from '@app/utils/isAutomationSession';
+import {readShortcutKey} from '@app/utils/shortcutKey';
 
 const STARTUP_OPEN_CLAIMED_EVENT_NAME = 'evb:startup-open-claimed';
 const STARTUP_FAILED_EVENT_NAME = 'evb:startup-failed';
@@ -62,8 +48,8 @@ type TTabKeyboardShortcutAction = 'new-tab' | 'close-tab' | 'next-tab' | 'previo
 type TRendererDocumentShortcutAction = 'open-file' | 'save-as' | 'export-docx' | 'undo' | 'redo';
 type TRendererDocumentCommandShortcutAction = Exclude<TRendererDocumentShortcutAction, 'open-file'>;
 const RENDERER_MENU_SHORTCUT_ACTIONS: Partial<Record<string, TTabKeyboardShortcutAction>> = {
-    't': 'new-tab',
-    'w': 'close-tab',
+    t: 'new-tab',
+    w: 'close-tab',
     // Desktop's Window menu binds CmdOrCtrl+\ to a new pane on the right.
     '\\': 'new-pane-right',
 };
@@ -75,7 +61,8 @@ const RENDERER_DOCUMENT_SHORTCUT_COMMANDS: Record<TRendererDocumentCommandShortc
 };
 
 /** Opens a Recent file: shows the tab that already shows it, otherwise runs `open`. */
-export const openRecentFileKey: InjectionKey<(path: TDocumentRef, open: () => Promise<boolean>) => Promise<boolean>> = Symbol('open-recent-file');
+export const openRecentFileKey: InjectionKey<(path: TDocumentRef, open: () => Promise<boolean>) => Promise<boolean>> =
+    Symbol('open-recent-file');
 
 interface IRecentFileRoute {
     sessionsByTabId: () => Readonly<Record<string, IWorkspaceDocumentController>>;
@@ -88,11 +75,12 @@ interface IRecentFileRoute {
 // it is where Recent goes. A tab only assigned the path (restored or
 // recovered, not opened yet), a failed one, or one still opening is not.
 function findLoadedFileTabId(path: TDocumentRef, sessionsByTabId: Readonly<Record<string, IWorkspaceDocumentController>>) {
-    return Object.entries(sessionsByTabId).find(([
-        , session,
-    ]) => session.file.value.originalPath === path
-        && session.snapshot.value.phase === 'presented'
-        && session.snapshot.value.activeTransaction === null)?.[0];
+    return Object.entries(sessionsByTabId).find(
+        ([, session]) =>
+            session.file.value.originalPath === path &&
+            session.snapshot.value.phase === 'presented' &&
+            session.snapshot.value.activeTransaction === null,
+    )?.[0];
 }
 
 /**
@@ -103,17 +91,23 @@ function findLoadedFileTabId(path: TDocumentRef, sessionsByTabId: Readonly<Recor
  * Without such a tab the open runs in the selection's own call.
  */
 export function routeRecentFile(path: TDocumentRef, open: () => Promise<boolean>, route: IRecentFileRoute) {
-    if (!findLoadedFileTabId(path, route.sessionsByTabId())) return open();
+    if (!findLoadedFileTabId(path, route.sessionsByTabId())) {
+        return open();
+    }
     return Promise.all([
         route.forgetRecentFileIfMissing(path),
-        route.statSource(path).then(() => true, () => false),
-    ]).then(([
-        gone,
-        exists,
-    ]) => {
-        if (gone) return false;
+        route.statSource(path).then(
+            () => true,
+            () => false,
+        ),
+    ]).then(([gone, exists]) => {
+        if (gone) {
+            return false;
+        }
         const tabId = exists ? findLoadedFileTabId(path, route.sessionsByTabId()) : undefined;
-        if (!tabId) return open();
+        if (!tabId) {
+            return open();
+        }
         route.activateTab(tabId);
         return true;
     });
@@ -134,12 +128,9 @@ interface IUseTabsShellBindingsOptions extends Omit<ITabsMenuBindingDeps, 'openR
 
 export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     const route = useRoute();
-    const { t } = useTypedI18n();
-    const { setFatalRuntimeError } = useFatalRuntimeError();
-    const {
-        presentFailureToast,
-        presentNoticeToast,
-    } = useFailureToast();
+    const {t} = useTypedI18n();
+    const {setFatalRuntimeError} = useFatalRuntimeError();
+    const {presentFailureToast, presentNoticeToast} = useFailureToast();
     const {
         isActive,
         tabs,
@@ -169,7 +160,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         sessionsByTabId: () => documentSessions.documentSessionsByTabId.value,
         activateTab,
         forgetRecentFileIfMissing,
-        statSource: path => getDocumentFilesCapability().statFile(path),
+        statSource: (path) => getDocumentFilesCapability().statFile(path),
     };
     const openRecentFile = (path: TDocumentRef, open: () => Promise<boolean>) => routeRecentFile(path, open, recentRoute);
     provide(openRecentFileKey, openRecentFile);
@@ -179,10 +170,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     let installedTestApi: IEvbTestApi | null = null;
     let cleanupDirectOpenDelegate: (() => void) | null = null;
 
-    function readWorkspaceSnapshot(
-        tabId: string | null | undefined,
-        workspace: IWorkspaceExpose | null,
-    ): IWorkspaceToolbarSnapshot | null {
+    function readWorkspaceSnapshot(tabId: string | null | undefined, workspace: IWorkspaceExpose | null): IWorkspaceToolbarSnapshot | null {
         try {
             const liveSnapshot = workspace?.getToolbarSnapshot() ?? null;
             if (liveSnapshot) {
@@ -196,9 +184,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         return documentSessions.getView(tabId)?.toolbarSnapshot.value ?? null;
     }
 
-    function readWorkspaceAutomationState(
-        workspace: IWorkspaceExpose | null,
-    ): IWorkspaceAutomationStateSnapshot | Record<string, never> {
+    function readWorkspaceAutomationState(workspace: IWorkspaceExpose | null): IWorkspaceAutomationStateSnapshot | Record<string, never> {
         try {
             return workspace?.getAutomationStateSnapshot() ?? {};
         } catch (error) {
@@ -208,11 +194,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     }
 
     function unwrapAutomationValue(value: unknown) {
-        const unwrapped = value
-        && typeof value === 'object'
-        && 'value' in value
-            ? (value as { value?: unknown }).value
-            : value;
+        const unwrapped = value && typeof value === 'object' && 'value' in value ? (value as {value?: unknown}).value : value;
         return unwrapped instanceof Set ? Array.from(unwrapped) : unwrapped;
     }
 
@@ -241,7 +223,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
 
         function readActiveWorkspaceCommand(commandName: string) {
             const command: unknown = (getActiveWorkspaceHandle() as Record<string, unknown> | null)?.[commandName];
-            return typeof command === 'function' ? command as (...args: unknown[]) => unknown : null;
+            return typeof command === 'function' ? (command as (...args: unknown[]) => unknown) : null;
         }
 
         const callActiveWorkspaceSyncCommand = <TResult = unknown>(
@@ -251,13 +233,13 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             const command = readActiveWorkspaceCommand(commandName);
             return command
                 ? {
-                    called: true,
-                    value: (command(...args) ?? null) as TResult | null,
-                }
+                      called: true,
+                      value: (command(...args) ?? null) as TResult | null,
+                  }
                 : {
-                    called: false,
-                    value: null,
-                };
+                      called: false,
+                      value: null,
+                  };
         };
 
         const callActiveWorkspaceCommand = async <TResult = unknown>(
@@ -267,13 +249,13 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             const command = readActiveWorkspaceCommand(commandName);
             return command
                 ? {
-                    called: true,
-                    value: (await Promise.resolve(command(...args)) ?? null) as TResult | null,
-                }
+                      called: true,
+                      value: ((await Promise.resolve(command(...args))) ?? null) as TResult | null,
+                  }
                 : {
-                    called: false,
-                    value: null,
-                };
+                      called: false,
+                      value: null,
+                  };
         };
 
         return {
@@ -299,12 +281,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                     activeToolbarSnapshot: readWorkspaceSnapshot(activeTabId.value, activeWorkspaceHandle),
                     activeWorkspaceState: readWorkspaceAutomationState(activeWorkspaceHandle),
                     workspaceCount: workspaceRefs.value.size,
-                    workspaces: Array.from(
-                        workspaceRefs.value.entries(),
-                    ).map(([
-                        tabId,
-                        workspace,
-                    ]) => ({
+                    workspaces: Array.from(workspaceRefs.value.entries()).map(([tabId, workspace]) => ({
                         automationStateKeys: Object.keys(readWorkspaceAutomationState(workspace)),
                         exposedKeys: Object.keys(workspace),
                         isActive: tabId === activeTabId.value,
@@ -338,14 +315,14 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             return;
         }
 
-        window.dispatchEvent(new CustomEvent(STARTUP_OPEN_CLAIMED_EVENT_NAME, {detail: { pathCount }}));
+        window.dispatchEvent(new CustomEvent(STARTUP_OPEN_CLAIMED_EVENT_NAME, {detail: {pathCount}}));
     }
 
     function cycleTab(direction: number) {
         if (tabs.value.length <= 1 || !activeTabId.value) {
             return;
         }
-        const currentIndex = tabs.value.findIndex(t => t.id === activeTabId.value);
+        const currentIndex = tabs.value.findIndex((t) => t.id === activeTabId.value);
         if (currentIndex < 0) {
             return;
         }
@@ -360,9 +337,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         // Alt-modified keys type characters (AltGr is Ctrl+Alt on Windows), as
         // desktop's accelerators do not match them either.
         const mod = (event.metaKey || event.ctrlKey) && !event.altKey;
-        const action = mod && !event.shiftKey
-            ? RENDERER_MENU_SHORTCUT_ACTIONS[readShortcutKey(event)] ?? null
-            : null;
+        const action = mod && !event.shiftKey ? (RENDERER_MENU_SHORTCUT_ACTIONS[readShortcutKey(event)] ?? null) : null;
         if (action !== 'new-pane-right') {
             return action;
         }
@@ -378,9 +353,9 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         }
 
         return Boolean(
-            target.isContentEditable === true
-            || Boolean(target.closest('[contenteditable="true"], [contenteditable=""]'))
-            || Boolean(target.closest('input, textarea, select')),
+            target.isContentEditable === true ||
+            Boolean(target.closest('[contenteditable="true"], [contenteditable=""]')) ||
+            Boolean(target.closest('input, textarea, select')),
         );
     }
 
@@ -508,12 +483,12 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     }
 
     const stopTabKeyboardShortcutListener = useEventListener(
-        computed(() => isActive.value && typeof window !== 'undefined' ? window : undefined),
+        computed(() => (isActive.value && typeof window !== 'undefined' ? window : undefined)),
         'keydown',
         handleTabKeyboardShortcut,
         {capture: true},
     );
-    const lifecycle: { isDisposed: boolean } = { isDisposed: false };
+    const lifecycle: {isDisposed: boolean} = {isDisposed: false};
     let desktopViewerWarmupHandle: IDesktopViewerWarmupHandle | null = null;
 
     function notifyRendererReadyAndScheduleViewerWarmup() {
@@ -524,11 +499,9 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             isDesktopRuntime: shouldPreferDesktopPlatform(route.path),
             strategy: profile.desktopViewerWarmupStrategy,
         });
-        void desktopViewerWarmupHandle?.completion.catch(error => BrowserLogger.warn(
-            'tabs-shell',
-            'Background viewer warmup failed',
-            error,
-        ));
+        void desktopViewerWarmupHandle?.completion.catch((error) =>
+            BrowserLogger.warn('tabs-shell', 'Background viewer warmup failed', error),
+        );
     }
 
     // A document whose restore ended the renderer comes back closed. The user
@@ -550,7 +523,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             }
         }
         // Its working copy, the only home of its unsaved changes, was not found.
-        for (const tab of checkpoint.tabs.filter(candidate => candidate.workingCopyLost)) {
+        for (const tab of checkpoint.tabs.filter((candidate) => candidate.workingCopyLost)) {
             presentNoticeToast({
                 tone: 'warning',
                 title: t('errors.workspace.workingCopyLostTitle'),
@@ -566,23 +539,27 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     // reports the lost session and lets startup continue.
     async function restoreStartupWorkspaceCheckpoint(windowTabsCapability: ReturnType<typeof getWindowTabsCapability>) {
         try {
-            const workspaceCheckpoint = typeof windowTabsCapability.claimWorkspaceCheckpoint === 'function'
-                ? await windowTabsCapability.claimWorkspaceCheckpoint()
-                : null;
+            const workspaceCheckpoint =
+                typeof windowTabsCapability.claimWorkspaceCheckpoint === 'function'
+                    ? await windowTabsCapability.claimWorkspaceCheckpoint()
+                    : null;
             if (lifecycle.isDisposed.valueOf()) {
                 return;
             }
             if (workspaceCheckpoint) {
                 traceRendererStartup('tabs shell restoring workspace checkpoint', {tabCount: workspaceCheckpoint.tabs.length});
-                const failedCheckpointPaths = await restoreWorkspaceCheckpoint({
-                    ...workspaceCheckpoint,
-                    tabs: workspaceCheckpoint.tabs.filter(tab => !tab.workingCopyLost || tab.sourceRef),
-                }, {
-                    activeTabId,
-                    documentSessions,
-                    restoreGraph: restoreWorkspaceCheckpointGraph,
-                    activateTab,
-                });
+                const failedCheckpointPaths = await restoreWorkspaceCheckpoint(
+                    {
+                        ...workspaceCheckpoint,
+                        tabs: workspaceCheckpoint.tabs.filter((tab) => !tab.workingCopyLost || tab.sourceRef),
+                    },
+                    {
+                        activeTabId,
+                        documentSessions,
+                        restoreGraph: restoreWorkspaceCheckpointGraph,
+                        activateTab,
+                    },
+                );
                 if (lifecycle.isDisposed.valueOf()) {
                     return;
                 }
@@ -590,18 +567,18 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 if (failedCheckpointPaths.length === 0) {
                     await windowTabsCapability.acknowledgeWorkspaceCheckpoint();
                 } else {
-                    BrowserLogger.warn(
-                        'tabs-shell',
-                        'Workspace checkpoint restore was incomplete; keeping recovery evidence',
-                        {failedPathCount: failedCheckpointPaths.length},
-                    );
+                    BrowserLogger.warn('tabs-shell', 'Workspace checkpoint restore was incomplete; keeping recovery evidence', {
+                        failedPathCount: failedCheckpointPaths.length,
+                    });
                 }
             }
         } catch (error) {
             if (lifecycle.isDisposed.valueOf()) {
                 return;
             }
-            const failure = BrowserLogger.error('tabs-shell', 'Workspace checkpoint restore failed', error, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'});
+            const failure = BrowserLogger.error('tabs-shell', 'Workspace checkpoint restore failed', error, {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+            });
             presentFailureToast({
                 failure,
                 title: t('errors.workspace.sessionRestoreTitle'),
@@ -622,34 +599,37 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
 
         if (typeof window !== 'undefined') {
             cleanupDirectOpenDelegate = registerDirectOpenAutomationDelegate(openPathInAppropriateTab);
-            (window as Window & { __handleSave?: () => Promise<unknown> }).__handleSave = debugHandleSave;
+            (window as Window & {__handleSave?: () => Promise<unknown>}).__handleSave = debugHandleSave;
             installAutomationTestApi();
         }
 
         void (async () => {
             const windowTabsCapability = getWindowTabsCapability();
-            const registeredMenuCleanups = registerTabsMenuBindings({
-                documentMenu: getDocumentMenuCapability(),
-                settings: getSettingsCapability(),
-                updates: getUpdatesCapability(),
-                djvu: getDjvuCapability(),
-                windowTabs: windowTabsCapability,
-            }, {
-                isActive,
-                activeWorkspace,
-                activeTabId,
-                createTab,
-                handleCloseTab,
-                handleFallbackToolbarOpenFile,
-                openRecentInAppropriateTab: path => openRecentFile(path, () => openPathInAppropriateTab(path)),
-                openPathsInAppropriateTab,
-                clearRecentFiles,
-                loadRecentFiles,
-                checkForUpdates,
-                openNewPane,
-                handleWindowTabsAction,
-                toggleAssistant,
-            });
+            const registeredMenuCleanups = registerTabsMenuBindings(
+                {
+                    documentMenu: getDocumentMenuCapability(),
+                    settings: getSettingsCapability(),
+                    updates: getUpdatesCapability(),
+                    djvu: getDjvuCapability(),
+                    windowTabs: windowTabsCapability,
+                },
+                {
+                    isActive,
+                    activeWorkspace,
+                    activeTabId,
+                    createTab,
+                    handleCloseTab,
+                    handleFallbackToolbarOpenFile,
+                    openRecentInAppropriateTab: (path) => openRecentFile(path, () => openPathInAppropriateTab(path)),
+                    openPathsInAppropriateTab,
+                    clearRecentFiles,
+                    loadRecentFiles,
+                    checkForUpdates,
+                    openNewPane,
+                    handleWindowTabsAction,
+                    toggleAssistant,
+                },
+            );
             menuCleanups.push(...registeredMenuCleanups);
             traceRendererStartup('tabs shell menu bindings registered');
 
@@ -666,7 +646,9 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             // Opening a claimed file can wait on the reader, for a password for
             // instance; that is not startup, so the window reports ready first.
             const startupOpen = (async () => {
-                if (startupExternalPaths.length === 0) return;
+                if (startupExternalPaths.length === 0) {
+                    return;
+                }
                 traceRendererStartup('tabs shell claimed startup external paths', {pathCount: startupExternalPaths.length});
                 const targets = getWorkspaceViewerChunkTargetsForPaths(startupExternalPaths);
                 const matchingWarmupTraceData = {
@@ -721,13 +703,13 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         desktopViewerWarmupHandle = null;
         cleanupDirectOpenDelegate?.();
         cleanupDirectOpenDelegate = null;
-        if (typeof window !== 'undefined' && (window as Window & { __handleSave?: unknown }).__handleSave === debugHandleSave) {
-            delete (window as Window & { __handleSave?: () => Promise<unknown> }).__handleSave;
+        if (typeof window !== 'undefined' && (window as Window & {__handleSave?: unknown}).__handleSave === debugHandleSave) {
+            delete (window as Window & {__handleSave?: () => Promise<unknown>}).__handleSave;
         }
         if (typeof window !== 'undefined' && window.__evbTestApi === installedTestApi) {
             delete window.__evbTestApi;
         }
-        menuCleanups.forEach(cleanup => cleanup());
+        menuCleanups.forEach((cleanup) => cleanup());
         menuCleanups.splice(0, menuCleanups.length);
         stopTabKeyboardShortcutListener();
     });

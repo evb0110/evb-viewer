@@ -13,9 +13,7 @@ export function createDjvuCanvas(width: number, height: number) {
     return canvas;
 }
 
-export function getDjvuCanvas2dContext(
-    canvas: TDjvuCanvas,
-): OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null {
+export function getDjvuCanvas2dContext(canvas: TDjvuCanvas): OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null {
     if (typeof HTMLCanvasElement !== 'undefined' && canvas instanceof HTMLCanvasElement) {
         return canvas.getContext('2d');
     }
@@ -25,21 +23,13 @@ export function getDjvuCanvas2dContext(
 }
 
 export function toOwnedArrayBuffer(bytes: Uint8Array) {
-    if (
-        bytes.buffer instanceof ArrayBuffer
-        && bytes.byteOffset === 0
-        && bytes.byteLength === bytes.buffer.byteLength
-    ) {
+    if (bytes.buffer instanceof ArrayBuffer && bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength) {
         return bytes.buffer;
     }
     return bytes.slice().buffer;
 }
 
-export async function encodeDjvuCanvas(
-    canvas: TDjvuCanvas,
-    type: 'image/jpeg' | 'image/png',
-    quality?: number,
-) {
+export async function encodeDjvuCanvas(canvas: TDjvuCanvas, type: 'image/jpeg' | 'image/png', quality?: number) {
     if (typeof OffscreenCanvas !== 'undefined' && canvas instanceof OffscreenCanvas) {
         const encodeOptions: ImageEncodeOptions = {type};
         if (quality !== undefined) {
@@ -49,13 +39,17 @@ export async function encodeDjvuCanvas(
         return new Uint8Array(await blob.arrayBuffer());
     }
     const blob = await new Promise<Blob>((resolve, reject) => {
-        (canvas as HTMLCanvasElement).toBlob((nextBlob: Blob | null) => {
-            if (!nextBlob) {
-                reject(new Error(`Failed to encode canvas as ${type}`));
-                return;
-            }
-            resolve(nextBlob);
-        }, type, quality);
+        (canvas as HTMLCanvasElement).toBlob(
+            (nextBlob: Blob | null) => {
+                if (!nextBlob) {
+                    reject(new Error(`Failed to encode canvas as ${type}`));
+                    return;
+                }
+                resolve(nextBlob);
+            },
+            type,
+            quality,
+        );
     });
     return new Uint8Array(await blob.arrayBuffer());
 }

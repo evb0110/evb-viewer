@@ -1,25 +1,9 @@
-import {
-    dialog,
-    shell,
-} from 'electron';
-import type {
-    BrowserWindow,
-    MessageBoxOptions,
-} from 'electron';
-import {
-    readFile,
-    rename,
-    writeFile,
-} from 'node:fs/promises';
+import {dialog, shell} from 'electron';
+import type {BrowserWindow, MessageBoxOptions} from 'electron';
+import {readFile, rename, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
-import {
-    dirname, join,
-} from 'node:path';
-import type {
-    IAgentMcpIntegrationStatus,
-    IAgentMcpIntegrationUpdateResult,
-    TAgentMcpCodexRegistrationState,
-} from '@contracts/agent';
+import {dirname, join} from 'node:path';
+import type {IAgentMcpIntegrationStatus, IAgentMcpIntegrationUpdateResult, TAgentMcpCodexRegistrationState} from '@contracts/agent';
 import {
     getLocalMcpCodexRegistrationTransport,
     getLocalMcpServerDescriptor,
@@ -28,19 +12,12 @@ import {
     shutdownLocalMcpServer,
     startLocalMcpServer,
 } from '@electron/features/agent/mcpServer';
-import {
-    loadSettings,
-    updateSettings,
-} from '@electron/settings';
-import {
-    CODEX_APP_INSTALL_URL,
-    resolveCodexCliPath,
-    runCodexCli,
-} from '@electron/features/agent/codexCli';
-import { te } from '@electron/te';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import { fsyncDirectory as syncDirectory } from '@electron/utils/fsyncPath';
+import {loadSettings, updateSettings} from '@electron/settings';
+import {CODEX_APP_INSTALL_URL, resolveCodexCliPath, runCodexCli} from '@electron/features/agent/codexCli';
+import {te} from '@electron/te';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {fsyncDirectory as syncDirectory} from '@electron/utils/fsyncPath';
 import {createIsoTimestamp} from '@contracts/timestamps';
 
 const logger = createLogger('agent-codex-mcp');
@@ -66,12 +43,7 @@ interface IExternalMcpStartupError {
 let lastExternalMcpStartupError: IExternalMcpStartupError | null = null;
 
 function normalizeExternalMcpStartupError(error: unknown): IExternalMcpStartupError {
-    const code = typeof error === 'object'
-        && error !== null
-        && 'code' in error
-        && typeof error.code === 'string'
-        ? error.code
-        : undefined;
+    const code = typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' ? error.code : undefined;
     return {
         message: getErrorMessage(error),
         ...(code ? {code} : {}),
@@ -96,9 +68,7 @@ async function disableExternalMcpServer() {
 
 function getTransportEnv(config: ICodexServerConfig | null) {
     const env = config?.transport?.env;
-    return typeof env === 'object' && env !== null && !Array.isArray(env)
-        ? env as Record<string, unknown>
-        : null;
+    return typeof env === 'object' && env !== null && !Array.isArray(env) ? (env as Record<string, unknown>) : null;
 }
 
 async function createBaseStatus(): Promise<Omit<IAgentMcpIntegrationStatus, 'enabled'>> {
@@ -131,7 +101,7 @@ async function createStatus(
 ): Promise<IAgentMcpIntegrationStatus> {
     return {
         enabled,
-        ...await createBaseStatus(),
+        ...(await createBaseStatus()),
         ...patch,
         ...(lastExternalMcpStartupError ? {error: lastExternalMcpStartupError.message} : {}),
     };
@@ -140,18 +110,14 @@ async function createStatus(
 function parseCodexServerConfig(stdout: string): ICodexServerConfig | null {
     try {
         const parsed: unknown = JSON.parse(stdout);
-        return parsed && typeof parsed === 'object'
-            ? parsed
-            : null;
+        return parsed && typeof parsed === 'object' ? parsed : null;
     } catch {
         return null;
     }
 }
 
 function redactMcpToken(value: string, token: string) {
-    return token.length > 0
-        ? value.split(token).join('<redacted>')
-        : value;
+    return token.length > 0 ? value.split(token).join('<redacted>') : value;
 }
 
 function getCodexConfigPath() {
@@ -161,7 +127,6 @@ function getCodexConfigPath() {
     const codexHome = configuredHome === '' ? undefined : configuredHome;
     return join(codexHome ?? join(homedir(), '.codex'), 'config.toml');
 }
-
 
 /**
  * `codex mcp add` writes the token straight into argv, where any other user on
@@ -194,16 +159,8 @@ async function persistCodexMcpToken(token: string) {
 
 async function getCodexRegistrationState(codexPath: string) {
     const descriptor = getLocalMcpServerDescriptor();
-    const {
-        launchConfig,
-        token,
-    } = await getLocalMcpCodexRegistrationTransport();
-    const result = await runCodexCli(codexPath, [
-        'mcp',
-        'get',
-        descriptor.name,
-        '--json',
-    ]);
+    const {launchConfig, token} = await getLocalMcpCodexRegistrationTransport();
+    const result = await runCodexCli(codexPath, ['mcp', 'get', descriptor.name, '--json']);
     if (!result.ok) {
         return {
             state: 'missing' as TAgentMcpCodexRegistrationState,
@@ -213,31 +170,26 @@ async function getCodexRegistrationState(codexPath: string) {
 
     const config = parseCodexServerConfig(result.stdout);
     const transportEnv = getTransportEnv(config);
-    const configured = config?.enabled === true
-        && config.transport?.type === 'stdio'
-        && config.transport.command === launchConfig.command
-        && Array.isArray(config.transport.args)
-        && config.transport.args.length === launchConfig.args.length
-        && config.transport.args.every((arg, index) => arg === launchConfig.args[index])
-        && transportEnv !== null
-        && transportEnv.ELECTRON_RUN_AS_NODE === '1'
-        && transportEnv.EVB_MCP_URL === descriptor.url
-        && transportEnv.EVB_MCP_TOKEN === token;
+    const configured =
+        config?.enabled === true &&
+        config.transport?.type === 'stdio' &&
+        config.transport.command === launchConfig.command &&
+        Array.isArray(config.transport.args) &&
+        config.transport.args.length === launchConfig.args.length &&
+        config.transport.args.every((arg, index) => arg === launchConfig.args[index]) &&
+        transportEnv !== null &&
+        transportEnv.ELECTRON_RUN_AS_NODE === '1' &&
+        transportEnv.EVB_MCP_URL === descriptor.url &&
+        transportEnv.EVB_MCP_TOKEN === token;
     return {
-        state: configured
-            ? 'configured' as const
-            : 'mismatched' as const,
+        state: configured ? ('configured' as const) : ('mismatched' as const),
         configured,
     };
 }
 
 async function removeCodexRegistration(codexPath: string) {
     const {token} = await getLocalMcpCodexRegistrationTransport();
-    const result = await runCodexCli(codexPath, [
-        'mcp',
-        'remove',
-        getLocalMcpServerDescriptor().name,
-    ]);
+    const result = await runCodexCli(codexPath, ['mcp', 'remove', getLocalMcpServerDescriptor().name]);
     if (!result.ok) {
         const detail = `${redactMcpToken(result.stderr, token)}\n${redactMcpToken(result.stdout, token)}`.trim();
         throw new Error(detail || 'Codex MCP registration removal failed.');
@@ -245,11 +197,7 @@ async function removeCodexRegistration(codexPath: string) {
 }
 
 async function registerCodexMcp(codexPath: string) {
-    const {
-        descriptor,
-        launchConfig,
-        token,
-    } = await getLocalMcpCodexRegistrationTransport();
+    const {descriptor, launchConfig, token} = await getLocalMcpCodexRegistrationTransport();
     await removeCodexRegistration(codexPath);
     const result = await runCodexCli(codexPath, [
         'mcp',
@@ -289,16 +237,11 @@ async function showInstallCodexDialog(parentWindow?: BrowserWindow | null) {
         title: te('dialogs.agentMcp.codexMissingTitle'),
         message: te('dialogs.agentMcp.codexMissingMessage'),
         detail: te('dialogs.agentMcp.codexMissingDetail'),
-        buttons: [
-            openInstall,
-            cancel,
-        ],
+        buttons: [openInstall, cancel],
         defaultId: 0,
         cancelId: 1,
     } satisfies MessageBoxOptions;
-    const { response } = parentWindow
-        ? await dialog.showMessageBox(parentWindow, options)
-        : await dialog.showMessageBox(options);
+    const {response} = parentWindow ? await dialog.showMessageBox(parentWindow, options) : await dialog.showMessageBox(options);
     if (response === 0) {
         await shell.openExternal(CODEX_APP_INSTALL_URL);
     }
@@ -306,32 +249,21 @@ async function showInstallCodexDialog(parentWindow?: BrowserWindow | null) {
 
 async function confirmCodexMutation(parentWindow: BrowserWindow | null | undefined, enabled: boolean) {
     const descriptor = getLocalMcpServerDescriptor();
-    const allowLabel = enabled
-        ? te('dialogs.agentMcp.enableAllow')
-        : te('dialogs.agentMcp.disableAllow');
+    const allowLabel = enabled ? te('dialogs.agentMcp.enableAllow') : te('dialogs.agentMcp.disableAllow');
     const cancelLabel = te('dialogs.agentMcp.cancel');
     const options = {
         type: 'question',
-        title: enabled
-            ? te('dialogs.agentMcp.enableTitle')
-            : te('dialogs.agentMcp.disableTitle'),
-        message: enabled
-            ? te('dialogs.agentMcp.enableMessage')
-            : te('dialogs.agentMcp.disableMessage'),
+        title: enabled ? te('dialogs.agentMcp.enableTitle') : te('dialogs.agentMcp.disableTitle'),
+        message: enabled ? te('dialogs.agentMcp.enableMessage') : te('dialogs.agentMcp.disableMessage'),
         detail: te('dialogs.agentMcp.configDetail', {
             server: descriptor.name,
             url: descriptor.url,
         }),
-        buttons: [
-            allowLabel,
-            cancelLabel,
-        ],
+        buttons: [allowLabel, cancelLabel],
         defaultId: 0,
         cancelId: 1,
     } satisfies MessageBoxOptions;
-    const { response } = parentWindow
-        ? await dialog.showMessageBox(parentWindow, options)
-        : await dialog.showMessageBox(options);
+    const {response} = parentWindow ? await dialog.showMessageBox(parentWindow, options) : await dialog.showMessageBox(options);
     return response === 0;
 }
 
@@ -361,7 +293,7 @@ export async function getAgentMcpIntegrationStatus(): Promise<IAgentMcpIntegrati
 }
 
 async function setAgentMcpSetting(enabled: boolean) {
-    await updateSettings(settings => {
+    await updateSettings((settings) => {
         settings.agentMcpEnabled = enabled;
         return undefined;
     });
@@ -426,13 +358,10 @@ export async function setAgentMcpIntegrationEnabled(
             status: await getAgentMcpIntegrationStatus(),
         };
     } catch (error) {
-        logger.error(
-            `Failed to ${enabled ? 'enable' : 'disable'} Codex MCP integration: ${getErrorMessage(error)}`,
-            {
-                code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
-                cause: error,
-            },
-        );
+        logger.error(`Failed to ${enabled ? 'enable' : 'disable'} Codex MCP integration: ${getErrorMessage(error)}`, {
+            code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+            cause: error,
+        });
         if (settingChanged) {
             await restoreExternalMcpIntegration(codexPath, previousSettings.agentMcpEnabled).catch((rollbackError: unknown) => {
                 logger.warn(`Failed to restore Codex MCP integration after update failure: ${getErrorMessage(rollbackError)}`);

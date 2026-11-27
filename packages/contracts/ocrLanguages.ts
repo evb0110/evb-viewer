@@ -1,7 +1,4 @@
-import {
-    isOneOf,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {isOneOf, isRecord} from '@contracts/runtimeGuards';
 
 type TOcrLanguageScript = 'latin' | 'cyrillic' | 'greek' | 'rtl';
 
@@ -11,19 +8,10 @@ export interface IOcrLanguage {
     modelState?: 'installed' | 'downloading' | 'missing';
 }
 
-const OCR_LANGUAGE_SCRIPTS = [
-    'latin',
-    'cyrillic',
-    'greek',
-    'rtl',
-] as const satisfies readonly TOcrLanguageScript[];
+const OCR_LANGUAGE_SCRIPTS = ['latin', 'cyrillic', 'greek', 'rtl'] as const satisfies readonly TOcrLanguageScript[];
 const OCR_LANGUAGE_MAX_COUNT = 128;
 const OCR_LANGUAGE_CODE_MAX_LENGTH = 32;
-const OCR_LANGUAGE_MODEL_STATES = [
-    'installed',
-    'downloading',
-    'missing',
-] as const;
+const OCR_LANGUAGE_MODEL_STATES = ['installed', 'downloading', 'missing'] as const;
 
 export function decodeOcrLanguages(value: unknown): IOcrLanguage[] | null {
     if (!Array.isArray(value) || value.length === 0 || value.length > OCR_LANGUAGE_MAX_COUNT) {
@@ -33,15 +21,15 @@ export function decodeOcrLanguages(value: unknown): IOcrLanguage[] | null {
     const codes = new Set<string>();
     for (const candidate of value) {
         if (
-            !isRecord(candidate)
-            || typeof candidate.code !== 'string'
-            || candidate.code.length > OCR_LANGUAGE_CODE_MAX_LENGTH
-            || !/^[a-z][a-z0-9_]*$/u.test(candidate.code)
-            || !isAvailableOcrLanguageCode(candidate.code)
-            || typeof candidate.script !== 'string'
-            || !isOneOf(OCR_LANGUAGE_SCRIPTS, candidate.script)
-            || (candidate.modelState !== undefined && !isOneOf(OCR_LANGUAGE_MODEL_STATES, candidate.modelState))
-            || codes.has(candidate.code)
+            !isRecord(candidate) ||
+            typeof candidate.code !== 'string' ||
+            candidate.code.length > OCR_LANGUAGE_CODE_MAX_LENGTH ||
+            !/^[a-z][a-z0-9_]*$/u.test(candidate.code) ||
+            !isAvailableOcrLanguageCode(candidate.code) ||
+            typeof candidate.script !== 'string' ||
+            !isOneOf(OCR_LANGUAGE_SCRIPTS, candidate.script) ||
+            (candidate.modelState !== undefined && !isOneOf(OCR_LANGUAGE_MODEL_STATES, candidate.modelState)) ||
+            codes.has(candidate.code)
         ) {
             return null;
         }
@@ -194,11 +182,7 @@ export type TOcrLanguageCode = (typeof AVAILABLE_OCR_LANGUAGES)[number]['code'];
  * script recognizer. A run consults them only on a page its own model read
  * with the long-s signature.
  */
-export const EARLY_PRINT_MODEL_CODES = [
-    'ita_old',
-    'fra',
-    'lat_dictionary',
-] as const;
+export const EARLY_PRINT_MODEL_CODES = ['ita_old', 'fra', 'lat_dictionary'] as const;
 
 /**
  * A tessdata_best model file: each language's recognizer and early-print data. OCR
@@ -209,9 +193,7 @@ export type TOcrModelCode = TOcrLanguageCode | (typeof EARLY_PRINT_MODEL_CODES)[
 
 // isAvailableOcrLanguageCode narrows to TOcrLanguageCode, so a caller able to
 // add to this set could mint that type for any string.
-export const AVAILABLE_OCR_LANGUAGE_CODES: ReadonlySet<string> = new Set<string>(
-    AVAILABLE_OCR_LANGUAGES.map(language => language.code),
-);
+export const AVAILABLE_OCR_LANGUAGE_CODES: ReadonlySet<string> = new Set<string>(AVAILABLE_OCR_LANGUAGES.map((language) => language.code));
 
 export function isAvailableOcrLanguageCode(value: unknown): value is TOcrLanguageCode {
     return typeof value === 'string' && AVAILABLE_OCR_LANGUAGE_CODES.has(value);
@@ -219,7 +201,9 @@ export function isAvailableOcrLanguageCode(value: unknown): value is TOcrLanguag
 
 /** Keep language selections and local filenames stable when their upstream model differs. */
 export function getOcrModelSourcePath(code: string) {
-    if (code === 'lat') return 'script/Latin';
+    if (code === 'lat') {
+        return 'script/Latin';
+    }
     return code === 'lat_dictionary' ? 'lat' : code;
 }
 
@@ -325,30 +309,27 @@ export const OCR_MODEL_SUBLANGUAGES: Partial<Record<TOcrModelCode, ReadonlyArray
 
 /** The model files a run of these models reads: each model and the sub-languages its config loads. */
 export function withOcrModelSublanguages(codes: readonly TOcrModelCode[]): TOcrModelCode[] {
-    return [...new Set(codes.flatMap(code => [
-        code,
-        ...(OCR_MODEL_SUBLANGUAGES[code] ?? []).filter((entry): entry is TOcrModelCode => !entry.startsWith('~')),
-    ]))];
+    return [
+        ...new Set(
+            codes.flatMap((code) => [
+                code,
+                ...(OCR_MODEL_SUBLANGUAGES[code] ?? []).filter((entry): entry is TOcrModelCode => !entry.startsWith('~')),
+            ]),
+        ),
+    ];
 }
 
 /** Models seeded into an offline installation; every other supported model is downloaded on demand. */
-export const BUNDLED_OCR_LANGUAGE_CODES = withOcrModelSublanguages([
-    'eng',
-    'rus',
-]);
+export const BUNDLED_OCR_LANGUAGE_CODES = withOcrModelSublanguages(['eng', 'rus']);
 
 export const BUNDLED_OCR_LANGUAGE_CODE_SET = new Set<string>(BUNDLED_OCR_LANGUAGE_CODES);
 
 export const RTL_OCR_LANGUAGE_CODES = new Set<string>(
-    AVAILABLE_OCR_LANGUAGES
-        .filter(language => language.script === 'rtl')
-        .map(language => language.code),
+    AVAILABLE_OCR_LANGUAGES.filter((language) => language.script === 'rtl').map((language) => language.code),
 );
 
 export const GREEK_OCR_LANGUAGE_CODES = new Set<string>(
-    AVAILABLE_OCR_LANGUAGES
-        .filter(language => language.script === 'greek')
-        .map(language => language.code),
+    AVAILABLE_OCR_LANGUAGES.filter((language) => language.script === 'greek').map((language) => language.code),
 );
 
 export function isRtlOcrLanguage(code: string) {
@@ -360,9 +341,7 @@ export function isGreekOcrLanguage(code: string) {
 }
 
 const LATIN_SCRIPT_OCR_LANGUAGE_CODES = new Set<string>(
-    AVAILABLE_OCR_LANGUAGES
-        .filter(language => language.script === 'latin')
-        .map(language => language.code),
+    AVAILABLE_OCR_LANGUAGES.filter((language) => language.script === 'latin').map((language) => language.code),
 );
 
 export function isLatinScriptOcrLanguage(code: string) {

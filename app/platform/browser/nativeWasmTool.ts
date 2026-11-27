@@ -1,4 +1,4 @@
-import { getErrorMessage } from '@app/utils/error';
+import {getErrorMessage} from '@app/utils/error';
 import {
     exceedsWasmMemoryHighWater,
     loadWasmWithDeadline,
@@ -10,15 +10,9 @@ import {
     NativeWasmThreadStartError,
     type INativeWasmThreadsDescriptor,
 } from '@app/platform/browser/nativeWasmThreadedTool';
-import { toTransferableUint8Array } from '@app/platform/browser/toTransferableUint8Array';
-import {
-    getCheckedWasmMemoryView,
-    WASM_REQUEST_ALLOCATION_ABI_VERSION,
-} from '@contracts/getCheckedWasmMemoryView';
-import {
-    NATIVE_ERROR_ENVELOPE_SCHEMA,
-    type INativeErrorEnvelope,
-} from '@contracts/nativeErrors';
+import {toTransferableUint8Array} from '@app/platform/browser/toTransferableUint8Array';
+import {getCheckedWasmMemoryView, WASM_REQUEST_ALLOCATION_ABI_VERSION} from '@contracts/getCheckedWasmMemoryView';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA, type INativeErrorEnvelope} from '@contracts/nativeErrors';
 import {decodeSerializableErrorEnvelope} from '@contracts/serializableError';
 
 /**
@@ -86,21 +80,25 @@ export const NATIVE_WASM_ENGINE_FAULT = -2;
 
 export type TNativeWasmCallResult =
     | {
-        status: 'succeeded';
-        output: Uint8Array<ArrayBuffer>;
-    }
+          status: 'succeeded';
+          output: Uint8Array<ArrayBuffer>;
+      }
     | {
-        status: 'failed';
-        error: INativeErrorEnvelope;
-    };
+          status: 'failed';
+          error: INativeErrorEnvelope;
+      };
 
 function isWasmFunction(value: WebAssembly.ExportValue | undefined): value is (...args: number[]) => number {
     return typeof value === 'function';
 }
 
 function isWasmRuntimeError(error: unknown): boolean {
-    return (typeof WebAssembly !== 'undefined' && typeof WebAssembly.RuntimeError === 'function' && error instanceof WebAssembly.RuntimeError)
-        || (error instanceof Error && error.name === 'RuntimeError');
+    return (
+        (typeof WebAssembly !== 'undefined' &&
+            typeof WebAssembly.RuntimeError === 'function' &&
+            error instanceof WebAssembly.RuntimeError) ||
+        (error instanceof Error && error.name === 'RuntimeError')
+    );
 }
 
 /** The tool's exports, or null when the module is not this tool's ABI. */
@@ -121,22 +119,14 @@ export function readNativeWasmTool(
         exports[`${prefix}_error_len`],
     ];
     if (
-        !(memory instanceof WebAssembly.Memory)
-        || !isWasmFunction(allocationAbiVersion)
-        || allocationAbiVersion() !== WASM_REQUEST_ALLOCATION_ABI_VERSION
-        || !functions.every(isWasmFunction)
+        !(memory instanceof WebAssembly.Memory) ||
+        !isWasmFunction(allocationAbiVersion) ||
+        allocationAbiVersion() !== WASM_REQUEST_ALLOCATION_ABI_VERSION ||
+        !functions.every(isWasmFunction)
     ) {
         return null;
     }
-    const [
-        alloc,
-        free,
-        run,
-        outputPtr,
-        outputLen,
-        errorPtr,
-        errorLen,
-    ] = functions as Array<(...args: number[]) => number>;
+    const [alloc, free, run, outputPtr, outputLen, errorPtr, errorLen] = functions as Array<(...args: number[]) => number>;
     return {
         memory,
         alloc: alloc!,
@@ -162,13 +152,14 @@ function failure(code: INativeErrorEnvelope['code'], message: string): TNativeWa
 function readError(tool: INativeWasmTool, label: string, resultCode: number): INativeErrorEnvelope {
     const length = tool.errorLen();
     // TextDecoder rejects a view of shared memory, which a threaded build runs on; decode a copy.
-    const encoded = length === 0
-        ? null
-        : new TextDecoder().decode(getCheckedWasmMemoryView(tool.memory, tool.errorPtr(), length, label).slice());
-    return decodeSerializableErrorEnvelope(encoded, NATIVE_ERROR_ENVELOPE_SCHEMA, {allowBareJsonString: true}) ?? {
-        code: 'native-failure',
-        message: encoded ?? `${label} failed with result code ${resultCode}`,
-    };
+    const encoded =
+        length === 0 ? null : new TextDecoder().decode(getCheckedWasmMemoryView(tool.memory, tool.errorPtr(), length, label).slice());
+    return (
+        decodeSerializableErrorEnvelope(encoded, NATIVE_ERROR_ENVELOPE_SCHEMA, {allowBareJsonString: true}) ?? {
+            code: 'native-failure',
+            message: encoded ?? `${label} failed with result code ${resultCode}`,
+        }
+    );
 }
 
 /**
@@ -220,8 +211,11 @@ export function callNativeWasmTool(
         scrubRequest();
         try {
             if (scrub && scrub.length > 0 && !engineFault) {
-                getCheckedWasmMemoryView(tool.memory, pointer, byteLength, `${label} allocation`)
-                    .fill(0, scrub.offset, scrub.offset + scrub.length);
+                getCheckedWasmMemoryView(tool.memory, pointer, byteLength, `${label} allocation`).fill(
+                    0,
+                    scrub.offset,
+                    scrub.offset + scrub.length,
+                );
             }
         } finally {
             if (!trapped && !engineFault) {
@@ -233,9 +227,7 @@ export function callNativeWasmTool(
 
 function readResult(
     tool: INativeWasmTool,
-    {
-        label, maxOutputBytes,
-    }: Pick<INativeWasmToolDescriptor, 'label' | 'maxOutputBytes'>,
+    {label, maxOutputBytes}: Pick<INativeWasmToolDescriptor, 'label' | 'maxOutputBytes'>,
     resultCode: number,
 ): TNativeWasmCallResult {
     if (resultCode !== 0) {
@@ -246,16 +238,11 @@ function readResult(
     }
     const outputLength = tool.outputLen();
     if (outputLength === 0 || outputLength > maxOutputBytes) {
-        return failure(
-            outputLength > maxOutputBytes ? 'too-large' : 'invalid-request',
-            `${label} returned an invalid output envelope`,
-        );
+        return failure(outputLength > maxOutputBytes ? 'too-large' : 'invalid-request', `${label} returned an invalid output envelope`);
     }
     return {
         status: 'succeeded',
-        output: toTransferableUint8Array(
-            getCheckedWasmMemoryView(tool.memory, tool.outputPtr(), outputLength, label).slice(),
-        ),
+        output: toTransferableUint8Array(getCheckedWasmMemoryView(tool.memory, tool.outputPtr(), outputLength, label).slice()),
     };
 }
 
@@ -269,13 +256,14 @@ function readResult(
 export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor) {
     let pending: Promise<INativeWasmTool> | null = null;
     let loaded: INativeWasmTool | null = null;
-    const threaded = descriptor.threads === undefined
-        ? null
-        : createNativeWasmThreadedInstances({
-            prefix: descriptor.prefix,
-            label: descriptor.label,
-            threads: descriptor.threads,
-        });
+    const threaded =
+        descriptor.threads === undefined
+            ? null
+            : createNativeWasmThreadedInstances({
+                  prefix: descriptor.prefix,
+                  label: descriptor.label,
+                  threads: descriptor.threads,
+              });
     const modulePath = descriptor.threads?.path ?? descriptor.path;
 
     async function instantiate(): Promise<INativeWasmTool> {
@@ -296,10 +284,7 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
             };
         }
         let memory: WebAssembly.Memory | null = null;
-        const instantiated = await loadWasmWithDeadline(
-            resolveWasmUrl(descriptor.path),
-            descriptor.imports?.(() => memory!) ?? {},
-        );
+        const instantiated = await loadWasmWithDeadline(resolveWasmUrl(descriptor.path), descriptor.imports?.(() => memory!) ?? {});
         const instance = 'instance' in instantiated ? instantiated.instance : instantiated;
         const tool = readNativeWasmTool(instance.exports, descriptor);
         if (!tool) {
@@ -310,14 +295,22 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
     }
 
     function load() {
-        const current = pending ??= instantiate();
+        const current = (pending ??= instantiate());
         // Registered before any caller awaits the load, so the instance is known as this thread's before its first call.
-        current.then(tool => {
-            if (pending === current) loaded = tool;
-            else tool.dispose?.();
-        }, () => {
-            if (pending === current) pending = null;
-        });
+        current.then(
+            (tool) => {
+                if (pending === current) {
+                    loaded = tool;
+                } else {
+                    tool.dispose?.();
+                }
+            },
+            () => {
+                if (pending === current) {
+                    pending = null;
+                }
+            },
+        );
         return current;
     }
 
@@ -327,7 +320,9 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
      * finishing late leaves its replacement untouched.
      */
     function discard(target?: INativeWasmTool) {
-        if (target !== undefined && loaded !== target) return;
+        if (target !== undefined && loaded !== target) {
+            return;
+        }
         const tool = loaded;
         pending = null;
         loaded = null;
@@ -341,11 +336,7 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
     }
 
     /** Runs one request synchronously on an already-loaded `tool` instance. */
-    function callLoaded(
-        tool: INativeWasmTool,
-        request: Uint8Array,
-        options?: ICallNativeWasmToolOptions,
-    ): TNativeWasmCallResult {
+    function callLoaded(tool: INativeWasmTool, request: Uint8Array, options?: ICallNativeWasmToolOptions): TNativeWasmCallResult {
         try {
             const result = callNativeWasmTool(tool, descriptor, request, options);
             // The call has ended; whoever still holds the instance finishes on it.
@@ -375,24 +366,20 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
                 throw error;
             }
             discard(tool);
-            return failure(
-                'invalid-request',
-                `The ${descriptor.label} failed: ${getErrorMessage(error)}`,
-            );
+            return failure('invalid-request', `The ${descriptor.label} failed: ${getErrorMessage(error)}`);
         }
     }
 
     /** Loads the tool if needed and runs one request through it. */
-    async function call(
-        request: Uint8Array,
-        options?: ICallNativeWasmToolOptions,
-    ): Promise<TNativeWasmCallResult> {
+    async function call(request: Uint8Array, options?: ICallNativeWasmToolOptions): Promise<TNativeWasmCallResult> {
         let tool: INativeWasmTool;
         try {
             tool = await load();
         } catch (error) {
             // The page decides what runs instead of a threaded build that cannot start.
-            if (error instanceof NativeWasmThreadStartError) throw error;
+            if (error instanceof NativeWasmThreadStartError) {
+                throw error;
+            }
             return failure(
                 error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'io',
                 `The ${descriptor.label} could not be loaded: ${getErrorMessage(error)}`,
@@ -401,7 +388,9 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
         let result = callLoaded(tool, request, options);
         if (result.status === 'failed' && result.error.code === 'panic' && tool.readFault) {
             const reason = await tool.readFault();
-            if (reason !== null) result = failure('panic', `${result.error.message}: ${reason}`);
+            if (reason !== null) {
+                result = failure('panic', `${result.error.message}: ${reason}`);
+            }
         }
         return result;
     }

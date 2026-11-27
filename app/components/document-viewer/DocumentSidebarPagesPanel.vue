@@ -1,5 +1,8 @@
 <template>
-    <section class="document-sidebar-pages-panel" data-document-sidebar-pages-panel>
+    <section
+        class="document-sidebar-pages-panel"
+        data-document-sidebar-pages-panel
+    >
         <slot name="header" />
         <div
             class="document-sidebar-pages-panel__rail"
@@ -12,7 +15,7 @@
 </template>
 
 <script setup lang="ts">
-const {acceptsExternalPdfDrop = false} = defineProps<{acceptsExternalPdfDrop?: boolean | undefined;}>();
+const {acceptsExternalPdfDrop = false} = defineProps<{acceptsExternalPdfDrop?: boolean | undefined}>();
 </script>
 
 <style scoped>

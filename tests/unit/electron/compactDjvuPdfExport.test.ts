@@ -1,31 +1,12 @@
 import type * as TNativeCommandModule from '@electron/native-tools/runNativeCommand';
-import type { IDjvuPageStructure } from '@djvu-core/djvuLibreTypes';
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    dirname,
-    join,
-} from 'node:path';
-import { tmpdir } from 'node:os';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    mainJobBroker, MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES,
-} from '@electron/resources/jobBroker';
+import type {IDjvuPageStructure} from '@djvu-core/djvuLibreTypes';
+import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises';
+import {dirname, join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {mainJobBroker, MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES} from '@electron/resources/jobBroker';
 import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
-import { markUnprovenNativeTermination } from '@electron/utils/nativeTerminationProof';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
     runDjvuEngine: vi.fn(),
@@ -34,10 +15,12 @@ const mocks = vi.hoisted(() => ({
     resolveNativeToolPath: vi.fn(),
 }));
 
-vi.mock('electron', () => ({app: {
-    getPath: () => tmpdir(),
-    isPackaged: false,
-}}));
+vi.mock('electron', () => ({
+    app: {
+        getPath: () => tmpdir(),
+        isPackaged: false,
+    },
+}));
 vi.mock('@electron/features/djvu/main/djvuEnginePool', () => ({runDjvuEngine: mocks.runDjvuEngine}));
 vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
     renderDjvuPageToImage: mocks.renderDjvuPageToImage,
@@ -47,28 +30,34 @@ vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
         kind: 'metadata' | 'structure';
         signal?: AbortSignal;
         task: (onTerminationProof: (proof: Promise<boolean>) => void) => Promise<unknown>;
-    }) => mainJobBroker.run({
-        ownerId: options.jobId,
-        kind: `djvu-${options.kind}`,
-        priority: 'user',
-        resources: {
-            cpuTokens: 1,
-            estimatedResidentBytes: 64 * 1024 * 1024,
-            nativeProcesses: 1,
-            ioWeight: 1,
-        },
-        ...(options.signal ? {signal: options.signal} : {}),
-    }, ({onTerminationProof}) => options.task(onTerminationProof)),
+    }) =>
+        mainJobBroker.run(
+            {
+                ownerId: options.jobId,
+                kind: `djvu-${options.kind}`,
+                priority: 'user',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 64 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+                ...(options.signal ? {signal: options.signal} : {}),
+            },
+            ({onTerminationProof}) => options.task(onTerminationProof),
+        ),
 }));
 vi.mock('@electron/native-tools/resolveNativeToolPath', () => ({resolveNativeToolPath: mocks.resolveNativeToolPath}));
-vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-})}));
+vi.mock('@electron/utils/createLogger', () => ({
+    createLogger: () => ({
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+    }),
+}));
 
-const { buildCompactDjvuAwarePdfFromDjvu } = await import('@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu');
+const {buildCompactDjvuAwarePdfFromDjvu} = await import('@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu');
 
 interface ITestDumpPage {
     pageNumber: number;
@@ -91,64 +80,57 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         denseMaskPages = new Set();
         tempDir = await mkdtemp(join(tmpdir(), 'compact-djvu-export-test-'));
         await writeFile(join(tempDir, 'input.djvu'), 'fixture');
-        setDjvuDump(Array.from({length: 44}, (_value, index) => ({
-            pageNumber: index + 1,
-            pageBytes: 32_705,
-            maskBytes: 512,
-            background: true,
-        })));
+        setDjvuDump(
+            Array.from({length: 44}, (_value, index) => ({
+                pageNumber: index + 1,
+                pageBytes: 32_705,
+                maskBytes: 512,
+                background: true,
+            })),
+        );
         mocks.resolveNativeToolPath.mockReturnValue('/native/evb-pdf-image-combine');
-        mocks.runRegisteredDjvuProcess.mockImplementation(async (
-            _processId: string,
-            _command: string,
-            args: string[],
-            options?: { onStdout?: (chunk: string) => void },
-        ) => {
-            options?.onStdout?.('{"type":"progress","processed":1,"total":1,"percent":100,"elapsedMs":1,"estimatedRemainingMs":0}\n');
-            const outputPath = args[args.indexOf('--output') + 1]!;
-            await writeFile(outputPath, '%PDF-1.4\n%%EOF\n', 'utf8');
-            return {success: true};
-        });
-        mocks.renderDjvuPageToImage.mockImplementation(async (
-            _inputPath: string,
-            outputPath: string,
-            pageNumber: number,
-            _jobId: string,
-            options: {
-                mode?: string;
-                format?: string;
-            } = {},
-        ) => {
-            await mkdir(dirname(outputPath), {recursive: true});
-            if (options.mode === 'foreground') {
-                await writeFile(outputPath, coloredForegroundPages.has(pageNumber)
-                    ? coloredForegroundProbe()
-                    : monochromeForegroundProbe());
-            } else if (options.mode === 'background') {
-                await writeFile(outputPath, detailedBackgroundPages.has(pageNumber)
-                    ? detailedBackgroundProbe()
-                    : ppm(2, 2, [
-                        248,
-                        248,
-                        248,
-                    ]));
-            } else if (options.mode === 'mask') {
-                await writeFile(outputPath, denseMaskPages.has(pageNumber)
-                    ? pbm(20, 20, x => x < 16)
-                    : pbm(20, 20));
-            } else {
-                await writeFile(outputPath, ppm(5, 5, [
-                    220,
-                    221,
-                    222,
-                ]));
-            }
-            return {
-                success: true,
-                outputPath,
-                fileSize: 12,
-            };
-        });
+        mocks.runRegisteredDjvuProcess.mockImplementation(
+            async (_processId: string, _command: string, args: string[], options?: {onStdout?: (chunk: string) => void}) => {
+                options?.onStdout?.('{"type":"progress","processed":1,"total":1,"percent":100,"elapsedMs":1,"estimatedRemainingMs":0}\n');
+                const outputPath = args[args.indexOf('--output') + 1]!;
+                await writeFile(outputPath, '%PDF-1.4\n%%EOF\n', 'utf8');
+                return {success: true};
+            },
+        );
+        mocks.renderDjvuPageToImage.mockImplementation(
+            async (
+                _inputPath: string,
+                outputPath: string,
+                pageNumber: number,
+                _jobId: string,
+                options: {
+                    mode?: string;
+                    format?: string;
+                } = {},
+            ) => {
+                await mkdir(dirname(outputPath), {recursive: true});
+                if (options.mode === 'foreground') {
+                    await writeFile(
+                        outputPath,
+                        coloredForegroundPages.has(pageNumber) ? coloredForegroundProbe() : monochromeForegroundProbe(),
+                    );
+                } else if (options.mode === 'background') {
+                    await writeFile(
+                        outputPath,
+                        detailedBackgroundPages.has(pageNumber) ? detailedBackgroundProbe() : ppm(2, 2, [248, 248, 248]),
+                    );
+                } else if (options.mode === 'mask') {
+                    await writeFile(outputPath, denseMaskPages.has(pageNumber) ? pbm(20, 20, (x) => x < 16) : pbm(20, 20));
+                } else {
+                    await writeFile(outputPath, ppm(5, 5, [220, 221, 222]));
+                }
+                return {
+                    success: true,
+                    outputPath,
+                    fileSize: 12,
+                };
+            },
+        );
     });
 
     afterEach(async () => {
@@ -175,53 +157,60 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         const childPath = join(tempDir, 'child-writes');
         const childPidPath = join(tempDir, 'child-pid');
         setDjvuDump(Array.from({length: 4}, (_, index) => ({pageNumber: index + 1})));
-        mocks.renderDjvuPageToImage.mockImplementation(async (_source: string, _output: string, page: number,
-            _job: string, options: {signal?: AbortSignal}) => {
-            if (page === 1) {
-                await started.promise;
-                return {
-                    success: false,
-                    error: 'first page failed',
-                };
-            }
-            try {
-                const child = runNativeCommand(process.execPath, [
-                    '-e',
-                    `
+        mocks.renderDjvuPageToImage.mockImplementation(
+            async (_source: string, _output: string, page: number, _job: string, options: {signal?: AbortSignal}) => {
+                if (page === 1) {
+                    await started.promise;
+                    return {
+                        success: false,
+                        error: 'first page failed',
+                    };
+                }
+                try {
+                    const child = runNativeCommand(
+                        process.execPath,
+                        [
+                            '-e',
+                            `
                     const fs = require('node:fs');
                     fs.writeFileSync(process.argv[2], String(process.pid));
                     fs.appendFileSync(process.argv[1], 'x');
                     process.stdout.write('ready');
                     setInterval(() => fs.appendFileSync(process.argv[1], 'x'), 10);
                 `,
-                    childPath,
-                    childPidPath,
-                ], {
-                    signal: options.signal ?? cleanup.signal,
-                    timeoutMs: 2000,
-                    onStdout: () => started.resolve(undefined),
-                });
-                children.push(child);
-                await child;
-                return {success: true};
-            } catch (cause) {
-                return {
-                    success: false,
-                    error: 'sibling stopped',
-                    cause,
-                };
-            }
-        });
+                            childPath,
+                            childPidPath,
+                        ],
+                        {
+                            signal: options.signal ?? cleanup.signal,
+                            timeoutMs: 2000,
+                            onStdout: () => started.resolve(undefined),
+                        },
+                    );
+                    children.push(child);
+                    await child;
+                    return {success: true};
+                } catch (cause) {
+                    return {
+                        success: false,
+                        error: 'sibling stopped',
+                        cause,
+                    };
+                }
+            },
+        );
         try {
-            await expect(buildCompactDjvuAwarePdfFromDjvu({
-                jobId: 'terminal-drain',
-                djvuPath: join(tempDir, 'input.djvu'),
-                outputPath: join(tempDir, 'output.pdf'),
-                tempDir,
-                pageCount: 4,
-                sourceDpi: 300,
-                pageSizes: null,
-            })).rejects.toThrow('first page failed');
+            await expect(
+                buildCompactDjvuAwarePdfFromDjvu({
+                    jobId: 'terminal-drain',
+                    djvuPath: join(tempDir, 'input.djvu'),
+                    outputPath: join(tempDir, 'output.pdf'),
+                    tempDir,
+                    pageCount: 4,
+                    sourceDpi: 300,
+                    pageSizes: null,
+                }),
+            ).rejects.toThrow('first page failed');
             const bytes = await readFile(childPath);
             const pid = Number(await readFile(childPidPath, 'utf8'));
             expect(() => process.kill(pid, 0)).toThrow();
@@ -256,7 +245,9 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             const manifest = await readFile(args[args.indexOf('--compact-manifest') + 1]!, 'utf8');
             for (const line of manifest.trim().split('\n').slice(1)) {
                 const raster = line.split('\t').at(-1)!;
-                if (!await stat(raster).catch(() => null)) missing.push(raster);
+                if (!(await stat(raster).catch(() => null))) {
+                    missing.push(raster);
+                }
             }
             await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.4\n%%EOF\n', 'utf8');
             return {success: true};
@@ -273,10 +264,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
                 pageCount: 44,
                 sourceDpi: 300,
                 pageSizes: pageSizes(44),
-                pages: [
-                    1,
-                    2,
-                ],
+                pages: [1, 2],
             });
         };
 
@@ -306,10 +294,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             pageCount: 44,
             sourceDpi: 300,
             pageSizes: pageSizes(44),
-            pages: [
-                1,
-                44,
-            ],
+            pages: [1, 44],
             onProgress: progress,
         });
 
@@ -319,14 +304,8 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         expect(lines[0]).toMatch(/^mask\t288\.0000\t384\.0000\t/u);
         expect(lines[0]).toContain('-mask.pbm');
         expect(lines[1]).toMatch(/^mask\t288\.0000\t384\.0000\t/u);
-        expect(renderModesForPage(1)).toEqual([
-            'mask',
-            'background',
-        ]);
-        expect(renderModesForPage(44)).toEqual([
-            'mask',
-            'background',
-        ]);
+        expect(renderModesForPage(1)).toEqual(['mask', 'background']);
+        expect(renderModesForPage(44)).toEqual(['mask', 'background']);
         expect(progress).toHaveBeenCalled();
         expect(acquireSpy.mock.calls.map(([request]) => request.kind)).toEqual([
             'djvu-structure',
@@ -359,10 +338,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
                     dpi: 300,
                 },
             ],
-            pages: [
-                1,
-                2,
-            ],
+            pages: [1, 2],
         });
 
         expect(result.success).toBe(true);
@@ -372,13 +348,15 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
     });
 
     it('preserves a colored foreground on a flat background', async () => {
-        setDjvuDump([{
-            pageNumber: 1,
-            pageBytes: 65_000,
-            maskBytes: 512,
-            background: true,
-            foreground: true,
-        }]);
+        setDjvuDump([
+            {
+                pageNumber: 1,
+                pageBytes: 65_000,
+                maskBytes: 512,
+                background: true,
+                foreground: true,
+            },
+        ]);
         coloredForegroundPages.add(1);
 
         const result = await buildCompactDjvuAwarePdfFromDjvu({
@@ -395,21 +373,19 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         const manifest = await readCompactManifest(tempDir);
         expect(manifest).toMatch(/^photo-jpeg\t288\.0000\t384\.0000\t85\t300\t/u);
         expect(result.pageSpecs?.[0]).toMatchObject({kind: 'photo'});
-        expect(renderModesForPage(1)).toEqual([
-            'mask',
-            'foreground',
-            'full',
-        ]);
+        expect(renderModesForPage(1)).toEqual(['mask', 'foreground', 'full']);
     });
 
     it('processes an all-page export in bounded batches and streams the dump manifest', async () => {
         const pageCount = 65;
-        setDjvuDump(Array.from({length: pageCount}, (_value, index) => ({
-            pageNumber: index + 1,
-            pageBytes: 32_705,
-            maskBytes: 512,
-            background: true,
-        })));
+        setDjvuDump(
+            Array.from({length: pageCount}, (_value, index) => ({
+                pageNumber: index + 1,
+                pageBytes: 32_705,
+                maskBytes: 512,
+                background: true,
+            })),
+        );
 
         const result = await buildCompactDjvuAwarePdfFromDjvu({
             jobId: 'job-all-pages',
@@ -422,9 +398,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         });
 
         expect(result.success).toBe(true);
-        const manifestLines = (await readFile(join(tempDir, 'compact-manifest.jsonl'), 'utf8'))
-            .trim()
-            .split('\n');
+        const manifestLines = (await readFile(join(tempDir, 'compact-manifest.jsonl'), 'utf8')).trim().split('\n');
         expect(JSON.parse(manifestLines[0]!)).toMatchObject({
             format: 'evb-pdf-image-combine-jsonl',
             schemaVersion: 1,
@@ -442,26 +416,21 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         expect(mocks.runRegisteredDjvuProcess).toHaveBeenLastCalledWith(
             'job-all-pages-compact-combine',
             '/native/evb-pdf-image-combine',
-            expect.arrayContaining([
-                '--compact-manifest',
-                join(tempDir, 'compact-manifest.jsonl'),
-            ]),
+            expect.arrayContaining(['--compact-manifest', join(tempDir, 'compact-manifest.jsonl')]),
             expect.objectContaining({env: expect.objectContaining({EVB_PDF_COMBINE_OUTPUT_MODE: 'file-backed'})}),
         );
     });
 
     it('keeps compact output larger than the byte-returning combine cap', async () => {
-        setDjvuDump([{
-            pageNumber: 1,
-            pageBytes: 32_705,
-            maskBytes: 512,
-            background: true,
-        }]);
-        mocks.runRegisteredDjvuProcess.mockImplementationOnce(async (
-            _processId: string,
-            _command: string,
-            args: string[],
-        ) => {
+        setDjvuDump([
+            {
+                pageNumber: 1,
+                pageBytes: 32_705,
+                maskBytes: 512,
+                background: true,
+            },
+        ]);
+        mocks.runRegisteredDjvuProcess.mockImplementationOnce(async (_processId: string, _command: string, args: string[]) => {
             const outputPath = args[args.indexOf('--output') + 1]!;
             await writeFile(outputPath, new Uint8Array(PDF_COMBINE_MAX_OUTPUT_BYTES + 1));
             return {success: true};
@@ -470,16 +439,18 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
 
         // The PDF stays a file, so the cap on bytes returned into memory does
         // not apply to it; the disk-quota monitor bounds it instead.
-        await expect(buildCompactDjvuAwarePdfFromDjvu({
-            jobId: 'job-output-cap',
-            djvuPath: join(tempDir, 'input.djvu'),
-            outputPath,
-            tempDir,
-            pageCount: 1,
-            sourceDpi: 300,
-            pageSizes: pageSizes(1),
-            pages: [1],
-        })).resolves.toMatchObject({
+        await expect(
+            buildCompactDjvuAwarePdfFromDjvu({
+                jobId: 'job-output-cap',
+                djvuPath: join(tempDir, 'input.djvu'),
+                outputPath,
+                tempDir,
+                pageCount: 1,
+                sourceDpi: 300,
+                pageSizes: pageSizes(1),
+                pages: [1],
+            }),
+        ).resolves.toMatchObject({
             success: true,
             fileSize: PDF_COMBINE_MAX_OUTPUT_BYTES + 1,
         });
@@ -487,28 +458,32 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
     });
 
     it('preserves a typed native output-cap failure from the compact combiner', async () => {
-        setDjvuDump([{
-            pageNumber: 1,
-            pageBytes: 32_705,
-            maskBytes: 512,
-            background: true,
-        }]);
+        setDjvuDump([
+            {
+                pageNumber: 1,
+                pageBytes: 32_705,
+                maskBytes: 512,
+                background: true,
+            },
+        ]);
         mocks.runRegisteredDjvuProcess.mockImplementationOnce(async () => ({
             success: false,
             error: 'Image-combine output exceeded the shared cap',
             cause: {code: 'too-large'},
         }));
 
-        await expect(buildCompactDjvuAwarePdfFromDjvu({
-            jobId: 'job-native-output-cap',
-            djvuPath: join(tempDir, 'input.djvu'),
-            outputPath: join(tempDir, 'native-output-cap.pdf'),
-            tempDir,
-            pageCount: 1,
-            sourceDpi: 300,
-            pageSizes: pageSizes(1),
-            pages: [1],
-        })).rejects.toMatchObject({
+        await expect(
+            buildCompactDjvuAwarePdfFromDjvu({
+                jobId: 'job-native-output-cap',
+                djvuPath: join(tempDir, 'input.djvu'),
+                outputPath: join(tempDir, 'native-output-cap.pdf'),
+                tempDir,
+                pageCount: 1,
+                sourceDpi: 300,
+                pageSizes: pageSizes(1),
+                pages: [1],
+            }),
+        ).rejects.toMatchObject({
             code: 'too-large',
             message: 'Image-combine output exceeded the shared cap',
             name: 'SerializableError',
@@ -516,41 +491,47 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
     });
 
     it('does not convert unproven native termination into a compact fallback result and keeps the combine lease until proof', async () => {
-        setDjvuDump([{
-            pageNumber: 1,
-            pageBytes: 32_705,
-            maskBytes: 512,
-            background: true,
-        }]);
+        setDjvuDump([
+            {
+                pageNumber: 1,
+                pageBytes: 32_705,
+                maskBytes: 512,
+                background: true,
+            },
+        ]);
         const terminationError = markUnprovenNativeTermination(
             new Error('native compact combiner tree is still running'),
             'native compact combiner process tree was not proven dead',
         );
         const combinerGone = Promise.withResolvers<boolean>();
-        mocks.runRegisteredDjvuProcess.mockImplementationOnce(async (
-            _processId: string,
-            _command: string,
-            _args: string[],
-            options?: {brokerRun?: {onTerminationProof?: (proof: Promise<boolean>) => void}},
-        ) => {
-            options?.brokerRun?.onTerminationProof?.(combinerGone.promise);
-            return {
-                success: false,
-                error: 'DjVu conversion canceled',
-                cause: terminationError,
-            };
-        });
+        mocks.runRegisteredDjvuProcess.mockImplementationOnce(
+            async (
+                _processId: string,
+                _command: string,
+                _args: string[],
+                options?: {brokerRun?: {onTerminationProof?: (proof: Promise<boolean>) => void}},
+            ) => {
+                options?.brokerRun?.onTerminationProof?.(combinerGone.promise);
+                return {
+                    success: false,
+                    error: 'DjVu conversion canceled',
+                    cause: terminationError,
+                };
+            },
+        );
 
-        await expect(buildCompactDjvuAwarePdfFromDjvu({
-            jobId: 'job-unproven-termination',
-            djvuPath: join(tempDir, 'input.djvu'),
-            outputPath: join(tempDir, 'unproven.pdf'),
-            tempDir,
-            pageCount: 1,
-            sourceDpi: 300,
-            pageSizes: pageSizes(1),
-            pages: [1],
-        })).rejects.toBe(terminationError);
+        await expect(
+            buildCompactDjvuAwarePdfFromDjvu({
+                jobId: 'job-unproven-termination',
+                djvuPath: join(tempDir, 'input.djvu'),
+                outputPath: join(tempDir, 'unproven.pdf'),
+                tempDir,
+                pageCount: 1,
+                sourceDpi: 300,
+                pageSizes: pageSizes(1),
+                pages: [1],
+            }),
+        ).rejects.toBe(terminationError);
 
         // The combine lease, budgeted for the combiner's first thread, stays
         // charged until the combiner is proven gone.
@@ -562,29 +543,28 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             },
         });
         combinerGone.resolve(true);
-        await vi.waitFor(() => expect(mainJobBroker.getSnapshot()).toMatchObject({
-            active: 0,
-            used: {nativeProcesses: 0},
-        }));
+        await vi.waitFor(() =>
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 0,
+                used: {nativeProcesses: 0},
+            }),
+        );
     });
 
     it('keeps progress moving during native PDF assembly', async () => {
         const progress: number[] = [];
-        mocks.runRegisteredDjvuProcess.mockImplementationOnce(async (
-            _processId: string,
-            _command: string,
-            args: string[],
-            options?: { onStdout?: (chunk: string) => void },
-        ) => {
-            for (let processed = 1; processed <= 4; processed += 1) {
-                options?.onStdout?.(
-                    `{"type":"progress","processed":${processed},"total":4,"percent":${processed * 25},"elapsedMs":${processed},"estimatedRemainingMs":0}\n`,
-                );
-            }
-            const outputPath = args[args.indexOf('--output') + 1]!;
-            await writeFile(outputPath, '%PDF-1.4\n%%EOF\n', 'utf8');
-            return {success: true};
-        });
+        mocks.runRegisteredDjvuProcess.mockImplementationOnce(
+            async (_processId: string, _command: string, args: string[], options?: {onStdout?: (chunk: string) => void}) => {
+                for (let processed = 1; processed <= 4; processed += 1) {
+                    options?.onStdout?.(
+                        `{"type":"progress","processed":${processed},"total":4,"percent":${processed * 25},"elapsedMs":${processed},"estimatedRemainingMs":0}\n`,
+                    );
+                }
+                const outputPath = args[args.indexOf('--output') + 1]!;
+                await writeFile(outputPath, '%PDF-1.4\n%%EOF\n', 'utf8');
+                return {success: true};
+            },
+        );
 
         const result = await buildCompactDjvuAwarePdfFromDjvu({
             jobId: 'job-progress',
@@ -594,27 +574,12 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             pageCount: 44,
             sourceDpi: 300,
             pageSizes: pageSizes(44),
-            pages: [
-                1,
-                2,
-                3,
-                4,
-            ],
-            onProgress: percent => progress.push(percent),
+            pages: [1, 2, 3, 4],
+            onProgress: (percent) => progress.push(percent),
         });
 
         expect(result.success).toBe(true);
-        expect(progress).toEqual(expect.arrayContaining([
-            22,
-            43,
-            65,
-            86,
-            88,
-            90,
-            91,
-            93,
-            94,
-        ]));
+        expect(progress).toEqual(expect.arrayContaining([22, 43, 65, 86, 88, 90, 91, 93, 94]));
         expect(Math.max(...progress)).toBe(94);
     });
 
@@ -636,24 +601,25 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         expect(manifest).toMatch(/^layered-jpeg\t288\.0000\t384\.0000\t80\t/u);
         expect(manifest).toContain('-background.ppm\t');
         expect(manifest).toContain('-mask.pbm');
-        expect(renderModesForPage(44)).toEqual([
-            'mask',
-            'background',
-        ]);
-        expect(renderOptionsForPage(44)[1]).toEqual(expect.objectContaining({
-            mode: 'background',
-            subsample: 3,
-        }));
+        expect(renderModesForPage(44)).toEqual(['mask', 'background']);
+        expect(renderOptionsForPage(44)[1]).toEqual(
+            expect.objectContaining({
+                mode: 'background',
+                subsample: 3,
+            }),
+        );
     });
 
     it('preserves a real colored foreground as a full-color image instead of averaging it', async () => {
-        setDjvuDump([{
-            pageNumber: 3,
-            pageBytes: 65_000,
-            maskBytes: 512,
-            background: true,
-            foreground: true,
-        }]);
+        setDjvuDump([
+            {
+                pageNumber: 3,
+                pageBytes: 65_000,
+                maskBytes: 512,
+                background: true,
+                foreground: true,
+            },
+        ]);
         detailedBackgroundPages.add(3);
         coloredForegroundPages.add(3);
 
@@ -677,21 +643,19 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             jpegQuality: 85,
             effectivePpi: 300,
         });
-        expect(renderModesForPage(3)).toEqual([
-            'mask',
-            'foreground',
-            'full',
-        ]);
+        expect(renderModesForPage(3)).toEqual(['mask', 'foreground', 'full']);
     });
 
     it('uses capped photo output for tiny-mask continuous-tone pages', async () => {
-        setDjvuDump([{
-            pageNumber: 44,
-            pageBytes: 32_705,
-            maskBytes: 6,
-            background: true,
-            foreground: true,
-        }]);
+        setDjvuDump([
+            {
+                pageNumber: 44,
+                pageBytes: 32_705,
+                maskBytes: 6,
+                background: true,
+                foreground: true,
+            },
+        ]);
 
         const result = await buildCompactDjvuAwarePdfFromDjvu({
             jobId: 'job-photo',
@@ -707,12 +671,16 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         const manifest = await readCompactManifest(tempDir);
         expect(manifest).toMatch(/^photo-jpeg\t288\.0000\t384\.0000\t85\t300\t/u);
         expect(result.pageSpecs?.[0]?.kind).toBe('photo');
-        expect(result.pageSpecs?.[0]?.reason).toBe('DjVu page has continuous-tone background with tiny foreground mask (6 bytes); rendering capped photo page');
+        expect(result.pageSpecs?.[0]?.reason).toBe(
+            'DjVu page has continuous-tone background with tiny foreground mask (6 bytes); rendering capped photo page',
+        );
         expect(renderModesForPage(44)).toEqual(['full']);
-        expect(renderOptionsForPage(44)[0]).toEqual(expect.objectContaining({
-            targetHeightPx: 1600,
-            targetWidthPx: 1200,
-        }));
+        expect(renderOptionsForPage(44)[0]).toEqual(
+            expect.objectContaining({
+                targetHeightPx: 1600,
+                targetWidthPx: 1200,
+            }),
+        );
     });
 
     it('uses capped photo output when djvudump structure is unavailable', async () => {
@@ -733,43 +701,46 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         expect(manifest).toMatch(/^photo-jpeg\t288\.0000\t384\.0000\t85\t300\t/u);
         expect(result.pageSpecs?.[0]?.reason).toBe('DjVu layer structure unavailable; rendering capped photo page');
         expect(renderModesForPage(2)).toEqual(['full']);
-        expect(renderOptionsForPage(2)[0]).toEqual(expect.objectContaining({
-            targetHeightPx: 1600,
-            targetWidthPx: 1200,
-        }));
+        expect(renderOptionsForPage(2)[0]).toEqual(
+            expect.objectContaining({
+                targetHeightPx: 1600,
+                targetWidthPx: 1200,
+            }),
+        );
     });
 
     it('fails explicitly when native layer inspection fails instead of flattening every page', async () => {
         mocks.runDjvuEngine.mockRejectedValueOnce(new Error('djvulibre engine unavailable'));
 
-        await expect(buildCompactDjvuAwarePdfFromDjvu({
-            jobId: 'job-dump-failed',
-            djvuPath: join(tempDir, 'input.djvu'),
-            outputPath: join(tempDir, 'failed.pdf'),
-            tempDir,
-            pageCount: 2,
-            sourceDpi: 300,
-            pageSizes: pageSizes(2),
-        })).rejects.toThrow('compact export stopped without flattening');
+        await expect(
+            buildCompactDjvuAwarePdfFromDjvu({
+                jobId: 'job-dump-failed',
+                djvuPath: join(tempDir, 'input.djvu'),
+                outputPath: join(tempDir, 'failed.pdf'),
+                tempDir,
+                pageCount: 2,
+                sourceDpi: 300,
+                pageSizes: pageSizes(2),
+            }),
+        ).rejects.toThrow('compact export stopped without flattening');
         expect(mocks.renderDjvuPageToImage).not.toHaveBeenCalled();
     });
 
     it('preserves unproven termination during structure inspection', async () => {
-        const unprovenError = markUnprovenNativeTermination(
-            new Error('structure inspection failed'),
-            'unproven termination',
-        );
+        const unprovenError = markUnprovenNativeTermination(new Error('structure inspection failed'), 'unproven termination');
         mocks.runDjvuEngine.mockRejectedValueOnce(unprovenError);
 
-        await expect(buildCompactDjvuAwarePdfFromDjvu({
-            jobId: 'job-dump-unproven',
-            djvuPath: join(tempDir, 'input.djvu'),
-            outputPath: join(tempDir, 'unproven-dump.pdf'),
-            tempDir,
-            pageCount: 2,
-            sourceDpi: 300,
-            pageSizes: pageSizes(2),
-        })).rejects.toBe(unprovenError);
+        await expect(
+            buildCompactDjvuAwarePdfFromDjvu({
+                jobId: 'job-dump-unproven',
+                djvuPath: join(tempDir, 'input.djvu'),
+                outputPath: join(tempDir, 'unproven-dump.pdf'),
+                tempDir,
+                pageCount: 2,
+                sourceDpi: 300,
+                pageSizes: pageSizes(2),
+            }),
+        ).rejects.toBe(unprovenError);
         expect(mocks.renderDjvuPageToImage).not.toHaveBeenCalled();
     });
 
@@ -790,11 +761,13 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         expect(manifest).toMatch(/^photo-jpeg\t288\.0000\t384\.0000\t75\t180\t/u);
         await expect(readFile(join(tempDir, 'compact-fidelity.json'), 'utf8').then(JSON.parse)).resolves.toMatchObject({
             preset: 'small',
-            pages: [{
-                pageNumber: 1,
-                effectivePpi: 180,
-                jpegQuality: 75,
-            }],
+            pages: [
+                {
+                    pageNumber: 1,
+                    effectivePpi: 180,
+                    jpegQuality: 75,
+                },
+            ],
         });
     });
 
@@ -816,71 +789,66 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
         const manifest = await readCompactManifest(tempDir);
         expect(manifest).toMatch(/^layered-jpeg\t288\.0000\t384\.0000\t80\t/u);
         expect(result.pageSpecs?.[0]?.kind).toBe('layered');
-        expect(renderModesForPage(44)).toEqual([
-            'mask',
-            'background',
-        ]);
+        expect(renderModesForPage(44)).toEqual(['mask', 'background']);
     });
 
     it('does not retry with photo rendering after a canceled layered render', async () => {
         const abortController = new AbortController();
         detailedBackgroundPages.add(44);
-        mocks.renderDjvuPageToImage.mockImplementation(async (
-            _inputPath: string,
-            outputPath: string,
-            _pageNumber: number,
-            _jobId: string,
-            options: {
-                mode?: string;
-                format?: string;
-            } = {},
-        ) => {
-            await mkdir(dirname(outputPath), {recursive: true});
-            if (options.mode === 'mask') {
-                await writeFile(outputPath, pbm(20, 20));
-                return {
-                    success: true,
-                    outputPath,
-                    fileSize: 12,
-                };
-            }
-            if (options.mode === 'background') {
-                abortController.abort();
-                return {
-                    success: false,
-                    outputPath,
-                    fileSize: 0,
-                    error: 'DjVu conversion canceled',
-                };
-            }
-            throw new Error(`Unexpected render mode after cancellation: ${options.mode ?? 'full'}`);
-        });
+        mocks.renderDjvuPageToImage.mockImplementation(
+            async (
+                _inputPath: string,
+                outputPath: string,
+                _pageNumber: number,
+                _jobId: string,
+                options: {
+                    mode?: string;
+                    format?: string;
+                } = {},
+            ) => {
+                await mkdir(dirname(outputPath), {recursive: true});
+                if (options.mode === 'mask') {
+                    await writeFile(outputPath, pbm(20, 20));
+                    return {
+                        success: true,
+                        outputPath,
+                        fileSize: 12,
+                    };
+                }
+                if (options.mode === 'background') {
+                    abortController.abort();
+                    return {
+                        success: false,
+                        outputPath,
+                        fileSize: 0,
+                        error: 'DjVu conversion canceled',
+                    };
+                }
+                throw new Error(`Unexpected render mode after cancellation: ${options.mode ?? 'full'}`);
+            },
+        );
 
-        await expect(buildCompactDjvuAwarePdfFromDjvu({
-            jobId: 'job-canceled',
-            djvuPath: join(tempDir, 'input.djvu'),
-            outputPath: join(tempDir, 'canceled.pdf'),
-            tempDir,
-            pageCount: 44,
-            sourceDpi: 300,
-            pageSizes: pageSizes(44),
-            pages: [44],
-            signal: abortController.signal,
-        })).rejects.toThrow('DjVu conversion canceled');
+        await expect(
+            buildCompactDjvuAwarePdfFromDjvu({
+                jobId: 'job-canceled',
+                djvuPath: join(tempDir, 'input.djvu'),
+                outputPath: join(tempDir, 'canceled.pdf'),
+                tempDir,
+                pageCount: 44,
+                sourceDpi: 300,
+                pageSizes: pageSizes(44),
+                pages: [44],
+                signal: abortController.signal,
+            }),
+        ).rejects.toThrow('DjVu conversion canceled');
 
-        expect(renderModesForPage(44)).toEqual([
-            'mask',
-            'background',
-        ]);
+        expect(renderModesForPage(44)).toEqual(['mask', 'background']);
         expect(mocks.runRegisteredDjvuProcess).not.toHaveBeenCalled();
     });
 });
 
 function setDjvuDump(pages: ITestDumpPage[]) {
-    mocks.runDjvuEngine.mockImplementation(async (request: {
-        type: string;
-        pageNumbers?: readonly number[];
-    }) => {
+    mocks.runDjvuEngine.mockImplementation(async (request: {type: string; pageNumbers?: readonly number[]}) => {
         if (request.type === 'getPageStructures') {
             return pages.map((page): IDjvuPageStructure => ({
                 pageNumber: page.pageNumber,
@@ -895,21 +863,21 @@ function setDjvuDump(pages: ITestDumpPage[]) {
                 maskBytes: page.maskBytes === null ? null : (page.maskBytes ?? 512),
                 background: page.background
                     ? {
-                        present: true,
-                        kind: 'BG44',
-                        bytes: 8674,
-                        width: 400,
-                        height: 533,
-                    }
+                          present: true,
+                          kind: 'BG44',
+                          bytes: 8674,
+                          width: 400,
+                          height: 533,
+                      }
                     : null,
                 foreground: page.foreground
                     ? {
-                        present: true,
-                        kind: 'FG44',
-                        bytes: 420,
-                        width: 100,
-                        height: 133,
-                    }
+                          present: true,
+                          kind: 'FG44',
+                          bytes: 420,
+                          width: 100,
+                          height: 133,
+                      }
                     : null,
             }));
         }
@@ -918,22 +886,20 @@ function setDjvuDump(pages: ITestDumpPage[]) {
 }
 
 async function readCompactManifest(tempDir: string) {
-    const lines = (await readFile(join(tempDir, 'compact-manifest.jsonl'), 'utf8'))
-        .trim()
-        .split('\n');
+    const lines = (await readFile(join(tempDir, 'compact-manifest.jsonl'), 'utf8')).trim().split('\n');
     return lines.slice(1).join('\n');
 }
 
 function renderModesForPage(pageNumber: number) {
     return mocks.renderDjvuPageToImage.mock.calls
-        .filter(call => call[2] === pageNumber)
-        .map(call => (call[4] as { mode?: string }).mode ?? 'full');
+        .filter((call) => call[2] === pageNumber)
+        .map((call) => (call[4] as {mode?: string}).mode ?? 'full');
 }
 
 function renderOptionsForPage(pageNumber: number) {
     return mocks.renderDjvuPageToImage.mock.calls
-        .filter(call => call[2] === pageNumber)
-        .map(call => call[4] as Record<string, unknown>);
+        .filter((call) => call[2] === pageNumber)
+        .map((call) => call[4] as Record<string, unknown>);
 }
 
 function pageSizes(count: number) {
@@ -947,34 +913,14 @@ function pageSizes(count: number) {
 function monochromeForegroundProbe() {
     const width = 20;
     const height = 20;
-    const pixels = Array.from({length: width * height}, (_value, index) => (
-        index % 97 === 0 ? [
-            0,
-            0,
-            0,
-        ] : [
-            255,
-            255,
-            255,
-        ]
-    )).flat();
+    const pixels = Array.from({length: width * height}, (_value, index) => (index % 97 === 0 ? [0, 0, 0] : [255, 255, 255])).flat();
     return Buffer.from(`P6\n${width} ${height}\n255\n${String.fromCharCode(...pixels)}`, 'binary');
 }
 
 function coloredForegroundProbe() {
     const width = 20;
     const height = 20;
-    const pixels = Array.from({length: width * height}, (_value, index) => (
-        index % 10 === 0 ? [
-            220,
-            20,
-            20,
-        ] : [
-            255,
-            255,
-            255,
-        ]
-    )).flat();
+    const pixels = Array.from({length: width * height}, (_value, index) => (index % 10 === 0 ? [220, 20, 20] : [255, 255, 255])).flat();
     return Buffer.from(`P6\n${width} ${height}\n255\n${String.fromCharCode(...pixels)}`, 'binary');
 }
 
@@ -985,37 +931,14 @@ function ppm(width: number, height: number, pixel: [number, number, number]) {
         pixels[offset + 1] = pixel[1];
         pixels[offset + 2] = pixel[2];
     }
-    return Buffer.concat([
-        Buffer.from(`P6\n${width} ${height}\n255\n`, 'ascii'),
-        pixels,
-    ]);
+    return Buffer.concat([Buffer.from(`P6\n${width} ${height}\n255\n`, 'ascii'), pixels]);
 }
 
 function detailedBackgroundProbe() {
-    return Buffer.concat([
-        Buffer.from('P6\n2 2\n255\n', 'ascii'),
-        Buffer.from([
-            40,
-            40,
-            40,
-            250,
-            250,
-            250,
-            120,
-            120,
-            120,
-            220,
-            210,
-            190,
-        ]),
-    ]);
+    return Buffer.concat([Buffer.from('P6\n2 2\n255\n', 'ascii'), Buffer.from([40, 40, 40, 250, 250, 250, 120, 120, 120, 220, 210, 190])]);
 }
 
-function pbm(
-    width: number,
-    height: number,
-    isBlack: (x: number, y: number) => boolean = (x, y) => x === 0 && y === 0,
-) {
+function pbm(width: number, height: number, isBlack: (x: number, y: number) => boolean = (x, y) => x === 0 && y === 0) {
     const rowStride = Math.ceil(width / 8);
     const pixels = Buffer.alloc(rowStride * height);
     for (let y = 0; y < height; y += 1) {
@@ -1025,8 +948,5 @@ function pbm(
             }
         }
     }
-    return Buffer.concat([
-        Buffer.from(`P4\n${width} ${height}\n`, 'ascii'),
-        pixels,
-    ]);
+    return Buffer.concat([Buffer.from(`P4\n${width} ${height}\n`, 'ascii'), pixels]);
 }

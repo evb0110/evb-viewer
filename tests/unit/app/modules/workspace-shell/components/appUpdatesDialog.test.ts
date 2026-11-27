@@ -1,18 +1,7 @@
 // @vitest-environment happy-dom
 
-import {
-    createApp,
-    defineComponent,
-    h,
-} from 'vue';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    onTestFinished,
-    vi,
-} from 'vitest';
+import {createApp, defineComponent, h} from 'vue';
+import {afterEach, describe, expect, it, onTestFinished, vi} from 'vitest';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 
 const UModal = defineComponent({
@@ -21,19 +10,21 @@ const UModal = defineComponent({
         title: String,
     },
     emits: ['update:open'],
-    setup(props, {
-        emit,
-        slots,
-    }) {
-        return () => h('section', {class: 'modal-stub'}, [
-            h('h1', props.title),
-            h('button', {
-                class: 'close-modal',
-                onClick: () => emit('update:open', false),
-            }, 'Close modal'),
-            slots.body?.(),
-            slots.footer?.({close: () => emit('update:open', false)}),
-        ]);
+    setup(props, {emit, slots}) {
+        return () =>
+            h('section', {class: 'modal-stub'}, [
+                h('h1', props.title),
+                h(
+                    'button',
+                    {
+                        class: 'close-modal',
+                        onClick: () => emit('update:open', false),
+                    },
+                    'Close modal',
+                ),
+                slots.body?.(),
+                slots.footer?.({close: () => emit('update:open', false)}),
+            ]);
     },
 });
 
@@ -51,31 +42,11 @@ afterEach(() => {
 
 describe('AppUpdatesDialog', () => {
     it.each([
-        [
-            'checking',
-            false,
-            true,
-        ],
-        [
-            'downloading',
-            false,
-            true,
-        ],
-        [
-            'unsupported',
-            false,
-            false,
-        ],
-        [
-            'no-update',
-            false,
-            false,
-        ],
-        [
-            'downloading',
-            true,
-            false,
-        ],
+        ['checking', false, true],
+        ['downloading', false, true],
+        ['unsupported', false, false],
+        ['no-update', false, false],
+        ['downloading', true, false],
     ] as const)('shows progress only while working: %s', (phase, ready, expected) => {
         vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
         const host = document.createElement('div');
@@ -96,7 +67,7 @@ describe('AppUpdatesDialog', () => {
         onTestFinished(() => app.unmount());
         expect(Boolean(host.querySelector('progress'))).toBe(expected);
         if (phase === 'unsupported') {
-            [...host.querySelectorAll('button')].find(button => button.textContent === 'settings.close')?.click();
+            [...host.querySelectorAll('button')].find((button) => button.textContent === 'settings.close')?.click();
             expect(close).toHaveBeenCalledWith(false);
         }
     });
@@ -137,7 +108,7 @@ describe('AppUpdatesDialog', () => {
         expect(host.querySelector('h1')?.textContent).toBe('Update available');
         expect(host.textContent).toContain('Version 2.0.0 is ready.');
         const buttons = [...host.querySelectorAll('button')];
-        const click = (label: string) => buttons.find(button => button.textContent === label)?.click();
+        const click = (label: string) => buttons.find((button) => button.textContent === label)?.click();
 
         click('updates.deferAction');
         click('updates.skipAction');

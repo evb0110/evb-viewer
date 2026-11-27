@@ -32,9 +32,7 @@ export interface IFeatureRegistrationRuntime {
 
 const noDispose = () => Promise.resolve();
 
-export function createFeatureRegistrationRuntime(
-    registrations: readonly IFeatureRegistrationResult[],
-): IFeatureRegistrationRuntime {
+export function createFeatureRegistrationRuntime(registrations: readonly IFeatureRegistrationResult[]): IFeatureRegistrationRuntime {
     let disposed = false;
     let disposalPromise: Promise<void> | null = null;
     return {
@@ -69,11 +67,14 @@ function registerLazyValidatedFeature(
     ipcMain: Electron.IpcMain,
     registrationKey: string,
     channels: Record<string, string>,
-    codecs: Record<string, {
-        decodeArgs: (args: readonly unknown[]) => unknown[];
-        decodeResult: (value: unknown) => unknown;
-    }>,
-    load: (registrar: {handle: (channel: string, handler: TDeferredHandler) => void;}) => Promise<void>,
+    codecs: Record<
+        string,
+        {
+            decodeArgs: (args: readonly unknown[]) => unknown[];
+            decodeResult: (value: unknown) => unknown;
+        }
+    >,
+    load: (registrar: {handle: (channel: string, handler: TDeferredHandler) => void}) => Promise<void>,
 ) {
     const handlers = new Map<string, TDeferredHandler>();
     let loading: Promise<void> | null = null;
@@ -84,9 +85,8 @@ function registerLazyValidatedFeature(
     lazyChannelOwners.set(ipcMain, owners);
     const ownedOwners: ILazyChannelOwner[] = [];
     const channelReleases: Array<() => void> = [];
-    const rejectReleasedRequest: ILazyChannelOwner['dispatch'] = () => Promise.reject(
-        new Error(`Lazy IPC feature ${registrationKey} is no longer active`),
-    );
+    const rejectReleasedRequest: ILazyChannelOwner['dispatch'] = () =>
+        Promise.reject(new Error(`Lazy IPC feature ${registrationKey} is no longer active`));
     const throwLastLoadError = (): never => {
         if (lastLoadError instanceof Error) {
             throw lastLoadError;
@@ -97,19 +97,26 @@ function registerLazyValidatedFeature(
         if (loading === null && hasLoadError) {
             throwLastLoadError();
         }
-        loading ??= load({handle: (channel, handler) => {
-            if (handlers.has(channel)) throw new Error(`Duplicate lazy IPC handler: ${channel}`);
-            handlers.set(channel, handler);
-        }}).then(() => {
-            lastLoadError = undefined;
-            hasLoadError = false;
-        }, error => {
-            lastLoadError = error;
-            hasLoadError = true;
-            loading = null;
-            handlers.clear();
-            throw error;
-        });
+        loading ??= load({
+            handle: (channel, handler) => {
+                if (handlers.has(channel)) {
+                    throw new Error(`Duplicate lazy IPC handler: ${channel}`);
+                }
+                handlers.set(channel, handler);
+            },
+        }).then(
+            () => {
+                lastLoadError = undefined;
+                hasLoadError = false;
+            },
+            (error) => {
+                lastLoadError = error;
+                hasLoadError = true;
+                loading = null;
+                handlers.clear();
+                throw error;
+            },
+        );
         await loading;
     };
     const registrar = createValidatedIpcMainRegistrar(ipcMain, {
@@ -118,7 +125,7 @@ function registerLazyValidatedFeature(
     });
     const dispatch = async (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => {
         await ensureLoaded();
-        if (!ownedOwners.every(owner => owner.currentGeneration === generation)) {
+        if (!ownedOwners.every((owner) => owner.currentGeneration === generation)) {
             throw new Error(`Lazy IPC feature ${registrationKey} is no longer active`);
         }
         const channel = args.shift();
@@ -126,8 +133,10 @@ function registerLazyValidatedFeature(
             throw new Error('Lazy IPC dispatch lost its channel identity');
         }
         const handler = handlers.get(channel);
-        if (!handler) throw new Error(`Lazy IPC feature did not register channel: ${channel}`);
-        return handler(event, ...args as never[]);
+        if (!handler) {
+            throw new Error(`Lazy IPC feature did not register channel: ${channel}`);
+        }
+        return handler(event, ...(args as never[]));
     };
     try {
         for (const channel of new Set(Object.values(channels))) {
@@ -193,7 +202,7 @@ function registerLazyValidatedFeature(
 
 export function registerLazyPlatformFeature(
     ipcMain: Electron.IpcMain,
-    descriptor: typeof platformDescriptors[number],
+    descriptor: (typeof platformDescriptors)[number],
     context: IFeatureIpcAdapterOptions,
 ) {
     let loadedBindings: Record<string, unknown> | null = null;
@@ -204,11 +213,7 @@ export function registerLazyPlatformFeature(
         descriptor.feature.ipcCodecs,
         async (registrar) => {
             loadedBindings = await descriptor.create(context);
-            registerPlatformFeatureHandlers(
-                registrar as never,
-                descriptor.feature as never,
-                loadedBindings as never,
-            );
+            registerPlatformFeatureHandlers(registrar as never, descriptor.feature as never, loadedBindings as never);
         },
     );
     let disposalPromise: Promise<void> | null = null;
@@ -222,17 +227,15 @@ export function registerLazyPlatformFeature(
                 loadError = error;
             }
             let disposalError: unknown;
-            const disposer = descriptor.disposeBindingKey === undefined
-                ? undefined
-                : loadedBindings?.[descriptor.disposeBindingKey];
+            const disposer = descriptor.disposeBindingKey === undefined ? undefined : loadedBindings?.[descriptor.disposeBindingKey];
             try {
-                if (descriptor.disposeBindingKey !== undefined
-                    && loadError === undefined
-                    && loadedBindings !== null
-                    && typeof disposer !== 'function') {
-                    throw new Error(
-                        `Feature ${descriptor.name} did not provide callable disposer ${descriptor.disposeBindingKey}`,
-                    );
+                if (
+                    descriptor.disposeBindingKey !== undefined &&
+                    loadError === undefined &&
+                    loadedBindings !== null &&
+                    typeof disposer !== 'function'
+                ) {
+                    throw new Error(`Feature ${descriptor.name} did not provide callable disposer ${descriptor.disposeBindingKey}`);
                 }
                 if (typeof disposer === 'function') {
                     await (disposer as () => Promise<void>)();
@@ -261,10 +264,7 @@ export function registerLazyPlatformFeature(
 
 export interface IFeatureIpcAdapterOptions extends IFeatureRegistrationContext {}
 
-export function registerFeatureIpcAdapters(
-    ipcMain: Electron.IpcMain,
-    options: IFeatureIpcAdapterOptions,
-): IFeatureRegistrationRuntime {
+export function registerFeatureIpcAdapters(ipcMain: Electron.IpcMain, options: IFeatureIpcAdapterOptions): IFeatureRegistrationRuntime {
     const registrations: IFeatureRegistrationResult[] = [];
     for (const descriptor of FEATURE_REGISTRATION_DESCRIPTORS) {
         if (descriptor.register) {
@@ -275,11 +275,7 @@ export function registerFeatureIpcAdapters(
             });
             continue;
         }
-        const dispose = registerLazyPlatformFeature(
-            ipcMain,
-            descriptor as typeof platformDescriptors[number],
-            options,
-        );
+        const dispose = registerLazyPlatformFeature(ipcMain, descriptor as (typeof platformDescriptors)[number], options);
         registrations.push({
             descriptor,
             dispose,

@@ -1,28 +1,18 @@
-import { getAppTempDir } from '@electron/utils/appTempDir';
-import {
-    createManagedScratchTempDir,
-    removeManagedScratchTempDir,
-} from '@electron/utils/managedScratchTemp';
-import { existsSync } from 'fs';
-import {
-    rm,
-    writeFile,
-} from 'fs/promises';
-import { join } from 'path';
-import { createLogger } from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import { createNativeFallbackTestError } from '@electron/native-tools/createNativeFallbackTestError';
-import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
-import { PDF_IMAGE_COMBINE_THREADS_ENV } from '@electron/native-tools/pdfImageCombineBudget';
-import {
-    chainJobBrokerRunContext,
-    type IJobBrokerRunContext,
-    type TTerminationProofSink,
-} from '@electron/resources/jobBroker';
-import { atomicReplace } from '@electron/utils/atomicReplace';
-import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
-import { abortErrorFromSignal } from '@electron/utils/abort';
-import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
+import {getAppTempDir} from '@electron/utils/appTempDir';
+import {createManagedScratchTempDir, removeManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
+import {existsSync} from 'fs';
+import {rm, writeFile} from 'fs/promises';
+import {join} from 'path';
+import {createLogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {createNativeFallbackTestError} from '@electron/native-tools/createNativeFallbackTestError';
+import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
+import {PDF_IMAGE_COMBINE_THREADS_ENV} from '@electron/native-tools/pdfImageCombineBudget';
+import {chainJobBrokerRunContext, type IJobBrokerRunContext, type TTerminationProofSink} from '@electron/resources/jobBroker';
+import {atomicReplace} from '@electron/utils/atomicReplace';
+import {resolveNativePdfImageCombinePath} from '@electron/image/tryCreatePdfWithNativeImageCombiner';
+import {abortErrorFromSignal} from '@electron/utils/abort';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {runtimeConfig} from '@electron/runtimeConfig';
 
 const logger = createLogger('nativeTiffCombine');
@@ -70,12 +60,14 @@ export async function tryCombinePagesWithNativeTiffCombiner(
     const cleanup = async () => {
         await removeManagedScratchTempDir(tempDir, 'pdfExport-scope-', scratchRoot).catch(() => undefined);
         if (!replacedOutput) {
-            await rm(tempOutputPath, { force: true }).catch(() => undefined);
+            await rm(tempOutputPath, {force: true}).catch(() => undefined);
         }
     };
 
     try {
-        if (signal?.aborted) throw abortErrorFromSignal(signal);
+        if (signal?.aborted) {
+            throw abortErrorFromSignal(signal);
+        }
         await writeFile(inputsPath, createNativeInputsFileContents(pagePaths), 'utf8');
         // The proof also reaches the caller's lease, which the combine runs under.
         const recordLocalProof: TTerminationProofSink = (proof) => {
@@ -88,9 +80,7 @@ export async function tryCombinePagesWithNativeTiffCombiner(
             inputsPath,
             signal,
             dpi,
-            chainedBrokerRun !== undefined
-                ? {brokerRun: chainedBrokerRun}
-                : {onTerminationProof: recordLocalProof},
+            chainedBrokerRun !== undefined ? {brokerRun: chainedBrokerRun} : {onTerminationProof: recordLocalProof},
             combineThreads,
             cancelGroup,
         );
@@ -98,9 +88,7 @@ export async function tryCombinePagesWithNativeTiffCombiner(
             const testFailure = createNativeFallbackTestError(
                 runtimeConfig.test.nativeTiffCombineEnabled,
                 'Native TIFF combine',
-                !ok
-                    ? 'native command reported failure'
-                    : `native output was not created at "${tempOutputPath}"`,
+                !ok ? 'native command reported failure' : `native output was not created at "${tempOutputPath}"`,
             );
             if (testFailure) {
                 throw testFailure;
@@ -108,7 +96,9 @@ export async function tryCombinePagesWithNativeTiffCombiner(
             return false;
         }
 
-        if (signal?.aborted) throw abortErrorFromSignal(signal);
+        if (signal?.aborted) {
+            throw abortErrorFromSignal(signal);
+        }
         await atomicReplace(tempOutputPath, outputPath);
         replacedOutput = true;
         return true;
@@ -119,9 +109,13 @@ export async function tryCombinePagesWithNativeTiffCombiner(
         if (terminationUnproven) {
             // The child may still read the inputs and write the output; they
             // go once its process tree is proven gone.
-            void terminationProof?.then(proven => (proven
-                ? cleanup()
-                : logger.warn(`Keeping native TIFF combine inputs "${tempDir}" and output "${tempOutputPath}" until the child is proven gone`)));
+            void terminationProof?.then((proven) =>
+                proven
+                    ? cleanup()
+                    : logger.warn(
+                          `Keeping native TIFF combine inputs "${tempDir}" and output "${tempOutputPath}" until the child is proven gone`,
+                      ),
+            );
         } else {
             await cleanup();
         }
@@ -129,9 +123,7 @@ export async function tryCombinePagesWithNativeTiffCombiner(
 }
 
 function canRepresentPathInNativeInputsFile(inputPath: string) {
-    return inputPath.length > 0
-        && inputPath.trim() === inputPath
-        && !/[\r\n]/u.test(inputPath);
+    return inputPath.length > 0 && inputPath.trim() === inputPath && !/[\r\n]/u.test(inputPath);
 }
 
 function createNativeInputsFileContents(pagePaths: string[]) {
@@ -152,36 +144,34 @@ async function runNativeTiffCombine(
     cancelGroup?: string,
 ) {
     try {
-        const args = [
-            '--output',
-            outputPath,
-            '--format',
-            'tiff',
-            '--inputs-file',
-            inputsPath,
-        ];
+        const args = ['--output', outputPath, '--format', 'tiff', '--inputs-file', inputsPath];
         if (typeof dpi === 'number' && Number.isFinite(dpi) && dpi > 0) {
             args.push('--dpi', String(Math.round(dpi)));
         }
-        const env = combineThreads !== undefined && process.env[PDF_IMAGE_COMBINE_THREADS_ENV] === undefined
-            ? { [PDF_IMAGE_COMBINE_THREADS_ENV]: String(Math.max(1, Math.floor(combineThreads))) }
-            : undefined;
+        const env =
+            combineThreads !== undefined && process.env[PDF_IMAGE_COMBINE_THREADS_ENV] === undefined
+                ? {[PDF_IMAGE_COMBINE_THREADS_ENV]: String(Math.max(1, Math.floor(combineThreads)))}
+                : undefined;
         await runNativeToolCommand(binaryPath, args, {
             timeoutMs: NATIVE_TIFF_COMBINE_TIMEOUT_MS,
             commandLabel: 'evb-pdf-image-combine(tiff)',
             maxStdoutBytes: 1024,
             maxStderrBytes: 8_192,
             ...termination,
-            ...(cancelGroup ? { cancelGroup } : {}),
-            ...(env ? { env } : {}),
-            ...(signal ? { signal } : {}),
+            ...(cancelGroup ? {cancelGroup} : {}),
+            ...(env ? {env} : {}),
+            ...(signal ? {signal} : {}),
         });
         return true;
     } catch (error) {
         // A child not proven gone may still hold the pages and the output, so
         // no fallback starts beside it and the owner of the pages has to know.
-        if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
-        if (signal?.aborted) throw abortErrorFromSignal(signal);
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+            throw error;
+        }
+        if (signal?.aborted) {
+            throw abortErrorFromSignal(signal);
+        }
         const testFailure = createNativeFallbackTestError(
             runtimeConfig.test.nativeTiffCombineEnabled,
             'Native TIFF combine',

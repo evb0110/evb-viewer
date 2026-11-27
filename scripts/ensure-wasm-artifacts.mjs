@@ -1,51 +1,26 @@
-import { getCliErrorMessage } from './lib/cli-error.mjs';
-import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import {
-    existsSync,
-    mkdirSync,
-    readFileSync,
-    renameSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    mkdir,
-    readFile,
-    rename,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {getCliErrorMessage} from './lib/cli-error.mjs';
+import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
+import {mkdir, readFile, rename, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import {
-    buildWasmArtifact,
-    createWasmToolBuildPlan,
-} from './build-wasm-tool.mjs';
+import {fileURLToPath} from 'node:url';
+import {buildWasmArtifact, createWasmToolBuildPlan} from './build-wasm-tool.mjs';
 import {
     copyCargoArtifactVerified,
     discardCargoBuildFromOtherWrapperFlags,
     getCargoArtifactPath,
     resolveCargoTargetDirectory,
 } from './cargo-artifacts.mjs';
-import {
-    getCargoBuildEnvironment,
-    getCargoConfigurationInputs,
-    getCargoFingerprintEnvironment,
-} from './lib/build-environment.mjs';
-import {
-    countWasmBulkMemory,
-    lowerWasmBulkMemory,
-} from './lib/lower-wasm-bulk-memory.mjs';
-import { computeNativeBuildId } from './native-build-id.mjs';
-import {
-    PREBUILT_WASM_FILES,
-    WASM_ARTIFACTS,
-} from './wasm-artifacts.mjs';
+import {getCargoBuildEnvironment, getCargoConfigurationInputs, getCargoFingerprintEnvironment} from './lib/build-environment.mjs';
+import {countWasmBulkMemory, lowerWasmBulkMemory} from './lib/lower-wasm-bulk-memory.mjs';
+import {computeNativeBuildId} from './native-build-id.mjs';
+import {PREBUILT_WASM_FILES, WASM_ARTIFACTS} from './wasm-artifacts.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Keyed by artifact id: the build identity each public/wasm file was built from.
 // An artifact's id is its crate name unless the crate has several artifacts.
-const buildIdsPathFor = root => path.join(root, '.tmp', 'wasm-build-ids.json');
+const buildIdsPathFor = (root) => path.join(root, '.tmp', 'wasm-build-ids.json');
 
 /**
  * Everything a browser WASM build is made from: its native sources, and the
@@ -62,12 +37,14 @@ export function computeWasmBuildIdentity(root, artifact, env = process.env) {
         env,
         projectRoot: root,
     });
-    const hash = createHash('sha256').update(JSON.stringify({
-        buildId: computeNativeBuildId(root, artifact.crateName),
-        cargoArgs: plan.cargoArgs,
-        environment: getCargoFingerprintEnvironment(env),
-        rustflags: plan.rustflags,
-    }));
+    const hash = createHash('sha256').update(
+        JSON.stringify({
+            buildId: computeNativeBuildId(root, artifact.crateName),
+            cargoArgs: plan.cargoArgs,
+            environment: getCargoFingerprintEnvironment(env),
+            rustflags: plan.rustflags,
+        }),
+    );
     for (const input of [
         ...getCargoConfigurationInputs({
             env,
@@ -79,8 +56,12 @@ export function computeWasmBuildIdentity(root, artifact, env = process.env) {
         path.join(root, 'scripts', 'lib', 'cargo-rustc-launcher.mjs'),
         ...(artifact.lowerBulkMemory ? [path.join(root, 'scripts', 'lib', 'lower-wasm-bulk-memory.mjs')] : []),
     ]) {
-        if (!existsSync(input)) continue;
-        hash.update(`${path.relative(root, input)}\0`).update(readFileSync(input)).update('\0');
+        if (!existsSync(input)) {
+            continue;
+        }
+        hash.update(`${path.relative(root, input)}\0`)
+            .update(readFileSync(input))
+            .update('\0');
     }
     return hash.digest('hex');
 }
@@ -102,24 +83,18 @@ function readRecordedBuildIds(root) {
  * @returns {Array<{artifact: import('./wasm-artifacts.mjs').IWasmArtifact, buildId: string | null}>}
  */
 export function findWasmArtifactsToBuild(root = projectRoot) {
-    const isPresent = artifact => existsSync(path.join(root, artifact.publicRelativePath));
+    const isPresent = (artifact) => existsSync(path.join(root, artifact.publicRelativePath));
     if (!existsSync(path.join(root, 'native', 'Cargo.toml'))) {
-        return WASM_ARTIFACTS
-            .filter(artifact => !isPresent(artifact))
-            .map(artifact => ({
-                artifact,
-                buildId: null,
-            }));
+        return WASM_ARTIFACTS.filter((artifact) => !isPresent(artifact)).map((artifact) => ({
+            artifact,
+            buildId: null,
+        }));
     }
     const recorded = readRecordedBuildIds(root);
-    return WASM_ARTIFACTS
-        .map(artifact => ({
-            artifact,
-            buildId: computeWasmBuildIdentity(root, artifact),
-        }))
-        .filter(({
-            artifact, buildId,
-        }) => !isPresent(artifact) || recorded[artifact.id] !== buildId);
+    return WASM_ARTIFACTS.map((artifact) => ({
+        artifact,
+        buildId: computeWasmBuildIdentity(root, artifact),
+    })).filter(({artifact, buildId}) => !isPresent(artifact) || recorded[artifact.id] !== buildId);
 }
 
 const PREBUILT_WASM_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000;
@@ -166,12 +141,12 @@ async function fetchPrebuiltWasmFile(file) {
 export function assertWasmArtifactsCurrent(root) {
     const stale = [
         ...findWasmArtifactsToBuild(root).map(({artifact}) => artifact.publicRelativePath),
-        ...findPrebuiltWasmFilesToFetch(root).map(file => file.publicRelativePath),
+        ...findPrebuiltWasmFilesToFetch(root).map((file) => file.publicRelativePath),
     ];
     if (stale.length > 0) {
         throw new Error(
-            `Browser WASM is missing, built from other native sources, or not the pinned download: ${stale.join(', ')}. `
-            + 'Run node scripts/ensure-wasm-artifacts.mjs before deploying.',
+            `Browser WASM is missing, built from other native sources, or not the pinned download: ${stale.join(', ')}. ` +
+                'Run node scripts/ensure-wasm-artifacts.mjs before deploying.',
         );
     }
 }
@@ -182,8 +157,8 @@ export function assertWasmArtifactsCurrent(root) {
  */
 function assertWasmExports(wasmBytes, plan) {
     const wasmModule = new WebAssembly.Module(wasmBytes);
-    const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map(entry => entry.name));
-    const missingExports = plan.requiredExports.filter(name => !exportNames.has(name));
+    const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map((entry) => entry.name));
+    const missingExports = plan.requiredExports.filter((name) => !exportNames.has(name));
     if (missingExports.length > 0) {
         throw new Error(`${plan.label} is missing exports: ${missingExports.join(', ')}`);
     }
@@ -199,9 +174,7 @@ async function stageWasmArtifact(sourcePath, artifact) {
     const destinationPath = path.join(projectRoot, artifact.publicRelativePath);
     await mkdir(path.dirname(destinationPath), {recursive: true});
     if (artifact.lowerBulkMemory) {
-        const {
-            bytes, lowered,
-        } = lowerWasmBulkMemory(await readFile(sourcePath));
+        const {bytes, lowered} = lowerWasmBulkMemory(await readFile(sourcePath));
         const left = countWasmBulkMemory(bytes);
         if (left.copy + left.fill > 0) {
             throw new Error(`${artifact.label} still has ${left.copy} memory.copy and ${left.fill} memory.fill after lowering`);
@@ -220,10 +193,7 @@ async function stageWasmArtifact(sourcePath, artifact) {
     }
     const wasmBytes = await readFile(destinationPath);
     assertWasmExports(wasmBytes, artifact);
-    console.log(
-        `Staged ${artifact.label}: ${path.relative(projectRoot, destinationPath)} `
-        + `(${wasmBytes.byteLength} bytes)`,
-    );
+    console.log(`Staged ${artifact.label}: ${path.relative(projectRoot, destinationPath)} ` + `(${wasmBytes.byteLength} bytes)`);
 }
 
 /**
@@ -253,10 +223,7 @@ async function buildWasmArtifactBatch(group, cargoTargetDirectory) {
         '--target',
         first.rustTarget,
         '--lib',
-        ...group.flatMap(({artifact}) => [
-            '-p',
-            artifact.packageName,
-        ]),
+        ...group.flatMap(({artifact}) => ['-p', artifact.packageName]),
     ];
     const result = spawnSync('cargo', cargoArgs, {
         cwd: projectRoot,
@@ -289,7 +256,9 @@ export async function ensureWasmArtifacts() {
     const stale = findWasmArtifactsToBuild();
     if (!existsSync(path.join(projectRoot, 'native', 'Cargo.toml'))) {
         if (stale.length > 0) {
-            throw new Error(`Missing ${stale.map(({artifact}) => artifact.publicRelativePath).join(', ')} and no native/ sources to build them from.`);
+            throw new Error(
+                `Missing ${stale.map(({artifact}) => artifact.publicRelativePath).join(', ')} and no native/ sources to build them from.`,
+            );
         }
         return;
     }
@@ -309,11 +278,11 @@ export async function ensureWasmArtifacts() {
         }
     }
 
-    const cargoTargetDirectory = [...groups.values()].some(group => group.length > 1)
+    const cargoTargetDirectory = [...groups.values()].some((group) => group.length > 1)
         ? resolveCargoTargetDirectory({
-            manifestPath: 'native/Cargo.toml',
-            projectRoot,
-        })
+              manifestPath: 'native/Cargo.toml',
+              projectRoot,
+          })
         : null;
 
     const recorded = readRecordedBuildIds(projectRoot);
@@ -323,9 +292,7 @@ export async function ensureWasmArtifacts() {
         } else {
             await buildWasmArtifactBatch(group, /** @type {string} */ (cargoTargetDirectory));
         }
-        for (const {
-            artifact, buildId,
-        } of group) {
+        for (const {artifact, buildId} of group) {
             recorded[artifact.id] = buildId;
         }
         mkdirSync(path.dirname(buildIdsPathFor(projectRoot)), {recursive: true});

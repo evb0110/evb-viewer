@@ -1,37 +1,14 @@
-import {
-    mkdir,
-    mkdtemp,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    join,
-    resolve,
-} from 'node:path';
-import { build } from 'esbuild';
+import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {join, resolve} from 'node:path';
+import {build} from 'esbuild';
 import type {Page} from 'playwright';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    closeChromiumBrowser,
-    connectOrLaunchChromium,
-} from './browserIntegrationChromium';
-import { evaluateViewerInvariantCheckpoint } from '@tests/e2e/electron/helpers/viewerInvariants';
-import type { IViewerBugReport } from '@app/modules/viewer-invariants/buildViewerBugReport';
-import type { IViewerUserAction } from '@app/modules/viewer-invariants/viewerActionLog';
-import type {
-    IViewerSettleOptions,
-    IViewerSettleOutcome,
-} from '@app/modules/viewer-invariants/waitForViewerSettled';
-import type {
-    IViewerInvariantOptions,
-    IViewerInvariantReport,
-} from '@app/modules/viewer-invariants/viewerInvariantTypes';
+import {afterAll, beforeAll, describe, expect, it} from 'vitest';
+import {closeChromiumBrowser, connectOrLaunchChromium} from './browserIntegrationChromium';
+import {evaluateViewerInvariantCheckpoint} from '@tests/e2e/electron/helpers/viewerInvariants';
+import type {IViewerBugReport} from '@app/modules/viewer-invariants/buildViewerBugReport';
+import type {IViewerUserAction} from '@app/modules/viewer-invariants/viewerActionLog';
+import type {IViewerSettleOptions, IViewerSettleOutcome} from '@app/modules/viewer-invariants/waitForViewerSettled';
+import type {IViewerInvariantOptions, IViewerInvariantReport} from '@app/modules/viewer-invariants/viewerInvariantTypes';
 
 /**
  * Known-bad proofs for the viewer invariants. Each fixture is minimal markup
@@ -123,13 +100,14 @@ function renderTabBar(fileName: string) {
 function renderOverlay(overlay: IFixtureOverlay) {
     // A screen-sized marker is centred on its point and keeps its pixel size,
     // exactly as `PdfNoteAnnotation.vue` places the note icon.
-    const style = overlay.screenSizedPx === undefined
-        ? `position:absolute;left:${String(overlay.x * 100)}%;top:${String(overlay.y * 100)}%;`
-            + `width:${String(overlay.width * 100)}%;height:${String(overlay.height * 100)}%;`
-        : `position:absolute;left:${String((overlay.x + overlay.width / 2) * 100)}%;`
-            + `top:${String((overlay.y + overlay.height / 2) * 100)}%;`
-            + `width:${String(overlay.screenSizedPx)}px;height:${String(overlay.screenSizedPx)}px;`
-            + 'transform:translate(-50%, -50%);';
+    const style =
+        overlay.screenSizedPx === undefined
+            ? `position:absolute;left:${String(overlay.x * 100)}%;top:${String(overlay.y * 100)}%;` +
+              `width:${String(overlay.width * 100)}%;height:${String(overlay.height * 100)}%;`
+            : `position:absolute;left:${String((overlay.x + overlay.width / 2) * 100)}%;` +
+              `top:${String((overlay.y + overlay.height / 2) * 100)}%;` +
+              `width:${String(overlay.screenSizedPx)}px;height:${String(overlay.screenSizedPx)}px;` +
+              'transform:translate(-50%, -50%);';
     return `<div class="pdf-annotation-editor-entity" data-annotation-id="${overlay.annotationId}"
         data-annotation-kind="${overlay.kind}"
         ${overlay.outsidePage ? 'data-annotation-outside-page=""' : ''}
@@ -156,21 +134,13 @@ function renderNoteWindow(noteWindow: IFixtureNoteWindow) {
         data-user-placement="0"
         style="position:fixed;left:${String(noteWindow.leftPx)}px;top:${String(noteWindow.topPx)}px;width:200px;height:150px;background:#fff${
             noteWindow.clipPath ? `;clip-path:${noteWindow.clipPath}` : ''
-        }${
-            noteWindow.hidden ? ';display:none' : ''
-        }"></div>`;
+        }${noteWindow.hidden ? ';display:none' : ''}"></div>`;
 }
 
 function buildFixtureMarkup(options: IFixtureOptions = {}) {
-    const pages = options.pages ?? [
-        {pageNumber: 1},
-        {pageNumber: 2},
-    ];
-    const trackHeight = pages.reduce(
-        (total, page) => total + (page.heightPx ?? PAGE_HEIGHT_PX) + PAGE_GAP_PX,
-        0,
-    );
-    const trackWidth = Math.max(...pages.map(page => page.widthPx ?? PAGE_WIDTH_PX));
+    const pages = options.pages ?? [{pageNumber: 1}, {pageNumber: 2}];
+    const trackHeight = pages.reduce((total, page) => total + (page.heightPx ?? PAGE_HEIGHT_PX) + PAGE_GAP_PX, 0);
+    const trackWidth = Math.max(...pages.map((page) => page.widthPx ?? PAGE_WIDTH_PX));
     return `<!doctype html>
 <html><head><style>body {margin: 0; font: 13px sans-serif}</style></head>
 <body>
@@ -256,15 +226,19 @@ async function loadFixture(page: Page, markup: string) {
 }
 
 function violationIds(report: IViewerInvariantReport) {
-    return report.violations.map(violation => violation.id);
+    return report.violations.map((violation) => violation.id);
 }
 
 /** Two painted panes side by side; a pane still painting shows its page skeleton. */
-function buildTwoPaneMarkup(panes: ReadonlyArray<{
-    active: boolean;
-    painting: boolean
-}>) {
-    return `<!doctype html><html><body style="margin:0">${panes.map((pane, index) => `
+function buildTwoPaneMarkup(
+    panes: ReadonlyArray<{
+        active: boolean;
+        painting: boolean;
+    }>,
+) {
+    return `<!doctype html><html><body style="margin:0">${panes
+        .map(
+            (pane, index) => `
 <div class="editor-pane${pane.active ? ' is-active' : ''}" data-pane="${String(index)}"
     style="position:fixed;left:${String(index * 320)}px;top:0;width:300px;height:300px">
     <div class="workspace-host" data-workspace-active="${String(pane.active)}"
@@ -277,20 +251,23 @@ function buildTwoPaneMarkup(panes: ReadonlyArray<{
             </div>
         </div>
     </div>
-</div>`).join('')}</body></html>`;
+</div>`,
+        )
+        .join('')}</body></html>`;
 }
 
 describe('viewer invariant checker against real Chromium layout', () => {
-
-    it('reads the last page of a continuous DjVu beyond the browser scroll extent', async () => {
-        // R2/R3/R5: real page-source runtime and DjVu adapter, with deterministic
-        // preview bytes at the codec boundary. Layout and input are Chromium's.
-        const longSurfaceBundle = join(temporaryDirectory, 'long-djvu.js');
-        await build({
-            bundle: true,
-            stdin: {
-                resolveDir: process.cwd(),
-                contents: `
+    it(
+        'reads the last page of a continuous DjVu beyond the browser scroll extent',
+        async () => {
+            // R2/R3/R5: real page-source runtime and DjVu adapter, with deterministic
+            // preview bytes at the codec boundary. Layout and input are Chromium's.
+            const longSurfaceBundle = join(temporaryDirectory, 'long-djvu.js');
+            await build({
+                bundle: true,
+                stdin: {
+                    resolveDir: process.cwd(),
+                    contents: `
                     import * as Vue from 'vue';
                     import { useDocumentPageSourceRuntime } from '@app/modules/document-viewer/page-source-renderer/useDocumentPageSourceRuntime';
                     import { createDocumentViewerRuntime, documentViewerRuntimeKey } from '@app/modules/document-viewer/runtime/documentViewerRuntime';
@@ -348,27 +325,31 @@ describe('viewer invariant checker against real Chromium layout', () => {
                         }, [h(Surface)]);
                     }})).mount('#app');
                 `,
-            },
-            define: {
-                'process.env.NODE_ENV': '"production"',
-                'import.meta.client': 'true',
-                'import.meta.dev': 'false',
-            },
-            format: 'iife',
-            outfile: longSurfaceBundle,
-            platform: 'browser',
-            tsconfig: resolve(process.cwd(), 'tsconfig.json'),
-            plugins: [{
-                name: 'controlled-djvu-preview',
-                setup(builder) {
-                    builder.onResolve({filter: /^@app\/platform\/browser-api\/public$/}, () => ({
-                        path: 'preview',
-                        namespace: 'long-djvu',
-                    }));
-                    builder.onLoad({
-                        filter: /.*/,
-                        namespace: 'long-djvu',
-                    }, () => ({contents: `
+                },
+                define: {
+                    'process.env.NODE_ENV': '"production"',
+                    'import.meta.client': 'true',
+                    'import.meta.dev': 'false',
+                },
+                format: 'iife',
+                outfile: longSurfaceBundle,
+                platform: 'browser',
+                tsconfig: resolve(process.cwd(), 'tsconfig.json'),
+                plugins: [
+                    {
+                        name: 'controlled-djvu-preview',
+                        setup(builder) {
+                            builder.onResolve({filter: /^@app\/platform\/browser-api\/public$/}, () => ({
+                                path: 'preview',
+                                namespace: 'long-djvu',
+                            }));
+                            builder.onLoad(
+                                {
+                                    filter: /.*/,
+                                    namespace: 'long-djvu',
+                                },
+                                () => ({
+                                    contents: `
                         const size = { width: 600, height: 800, dpi: 72 };
                         export async function createDjvuPagePreviewSourceFromPath() {
                             return {
@@ -380,1070 +361,1292 @@ describe('viewer invariant checker against real Chromium layout', () => {
                                 revokeObjectURL() {}, terminate() {},
                             };
                         }
-                    `}));
-                },
-            }],
-        });
-        const evidenceDirectory = resolve(process.cwd(), '.devkit/b03-long-djvu');
-        await mkdir(evidenceDirectory, {recursive: true});
-        const observations: unknown[] = [];
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage({
-                viewport: {
-                    width: 1000,
-                    height: 800,
-                },
-                recordVideo: {dir: evidenceDirectory},
+                    `,
+                                }),
+                            );
+                        },
+                    },
+                ],
             });
-            const errors: string[] = [];
-            page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-            page.on('pageerror', error => errors.push(error.message));
-            await page.route('http://long-djvu.test/', route => route.fulfill({
-                contentType: 'text/html',
-                body: '<style>body { margin: 0; } #page-number, #zoom, #indicator { position: fixed; top: 680px; } #zoom { left: 220px; } #indicator { left: 300px; }</style><div id="app"></div>',
-            }));
-            await page.goto('http://long-djvu.test/');
-            await page.addScriptTag({path: longSurfaceBundle});
-
-            await page.locator('[data-page-number="1"] img').waitFor({
-                state: 'visible',
-                timeout: 10000,
-            });
-            await expect.poll(() => page.locator('#indicator').getAttribute('data-lifecycle')).toBe('ready');
-            await page.getByRole('textbox', {name: 'Page'}).fill('5010');
-            await page.getByRole('textbox', {name: 'Page'}).press('Enter');
-            const read = () => page.evaluate(() => {
-                const viewport = document.querySelector<HTMLElement>('#viewport')!;
-                const view = viewport.getBoundingClientRect();
-                const last = document.querySelector<HTMLElement>('[data-page-number="5010"]');
-                const previous = document.querySelector<HTMLElement>('[data-page-number="5009"]');
-                const lastRect = last?.getBoundingClientRect();
-                return {
-                    lastTop: lastRect ? lastRect.top - view.top : null,
-                    previousTop: previous ? previous.getBoundingClientRect().top - view.top : null,
-                    lastHeight: lastRect?.height ?? null,
-                    physicalHeight: viewport.scrollHeight,
-                    physicalTop: viewport.scrollTop,
-                    indicator: document.querySelector('#indicator')!.textContent,
-                };
-            });
+            const evidenceDirectory = resolve(process.cwd(), '.devkit/b03-long-djvu');
+            await mkdir(evidenceDirectory, {recursive: true});
+            const observations: unknown[] = [];
+            const browser = await connectOrLaunchChromium();
             try {
-                await expect.poll(async () => (await read()).lastTop).toBe(20);
-            } catch (error) {
-                observations.push({
-                    checkpoint: 'last-page-jump-failed',
-                    ...await read(),
+                const page = await browser.newPage({
+                    viewport: {
+                        width: 1000,
+                        height: 800,
+                    },
+                    recordVideo: {dir: evidenceDirectory},
                 });
-                throw error;
-            }
-            await expect.poll(async () => (await read()).indicator).toBe('5010');
-            const aligned = await read();
-            observations.push({
-                checkpoint: 'last-page-jump',
-                ...aligned,
-            });
-            expect(aligned.lastHeight).toBe(8000);
-            expect(aligned.previousTop).toBe(-8000);
-            expect(aligned.physicalHeight).toBeLessThan(8_400_000);
-            await page.screenshot({path: join(evidenceDirectory, 'last-page.png')});
-            await page.locator('#viewport').hover();
-            await page.mouse.wheel(0, 1200);
-            await expect.poll(async () => (await read()).lastTop).toBe(-1180);
-            await expect.poll(async () => (await read()).indicator).toBe('5010');
-            observations.push({
-                checkpoint: 'last-page-wheel',
-                ...await read(),
-            });
-            // Toolbar zoom preserves the page point under the viewport center.
-            const beforeZoom = await read();
-            await page.getByRole('button', {
-                name: 'Zoom',
-                exact: true,
-            }).click();
-            const afterZoomTop = 325 - (325 - beforeZoom.lastTop!) * 0.8;
-            await expect.poll(async () => (await read()).lastTop).toBe(afterZoomTop);
-            observations.push({
-                checkpoint: 'last-page-zoom',
-                ...await read(),
-            });
-            await page.getByRole('button', {
-                name: 'Zoom',
-                exact: true,
-            }).click();
-            await expect.poll(async () => (await read()).lastTop).toBe(beforeZoom.lastTop);
-            // A viewport resize uses the same logical anchor in a late segment.
-            await page.setViewportSize({
-                width: 1000,
-                height: 750,
-            });
-            await expect.poll(async () => (await read()).lastTop).toBe(beforeZoom.lastTop! - 25);
-            observations.push({
-                checkpoint: 'last-page-resize',
-                ...await read(),
-            });
-            // Crossing a physical segment end keeps document-space movement.
-            await page.getByRole('textbox', {name: 'Page'}).fill('1');
-            await page.getByRole('textbox', {name: 'Page'}).press('Enter');
-            await expect.poll(async () => page.locator('[data-page-number="1"]').evaluate(element =>
-                element.getBoundingClientRect().top - document.querySelector('#viewport')!.getBoundingClientRect().top,
-            )).toBe(20);
-            await page.getByRole('textbox', {name: 'Page'}).fill('1046');
-            await page.getByRole('textbox', {name: 'Page'}).press('Enter');
-            await expect.poll(async () => page.locator('[data-page-number="1046"]').evaluate(element =>
-                element.getBoundingClientRect().top - document.querySelector('#viewport')!.getBoundingClientRect().top,
-            )).toBe(20);
-            await page.locator('#viewport').hover();
-            expect((await read()).physicalTop).toBeGreaterThan(8_000_000);
-            await page.mouse.wheel(0, 7000);
-            await expect.poll(async () => page.locator('[data-page-number="1046"]').evaluate(element =>
-                element.getBoundingClientRect().top - document.querySelector('#viewport')!.getBoundingClientRect().top,
-            )).toBe(-6980);
-            expect((await read()).physicalTop).toBeLessThan(5_000_000);
-            observations.push({
-                checkpoint: 'segment-wheel',
-                ...await read(),
-            });
-            expect(errors).toEqual([]);
-        } finally {
-            await closeChromiumBrowser(browser);
-            await writeFile(join(evidenceDirectory, 'observations.json'), JSON.stringify(observations, null, 2));
-        }
-    }, BROWSER_TEST_TIMEOUT_MS);
-
-    it('keeps the viewer unquiet for 500 ms after a trusted window resize', async () => {
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage({viewport: {
-                height: 700,
-                width: 900,
-            }});
-            await loadFixture(page, buildFixtureMarkup());
-            await page.evaluate(() => globalThis.__evbWaitForViewerSettled());
-            await page.evaluate(() => {
-                Reflect.set(globalThis, '__evbResizeSettled', new Promise(resolve => {
-                    window.addEventListener('resize', (event) => {
-                        const resizedAt = Date.now();
-                        void globalThis.__evbWaitForViewerSettled().then(outcome => resolve({
-                            ...outcome,
-                            elapsedMs: Date.now() - resizedAt,
-                            trusted: event.isTrusted,
-                        }));
-                    }, {
-                        capture: true,
-                        once: true,
-                    });
-                }));
-                globalThis.__evbInstallViewerActionLog();
-            });
-
-            await page.setViewportSize({
-                height: 700,
-                width: 800,
-            });
-            const outcome = await page.evaluate(async () => (
-                await Reflect.get(globalThis, '__evbResizeSettled') as IViewerSettleOutcome & {
-                    elapsedMs: number;
-                    trusted: boolean;
-                }
-            ));
-
-            expect(outcome.trusted).toBe(true);
-            expect(outcome.settled).toBe(true);
-            expect(outcome.reason).toBeNull();
-            expect(outcome.elapsedMs).toBeGreaterThanOrEqual(500);
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    }, BROWSER_TEST_TIMEOUT_MS);
-
-    it('reports an unsettled viewer by the deadline when animation frames are suspended', async () => {
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage();
-            await loadFixture(page, buildTwoPaneMarkup([{
-                active: true,
-                painting: true,
-            }]));
-            await page.clock.install({time: new Date('2026-01-01T00:00:00Z')});
-            await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'));
-            const outcomeKey = '__evbSuspendedFrameSettleOutcome';
-            await page.evaluate((key) => {
-                window.requestAnimationFrame = () => 1;
-                Reflect.set(window, key, 'pending');
-                void globalThis.__evbWaitForViewerSettled().then(
-                    outcome => Reflect.set(window, key, outcome),
-                    (error: unknown) => Reflect.set(window, key, String(error)),
+                const errors: string[] = [];
+                page.on('console', (message) => {
+                    if (message.type() === 'error') {
+                        errors.push(message.text());
+                    }
+                });
+                page.on('pageerror', (error) => errors.push(error.message));
+                await page.route('http://long-djvu.test/', (route) =>
+                    route.fulfill({
+                        contentType: 'text/html',
+                        body: '<style>body { margin: 0; } #page-number, #zoom, #indicator { position: fixed; top: 680px; } #zoom { left: 220px; } #indicator { left: 300px; }</style><div id="app"></div>',
+                    }),
                 );
-            }, outcomeKey);
+                await page.goto('http://long-djvu.test/');
+                await page.addScriptTag({path: longSurfaceBundle});
 
-            await page.clock.runFor(10_000);
-
-            const outcome: unknown = await page.evaluate(key => Reflect.get(window, key), outcomeKey);
-            expect(outcome, 'settle outcome at the 10 s deadline').toMatchObject({settled: false});
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    }, BROWSER_TEST_TIMEOUT_MS);
-
-    it('reports nothing on a conforming viewer and exactly one violation on each known-bad fixture', async () => {
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage({viewport: {
-                height: 700,
-                width: 900,
-            }});
-
-            const conformingMarkup = buildFixtureMarkup({
-                noteWindows: [{
-                    annotationId: 'note-1',
-                    leftPx: 60,
-                    pageNumber: 1,
-                    topPx: 120,
-                }],
-                pages: [
-                    {
-                        overlays: [{
-                            annotationId: 'highlight-1',
-                            height: 0.05,
-                            kind: 'text-markup',
-                            width: 0.3,
-                            x: 0.1,
-                            y: 0.2,
-                        }],
-                        pageNumber: 1,
-                    },
-                    {pageNumber: 2},
-                ],
-                toolbarPageNumber: 1,
-            });
-            await loadFixture(page, conformingMarkup);
-            const conforming = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
-            expect(conforming.violations).toEqual([]);
-            expect(conforming.skipped.map(skip => skip.id)).toContain('C2-renderer-diagnostics-clean');
-
-            // R1: the counter names a page nothing on screen shows.
-            await loadFixture(page, buildFixtureMarkup({toolbarPageNumber: 9}));
-            expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants())))
-                .toEqual(['R1-toolbar-page-visible']);
-
-            // R1 applicability: a logical page label is not a physical number.
-            await loadFixture(page, buildFixtureMarkup({toolbarPageLabel: 'iv'}));
-            const labelled = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
-            expect(labelled.violations).toEqual([]);
-            expect(labelled.skipped.map(skip => skip.id)).toContain('R1-toolbar-page-visible');
-
-            // L1: fit-width leaves a horizontal range although nothing visible
-            // is wider than the current page.
-            await loadFixture(page, buildFixtureMarkup({pages: [
-                {
-                    pageNumber: 1,
-                    widthPx: 900,
-                },
-                {
-                    pageNumber: 2,
-                    widthPx: 900,
-                },
-            ]}));
-            expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants())))
-                .toEqual(['L1-fit-mode-scroll-range']);
-
-            // L1, mixed widths: fit-width fits the widest page of the
-            // document (ADR 0006), so a wider visible page does not explain a
-            // horizontal range. It used to excuse one.
-            await loadFixture(page, buildFixtureMarkup({
-                pages: [
-                    {pageNumber: 1},
-                    {
-                        pageNumber: 2,
-                        widthPx: 900,
-                    },
-                ],
-                toolbarPageNumber: 1,
-            }));
-            expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants())))
-                .toEqual(['L1-fit-mode-scroll-range']);
-
-            // L1: fit-height in paged mode leaves a vertical range.
-            await loadFixture(page, buildFixtureMarkup({
-                continuousScroll: false,
-                pages: [{
-                    heightPx: 900,
-                    pageNumber: 1,
-                }],
-                zoomMode: 'fit-height',
-            }));
-            expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants())))
-                .toEqual(['L1-fit-mode-scroll-range']);
-
-            // A1 stateless: an overlay that is not on its page box.
-            await loadFixture(page, buildFixtureMarkup({pages: [
-                {
-                    overlays: [{
-                        annotationId: 'stray-1',
-                        height: 0.05,
-                        kind: 'shape',
-                        width: 0.2,
-                        x: 0.1,
-                        y: 2,
-                    }],
-                    pageNumber: 1,
-                },
-                {pageNumber: 2},
-            ]}));
-            expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants())))
-                .toEqual(['A1-annotation-page-containment']);
-
-            // A1 applicability: the app marked that shape as drawn past the edge.
-            await loadFixture(page, buildFixtureMarkup({pages: [
-                {
-                    overlays: [{
-                        annotationId: 'stray-1',
-                        height: 0.05,
-                        kind: 'shape',
-                        outsidePage: true,
-                        width: 0.2,
-                        x: 0.1,
-                        y: 2,
-                    }],
-                    pageNumber: 1,
-                },
-                {pageNumber: 2},
-            ]}));
-            const exempted = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
-            expect(exempted.violations).toEqual([]);
-            expect(exempted.skipped.map(skip => skip.id)).toContain('A1-annotation-page-containment');
-
-            // A2 one observation, known bad: with its anchor page on screen
-            // the note window sits over the toolbar.
-            await loadFixture(page, buildFixtureMarkup({noteWindows: [{
-                annotationId: 'note-1',
-                leftPx: 60,
-                pageNumber: 1,
-                topPx: 10,
-            }]}));
-            const overChrome = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
-            expect(violationIds(overChrome)).toEqual(['A2-note-window-over-chrome']);
-            expect(overChrome.unresolved).toEqual([]);
-
-            // A2 one observation, known bad: clipping the painted rect to the
-            // pane does not make the note's layout box fully contained.
-            await loadFixture(page, buildFixtureMarkup({noteWindows: [{
-                annotationId: 'note-1',
-                clipPath: 'inset(30px -24px -24px -24px)',
-                leftPx: 60,
-                pageNumber: 1,
-                topPx: 10,
-            }]}));
-            const clippedOffChrome = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
-            expect(violationIds(clippedOffChrome)).toEqual(['A2-note-window-over-chrome']);
-            expect(clippedOffChrome.unresolved).toEqual([]);
-
-            // A2 one observation, conforming: a visible note fully contained
-            // by the active pane does not cover any chrome.
-            await loadFixture(page, buildFixtureMarkup({noteWindows: [{
-                annotationId: 'note-1',
-                leftPx: 60,
-                pageNumber: 1,
-                topPx: 60,
-            }]}));
-            const contained = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
-            expect(contained.violations).toEqual([]);
-            expect(contained.unresolved).toEqual([]);
-            expect(contained.skipped.map(skip => skip.id)).not.toContain('A2-note-window-over-chrome');
-
-            // A2 one observation, known bad: a clip that still leaves part of
-            // the window on the toolbar is still a window over the chrome.
-            await loadFixture(page, buildFixtureMarkup({noteWindows: [{
-                annotationId: 'note-1',
-                clipPath: 'inset(10px -24px -24px -24px)',
-                leftPx: 60,
-                pageNumber: 1,
-                topPx: 10,
-            }]}));
-            expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants())))
-                .toEqual(['A2-note-window-over-chrome']);
-
-            // A2 one observation, known bad: the window is nowhere near the
-            // pane it belongs to while that pane shows its anchor page.
-            await loadFixture(page, buildFixtureMarkup({noteWindows: [{
-                annotationId: 'note-1',
-                leftPx: 60,
-                pageNumber: 1,
-                topPx: 600,
-            }]}));
-            expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants())))
-                .toEqual(['A2-note-window-over-chrome']);
-
-            // A2 one observation, known bad: the open note remains visible
-            // after its anchor page leaves the viewport.
-            await loadFixture(page, buildFixtureMarkup({
-                noteWindows: [{
-                    annotationId: 'note-1',
-                    leftPx: 60,
-                    pageNumber: 1,
-                    topPx: 10,
-                }],
-                pages: [
-                    {pageNumber: 1},
-                    {pageNumber: 2},
-                    {pageNumber: 3},
-                    {pageNumber: 4},
-                ],
-                toolbarPageNumber: 2,
-            }));
-            const anchorOffscreen = await page.evaluate(() => {
-                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 400;
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(violationIds(anchorOffscreen)).toEqual(['A2-note-window-over-chrome']);
-            expect(anchorOffscreen.unresolved).toEqual([]);
-            expect(anchorOffscreen.skipped.map(skip => skip.id)).not.toContain('A2-note-window-over-chrome');
-
-            // A2 one observation, conforming: a page that left the viewport
-            // retains its connected note, but the note is hidden.
-            await loadFixture(page, buildFixtureMarkup({
-                noteWindows: [{
-                    annotationId: 'note-1',
-                    hidden: true,
-                    leftPx: 60,
-                    pageNumber: 1,
-                    topPx: 10,
-                }],
-                pages: [
-                    {pageNumber: 1},
-                    {pageNumber: 2},
-                    {pageNumber: 3},
-                    {pageNumber: 4},
-                ],
-                toolbarPageNumber: 2,
-            }));
-            const hiddenOffscreen = await page.evaluate(() => {
-                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 400;
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(hiddenOffscreen.violations).toEqual([]);
-            expect(hiddenOffscreen.unresolved).toEqual([]);
-            expect(hiddenOffscreen.skipped.map(skip => skip.id)).not.toContain('A2-note-window-over-chrome');
-
-            // A2 one observation, known bad: the page is still on screen but
-            // its screen-sized marker has scrolled out above the pane and the
-            // note has followed it out instead of docking inside the pane.
-            await loadFixture(page, buildFixtureMarkup({
-                noteWindows: [{
-                    annotationId: 'note-1',
-                    leftPx: 60,
-                    pageNumber: 1,
-                    topPx: -400,
-                }],
-                pages: [{
-                    heightPx: 2_400,
-                    overlays: [{
-                        annotationId: 'note-1',
-                        height: 0,
-                        kind: 'note',
-                        screenSizedPx: 22,
-                        width: 0,
-                        x: 0.4,
-                        y: 0.05,
-                    }],
-                    pageNumber: 1,
-                }],
-            }));
-            const markerOffscreen = await page.evaluate(() => {
-                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 900;
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(violationIds(markerOffscreen)).toEqual(['A2-note-window-over-chrome']);
-            expect(markerOffscreen.unresolved).toEqual([]);
-
-            // A2 one observation, conforming: the marker is still offscreen,
-            // but the visible note is fully contained by the active pane.
-            await loadFixture(page, buildFixtureMarkup({
-                noteWindows: [{
-                    annotationId: 'note-1',
-                    leftPx: 60,
-                    pageNumber: 1,
-                    topPx: 40,
-                }],
-                pages: [{
-                    heightPx: 2_400,
-                    overlays: [{
-                        annotationId: 'note-1',
-                        height: 0,
-                        kind: 'note',
-                        screenSizedPx: 22,
-                        width: 0,
-                        x: 0.4,
-                        y: 0.05,
-                    }],
-                    pageNumber: 1,
-                }],
-            }));
-            const dockedMarkerOffscreen = await page.evaluate(() => {
-                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 900;
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(dockedMarkerOffscreen.violations).toEqual([]);
-            expect(dockedMarkerOffscreen.unresolved).toEqual([]);
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    }, BROWSER_TEST_TIMEOUT_MS);
-
-    it('compares two settled observations for the stateful invariants', async () => {
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage({viewport: {
-                height: 700,
-                width: 900,
-            }});
-
-            const overlayMarkup = buildFixtureMarkup({pages: [
-                {
-                    overlays: [{
-                        annotationId: 'highlight-1',
-                        height: 0.05,
-                        kind: 'text-markup',
-                        width: 0.3,
-                        x: 0.1,
-                        y: 0.2,
-                    }],
-                    pageNumber: 1,
-                },
-                {pageNumber: 2},
-            ]});
-
-            // A1 stateful, conforming: the page box changes with zoom but the
-            // overlay's normalized position does not.
-            await loadFixture(page, overlayMarkup);
-            const zoomed = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                const container = document.querySelector<HTMLElement>('.page_container[data-page="1"]')!;
-                container.style.width = '400px';
-                container.style.height = '240px';
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(zoomed.violations).toEqual([]);
-
-            // A1 stateful, known bad: the overlay drifts inside its own page.
-            await loadFixture(page, overlayMarkup);
-            const drifted = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                const overlay = document.querySelector<HTMLElement>('[data-annotation-id="highlight-1"]')!;
-                overlay.style.left = '20%';
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(violationIds(drifted)).toEqual(['A1-annotation-normalized-drift']);
-
-            // A1 stateful, conforming: a marker drawn at a fixed screen size
-            // keeps the point it marks through a zoom while its box relative
-            // to the page changes. The monitor reported this as drift on the
-            // note icon during ordinary zooming.
-            const screenSizedMarkup = buildFixtureMarkup({pages: [
-                {
-                    overlays: [{
-                        annotationId: 'note-icon-1',
-                        height: 0.04,
-                        kind: 'note',
-                        screenSizedPx: 20,
-                        width: 0.04,
-                        x: 0.38,
-                        y: 0.28,
-                    }],
-                    pageNumber: 1,
-                },
-                {pageNumber: 2},
-            ]});
-            await loadFixture(page, screenSizedMarkup);
-            const screenSized = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                const container = document.querySelector<HTMLElement>('.page_container[data-page="1"]')!;
-                container.style.width = '400px';
-                container.style.height = '240px';
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(screenSized.violations).toEqual([]);
-
-            // A1 stateful, known bad: the same marker moves off its point.
-            await loadFixture(page, screenSizedMarkup);
-            const screenSizedDrift = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                const marker = document.querySelector<HTMLElement>('[data-annotation-id="note-icon-1"]')!;
-                marker.style.left = '55%';
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(violationIds(screenSizedDrift)).toEqual(['A1-annotation-normalized-drift']);
-
-            // A1 stateful applicability: a tab switch ends the sequence.
-            // Annotation ids are unique inside one document, so the same id in
-            // another workspace names a different annotation.
-            await loadFixture(page, overlayMarkup);
-            const switched = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                document.querySelector<HTMLElement>('.workspace-host')!.dataset.workspaceTabId = 'tab-2';
-                document.querySelector<HTMLElement>('[data-annotation-id="highlight-1"]')!.style.left = '60%';
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(switched.violations).toEqual([]);
-            expect(switched.skipped.map(skip => skip.id)).toContain('A1-annotation-normalized-drift');
-
-            // A1 stateful: a page the viewer virtualized away and mounted
-            // again has to bring its annotation back to the same place, so the
-            // memory outlives the unmount.
-            await loadFixture(page, overlayMarkup);
-            const remounted = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                const container = document.querySelector<HTMLElement>('.page_container[data-page="1"]')!;
-                const track = container.parentElement!;
-                container.remove();
-                globalThis.__evbCheckViewerInvariants();
-                track.prepend(container);
-                container.querySelector<HTMLElement>('[data-annotation-id="highlight-1"]')!.style.left = '20%';
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(violationIds(remounted)).toEqual(['A1-annotation-normalized-drift']);
-
-            // A1 stateful applicability: the annotation went away while its
-            // own page stayed on screen, so it was deleted rather than
-            // virtualized and the next one to claim that id is not it.
-            await loadFixture(page, overlayMarkup);
-            const deleted = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                const overlay = document.querySelector<HTMLElement>('[data-annotation-id="highlight-1"]')!;
-                const layer = overlay.parentElement!;
-                overlay.remove();
-                globalThis.__evbCheckViewerInvariants();
-                overlay.style.left = '60%';
-                layer.append(overlay);
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(deleted.violations).toEqual([]);
-            expect(deleted.skipped.map(skip => skip.id)).toContain('A1-annotation-normalized-drift');
-
-            const noteMarkup = buildFixtureMarkup({noteWindows: [{
-                annotationId: 'note-1',
-                leftPx: 60,
-                pageNumber: 1,
-                topPx: 150,
-            }]});
-
-            // A2 stateful, conforming: the window moves with its anchor page.
-            await loadFixture(page, noteMarkup);
-            const followed = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 80;
-                const noteWindow = document.querySelector<HTMLElement>('.note-window')!;
-                noteWindow.style.top = '70px';
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(followed.violations).toEqual([]);
-
-            // A2 stateful, known bad: the page scrolled away and the window
-            // stayed exactly where it was. This is the defect found by hand.
-            await loadFixture(page, noteMarkup);
-            const stranded = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 80;
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(violationIds(stranded)).toEqual(['A2-note-window-follows-anchor']);
-
-            // A2 stateful applicability: a connected hidden note while its
-            // page is virtualized away breaks comparability when it returns.
-            await loadFixture(page, noteMarkup);
-            const hiddenInterval = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                const viewport = document.querySelector<HTMLElement>('#pdf-viewer')!;
-                const noteWindow = document.querySelector<HTMLElement>('.note-window')!;
-                viewport.scrollTop = 400;
-                noteWindow.style.display = 'none';
-                globalThis.__evbCheckViewerInvariants();
-                viewport.scrollTop = 80;
-                noteWindow.style.display = '';
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(hiddenInterval.violations).toEqual([]);
-
-            // A2 stateful applicability: the reader dragged the window between
-            // the two observations, so the anchor delta is broken on purpose
-            // and the viewer suspends following for the duration of the drag.
-            await loadFixture(page, noteMarkup);
-            const dragged = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 80;
-                const noteWindow = document.querySelector<HTMLElement>('.note-window')!;
-                noteWindow.dataset.userPlacement = '3';
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(dragged.violations).toEqual([]);
-            expect(dragged.skipped.map(skip => skip.id)).toContain('A2-note-window-follows-anchor');
-
-            // The placement sequence excuses one comparison, not the next one:
-            // a window that stops following after the drag is still a defect.
-            const strandedAfterDrag = await page.evaluate(() => {
-                document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 160;
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(violationIds(strandedAfterDrag)).toEqual(['A2-note-window-follows-anchor']);
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    }, BROWSER_TEST_TIMEOUT_MS);
-
-    it('names the control a real click hit without carrying the document file name', async () => {
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage({viewport: {
-                height: 700,
-                width: 900,
-            }});
-            await loadFixture(page, buildFixtureMarkup({
-                tabFileName: DISTINCTIVE_FILE_NAME,
-                toolbarPageNumber: 1,
-            }));
-            await page.evaluate(() => {
-                globalThis.__evbInstallViewerActionLog();
-            });
-
-            await page.click('.tab-label');
-            await page.click('.tab-close');
-            await page.click('.tab-search');
-            await page.keyboard.press('KeyK');
-
-            const observed = await page.evaluate((appVersion: string) => {
-                const actions = globalThis.__evbReadViewerUserActions();
-                return {
-                    actionsJson: JSON.stringify(actions),
-                    reportJson: JSON.stringify(globalThis.__evbBuildViewerBugReport(appVersion)),
-                    targets: actions.map(action => action.target),
-                };
-            }, FIXTURE_APP_VERSION);
-            await page.evaluate(() => {
-                globalThis.__evbDisposeViewerActionLog();
-            });
-
-            // The recorded identity still names what the user hit, so a
-            // descriptor reduced to a constant fails here too.
-            expect([...new Set(observed.targets)].sort()).toStrictEqual([
-                'button',
-                'input',
-                'tab',
-            ]);
-            for (const serialized of [
-                observed.actionsJson,
-                observed.reportJson,
-            ]) {
-                expect(serialized).not.toContain(DISTINCTIVE_FILE_NAME);
-                expect(serialized).not.toContain(DISTINCTIVE_FILE_NAME_TOKEN);
-            }
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    }, BROWSER_TEST_TIMEOUT_MS);
-
-    it('records a wheel gesture without measuring the viewer it is observing', async () => {
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage({viewport: {
-                height: 700,
-                width: 900,
-            }});
-            await loadFixture(page, buildFixtureMarkup({
-                toolbarPageNumber: 1,
-                zoomMode: 'fit-width',
-            }));
-
-            // The external contract: recording what the user did costs no
-            // layout. A recorder that measures perturbs the scroll and zoom
-            // behavior the monitor reports on, so the counters are the proof.
-            await page.evaluate(() => {
-                const counters = {
-                    computedStyle: 0,
-                    rect: 0,
-                };
-                Reflect.set(globalThis, '__evbLayoutReadCounters', counters);
-                const originalRect = Element.prototype.getBoundingClientRect;
-                const originalStyle = window.getComputedStyle.bind(window);
-                Element.prototype.getBoundingClientRect = function countedRect(this: Element) {
-                    counters.rect += 1;
-                    return originalRect.call(this);
-                };
-                window.getComputedStyle = (element: Element, pseudoElement?: string | null) => {
-                    counters.computedStyle += 1;
-                    return originalStyle(element, pseudoElement);
-                };
-                globalThis.__evbInstallViewerActionLog();
-            });
-
-            await page.mouse.move(300, 300);
-            for (let step = 0; step < 60; step += 1) {
-                await page.mouse.wheel(0, 120);
-            }
-            await page.keyboard.press('ArrowDown');
-
-            const observed = await page.evaluate(() => {
-                const actions = globalThis.__evbReadViewerUserActions();
-                globalThis.__evbDisposeViewerActionLog();
-                return {
-                    counters: Reflect.get(globalThis, '__evbLayoutReadCounters') as {
-                        computedStyle: number;
-                        rect: number;
-                    },
-                    recordedTypes: [...new Set(actions.map(action => action.type))].sort(),
-                    wheelPackets: actions
-                        .filter(action => action.type === 'wheel-gesture')
-                        .map(action => action.packets),
-                    zoomModes: [...new Set(actions.map(action => action.viewerState.zoomMode))],
-                };
-            });
-
-            expect(observed.recordedTypes).toStrictEqual([
-                'key',
-                'wheel-gesture',
-            ]);
-            expect(observed.zoomModes).toStrictEqual(['fit-width']);
-            // One gesture, one rect read for its start point. The cost does
-            // not grow with the packet count, which is what keeps the recorder
-            // out of the gesture it is observing.
-            expect(observed.wheelPackets).toStrictEqual([60]);
-            expect(observed.counters.computedStyle).toBe(0);
-            expect(observed.counters.rect).toBe(1);
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    }, BROWSER_TEST_TIMEOUT_MS);
-
-    it('keeps the action that caused a gesture when the gesture floods the log', async () => {
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage({viewport: {
-                height: 700,
-                width: 900,
-            }});
-            await loadFixture(page, buildFixtureMarkup({
-                tabFileName: DISTINCTIVE_FILE_NAME,
-                toolbarPageNumber: 1,
-            }));
-            await page.evaluate(() => {
-                globalThis.__evbInstallViewerActionLog();
-            });
-
-            // The reviewer's probe: one pointer action, then 200 wheel packets.
-            // Raw retention left 40 wheel entries and lost the click.
-            await page.click('.tab-label');
-            await page.mouse.move(400, 300);
-            for (let step = 0; step < 200; step += 1) {
-                await page.mouse.wheel(0, 100);
-            }
-            await page.mouse.wheel(0, -100);
-            // The reversal has to reach the recorder before it can be judged.
-            await page.waitForFunction(() => (
-                globalThis.__evbReadViewerUserActions()
-                    .filter(action => action.type === 'wheel-gesture').length === 2
-            ));
-
-            const recorded = await page.evaluate(() => {
-                const actions = globalThis.__evbReadViewerUserActions();
-                globalThis.__evbDisposeViewerActionLog();
-                return actions;
-            });
-
-            const pointerActions = recorded.filter(action => action.type === 'pointerdown');
-            expect(pointerActions).toHaveLength(1);
-            expect(pointerActions[0]?.target).toBe('tab');
-            const wheelGestures = recorded.filter(action => action.type === 'wheel-gesture');
-            // Two gestures: the 200 packets down, then the reversal.
-            expect(wheelGestures.map(gesture => gesture.packets)).toStrictEqual([
-                200,
-                1,
-            ]);
-            expect(wheelGestures[0]?.summedDelta.y).toBe(20_000);
-            expect(wheelGestures[0]?.startPoint).not.toBeNull();
-            expect(recorded.map(action => action.startedAt))
-                .toStrictEqual([...recorded.map(action => action.startedAt)].sort((left, right) => left - right));
-            expect(JSON.stringify(recorded)).not.toContain(DISTINCTIVE_FILE_NAME_TOKEN);
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    }, BROWSER_TEST_TIMEOUT_MS);
-
-    it('lets a scenario require what it created, where the checker alone reports nothing', async () => {
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage({viewport: {
-                height: 700,
-                width: 900,
-            }});
-            await loadFixture(page, buildFixtureMarkup({
-                pages: [
-                    {
-                        overlays: [{
-                            annotationId: 'highlight-1',
-                            height: 0.05,
-                            kind: 'text-markup',
-                            width: 0.3,
-                            x: 0.1,
-                            y: 0.2,
-                        }],
-                        pageNumber: 1,
-                    },
-                    {pageNumber: 2},
-                ],
-                toolbarPageNumber: 1,
-            }));
-
-            // The reviewer's counterexamples: the annotation vanishes from a
-            // page that is still mounted, and the page control disappears.
-            // Neither is a violation, because deleting an annotation and
-            // hiding a control are both legitimate and the checker cannot
-            // know what the user meant.
-            const vanished = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                document.querySelector('[data-annotation-id="highlight-1"]')!.remove();
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(vanished.violations).toEqual([]);
-            expect(vanished.observed.annotationIds).toEqual([]);
-            expect(vanished.observed.mountedPageNumbers).toEqual([
-                1,
-                2,
-            ]);
-
-            const missingControl = await page.evaluate(() => {
-                document.querySelector('.page-controls')!.remove();
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(missingControl.violations).toEqual([]);
-            expect(missingControl.observed.pageIndicator).toBeNull();
-
-            // A scenario that created the highlight and only zoomed says so,
-            // and then the same report is a failure.
-            expect(() => evaluateViewerInvariantCheckpoint(vanished, {
-                checkpoint: 'after zooming',
-                requirePresent: {annotationIds: ['highlight-1']},
-            })).toThrow(/the annotation highlight-1 is no longer drawn/u);
-            expect(() => evaluateViewerInvariantCheckpoint(missingControl, {
-                checkpoint: 'after zooming',
-                requireRan: ['R1-toolbar-page-visible'],
-            })).toThrow(/R1-toolbar-page-visible did not run/u);
-            expect(() => evaluateViewerInvariantCheckpoint(missingControl, {
-                checkpoint: 'after zooming',
-                requirePresent: {pageIndicator: true},
-            })).toThrow(/rendered no readable page number/u);
-
-            // Without a scenario requirement both stay non-failing, which is
-            // the documented behavior of the generic checker.
-            expect(evaluateViewerInvariantCheckpoint(vanished, {checkpoint: 'no requirement'}).tolerated)
-                .toEqual([]);
-            expect(evaluateViewerInvariantCheckpoint(missingControl, {checkpoint: 'no requirement'}).tolerated)
-                .toEqual([]);
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    }, BROWSER_TEST_TIMEOUT_MS);
-
-    it('reports a renderer diagnostic only for a well-formed document and honours a reasoned allowlist', async () => {
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage({viewport: {
-                height: 700,
-                width: 900,
-            }});
-            await loadFixture(page, buildFixtureMarkup());
-
-            const undeclared = await page.evaluate(() => {
-                globalThis.__evbCheckViewerInvariants();
-                globalThis.__evbNotifyRendererDiagnosticNotice({
-                    occurredAt: 1,
-                    signature: 'Window error: TypeError: broken',
-                    source: 'window',
+                await page.locator('[data-page-number="1"] img').waitFor({
+                    state: 'visible',
+                    timeout: 10000,
                 });
-                return globalThis.__evbCheckViewerInvariants();
-            });
-            expect(undeclared.violations).toEqual([]);
-            expect(undeclared.skipped.map(skip => skip.id)).toContain('C2-renderer-diagnostics-clean');
-
-            const declared = await page.evaluate(() => (
-                globalThis.__evbCheckViewerInvariants({documentWellFormed: true})
-            ));
-            expect(violationIds(declared)).toEqual(['C2-renderer-diagnostics-clean']);
-
-            const allowlisted = await page.evaluate(() => {
-                globalThis.__evbNotifyRendererDiagnosticNotice({
-                    occurredAt: 2,
-                    signature: 'Window error: TypeError: broken',
-                    source: 'window',
-                });
-                return globalThis.__evbCheckViewerInvariants({
-                    consoleAllowlist: [{
-                        pattern: 'Window error: TypeError: broken',
-                        reason: 'the fixture raises it on purpose to prove the allowlist is consulted',
-                    }],
-                    documentWellFormed: true,
-                });
-            });
-            expect(allowlisted.violations).toEqual([]);
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    }, BROWSER_TEST_TIMEOUT_MS);
-
-    it('settles on the active pane, not the first one, and follows a switch of panes', async () => {
-        const browser = await connectOrLaunchChromium();
-        try {
-            const page = await browser.newPage();
-            const settle = (timeoutMs: number) => page.evaluate(timeout => globalThis.__evbWaitForViewerSettled({timeoutMs: timeout}), timeoutMs);
-
-            await loadFixture(page, buildTwoPaneMarkup([
-                {
-                    active: false,
-                    painting: false,
-                },
-                {
-                    active: true,
-                    painting: true,
-                },
-            ]));
-            const activePainting = await settle(800);
-            expect(activePainting.settled, 'the active pane is still painting').toBe(false);
-            expect(activePainting.reason).toContain('skeleton');
-
-            await loadFixture(page, buildTwoPaneMarkup([
-                {
-                    active: false,
-                    painting: true,
-                },
-                {
-                    active: true,
-                    painting: false,
-                },
-            ]));
-            expect((await settle(3_000)).settled, 'only the inactive pane is painting').toBe(true);
-
-            await loadFixture(page, buildTwoPaneMarkup([
-                {
-                    active: false,
-                    painting: false,
-                },
-                {
-                    active: true,
-                    painting: true,
-                },
-            ]));
-            const switched = settle(5_000);
-            // The wait has sampled the painting pane before the switch.
-            await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-            await page.evaluate(() => {
-                for (const pane of document.querySelectorAll<HTMLElement>('.editor-pane')) {
-                    const active = pane.dataset.pane === '0';
-                    pane.classList.toggle('is-active', active);
-                    pane.querySelector<HTMLElement>('.workspace-host')!.dataset.workspaceActive = String(active);
+                await expect.poll(() => page.locator('#indicator').getAttribute('data-lifecycle')).toBe('ready');
+                await page.getByRole('textbox', {name: 'Page'}).fill('5010');
+                await page.getByRole('textbox', {name: 'Page'}).press('Enter');
+                const read = () =>
+                    page.evaluate(() => {
+                        const viewport = document.querySelector<HTMLElement>('#viewport')!;
+                        const view = viewport.getBoundingClientRect();
+                        const last = document.querySelector<HTMLElement>('[data-page-number="5010"]');
+                        const previous = document.querySelector<HTMLElement>('[data-page-number="5009"]');
+                        const lastRect = last?.getBoundingClientRect();
+                        return {
+                            lastTop: lastRect ? lastRect.top - view.top : null,
+                            previousTop: previous ? previous.getBoundingClientRect().top - view.top : null,
+                            lastHeight: lastRect?.height ?? null,
+                            physicalHeight: viewport.scrollHeight,
+                            physicalTop: viewport.scrollTop,
+                            indicator: document.querySelector('#indicator')!.textContent,
+                        };
+                    });
+                try {
+                    await expect.poll(async () => (await read()).lastTop).toBe(20);
+                } catch (error) {
+                    observations.push({
+                        checkpoint: 'last-page-jump-failed',
+                        ...(await read()),
+                    });
+                    throw error;
                 }
-            });
-            expect((await switched).settled, 'the wait follows the newly active pane').toBe(true);
-        } finally {
-            await closeChromiumBrowser(browser);
-        }
-    }, BROWSER_TEST_TIMEOUT_MS);
+                await expect.poll(async () => (await read()).indicator).toBe('5010');
+                const aligned = await read();
+                observations.push({
+                    checkpoint: 'last-page-jump',
+                    ...aligned,
+                });
+                expect(aligned.lastHeight).toBe(8000);
+                expect(aligned.previousTop).toBe(-8000);
+                expect(aligned.physicalHeight).toBeLessThan(8_400_000);
+                await page.screenshot({path: join(evidenceDirectory, 'last-page.png')});
+                await page.locator('#viewport').hover();
+                await page.mouse.wheel(0, 1200);
+                await expect.poll(async () => (await read()).lastTop).toBe(-1180);
+                await expect.poll(async () => (await read()).indicator).toBe('5010');
+                observations.push({
+                    checkpoint: 'last-page-wheel',
+                    ...(await read()),
+                });
+                // Toolbar zoom preserves the page point under the viewport center.
+                const beforeZoom = await read();
+                await page
+                    .getByRole('button', {
+                        name: 'Zoom',
+                        exact: true,
+                    })
+                    .click();
+                const afterZoomTop = 325 - (325 - beforeZoom.lastTop!) * 0.8;
+                await expect.poll(async () => (await read()).lastTop).toBe(afterZoomTop);
+                observations.push({
+                    checkpoint: 'last-page-zoom',
+                    ...(await read()),
+                });
+                await page
+                    .getByRole('button', {
+                        name: 'Zoom',
+                        exact: true,
+                    })
+                    .click();
+                await expect.poll(async () => (await read()).lastTop).toBe(beforeZoom.lastTop);
+                // A viewport resize uses the same logical anchor in a late segment.
+                await page.setViewportSize({
+                    width: 1000,
+                    height: 750,
+                });
+                await expect.poll(async () => (await read()).lastTop).toBe(beforeZoom.lastTop! - 25);
+                observations.push({
+                    checkpoint: 'last-page-resize',
+                    ...(await read()),
+                });
+                // Crossing a physical segment end keeps document-space movement.
+                await page.getByRole('textbox', {name: 'Page'}).fill('1');
+                await page.getByRole('textbox', {name: 'Page'}).press('Enter');
+                await expect
+                    .poll(async () =>
+                        page
+                            .locator('[data-page-number="1"]')
+                            .evaluate(
+                                (element) =>
+                                    element.getBoundingClientRect().top - document.querySelector('#viewport')!.getBoundingClientRect().top,
+                            ),
+                    )
+                    .toBe(20);
+                await page.getByRole('textbox', {name: 'Page'}).fill('1046');
+                await page.getByRole('textbox', {name: 'Page'}).press('Enter');
+                await expect
+                    .poll(async () =>
+                        page
+                            .locator('[data-page-number="1046"]')
+                            .evaluate(
+                                (element) =>
+                                    element.getBoundingClientRect().top - document.querySelector('#viewport')!.getBoundingClientRect().top,
+                            ),
+                    )
+                    .toBe(20);
+                await page.locator('#viewport').hover();
+                expect((await read()).physicalTop).toBeGreaterThan(8_000_000);
+                await page.mouse.wheel(0, 7000);
+                await expect
+                    .poll(async () =>
+                        page
+                            .locator('[data-page-number="1046"]')
+                            .evaluate(
+                                (element) =>
+                                    element.getBoundingClientRect().top - document.querySelector('#viewport')!.getBoundingClientRect().top,
+                            ),
+                    )
+                    .toBe(-6980);
+                expect((await read()).physicalTop).toBeLessThan(5_000_000);
+                observations.push({
+                    checkpoint: 'segment-wheel',
+                    ...(await read()),
+                });
+                expect(errors).toEqual([]);
+            } finally {
+                await closeChromiumBrowser(browser);
+                await writeFile(join(evidenceDirectory, 'observations.json'), JSON.stringify(observations, null, 2));
+            }
+        },
+        BROWSER_TEST_TIMEOUT_MS,
+    );
+
+    it(
+        'keeps the viewer unquiet for 500 ms after a trusted window resize',
+        async () => {
+            const browser = await connectOrLaunchChromium();
+            try {
+                const page = await browser.newPage({
+                    viewport: {
+                        height: 700,
+                        width: 900,
+                    },
+                });
+                await loadFixture(page, buildFixtureMarkup());
+                await page.evaluate(() => globalThis.__evbWaitForViewerSettled());
+                await page.evaluate(() => {
+                    Reflect.set(
+                        globalThis,
+                        '__evbResizeSettled',
+                        new Promise((resolve) => {
+                            window.addEventListener(
+                                'resize',
+                                (event) => {
+                                    const resizedAt = Date.now();
+                                    void globalThis.__evbWaitForViewerSettled().then((outcome) =>
+                                        resolve({
+                                            ...outcome,
+                                            elapsedMs: Date.now() - resizedAt,
+                                            trusted: event.isTrusted,
+                                        }),
+                                    );
+                                },
+                                {
+                                    capture: true,
+                                    once: true,
+                                },
+                            );
+                        }),
+                    );
+                    globalThis.__evbInstallViewerActionLog();
+                });
+
+                await page.setViewportSize({
+                    height: 700,
+                    width: 800,
+                });
+                const outcome = await page.evaluate(
+                    async () =>
+                        (await Reflect.get(globalThis, '__evbResizeSettled')) as IViewerSettleOutcome & {
+                            elapsedMs: number;
+                            trusted: boolean;
+                        },
+                );
+
+                expect(outcome.trusted).toBe(true);
+                expect(outcome.settled).toBe(true);
+                expect(outcome.reason).toBeNull();
+                expect(outcome.elapsedMs).toBeGreaterThanOrEqual(500);
+            } finally {
+                await closeChromiumBrowser(browser);
+            }
+        },
+        BROWSER_TEST_TIMEOUT_MS,
+    );
+
+    it(
+        'reports an unsettled viewer by the deadline when animation frames are suspended',
+        async () => {
+            const browser = await connectOrLaunchChromium();
+            try {
+                const page = await browser.newPage();
+                await loadFixture(
+                    page,
+                    buildTwoPaneMarkup([
+                        {
+                            active: true,
+                            painting: true,
+                        },
+                    ]),
+                );
+                await page.clock.install({time: new Date('2026-01-01T00:00:00Z')});
+                await page.clock.pauseAt(new Date('2026-01-01T00:01:00Z'));
+                const outcomeKey = '__evbSuspendedFrameSettleOutcome';
+                await page.evaluate((key) => {
+                    window.requestAnimationFrame = () => 1;
+                    Reflect.set(window, key, 'pending');
+                    void globalThis.__evbWaitForViewerSettled().then(
+                        (outcome) => Reflect.set(window, key, outcome),
+                        (error: unknown) => Reflect.set(window, key, String(error)),
+                    );
+                }, outcomeKey);
+
+                await page.clock.runFor(10_000);
+
+                const outcome: unknown = await page.evaluate((key) => Reflect.get(window, key), outcomeKey);
+                expect(outcome, 'settle outcome at the 10 s deadline').toMatchObject({settled: false});
+            } finally {
+                await closeChromiumBrowser(browser);
+            }
+        },
+        BROWSER_TEST_TIMEOUT_MS,
+    );
+
+    it(
+        'reports nothing on a conforming viewer and exactly one violation on each known-bad fixture',
+        async () => {
+            const browser = await connectOrLaunchChromium();
+            try {
+                const page = await browser.newPage({
+                    viewport: {
+                        height: 700,
+                        width: 900,
+                    },
+                });
+
+                const conformingMarkup = buildFixtureMarkup({
+                    noteWindows: [
+                        {
+                            annotationId: 'note-1',
+                            leftPx: 60,
+                            pageNumber: 1,
+                            topPx: 120,
+                        },
+                    ],
+                    pages: [
+                        {
+                            overlays: [
+                                {
+                                    annotationId: 'highlight-1',
+                                    height: 0.05,
+                                    kind: 'text-markup',
+                                    width: 0.3,
+                                    x: 0.1,
+                                    y: 0.2,
+                                },
+                            ],
+                            pageNumber: 1,
+                        },
+                        {pageNumber: 2},
+                    ],
+                    toolbarPageNumber: 1,
+                });
+                await loadFixture(page, conformingMarkup);
+                const conforming = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
+                expect(conforming.violations).toEqual([]);
+                expect(conforming.skipped.map((skip) => skip.id)).toContain('C2-renderer-diagnostics-clean');
+
+                // R1: the counter names a page nothing on screen shows.
+                await loadFixture(page, buildFixtureMarkup({toolbarPageNumber: 9}));
+                expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants()))).toEqual([
+                    'R1-toolbar-page-visible',
+                ]);
+
+                // R1 applicability: a logical page label is not a physical number.
+                await loadFixture(page, buildFixtureMarkup({toolbarPageLabel: 'iv'}));
+                const labelled = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
+                expect(labelled.violations).toEqual([]);
+                expect(labelled.skipped.map((skip) => skip.id)).toContain('R1-toolbar-page-visible');
+
+                // L1: fit-width leaves a horizontal range although nothing visible
+                // is wider than the current page.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        pages: [
+                            {
+                                pageNumber: 1,
+                                widthPx: 900,
+                            },
+                            {
+                                pageNumber: 2,
+                                widthPx: 900,
+                            },
+                        ],
+                    }),
+                );
+                expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants()))).toEqual([
+                    'L1-fit-mode-scroll-range',
+                ]);
+
+                // L1, mixed widths: fit-width fits the widest page of the
+                // document (ADR 0006), so a wider visible page does not explain a
+                // horizontal range. It used to excuse one.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        pages: [
+                            {pageNumber: 1},
+                            {
+                                pageNumber: 2,
+                                widthPx: 900,
+                            },
+                        ],
+                        toolbarPageNumber: 1,
+                    }),
+                );
+                expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants()))).toEqual([
+                    'L1-fit-mode-scroll-range',
+                ]);
+
+                // L1: fit-height in paged mode leaves a vertical range.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        continuousScroll: false,
+                        pages: [
+                            {
+                                heightPx: 900,
+                                pageNumber: 1,
+                            },
+                        ],
+                        zoomMode: 'fit-height',
+                    }),
+                );
+                expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants()))).toEqual([
+                    'L1-fit-mode-scroll-range',
+                ]);
+
+                // A1 stateless: an overlay that is not on its page box.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        pages: [
+                            {
+                                overlays: [
+                                    {
+                                        annotationId: 'stray-1',
+                                        height: 0.05,
+                                        kind: 'shape',
+                                        width: 0.2,
+                                        x: 0.1,
+                                        y: 2,
+                                    },
+                                ],
+                                pageNumber: 1,
+                            },
+                            {pageNumber: 2},
+                        ],
+                    }),
+                );
+                expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants()))).toEqual([
+                    'A1-annotation-page-containment',
+                ]);
+
+                // A1 applicability: the app marked that shape as drawn past the edge.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        pages: [
+                            {
+                                overlays: [
+                                    {
+                                        annotationId: 'stray-1',
+                                        height: 0.05,
+                                        kind: 'shape',
+                                        outsidePage: true,
+                                        width: 0.2,
+                                        x: 0.1,
+                                        y: 2,
+                                    },
+                                ],
+                                pageNumber: 1,
+                            },
+                            {pageNumber: 2},
+                        ],
+                    }),
+                );
+                const exempted = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
+                expect(exempted.violations).toEqual([]);
+                expect(exempted.skipped.map((skip) => skip.id)).toContain('A1-annotation-page-containment');
+
+                // A2 one observation, known bad: with its anchor page on screen
+                // the note window sits over the toolbar.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        noteWindows: [
+                            {
+                                annotationId: 'note-1',
+                                leftPx: 60,
+                                pageNumber: 1,
+                                topPx: 10,
+                            },
+                        ],
+                    }),
+                );
+                const overChrome = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
+                expect(violationIds(overChrome)).toEqual(['A2-note-window-over-chrome']);
+                expect(overChrome.unresolved).toEqual([]);
+
+                // A2 one observation, known bad: clipping the painted rect to the
+                // pane does not make the note's layout box fully contained.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        noteWindows: [
+                            {
+                                annotationId: 'note-1',
+                                clipPath: 'inset(30px -24px -24px -24px)',
+                                leftPx: 60,
+                                pageNumber: 1,
+                                topPx: 10,
+                            },
+                        ],
+                    }),
+                );
+                const clippedOffChrome = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
+                expect(violationIds(clippedOffChrome)).toEqual(['A2-note-window-over-chrome']);
+                expect(clippedOffChrome.unresolved).toEqual([]);
+
+                // A2 one observation, conforming: a visible note fully contained
+                // by the active pane does not cover any chrome.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        noteWindows: [
+                            {
+                                annotationId: 'note-1',
+                                leftPx: 60,
+                                pageNumber: 1,
+                                topPx: 60,
+                            },
+                        ],
+                    }),
+                );
+                const contained = await page.evaluate(() => globalThis.__evbCheckViewerInvariants());
+                expect(contained.violations).toEqual([]);
+                expect(contained.unresolved).toEqual([]);
+                expect(contained.skipped.map((skip) => skip.id)).not.toContain('A2-note-window-over-chrome');
+
+                // A2 one observation, known bad: a clip that still leaves part of
+                // the window on the toolbar is still a window over the chrome.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        noteWindows: [
+                            {
+                                annotationId: 'note-1',
+                                clipPath: 'inset(10px -24px -24px -24px)',
+                                leftPx: 60,
+                                pageNumber: 1,
+                                topPx: 10,
+                            },
+                        ],
+                    }),
+                );
+                expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants()))).toEqual([
+                    'A2-note-window-over-chrome',
+                ]);
+
+                // A2 one observation, known bad: the window is nowhere near the
+                // pane it belongs to while that pane shows its anchor page.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        noteWindows: [
+                            {
+                                annotationId: 'note-1',
+                                leftPx: 60,
+                                pageNumber: 1,
+                                topPx: 600,
+                            },
+                        ],
+                    }),
+                );
+                expect(violationIds(await page.evaluate(() => globalThis.__evbCheckViewerInvariants()))).toEqual([
+                    'A2-note-window-over-chrome',
+                ]);
+
+                // A2 one observation, known bad: the open note remains visible
+                // after its anchor page leaves the viewport.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        noteWindows: [
+                            {
+                                annotationId: 'note-1',
+                                leftPx: 60,
+                                pageNumber: 1,
+                                topPx: 10,
+                            },
+                        ],
+                        pages: [{pageNumber: 1}, {pageNumber: 2}, {pageNumber: 3}, {pageNumber: 4}],
+                        toolbarPageNumber: 2,
+                    }),
+                );
+                const anchorOffscreen = await page.evaluate(() => {
+                    document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 400;
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(violationIds(anchorOffscreen)).toEqual(['A2-note-window-over-chrome']);
+                expect(anchorOffscreen.unresolved).toEqual([]);
+                expect(anchorOffscreen.skipped.map((skip) => skip.id)).not.toContain('A2-note-window-over-chrome');
+
+                // A2 one observation, conforming: a page that left the viewport
+                // retains its connected note, but the note is hidden.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        noteWindows: [
+                            {
+                                annotationId: 'note-1',
+                                hidden: true,
+                                leftPx: 60,
+                                pageNumber: 1,
+                                topPx: 10,
+                            },
+                        ],
+                        pages: [{pageNumber: 1}, {pageNumber: 2}, {pageNumber: 3}, {pageNumber: 4}],
+                        toolbarPageNumber: 2,
+                    }),
+                );
+                const hiddenOffscreen = await page.evaluate(() => {
+                    document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 400;
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(hiddenOffscreen.violations).toEqual([]);
+                expect(hiddenOffscreen.unresolved).toEqual([]);
+                expect(hiddenOffscreen.skipped.map((skip) => skip.id)).not.toContain('A2-note-window-over-chrome');
+
+                // A2 one observation, known bad: the page is still on screen but
+                // its screen-sized marker has scrolled out above the pane and the
+                // note has followed it out instead of docking inside the pane.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        noteWindows: [
+                            {
+                                annotationId: 'note-1',
+                                leftPx: 60,
+                                pageNumber: 1,
+                                topPx: -400,
+                            },
+                        ],
+                        pages: [
+                            {
+                                heightPx: 2_400,
+                                overlays: [
+                                    {
+                                        annotationId: 'note-1',
+                                        height: 0,
+                                        kind: 'note',
+                                        screenSizedPx: 22,
+                                        width: 0,
+                                        x: 0.4,
+                                        y: 0.05,
+                                    },
+                                ],
+                                pageNumber: 1,
+                            },
+                        ],
+                    }),
+                );
+                const markerOffscreen = await page.evaluate(() => {
+                    document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 900;
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(violationIds(markerOffscreen)).toEqual(['A2-note-window-over-chrome']);
+                expect(markerOffscreen.unresolved).toEqual([]);
+
+                // A2 one observation, conforming: the marker is still offscreen,
+                // but the visible note is fully contained by the active pane.
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        noteWindows: [
+                            {
+                                annotationId: 'note-1',
+                                leftPx: 60,
+                                pageNumber: 1,
+                                topPx: 40,
+                            },
+                        ],
+                        pages: [
+                            {
+                                heightPx: 2_400,
+                                overlays: [
+                                    {
+                                        annotationId: 'note-1',
+                                        height: 0,
+                                        kind: 'note',
+                                        screenSizedPx: 22,
+                                        width: 0,
+                                        x: 0.4,
+                                        y: 0.05,
+                                    },
+                                ],
+                                pageNumber: 1,
+                            },
+                        ],
+                    }),
+                );
+                const dockedMarkerOffscreen = await page.evaluate(() => {
+                    document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 900;
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(dockedMarkerOffscreen.violations).toEqual([]);
+                expect(dockedMarkerOffscreen.unresolved).toEqual([]);
+            } finally {
+                await closeChromiumBrowser(browser);
+            }
+        },
+        BROWSER_TEST_TIMEOUT_MS,
+    );
+
+    it(
+        'compares two settled observations for the stateful invariants',
+        async () => {
+            const browser = await connectOrLaunchChromium();
+            try {
+                const page = await browser.newPage({
+                    viewport: {
+                        height: 700,
+                        width: 900,
+                    },
+                });
+
+                const overlayMarkup = buildFixtureMarkup({
+                    pages: [
+                        {
+                            overlays: [
+                                {
+                                    annotationId: 'highlight-1',
+                                    height: 0.05,
+                                    kind: 'text-markup',
+                                    width: 0.3,
+                                    x: 0.1,
+                                    y: 0.2,
+                                },
+                            ],
+                            pageNumber: 1,
+                        },
+                        {pageNumber: 2},
+                    ],
+                });
+
+                // A1 stateful, conforming: the page box changes with zoom but the
+                // overlay's normalized position does not.
+                await loadFixture(page, overlayMarkup);
+                const zoomed = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    const container = document.querySelector<HTMLElement>('.page_container[data-page="1"]')!;
+                    container.style.width = '400px';
+                    container.style.height = '240px';
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(zoomed.violations).toEqual([]);
+
+                // A1 stateful, known bad: the overlay drifts inside its own page.
+                await loadFixture(page, overlayMarkup);
+                const drifted = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    const overlay = document.querySelector<HTMLElement>('[data-annotation-id="highlight-1"]')!;
+                    overlay.style.left = '20%';
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(violationIds(drifted)).toEqual(['A1-annotation-normalized-drift']);
+
+                // A1 stateful, conforming: a marker drawn at a fixed screen size
+                // keeps the point it marks through a zoom while its box relative
+                // to the page changes. The monitor reported this as drift on the
+                // note icon during ordinary zooming.
+                const screenSizedMarkup = buildFixtureMarkup({
+                    pages: [
+                        {
+                            overlays: [
+                                {
+                                    annotationId: 'note-icon-1',
+                                    height: 0.04,
+                                    kind: 'note',
+                                    screenSizedPx: 20,
+                                    width: 0.04,
+                                    x: 0.38,
+                                    y: 0.28,
+                                },
+                            ],
+                            pageNumber: 1,
+                        },
+                        {pageNumber: 2},
+                    ],
+                });
+                await loadFixture(page, screenSizedMarkup);
+                const screenSized = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    const container = document.querySelector<HTMLElement>('.page_container[data-page="1"]')!;
+                    container.style.width = '400px';
+                    container.style.height = '240px';
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(screenSized.violations).toEqual([]);
+
+                // A1 stateful, known bad: the same marker moves off its point.
+                await loadFixture(page, screenSizedMarkup);
+                const screenSizedDrift = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    const marker = document.querySelector<HTMLElement>('[data-annotation-id="note-icon-1"]')!;
+                    marker.style.left = '55%';
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(violationIds(screenSizedDrift)).toEqual(['A1-annotation-normalized-drift']);
+
+                // A1 stateful applicability: a tab switch ends the sequence.
+                // Annotation ids are unique inside one document, so the same id in
+                // another workspace names a different annotation.
+                await loadFixture(page, overlayMarkup);
+                const switched = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    document.querySelector<HTMLElement>('.workspace-host')!.dataset.workspaceTabId = 'tab-2';
+                    document.querySelector<HTMLElement>('[data-annotation-id="highlight-1"]')!.style.left = '60%';
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(switched.violations).toEqual([]);
+                expect(switched.skipped.map((skip) => skip.id)).toContain('A1-annotation-normalized-drift');
+
+                // A1 stateful: a page the viewer virtualized away and mounted
+                // again has to bring its annotation back to the same place, so the
+                // memory outlives the unmount.
+                await loadFixture(page, overlayMarkup);
+                const remounted = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    const container = document.querySelector<HTMLElement>('.page_container[data-page="1"]')!;
+                    const track = container.parentElement!;
+                    container.remove();
+                    globalThis.__evbCheckViewerInvariants();
+                    track.prepend(container);
+                    container.querySelector<HTMLElement>('[data-annotation-id="highlight-1"]')!.style.left = '20%';
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(violationIds(remounted)).toEqual(['A1-annotation-normalized-drift']);
+
+                // A1 stateful applicability: the annotation went away while its
+                // own page stayed on screen, so it was deleted rather than
+                // virtualized and the next one to claim that id is not it.
+                await loadFixture(page, overlayMarkup);
+                const deleted = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    const overlay = document.querySelector<HTMLElement>('[data-annotation-id="highlight-1"]')!;
+                    const layer = overlay.parentElement!;
+                    overlay.remove();
+                    globalThis.__evbCheckViewerInvariants();
+                    overlay.style.left = '60%';
+                    layer.append(overlay);
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(deleted.violations).toEqual([]);
+                expect(deleted.skipped.map((skip) => skip.id)).toContain('A1-annotation-normalized-drift');
+
+                const noteMarkup = buildFixtureMarkup({
+                    noteWindows: [
+                        {
+                            annotationId: 'note-1',
+                            leftPx: 60,
+                            pageNumber: 1,
+                            topPx: 150,
+                        },
+                    ],
+                });
+
+                // A2 stateful, conforming: the window moves with its anchor page.
+                await loadFixture(page, noteMarkup);
+                const followed = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 80;
+                    const noteWindow = document.querySelector<HTMLElement>('.note-window')!;
+                    noteWindow.style.top = '70px';
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(followed.violations).toEqual([]);
+
+                // A2 stateful, known bad: the page scrolled away and the window
+                // stayed exactly where it was. This is the defect found by hand.
+                await loadFixture(page, noteMarkup);
+                const stranded = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 80;
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(violationIds(stranded)).toEqual(['A2-note-window-follows-anchor']);
+
+                // A2 stateful applicability: a connected hidden note while its
+                // page is virtualized away breaks comparability when it returns.
+                await loadFixture(page, noteMarkup);
+                const hiddenInterval = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    const viewport = document.querySelector<HTMLElement>('#pdf-viewer')!;
+                    const noteWindow = document.querySelector<HTMLElement>('.note-window')!;
+                    viewport.scrollTop = 400;
+                    noteWindow.style.display = 'none';
+                    globalThis.__evbCheckViewerInvariants();
+                    viewport.scrollTop = 80;
+                    noteWindow.style.display = '';
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(hiddenInterval.violations).toEqual([]);
+
+                // A2 stateful applicability: the reader dragged the window between
+                // the two observations, so the anchor delta is broken on purpose
+                // and the viewer suspends following for the duration of the drag.
+                await loadFixture(page, noteMarkup);
+                const dragged = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 80;
+                    const noteWindow = document.querySelector<HTMLElement>('.note-window')!;
+                    noteWindow.dataset.userPlacement = '3';
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(dragged.violations).toEqual([]);
+                expect(dragged.skipped.map((skip) => skip.id)).toContain('A2-note-window-follows-anchor');
+
+                // The placement sequence excuses one comparison, not the next one:
+                // a window that stops following after the drag is still a defect.
+                const strandedAfterDrag = await page.evaluate(() => {
+                    document.querySelector<HTMLElement>('#pdf-viewer')!.scrollTop = 160;
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(violationIds(strandedAfterDrag)).toEqual(['A2-note-window-follows-anchor']);
+            } finally {
+                await closeChromiumBrowser(browser);
+            }
+        },
+        BROWSER_TEST_TIMEOUT_MS,
+    );
+
+    it(
+        'names the control a real click hit without carrying the document file name',
+        async () => {
+            const browser = await connectOrLaunchChromium();
+            try {
+                const page = await browser.newPage({
+                    viewport: {
+                        height: 700,
+                        width: 900,
+                    },
+                });
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        tabFileName: DISTINCTIVE_FILE_NAME,
+                        toolbarPageNumber: 1,
+                    }),
+                );
+                await page.evaluate(() => {
+                    globalThis.__evbInstallViewerActionLog();
+                });
+
+                await page.click('.tab-label');
+                await page.click('.tab-close');
+                await page.click('.tab-search');
+                await page.keyboard.press('KeyK');
+
+                const observed = await page.evaluate((appVersion: string) => {
+                    const actions = globalThis.__evbReadViewerUserActions();
+                    return {
+                        actionsJson: JSON.stringify(actions),
+                        reportJson: JSON.stringify(globalThis.__evbBuildViewerBugReport(appVersion)),
+                        targets: actions.map((action) => action.target),
+                    };
+                }, FIXTURE_APP_VERSION);
+                await page.evaluate(() => {
+                    globalThis.__evbDisposeViewerActionLog();
+                });
+
+                // The recorded identity still names what the user hit, so a
+                // descriptor reduced to a constant fails here too.
+                expect([...new Set(observed.targets)].sort()).toStrictEqual(['button', 'input', 'tab']);
+                for (const serialized of [observed.actionsJson, observed.reportJson]) {
+                    expect(serialized).not.toContain(DISTINCTIVE_FILE_NAME);
+                    expect(serialized).not.toContain(DISTINCTIVE_FILE_NAME_TOKEN);
+                }
+            } finally {
+                await closeChromiumBrowser(browser);
+            }
+        },
+        BROWSER_TEST_TIMEOUT_MS,
+    );
+
+    it(
+        'records a wheel gesture without measuring the viewer it is observing',
+        async () => {
+            const browser = await connectOrLaunchChromium();
+            try {
+                const page = await browser.newPage({
+                    viewport: {
+                        height: 700,
+                        width: 900,
+                    },
+                });
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        toolbarPageNumber: 1,
+                        zoomMode: 'fit-width',
+                    }),
+                );
+
+                // The external contract: recording what the user did costs no
+                // layout. A recorder that measures perturbs the scroll and zoom
+                // behavior the monitor reports on, so the counters are the proof.
+                await page.evaluate(() => {
+                    const counters = {
+                        computedStyle: 0,
+                        rect: 0,
+                    };
+                    Reflect.set(globalThis, '__evbLayoutReadCounters', counters);
+                    const originalRect = Element.prototype.getBoundingClientRect;
+                    const originalStyle = window.getComputedStyle.bind(window);
+                    Element.prototype.getBoundingClientRect = function countedRect(this: Element) {
+                        counters.rect += 1;
+                        return originalRect.call(this);
+                    };
+                    window.getComputedStyle = (element: Element, pseudoElement?: string | null) => {
+                        counters.computedStyle += 1;
+                        return originalStyle(element, pseudoElement);
+                    };
+                    globalThis.__evbInstallViewerActionLog();
+                });
+
+                await page.mouse.move(300, 300);
+                for (let step = 0; step < 60; step += 1) {
+                    await page.mouse.wheel(0, 120);
+                }
+                await page.keyboard.press('ArrowDown');
+
+                const observed = await page.evaluate(() => {
+                    const actions = globalThis.__evbReadViewerUserActions();
+                    globalThis.__evbDisposeViewerActionLog();
+                    return {
+                        counters: Reflect.get(globalThis, '__evbLayoutReadCounters') as {
+                            computedStyle: number;
+                            rect: number;
+                        },
+                        recordedTypes: [...new Set(actions.map((action) => action.type))].sort(),
+                        wheelPackets: actions.filter((action) => action.type === 'wheel-gesture').map((action) => action.packets),
+                        zoomModes: [...new Set(actions.map((action) => action.viewerState.zoomMode))],
+                    };
+                });
+
+                expect(observed.recordedTypes).toStrictEqual(['key', 'wheel-gesture']);
+                expect(observed.zoomModes).toStrictEqual(['fit-width']);
+                // One gesture, one rect read for its start point. The cost does
+                // not grow with the packet count, which is what keeps the recorder
+                // out of the gesture it is observing.
+                expect(observed.wheelPackets).toStrictEqual([60]);
+                expect(observed.counters.computedStyle).toBe(0);
+                expect(observed.counters.rect).toBe(1);
+            } finally {
+                await closeChromiumBrowser(browser);
+            }
+        },
+        BROWSER_TEST_TIMEOUT_MS,
+    );
+
+    it(
+        'keeps the action that caused a gesture when the gesture floods the log',
+        async () => {
+            const browser = await connectOrLaunchChromium();
+            try {
+                const page = await browser.newPage({
+                    viewport: {
+                        height: 700,
+                        width: 900,
+                    },
+                });
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        tabFileName: DISTINCTIVE_FILE_NAME,
+                        toolbarPageNumber: 1,
+                    }),
+                );
+                await page.evaluate(() => {
+                    globalThis.__evbInstallViewerActionLog();
+                });
+
+                // The reviewer's probe: one pointer action, then 200 wheel packets.
+                // Raw retention left 40 wheel entries and lost the click.
+                await page.click('.tab-label');
+                await page.mouse.move(400, 300);
+                for (let step = 0; step < 200; step += 1) {
+                    await page.mouse.wheel(0, 100);
+                }
+                await page.mouse.wheel(0, -100);
+                // The reversal has to reach the recorder before it can be judged.
+                await page.waitForFunction(
+                    () => globalThis.__evbReadViewerUserActions().filter((action) => action.type === 'wheel-gesture').length === 2,
+                );
+
+                const recorded = await page.evaluate(() => {
+                    const actions = globalThis.__evbReadViewerUserActions();
+                    globalThis.__evbDisposeViewerActionLog();
+                    return actions;
+                });
+
+                const pointerActions = recorded.filter((action) => action.type === 'pointerdown');
+                expect(pointerActions).toHaveLength(1);
+                expect(pointerActions[0]?.target).toBe('tab');
+                const wheelGestures = recorded.filter((action) => action.type === 'wheel-gesture');
+                // Two gestures: the 200 packets down, then the reversal.
+                expect(wheelGestures.map((gesture) => gesture.packets)).toStrictEqual([200, 1]);
+                expect(wheelGestures[0]?.summedDelta.y).toBe(20_000);
+                expect(wheelGestures[0]?.startPoint).not.toBeNull();
+                expect(recorded.map((action) => action.startedAt)).toStrictEqual(
+                    [...recorded.map((action) => action.startedAt)].sort((left, right) => left - right),
+                );
+                expect(JSON.stringify(recorded)).not.toContain(DISTINCTIVE_FILE_NAME_TOKEN);
+            } finally {
+                await closeChromiumBrowser(browser);
+            }
+        },
+        BROWSER_TEST_TIMEOUT_MS,
+    );
+
+    it(
+        'lets a scenario require what it created, where the checker alone reports nothing',
+        async () => {
+            const browser = await connectOrLaunchChromium();
+            try {
+                const page = await browser.newPage({
+                    viewport: {
+                        height: 700,
+                        width: 900,
+                    },
+                });
+                await loadFixture(
+                    page,
+                    buildFixtureMarkup({
+                        pages: [
+                            {
+                                overlays: [
+                                    {
+                                        annotationId: 'highlight-1',
+                                        height: 0.05,
+                                        kind: 'text-markup',
+                                        width: 0.3,
+                                        x: 0.1,
+                                        y: 0.2,
+                                    },
+                                ],
+                                pageNumber: 1,
+                            },
+                            {pageNumber: 2},
+                        ],
+                        toolbarPageNumber: 1,
+                    }),
+                );
+
+                // The reviewer's counterexamples: the annotation vanishes from a
+                // page that is still mounted, and the page control disappears.
+                // Neither is a violation, because deleting an annotation and
+                // hiding a control are both legitimate and the checker cannot
+                // know what the user meant.
+                const vanished = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    document.querySelector('[data-annotation-id="highlight-1"]')!.remove();
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(vanished.violations).toEqual([]);
+                expect(vanished.observed.annotationIds).toEqual([]);
+                expect(vanished.observed.mountedPageNumbers).toEqual([1, 2]);
+
+                const missingControl = await page.evaluate(() => {
+                    document.querySelector('.page-controls')!.remove();
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(missingControl.violations).toEqual([]);
+                expect(missingControl.observed.pageIndicator).toBeNull();
+
+                // A scenario that created the highlight and only zoomed says so,
+                // and then the same report is a failure.
+                expect(() =>
+                    evaluateViewerInvariantCheckpoint(vanished, {
+                        checkpoint: 'after zooming',
+                        requirePresent: {annotationIds: ['highlight-1']},
+                    }),
+                ).toThrow(/the annotation highlight-1 is no longer drawn/u);
+                expect(() =>
+                    evaluateViewerInvariantCheckpoint(missingControl, {
+                        checkpoint: 'after zooming',
+                        requireRan: ['R1-toolbar-page-visible'],
+                    }),
+                ).toThrow(/R1-toolbar-page-visible did not run/u);
+                expect(() =>
+                    evaluateViewerInvariantCheckpoint(missingControl, {
+                        checkpoint: 'after zooming',
+                        requirePresent: {pageIndicator: true},
+                    }),
+                ).toThrow(/rendered no readable page number/u);
+
+                // Without a scenario requirement both stay non-failing, which is
+                // the documented behavior of the generic checker.
+                expect(evaluateViewerInvariantCheckpoint(vanished, {checkpoint: 'no requirement'}).tolerated).toEqual([]);
+                expect(evaluateViewerInvariantCheckpoint(missingControl, {checkpoint: 'no requirement'}).tolerated).toEqual([]);
+            } finally {
+                await closeChromiumBrowser(browser);
+            }
+        },
+        BROWSER_TEST_TIMEOUT_MS,
+    );
+
+    it(
+        'reports a renderer diagnostic only for a well-formed document and honours a reasoned allowlist',
+        async () => {
+            const browser = await connectOrLaunchChromium();
+            try {
+                const page = await browser.newPage({
+                    viewport: {
+                        height: 700,
+                        width: 900,
+                    },
+                });
+                await loadFixture(page, buildFixtureMarkup());
+
+                const undeclared = await page.evaluate(() => {
+                    globalThis.__evbCheckViewerInvariants();
+                    globalThis.__evbNotifyRendererDiagnosticNotice({
+                        occurredAt: 1,
+                        signature: 'Window error: TypeError: broken',
+                        source: 'window',
+                    });
+                    return globalThis.__evbCheckViewerInvariants();
+                });
+                expect(undeclared.violations).toEqual([]);
+                expect(undeclared.skipped.map((skip) => skip.id)).toContain('C2-renderer-diagnostics-clean');
+
+                const declared = await page.evaluate(() => globalThis.__evbCheckViewerInvariants({documentWellFormed: true}));
+                expect(violationIds(declared)).toEqual(['C2-renderer-diagnostics-clean']);
+
+                const allowlisted = await page.evaluate(() => {
+                    globalThis.__evbNotifyRendererDiagnosticNotice({
+                        occurredAt: 2,
+                        signature: 'Window error: TypeError: broken',
+                        source: 'window',
+                    });
+                    return globalThis.__evbCheckViewerInvariants({
+                        consoleAllowlist: [
+                            {
+                                pattern: 'Window error: TypeError: broken',
+                                reason: 'the fixture raises it on purpose to prove the allowlist is consulted',
+                            },
+                        ],
+                        documentWellFormed: true,
+                    });
+                });
+                expect(allowlisted.violations).toEqual([]);
+            } finally {
+                await closeChromiumBrowser(browser);
+            }
+        },
+        BROWSER_TEST_TIMEOUT_MS,
+    );
+
+    it(
+        'settles on the active pane, not the first one, and follows a switch of panes',
+        async () => {
+            const browser = await connectOrLaunchChromium();
+            try {
+                const page = await browser.newPage();
+                const settle = (timeoutMs: number) =>
+                    page.evaluate((timeout) => globalThis.__evbWaitForViewerSettled({timeoutMs: timeout}), timeoutMs);
+
+                await loadFixture(
+                    page,
+                    buildTwoPaneMarkup([
+                        {
+                            active: false,
+                            painting: false,
+                        },
+                        {
+                            active: true,
+                            painting: true,
+                        },
+                    ]),
+                );
+                const activePainting = await settle(800);
+                expect(activePainting.settled, 'the active pane is still painting').toBe(false);
+                expect(activePainting.reason).toContain('skeleton');
+
+                await loadFixture(
+                    page,
+                    buildTwoPaneMarkup([
+                        {
+                            active: false,
+                            painting: true,
+                        },
+                        {
+                            active: true,
+                            painting: false,
+                        },
+                    ]),
+                );
+                expect((await settle(3_000)).settled, 'only the inactive pane is painting').toBe(true);
+
+                await loadFixture(
+                    page,
+                    buildTwoPaneMarkup([
+                        {
+                            active: false,
+                            painting: false,
+                        },
+                        {
+                            active: true,
+                            painting: true,
+                        },
+                    ]),
+                );
+                const switched = settle(5_000);
+                // The wait has sampled the painting pane before the switch.
+                await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+                await page.evaluate(() => {
+                    for (const pane of document.querySelectorAll<HTMLElement>('.editor-pane')) {
+                        const active = pane.dataset.pane === '0';
+                        pane.classList.toggle('is-active', active);
+                        pane.querySelector<HTMLElement>('.workspace-host')!.dataset.workspaceActive = String(active);
+                    }
+                });
+                expect((await switched).settled, 'the wait follows the newly active pane').toBe(true);
+            } finally {
+                await closeChromiumBrowser(browser);
+            }
+        },
+        BROWSER_TEST_TIMEOUT_MS,
+    );
 });

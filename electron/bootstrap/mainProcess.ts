@@ -1,57 +1,33 @@
-import {
-    app,
-    BrowserWindow,
-    powerMonitor,
-} from 'electron';
-import { parseDocumentRef } from '@contracts/documentRef';
-import { UPDATES_PLATFORM_FEATURE } from '@contracts/updatesPlatformFeature';
-import type { TPerformanceMode } from '@contracts/hostResourceProfile';
-import { isRecord } from '@contracts/runtimeGuards';
-import {
-    dirname,
-    join,
-} from 'path';
-import { fileURLToPath } from 'url';
-import {
-    createExternalOpenManager,
-    createMacOpenFileRouter,
-} from '@electron/bootstrap/externalOpen';
-import { runInitSequence } from '@electron/bootstrap/runInitSequence';
-import {
-    resolveExternalOpenDispatchWindow,
-    shouldResetRendererReadyOnNavigation,
-} from '@electron/bootstrap/rendererReady';
-import { createShutdownCoordinator } from '@electron/bootstrap/shutdown';
-import { createShutdownPhaseRunners } from '@electron/bootstrap/createShutdownPhaseRunners';
+import {app, BrowserWindow, powerMonitor} from 'electron';
+import {parseDocumentRef} from '@contracts/documentRef';
+import {UPDATES_PLATFORM_FEATURE} from '@contracts/updatesPlatformFeature';
+import type {TPerformanceMode} from '@contracts/hostResourceProfile';
+import {isRecord} from '@contracts/runtimeGuards';
+import {dirname, join} from 'path';
+import {fileURLToPath} from 'url';
+import {createExternalOpenManager, createMacOpenFileRouter} from '@electron/bootstrap/externalOpen';
+import {runInitSequence} from '@electron/bootstrap/runInitSequence';
+import {resolveExternalOpenDispatchWindow, shouldResetRendererReadyOnNavigation} from '@electron/bootstrap/rendererReady';
+import {createShutdownCoordinator} from '@electron/bootstrap/shutdown';
+import {createShutdownPhaseRunners} from '@electron/bootstrap/createShutdownPhaseRunners';
 import {
     requestShutdownSaveFlush,
     shutdownSaveFlushRequiresRecoveryPreservation,
     shutdownSaveFlushRequiresRetryableQuit,
 } from '@electron/bootstrap/requestShutdownSaveFlush';
-import { createStartupTrace } from '@electron/bootstrap/createStartupTrace';
-import { config } from '@electron/config';
+import {createStartupTrace} from '@electron/bootstrap/createStartupTrace';
+import {config} from '@electron/config';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import { registerIpcHandlers } from '@electron/platform-ipc/registerIpcHandlers';
-import type { TLazyMainSubsystem } from '@electron/platform-ipc/featureRegistrationDescriptors';
-import { isTrustedWebContentsSender } from '@electron/platform-ipc/trustedIpcSender';
-import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
-import { createRawIpcRegistrationAudit } from '@electron/platform-ipc/rawIpcRegistration';
-import {
-    clearAllWorkingCopies,
-    collectStaleDocuments,
-    settleOpenDocuments,
-} from '@electron/file-access/documentStore';
-import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
-import {
-    attachHostEnvironmentToWindow,
-    installHostEnvironmentDisplayWatcher,
-} from '@electron/hostEnvironment';
-import {
-    sendToWindow,
-    setupMenu,
-    updateRecentFilesMenu,
-} from '@electron/menu';
-import { initRecentFilesCache } from '@electron/recentFiles';
+import {registerIpcHandlers} from '@electron/platform-ipc/registerIpcHandlers';
+import type {TLazyMainSubsystem} from '@electron/platform-ipc/featureRegistrationDescriptors';
+import {isTrustedWebContentsSender} from '@electron/platform-ipc/trustedIpcSender';
+import {CORE_IPC_SEND_CHANNELS} from '@electron/platform-ipc/coreContract';
+import {createRawIpcRegistrationAudit} from '@electron/platform-ipc/rawIpcRegistration';
+import {clearAllWorkingCopies, collectStaleDocuments, settleOpenDocuments} from '@electron/file-access/documentStore';
+import {allowOpenPaths} from '@electron/file-access/openPathCapabilities';
+import {attachHostEnvironmentToWindow, installHostEnvironmentDisplayWatcher} from '@electron/hostEnvironment';
+import {sendToWindow, setupMenu, updateRecentFilesMenu} from '@electron/menu';
+import {initRecentFilesCache} from '@electron/recentFiles';
 import {
     captureMainFailure,
     consumeStartupCrashMarker,
@@ -60,70 +36,31 @@ import {
     setMainDiagnosticsPreference,
 } from '@electron/features/diagnostics/public';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
-import {
-    createAppWindow,
-    createWindow,
-    configureNativeWindowCloseHandshake,
-    hasWindows,
-} from '@electron/window';
-import {
-    getAllRegisteredAppWindows,
-    getRegisteredMainWindow,
-} from '@electron/window/registry';
-import {
-    getWindowStartupPhase,
-    publishWindowStartupPhase,
-    requestInitialReveal,
-} from '@electron/window/rendererReady';
-import { focusWindowForUser } from '@electron/window/focusWindowForUser';
-import {
-    markWindowTabTransferNotReady,
-    markWindowTabTransferReady,
-    markWindowTabTransferWindowClosed,
-} from '@electron/windowTabTransfer';
-import {
-    configureLogDirectory,
-    createLogger,
-    flushPendingLogWrites,
-    type ILogger,
-} from '@electron/utils/createLogger';
-import { getErrorMessage } from '@electron/utils/error';
-import {
-    registerAppProtocolScheme,
-    setupAppProtocolHandler,
-} from '@electron/protocol';
-import {
-    loadSettings,
-    resetSettingsCacheAfterUserDataPathChange,
-} from '@electron/settings';
-import { configureMacKeychainAccess } from '@electron/security/macKeychainAccess';
+import {createAppWindow, createWindow, configureNativeWindowCloseHandshake, hasWindows} from '@electron/window';
+import {getAllRegisteredAppWindows, getRegisteredMainWindow} from '@electron/window/registry';
+import {getWindowStartupPhase, publishWindowStartupPhase, requestInitialReveal} from '@electron/window/rendererReady';
+import {focusWindowForUser} from '@electron/window/focusWindowForUser';
+import {markWindowTabTransferNotReady, markWindowTabTransferReady, markWindowTabTransferWindowClosed} from '@electron/windowTabTransfer';
+import {configureLogDirectory, createLogger, flushPendingLogWrites, type ILogger} from '@electron/utils/createLogger';
+import {getErrorMessage} from '@electron/utils/error';
+import {registerAppProtocolScheme, setupAppProtocolHandler} from '@electron/protocol';
+import {loadSettings, resetSettingsCacheAfterUserDataPathChange} from '@electron/settings';
+import {configureMacKeychainAccess} from '@electron/security/macKeychainAccess';
 import {
     beginMainOperationShutdown,
     cancelAllMainOperations,
     drainCriticalMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
-import type { IMainOperationSnapshot } from '@electron/operation-lifecycle/mainOperationLifecycle';
-import {
-    getAppTempDir,
-    initializeAppTempNamespace,
-} from '@electron/utils/appTempDir';
-import {
-    configureProcessSafeMode,
-    createProcessDeathRecovery,
-} from '@electron/processDeathRecovery';
-import { runDetached } from '@electron/utils/runDetached';
-import { resolveApplicationVersion } from '@electron/appVersion';
-import {
-    createUnhandledRejectionRecovery,
-    decideUnhandledRejection,
-} from '@electron/unhandledRejectionRecovery';
-import {
-    clearWorkspaceCheckpoint,
-    flushPendingWorkspaceCheckpointSave,
-} from '@electron/workspaceCheckpointStore';
-import { initializeHostResourceProfile } from '@electron/resources/hostResourceProfile';
-import { configureMainJobBroker } from '@electron/resources/jobBroker';
-import { initializeElectronTranslations } from '@electron/te';
+import type {IMainOperationSnapshot} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {getAppTempDir, initializeAppTempNamespace} from '@electron/utils/appTempDir';
+import {configureProcessSafeMode, createProcessDeathRecovery} from '@electron/processDeathRecovery';
+import {runDetached} from '@electron/utils/runDetached';
+import {resolveApplicationVersion} from '@electron/appVersion';
+import {createUnhandledRejectionRecovery, decideUnhandledRejection} from '@electron/unhandledRejectionRecovery';
+import {clearWorkspaceCheckpoint, flushPendingWorkspaceCheckpointSave} from '@electron/workspaceCheckpointStore';
+import {initializeHostResourceProfile} from '@electron/resources/hostResourceProfile';
+import {configureMainJobBroker} from '@electron/resources/jobBroker';
+import {initializeElectronTranslations} from '@electron/te';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
 configureProcessSafeMode(app, process.argv);
@@ -153,14 +90,10 @@ let featureRegistrationRuntime: ReturnType<typeof registerIpcHandlers> | null = 
 let pendingSafeModeRelaunchArgs = null as string[] | null;
 let pendingFatalFailure: {
     reason: string;
-    receipt: FailureReceipt
+    receipt: FailureReceipt;
 } | null = null;
 
-function logMainFailure(
-    code: string,
-    message: string,
-    cause?: unknown,
-) {
+function logMainFailure(code: string, message: string, cause?: unknown) {
     try {
         return logger.error(message, {
             code,
@@ -192,10 +125,7 @@ function requestSafeModeRelaunch(args: string[]) {
         pendingSafeModeRelaunchArgs = args;
         return;
     }
-    if (
-        shutdownCoordinator.isFatalShutdownInProgress()
-        || shutdownCoordinator.isGracefulQuitInProgress()
-    ) {
+    if (shutdownCoordinator.isFatalShutdownInProgress() || shutdownCoordinator.isGracefulQuitInProgress()) {
         logger.warn('[process-death] Shutdown is already in progress; leaving its exit action unchanged');
         return;
     }
@@ -218,7 +148,7 @@ const processDeathRecovery = createProcessDeathRecovery({
 app.on('child-process-gone', (_event, details) => {
     processDeathRecovery.handleChildProcessGone(details);
 });
-const macOpenFileRouter = createMacOpenFileRouter({ logger });
+const macOpenFileRouter = createMacOpenFileRouter({logger});
 const startupTrace = createStartupTrace(logger);
 
 function requestFatalShutdown(reason: string, receipt?: FailureReceipt) {
@@ -260,9 +190,9 @@ const loadedSubsystems = new Set<TLazyMainSubsystem>();
 
 function isShutdownActive() {
     return Boolean(
-        shutdownCoordinator?.isGracefulQuitInProgress()
-        || shutdownCoordinator?.isFatalShutdownInProgress()
-        || shutdownCoordinator?.isQuittingAfterCleanup(),
+        shutdownCoordinator?.isGracefulQuitInProgress() ||
+        shutdownCoordinator?.isFatalShutdownInProgress() ||
+        shutdownCoordinator?.isQuittingAfterCleanup(),
     );
 }
 
@@ -276,47 +206,45 @@ function loadAgentModule() {
 }
 
 function loadUpdatesModule(): Promise<TUpdatesModule> {
-    updatesModulePromise ??= import('@electron/updates').then((module) => {
-        module.configureUpdateInstallShutdown((install) => {
-            shutdownCoordinator?.requestGracefulQuit({ afterCleanup: install });
+    updatesModulePromise ??= import('@electron/updates')
+        .then((module) => {
+            module.configureUpdateInstallShutdown((install) => {
+                shutdownCoordinator?.requestGracefulQuit({afterCleanup: install});
+            });
+            loadedUpdatesModule = module;
+            return module;
+        })
+        .catch((error) => {
+            updatesModulePromise = null;
+            throw error;
         });
-        loadedUpdatesModule = module;
-        return module;
-    }).catch((error) => {
-        updatesModulePromise = null;
-        throw error;
-    });
     return updatesModulePromise;
 }
 
 const unhandledRecoveryReceipts = new Map<string, FailureReceipt>();
-const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({async recover(subsystem) {
-    const message = `Restarting ${subsystem} subsystem after repeated unhandled promise rejections`;
-    const receipt = logMainFailure(
-        'MAIN_UNHANDLED_REJECTION_RECOVERY',
-        message,
-    );
-    if (receipt) {
-        unhandledRecoveryReceipts.set(subsystem, receipt);
-    }
-    if (subsystem === 'ocr' && loadedSubsystems.has('ocr')) {
-        const {recoverOcrJobManager} = await import('@electron/features/ocr/public');
-        await recoverOcrJobManager();
-    } else if (subsystem === 'search' && loadedSubsystems.has('search')) {
-        const {searchService} = await import('@electron/features/search/public');
-        searchService.cancelAll('unhandled rejection threshold');
-    } else if (subsystem === 'agent' && loadedSubsystems.has('agent')) {
-        const {shutdownAgentAssistantIfLoaded} = await loadAgentModule();
-        await shutdownAgentAssistantIfLoaded();
-    } else if (subsystem === 'djvu' && loadedSubsystems.has('djvu')) {
-        const {
-            performDjvuViewingShutdownCleanup,
-            shutdownDjvuConversions,
-        } = await import('@electron/features/djvu/public');
-        await shutdownDjvuConversions();
-        performDjvuViewingShutdownCleanup();
-    }
-}});
+const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({
+    async recover(subsystem) {
+        const message = `Restarting ${subsystem} subsystem after repeated unhandled promise rejections`;
+        const receipt = logMainFailure('MAIN_UNHANDLED_REJECTION_RECOVERY', message);
+        if (receipt) {
+            unhandledRecoveryReceipts.set(subsystem, receipt);
+        }
+        if (subsystem === 'ocr' && loadedSubsystems.has('ocr')) {
+            const {recoverOcrJobManager} = await import('@electron/features/ocr/public');
+            await recoverOcrJobManager();
+        } else if (subsystem === 'search' && loadedSubsystems.has('search')) {
+            const {searchService} = await import('@electron/features/search/public');
+            searchService.cancelAll('unhandled rejection threshold');
+        } else if (subsystem === 'agent' && loadedSubsystems.has('agent')) {
+            const {shutdownAgentAssistantIfLoaded} = await loadAgentModule();
+            await shutdownAgentAssistantIfLoaded();
+        } else if (subsystem === 'djvu' && loadedSubsystems.has('djvu')) {
+            const {performDjvuViewingShutdownCleanup, shutdownDjvuConversions} = await import('@electron/features/djvu/public');
+            await shutdownDjvuConversions();
+            performDjvuViewingShutdownCleanup();
+        }
+    },
+});
 
 // Expected third-party cancellations already settle at their owning boundary.
 // Electron dialogs return canceled results, updater requests catch typed aborts,
@@ -328,19 +256,13 @@ if (process.platform === 'darwin' && config.automation.noFocus) {
         // Keep automation sessions from becoming the active foreground app on macOS.
         app.setActivationPolicy('accessory');
     } catch (error) {
-        logger.warn(
-            `Failed to switch activation policy for automation mode: ${
-                getErrorMessage(error)
-            }`,
-        );
+        logger.warn(`Failed to switch activation policy for automation mode: ${getErrorMessage(error)}`);
     }
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const devDockIconPath = join(__dirname, '..', 'resources', 'icon.png');
-const aboutIconPath = app.isPackaged
-    ? join(process.resourcesPath, 'icon.png')
-    : devDockIconPath;
+const aboutIconPath = app.isPackaged ? join(process.resourcesPath, 'icon.png') : devDockIconPath;
 const DEV_DOCK_BADGE_TEXT = 'DEV';
 
 let defaultViewerPromptShown = false;
@@ -456,25 +378,23 @@ const workingCopyCleanupSkipPaths = new Set<string>();
  * delete it. Both the cancelled writes and the ones the drain gave up on need
  * the same treatment; the caller supplies the wording for the log.
  */
-function preserveCriticalWriteWorkingCopies(
-    operations: readonly IMainOperationSnapshot[],
-    description: string,
-) {
+function preserveCriticalWriteWorkingCopies(operations: readonly IMainOperationSnapshot[], description: string) {
     for (const operation of operations) {
         if (operation.workingCopyPath) {
             workingCopyCleanupSkipPaths.add(operation.workingCopyPath);
-            logger.error(
-                `Skipping working-copy deletion for ${description} critical write path: ${operation.workingCopyPath}`,
-                {code: 'MAIN_SHUTDOWN_FAILED'},
-            );
+            logger.error(`Skipping working-copy deletion for ${description} critical write path: ${operation.workingCopyPath}`, {
+                code: 'MAIN_SHUTDOWN_FAILED',
+            });
         } else {
-            logger.error(`A ${description} critical write has no working-copy path; operation=${operation.id}`, {code: 'MAIN_SHUTDOWN_FAILED'});
+            logger.error(`A ${description} critical write has no working-copy path; operation=${operation.id}`, {
+                code: 'MAIN_SHUTDOWN_FAILED',
+            });
         }
     }
 }
 const SHUTDOWN_STEP_WATCHDOG_SLACK_MS = 500;
 const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
-    createPreservationSteps: context => {
+    createPreservationSteps: (context) => {
         workingCopyCleanupSkipPaths.clear();
         return [
             {
@@ -485,11 +405,8 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                         getWindows: getAllRegisteredAppWindows,
                         logger,
                         timeoutMs: RENDERER_SAVE_FLUSH_TIMEOUT_MS,
-                        isTrustedSender: (sender, senderFrame) => isTrustedWebContentsSender(
-                            sender,
-                            senderFrame,
-                            CORE_IPC_SEND_CHANNELS.shutdownSaveFlushResult,
-                        ),
+                        isTrustedSender: (sender, senderFrame) =>
+                            isTrustedWebContentsSender(sender, senderFrame, CORE_IPC_SEND_CHANNELS.shutdownSaveFlushResult),
                         rawIpcRegistrationAudit,
                     });
                     if (shutdownSaveFlushRequiresRecoveryPreservation(result)) {
@@ -497,7 +414,9 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                         // Unsaved work that the quit keeps for recovery by design is not a
                         // failure. Only a failed or timed-out flush is.
                         if (shutdownSaveFlushRequiresRetryableQuit(result)) {
-                            logger.error('Renderer shutdown save flush was incomplete; retaining workspace recovery state', {code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED'});
+                            logger.error('Renderer shutdown save flush was incomplete; retaining workspace recovery state', {
+                                code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
+                            });
                         } else {
                             logger.info('Renderer shutdown save flush kept unsaved work for recovery');
                         }
@@ -562,7 +481,9 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                 run: async () => {
                     const result = await drainCriticalMainOperations({timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS});
                     if (!result.completed) {
-                        logger.error(`Timed out waiting for ${result.pending.length} critical main operation(s) during shutdown`, {code: 'MAIN_SHUTDOWN_FAILED'});
+                        logger.error(`Timed out waiting for ${result.pending.length} critical main operation(s) during shutdown`, {
+                            code: 'MAIN_SHUTDOWN_FAILED',
+                        });
                         preserveCriticalWriteWorkingCopies(result.pending, 'pending');
                     }
                 },
@@ -575,7 +496,7 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
             },
         ];
     },
-    createBestEffortCleanupSteps: context => [
+    createBestEffortCleanupSteps: (context) => [
         {
             label: 'feature-registration-disposal',
             timeoutMs: 6_000,
@@ -604,10 +525,7 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         {
             label: 'pdf-page-ops-workers',
             run: async () => {
-                const [
-                    {shutdownPdfPageOpsWorkers},
-                    {shutdownQpdfWasmWorkers},
-                ] = await Promise.all([
+                const [{shutdownPdfPageOpsWorkers}, {shutdownQpdfWasmWorkers}] = await Promise.all([
                     import('@electron/native-tools/pdfPageOpsWorkerClient'),
                     import('@electron/native-tools/qpdfWasmWorkerClient'),
                 ]);
@@ -627,7 +545,7 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         },
         {
             label: 'updates',
-            run: () => updatesModulePromise ? updatesModulePromise.then(updates => updates.shutdownUpdates()) : undefined,
+            run: () => (updatesModulePromise ? updatesModulePromise.then((updates) => updates.shutdownUpdates()) : undefined),
         },
         {
             label: 'document-store-operations',
@@ -665,15 +583,11 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
         },
         {
             label: 'workspace-checkpoint',
-            run: () => context.preserveRecoveryState
-                ? undefined
-                : clearWorkspaceCheckpoint(),
+            run: () => (context.preserveRecoveryState ? undefined : clearWorkspaceCheckpoint()),
         },
         {
             label: 'working-copies',
-            run: () => context.preserveRecoveryState
-                ? undefined
-                : clearAllWorkingCopies({skipPaths: workingCopyCleanupSkipPaths}),
+            run: () => (context.preserveRecoveryState ? undefined : clearAllWorkingCopies({skipPaths: workingCopyCleanupSkipPaths})),
         },
         // Last, so lines emitted by every earlier shutdown step reach disk.
         {
@@ -715,12 +629,8 @@ process.on('unhandledRejection', (reason) => {
         logger.info(`Ignoring expected unhandled rejection in main process: ${getErrorMessage(reason)}`);
         return;
     }
-    const rejectionMessage = `Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? getErrorMessage(reason) : getErrorMessage(reason)}`;
-    logMainFailure(
-        'MAIN_UNHANDLED_REJECTION',
-        rejectionMessage,
-        reason,
-    );
+    const rejectionMessage = `Unhandled promise rejection in main process: ${reason instanceof Error ? (reason.stack ?? getErrorMessage(reason)) : getErrorMessage(reason)}`;
+    logMainFailure('MAIN_UNHANDLED_REJECTION', rejectionMessage, reason);
     // An unclassified rejection is logged and survived rather than treated as
     // proof of corrupted state; only a subsystem whose recovery fails below is
     // still fatal.
@@ -737,16 +647,17 @@ process.on('unhandledRejection', (reason) => {
         return projectedReceipt;
     };
     runDetached(
-        () => recoverUnhandledRejectionSubsystem(decision.subsystem, reason).then(result => {
-            if (result.recovered) {
-                unhandledRecoveryReceipts.delete(decision.subsystem);
-            }
-            return result;
-        }),
+        () =>
+            recoverUnhandledRejectionSubsystem(decision.subsystem, reason).then((result) => {
+                if (result.recovered) {
+                    unhandledRecoveryReceipts.delete(decision.subsystem);
+                }
+                return result;
+            }),
         {
             label: 'recover subsystem after unhandled rejection threshold',
             logger: {error: recoveryLoggerError},
-            onError: error => {
+            onError: (error) => {
                 const recoveryReceipt = unhandledRecoveryReceipts.get(decision.subsystem);
                 requestFatalShutdown(
                     `Unhandled rejection subsystem recovery failed (${decision.subsystem}): ${getErrorMessage(error)}`,
@@ -772,10 +683,7 @@ process.on('uncaughtException', (error) => {
         cause: error,
         severity: 'fatal',
     });
-    requestFatalShutdown(
-        `Uncaught exception in main process: ${error.stack ?? error.message}`,
-        receipt,
-    );
+    requestFatalShutdown(`Uncaught exception in main process: ${error.stack ?? error.message}`, receipt);
 });
 function requestSystemShutdown(event?: {preventDefault(): void}) {
     if (shutdownCoordinator?.isQuittingAfterCleanup()) {
@@ -804,24 +712,17 @@ if (pendingSafeModeRelaunchArgs) {
 const allowMultipleAutomationSessions = runtimeConfig.allowMultipleAutomationSessions;
 
 function isPerformanceMode(value: unknown): value is TPerformanceMode {
-    return value === 'auto'
-        || value === 'low'
-        || value === 'medium'
-        || value === 'high';
+    return value === 'auto' || value === 'low' || value === 'medium' || value === 'high';
 }
 
 function readLaunchPerformanceMode(value: unknown) {
     // Automation-only override; remove if the E2E harness gains a settings
     // handoff that survives session relaunches.
-    const automationMode = automationUserDataDir
-        ? runtimeConfig.test.performanceMode
-        : undefined;
+    const automationMode = automationUserDataDir ? runtimeConfig.test.performanceMode : undefined;
     if (isPerformanceMode(automationMode)) {
         return automationMode;
     }
-    return isRecord(value) && isPerformanceMode(value.performanceMode)
-        ? value.performanceMode
-        : 'auto';
+    return isRecord(value) && isPerformanceMode(value.performanceMode) ? value.performanceMode : 'auto';
 }
 
 void runInitSequence({
@@ -830,7 +731,7 @@ void runInitSequence({
     allowMultipleAutomationSessions,
     allowOpenPaths,
     attachHostEnvironmentToWindow,
-    broadcastUpdateStatus: status => {
+    broadcastUpdateStatus: (status) => {
         for (const window of getAllRegisteredAppWindows()) {
             const projectedStatus = loadedUpdatesModule
                 ? loadedUpdatesModule.projectUpdateStatusForWindow(status, window.webContents.id)
@@ -866,9 +767,9 @@ void runInitSequence({
         });
         configureMainJobBroker(resourceProfile);
         startupTrace.log(
-            `Host resource profile initialized: tier=${resourceProfile.tier}, `
-            + `mode=${resourceProfile.performanceMode}, logicalCpus=${resourceProfile.logicalCpus}, `
-            + `totalRamBytes=${resourceProfile.totalRamBytes}, safeMode=${String(resourceProfile.safeMode)}`,
+            `Host resource profile initialized: tier=${resourceProfile.tier}, ` +
+                `mode=${resourceProfile.performanceMode}, logicalCpus=${resourceProfile.logicalCpus}, ` +
+                `totalRamBytes=${resourceProfile.totalRamBytes}, safeMode=${String(resourceProfile.safeMode)}`,
         );
     },
     initializeUpdates: async (onStatus) => {
@@ -907,12 +808,12 @@ void runInitSequence({
     markWindowTabTransferReady,
     markWindowTabTransferWindowClosed,
     maybePromptForDefaultViewer,
-    registerIpcHandlers: options => {
+    registerIpcHandlers: (options) => {
         featureRegistrationRuntime = registerIpcHandlers({
             ...options,
             loadUpdatesModule,
             onSubsystemLoaded: markSubsystemLoaded,
-            isSubsystemLoaded: subsystem => loadedSubsystems.has(subsystem),
+            isSubsystemLoaded: (subsystem) => loadedSubsystems.has(subsystem),
             rawIpcRegistrationAudit,
             requestGracefulQuit: () => shutdownCoordinator.requestGracefulQuit(),
         });
@@ -958,10 +859,7 @@ void runInitSequence({
                     if (!settings.agentMcpEnabled || isShutdownActive()) {
                         return;
                     }
-                    const {
-                        shutdownLocalMcpServer,
-                        syncAgentMcpServerWithSettings,
-                    } = await loadAgentModule();
+                    const {shutdownLocalMcpServer, syncAgentMcpServerWithSettings} = await loadAgentModule();
                     if (isShutdownActive()) {
                         return;
                     }

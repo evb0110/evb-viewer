@@ -1,7 +1,8 @@
 export default {
     app: {
         title: 'EVB Viewer',
-        description: 'Ferramentas offline para limpar digitalizações brutas e ficheiros DjVu, fazer OCR, adicionar anotações e exportar PDFs no macOS, Windows e Linux. Gratuito e com licença MIT.',
+        description:
+            'Ferramentas offline para limpar digitalizações brutas e ficheiros DjVu, fazer OCR, adicionar anotações e exportar PDFs no macOS, Windows e Linux. Gratuito e com licença MIT.',
         seo: {titleTemplate: '{title} · EVB Viewer'},
     },
     header: {
@@ -30,7 +31,8 @@ export default {
         seo: {
             title: 'Aplicação web EVB Viewer e transferências desktop',
             ogTitle: 'EVB Viewer para trabalho com documentos na web e no desktop',
-            ogDescription: 'Converta digitalizações brutas e ficheiros DjVu em PDFs pesquisáveis e anotáveis com limpeza, OCR, anotações e exportação offline no macOS, Windows e Linux. Gratuito e com licença MIT.',
+            ogDescription:
+                'Converta digitalizações brutas e ficheiros DjVu em PDFs pesquisáveis e anotáveis com limpeza, OCR, anotações e exportação offline no macOS, Windows e Linux. Gratuito e com licença MIT.',
         },
         hero: {
             lede: 'O EVB Viewer limpa digitalizações brutas e ficheiros DjVu, reconhece o seu texto e guarda PDFs pesquisáveis e anotáveis. Funciona offline no macOS, Windows e Linux, é gratuito e tem licença MIT.',
@@ -40,7 +42,8 @@ export default {
             downloadInstaller: 'Transferir {installerLabel}',
             browseInstallers: 'Ver todos os instaladores',
             openInBrowser: 'Usar no navegador',
-            detectionUnavailable: 'A deteção automática do instalador não está disponível. Ainda pode abrir a aplicação web ou escolher uma build desktop abaixo.',
+            detectionUnavailable:
+                'A deteção automática do instalador não está disponível. Ainda pode abrir a aplicação web ou escolher uma build desktop abaixo.',
             suggestedDevice: 'Build desktop sugerida: {installerLabel}',
             published: 'Publicado em {date}',
         },
@@ -53,7 +56,8 @@ export default {
         },
         installers: {
             heading: 'Transferências desktop',
-            description: 'As builds desktop acrescentam limpeza de digitalizações, integração nativa com o sistema operativo e fluxos de trabalho mais pesados, como grandes junções. O instalador recomendado baseia-se no seu dispositivo atual, mas todas as builds continuam selecionáveis.',
+            description:
+                'As builds desktop acrescentam limpeza de digitalizações, integração nativa com o sistema operativo e fluxos de trabalho mais pesados, como grandes junções. O instalador recomendado baseia-se no seu dispositivo atual, mas todas as builds continuam selecionáveis.',
             loading: 'A carregar links da versão mais recente...',
             error: 'Não foi possível carregar os artefactos da versão neste momento.',
             retry: 'Tentar novamente',
@@ -175,10 +179,12 @@ export default {
         },
         entryPoints: {
             heading: 'Escolha o ponto de entrada certo',
-            description: 'Comece no navegador para trabalho rápido com PDF, DjVu e imagens locais, incluindo OCR em cerca de 30 idiomas, ou escolha a aplicação desktop para limpeza de digitalizações, integração nativa com o sistema operativo e junções maiores.',
+            description:
+                'Comece no navegador para trabalho rápido com PDF, DjVu e imagens locais, incluindo OCR em cerca de 30 idiomas, ou escolha a aplicação desktop para limpeza de digitalizações, integração nativa com o sistema operativo e junções maiores.',
             web: {
                 title: 'Aplicação web',
-                description: 'Ideal para abrir PDFs, ficheiros DjVu e imagens comuns imediatamente, depois rever, marcar e exportar sem instalar nada.',
+                description:
+                    'Ideal para abrir PDFs, ficheiros DjVu e imagens comuns imediatamente, depois rever, marcar e exportar sem instalar nada.',
                 point1: 'Fluxos de trabalho PDF, DjVu e imagem',
                 point2: 'Sem fricção de instalação ou atualizações',
                 point3: 'Ótima para revisão rápida, marcações, edições de páginas, OCR e exportação',
@@ -186,7 +192,8 @@ export default {
             },
             desktop: {
                 title: 'Aplicação desktop',
-                description: 'Ideal para limpeza de digitalizações, integração nativa com o sistema operativo, trabalhos maiores de junção e fluxos que precisam de mais do que os limites de memória do navegador.',
+                description:
+                    'Ideal para limpeza de digitalizações, integração nativa com o sistema operativo, trabalhos maiores de junção e fluxos que precisam de mais do que os limites de memória do navegador.',
                 point1: 'Limpeza de digitalizações antes do OCR',
                 point2: 'Trabalhos maiores de junção e exportação',
                 point3: 'Diálogos desktop nativos e integração com o sistema operativo',
@@ -195,7 +202,8 @@ export default {
         },
         explore: {
             heading: 'Explore o produto em contexto',
-            description: 'Use as páginas detalhadas para orientação sobre funcionalidades do navegador vs. desktop e um guia prático do utilizador.',
+            description:
+                'Use as páginas detalhadas para orientação sobre funcionalidades do navegador vs. desktop e um guia prático do utilizador.',
             featuresPage: 'Abrir página completa de funcionalidades',
             docsPage: 'Abrir documentação completa',
         },
@@ -204,25 +212,30 @@ export default {
         seo: {
             title: 'Funcionalidades do EVB Viewer para navegador e desktop',
             ogTitle: 'Visão geral das funcionalidades do EVB Viewer',
-            ogDescription: 'Veja o que o EVB Viewer cobre hoje no navegador e o que a aplicação desktop adiciona para limpeza de digitalizações, integração nativa com o sistema operativo e trabalhos maiores.',
+            ogDescription:
+                'Veja o que o EVB Viewer cobre hoje no navegador e o que a aplicação desktop adiciona para limpeza de digitalizações, integração nativa com o sistema operativo e trabalhos maiores.',
         },
         hero: {
             badge: 'Limpeza nativa de digitalizações e OCR',
             title: 'Limpe digitalizações brutas, depois pesquise e anote o PDF',
-            subtitle: 'O EVB Viewer funciona offline no macOS, Windows e Linux. O seu motor nativo em Rust endireita páginas, remove pequenas manchas, binariza, recorta e divide páginas duplas. O OCR do Tesseract com modelos tessdata-best suporta 30 idiomas. Destina-se a arquivistas, bibliotecários, historiadores, filólogos e pessoas que mantêm bibliotecas pessoais de digitalizações.',
+            subtitle:
+                'O EVB Viewer funciona offline no macOS, Windows e Linux. O seu motor nativo em Rust endireita páginas, remove pequenas manchas, binariza, recorta e divide páginas duplas. O OCR do Tesseract com modelos tessdata-best suporta 30 idiomas. Destina-se a arquivistas, bibliotecários, historiadores, filólogos e pessoas que mantêm bibliotecas pessoais de digitalizações.',
         },
         capabilities: {
             heading: 'Capacidades principais do espaço de trabalho',
-            description: 'Leia, reveja, anote, reorganize e exporte documentos num só espaço de trabalho, depois escolha o ambiente que se adequa à tarefa.',
+            description:
+                'Leia, reveja, anote, reorganize e exporte documentos num só espaço de trabalho, depois escolha o ambiente que se adequa à tarefa.',
         },
         cards: {
             pdfDjvu: {
                 title: 'PDF, imagens e DjVu onde fizer sentido',
-                description: 'Fluxos de trabalho no navegador abrem PDFs locais, ficheiros DjVu e imagens comuns. A aplicação desktop adiciona limpeza de digitalizações e evita limites de memória do navegador em trabalhos mais pesados.',
+                description:
+                    'Fluxos de trabalho no navegador abrem PDFs locais, ficheiros DjVu e imagens comuns. A aplicação desktop adiciona limpeza de digitalizações e evita limites de memória do navegador em trabalhos mais pesados.',
             },
             ocr: {
                 title: 'OCR com saída pesquisável',
-                description: 'O OCR é executado localmente no navegador e nas builds desktop e mantém o resultado pesquisável dentro do documento editado. Ambos leem os mesmos idiomas, cerca de 30.',
+                description:
+                    'O OCR é executado localmente no navegador e nas builds desktop e mantém o resultado pesquisável dentro do documento editado. Ambos leem os mesmos idiomas, cerca de 30.',
             },
             annotations: {
                 title: 'Ferramentas de anotação avançadas',
@@ -230,20 +243,24 @@ export default {
             },
             pages: {
                 title: 'Operações de página',
-                description: 'Elimine, extraia, reordene, rode, recorte e capture páginas. Junções no navegador têm limite de memória; desktop é melhor para lotes grandes.',
+                description:
+                    'Elimine, extraia, reordene, rode, recorte e capture páginas. Junções no navegador têm limite de memória; desktop é melhor para lotes grandes.',
             },
             workspace: {
                 title: 'Gestão do espaço de trabalho',
-                description: 'Use separadores, layouts divididos, marcadores, pesquisa e painéis laterais focados em vez de alternar entre ferramentas.',
+                description:
+                    'Use separadores, layouts divididos, marcadores, pesquisa e painéis laterais focados em vez de alternar entre ferramentas.',
             },
             exports: {
                 title: 'Múltiplos destinos de exportação',
-                description: 'Exporte para PDF, PNG, JPG, TIFF e DOCX a partir do mesmo espaço de trabalho que tratou da revisão e das edições.',
+                description:
+                    'Exporte para PDF, PNG, JPG, TIFF e DOCX a partir do mesmo espaço de trabalho que tratou da revisão e das edições.',
             },
         },
         workflow: {
             heading: 'Como o produto se encaixa no trabalho real',
-            description: 'Uma sessão típica do EVB Viewer começa com trabalho rápido no navegador e passa para desktop quando a limpeza de digitalizações ou a escala o exigem.',
+            description:
+                'Uma sessão típica do EVB Viewer começa com trabalho rápido no navegador e passa para desktop quando a limpeza de digitalizações ou a escala o exigem.',
             load: {
                 title: 'Comece no navegador',
                 body: 'Abra imediatamente um PDF local, ficheiro DjVu ou imagem quando uma instalação atrasaria a tarefa.',
@@ -285,11 +302,13 @@ export default {
         seo: {
             title: 'Documentação do EVB Viewer para fluxos no navegador e no desktop',
             ogTitle: 'Guia do utilizador do EVB Viewer',
-            ogDescription: 'Comece com a aplicação no navegador para ficheiros locais e OCR, depois instale a aplicação desktop quando precisar de limpeza de digitalizações, integração nativa com o sistema operativo ou trabalhos maiores de junção/exportação.',
+            ogDescription:
+                'Comece com a aplicação no navegador para ficheiros locais e OCR, depois instale a aplicação desktop quando precisar de limpeza de digitalizações, integração nativa com o sistema operativo ou trabalhos maiores de junção/exportação.',
         },
         hero: {
             title: 'Guias para a aplicação no navegador e a aplicação desktop',
-            subtitle: 'Comece com a aplicação web para trabalho rápido com PDF, DjVu e imagens locais, incluindo OCR, depois passe para a aplicação desktop para limpeza de digitalizações, integração nativa com o sistema operativo ou trabalhos maiores de junção/exportação.',
+            subtitle:
+                'Comece com a aplicação web para trabalho rápido com PDF, DjVu e imagens locais, incluindo OCR, depois passe para a aplicação desktop para limpeza de digitalizações, integração nativa com o sistema operativo ou trabalhos maiores de junção/exportação.',
         },
         guideCardAction: 'Ir para a secção',
         browserQuickstart: {
@@ -352,7 +371,8 @@ export default {
             li3: 'A nomenclatura do ficheiro gerado segue o primeiro ficheiro selecionado, por exemplo {example}.',
             li4: 'Se um documento já estiver aberto, a saída combinada abre num novo separador para que o trabalho atual permaneça intacto.',
             li5: '{openRecent} mantém histórico e inclui um comando para limpar ficheiros recentes.',
-            convertIntro: '{menuPath} tem dois comportamentos: no modo DjVu abre opções de conversão DjVu; caso contrário, abre a seleção de ficheiros e cria um PDF a partir das fontes selecionadas.',
+            convertIntro:
+                '{menuPath} tem dois comportamentos: no modo DjVu abre opções de conversão DjVu; caso contrário, abre a seleção de ficheiros e cria um PDF a partir das fontes selecionadas.',
         },
         tabsSplits: {
             heading: 'Separadores e editor dividido',
@@ -424,7 +444,8 @@ export default {
             actionCol: 'Ação',
             shortcutCol: 'Atalho',
             menuFile: 'Ficheiro',
-            menuFileActions: 'Abrir ficheiro, Abrir recente, Guardar, Guardar como, Exportar DOCX/Imagens/TIFF, Converter para PDF, Novo separador, Fechar separador',
+            menuFileActions:
+                'Abrir ficheiro, Abrir recente, Guardar, Guardar como, Exportar DOCX/Imagens/TIFF, Converter para PDF, Novo separador, Fechar separador',
             menuActions: 'Ações',
             menuActionsActions: 'Anular, Refazer, Copiar',
             menuPages: 'Páginas',
@@ -451,7 +472,8 @@ export default {
             shortcutSplitEditor: 'Dividir editor à direita',
             shortcutFind: 'Encontrar no documento',
             shortcutCycleTabs: 'Alternar separadores',
-            contextMenuNote: 'A maioria dos controlos de edição e layout está disponível tanto nos menus como nos menus de contexto de separador/página.',
+            contextMenuNote:
+                'A maioria dos controlos de edição e layout está disponível tanto nos menus como nos menus de contexto de separador/página.',
             repoNote: 'Para bugs e pedidos de funcionalidades, veja o repositório do projeto.',
         },
         license: {

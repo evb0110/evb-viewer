@@ -2,7 +2,7 @@
     <UModal
         v-model:open="open"
         :title="t('djvu.convertDialog.title')"
-        :ui="{ footer: 'justify-end gap-2' }"
+        :ui="{footer: 'justify-end gap-2'}"
     >
         <template #description>
             <span class="sr-only">
@@ -36,7 +36,7 @@
                         variant="card"
                         :ui="recommendedRadioGroupUi"
                     >
-                        <template #label="{ item }">
+                        <template #label="{item}">
                             <span class="convert-preset-label">
                                 {{ item.label }}
                                 <UBadge
@@ -50,7 +50,7 @@
                                 </UBadge>
                             </span>
                         </template>
-                        <template #description="{ item }">
+                        <template #description="{item}">
                             <span class="convert-preset-description">
                                 {{ item.description }}
                                 <span class="convert-preset-note">
@@ -66,7 +66,7 @@
                         class="convert-advanced flex flex-col"
                         @update:open="setAdvancedRasterOpen"
                     >
-                        <template #default="{ open: isAdvancedOpen }">
+                        <template #default="{open: isAdvancedOpen}">
                             <button
                                 type="button"
                                 class="convert-advanced-toggle"
@@ -93,7 +93,7 @@
                                     variant="card"
                                     :ui="advancedRadioGroupUi"
                                 >
-                                    <template #label="{ item }">
+                                    <template #label="{item}">
                                         <span class="convert-preset-label">
                                             {{ item.label }}
                                             <span
@@ -113,7 +113,7 @@
                                             </UBadge>
                                         </span>
                                     </template>
-                                    <template #description="{ item }">
+                                    <template #description="{item}">
                                         <span class="convert-preset-description">
                                             {{ item.description }}
                                             <span v-if="item.disabledReason">
@@ -145,7 +145,7 @@
             </div>
         </template>
 
-        <template #footer="{ close }">
+        <template #footer="{close}">
             <UButton
                 :label="t('common.cancel')"
                 color="neutral"
@@ -166,11 +166,8 @@
 <script setup lang="ts">
 import {formatBytes} from '@app/utils/formatters';
 
-import type { TDocumentRef } from '@contracts/documentRef';
-import type {
-    IDjvuPageSize,
-    IDjvuSizeEstimate,
-} from '@contracts/electronApiDjvu';
+import type {TDocumentRef} from '@contracts/documentRef';
+import type {IDjvuPageSize, IDjvuSizeEstimate} from '@contracts/electronApiDjvu';
 import {
     DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES,
     estimateDjvuPdfConversionSource,
@@ -187,20 +184,17 @@ import {
     type TDjvuConvertDialogPdfStrategy,
     type TDjvuConvertDialogPresetValue,
 } from '@app/modules/djvu-viewer/runtime/djvuConvertDialogPresets';
-import { BrowserLogger } from '@app/utils/browserLogger';
-import { getDocumentRefBaseName } from '@app/utils/documentRef';
-import { getDjvuCapability } from '@app/utils/getDjvuCapability';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {getDocumentRefBaseName} from '@app/utils/documentRef';
+import {getDjvuCapability} from '@app/utils/getDjvuCapability';
 
-const {
-    t,
-    locale,
-} = useTypedI18n();
+const {t, locale} = useTypedI18n();
 
-const { djvuPath } = defineProps<{djvuPath: TDocumentRef | null;}>();
+const {djvuPath} = defineProps<{djvuPath: TDocumentRef | null}>();
 
 const emit = defineEmits<IDjvuConvertDialogEmits>();
 
-const open = defineModel<boolean>('open', { required: true });
+const open = defineModel<boolean>('open', {required: true});
 
 interface IInfo {
     pageCount: number;
@@ -209,13 +203,11 @@ interface IInfo {
     pageSizes?: readonly IDjvuPageSize[] | null;
 }
 
-type TDjvuConvertDialogEmitArgs = [
-    subsample: number,
-    preserveBookmarks: boolean,
-    pdfStrategy: TDjvuConvertDialogPdfStrategy,
-];
+type TDjvuConvertDialogEmitArgs = [subsample: number, preserveBookmarks: boolean, pdfStrategy: TDjvuConvertDialogPdfStrategy];
 
-interface IDjvuConvertDialogEmits {convert: TDjvuConvertDialogEmitArgs;}
+interface IDjvuConvertDialogEmits {
+    convert: TDjvuConvertDialogEmitArgs;
+}
 
 interface IResolvedPreset {
     value: TDjvuConvertDialogPresetValue;
@@ -263,8 +255,7 @@ const selectedConversion = computed(() => resolveDjvuConvertDialogSelection(sele
 const presetSelection = computed({
     get: () => selectedPresetValue.value,
     set: (value: TDjvuConvertDialogPresetValue) => {
-        if (selectedConversion.value.pdfStrategy !== 'direct'
-            && resolveDjvuConvertDialogSelection(value).pdfStrategy === 'direct') {
+        if (selectedConversion.value.pdfStrategy !== 'direct' && resolveDjvuConvertDialogSelection(value).pdfStrategy === 'direct') {
             setAdvancedRasterOpen(true);
         }
         selectedPresetValue.value = value;
@@ -298,22 +289,19 @@ const recommendedPresets = computed<IResolvedPreset[]>(() => [
     },
 ]);
 // One source-pixel aggregate per info snapshot, shared by every policy decision.
-const conversionSource = computed(() => (info.value
-    ? estimateDjvuPdfConversionSource({
-        pageCount: info.value.pageCount,
-        sourceDpi: info.value.sourceDpi,
-        ...(info.value.pageSizes === undefined ? {} : { pageSizes: info.value.pageSizes }),
-    })
-    : null));
+const conversionSource = computed(() =>
+    info.value
+        ? estimateDjvuPdfConversionSource({
+              pageCount: info.value.pageCount,
+              sourceDpi: info.value.sourceDpi,
+              ...(info.value.pageSizes === undefined ? {} : {pageSizes: info.value.pageSizes}),
+          })
+        : null,
+);
 const advancedDirectPresets = computed<IResolvedPreset[]>(() => {
-    const estimateBySubsample = new Map(estimates.value.map(estimate => [
-        estimate.subsample,
-        estimate,
-    ] as const));
+    const estimateBySubsample = new Map(estimates.value.map((estimate) => [estimate.subsample, estimate] as const));
     const source = conversionSource.value;
-    const recommendedDirectValue = info.value && source
-        ? resolveRecommendedAdvancedDirectPresetValue(info.value.pageCount, source)
-        : null;
+    const recommendedDirectValue = info.value && source ? resolveRecommendedAdvancedDirectPresetValue(info.value.pageCount, source) : null;
 
     return DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES.map((subsample) => {
         const estimate = estimateBySubsample.get(subsample);
@@ -326,14 +314,13 @@ const advancedDirectPresets = computed<IResolvedPreset[]>(() => {
             subsample,
             pdfStrategy: 'direct' as const,
             label: estimate?.label ?? resolveEstimateLabel(subsample),
-            description:
-                estimate?.description ?? resolveEstimateDescription(subsample),
+            description: estimate?.description ?? resolveEstimateDescription(subsample),
             isEstimateLoading: estimatesLoading.value && !estimate,
             isRecommended: value === recommendedDirectValue,
-            ...(resultingDpi === undefined ? {} : { resultingDpi }),
-            ...(estimate?.estimatedBytes === undefined ? {} : { estimatedBytes: estimate.estimatedBytes }),
-            ...(isBlocked ? { disabledReason: t('djvu.convertDialog.directDisabledReason') } : {}),
-            ...((estimatesLoading.value || isBlocked) ? { disabled: true } : {}),
+            ...(resultingDpi === undefined ? {} : {resultingDpi}),
+            ...(estimate?.estimatedBytes === undefined ? {} : {estimatedBytes: estimate.estimatedBytes}),
+            ...(isBlocked ? {disabledReason: t('djvu.convertDialog.directDisabledReason')} : {}),
+            ...(estimatesLoading.value || isBlocked ? {disabled: true} : {}),
         };
     });
 });
@@ -344,11 +331,7 @@ const selectedConversionPolicy = computed(() => {
 
 const fileName = computed(() => getDocumentRefBaseName(djvuPath) ?? '');
 const pageCountLabel = computed(() => info.value?.pageCount.toLocaleString(locale.value) ?? t('common.loading'));
-const sourceResolutionLabel = computed(() => (
-    info.value
-        ? `${info.value.sourceDpi} ${t('common.unitDpi')}`
-        : t('common.loading')
-));
+const sourceResolutionLabel = computed(() => (info.value ? `${info.value.sourceDpi} ${t('common.unitDpi')}` : t('common.loading')));
 
 function resolveEstimateLabel(subsample: number) {
     switch (subsample) {
@@ -380,10 +363,7 @@ function resolveResultingDpi(subsample: number) {
     return Math.round(info.value.sourceDpi / subsample);
 }
 
-watch([
-    open,
-    () => djvuPath,
-], async ([isOpen]) => {
+watch([open, () => djvuPath], async ([isOpen]) => {
     dialogGeneration.value += 1;
     if (!isOpen || !djvuPath) {
         // A closed dialog or a missing source must not keep stale info and

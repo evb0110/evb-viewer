@@ -7,41 +7,25 @@ export function runDiagnosticCommand(
         allowFailure = false,
         cwd,
         env = process.env,
-        onFailure = ({
-            command: failedCommand,
-            args: failedArgs,
-            code,
-            stderr,
-            stdout,
-        }) => new Error([
-            `${failedCommand} ${failedArgs.join(' ')} exited with ${String(code)}`,
-            stderr.trim(),
-            stdout.trim(),
-        ].filter(Boolean).join('\n')),
+        onFailure = ({command: failedCommand, args: failedArgs, code, stderr, stdout}) =>
+            new Error(
+                [`${failedCommand} ${failedArgs.join(' ')} exited with ${String(code)}`, stderr.trim(), stdout.trim()]
+                    .filter(Boolean)
+                    .join('\n'),
+            ),
         completionEvent = 'close',
-        resolveCommand = value => value,
+        resolveCommand = (value) => value,
         stdioDrainTimeoutMs = 5_000,
     } = {},
 ) {
     return new Promise((resolveRun, rejectRun) => {
         const resolved = resolveCommand(command);
-        const spawnedCommand = typeof resolved === 'string'
-            ? resolved
-            : resolved.command;
-        const spawnedArgs = typeof resolved === 'string'
-            ? args
-            : [
-                ...resolved.args,
-                ...args,
-            ];
+        const spawnedCommand = typeof resolved === 'string' ? resolved : resolved.command;
+        const spawnedArgs = typeof resolved === 'string' ? args : [...resolved.args, ...args];
         const child = spawn(spawnedCommand, spawnedArgs, {
             cwd,
             env,
-            stdio: [
-                'ignore',
-                'pipe',
-                'pipe',
-            ],
+            stdio: ['ignore', 'pipe', 'pipe'],
         });
         let stdout = '';
         let stderr = '';
@@ -50,26 +34,28 @@ export function runDiagnosticCommand(
         let settled = false;
         child.stdout.setEncoding('utf8');
         child.stderr.setEncoding('utf8');
-        child.stdout.on('data', chunk => {
+        child.stdout.on('data', (chunk) => {
             stdout += chunk;
         });
-        child.stderr.on('data', chunk => {
+        child.stderr.on('data', (chunk) => {
             stderr += chunk;
         });
-        const settle = code => {
+        const settle = (code) => {
             if (settled) {
                 return;
             }
             settled = true;
             clearTimeout(drainTimeout);
             if (code !== 0 && !allowFailure) {
-                rejectRun(onFailure({
-                    args: spawnedArgs,
-                    code,
-                    command: spawnedCommand,
-                    stderr,
-                    stdout,
-                }));
+                rejectRun(
+                    onFailure({
+                        args: spawnedArgs,
+                        code,
+                        command: spawnedCommand,
+                        stderr,
+                        stdout,
+                    }),
+                );
                 return;
             }
             resolveRun({
@@ -78,7 +64,7 @@ export function runDiagnosticCommand(
                 stdout,
             });
         };
-        child.once('error', error => {
+        child.once('error', (error) => {
             if (settled) {
                 return;
             }
@@ -86,7 +72,7 @@ export function runDiagnosticCommand(
             clearTimeout(drainTimeout);
             rejectRun(error);
         });
-        child.once('exit', code => {
+        child.once('exit', (code) => {
             exitCode = code;
             if (completionEvent === 'exit') {
                 settle(code);
@@ -99,6 +85,6 @@ export function runDiagnosticCommand(
             }, stdioDrainTimeoutMs);
             drainTimeout.unref();
         });
-        child.once('close', code => settle(code ?? exitCode));
+        child.once('close', (code) => settle(code ?? exitCode));
     });
 }

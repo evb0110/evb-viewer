@@ -1,8 +1,4 @@
-import type {
-    AnnotationEntity,
-    AnnotationId,
-    ISavedSemanticEntry,
-} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {AnnotationEntity, AnnotationId, ISavedSemanticEntry} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {semanticEntityFingerprint} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 type TKind = AnnotationEntity['kind'];
@@ -12,7 +8,9 @@ const storedFingerprints = new WeakMap<AnnotationEntity, string | null>();
 
 // A frozen subtree was frozen here, whole, so the walk stops at it: storing an edit freezes only its new objects.
 function freezeTree(value: unknown) {
-    if (typeof value !== 'object' || value === null || ArrayBuffer.isView(value) || Object.isFrozen(value)) return;
+    if (typeof value !== 'object' || value === null || ArrayBuffer.isView(value) || Object.isFrozen(value)) {
+        return;
+    }
     Object.freeze(value);
     Object.values(value).forEach(freezeTree);
 }
@@ -37,9 +35,13 @@ export function isStoredEntity(entity: AnnotationEntity) {
 /** `semanticEntityFingerprint`, cached for stored entities. */
 export function fingerprintOf(entity: AnnotationEntity) {
     const cached = storedFingerprints.get(entity);
-    if (cached) return cached;
+    if (cached) {
+        return cached;
+    }
     const fingerprint = semanticEntityFingerprint(entity);
-    if (cached === null) storedFingerprints.set(entity, fingerprint);
+    if (cached === null) {
+        storedFingerprints.set(entity, fingerprint);
+    }
     return fingerprint;
 }
 
@@ -59,7 +61,9 @@ export function semanticEntryOf(entity: AnnotationEntity): ISavedSemanticEntry {
 function differingKinds(entity: AnnotationEntity | undefined, saved: ISavedSemanticEntry | undefined): readonly TKind[] {
     const current = entity && !entity.deleted ? entity.kind : null;
     const held = saved && !saved.deleted ? saved.kind : null;
-    if (current !== held) return [current, held].filter((kind): kind is TKind => kind !== null);
+    if (current !== held) {
+        return [current, held].filter((kind): kind is TKind => kind !== null);
+    }
     return current !== null && fingerprintOf(entity!) !== saved!.fingerprint ? [current] : [];
 }
 
@@ -84,33 +88,58 @@ export class AnnotationEntityTable {
     #snapshot: readonly AnnotationEntity[] | null = null;
     #liveSnapshot: readonly AnnotationEntity[] | null = null;
 
-    get size() { return this.#entities.size; }
-    get(id: AnnotationId) { return this.#entities.get(id); }
-    has(id: AnnotationId) { return this.#entities.has(id); }
-    keys() { return this.#entities.keys(); }
-    values() { return this.#entities.values(); }
-    forEach(callback: (entity: AnnotationEntity, id: AnnotationId) => void) { this.#entities.forEach(callback); }
+    get size() {
+        return this.#entities.size;
+    }
+    get(id: AnnotationId) {
+        return this.#entities.get(id);
+    }
+    has(id: AnnotationId) {
+        return this.#entities.has(id);
+    }
+    keys() {
+        return this.#entities.keys();
+    }
+    values() {
+        return this.#entities.values();
+    }
+    forEach(callback: (entity: AnnotationEntity, id: AnnotationId) => void) {
+        this.#entities.forEach(callback);
+    }
 
     /** Stores `entity`, frozen, under `id`. */
     set(id: AnnotationId, entity: AnnotationEntity) {
         const stored = freezeStoredEntity(entity);
         const previous = this.#entities.get(id);
-        if (previous === stored) return;
-        if (!previous) this.#insertion.set(id, this.#nextInsertion++);
-        else if (previous.pageIndex !== stored.pageIndex) this.#leavePage(id, previous.pageIndex);
+        if (previous === stored) {
+            return;
+        }
+        if (!previous) {
+            this.#insertion.set(id, this.#nextInsertion++);
+        } else if (previous.pageIndex !== stored.pageIndex) {
+            this.#leavePage(id, previous.pageIndex);
+        }
         this.#entities.set(id, stored);
         const page = this.#pages.get(stored.pageIndex);
-        if (page) page.add(id);
-        else this.#pages.set(stored.pageIndex, new Set([id]));
-        if (stored.deleted) this.#tombstones.add(id);
-        else this.#tombstones.delete(id);
+        if (page) {
+            page.add(id);
+        } else {
+            this.#pages.set(stored.pageIndex, new Set([id]));
+        }
+        if (stored.deleted) {
+            this.#tombstones.add(id);
+        } else {
+            this.#tombstones.delete(id);
+        }
         this.#entitiesChanged();
         this.#compare(id);
     }
 
     delete(id: AnnotationId) {
         const previous = this.#entities.get(id);
-        if (!previous) return false;
+        if (!previous) {
+            return false;
+        }
         this.#entities.delete(id);
         this.#insertion.delete(id);
         this.#leavePage(id, previous.pageIndex);
@@ -123,8 +152,10 @@ export class AnnotationEntityTable {
     /** Every entity, tombstones included or not; one frozen array until the entities change. */
     snapshot(includeDeleted: boolean) {
         this.#snapshot ??= Object.freeze(Array.from(this.#entities.values()));
-        if (includeDeleted) return this.#snapshot;
-        this.#liveSnapshot ??= Object.freeze(this.#snapshot.filter(entity => !entity.deleted));
+        if (includeDeleted) {
+            return this.#snapshot;
+        }
+        this.#liveSnapshot ??= Object.freeze(this.#snapshot.filter((entity) => !entity.deleted));
         return this.#liveSnapshot;
     }
 
@@ -139,14 +170,13 @@ export class AnnotationEntityTable {
 
     /** The entities on one page, tombstones included, in store order. */
     onPage(pageIndex: number): AnnotationEntity[] {
-        return this.#inOrder(this.#pages.get(pageIndex) ?? [])
-            .map(id => this.#entities.get(id)!);
+        return this.#inOrder(this.#pages.get(pageIndex) ?? []).map((id) => this.#entities.get(id)!);
     }
 
     /** The ids on these pages, tombstones included, in store order; with `andTombstones`, every tombstone as well. */
     idsOnPages(pageIndices: Iterable<number>, andTombstones = false): AnnotationId[] {
         const ids = new Set<AnnotationId>(andTombstones ? this.#tombstones : []);
-        new Set(pageIndices).forEach(pageIndex => this.#pages.get(pageIndex)?.forEach(id => ids.add(id)));
+        new Set(pageIndices).forEach((pageIndex) => this.#pages.get(pageIndex)?.forEach((id) => ids.add(id)));
         return this.#inOrder(ids);
     }
 
@@ -162,11 +192,15 @@ export class AnnotationEntityTable {
 
     setSaved(id: AnnotationId, entry: ISavedSemanticEntry | undefined) {
         if (entry === undefined) {
-            if (!this.#saved.has(id)) return;
+            if (!this.#saved.has(id)) {
+                return;
+            }
             this.#saved.delete(id);
         } else {
             const stored = Object.isFrozen(entry) ? entry : Object.freeze({...entry});
-            if (this.#saved.get(id) === stored) return;
+            if (this.#saved.get(id) === stored) {
+                return;
+            }
             this.#saved.set(id, stored);
         }
         this.#compare(id);
@@ -183,9 +217,11 @@ export class AnnotationEntityTable {
      * tombstone's, and those of annotations the store no longer holds.
      */
     adoptCurrentAsSaved() {
-        if (this.differsFromSaved()) throw new Error('Only a store that matches its saved file can adopt its annotations as saved');
-        this.tombstoneIds().forEach(id => this.setSaved(id, semanticEntryOf(this.#entities.get(id)!)));
-        this.orphanedSavedIds().forEach(id => this.setSaved(id, undefined));
+        if (this.differsFromSaved()) {
+            throw new Error('Only a store that matches its saved file can adopt its annotations as saved');
+        }
+        this.tombstoneIds().forEach((id) => this.setSaved(id, semanticEntryOf(this.#entities.get(id)!)));
+        this.orphanedSavedIds().forEach((id) => this.setSaved(id, undefined));
     }
 
     /** Replaces every entity, in the order given, and the saved file at once, as a page operation's Undo does. */
@@ -211,7 +247,9 @@ export class AnnotationEntityTable {
     #leavePage(id: AnnotationId, pageIndex: number) {
         const page = this.#pages.get(pageIndex);
         page?.delete(id);
-        if (page?.size === 0) this.#pages.delete(pageIndex);
+        if (page?.size === 0) {
+            this.#pages.delete(pageIndex);
+        }
     }
 
     #inOrder(ids: Iterable<AnnotationId>) {
@@ -226,12 +264,18 @@ export class AnnotationEntityTable {
     #compare(id: AnnotationId) {
         const entity = this.#entities.get(id);
         const saved = this.#saved.get(id);
-        if (saved !== undefined && entity === undefined) this.#orphanedSaved.add(id);
-        else this.#orphanedSaved.delete(id);
-        this.#differing.get(id)?.forEach(kind => this.#differingByKind.set(kind, this.#differingByKind.get(kind)! - 1));
+        if (saved !== undefined && entity === undefined) {
+            this.#orphanedSaved.add(id);
+        } else {
+            this.#orphanedSaved.delete(id);
+        }
+        this.#differing.get(id)?.forEach((kind) => this.#differingByKind.set(kind, this.#differingByKind.get(kind)! - 1));
         const kinds = differingKinds(entity, saved);
-        kinds.forEach(kind => this.#differingByKind.set(kind, (this.#differingByKind.get(kind) ?? 0) + 1));
-        if (kinds.length > 0) this.#differing.set(id, kinds);
-        else this.#differing.delete(id);
+        kinds.forEach((kind) => this.#differingByKind.set(kind, (this.#differingByKind.get(kind) ?? 0) + 1));
+        if (kinds.length > 0) {
+            this.#differing.set(id, kinds);
+        } else {
+            this.#differing.delete(id);
+        }
     }
 }

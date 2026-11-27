@@ -1,12 +1,7 @@
-import {
-    isRecord,
-    isSuppressedErrorLike,
-} from '@contracts/runtimeGuards';
+import {isRecord, isSuppressedErrorLike} from '@contracts/runtimeGuards';
 
 const DEFAULT_ABORT_MESSAGE = 'The operation was aborted';
-const DOM_ABORT_ERR_CODE = typeof DOMException === 'function' && typeof DOMException.ABORT_ERR === 'number'
-    ? DOMException.ABORT_ERR
-    : 20;
+const DOM_ABORT_ERR_CODE = typeof DOMException === 'function' && typeof DOMException.ABORT_ERR === 'number' ? DOMException.ABORT_ERR : 20;
 
 export function createAbortError(message = DEFAULT_ABORT_MESSAGE) {
     const error = new Error(message);
@@ -26,10 +21,10 @@ export function isAbortError(error: unknown): boolean {
         seen.add(candidate);
 
         if (
-            candidate.name === 'AbortError'
-            || candidate.name === 'MainOperationUserCanceledError'
-            || candidate.code === 'ABORT_ERR'
-            || candidate.code === DOM_ABORT_ERR_CODE
+            candidate.name === 'AbortError' ||
+            candidate.name === 'MainOperationUserCanceledError' ||
+            candidate.code === 'ABORT_ERR' ||
+            candidate.code === DOM_ABORT_ERR_CODE
         ) {
             return true;
         }

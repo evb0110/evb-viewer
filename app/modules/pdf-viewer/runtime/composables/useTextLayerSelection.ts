@@ -1,5 +1,5 @@
-import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
-import { useEventListener } from '@vueuse/core';
+import {clearPdfSelectionForLayerTeardown} from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
+import {useEventListener} from '@vueuse/core';
 
 interface ITextLayerEntry {
     textLayer: HTMLElement;
@@ -15,10 +15,7 @@ let activeSelectionLayer: HTMLElement | null = null;
 let previousSelectionLayer: HTMLElement | null = null;
 
 function reset(entry: ITextLayerEntry) {
-    const {
-        textLayer,
-        endOfContent,
-    } = entry;
+    const {textLayer, endOfContent} = entry;
     textLayer.appendChild(endOfContent);
     endOfContent.style.width = '';
     endOfContent.style.height = '';
@@ -30,9 +27,7 @@ function resolveTextLayerFromNode(node: Node | null) {
         return null;
     }
 
-    const element = node.nodeType === Node.ELEMENT_NODE
-        ? node as Element
-        : node.parentElement;
+    const element = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
     return element?.closest('.text-layer') as HTMLElement | null;
 }
 
@@ -57,16 +52,15 @@ function clearTrackedSelectionLayers() {
 }
 
 function isSelectionStartBeingModified(range: Range) {
-    return Boolean(prevRange && (
-        range.compareBoundaryPoints(Range.END_TO_END, prevRange) === 0 ||
-        range.compareBoundaryPoints(Range.START_TO_END, prevRange) === 0
-    ));
+    return Boolean(
+        prevRange &&
+        (range.compareBoundaryPoints(Range.END_TO_END, prevRange) === 0 ||
+            range.compareBoundaryPoints(Range.START_TO_END, prevRange) === 0),
+    );
 }
 
 function normalizeSelectionAnchorNode(anchor: Node | null) {
-    return anchor?.nodeType === Node.TEXT_NODE
-        ? anchor.parentNode
-        : anchor;
+    return anchor?.nodeType === Node.TEXT_NODE ? anchor.parentNode : anchor;
 }
 
 function resolvePreviousSelectableAnchor(anchor: Node | null) {
@@ -88,16 +82,10 @@ function resolvePreviousSelectableAnchor(anchor: Node | null) {
 function resolveSelectionSentinelAnchor(range: Range, modifyStart: boolean) {
     const initialAnchor = modifyStart ? range.startContainer : range.endContainer;
     const anchor = normalizeSelectionAnchorNode(initialAnchor);
-    return !modifyStart && range.endOffset === 0
-        ? resolvePreviousSelectableAnchor(anchor)
-        : anchor;
+    return !modifyStart && range.endOffset === 0 ? resolvePreviousSelectableAnchor(anchor) : anchor;
 }
 
-function insertSelectionSentinel(
-    endOfContent: HTMLElement,
-    anchor: Node,
-    insertBeforeAnchor: boolean,
-) {
+function insertSelectionSentinel(endOfContent: HTMLElement, anchor: Node, insertBeforeAnchor: boolean) {
     const anchorElement = anchor as Element;
     const anchorTextLayer = resolveTextLayerFromNode(anchorElement);
     const anchorParent = anchorElement.parentElement;
@@ -105,18 +93,11 @@ function insertSelectionSentinel(
         return;
     }
 
-    anchorParent.insertBefore(
-        endOfContent,
-        insertBeforeAnchor ? anchor : anchorElement.nextSibling,
-    );
+    anchorParent.insertBefore(endOfContent, insertBeforeAnchor ? anchor : anchorElement.nextSibling);
 }
 
-function updateSelectionSentinel(
-    textLayerDiv: HTMLElement,
-    entry: ITextLayerEntry,
-    range: Range,
-) {
-    const { endOfContent } = entry;
+function updateSelectionSentinel(textLayerDiv: HTMLElement, entry: ITextLayerEntry, range: Range) {
+    const {endOfContent} = entry;
     endOfContent.style.width = textLayerDiv.style.width || '100%';
     endOfContent.style.height = textLayerDiv.style.height || '100%';
     // A collapsed caret must not land on the page-sized sentinel: a drag
@@ -138,104 +119,77 @@ function enableGlobalSelectionListener() {
         return;
     }
 
-    const stopPointerDown = useEventListener(
-        document,
-        'pointerdown',
-        () => {
-            isPointerDown = true;
-        },
-    );
+    const stopPointerDown = useEventListener(document, 'pointerdown', () => {
+        isPointerDown = true;
+    });
 
     // A cancelled gesture ends the press as a release does.
-    const stopPointerUp = useEventListener(
-        document,
-        [
-            'pointerup',
-            'pointercancel',
-        ],
-        () => {
-            isPointerDown = false;
+    const stopPointerUp = useEventListener(document, ['pointerup', 'pointercancel'], () => {
+        isPointerDown = false;
+        clearTrackedSelectionLayers();
+    });
+
+    const stopWindowBlur = useEventListener(window, 'blur', () => {
+        isPointerDown = false;
+        clearTrackedSelectionLayers();
+    });
+
+    const stopKeyup = useEventListener(document, 'keyup', () => {
+        if (!isPointerDown) {
             clearTrackedSelectionLayers();
-        },
-    );
+        }
+    });
 
-    const stopWindowBlur = useEventListener(
-        window,
-        'blur',
-        () => {
-            isPointerDown = false;
+    const stopSelectionChange = useEventListener(document, 'selectionchange', () => {
+        const selection = document.getSelection();
+        if (!selection || selection.rangeCount === 0) {
             clearTrackedSelectionLayers();
-        },
-    );
+            prevRange = null;
+            return;
+        }
 
-    const stopKeyup = useEventListener(
-        document,
-        'keyup',
-        () => {
-            if (!isPointerDown) {
-                clearTrackedSelectionLayers();
+        const range = selection.getRangeAt(0);
+        const nextActiveLayer =
+            resolveTextLayerFromNode(range.commonAncestorContainer) ??
+            resolveTextLayerFromNode(selection.anchorNode) ??
+            resolveTextLayerFromNode(selection.focusNode) ??
+            activeSelectionLayer ??
+            previousSelectionLayer;
+
+        const layersToReset = new Set<HTMLElement>();
+        if (activeSelectionLayer && activeSelectionLayer !== nextActiveLayer) {
+            layersToReset.add(activeSelectionLayer);
+        }
+        if (previousSelectionLayer && previousSelectionLayer !== nextActiveLayer && previousSelectionLayer !== activeSelectionLayer) {
+            layersToReset.add(previousSelectionLayer);
+        }
+
+        layersToReset.forEach((layer) => {
+            const entry = textLayers.get(layer);
+            if (entry) {
+                reset(entry);
             }
-        },
-    );
+        });
 
-    const stopSelectionChange = useEventListener(
-        document,
-        'selectionchange',
-        () => {
-            const selection = document.getSelection();
-            if (!selection || selection.rangeCount === 0) {
-                clearTrackedSelectionLayers();
-                prevRange = null;
-                return;
-            }
+        previousSelectionLayer = activeSelectionLayer;
+        activeSelectionLayer = nextActiveLayer;
 
-            const range = selection.getRangeAt(0);
-            const nextActiveLayer =
-                resolveTextLayerFromNode(range.commonAncestorContainer) ??
-                resolveTextLayerFromNode(selection.anchorNode) ??
-                resolveTextLayerFromNode(selection.focusNode) ??
-                activeSelectionLayer ??
-                previousSelectionLayer;
-
-            const layersToReset = new Set<HTMLElement>();
-            if (activeSelectionLayer && activeSelectionLayer !== nextActiveLayer) {
-                layersToReset.add(activeSelectionLayer);
-            }
-            if (
-                previousSelectionLayer &&
-                previousSelectionLayer !== nextActiveLayer &&
-                previousSelectionLayer !== activeSelectionLayer
-            ) {
-                layersToReset.add(previousSelectionLayer);
-            }
-
-            layersToReset.forEach((layer) => {
-                const entry = textLayers.get(layer);
-                if (entry) {
-                    reset(entry);
-                }
-            });
-
-            previousSelectionLayer = activeSelectionLayer;
-            activeSelectionLayer = nextActiveLayer;
-
-            if (!nextActiveLayer) {
-                prevRange = range.cloneRange();
-                return;
-            }
-
-            // Only a drag in progress needs the page-sized sentinel. A change
-            // that arrives after pointerup would cover the page again and
-            // swallow the next press.
-            const entry = textLayers.get(nextActiveLayer);
-            if (entry && isPointerDown) {
-                nextActiveLayer.classList.add('selecting');
-                updateSelectionSentinel(nextActiveLayer, entry, range);
-            }
-
+        if (!nextActiveLayer) {
             prevRange = range.cloneRange();
-        },
-    );
+            return;
+        }
+
+        // Only a drag in progress needs the page-sized sentinel. A change
+        // that arrives after pointerup would cover the page again and
+        // swallow the next press.
+        const entry = textLayers.get(nextActiveLayer);
+        if (entry && isPointerDown) {
+            nextActiveLayer.classList.add('selecting');
+            updateSelectionSentinel(nextActiveLayer, entry, range);
+        }
+
+        prevRange = range.cloneRange();
+    });
 
     stopGlobalSelectionListeners = () => {
         stopPointerDown();
@@ -247,7 +201,7 @@ function enableGlobalSelectionListener() {
 }
 
 export function teardownTextLayer(textLayerDiv: HTMLElement) {
-    clearPdfSelectionForLayerTeardown({ target: textLayerDiv });
+    clearPdfSelectionForLayerTeardown({target: textLayerDiv});
 
     const entry = textLayers.get(textLayerDiv);
     if (entry) {
@@ -277,16 +231,12 @@ export function setupTextLayer(textLayerDiv: HTMLElement) {
     const endOfContent = document.createElement('div');
     endOfContent.className = 'end-of-content';
     textLayerDiv.appendChild(endOfContent);
-    const stopMouseDown = useEventListener(
-        textLayerDiv,
-        'mousedown',
-        () => {
-            // The last drag left the sentinel selectable; clear that
-            // before this press places its caret over the whole page.
-            endOfContent.style.userSelect = 'none';
-            textLayerDiv.classList.add('selecting');
-        },
-    );
+    const stopMouseDown = useEventListener(textLayerDiv, 'mousedown', () => {
+        // The last drag left the sentinel selectable; clear that
+        // before this press places its caret over the whole page.
+        endOfContent.style.userSelect = 'none';
+        textLayerDiv.classList.add('selecting');
+    });
     textLayers.set(textLayerDiv, {
         textLayer: textLayerDiv,
         endOfContent,

@@ -1,12 +1,5 @@
-import {
-    isRecord,
-    isSafeWorkerRequestId,
-} from '@contracts/runtimeGuards';
-import {
-    SEARCH_EXCERPT_CONTEXT_CHARS,
-    SEARCH_RESULT_LIMIT,
-    searchResultOffsetSchema,
-} from '@contracts/search';
+import {isRecord, isSafeWorkerRequestId} from '@contracts/runtimeGuards';
+import {SEARCH_EXCERPT_CONTEXT_CHARS, SEARCH_RESULT_LIMIT, searchResultOffsetSchema} from '@contracts/search';
 import {
     PDF_SEARCH_MATCH_PAGE_RESPONSE_SCHEMA,
     SEARCH_INDEX_COVERAGE_SCHEMA,
@@ -19,7 +12,7 @@ export const BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST = SEARCH_RESULT_LIMIT + 1;
 const requestIdSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 const durationMsSchema = v.pipe(v.number(), v.finite(), v.minValue(0));
 const positiveSafeInt = v.pipe(v.number(), v.safeInteger(), v.minValue(1));
-const uint8ArraySchema = v.custom<Uint8Array>(value => value instanceof Uint8Array, 'Expected Uint8Array');
+const uint8ArraySchema = v.custom<Uint8Array>((value) => value instanceof Uint8Array, 'Expected Uint8Array');
 
 const matchOptionsSchema = v.object({
     matchCase: v.boolean(),
@@ -34,15 +27,9 @@ const resultSchemas = {
         coverage: SEARCH_INDEX_COVERAGE_SCHEMA,
         indexBytes: uint8ArraySchema,
     }),
-    search: v.union([
-        staleResponseSchema,
-        SEARCH_INDEX_RESPONSE_SCHEMA,
-    ]),
+    search: v.union([staleResponseSchema, SEARCH_INDEX_RESPONSE_SCHEMA]),
     matchPageText: v.object({
-        matches: v.pipe(
-            PDF_SEARCH_MATCH_PAGE_RESPONSE_SCHEMA.entries.matches,
-            v.maxLength(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST),
-        ),
+        matches: v.pipe(PDF_SEARCH_MATCH_PAGE_RESPONSE_SCHEMA.entries.matches, v.maxLength(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST)),
         truncated: v.boolean(),
         matchingMs: durationMsSchema,
         matchCount: v.pipe(v.number(), v.safeInteger(), v.minValue(0)),
@@ -71,12 +58,7 @@ const requestPayloadSchemas = {
         resultOffset: v.optional(searchResultOffsetSchema),
         query: v.string(),
         options: matchOptionsSchema,
-        maxMatches: v.pipe(
-            v.number(),
-            v.safeInteger(),
-            v.minValue(1),
-            v.maxValue(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST),
-        ),
+        maxMatches: v.pipe(v.number(), v.safeInteger(), v.minValue(1), v.maxValue(BROWSER_SEARCH_MAX_MATCHES_PER_REQUEST)),
         budgetMs: v.optional(durationMsSchema),
     }),
 };
@@ -139,28 +121,26 @@ type IBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestType = TBr
 /** What the worker posts back for one request: optional `started`, then the outcome. */
 type TBrowserSearchWorkerResponse =
     | {
-        id: number;
-        started: true;
-    }
+          id: number;
+          started: true;
+      }
     | {
-        [K in TBrowserSearchWorkerRequestType]: {
-            id: number;
-            type: K;
-            ok: true;
-            data: IBrowserSearchWorkerResultMap[K];
-        };
-    }[TBrowserSearchWorkerRequestType]
+          [K in TBrowserSearchWorkerRequestType]: {
+              id: number;
+              type: K;
+              ok: true;
+              data: IBrowserSearchWorkerResultMap[K];
+          };
+      }[TBrowserSearchWorkerRequestType]
     | {
-        id: number;
-        ok: false;
-        error: string;
-        errorCode?: 'SEARCH_REGEX_LIMIT';
-    };
+          id: number;
+          ok: false;
+          error: string;
+          errorCode?: 'SEARCH_REGEX_LIMIT';
+      };
 
 export function getBrowserSearchWorkerRequestId(value: unknown) {
-    return isRecord(value) && isSafeWorkerRequestId(value.id)
-        ? value.id
-        : null;
+    return isRecord(value) && isSafeWorkerRequestId(value.id) ? value.id : null;
 }
 
 export function parseBrowserSearchWorkerRequest(value: unknown): TBrowserSearchWorkerRequest | null {

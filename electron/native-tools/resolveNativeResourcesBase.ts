@@ -1,13 +1,7 @@
-import { existsSync } from 'fs';
-import { join } from 'path';
+import {existsSync} from 'fs';
+import {join} from 'path';
 
-const DEFAULT_NATIVE_RESOURCE_ROOTS = [
-    'tesseract',
-    'poppler',
-    'pdf-image-combine',
-    'pdf-page-ops',
-    'scan-cleanup',
-] as const;
+const DEFAULT_NATIVE_RESOURCE_ROOTS = ['tesseract', 'poppler', 'pdf-image-combine', 'pdf-page-ops', 'scan-cleanup'] as const;
 
 interface IResolveNativeResourcesBaseOptions {
     cwd?: string;
@@ -21,7 +15,7 @@ function hasExpectedNativeResources(
     expectedResourceNames: readonly string[],
     pathExists: (path: string) => boolean,
 ) {
-    return expectedResourceNames.some(resourceName => pathExists(join(resourcesBase, resourceName)));
+    return expectedResourceNames.some((resourceName) => pathExists(join(resourcesBase, resourceName)));
 }
 
 export function getNativeResourcesBaseCandidates(moduleDir: string, cwd = process.cwd()) {
@@ -33,11 +27,7 @@ export function getNativeResourcesBaseCandidates(moduleDir: string, cwd = proces
     ];
 }
 
-export function resolveNativeResourcesBase(
-    moduleDir: string,
-    isPackaged: boolean,
-    options: IResolveNativeResourcesBaseOptions = {},
-) {
+export function resolveNativeResourcesBase(moduleDir: string, isPackaged: boolean, options: IResolveNativeResourcesBaseOptions = {}) {
     if (isPackaged) {
         return options.resourcesPath ?? process.resourcesPath;
     }
@@ -45,10 +35,6 @@ export function resolveNativeResourcesBase(
     const pathExists = options.exists ?? existsSync;
     const expectedResourceNames = options.expectedResourceNames ?? DEFAULT_NATIVE_RESOURCE_ROOTS;
     const candidates = getNativeResourcesBaseCandidates(moduleDir, options.cwd);
-    const resolved = candidates.find(candidate => hasExpectedNativeResources(
-        candidate,
-        expectedResourceNames,
-        pathExists,
-    ));
+    const resolved = candidates.find((candidate) => hasExpectedNativeResources(candidate, expectedResourceNames, pathExists));
     return resolved ?? candidates[0]!;
 }

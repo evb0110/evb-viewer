@@ -2,7 +2,7 @@
     <UModal
         :open="open"
         :title="title"
-        :ui="{ footer: 'justify-end gap-2' }"
+        :ui="{footer: 'justify-end gap-2'}"
         @update:open="handleOpenUpdate"
     >
         <template #description>
@@ -16,11 +16,14 @@
                 <p class="text-sm text-muted">
                     {{ description }}
                 </p>
-                <AppProgressBar v-if="(phase === 'checking' || phase === 'downloading') && !ready" :value="progressPercent ?? null" />
+                <AppProgressBar
+                    v-if="(phase === 'checking' || phase === 'downloading') && !ready"
+                    :value="progressPercent ?? null"
+                />
             </div>
         </template>
 
-        <template #footer="{ close }">
+        <template #footer="{close}">
             <template v-if="available || ready">
                 <UButton
                     :label="t('updates.deferAction')"
@@ -53,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import type { TAppUpdatePhase } from '@contracts/updatesPlatformFeature';
+import type {TAppUpdatePhase} from '@contracts/updatesPlatformFeature';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 
 defineProps<{
@@ -74,7 +77,7 @@ const emit = defineEmits<{
     install: [];
 }>();
 
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 function handleOpenUpdate(open: boolean) {
     emit('update:open', open);

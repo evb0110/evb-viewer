@@ -1,4 +1,4 @@
-import type { IDocumentOutlineItem } from '@app/modules/document-viewer/source/documentPageSource';
+import type {IDocumentOutlineItem} from '@app/modules/document-viewer/source/documentPageSource';
 
 export type TDocumentBookmarkDisplayMode = 'top-level' | 'all-expanded' | 'current-expanded';
 export type TDocumentBookmarkPersistenceRefusal = 'depth';
@@ -35,10 +35,7 @@ export function createDocumentBookmarkTree(
     const result: IDocumentBookmarkTreeItem[] = [];
     const stack = items.toReversed().map((item, reverseIndex) => ({
         item,
-        itemPath: [
-            ...path,
-            items.length - reverseIndex - 1,
-        ],
+        itemPath: [...path, items.length - reverseIndex - 1],
         target: result,
     }));
     while (stack.length > 0) {
@@ -60,10 +57,7 @@ export function createDocumentBookmarkTree(
             }
             stack.push({
                 item: child,
-                itemPath: [
-                    ...entry.itemPath,
-                    index,
-                ],
+                itemPath: [...entry.itemPath, index],
                 target: mapped.children,
             });
         }
@@ -71,22 +65,16 @@ export function createDocumentBookmarkTree(
     return result;
 }
 
-export function getDocumentBookmarkActivePath(
-    items: readonly IDocumentBookmarkTreeItem[],
-    currentPage: number,
-) {
+export function getDocumentBookmarkActivePath(items: readonly IDocumentBookmarkTreeItem[], currentPage: number) {
     let bestPath: string[] = [];
     let bestPage = Number.NEGATIVE_INFINITY;
 
-    const stack = items.toReversed().map(item => ({
+    const stack = items.toReversed().map((item) => ({
         item,
         path: [item.id],
     }));
     while (stack.length > 0) {
-        const {
-            item,
-            path,
-        } = stack.pop() ?? {
+        const {item, path} = stack.pop() ?? {
             item: null,
             path: [],
         };
@@ -104,10 +92,7 @@ export function getDocumentBookmarkActivePath(
             }
             stack.push({
                 item: child,
-                path: [
-                    ...path,
-                    child.id,
-                ],
+                path: [...path, child.id],
             });
         }
     }
@@ -126,10 +111,7 @@ export interface IDocumentBookmarkDisplayState {
     activePathIds: ReadonlySet<string>;
 }
 
-export function isDocumentBookmarkExpanded(
-    id: string,
-    display: IDocumentBookmarkDisplayState,
-) {
+export function isDocumentBookmarkExpanded(id: string, display: IDocumentBookmarkDisplayState) {
     if (display.displayMode === 'all-expanded') {
         return true;
     }
@@ -147,15 +129,12 @@ export function getDocumentBookmarkVisibleRows(
     display: IDocumentBookmarkDisplayState,
 ): IDocumentBookmarkVisibleRow[] {
     const rows: IDocumentBookmarkVisibleRow[] = [];
-    const stack = items.toReversed().map(item => ({
+    const stack = items.toReversed().map((item) => ({
         item,
         depth: 0,
     }));
     while (stack.length > 0) {
-        const {
-            item,
-            depth,
-        } = stack.pop() ?? {
+        const {item, depth} = stack.pop() ?? {
             item: null,
             depth: 0,
         };
@@ -200,10 +179,7 @@ export function resolveDocumentBookmarkRevealRowIndex(
     }
 
     let ancestorIndex = -1;
-    for (const [
-        index,
-        row,
-    ] of rows.entries()) {
+    for (const [index, row] of rows.entries()) {
         if (row.item.id === activeId) {
             return index;
         }
@@ -215,10 +191,7 @@ export function resolveDocumentBookmarkRevealRowIndex(
     return ancestorIndex;
 }
 
-export function findDocumentBookmark(
-    items: readonly IDocumentBookmarkTreeItem[],
-    id: string,
-): IDocumentBookmarkTreeItem | null {
+export function findDocumentBookmark(items: readonly IDocumentBookmarkTreeItem[], id: string): IDocumentBookmarkTreeItem | null {
     const stack = items.toReversed();
     while (stack.length > 0) {
         const item = stack.pop();

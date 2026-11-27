@@ -1,18 +1,7 @@
-import {
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    DEFAULT_SETTINGS,
-    type TSettingsSavePatch,
-} from '@contracts/settings';
-import type { ISettingsData } from '@contracts/shared';
-import {
-    buildSettingsPatch,
-    createSettingsPersistenceQueue,
-} from '@app/modules/settings/settingsPersistenceQueue';
+import {describe, expect, it, vi} from 'vitest';
+import {DEFAULT_SETTINGS, type TSettingsSavePatch} from '@contracts/settings';
+import type {ISettingsData} from '@contracts/shared';
+import {buildSettingsPatch, createSettingsPersistenceQueue} from '@app/modules/settings/settingsPersistenceQueue';
 
 function createSettings(overrides: Partial<ISettingsData> = {}) {
     return {
@@ -46,7 +35,7 @@ describe('settingsPersistenceQueue', () => {
             theme: 'light',
         });
 
-        expect(buildSettingsPatch(previousSettings, nextSettings)).toEqual({ locale: 'fr' });
+        expect(buildSettingsPatch(previousSettings, nextSettings)).toEqual({locale: 'fr'});
     });
 
     it('never includes settings owned by updater and MCP flows', () => {
@@ -65,7 +54,7 @@ describe('settingsPersistenceQueue', () => {
     });
 
     it('skips platform writes when the sanitized payload has not changed', async () => {
-        const snapshot = createSettings({ locale: 'fr' });
+        const snapshot = createSettings({locale: 'fr'});
         const lastSavedSettings: ISettingsData | null = snapshot;
         const savePatch = vi.fn<() => Promise<void>>();
         const onSaved = vi.fn();
@@ -119,21 +108,21 @@ describe('settingsPersistenceQueue', () => {
         });
         const secondSavePromise = queue.save();
         firstSave.resolve();
-        await Promise.all([
-            firstSavePromise,
-            secondSavePromise,
-        ]);
+        await Promise.all([firstSavePromise, secondSavePromise]);
 
         expect(savePatch).toHaveBeenCalledTimes(2);
-        expect(savePatch).toHaveBeenNthCalledWith(1, expect.objectContaining({
-            locale: 'fr',
-            theme: 'light',
-        }));
-        expect(savePatch).toHaveBeenNthCalledWith(2, { theme: 'dark' });
+        expect(savePatch).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({
+                locale: 'fr',
+                theme: 'light',
+            }),
+        );
+        expect(savePatch).toHaveBeenNthCalledWith(2, {theme: 'dark'});
     });
 
     it('reports a failed save without scheduling a retry', async () => {
-        const snapshot = createSettings({ locale: 'fr' });
+        const snapshot = createSettings({locale: 'fr'});
         const saveError = new Error('temporary failure');
         const statusChanges: Array<{
             status: string;
@@ -150,7 +139,7 @@ describe('settingsPersistenceQueue', () => {
             onStatusChanged(status, error) {
                 statusChanges.push({
                     status,
-                    ...(error ? { error } : {}),
+                    ...(error ? {error} : {}),
                 });
             },
         });
@@ -158,7 +147,7 @@ describe('settingsPersistenceQueue', () => {
         await expect(queue.save()).resolves.toBe(false);
 
         expect(statusChanges).toEqual([
-            { status: 'saving' },
+            {status: 'saving'},
             {
                 status: 'failed',
                 error: saveError,

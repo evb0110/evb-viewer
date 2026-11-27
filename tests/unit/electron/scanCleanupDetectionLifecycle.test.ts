@@ -1,6 +1,4 @@
-import {
-    describe, it, expect, vi, afterEach,
-} from 'vitest';
+import {describe, it, expect, vi, afterEach} from 'vitest';
 import type * as TInputLimits from '@contracts/scan-cleanup/inputLimits';
 import type {
     IScanCleanupDetectionResult,
@@ -12,25 +10,20 @@ import type {
 import type {IScanCleanupDetectionResultStore} from '@evb/scan-cleanup/core/types';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import {createScanCleanupDetectionSignature} from '@contracts/scan-cleanup/createScanCleanupDetectionSignature';
-import {
-    defaultDependencies, scanCleanupPreviewLifecycle,
-} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
+import {defaultDependencies, scanCleanupPreviewLifecycle} from '@electron/features/scan-cleanup/scanCleanupPreviewLifecycle';
 import {scanCleanupRasterRetention} from '@electron/features/scan-cleanup/scanCleanupRasterRetention';
 import type {
-    IScanCleanupDetectionSubscriber, IScanCleanupPreviewDependencies,
+    IScanCleanupDetectionSubscriber,
+    IScanCleanupPreviewDependencies,
 } from '@electron/features/scan-cleanup/scanCleanupPreviewShared';
+import {scanCleanupDetectionOwner, type IScanCleanupDetectionOwner} from '@electron/features/scan-cleanup/scanCleanupDetectionLifecycle';
 import {
-    scanCleanupDetectionOwner, type IScanCleanupDetectionOwner,
-} from '@electron/features/scan-cleanup/scanCleanupDetectionLifecycle';
-import {
-    registerScanCleanupDetectionResultStore, claimScanCleanupDetectionResultStore, releaseScanCleanupDetectionResultStoreOwner,
+    registerScanCleanupDetectionResultStore,
+    claimScanCleanupDetectionResultStore,
+    releaseScanCleanupDetectionResultStoreOwner,
 } from '@electron/features/scan-cleanup/detectionResultStoreRegistry';
-import {
-    link, readdir, readFile, rm, stat, truncate, writeFile,
-} from 'fs/promises';
-import {
-    join, normalize, sep,
-} from 'path';
+import {link, readdir, readFile, rm, stat, truncate, writeFile} from 'fs/promises';
+import {join, normalize, sep} from 'path';
 import {writeScanCleanupDetectionMetadata as writeDetectionMetadata} from '@tests/unit/electron/writeScanCleanupDetectionMetadata';
 import type {IPdfPageSizeStore} from '@electron/pdf/pdfPageSizes';
 import {resolveScanCleanupPreviewRasterAdmissionPolicy as resolveScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
@@ -47,9 +40,7 @@ import {
     documentPrior,
     sender,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
-import {
-    createStableJobBrokerOwnerId, mainJobBroker,
-} from '@electron/resources/jobBroker';
+import {createStableJobBrokerOwnerId, mainJobBroker} from '@electron/resources/jobBroker';
 import {atomicReplace} from '@electron/utils/atomicReplace';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
@@ -57,14 +48,10 @@ import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputL
 // The product batch is 1,024 pages, which made that case about 5,000 small
 // file operations. A 320-page batch still exceeds the 256-page renderer result
 // window, which is what the case bounds, at a third of the work.
-vi.mock('@contracts/scan-cleanup/inputLimits', async importOriginal => ({
-    ...await importOriginal<typeof TInputLimits>(),
+vi.mock('@contracts/scan-cleanup/inputLimits', async (importOriginal) => ({
+    ...(await importOriginal<typeof TInputLimits>()),
     SCAN_CLEANUP_STREAMING_BATCH_PAGES: 320,
 }));
-
-
-
-
 
 function createDetectionScenarioOwner(deps: IScanCleanupPreviewDependencies): IScanCleanupDetectionOwner {
     const retention = scanCleanupRasterRetention(deps);
@@ -80,8 +67,7 @@ function createDetectionScenarioOwner(deps: IScanCleanupPreviewDependencies): IS
 
 async function retainedRasterCount(dir: string) {
     const entries = await readdir(dir, {recursive: true});
-    return entries.filter(entry => entry.split(sep)[0]?.startsWith('scan-cleanup-rasters-') === true
-        && entry.endsWith('.png')).length;
+    return entries.filter((entry) => entry.split(sep)[0]?.startsWith('scan-cleanup-rasters-') === true && entry.endsWith('.png')).length;
 }
 
 const dirs: string[] = [];
@@ -91,14 +77,17 @@ async function previewDependencies() {
 }
 
 afterEach(async () => {
-    await Promise.all(dirs.splice(0).map(dir => rm(dir, {
-        recursive: true,
-        force: true,
-    })));
+    await Promise.all(
+        dirs.splice(0).map((dir) =>
+            rm(dir, {
+                recursive: true,
+                force: true,
+            }),
+        ),
+    );
 });
 
 export async function scenarioPublishesProvisionalPageResultsBeforeDocumentReconciliationCompletes(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const originalRenderPage = deps.renderPage;
     const remainingRasters = Promise.withResolvers<undefined>();
@@ -126,10 +115,7 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
         });
         analysisEntered.resolve(undefined);
         await remainingAnalysis.promise;
-        for (const pageNumber of [
-            2,
-            3,
-        ]) {
+        for (const pageNumber of [2, 3]) {
             await onProgress({
                 stage: 'page-analyzed',
                 completedPages: pageNumber,
@@ -145,11 +131,7 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
         const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as {outputs: Array<{contentBox: {xPx: number}}>};
         metadata.outputs[0]!.contentBox.xPx = 8;
         await writeFile(metadataPath, JSON.stringify(metadata));
-        for (const pageNumber of [
-            1,
-            2,
-            3,
-        ]) {
+        for (const pageNumber of [1, 2, 3]) {
             await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
@@ -166,43 +148,40 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
     const owner = sender();
     const completed = Promise.withResolvers<undefined>();
     owner.send.mockImplementation((channel: string, state: {status?: string}) => {
-        if (channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState
-            && state.status === 'completed') {
+        if (channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState && state.status === 'completed') {
             completed.resolve(undefined);
         }
     });
     const started = await service.detectAll(owner, detectionRequest);
     service.subscribeDetectionJob(owner, started.jobId, detectionRequest);
 
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.progress).toMatchObject({
-        stage: 'rasterizing',
-        completedUnits: 0,
-        totalUnits: 3,
-    }));
+    await vi.waitFor(() =>
+        expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.progress).toMatchObject({
+            stage: 'rasterizing',
+            completedUnits: 0,
+            totalUnits: 3,
+        }),
+    );
     expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.results).toEqual([]);
 
     remainingRasters.resolve(undefined);
     await analysisEntered.promise;
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.progress).toMatchObject({
-        stage: 'detecting',
-        completedUnits: 1,
-        totalUnits: 3,
-    }));
+    await vi.waitFor(() =>
+        expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.progress).toMatchObject({
+            stage: 'detecting',
+            completedUnits: 1,
+            totalUnits: 3,
+        }),
+    );
     const analyzing = service.getDetectionJobState(owner, started.jobId, detectionRequest);
-    expect(analyzing?.results).toEqual([expect.objectContaining({
-        pageNumber: 1,
-        classification: 'single-uncut-page',
-        confidence: 0.8,
-        reconciled: false,
-    })]);
+    expect(analyzing?.results).toEqual([
+        expect.objectContaining({
+            pageNumber: 1,
+            classification: 'single-uncut-page',
+            confidence: 0.8,
+            reconciled: false,
+        }),
+    ]);
     const previewRequest = await service.resolvePreviewPagePlan(owner, {
         ...request,
         pageNumber: requirePageNumber(1),
@@ -221,16 +200,16 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
     const reconciledPreview = await service.resolvePreviewPagePlan(owner, previewRequest);
     expect(reconciledPreview.pagePlanEvidence?.outputs.full?.contentBox?.xNormalized).toBe(0.08);
 
-    await vi.waitFor(() => expect(owner.send.mock.calls
-        .filter(([channel]) => channel
-                === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
-        .map(([
-            _channel,
-            state,
-        ]) => state as TScanCleanupDetectionJobState | null)
-        .flatMap(state => state?.results ?? [])
-        .filter(result => result.pageNumber === 1)
-        .map(result => result.confidence)).toContain(0.9));
+    await vi.waitFor(() =>
+        expect(
+            owner.send.mock.calls
+                .filter(([channel]) => channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
+                .map(([_channel, state]) => state as TScanCleanupDetectionJobState | null)
+                .flatMap((state) => state?.results ?? [])
+                .filter((result) => result.pageNumber === 1)
+                .map((result) => result.confidence),
+        ).toContain(0.9),
+    );
     finishReconciliation.resolve(undefined);
     await completed.promise;
     expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)).toMatchObject({
@@ -240,28 +219,18 @@ export async function scenarioPublishesProvisionalPageResultsBeforeDocumentRecon
             completedUnits: 3,
             totalUnits: 3,
         },
-        results: [
-            {pageNumber: 1},
-            {pageNumber: 2},
-            {pageNumber: 3},
-        ],
+        results: [{pageNumber: 1}, {pageNumber: 2}, {pageNumber: 3}],
     });
     const streamedPageOneRevisions = owner.send.mock.calls
-        .filter(([channel]) => channel
-                === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
-        .map(([
-            _channel,
-            state,
-        ]) => state as TScanCleanupDetectionJobState | null)
-        .flatMap(state => state?.results ?? [])
-        .filter(result => result.pageNumber === 1)
-        .map(result => result.confidence);
+        .filter(([channel]) => channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
+        .map(([_channel, state]) => state as TScanCleanupDetectionJobState | null)
+        .flatMap((state) => state?.results ?? [])
+        .filter((result) => result.pageNumber === 1)
+        .map((result) => result.confidence);
     expect(streamedPageOneRevisions).toContain(0.9);
-
 }
 
 export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAnalysisBegins(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const firstRasterStarted = Promise.withResolvers<undefined>();
     const remainingRasters = Promise.withResolvers<undefined>();
@@ -292,21 +261,20 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
     }> = [];
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         await firstRasterStarted.promise;
-        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
-            analysisInputPath?: string;
-            analysisDpi?: number;
-            inputPath: string;
-            sourcePageIndex: number;
-        }>};
-        analysisFields = manifest.pages.map(({
-            analysisInputPath,
-            analysisDpi,
-        }) => ({
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+            pages: Array<{
+                analysisInputPath?: string;
+                analysisDpi?: number;
+                inputPath: string;
+                sourcePageIndex: number;
+            }>;
+        };
+        analysisFields = manifest.pages.map(({analysisInputPath, analysisDpi}) => ({
             analysisInputPath,
             analysisDpi,
         }));
         await writeDetectionMetadata(manifestPath);
-        const waitForDelivery = async (page: typeof manifest.pages[number]) => {
+        const waitForDelivery = async (page: (typeof manifest.pages)[number]) => {
             await vi.waitFor(async () => {
                 const bytes = await readFile(page.inputPath);
                 expect(bytes.byteLength).toBeGreaterThan(0);
@@ -324,10 +292,7 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
             reconciled: false,
         });
         await remainingRasters.promise;
-        for (const pageNumber of [
-            2,
-            3,
-        ]) {
+        for (const pageNumber of [2, 3]) {
             await waitForDelivery(manifest.pages[pageNumber - 1]!);
             await onProgress({
                 stage: 'page-analyzed',
@@ -339,11 +304,7 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
                 reconciled: false,
             });
         }
-        for (const pageNumber of [
-            1,
-            2,
-            3,
-        ]) {
+        for (const pageNumber of [1, 2, 3]) {
             await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
@@ -359,28 +320,16 @@ export async function scenarioStagesEveryReplayableDetectionRasterBeforeNativeAn
     const started = await service.detectAll(owner, detectionRequest);
 
     remainingRasters.resolve(undefined);
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('completed'));
     expect(peakActiveRasterizers).toBeGreaterThan(1);
     expect(deps.renderPage).toHaveBeenCalledTimes(3);
-    expect(deliveredPageNumbers).toEqual([
-        1,
-        2,
-        3,
-    ]);
+    expect(deliveredPageNumbers).toEqual([1, 2, 3]);
     expect(rasterOutputPaths.size).toBe(3);
     expect(analysisFields).toHaveLength(3);
-    expect(analysisFields.every(page =>
-        page.analysisInputPath === undefined && page.analysisDpi === undefined,
-    )).toBe(true);
-
+    expect(analysisFields.every((page) => page.analysisInputPath === undefined && page.analysisDpi === undefined)).toBe(true);
 }
 
 export async function scenarioRemovesTemporaryDetectionRasterPathsWhenNativeAnalysisFails(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const stagedPaths: string[] = [];
     deps.renderPage = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
@@ -396,19 +345,15 @@ export async function scenarioRemovesTemporaryDetectionRasterPathsWhenNativeAnal
     const owner = sender();
     const started = await service.detectAll(owner, detectionRequest);
 
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('failed'));
-    await Promise.all(stagedPaths.map(async path => {
-        await expect(stat(path)).rejects.toMatchObject({code: 'ENOENT'});
-    }));
-
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('failed'));
+    await Promise.all(
+        stagedPaths.map(async (path) => {
+            await expect(stat(path)).rejects.toMatchObject({code: 'ENOENT'});
+        }),
+    );
 }
 
 export async function scenarioDoesNotHangWhenDetectionAbortsDuringNativeAnalysis(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const sidecarEntered = Promise.withResolvers<undefined>();
     const rasterFinished = Promise.withResolvers<undefined>();
@@ -425,7 +370,9 @@ export async function scenarioDoesNotHangWhenDetectionAbortsDuringNativeAnalysis
                 reject(signal.reason);
             };
             signal.addEventListener('abort', onAbort, {once: true});
-            if (signal.aborted) onAbort();
+            if (signal.aborted) {
+                onAbort();
+            }
         });
     });
     const service = createDetectionScenarioOwner(deps);
@@ -434,21 +381,15 @@ export async function scenarioDoesNotHangWhenDetectionAbortsDuringNativeAnalysis
 
     await sidecarEntered.promise;
     await rasterFinished.promise;
-    await new Promise<void>(resolve => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
     expect(service.cancelDetection(owner, started.jobId, detectionRequest)).toBe(true);
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('canceled'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('canceled'));
     const stagedPath = vi.mocked(deps.renderPage).mock.calls[0]?.[4];
     expect(stagedPath).toBeDefined();
     await expect(stat(stagedPath!)).rejects.toMatchObject({code: 'ENOENT'});
-
 }
 
 export async function scenarioReconcilesEveryDetectionClassificationAgainstTheWholeDocumentNotAWindowOfIt(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const totalPages = 8;
     deps.getPageCount = vi.fn(async () => totalPages);
@@ -457,18 +398,17 @@ export async function scenarioReconcilesEveryDetectionClassificationAgainstTheWh
     // page is judged against, and the cutter the sidecar then publishes, are
     // derived from the pages that share its manifest.
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
-        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
-            sourcePageIndex: number;
-            pageMetadataPath: string;
-        }>};
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+            pages: Array<{
+                sourcePageIndex: number;
+                pageMetadataPath: string;
+            }>;
+        };
         await writeDetectionMetadata(manifestPath, () => ({cutterXPx: 8}));
-        const reconciledPages = manifest.pages.map(page => page.sourcePageIndex + 1);
+        const reconciledPages = manifest.pages.map((page) => page.sourcePageIndex + 1);
         const clusterAgreement = reconciledPages.length / totalPages;
         const cutterXPx = Math.max(...reconciledPages);
-        for (const [
-            index,
-            pageNumber,
-        ] of reconciledPages.entries()) {
+        for (const [index, pageNumber] of reconciledPages.entries()) {
             await onProgress({
                 stage: 'page-complete',
                 completedPages: index + 1,
@@ -488,25 +428,16 @@ export async function scenarioReconcilesEveryDetectionClassificationAgainstTheWh
     const service = scanCleanupPreviewLifecycle(deps);
     const owner = sender();
     const started = await service.detectAll(owner, detectionRequest);
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('completed'));
 
     const results = service.getDetectionJobState(owner, started.jobId, detectionRequest)?.results ?? [];
-    expect(results.map(result => result.pageNumber)).toEqual(Array.from(
-        {length: totalPages},
-        (_value, index) => index + 1,
-    ));
-    expect([...new Set(results.map(result => result.clusterAgreement))]).toEqual([1]);
-    expect([...new Set(results.map(result => result.cutterXPx))]).toEqual([totalPages]);
-    expect([...new Set(results.map(result => result.documentPrior?.agreementStrength))]).toEqual([1]);
-
+    expect(results.map((result) => result.pageNumber)).toEqual(Array.from({length: totalPages}, (_value, index) => index + 1));
+    expect([...new Set(results.map((result) => result.clusterAgreement))]).toEqual([1]);
+    expect([...new Set(results.map((result) => result.cutterXPx))]).toEqual([totalPages]);
+    expect([...new Set(results.map((result) => result.documentPrior?.agreementStrength))]).toEqual([1]);
 }
 
 export async function scenarioRasterizesDetectionPagesStraightToDiskInsteadOfBufferingThem(): Promise<void> {
-
     const {deps} = await previewDependencies();
     deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     deps.renderPage = vi.fn(async (_paths, _log, _page, _source, outputPath) => {
@@ -517,11 +448,7 @@ export async function scenarioRasterizesDetectionPagesStraightToDiskInsteadOfBuf
     });
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         await writeDetectionMetadata(manifestPath);
-        for (const pageNumber of [
-            1,
-            2,
-            3,
-        ]) {
+        for (const pageNumber of [1, 2, 3]) {
             await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
@@ -536,81 +463,66 @@ export async function scenarioRasterizesDetectionPagesStraightToDiskInsteadOfBuf
     const owner = sender();
     const started = await service.detectAll(owner, detectionRequest);
 
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('completed'));
     expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.results).toHaveLength(3);
-
 }
 
 export async function scenarioAnalyzesEveryPageOnTheCanonicalGridFinalRenderingUses(): Promise<void> {
-
     const {deps} = await previewDependencies();
-    deps.getPageSizes = vi.fn(async () => DOCUMENT_PAGE_SIZES.map((page, index) => {
-        const sourceDpi = [
-            100,
-            300,
-            150,
-        ][index]!;
-        return {
-            ...page,
-            dominantImageWidthPx: Math.round(page.widthPoints / 72 * sourceDpi),
-            dominantImageHeightPx: Math.round(page.heightPoints / 72 * sourceDpi),
-            dominantImageWidthPoints: page.widthPoints,
-            dominantImageHeightPoints: page.heightPoints,
-        };
-    }));
+    deps.getPageSizes = vi.fn(async () =>
+        DOCUMENT_PAGE_SIZES.map((page, index) => {
+            const sourceDpi = [100, 300, 150][index]!;
+            return {
+                ...page,
+                dominantImageWidthPx: Math.round((page.widthPoints / 72) * sourceDpi),
+                dominantImageHeightPx: Math.round((page.heightPoints / 72) * sourceDpi),
+                dominantImageWidthPoints: page.widthPoints,
+                dominantImageHeightPoints: page.heightPoints,
+            };
+        }),
+    );
     const renderedDpiByPage = new Map<number, number>();
-    deps.renderPage = vi.fn(async (
-        _paths,
-        _log,
-        pageNumber,
-        _source,
-        outputPath,
-        dpi,
-    ) => {
+    deps.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, outputPath, dpi) => {
         renderedDpiByPage.set(pageNumber, dpi);
         await writeFile(`${outputPath.replace(/\.png$/u, '')}.png`, PNG);
     });
-    let manifestDpiByPage = new Map<number, {
-        dpi: number;
-        sourceDpi: number
-        hasSeparateCanonicalInput: boolean;
-    }>();
-    const hasSeparateCanonicalInput = (page: {
-        inputPath: string;
-        analysisInputPath?: string;
-        analysisDpi?: number;
-    }): boolean => page.analysisInputPath !== undefined
-            && page.analysisDpi !== undefined
-            && normalize(page.analysisInputPath) !== normalize(page.inputPath);
+    let manifestDpiByPage = new Map<
+        number,
+        {
+            dpi: number;
+            sourceDpi: number;
+            hasSeparateCanonicalInput: boolean;
+        }
+    >();
+    const hasSeparateCanonicalInput = (page: {inputPath: string; analysisInputPath?: string; analysisDpi?: number}): boolean =>
+        page.analysisInputPath !== undefined &&
+        page.analysisDpi !== undefined &&
+        normalize(page.analysisInputPath) !== normalize(page.inputPath);
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
-        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
-            options: {
-                dpi: number;
-                sourceDpi: number
-            };
-            analysisInputPath?: string;
-            analysisDpi?: number;
-            inputPath: string;
-            sourcePageIndex: number;
-        }>};
-        manifestDpiByPage = new Map(manifest.pages.map(page => [
-            page.sourcePageIndex + 1,
-            {
-                dpi: page.options.dpi,
-                sourceDpi: page.options.sourceDpi,
-                hasSeparateCanonicalInput: hasSeparateCanonicalInput(page),
-            },
-        ]));
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+            pages: Array<{
+                options: {
+                    dpi: number;
+                    sourceDpi: number;
+                };
+                analysisInputPath?: string;
+                analysisDpi?: number;
+                inputPath: string;
+                sourcePageIndex: number;
+            }>;
+        };
+        manifestDpiByPage = new Map(
+            manifest.pages.map((page) => [
+                page.sourcePageIndex + 1,
+                {
+                    dpi: page.options.dpi,
+                    sourceDpi: page.options.sourceDpi,
+                    hasSeparateCanonicalInput: hasSeparateCanonicalInput(page),
+                },
+            ]),
+        );
         await writeDetectionMetadata(manifestPath);
-        for (const pageNumber of [
-            1,
-            2,
-            3,
-        ]) {
+        for (const pageNumber of [1, 2, 3]) {
             await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
@@ -625,11 +537,7 @@ export async function scenarioAnalyzesEveryPageOnTheCanonicalGridFinalRenderingU
     const service = scanCleanupPreviewLifecycle(deps);
     const owner = sender();
     const started = await service.detectAll(owner, detectionRequest);
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('completed'));
 
     // The canonical grid is 150 DPI, never finer than the page's own scan:
     // the 100-DPI page is analyzed on its own pixels, as final rendering does.
@@ -655,23 +563,14 @@ export async function scenarioAnalyzesEveryPageOnTheCanonicalGridFinalRenderingU
             hasSeparateCanonicalInput: false,
         },
     });
-
 }
 
 export async function scenarioPreviewsAPageDetectionRasterizedWithoutARendererAndWithoutASecondPageCount(): Promise<void> {
-
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         await writeDetectionMetadata(manifestPath);
-        for (const pageNumber of [
-            1,
-            2,
-            3,
-        ]) {
+        for (const pageNumber of [1, 2, 3]) {
             await onProgress({
                 stage: 'page-complete',
                 completedPages: pageNumber,
@@ -685,11 +584,7 @@ export async function scenarioPreviewsAPageDetectionRasterizedWithoutARendererAn
     const service = scanCleanupPreviewLifecycle(deps);
     const owner = sender();
     const started = await service.detectAll(owner, detectionRequest);
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('completed'));
     expect(deps.renderPage).toHaveBeenCalledTimes(3);
     expect(deps.getPageCount).toHaveBeenCalledOnce();
 
@@ -698,11 +593,7 @@ export async function scenarioPreviewsAPageDetectionRasterizedWithoutARendererAn
         documentRevision,
         pageNumber: requirePageNumber(pageNumber),
     });
-    for (const pageNumber of [
-        1,
-        2,
-        3,
-    ]) {
+    for (const pageNumber of [1, 2, 3]) {
         await expect(previewOf(service, sender(), pageRequest(pageNumber))).resolves.toMatchObject({
             pageNumber,
             totalPages: 3,
@@ -724,11 +615,9 @@ export async function scenarioPreviewsAPageDetectionRasterizedWithoutARendererAn
         documentRevision: 'revision-2',
     });
     await vi.waitFor(async () => expect(await retainedRasterCount(dir)).toBe(0));
-
 }
 
 export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRastersToLaterPreviewRequests(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const originalSidecar = deps.runSidecar;
     const originalRenderPage = deps.renderPage;
@@ -767,7 +656,7 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
                 sourcePageIndex: number;
                 options: {
                     dpi: number;
-                    layout: string
+                    layout: string;
                 };
                 outputs?: unknown;
             }>;
@@ -776,14 +665,14 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
             await originalSidecar(binary, manifestPath, signal, log, onProgress);
             return;
         }
-        await writeDetectionMetadata(manifestPath, pageNumber => ({
+        await writeDetectionMetadata(manifestPath, (pageNumber) => ({
             layoutClassification: pageNumber <= 2 ? 'two-page-spread' : 'single-uncut-page',
             cutterXPx: pageNumber <= 2 ? 0.5 : null,
         }));
         analysisManifest = {
             analysisPurpose: manifest.analysisPurpose,
-            pageDpis: manifest.pages.map(page => page.options.dpi),
-            outputsAreEmpty: manifest.pages.every(page => Array.isArray(page.outputs) && page.outputs.length === 0),
+            pageDpis: manifest.pages.map((page) => page.options.dpi),
+            outputsAreEmpty: manifest.pages.every((page) => Array.isArray(page.outputs) && page.outputs.length === 0),
             secondPageLayout: manifest.pages[1]?.options.layout,
         };
         for (const page of manifest.pages) {
@@ -796,16 +685,18 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
                 classification: spread ? 'two-page-spread' : 'single-uncut-page',
                 confidence: page.sourcePageIndex === 0 ? 0.86 : page.sourcePageIndex === 1 ? 1 : 0.95,
                 ...(spread ? {cutterXPx: 0.5} : {}),
-                tier1Verdict: page.sourcePageIndex === 0
-                    ? 'single-uncut-page'
-                    : spread ? 'two-page-spread' : 'single-uncut-page',
+                tier1Verdict: page.sourcePageIndex === 0 ? 'single-uncut-page' : spread ? 'two-page-spread' : 'single-uncut-page',
                 reconciled: page.sourcePageIndex === 0,
                 clusterAgreement: page.sourcePageIndex === 1 ? 0 : 0.8,
                 ...(page.sourcePageIndex === 1 ? {} : {documentPrior}),
-                ...(page.sourcePageIndex === 0 ? {textAxis: {
-                    sideways: true,
-                    confidence: 0.98,
-                }} : {}),
+                ...(page.sourcePageIndex === 0
+                    ? {
+                          textAxis: {
+                              sideways: true,
+                              confidence: 0.98,
+                          },
+                      }
+                    : {}),
             } as const;
             await onProgress(nativeProgress);
         }
@@ -816,23 +707,21 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
         ...detectionRequest,
         options: {
             ...detectionRequest.options,
-            pageOverrides: {'2': {
-                rotationDegrees: 0,
-                layoutOverride: 'spread',
-                excluded: false,
-                manualSplit: null,
-            }},
+            pageOverrides: {
+                '2': {
+                    rotationDegrees: 0,
+                    layoutOverride: 'spread',
+                    excluded: false,
+                    manualSplit: null,
+                },
+            },
         },
     });
     await vi.waitFor(() => expect(service.getDetectionJobState(sender(), started.jobId, request)?.status).toBe('completed'));
 
     expect(analysisManifest).toEqual({
         analysisPurpose: 'page-plan',
-        pageDpis: [
-            150,
-            150,
-            150,
-        ],
+        pageDpis: [150, 150, 150],
         outputsAreEmpty: true,
         secondPageLayout: 'force-two-page',
     });
@@ -844,11 +733,7 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
             completedUnits: 3,
             totalUnits: 3,
             percent: 100,
-            completedPageNumbers: [
-                1,
-                2,
-                3,
-            ],
+            completedPageNumbers: [1, 2, 3],
         },
         results: [
             {
@@ -905,11 +790,9 @@ export async function scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRaste
     });
     await previewOf(service, sender(), request);
     expect(deps.renderPage).toHaveBeenCalledTimes(3);
-
 }
 
 export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllowsAndLeasesThatWidth(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const acquire = vi.fn((_ownerId, _signal, _policy, _options, work: () => Promise<unknown>) => work());
     deps.runWithDetectionLease = acquire as NonNullable<IScanCleanupPreviewDependencies['runWithDetectionLease']>;
@@ -921,9 +804,7 @@ export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllow
     let peakRasters = 0;
     deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
         startedRasters += 1;
-        if (startedRasters === resolveScanCleanupRasterAdmissionPolicy(
-            mainJobBroker.getSnapshot().capacity,
-        ).rasterConcurrency) {
+        if (startedRasters === resolveScanCleanupRasterAdmissionPolicy(mainJobBroker.getSnapshot().capacity).rasterConcurrency) {
             rasterBatchReady.resolve(undefined);
         }
         activeRasters += 1;
@@ -942,15 +823,9 @@ export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllow
     const owner = sender();
     const started = await service.detectAll(owner, detectionRequest);
 
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('failed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('failed'));
     expect(deps.renderPage).toHaveBeenCalledTimes(8);
-    const policy = resolveScanCleanupRasterAdmissionPolicy(
-        mainJobBroker.getSnapshot().capacity,
-    );
+    const policy = resolveScanCleanupRasterAdmissionPolicy(mainJobBroker.getSnapshot().capacity);
     expect(peakRasters).toBe(policy.rasterConcurrency);
     expect(acquire).toHaveBeenCalledWith(
         'scan-cleanup:1:preview-owner',
@@ -959,11 +834,9 @@ export async function scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllow
         expect.objectContaining({outputMode: 'bw'}),
         expect.any(Function),
     );
-
 }
 
 export async function scenarioIncludesTheClassifierSidecarInStreamingDetectionAdmission(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const acquire = vi.fn((_ownerId, _signal, _policy, _options, work: () => Promise<unknown>) => work());
     deps.runWithDetectionLease = acquire as NonNullable<IScanCleanupPreviewDependencies['runWithDetectionLease']>;
@@ -974,14 +847,8 @@ export async function scenarioIncludesTheClassifierSidecarInStreamingDetectionAd
     const owner = sender();
     const started = await service.detectAll(owner, detectionRequest);
 
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('failed'));
-    const policy = resolveScanCleanupRasterAdmissionPolicy(
-        mainJobBroker.getSnapshot().capacity,
-    );
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('failed'));
+    const policy = resolveScanCleanupRasterAdmissionPolicy(mainJobBroker.getSnapshot().capacity);
     expect(acquire).toHaveBeenCalledWith(
         'scan-cleanup:1:preview-owner',
         expect.any(AbortSignal),
@@ -989,11 +856,9 @@ export async function scenarioIncludesTheClassifierSidecarInStreamingDetectionAd
         expect.objectContaining({outputMode: 'bw'}),
         expect.any(Function),
     );
-
 }
 
 export async function scenarioStreamsEveryDetectionClassificationToTheSubscriberExactlyOnce(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const totalPages = 40;
     deps.getPageCount = vi.fn(async () => totalPages);
@@ -1035,44 +900,34 @@ export async function scenarioStreamsEveryDetectionClassificationToTheSubscriber
         };
         let nextPage = 1;
         for (const batch of batches) {
-            for (; nextPage <= batch.lastPage; nextPage += 1) await analyzePage(nextPage);
+            for (; nextPage <= batch.lastPage; nextPage += 1) {
+                await analyzePage(nextPage);
+            }
             batch.entered.resolve(undefined);
             await batch.released.promise;
         }
     });
     const service = createDetectionScenarioOwner(deps);
     const owner = sender();
-    const streamedStates = () => owner.send.mock.calls
-        .filter(([channel]) => channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
-        .map(([
-            _channel,
-            state,
-        ]) => state as TScanCleanupDetectionJobState);
+    const streamedStates = () =>
+        owner.send.mock.calls
+            .filter(([channel]) => channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
+            .map(([_channel, state]) => state as TScanCleanupDetectionJobState);
     const started = await service.detectAll(owner, detectionRequest);
     service.subscribeDetectionJob(owner, started.jobId, detectionRequest);
 
     for (const batch of batches) {
         await batch.entered.promise;
-        await vi.waitFor(() => expect(
-            streamedStates().flatMap(state => state.results),
-        ).toHaveLength(batch.lastPage));
+        await vi.waitFor(() => expect(streamedStates().flatMap((state) => state.results)).toHaveLength(batch.lastPage));
         batch.released.resolve(undefined);
     }
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('completed'));
 
     const streamed = streamedStates();
     const streamedPages = streamed
-        .filter(state => state.status !== 'completed')
-        .flatMap(state => state.results.map(result => result.pageNumber));
-    const rankedPhases = streamed.map(state => [
-        'queued',
-        'rasterizing',
-        'detecting',
-    ].indexOf(state.progress.stage));
+        .filter((state) => state.status !== 'completed')
+        .flatMap((state) => state.results.map((result) => result.pageNumber));
+    const rankedPhases = streamed.map((state) => ['queued', 'rasterizing', 'detecting'].indexOf(state.progress.stage));
 
     // Every classification reaches the renderer once: nothing is replayed
     // while the job runs, nothing is dropped by coalescing.
@@ -1087,25 +942,15 @@ export async function scenarioStreamsEveryDetectionClassificationToTheSubscriber
         },
     });
     expect(streamed.at(-1)?.results).toHaveLength(totalPages);
-
 }
 
 export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRendererPageWindow(): Promise<void> {
-
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     const totalPages = SCAN_CLEANUP_STREAMING_BATCH_PAGES + 1;
     // The raster bytes are identical. Reuse immutable fixtures rather than
     // rewriting a PNG per page on NTFS; multiple seeds leave room for retention links.
-    const rasterFixtures = [
-        0,
-        1,
-        2,
-        3,
-    ].map(index => join(dir, `fixture-${index}.png`));
-    await Promise.all(rasterFixtures.map(path => writeFile(path, PNG)));
+    const rasterFixtures = [0, 1, 2, 3].map((index) => join(dir, `fixture-${index}.png`));
+    await Promise.all(rasterFixtures.map((path) => writeFile(path, PNG)));
     deps.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
         await link(rasterFixtures[pageNumber % rasterFixtures.length]!, outputPath);
     });
@@ -1115,12 +960,11 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
     });
     const store: IPdfPageSizeStore = {
         pageCount: totalPages,
-        getPage: vi.fn(async pageNumber => pageSize(pageNumber)),
-        readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) => Array.from(
-            {length: lastPageNumberExclusive - firstPageNumber},
-            (_unused, index) => pageSize(firstPageNumber + index),
-        )),
-        forEachChunk: vi.fn(async onChunk => {
+        getPage: vi.fn(async (pageNumber) => pageSize(pageNumber)),
+        readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) =>
+            Array.from({length: lastPageNumberExclusive - firstPageNumber}, (_unused, index) => pageSize(firstPageNumber + index)),
+        ),
+        forEachChunk: vi.fn(async (onChunk) => {
             for (let firstPageNumber = 1; firstPageNumber <= totalPages; firstPageNumber += SCAN_CLEANUP_STREAMING_BATCH_PAGES) {
                 const pages = await store.readRange(
                     firstPageNumber,
@@ -1190,50 +1034,45 @@ export async function scenarioKeepsXlargeDetectionEventPayloadsWithinTheRenderer
             expect(state?.results.length).toBeLessThanOrEqual(256);
             expect(state?.progress.completedPageNumbers).toEqual([]);
             expect(state?.progress.completedPageNumbersTruncated).toBe(true);
-            expect(state?.results).toEqual(expect.not.arrayContaining([
-                expect.objectContaining({sourcePageMetadata: expect.anything()}),
-                expect.objectContaining({splitDiagnostics: expect.anything()}),
-            ]));
+            expect(state?.results).toEqual(
+                expect.not.arrayContaining([
+                    expect.objectContaining({sourcePageMetadata: expect.anything()}),
+                    expect.objectContaining({splitDiagnostics: expect.anything()}),
+                ]),
+            );
         }
     } finally {
         releaseFirstBatch.resolve(undefined);
     }
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'), {timeout: 30_000});
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('completed'), {
+        timeout: 30_000,
+    });
     const xlargeStates = owner.send.mock.calls
         .filter(([channel]) => channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
-        .map(([
-            _channel,
-            state,
-        ]) => state as TScanCleanupDetectionJobState)
-        .filter(state => state.progress.totalUnits === totalPages);
+        .map(([_channel, state]) => state as TScanCleanupDetectionJobState)
+        .filter((state) => state.progress.totalUnits === totalPages);
 
     expect(xlargeStates.length).toBeGreaterThan(0);
     expect(xlargeStates.at(-1)?.status).toBe('completed');
-    expect(Math.max(...xlargeStates.map(state => state.results.length))).toBeLessThanOrEqual(256);
-    expect(xlargeStates.every(state => state.progress.completedPageNumbers?.length === 0)).toBe(true);
-    expect(xlargeStates.every(state => state.progress.completedPageNumbersTruncated === true)).toBe(true);
+    expect(Math.max(...xlargeStates.map((state) => state.results.length))).toBeLessThanOrEqual(256);
+    expect(xlargeStates.every((state) => state.progress.completedPageNumbers?.length === 0)).toBe(true);
+    expect(xlargeStates.every((state) => state.progress.completedPageNumbersTruncated === true)).toBe(true);
     const resolved = await service.resolvePreviewPagePlan(owner, {
         ...request,
         pageNumber: requirePageNumber(1),
     });
     expect(resolved.pagePlanEvidence?.outputs.full?.contentBox?.xNormalized).toBe(0.05);
-    expect(xlargeStates.every(state => Buffer.byteLength(JSON.stringify(state)) < 256 * 1024)).toBe(true);
+    expect(xlargeStates.every((state) => Buffer.byteLength(JSON.stringify(state)) < 256 * 1024)).toBe(true);
 
-    expect(xlargeStates.flatMap(state => state.results)).toEqual(
+    expect(xlargeStates.flatMap((state) => state.results)).toEqual(
         expect.not.arrayContaining([
             expect.objectContaining({sourcePageMetadata: expect.anything()}),
             expect.objectContaining({splitDiagnostics: expect.anything()}),
         ]),
     );
-
 }
 
 export async function scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsPageForPage(): Promise<void> {
-
     const {deps} = await previewDependencies();
     deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     deps.renderPage = vi.fn(async (_paths, _log, pageNumber, _source, outputPath) => {
@@ -1252,35 +1091,38 @@ export async function scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsP
         await atomicReplace(scratchPath, path, options);
         rasterPublished(path).resolve(undefined);
     };
-    const manifests: Array<Array<{
-        pageNumber: number;
-        inputPath: string;
-        rasterWidthPx: number;
-    }>> = [];
-        // The classification each page gets is read out of the pixels the
-        // manifest points at, so a run that rasterized a page differently — or
-        // left it out of the batch the sidecar reconciles over — cannot produce
-        // the same results as the run before it.
+    const manifests: Array<
+        Array<{
+            pageNumber: number;
+            inputPath: string;
+            rasterWidthPx: number;
+        }>
+    > = [];
+    // The classification each page gets is read out of the pixels the
+    // manifest points at, so a run that rasterized a page differently — or
+    // left it out of the batch the sidecar reconciles over — cannot produce
+    // the same results as the run before it.
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         await writeDetectionMetadata(manifestPath);
-        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
-            inputPath: string;
-            sourcePageIndex: number;
-        }>};
-        const pages = await Promise.all(manifest.pages.map(async page => {
-            await rasterPublished(page.inputPath).promise;
-            const raster = await readFile(page.inputPath);
-            return {
-                pageNumber: page.sourcePageIndex + 1,
-                inputPath: page.inputPath,
-                rasterWidthPx: raster.readUInt32BE(16),
-            };
-        }));
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
+            pages: Array<{
+                inputPath: string;
+                sourcePageIndex: number;
+            }>;
+        };
+        const pages = await Promise.all(
+            manifest.pages.map(async (page) => {
+                await rasterPublished(page.inputPath).promise;
+                const raster = await readFile(page.inputPath);
+                return {
+                    pageNumber: page.sourcePageIndex + 1,
+                    inputPath: page.inputPath,
+                    rasterWidthPx: raster.readUInt32BE(16),
+                };
+            }),
+        );
         manifests.push(pages);
-        for (const [
-            index,
-            page,
-        ] of pages.entries()) {
+        for (const [index, page] of pages.entries()) {
             await onProgress({
                 stage: 'page-complete',
                 completedPages: index + 1,
@@ -1297,11 +1139,14 @@ export async function scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsP
         const started = await service.detectAll(owner, request_);
         await vi.waitFor(() => {
             const state = service.getDetectionJobState(owner, started.jobId, request_);
-            expect(state?.status, JSON.stringify({
-                jobId: started.jobId,
-                pageOverrides: request_.options.pageOverrides,
-                error: state?.status === 'failed' ? state.error : undefined,
-            })).toBe('completed');
+            expect(
+                state?.status,
+                JSON.stringify({
+                    jobId: started.jobId,
+                    pageOverrides: request_.options.pageOverrides,
+                    error: state?.status === 'failed' ? state.error : undefined,
+                }),
+            ).toBe('completed');
         });
         return service.getDetectionJobState(owner, started.jobId, request_)!;
     };
@@ -1313,12 +1158,14 @@ export async function scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsP
         ...detectionRequest,
         options: {
             ...detectionRequest.options,
-            pageOverrides: {'2': {
-                rotationDegrees: 90,
-                layoutOverride: 'auto',
-                excluded: false,
-                manualSplit: null,
-            }},
+            pageOverrides: {
+                '2': {
+                    rotationDegrees: 90,
+                    layoutOverride: 'auto',
+                    excluded: false,
+                    manualSplit: null,
+                },
+            },
         },
     };
     const scoped = await detect(rotated);
@@ -1328,31 +1175,19 @@ export async function scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsP
     expect(deps.renderPage).toHaveBeenCalledTimes(3);
     expect(manifests).toHaveLength(2);
     expect(manifests[1]).toEqual(manifests[0]);
-    expect(manifests[1]?.map(page => page.pageNumber)).toEqual([
-        1,
-        2,
-        3,
-    ]);
+    expect(manifests[1]?.map((page) => page.pageNumber)).toEqual([1, 2, 3]);
     expect(scoped.results).toEqual(cold.results);
-
 }
 
 export async function scenarioRasterizesOnlyThePagesRetentionNoLongerHoldsAndStillReconcilesOverTheWholeDocument(): Promise<void> {
-
-    const {
-        dir,
-        deps,
-    } = await previewDependencies();
+    const {dir, deps} = await previewDependencies();
     deps.runWithDetectionLease = vi.fn((_ownerId, _signal, _policy, _options, work) => work());
     const manifestPageCounts: number[] = [];
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         await writeDetectionMetadata(manifestPath);
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
         manifestPageCounts.push(manifest.pages.length);
-        for (const [
-            index,
-            page,
-        ] of manifest.pages.entries()) {
+        for (const [index, page] of manifest.pages.entries()) {
             await onProgress({
                 stage: 'page-complete',
                 completedPages: index + 1,
@@ -1366,36 +1201,21 @@ export async function scenarioRasterizesOnlyThePagesRetentionNoLongerHoldsAndSti
     const service = createDetectionScenarioOwner(deps);
     const owner = sender();
     const started = await service.detectAll(owner, detectionRequest);
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('completed'));
     expect(deps.renderPage).toHaveBeenCalledTimes(3);
 
-    const rasters = (await readdir(dir, {recursive: true}))
-        .filter(entry => entry.endsWith('.png'))
-        .map(entry => join(dir, entry));
+    const rasters = (await readdir(dir, {recursive: true})).filter((entry) => entry.endsWith('.png')).map((entry) => join(dir, entry));
     expect(rasters).toHaveLength(3);
     await rm(rasters[0]!);
 
     const resumed = await service.detectAll(owner, detectionRequest);
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        resumed.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, resumed.jobId, detectionRequest)?.status).toBe('completed'));
 
     expect(deps.renderPage).toHaveBeenCalledTimes(4);
-    expect(manifestPageCounts).toEqual([
-        3,
-        3,
-    ]);
-
+    expect(manifestPageCounts).toEqual([3, 3]);
 }
 
 export async function scenarioCancelsDetectAllThroughItsSignalAndRemovesItsScratchArtifacts(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<string>();
     const releaseLease = vi.fn(() => true);
@@ -1415,23 +1235,24 @@ export async function scenarioCancelsDetectAllThroughItsSignalAndRemovesItsScrat
     const manifestPath = await entered.promise;
 
     expect(service.cancelDetection(sender(2), started.jobId, request)).toBe(false);
-    expect(service.cancelDetection(sender(), started.jobId, {
-        ...request,
-        documentRevision: 'stale-revision',
-    })).toBe(false);
+    expect(
+        service.cancelDetection(sender(), started.jobId, {
+            ...request,
+            documentRevision: 'stale-revision',
+        }),
+    ).toBe(false);
     expect(service.cancelDetection(sender(), started.jobId, request)).toBe(true);
     await vi.waitFor(() => expect(service.getDetectionJobState(sender(), started.jobId, request)?.status).toBe('canceled'));
     expect(releaseLease).toHaveBeenCalledOnce();
     await expect(stat(join(manifestPath, '..'))).rejects.toMatchObject({code: 'ENOENT'});
     expect(service.cancelDetection(sender(), started.jobId, request)).toBe(false);
-
 }
 
 export async function scenarioJoinsIdenticalDetectionWorkAndReplacesAChangedRequestForTheSameOwner(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<AbortSignal>();
-    deps.runWithDetectionLease = vi.fn()
+    deps.runWithDetectionLease = vi
+        .fn()
         .mockImplementationOnce(async (_ownerId, signal) => {
             entered.resolve(signal);
             return new Promise((_, reject) => {
@@ -1458,50 +1279,42 @@ export async function scenarioJoinsIdenticalDetectionWorkAndReplacesAChangedRequ
     expect(signal.aborted).toBe(true);
     await vi.waitFor(() => expect(deps.runWithDetectionLease).toHaveBeenCalledTimes(2));
     await service.dispose();
-
 }
 
 export async function scenarioCoalescesBackToBackIdenticalDetectionRequestsBeforeStart(): Promise<void> {
-
     const {deps} = await previewDependencies();
-    deps.runWithDetectionLease = vi.fn(async (_ownerId, signal) => {
-        return await new Promise<never>((_resolve, reject) => {
-            if (signal.aborted) {
-                reject(signal.reason);
-                return;
-            }
-            signal.addEventListener('abort', () => reject(signal.reason), {once: true});
-        });
-    });
+    deps.runWithDetectionLease = vi.fn(
+        (_ownerId, signal) =>
+            new Promise<never>((_resolve, reject) => {
+                if (signal.aborted) {
+                    reject(signal.reason);
+                    return;
+                }
+                signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+            }),
+    );
     const service = createDetectionScenarioOwner(deps);
     const owner = sender();
     const firstPromise = service.detectAll(owner, detectionRequest);
     const secondPromise = service.detectAll(owner, detectionRequest);
     try {
-        const [
-            first,
-            second,
-        ] = await Promise.all([
-            firstPromise,
-            secondPromise,
-        ]);
+        const [first, second] = await Promise.all([firstPromise, secondPromise]);
         expect(second).toEqual(first);
         expect(deps.runWithDetectionLease).toHaveBeenCalledOnce();
     } finally {
         await service.dispose();
     }
-
 }
 
 export async function scenarioStartsFreshIdenticalDetectionAfterCancellationIsAcknowledgedButNotTerminal(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const firstEntered = Promise.withResolvers<undefined>();
     const settleFirstCancellation = Promise.withResolvers<undefined>();
-    deps.runWithDetectionLease = vi.fn()
+    deps.runWithDetectionLease = vi
+        .fn()
         .mockImplementationOnce(async (_ownerId, signal) => {
             firstEntered.resolve(undefined);
-            await new Promise<void>(resolve => {
+            await new Promise<void>((resolve) => {
                 if (signal.aborted) {
                     resolve();
                     return;
@@ -1511,9 +1324,12 @@ export async function scenarioStartsFreshIdenticalDetectionAfterCancellationIsAc
             await settleFirstCancellation.promise;
             throw signal.reason;
         })
-        .mockImplementationOnce(async (_ownerId, signal) => new Promise((_, reject) => {
-            signal.addEventListener('abort', () => reject(signal.reason), {once: true});
-        }));
+        .mockImplementationOnce(
+            async (_ownerId, signal) =>
+                new Promise((_, reject) => {
+                    signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+                }),
+        );
     const service = createDetectionScenarioOwner(deps);
     const owner = sender();
     const first = await service.detectAll(owner, detectionRequest);
@@ -1530,16 +1346,12 @@ export async function scenarioStartsFreshIdenticalDetectionAfterCancellationIsAc
     expect(replacement.jobId).not.toBe(first.jobId);
     expect(service.getDetectionJobState(owner, replacement.jobId, detectionRequest)?.status).toBe('queued');
     settleFirstCancellation.resolve(undefined);
-    await vi.waitFor(() => expect(
-        service.getDetectionJobState(owner, first.jobId, detectionRequest)?.status,
-    ).toBe('canceled'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, first.jobId, detectionRequest)?.status).toBe('canceled'));
     expect(service.getDetectionJobState(owner, replacement.jobId, detectionRequest)?.status).not.toBe('canceled');
     await service.dispose();
-
 }
 
 export async function scenarioCancelsDetectAllWhenTheOwningRendererIsDestroyed(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
     deps.runSidecar = vi.fn(async (_binary, manifestPath, signal) => {
@@ -1561,16 +1373,10 @@ export async function scenarioCancelsDetectAllWhenTheOwningRendererIsDestroyed()
 
     owner.emit('destroyed');
 
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('canceled'));
-
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('canceled'));
 }
 
 export async function scenarioDoesNotDeliverTerminalDetectionStateAfterARendererIsDestroyed(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
     deps.runSidecar = vi.fn(async (_binary, manifestPath, signal, _log, onProgress) => {
@@ -1601,18 +1407,12 @@ export async function scenarioDoesNotDeliverTerminalDetectionStateAfterARenderer
     owner.destroyed = true;
     owner.emit('destroyed');
 
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('canceled'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('canceled'));
     expect(owner.send.mock.calls.length).toBe(sendsBeforeDestroy);
     await service.dispose();
-
 }
 
 export async function scenarioRetainsBorrowedCompletedEvidenceUntilTheRendererOwnerCloses(): Promise<void> {
-
     const {deps} = await previewDependencies();
     const entered = Promise.withResolvers<undefined>();
     deps.runSidecar = vi.fn(async (_binary, _manifestPath, signal) => {
@@ -1674,25 +1474,16 @@ export async function scenarioRetainsBorrowedCompletedEvidenceUntilTheRendererOw
     expect(close).not.toHaveBeenCalled();
     await borrow!.release();
     expect(close).toHaveBeenCalledOnce();
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('canceled'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('canceled'));
     await service.dispose();
-
 }
 
 export async function scenarioDoesNotReleaseCompletedEvidenceWhenCancelIsRepeated(): Promise<void> {
-
     const {deps} = await previewDependencies();
     deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
         await writeDetectionMetadata(manifestPath);
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
-        for (const [
-            index,
-            page,
-        ] of manifest.pages.entries()) {
+        for (const [index, page] of manifest.pages.entries()) {
             await onProgress({
                 stage: 'page-complete',
                 completedPages: index + 1,
@@ -1706,11 +1497,7 @@ export async function scenarioDoesNotReleaseCompletedEvidenceWhenCancelIsRepeate
     const service = createDetectionScenarioOwner(deps);
     const owner = lifecycleSender();
     const started = await service.detectAll(owner, detectionRequest);
-    await vi.waitFor(() => expect(service.getDetectionJobState(
-        owner,
-        started.jobId,
-        detectionRequest,
-    )?.status).toBe('completed'));
+    await vi.waitFor(() => expect(service.getDetectionJobState(owner, started.jobId, detectionRequest)?.status).toBe('completed'));
 
     const close = vi.fn(async () => undefined);
     const storeId = registerScanCleanupDetectionResultStore({
@@ -1745,7 +1532,6 @@ export async function scenarioDoesNotReleaseCompletedEvidenceWhenCancelIsRepeate
     await releaseScanCleanupDetectionResultStoreOwner(detectionRequest.ownerId);
     expect(close).toHaveBeenCalledOnce();
     await service.dispose();
-
 }
 describe('scanCleanupDetectionLifecycleTest', () => {
     it('carries the accepted MediaBox view together with its preview page plan', async () => {
@@ -1799,7 +1585,9 @@ describe('scanCleanupDetectionLifecycleTest', () => {
                 close: async () => undefined,
                 getPage: async () => record,
                 readRange: async () => [record],
-                forEachChunk: async onChunk => { await onChunk([record], 1); },
+                forEachChunk: async (onChunk) => {
+                    await onChunk([record], 1);
+                },
             },
         });
         try {
@@ -1810,9 +1598,9 @@ describe('scanCleanupDetectionLifecycleTest', () => {
             // A normalized split measured on a wider source view must never be
             // replayed against the original portrait CropBox raster.
             expect(resolved.pagePlanEvidence).toEqual(pagePlanEvidence);
-            const decoded = SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs[
-                SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels.preview
-            ].decodeArgs([resolved])[0];
+            const decoded = SCAN_CLEANUP_PLATFORM_FEATURE.ipcCodecs[SCAN_CLEANUP_PLATFORM_FEATURE.invokeChannels.preview].decodeArgs([
+                resolved,
+            ])[0];
             expect(decoded).toMatchObject({sourcePageMetadata});
         } finally {
             await releaseScanCleanupDetectionResultStoreOwner(request.ownerId);
@@ -1863,13 +1651,17 @@ describe('scanCleanupDetectionLifecycleTest', () => {
                 pageNumber,
                 rotationDegrees: 0,
                 layoutClassification: 'single-uncut-page',
-                outputs: {full: {contentBox: {
-                    xNormalized: 0.1,
-                    yNormalized: 0.1,
-                    widthNormalized: 0.8,
-                    heightNormalized: 0.7,
-                    rotationDegrees: 0,
-                }}},
+                outputs: {
+                    full: {
+                        contentBox: {
+                            xNormalized: 0.1,
+                            yNormalized: 0.1,
+                            widthNormalized: 0.8,
+                            heightNormalized: 0.7,
+                            rotationDegrees: 0,
+                        },
+                    },
+                },
             },
         };
         let chunkReads = 0;
@@ -1879,11 +1671,13 @@ describe('scanCleanupDetectionLifecycleTest', () => {
             resultCount: 1,
             append: async () => undefined,
             replace: async () => undefined,
-            getPage: async requestedPage => requestedPage === 1 ? record : undefined,
+            getPage: async (requestedPage) => (requestedPage === 1 ? record : undefined),
             readRange: async () => [record],
-            forEachChunk: async onChunk => {
+            forEachChunk: async (onChunk) => {
                 chunkReads += 1;
-                if (chunkReads === 1) await firstChunk.promise;
+                if (chunkReads === 1) {
+                    await firstChunk.promise;
+                }
                 await onChunk([record], 1);
             },
             close: vi.fn(async () => undefined),
@@ -1927,13 +1721,15 @@ describe('scanCleanupDetectionLifecycleTest', () => {
                 layoutOverride: 'auto',
                 excluded: false,
                 manualSplit: null,
-                manualContentBoxes: {full: {
-                    xNormalized: 0.1,
-                    yNormalized: 0.3,
-                    widthNormalized: 0.8,
-                    heightNormalized: 0.7,
-                    rotationDegrees: 0,
-                }},
+                manualContentBoxes: {
+                    full: {
+                        xNormalized: 0.1,
+                        yNormalized: 0.3,
+                        widthNormalized: 0.8,
+                        heightNormalized: 0.7,
+                        rotationDegrees: 0,
+                    },
+                },
             };
             const changedRequest = {
                 ...request,
@@ -1942,17 +1738,7 @@ describe('scanCleanupDetectionLifecycleTest', () => {
             const changed = owner.resolvePlacementAnchorCalibration(calibrationSender, changedRequest);
             await vi.waitFor(() => expect(chunkReads).toBe(3));
             firstChunk.resolve(undefined);
-            const [
-                firstCalibration,
-                secondCalibration,
-                changedCalibration,
-            ] = await Promise.all(
-                [
-                    first,
-                    second,
-                    changed,
-                ],
-            );
+            const [firstCalibration, secondCalibration, changedCalibration] = await Promise.all([first, second, changed]);
             expect(firstCalibration).toEqual(secondCalibration);
             expect(firstCalibration.summary.topEdgeNormalized).toBe(0.1);
             expect(changedCalibration.summary.topEdgeNormalized).toBe(0.3);
@@ -1973,15 +1759,14 @@ describe('scanCleanupDetectionLifecycleTest', () => {
         await retention.dispose();
     });
 
-    it.each(['retired', 'disconnected'] as const)('publishes a %s detection closure on the job channel', async status => {
+    it.each(['retired', 'disconnected'] as const)('publishes a %s detection closure on the job channel', async (status) => {
         const {deps} = await previewDependencies();
         const service = createDetectionScenarioOwner(deps);
         const subscriber = lifecycleSender();
         const started = await service.detectAll(subscriber, detectionRequest);
         try {
             expect(started.started).toBe(true);
-            expect(service.subscribeDetectionJob(subscriber, started.jobId, detectionRequest))
-                .toMatchObject({jobId: started.jobId});
+            expect(service.subscribeDetectionJob(subscriber, started.jobId, detectionRequest)).toMatchObject({jobId: started.jobId});
             if (status === 'disconnected') {
                 subscriber.emit('did-start-navigation', {}, 'about:blank', false, true);
             }
@@ -1989,10 +1774,10 @@ describe('scanCleanupDetectionLifecycleTest', () => {
             await service.dispose();
         }
 
-        expect(subscriber.send).toHaveBeenCalledWith(
-            SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState,
-            {jobId: started.jobId, status},
-        );
+        expect(subscriber.send).toHaveBeenCalledWith(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState, {
+            jobId: started.jobId,
+            status,
+        });
     });
 
     it('returns completed detection evidence on first subscribe and same-owner re-subscribe', async () => {
@@ -2017,8 +1802,10 @@ describe('scanCleanupDetectionLifecycleTest', () => {
         // Observe the owner's event at the transport boundary while the
         // renderer has yet to ask for its first subscription snapshot.
         subscriber.send.mockImplementation((channel: string, state: TScanCleanupDetectionJobState) => {
-            if (channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState
-                && (state.status === 'completed' || state.status === 'failed' || state.status === 'canceled')) {
+            if (
+                channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState &&
+                (state.status === 'completed' || state.status === 'failed' || state.status === 'canceled')
+            ) {
                 terminal.resolve(state);
             }
         });
@@ -2032,10 +1819,12 @@ describe('scanCleanupDetectionLifecycleTest', () => {
                 jobId: started.jobId,
                 status: 'completed',
                 progress: {completedUnits: 3},
-                results: expect.arrayContaining([expect.objectContaining({
-                    pageNumber: 3,
-                    classification: 'single-uncut-page',
-                })]),
+                results: expect.arrayContaining([
+                    expect.objectContaining({
+                        pageNumber: 3,
+                        classification: 'single-uncut-page',
+                    }),
+                ]),
             };
             expect(subscribe()).toMatchObject(expected);
             expect(subscribe()).toMatchObject(expected);
@@ -2045,98 +1834,35 @@ describe('scanCleanupDetectionLifecycleTest', () => {
     });
 
     const scenarios = [
-        [
-            'publish provisional results before reconciliation',
-            scenarioPublishesProvisionalPageResultsBeforeDocumentReconciliationCompletes,
-        ],
-        [
-            'stage replayable rasters before native analysis',
-            scenarioStagesEveryReplayableDetectionRasterBeforeNativeAnalysisBegins,
-        ],
-        [
-            'remove temporary rasters after native failure',
-            scenarioRemovesTemporaryDetectionRasterPathsWhenNativeAnalysisFails,
-        ],
-        [
-            'settle abort during native analysis',
-            scenarioDoesNotHangWhenDetectionAbortsDuringNativeAnalysis,
-        ],
-        [
-            'reconcile the whole document',
-            scenarioReconcilesEveryDetectionClassificationAgainstTheWholeDocumentNotAWindowOfIt,
-        ],
-        [
-            'rasterize detection pages to disk',
-            scenarioRasterizesDetectionPagesStraightToDiskInsteadOfBufferingThem,
-        ],
-        [
-            'use the canonical detection grid',
-            scenarioAnalyzesEveryPageOnTheCanonicalGridFinalRenderingUses,
-        ],
+        ['publish provisional results before reconciliation', scenarioPublishesProvisionalPageResultsBeforeDocumentReconciliationCompletes],
+        ['stage replayable rasters before native analysis', scenarioStagesEveryReplayableDetectionRasterBeforeNativeAnalysisBegins],
+        ['remove temporary rasters after native failure', scenarioRemovesTemporaryDetectionRasterPathsWhenNativeAnalysisFails],
+        ['settle abort during native analysis', scenarioDoesNotHangWhenDetectionAbortsDuringNativeAnalysis],
+        ['reconcile the whole document', scenarioReconcilesEveryDetectionClassificationAgainstTheWholeDocumentNotAWindowOfIt],
+        ['rasterize detection pages to disk', scenarioRasterizesDetectionPagesStraightToDiskInsteadOfBufferingThem],
+        ['use the canonical detection grid', scenarioAnalyzesEveryPageOnTheCanonicalGridFinalRenderingUses],
         [
             'reuse a detection raster without a second page count',
             scenarioPreviewsAPageDetectionRasterizedWithoutARendererAndWithoutASecondPageCount,
         ],
-        [
-            'hand brokered rasters to later previews',
-            scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRastersToLaterPreviewRequests,
-        ],
-        [
-            'lease the host-wide raster width',
-            scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllowsAndLeasesThatWidth,
-        ],
-        [
-            'admit the classifier sidecar',
-            scenarioIncludesTheClassifierSidecarInStreamingDetectionAdmission,
-        ],
-        [
-            'emit each detection classification once',
-            scenarioStreamsEveryDetectionClassificationToTheSubscriberExactlyOnce,
-        ],
-        [
-            'bound xlarge renderer payloads',
-            scenarioKeepsXlargeDetectionEventPayloadsWithinTheRendererPageWindow,
-        ],
-        [
-            'redetect changed pages over held rasters',
-            scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsPageForPage,
-        ],
+        ['hand brokered rasters to later previews', scenarioStreamsABrokeredDetectAllLifecycleAndHandsItsRastersToLaterPreviewRequests],
+        ['lease the host-wide raster width', scenarioRasterizesDetectionPagesAsWideAsThe11CoreHostAllowsAndLeasesThatWidth],
+        ['admit the classifier sidecar', scenarioIncludesTheClassifierSidecarInStreamingDetectionAdmission],
+        ['emit each detection classification once', scenarioStreamsEveryDetectionClassificationToTheSubscriberExactlyOnce],
+        ['bound xlarge renderer payloads', scenarioKeepsXlargeDetectionEventPayloadsWithinTheRendererPageWindow],
+        ['redetect changed pages over held rasters', scenarioReDetectsAChangedPageOverTheRastersItAlreadyHoldsPageForPage],
         [
             'rasterize only pages retention released',
             scenarioRasterizesOnlyThePagesRetentionNoLongerHoldsAndStillReconcilesOverTheWholeDocument,
         ],
-        [
-            'cancel and remove detection scratch',
-            scenarioCancelsDetectAllThroughItsSignalAndRemovesItsScratchArtifacts,
-        ],
-        [
-            'join and replace same-owner work',
-            scenarioJoinsIdenticalDetectionWorkAndReplacesAChangedRequestForTheSameOwner,
-        ],
-        [
-            'coalesce identical work before start',
-            scenarioCoalescesBackToBackIdenticalDetectionRequestsBeforeStart,
-        ],
-        [
-            'start fresh after acknowledged cancellation',
-            scenarioStartsFreshIdenticalDetectionAfterCancellationIsAcknowledgedButNotTerminal,
-        ],
-        [
-            'cancel on renderer destruction',
-            scenarioCancelsDetectAllWhenTheOwningRendererIsDestroyed,
-        ],
-        [
-            'suppress terminal delivery after destruction',
-            scenarioDoesNotDeliverTerminalDetectionStateAfterARendererIsDestroyed,
-        ],
-        [
-            'retain completed evidence until owner close',
-            scenarioRetainsBorrowedCompletedEvidenceUntilTheRendererOwnerCloses,
-        ],
-        [
-            'keep repeated cancellation idempotent',
-            scenarioDoesNotReleaseCompletedEvidenceWhenCancelIsRepeated,
-        ],
+        ['cancel and remove detection scratch', scenarioCancelsDetectAllThroughItsSignalAndRemovesItsScratchArtifacts],
+        ['join and replace same-owner work', scenarioJoinsIdenticalDetectionWorkAndReplacesAChangedRequestForTheSameOwner],
+        ['coalesce identical work before start', scenarioCoalescesBackToBackIdenticalDetectionRequestsBeforeStart],
+        ['start fresh after acknowledged cancellation', scenarioStartsFreshIdenticalDetectionAfterCancellationIsAcknowledgedButNotTerminal],
+        ['cancel on renderer destruction', scenarioCancelsDetectAllWhenTheOwningRendererIsDestroyed],
+        ['suppress terminal delivery after destruction', scenarioDoesNotDeliverTerminalDetectionStateAfterARendererIsDestroyed],
+        ['retain completed evidence until owner close', scenarioRetainsBorrowedCompletedEvidenceUntilTheRendererOwnerCloses],
+        ['keep repeated cancellation idempotent', scenarioDoesNotReleaseCompletedEvidenceWhenCancelIsRepeated],
     ] as const;
     it.each(scenarios)('%s', async (_name, scenario) => {
         await scenario();

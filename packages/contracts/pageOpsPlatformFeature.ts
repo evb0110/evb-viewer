@@ -1,17 +1,7 @@
-import {
-    PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA,
-    PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA,
-} from '@contracts/pdfBookmarkEntry';
-import type {
-    TPageNumber,
-    IPageMoveRangeSegment,
-} from '@contracts/pageNumbers';
+import {PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA, PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA} from '@contracts/pdfBookmarkEntry';
+import type {TPageNumber, IPageMoveRangeSegment} from '@contracts/pageNumbers';
 
-import type {
-    IPageOpsMutationOptions,
-    TPageOpsPageSelection,
-    TPageOpsRotationAngle,
-} from '@contracts/electronApiPageOps';
+import type {IPageOpsMutationOptions, TPageOpsPageSelection, TPageOpsRotationAngle} from '@contracts/electronApiPageOps';
 import {
     decodeMetadataSnapshot,
     PAGE_OPS_CANCEL_ACTIVE_RESULT_SCHEMA,
@@ -20,19 +10,9 @@ import {
 } from '@contracts/electronApiPageOps';
 import {PAGE_GEOMETRY_SCHEMA} from '@contracts/decodePageGeometry';
 import {parseDocumentRevisionToken} from '@contracts/documentRevision';
-import {
-    normalizeCropMargins,
-    parseRequestId,
-} from '@contracts/shared';
-import type {
-    ICropMargins,
-    TRequestId,
-} from '@contracts/shared';
-import {
-    definePlatformFeature,
-    type TFeatureCapability,
-    type TFeatureInvokeMap,
-} from '@contracts/platformFeature';
+import {normalizeCropMargins, parseRequestId} from '@contracts/shared';
+import type {ICropMargins, TRequestId} from '@contracts/shared';
+import {definePlatformFeature, type TFeatureCapability, type TFeatureInvokeMap} from '@contracts/platformFeature';
 import * as v from 'valibot';
 import {isRecord} from '@contracts/runtimeGuards';
 import type {IPdfNativeTextBoxAppearanceRequest} from '@contracts/electronApiDocuments';
@@ -46,16 +26,16 @@ const MAX_COLLECTION_ITEMS = 100_000;
 const MAX_PAGE_SELECTION_ITEMS = 1_000_000;
 /** qpdf's page listing is read before it can rewrite source object identities. */
 export function decodePageSourceReferences(value: unknown) {
-    const page = v.pipe(v.object({object: v.pipe(v.string(), v.regex(/^[1-9]\d* \d+ R$/u))}), v.transform(({object}) => {
-        const [
-            num,
-            gen,
-        ] = object.split(' ').map(Number);
-        return v.parse(PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA, {
-            num,
-            gen,
-        });
-    }));
+    const page = v.pipe(
+        v.object({object: v.pipe(v.string(), v.regex(/^[1-9]\d* \d+ R$/u))}),
+        v.transform(({object}) => {
+            const [num, gen] = object.split(' ').map(Number);
+            return v.parse(PDF_BOOKMARK_SOURCE_REFERENCE_SCHEMA, {
+                num,
+                gen,
+            });
+        }),
+    );
     return v.parse(v.object({pages: v.pipe(v.array(page), v.maxLength(MAX_PAGE_SELECTION_ITEMS))}), value).pages;
 }
 
@@ -69,14 +49,7 @@ type TReorderArgs = [string, number[], IPageOpsMutationOptions | undefined];
 type TMoveArgs = [string, number, number, number, number, IPageOpsMutationOptions | undefined];
 type TMoveRangesArgs = [string, IPageMoveRangeSegment[], number, number, IPageOpsMutationOptions | undefined];
 type TInsertArgs = [string, number, number, IPageOpsMutationOptions | undefined];
-type TInsertFileArgs = [
-    string,
-    number,
-    number,
-    string[],
-    TRequestId | undefined,
-    IPageOpsMutationOptions | undefined,
-];
+type TInsertFileArgs = [string, number, number, string[], TRequestId | undefined, IPageOpsMutationOptions | undefined];
 type TRotateArgs = [string, TPageOpsPageSelection, number, TPageOpsRotationAngle, IPageOpsMutationOptions | undefined];
 type TCropArgs = [string, TPageOpsPageSelection, number, ICropMargins, IPageOpsMutationOptions | undefined];
 type TRemoveCropArgs = [string, TPageOpsPageSelection, number, IPageOpsMutationOptions | undefined];
@@ -130,7 +103,7 @@ function decodePositiveIntegerArray(args: unknown[], index: number, fieldName: s
     if (value.length > MAX_PAGE_SELECTION_ITEMS) {
         throw new Error(`${fieldName} exceeds maximum item count (${MAX_PAGE_SELECTION_ITEMS})`);
     }
-    if (value.some(item => typeof item !== 'number' || !Number.isSafeInteger(item) || item < 1)) {
+    if (value.some((item) => typeof item !== 'number' || !Number.isSafeInteger(item) || item < 1)) {
         throw new Error(`${fieldName} must contain positive safe integers`);
     }
     return value.filter((item): item is number => typeof item === 'number');
@@ -172,13 +145,13 @@ function decodePageMoveRangeSegments(args: unknown[], index: number, fieldName: 
     }
     return value.map((item): IPageMoveRangeSegment => {
         if (
-            !isRecord(item)
-            || typeof item.startPage !== 'number'
-            || !Number.isSafeInteger(item.startPage)
-            || item.startPage < 1
-            || typeof item.endPage !== 'number'
-            || !Number.isSafeInteger(item.endPage)
-            || item.endPage < item.startPage
+            !isRecord(item) ||
+            typeof item.startPage !== 'number' ||
+            !Number.isSafeInteger(item.startPage) ||
+            item.startPage < 1 ||
+            typeof item.endPage !== 'number' ||
+            !Number.isSafeInteger(item.endPage) ||
+            item.endPage < item.startPage
         ) {
             throw new Error(`${fieldName} must contain non-empty page ranges`);
         }
@@ -189,19 +162,11 @@ function decodePageMoveRangeSegments(args: unknown[], index: number, fieldName: 
     });
 }
 
-function decodePageDeleteRangeSegments(
-    args: unknown[],
-    index: number,
-    fieldName: string,
-    totalPages: number,
-) {
+function decodePageDeleteRangeSegments(args: unknown[], index: number, fieldName: string, totalPages: number) {
     const ranges = decodePageMoveRangeSegments(args, index, fieldName);
     let previousEnd = 0;
     for (const range of ranges) {
-        if (
-            range.endPage > totalPages
-            || range.startPage <= previousEnd
-        ) {
+        if (range.endPage > totalPages || range.startPage <= previousEnd) {
             throw new Error(`${fieldName} must be sorted, disjoint, and within the document`);
         }
         previousEnd = range.endPage;
@@ -217,7 +182,7 @@ function decodeStringArray(args: unknown[], index: number, fieldName: string) {
     if (value.length > MAX_COLLECTION_ITEMS) {
         throw new Error(`${fieldName} exceeds maximum item count (${MAX_COLLECTION_ITEMS})`);
     }
-    if (value.some(item => typeof item !== 'string' || item.trim().length === 0)) {
+    if (value.some((item) => typeof item !== 'string' || item.trim().length === 0)) {
         throw new Error(`${fieldName} must be an array of non-empty strings`);
     }
     return value.filter((item): item is string => typeof item === 'string');
@@ -230,17 +195,12 @@ function decodeMutationOptions(value: unknown): IPageOpsMutationOptions | undefi
     if (!isRecord(value)) {
         throw new Error('options must be an object');
     }
-    const allowedKeys = new Set([
-        'expectedDocumentRevisionToken',
-        'metadataSnapshot',
-    ]);
-    const unsupportedKey = Object.keys(value).find(key => !allowedKeys.has(key));
+    const allowedKeys = new Set(['expectedDocumentRevisionToken', 'metadataSnapshot']);
+    const unsupportedKey = Object.keys(value).find((key) => !allowedKeys.has(key));
     if (unsupportedKey) {
         throw new Error(`options contains unsupported key "${unsupportedKey}"`);
     }
-    const metadataSnapshot = value.metadataSnapshot === undefined
-        ? undefined
-        : decodeMetadataSnapshot(value.metadataSnapshot);
+    const metadataSnapshot = value.metadataSnapshot === undefined ? undefined : decodeMetadataSnapshot(value.metadataSnapshot);
     if (value.expectedDocumentRevisionToken === undefined) {
         return metadataSnapshot === undefined ? {} : {metadataSnapshot};
     }
@@ -273,19 +233,16 @@ const extractResult = PAGE_OPS_EXTRACT_RESULT_SCHEMA;
 const cancelActiveResult = PAGE_OPS_CANCEL_ACTIVE_RESULT_SCHEMA;
 const pageGeometry = PAGE_GEOMETRY_SCHEMA;
 
-function args<T extends unknown[]>(
-    count: number,
-    decode: (value: unknown[]) => T,
-) {
+function args<T extends unknown[]>(count: number, decode: (value: unknown[]) => T) {
     const tuple = Array.from({length: count}, () => v.unknown()) as [v.GenericSchema, ...v.GenericSchema[]];
     return v.pipe(
         v.unknown(),
         v.check(
-            value => Array.isArray(value) && value.length === count,
-            issue => `expected ${count} arguments, received ${Array.isArray(issue.input) ? issue.input.length : 0}`,
+            (value) => Array.isArray(value) && value.length === count,
+            (issue) => `expected ${count} arguments, received ${Array.isArray(issue.input) ? issue.input.length : 0}`,
         ),
         v.strictTuple(tuple),
-        v.transform(value => decode(value)),
+        v.transform((value) => decode(value)),
     ) as v.GenericSchema<unknown, T>;
 }
 
@@ -295,13 +252,7 @@ function method<
     TArgs extends v.GenericSchema<unknown, unknown[]>,
     TResult extends v.GenericSchema<unknown, unknown>,
     TMapArgs extends (...args: never[]) => v.InferOutput<TArgs>,
->(
-    name: TName,
-    channel: TChannel,
-    methodArgs: TArgs,
-    result: TResult,
-    mapArgs: TMapArgs,
-) {
+>(name: TName, channel: TChannel, methodArgs: TArgs, result: TResult, mapArgs: TMapArgs) {
     return {
         kind: 'async',
         channel,
@@ -332,40 +283,38 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
             'page-ops:text-box-appearance',
             v.strictTuple([
                 v.nullable(v.string()),
-                v.pipe(v.unknown(), v.transform(value => normalizePdfNativeTextBoxAppearanceRequest(value))),
+                v.pipe(
+                    v.unknown(),
+                    v.transform((value) => normalizePdfNativeTextBoxAppearanceRequest(value)),
+                ),
             ]),
             v.pipe(
                 v.object({
-                    data: v.pipe(v.custom<Uint8Array>(value => value instanceof Uint8Array), v.check(value => value.byteLength > 0
-                    && value.byteLength <= PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.outputBytes)),
+                    data: v.pipe(
+                        v.custom<Uint8Array>((value) => value instanceof Uint8Array),
+                        v.check((value) => value.byteLength > 0 && value.byteLength <= PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.outputBytes),
+                    ),
                     textBoxes: v.unknown(),
                 }),
-                v.transform(value => ({
+                v.transform((value) => ({
                     ...normalizePdfNativeTextBoxAppearanceMetadata(value),
                     data: value.data,
                 })),
             ),
-            (workingCopyPath: string | null, request: IPdfNativeTextBoxAppearanceRequest, _options?: {signal?: AbortSignal}) => [
-                workingCopyPath,
-                request,
-            ] as [string | null, IPdfNativeTextBoxAppearanceRequest],
+            (workingCopyPath: string | null, request: IPdfNativeTextBoxAppearanceRequest, _options?: {signal?: AbortSignal}) =>
+                [workingCopyPath, request] as [string | null, IPdfNativeTextBoxAppearanceRequest],
         ),
         delete: method(
             'delete',
             'page-ops:delete',
-            args<TDeleteArgs>(4, value => [
+            args<TDeleteArgs>(4, (value) => [
                 decodeString(value, 0, 'workingCopyPath'),
                 decodePageSelection(value, 1, 'pages'),
                 decodeSafeInteger(value, 2, 'totalPages', 1),
                 decodeMutationOptions(value[3]),
             ]),
             pageOpsResult,
-            (
-                workingCopyPath: string,
-                pages: TPageOpsPageSelection,
-                totalPages: number,
-                options?: IPageOpsMutationOptions,
-            ): TDeleteArgs => [
+            (workingCopyPath: string, pages: TPageOpsPageSelection, totalPages: number, options?: IPageOpsMutationOptions): TDeleteArgs => [
                 workingCopyPath,
                 pages,
                 totalPages,
@@ -375,7 +324,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
         deleteRanges: method(
             'deleteRanges',
             'page-ops:delete-ranges',
-            args<TDeleteRangesArgs>(4, value => {
+            args<TDeleteRangesArgs>(4, (value) => {
                 const totalPages = decodeSafeInteger(value, 2, 'totalPages', 1);
                 return [
                     decodeString(value, 0, 'workingCopyPath'),
@@ -390,40 +339,25 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 ranges: IPageMoveRangeSegment[],
                 totalPages: number,
                 options?: IPageOpsMutationOptions,
-            ): TDeleteRangesArgs => [
-                workingCopyPath,
-                ranges,
-                totalPages,
-                options,
-            ],
+            ): TDeleteRangesArgs => [workingCopyPath, ranges, totalPages, options],
         ),
         extract: method(
             'extract',
             'page-ops:extract',
-            args<TExtractArgs>(2, value => [
-                decodeString(value, 0, 'workingCopyPath'),
-                decodePageSelection(value, 1, 'pages'),
-            ]),
+            args<TExtractArgs>(2, (value) => [decodeString(value, 0, 'workingCopyPath'), decodePageSelection(value, 1, 'pages')]),
             extractResult,
-            (workingCopyPath: string, pages: TPageOpsPageSelection): TExtractArgs => [
-                workingCopyPath,
-                pages,
-            ],
+            (workingCopyPath: string, pages: TPageOpsPageSelection): TExtractArgs => [workingCopyPath, pages],
         ),
         reorder: method(
             'reorder',
             'page-ops:reorder',
-            args<TReorderArgs>(3, value => [
+            args<TReorderArgs>(3, (value) => [
                 decodeString(value, 0, 'workingCopyPath'),
                 decodePositiveIntegerArray(value, 1, 'newOrder'),
                 decodeMutationOptions(value[2]),
             ]),
             pageOpsResult,
-            (
-                workingCopyPath: string,
-                newOrder: number[],
-                options?: IPageOpsMutationOptions,
-            ): TReorderArgs => [
+            (workingCopyPath: string, newOrder: number[], options?: IPageOpsMutationOptions): TReorderArgs => [
                 workingCopyPath,
                 newOrder,
                 options,
@@ -432,7 +366,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
         move: method(
             'move',
             'page-ops:move',
-            args<TMoveArgs>(6, value => [
+            args<TMoveArgs>(6, (value) => [
                 decodeString(value, 0, 'workingCopyPath'),
                 decodeSafeInteger(value, 1, 'startPage', 1),
                 decodeSafeInteger(value, 2, 'endPage', 1),
@@ -448,32 +382,19 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 insertAt: number,
                 totalPages: number,
                 options?: IPageOpsMutationOptions,
-            ): TMoveArgs => [
-                workingCopyPath,
-                startPage,
-                endPage,
-                insertAt,
-                totalPages,
-                options,
-            ],
+            ): TMoveArgs => [workingCopyPath, startPage, endPage, insertAt, totalPages, options],
         ),
         moveRanges: method(
             'moveRanges',
             'page-ops:move-ranges',
-            args<TMoveRangesArgs>(5, value => {
+            args<TMoveRangesArgs>(5, (value) => {
                 const totalPages = decodeSafeInteger(value, 3, 'totalPages', 1);
                 const ranges = decodePageMoveRangeSegments(value, 1, 'ranges');
                 const insertAt = decodeSafeInteger(value, 2, 'insertAt');
                 if (insertAt < 0 || insertAt > totalPages) {
                     throw new Error(`insertAt must be a safe integer in 0-${totalPages}`);
                 }
-                return [
-                    decodeString(value, 0, 'workingCopyPath'),
-                    ranges,
-                    insertAt,
-                    totalPages,
-                    decodeMutationOptions(value[4]),
-                ];
+                return [decodeString(value, 0, 'workingCopyPath'), ranges, insertAt, totalPages, decodeMutationOptions(value[4])];
             }),
             pageOpsResult,
             (
@@ -482,30 +403,19 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 insertAt: number,
                 totalPages: number,
                 options?: IPageOpsMutationOptions,
-            ): TMoveRangesArgs => [
-                workingCopyPath,
-                ranges,
-                insertAt,
-                totalPages,
-                options,
-            ],
+            ): TMoveRangesArgs => [workingCopyPath, ranges, insertAt, totalPages, options],
         ),
         insert: method(
             'insert',
             'page-ops:insert',
-            args<TInsertArgs>(4, value => [
+            args<TInsertArgs>(4, (value) => [
                 decodeString(value, 0, 'workingCopyPath'),
                 decodeSafeInteger(value, 1, 'totalPages'),
                 decodeSafeInteger(value, 2, 'afterPage'),
                 decodeMutationOptions(value[3]),
             ]),
             pageOpsResult,
-            (
-                workingCopyPath: string,
-                totalPages: number,
-                afterPage: number,
-                options?: IPageOpsMutationOptions,
-            ): TInsertArgs => [
+            (workingCopyPath: string, totalPages: number, afterPage: number, options?: IPageOpsMutationOptions): TInsertArgs => [
                 workingCopyPath,
                 totalPages,
                 afterPage,
@@ -515,7 +425,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
         insertFile: method(
             'insertFile',
             'page-ops:insert-file',
-            args<TInsertFileArgs>(6, value => [
+            args<TInsertFileArgs>(6, (value) => [
                 decodeString(value, 0, 'workingCopyPath'),
                 decodeSafeInteger(value, 1, 'totalPages'),
                 decodeSafeInteger(value, 2, 'afterPage'),
@@ -531,19 +441,12 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 sourcePaths: string[],
                 requestId?: TRequestId,
                 options?: IPageOpsMutationOptions,
-            ): TInsertFileArgs => [
-                workingCopyPath,
-                totalPages,
-                afterPage,
-                sourcePaths,
-                requestId,
-                options,
-            ],
+            ): TInsertFileArgs => [workingCopyPath, totalPages, afterPage, sourcePaths, requestId, options],
         ),
         rotate: method(
             'rotate',
             'page-ops:rotate',
-            args<TRotateArgs>(5, value => [
+            args<TRotateArgs>(5, (value) => [
                 decodeString(value, 0, 'workingCopyPath'),
                 decodePageSelection(value, 1, 'pages'),
                 decodeSafeInteger(value, 2, 'totalPages', 1),
@@ -557,18 +460,12 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 totalPages: number,
                 angle: TPageOpsRotationAngle,
                 options?: IPageOpsMutationOptions,
-            ): TRotateArgs => [
-                workingCopyPath,
-                pages,
-                totalPages,
-                angle,
-                options,
-            ],
+            ): TRotateArgs => [workingCopyPath, pages, totalPages, angle, options],
         ),
         crop: method(
             'crop',
             'page-ops:crop',
-            args<TCropArgs>(5, value => [
+            args<TCropArgs>(5, (value) => [
                 decodeString(value, 0, 'workingCopyPath'),
                 decodePageSelection(value, 1, 'pages'),
                 decodeSafeInteger(value, 2, 'totalPages', 1),
@@ -582,18 +479,12 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 totalPages: number,
                 margins: ICropMargins,
                 options?: IPageOpsMutationOptions,
-            ): TCropArgs => [
-                workingCopyPath,
-                pages,
-                totalPages,
-                margins,
-                options,
-            ],
+            ): TCropArgs => [workingCopyPath, pages, totalPages, margins, options],
         ),
         removeCrop: method(
             'removeCrop',
             'page-ops:remove-crop',
-            args<TRemoveCropArgs>(4, value => [
+            args<TRemoveCropArgs>(4, (value) => [
                 decodeString(value, 0, 'workingCopyPath'),
                 decodePageSelection(value, 1, 'pages'),
                 decodeSafeInteger(value, 2, 'totalPages', 1),
@@ -605,12 +496,7 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
                 pages: TPageOpsPageSelection,
                 totalPages: number,
                 options?: IPageOpsMutationOptions,
-            ): TRemoveCropArgs => [
-                workingCopyPath,
-                pages,
-                totalPages,
-                options,
-            ],
+            ): TRemoveCropArgs => [workingCopyPath, pages, totalPages, options],
         ),
         // Desktop stops the queued or running native tool; the browser ends
         // the operation's dedicated engine worker. A call whose result is
@@ -618,29 +504,26 @@ export const PAGE_OPS_PLATFORM_FEATURE = definePlatformFeature({
         cancelActive: method(
             'cancelActive',
             'page-ops:cancel-active',
-            args<TCancelActiveArgs>(1, value => [decodeString(value, 0, 'workingCopyPath')]),
+            args<TCancelActiveArgs>(1, (value) => [decodeString(value, 0, 'workingCopyPath')]),
             cancelActiveResult,
             (workingCopyPath: string): TCancelActiveArgs => [workingCopyPath],
         ),
         getPageGeometry: method(
             'getPageGeometry',
             'page-ops:get-page-geometry',
-            args<TGetPageGeometryArgs>(2, value => [
+            args<TGetPageGeometryArgs>(2, (value) => [
                 decodeString(value, 0, 'workingCopyPath'),
                 decodeSafeInteger(value, 1, 'pageNumber', 1),
             ]),
             pageGeometry,
-            (workingCopyPath: string, pageNumber: TPageNumber): TGetPageGeometryArgs => [
-                workingCopyPath,
-                pageNumber,
-            ],
+            (workingCopyPath: string, pageNumber: TPageNumber): TGetPageGeometryArgs => [workingCopyPath, pageNumber],
         ),
         // The document's outline as the native catalog reader keeps it: names
         // and actions other than GoTo stay what the source says.
         readOutline: method(
             'readOutline',
             'page-ops:read-outline',
-            args<TReadOutlineArgs>(1, value => [decodeString(value, 0, 'workingCopyPath')]),
+            args<TReadOutlineArgs>(1, (value) => [decodeString(value, 0, 'workingCopyPath')]),
             v.array(PDF_BOOKMARK_RECOVERY_ENTRY_SCHEMA),
             (workingCopyPath: string): TReadOutlineArgs => [workingCopyPath],
         ),

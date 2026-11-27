@@ -1,32 +1,11 @@
 import {execFileSync} from 'node:child_process';
-import {
-    mkdir,
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
-import {
-    createServer,
-    type Server,
-} from 'node:http';
-import {
-    join,
-    resolve,
-} from 'node:path';
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {createServer, type Server} from 'node:http';
+import {join, resolve} from 'node:path';
 import {build} from 'esbuild';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
-import {
-    afterAll,
-    beforeAll,
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import {
-    closeChromiumBrowser,
-    connectOrLaunchChromium,
-} from './browserIntegrationChromium';
+import {afterAll, beforeAll, describe, expect, it} from 'vitest';
+import {closeChromiumBrowser, connectOrLaunchChromium} from './browserIntegrationChromium';
 
 let server: Server;
 let origin = '';
@@ -174,14 +153,16 @@ async function renderSavedPageInkPixels(pdfBytes: number[], pageNumber: number) 
     const headerLength = pgm.indexOf('\n', pgm.indexOf('\n', pgm.indexOf('\n') + 1) + 1) + 1;
     let ink = 0;
     for (let offset = headerLength; offset < pgm.length; offset += 1) {
-        if (pgm[offset]! < 200) ink += 1;
+        if (pgm[offset]! < 200) {
+            ink += 1;
+        }
     }
     return ink;
 }
 
 afterAll(async () => {
     if (server) {
-        await new Promise<void>(resolveClose => server.close(() => resolveClose()));
+        await new Promise<void>((resolveClose) => server.close(() => resolveClose()));
     }
     await rm(temporaryDirectory, {
         force: true,
@@ -217,11 +198,8 @@ describe('browser compact DjVu saved scan pixels', () => {
                 expect(inkPixels).toBeGreaterThan(0);
             }
             expect(result.outputInkPixels).toHaveLength(2);
-            for (const [
-                index,
-                inkPixels,
-            ] of result.outputInkPixels.entries()) {
-                expect(inkPixels ?? await renderSavedPageInkPixels(result.outputPdf, index + 1)).toBeGreaterThan(0);
+            for (const [index, inkPixels] of result.outputInkPixels.entries()) {
+                expect(inkPixels ?? (await renderSavedPageInkPixels(result.outputPdf, index + 1))).toBeGreaterThan(0);
             }
         } finally {
             await closeChromiumBrowser(browser);

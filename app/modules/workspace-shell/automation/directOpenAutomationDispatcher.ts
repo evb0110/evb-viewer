@@ -1,4 +1,4 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
 
 type TDirectOpenDelegate = (path: TDocumentRef) => Promise<boolean>;
 
@@ -53,7 +53,7 @@ export function registerDirectOpenAutomationDelegate(delegate: TDirectOpenDelega
     }
 
     return () => {
-        const index = delegates.findIndex(candidate => candidate.id === entry.id);
+        const index = delegates.findIndex((candidate) => candidate.id === entry.id);
         if (index >= 0) {
             delegates.splice(index, 1);
         }

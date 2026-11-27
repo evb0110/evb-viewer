@@ -1,10 +1,6 @@
-import type {
-    IEditorPaneRect,
-    TEditorLayoutNode,
-    TPaneDirection,
-} from '@contracts/editorPanes';
-import { orderBy } from 'es-toolkit/array';
-import { clamp } from 'es-toolkit/math';
+import type {IEditorPaneRect, TEditorLayoutNode, TPaneDirection} from '@contracts/editorPanes';
+import {orderBy} from 'es-toolkit/array';
+import {clamp} from 'es-toolkit/math';
 
 const DIRECTIONAL_PANE_MIN_SPLIT_RATIO = 0.1;
 
@@ -16,14 +12,7 @@ interface IFindDirectionalPaneIdParams {
     wrap?: boolean;
 }
 
-function collectPaneRects(
-    node: TEditorLayoutNode,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    target: IEditorPaneRect[],
-) {
+function collectPaneRects(node: TEditorLayoutNode, x: number, y: number, width: number, height: number, target: IEditorPaneRect[]) {
     if (node.type === 'leaf') {
         target.push({
             paneId: node.paneId,
@@ -35,11 +24,7 @@ function collectPaneRects(
         return;
     }
 
-    const ratio = clamp(
-        node.ratio,
-        DIRECTIONAL_PANE_MIN_SPLIT_RATIO,
-        1 - DIRECTIONAL_PANE_MIN_SPLIT_RATIO,
-    );
+    const ratio = clamp(node.ratio, DIRECTIONAL_PANE_MIN_SPLIT_RATIO, 1 - DIRECTIONAL_PANE_MIN_SPLIT_RATIO);
     if (node.orientation === 'horizontal') {
         const firstWidth = width * ratio;
         const secondWidth = width - firstWidth;
@@ -73,15 +58,9 @@ function getMruRank(paneMru: string[], paneId: string) {
     return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
-export function findDirectionalPaneId({
-    layout,
-    sourcePaneId,
-    direction,
-    paneMru,
-    wrap = true,
-}: IFindDirectionalPaneIdParams) {
+export function findDirectionalPaneId({layout, sourcePaneId, direction, paneMru, wrap = true}: IFindDirectionalPaneIdParams) {
     const rects = getPaneRects(layout);
-    const sourceRect = rects.find(rect => rect.paneId === sourcePaneId);
+    const sourceRect = rects.find((rect) => rect.paneId === sourcePaneId);
     if (!sourceRect) {
         return null;
     }
@@ -105,41 +84,21 @@ export function findDirectionalPaneId({
         if (direction === 'right') {
             if (rect.x >= sourceRect.x + sourceRect.widthPx - 1e-6) {
                 distance = rect.x - (sourceRect.x + sourceRect.widthPx);
-                overlap = overlapAmount(
-                    sourceRect.y,
-                    sourceRect.y + sourceRect.heightPx,
-                    rect.y,
-                    rect.y + rect.heightPx,
-                );
+                overlap = overlapAmount(sourceRect.y, sourceRect.y + sourceRect.heightPx, rect.y, rect.y + rect.heightPx);
             }
         } else if (direction === 'left') {
             if (rect.x + rect.widthPx <= sourceRect.x + 1e-6) {
                 distance = sourceRect.x - (rect.x + rect.widthPx);
-                overlap = overlapAmount(
-                    sourceRect.y,
-                    sourceRect.y + sourceRect.heightPx,
-                    rect.y,
-                    rect.y + rect.heightPx,
-                );
+                overlap = overlapAmount(sourceRect.y, sourceRect.y + sourceRect.heightPx, rect.y, rect.y + rect.heightPx);
             }
         } else if (direction === 'down') {
             if (rect.y >= sourceRect.y + sourceRect.heightPx - 1e-6) {
                 distance = rect.y - (sourceRect.y + sourceRect.heightPx);
-                overlap = overlapAmount(
-                    sourceRect.x,
-                    sourceRect.x + sourceRect.widthPx,
-                    rect.x,
-                    rect.x + rect.widthPx,
-                );
+                overlap = overlapAmount(sourceRect.x, sourceRect.x + sourceRect.widthPx, rect.x, rect.x + rect.widthPx);
             }
         } else if (rect.y + rect.heightPx <= sourceRect.y + 1e-6) {
             distance = sourceRect.y - (rect.y + rect.heightPx);
-            overlap = overlapAmount(
-                sourceRect.x,
-                sourceRect.x + sourceRect.widthPx,
-                rect.x,
-                rect.x + rect.widthPx,
-            );
+            overlap = overlapAmount(sourceRect.x, sourceRect.x + sourceRect.widthPx, rect.x, rect.x + rect.widthPx);
         }
 
         if (distance !== Number.MAX_VALUE) {
@@ -153,15 +112,11 @@ export function findDirectionalPaneId({
     }
 
     if (candidates.length > 0) {
-        const sortedCandidates = orderBy(candidates, [
-            candidate => candidate.distance,
-            candidate => candidate.overlap,
-            candidate => candidate.mruRank,
-        ], [
-            'asc',
-            'desc',
-            'asc',
-        ]);
+        const sortedCandidates = orderBy(
+            candidates,
+            [(candidate) => candidate.distance, (candidate) => candidate.overlap, (candidate) => candidate.mruRank],
+            ['asc', 'desc', 'asc'],
+        );
         return sortedCandidates[0]?.paneId ?? null;
     }
 
@@ -170,43 +125,23 @@ export function findDirectionalPaneId({
     }
 
     const wrapCandidates = rects
-        .filter(rect => rect.paneId !== sourcePaneId)
+        .filter((rect) => rect.paneId !== sourcePaneId)
         .map((rect) => {
             let anchor = 0;
             let overlap = 0;
 
             if (direction === 'right') {
                 anchor = rect.x;
-                overlap = overlapAmount(
-                    sourceRect.y,
-                    sourceRect.y + sourceRect.heightPx,
-                    rect.y,
-                    rect.y + rect.heightPx,
-                );
+                overlap = overlapAmount(sourceRect.y, sourceRect.y + sourceRect.heightPx, rect.y, rect.y + rect.heightPx);
             } else if (direction === 'left') {
                 anchor = rect.x + rect.widthPx;
-                overlap = overlapAmount(
-                    sourceRect.y,
-                    sourceRect.y + sourceRect.heightPx,
-                    rect.y,
-                    rect.y + rect.heightPx,
-                );
+                overlap = overlapAmount(sourceRect.y, sourceRect.y + sourceRect.heightPx, rect.y, rect.y + rect.heightPx);
             } else if (direction === 'down') {
                 anchor = rect.y;
-                overlap = overlapAmount(
-                    sourceRect.x,
-                    sourceRect.x + sourceRect.widthPx,
-                    rect.x,
-                    rect.x + rect.widthPx,
-                );
+                overlap = overlapAmount(sourceRect.x, sourceRect.x + sourceRect.widthPx, rect.x, rect.x + rect.widthPx);
             } else {
                 anchor = rect.y + rect.heightPx;
-                overlap = overlapAmount(
-                    sourceRect.x,
-                    sourceRect.x + sourceRect.widthPx,
-                    rect.x,
-                    rect.x + rect.widthPx,
-                );
+                overlap = overlapAmount(sourceRect.x, sourceRect.x + sourceRect.widthPx, rect.x, rect.x + rect.widthPx);
             }
 
             return {
@@ -217,18 +152,12 @@ export function findDirectionalPaneId({
             };
         });
 
-    const anchorOrder: 'asc' | 'desc' = direction === 'right' || direction === 'down'
-        ? 'asc'
-        : 'desc';
-    const sortedWrapCandidates = orderBy(wrapCandidates, [
-        candidate => candidate.anchor,
-        candidate => candidate.overlap,
-        candidate => candidate.mruRank,
-    ], [
-        anchorOrder,
-        'desc',
-        'asc',
-    ]);
+    const anchorOrder: 'asc' | 'desc' = direction === 'right' || direction === 'down' ? 'asc' : 'desc';
+    const sortedWrapCandidates = orderBy(
+        wrapCandidates,
+        [(candidate) => candidate.anchor, (candidate) => candidate.overlap, (candidate) => candidate.mruRank],
+        [anchorOrder, 'desc', 'asc'],
+    );
 
     return sortedWrapCandidates[0]?.paneId ?? null;
 }

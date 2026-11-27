@@ -1,18 +1,12 @@
 // @vitest-environment happy-dom
-import {
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import type * as BrowserImageApi from '@app/platform/browser-api/public';
 import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement';
 import {preparePdfAnnotationRaster} from '@app/modules/pdf-viewer/runtime/annotations/preparePdfAnnotationRaster';
 
 const {createPreview} = vi.hoisted(() => ({createPreview: vi.fn(async () => new Blob([Uint8Array.of(4, 5, 6)], {type: 'image/png'}))}));
-vi.mock('@app/platform/browser-api/public', async importOriginal => ({
-    ...await importOriginal<typeof BrowserImageApi>(),
+vi.mock('@app/platform/browser-api/public', async (importOriginal) => ({
+    ...(await importOriginal<typeof BrowserImageApi>()),
     createStaticBrowserImagePreview: createPreview,
 }));
 
@@ -51,15 +45,7 @@ describe('preparePdfAnnotationRaster', () => {
         expect(createPreview).not.toHaveBeenCalled();
     });
 
-    it.each([
-        2,
-        3,
-        4,
-        5,
-        6,
-        7,
-        8,
-    ])('bakes JPEG EXIF orientation %i into PNG before committing history', async sourceOrientation => {
+    it.each([2, 3, 4, 5, 6, 7, 8])('bakes JPEG EXIF orientation %i into PNG before committing history', async (sourceOrientation) => {
         const image = await preparePdfAnnotationRaster(payload('image/jpeg', sourceOrientation));
         expect(image).toMatchObject({
             mimeType: 'image/png',
@@ -68,10 +54,14 @@ describe('preparePdfAnnotationRaster', () => {
             height: 800,
         });
         expect(createPreview).toHaveBeenCalledOnce();
-        expect(createPreview).toHaveBeenCalledWith(expect.objectContaining({
-            width: 1200,
-            height: 800,
-        }), 32768, undefined);
+        expect(createPreview).toHaveBeenCalledWith(
+            expect.objectContaining({
+                width: 1200,
+                height: 800,
+            }),
+            32768,
+            undefined,
+        );
     });
 
     it('normalizes a browser-only image format to lossless PNG', async () => {
@@ -93,5 +83,4 @@ describe('preparePdfAnnotationRaster', () => {
         });
         expect(createPreview).toHaveBeenCalledOnce();
     });
-
 });

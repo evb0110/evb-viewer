@@ -1,4 +1,4 @@
-import type { Ref } from 'vue';
+import type {Ref} from 'vue';
 import type {
     IAgentDocumentReadiness,
     IAgentDocumentReference,
@@ -8,27 +8,21 @@ import type {
     TAgentWorkspaceCommandTarget,
     TAgentDocumentKind,
 } from '@contracts/agent';
-import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
-import type {
-    IEditorPaneState,
-    TEditorLayoutNode,
-} from '@contracts/editorPanes';
-import type { ITab } from '@app/types/tabs';
-import type { ITabMetadataCore } from '@contracts/windowTabs';
-import type { IRecentFile } from '@contracts/shared';
-import { parseDocumentRef } from '@contracts/documentRef';
-import { requireIsoTimestamp } from '@contracts/timestamps';
-import { requirePaneId } from '@contracts/editorPanes';
-import { requireTabId } from '@contracts/windowTabs';
-import {
-    createDefaultWorkspaceToolbarSnapshot,
-    type IWorkspaceToolbarSnapshot,
-} from '@app/types/workspaceExpose';
+import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
+import type {IEditorPaneState, TEditorLayoutNode} from '@contracts/editorPanes';
+import type {ITab} from '@app/types/tabs';
+import type {ITabMetadataCore} from '@contracts/windowTabs';
+import type {IRecentFile} from '@contracts/shared';
+import {parseDocumentRef} from '@contracts/documentRef';
+import {requireIsoTimestamp} from '@contracts/timestamps';
+import {requirePaneId} from '@contracts/editorPanes';
+import {requireTabId} from '@contracts/windowTabs';
+import {createDefaultWorkspaceToolbarSnapshot, type IWorkspaceToolbarSnapshot} from '@app/types/workspaceExpose';
 import {
     describeTabDocument,
     type IWorkspaceDocumentController,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { resolveDocumentRefBackend } from '@app/utils/documentRef';
+import {resolveDocumentRefBackend} from '@app/utils/documentRef';
 
 interface IBuildAgentWorkspaceSnapshotOptions {
     panes: Ref<IEditorPaneState[]>;
@@ -87,21 +81,14 @@ function inferDocumentKindFromName(name: string): TAgentDocumentKind {
 }
 
 function cloneDocumentIdentity(identity: IDocumentRevisionInfo | null): IDocumentRevisionInfo | null {
-    return identity === null
-        ? null
-        : {...identity};
+    return identity === null ? null : {...identity};
 }
 
 function cloneCommandTarget(target: TAgentWorkspaceCommandTarget | undefined) {
-    return target === undefined
-        ? undefined
-        : {...target};
+    return target === undefined ? undefined : {...target};
 }
 
-function inferDocumentKind(
-    tab: ITabMetadataCore,
-    toolbarSnapshot: IWorkspaceToolbarSnapshot | null,
-): TAgentDocumentKind {
+function inferDocumentKind(tab: ITabMetadataCore, toolbarSnapshot: IWorkspaceToolbarSnapshot | null): TAgentDocumentKind {
     const path = getTabPath(tab);
     const name = tab.fileName ?? path ?? '';
 
@@ -120,10 +107,7 @@ function inferDocumentKind(
     return inferDocumentKindFromName(name);
 }
 
-function buildDocumentReadiness(
-    kind: TAgentDocumentKind,
-    toolbarSnapshot: IWorkspaceToolbarSnapshot | null,
-): IAgentDocumentReadiness {
+function buildDocumentReadiness(kind: TAgentDocumentKind, toolbarSnapshot: IWorkspaceToolbarSnapshot | null): IAgentDocumentReadiness {
     if (kind === 'empty') {
         return {
             status: 'empty',
@@ -136,14 +120,17 @@ function buildDocumentReadiness(
         return {
             status: 'needs-preparation',
             reasons: ['Agents work best against a PDF document model with stable pages and text extraction.'],
-            recommendations: [{
-                id: 'convert_to_pdf',
-                title: 'Convert to PDF',
-                reason: kind === 'djvu'
-                    ? 'DjVu documents should be converted to PDF before deeper agent analysis.'
-                    : 'Image documents should be converted to PDF before deeper agent analysis.',
-                toolName: 'page_ops.convert_to_pdf',
-            }],
+            recommendations: [
+                {
+                    id: 'convert_to_pdf',
+                    title: 'Convert to PDF',
+                    reason:
+                        kind === 'djvu'
+                            ? 'DjVu documents should be converted to PDF before deeper agent analysis.'
+                            : 'Image documents should be converted to PDF before deeper agent analysis.',
+                    toolName: 'page_ops.convert_to_pdf',
+                },
+            ],
         };
     }
 
@@ -167,11 +154,7 @@ function buildDocumentReadiness(
     };
 }
 
-function buildAgentTabSnapshot(
-    tabId: string,
-    pane: IEditorPaneState | null,
-    session: IWorkspaceDocumentController,
-): IAgentTabSnapshot {
+function buildAgentTabSnapshot(tabId: string, pane: IEditorPaneState | null, session: IWorkspaceDocumentController): IAgentTabSnapshot {
     const snapshot = session.snapshot.value;
     const tab = describeTabDocument(snapshot);
     const view = session.getView(tabId);
@@ -192,7 +175,7 @@ function buildAgentTabSnapshot(
         ...(documentSessionKey === null ? {} : {documentSessionKey}),
         ...(documentInstanceId === null ? {} : {documentInstanceId}),
         documentIdentity,
-        ...(commandTarget === undefined ? {} : { commandTarget }),
+        ...(commandTarget === undefined ? {} : {commandTarget}),
         isDirty: tab.isDirty,
         kind,
         workspaceAttached: (view?.mountedWorkspace.value ?? null) !== null,
@@ -207,13 +190,7 @@ function buildAgentTabSnapshot(
 }
 
 function isAgentDocumentTab(tab: IAgentTabSnapshot) {
-    return tab.kind !== 'empty'
-        && (
-            Boolean(tab.fileName)
-            || Boolean(tab.originalPath)
-            || tab.hasPdf === true
-            || tab.isDjvu === true
-        );
+    return tab.kind !== 'empty' && (Boolean(tab.fileName) || Boolean(tab.originalPath) || tab.hasPdf === true || tab.isDjvu === true);
 }
 
 function createDocumentReference(tab: IAgentTabSnapshot): IAgentDocumentReference {
@@ -225,60 +202,48 @@ function createDocumentReference(tab: IAgentTabSnapshot): IAgentDocumentReferenc
         ...(tab.originalBackend === undefined ? {} : {originalBackend: tab.originalBackend}),
         ...(tab.documentSessionKey === undefined ? {} : {documentSessionKey: tab.documentSessionKey}),
         ...(tab.documentInstanceId === undefined ? {} : {documentInstanceId: tab.documentInstanceId}),
-        ...(tab.documentIdentity === undefined ? {} : { documentIdentity: tab.documentIdentity }),
-        ...(tab.commandTarget === undefined ? {} : { commandTarget: tab.commandTarget }),
+        ...(tab.documentIdentity === undefined ? {} : {documentIdentity: tab.documentIdentity}),
+        ...(tab.commandTarget === undefined ? {} : {commandTarget: tab.commandTarget}),
         kind: tab.kind,
     };
 }
 
 function createRecentFileSnapshot(file: IRecentFile): IAgentRecentFileSnapshot {
     const name = file.fileName || file.originalPath;
-    const openedAt = Number.isFinite(file.timestamp)
-        ? new Date(file.timestamp).toISOString()
-        : '';
+    const openedAt = Number.isFinite(file.timestamp) ? new Date(file.timestamp).toISOString() : '';
     return {
         fileName: file.fileName,
         originalPath: file.originalPath,
         ...(file.backend === undefined ? {} : {backend: file.backend}),
         kind: inferDocumentKindFromName(name),
         openedAt: openedAt ? requireIsoTimestamp(openedAt) : requireIsoTimestamp(new Date(0).toISOString()),
-        ...(file.fileSize === undefined ? {} : { fileSize: file.fileSize }),
+        ...(file.fileSize === undefined ? {} : {fileSize: file.fileSize}),
     };
 }
 
-export function buildAgentWorkspaceSnapshot(
-    options: IBuildAgentWorkspaceSnapshotOptions,
-): IAgentWorkspaceSnapshot {
+export function buildAgentWorkspaceSnapshot(options: IBuildAgentWorkspaceSnapshotOptions): IAgentWorkspaceSnapshot {
     const tabSnapshots = options.tabs.value.flatMap((tab) => {
         const session = options.documentSessionsByTabId.value[tab.id];
         return session ? [buildAgentTabSnapshot(tab.id, options.getPaneByTabId(tab.id), session)] : [];
     });
     const documentTabs = tabSnapshots.filter(isAgentDocumentTab);
-    const activeDocumentTab = documentTabs.find(tab => tab.tabId === options.activeTabId.value) ?? null;
+    const activeDocumentTab = documentTabs.find((tab) => tab.tabId === options.activeTabId.value) ?? null;
     const recentFiles = (options.recentFiles?.value ?? []).map(createRecentFileSnapshot);
 
     return {
         capturedAt: requireIsoTimestamp(new Date().toISOString()),
-        activePaneId: options.activePaneId.value === null
-            ? null
-            : requirePaneId(options.activePaneId.value),
-        activeTabId: options.activeTabId.value === null
-            ? null
-            : requireTabId(options.activeTabId.value),
+        activePaneId: options.activePaneId.value === null ? null : requirePaneId(options.activePaneId.value),
+        activeTabId: options.activeTabId.value === null ? null : requireTabId(options.activeTabId.value),
         summary: {
-            mode: activeDocumentTab
-                ? 'open-document'
-                : documentTabs.length > 0
-                    ? 'documents-open-no-active-document'
-                    : 'empty-workspace',
+            mode: activeDocumentTab ? 'open-document' : documentTabs.length > 0 ? 'documents-open-no-active-document' : 'empty-workspace',
             activeDocument: activeDocumentTab ? createDocumentReference(activeDocumentTab) : null,
             documentCount: documentTabs.length,
             recentFileCount: recentFiles.length,
             recentFilesResolved: options.recentFilesResolved?.value === true,
         },
-        panes: options.panes.value.map(pane => ({
+        panes: options.panes.value.map((pane) => ({
             paneId: requirePaneId(pane.paneId),
-            tabIds: pane.tabIds.map(tabId => requireTabId(tabId)),
+            tabIds: pane.tabIds.map((tabId) => requireTabId(tabId)),
             activeTabId: pane.activeTabId === null ? null : requireTabId(pane.activeTabId),
         })),
         tabs: tabSnapshots,

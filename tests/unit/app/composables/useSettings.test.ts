@@ -1,23 +1,10 @@
 // @vitest-environment happy-dom
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    ref,
-    type Ref,
-} from 'vue';
-import type { ISettingsData } from '@contracts/shared';
-import {
-    DEFAULT_SETTINGS,
-    type TSettingsSavePatch,
-} from '@contracts/settings';
-import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
-import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
+import {ref, type Ref} from 'vue';
+import type {ISettingsData} from '@contracts/shared';
+import {DEFAULT_SETTINGS, type TSettingsSavePatch} from '@contracts/settings';
+import {createElectronPlatformApiFixture} from '@tests/helpers/createElectronPlatformApiFixture';
+import {installNuxtStateTestStubs} from '@tests/unit/app/composables/installNuxtStateTestStubs';
 
 const mockGet = vi.fn<() => Promise<ISettingsData>>();
 const mockSave = vi.fn<(settings: TSettingsSavePatch) => Promise<void>>();
@@ -28,11 +15,13 @@ const mockOnChanged = vi.fn((listener: (settings: ISettingsData) => void) => {
 });
 const cookieStore = new Map<string, Ref<unknown>>();
 const stateStore = new Map<string, Ref<unknown>>();
-const mockPlatformApi = createElectronPlatformApiFixture({settings: {
-    get: mockGet,
-    onChanged: mockOnChanged,
-    save: mockSave,
-}});
+const mockPlatformApi = createElectronPlatformApiFixture({
+    settings: {
+        get: mockGet,
+        onChanged: mockOnChanged,
+        save: mockSave,
+    },
+});
 
 // The owner sends each committed write to every window, this one included, before the save replies.
 function emitSettingsChange(settings: ISettingsData) {
@@ -42,7 +31,7 @@ function emitSettingsChange(settings: ISettingsData) {
 }
 const colorMode = {preference: 'light'};
 
-vi.mock('@app/utils/platform', () => ({ getPlatformAPI: () => mockPlatformApi }));
+vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => mockPlatformApi}));
 
 function installNuxtStateStubs() {
     installNuxtStateTestStubs(cookieStore, stateStore);
@@ -82,34 +71,26 @@ describe('useSettings', () => {
     });
 
     it('preserves supported locale values on save', async () => {
-        const { useSettings } = await import('@app/composables/useSettings');
-        const {
-            settings,
-            load,
-            save,
-        } = useSettings();
+        const {useSettings} = await import('@app/composables/useSettings');
+        const {settings, load, save} = useSettings();
 
         await load();
         settings.value.locale = 'fr';
         await expect(save()).resolves.toBe(true);
 
-        expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({ locale: 'fr' }));
+        expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({locale: 'fr'}));
     });
 
     it('falls back to default locale when saving invalid locale', async () => {
         mockGet.mockResolvedValue({locale: 'fr'} as ISettingsData);
-        const { useSettings } = await import('@app/composables/useSettings');
-        const {
-            settings,
-            load,
-            save,
-        } = useSettings();
+        const {useSettings} = await import('@app/composables/useSettings');
+        const {settings, load, save} = useSettings();
 
         await load();
         Reflect.set(settings.value, 'locale', 'xx');
         await expect(save()).resolves.toBe(true);
 
-        expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }));
+        expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({locale: 'en'}));
     });
 
     it('sanitizes invalid loaded locale to default', async () => {
@@ -132,11 +113,8 @@ describe('useSettings', () => {
             clientDiagnosticsPreference: 'unknown',
         });
 
-        const { useSettings } = await import('@app/composables/useSettings');
-        const {
-            settings,
-            load,
-        } = useSettings();
+        const {useSettings} = await import('@app/composables/useSettings');
+        const {settings, load} = useSettings();
 
         await load();
 
@@ -164,13 +142,8 @@ describe('useSettings', () => {
             suppressDefaultViewerPrompt: false,
         });
 
-        const { useSettings } = await import('@app/composables/useSettings');
-        const {
-            hasCookieSnapshot,
-            settings,
-            isLoaded,
-            load,
-        } = useSettings();
+        const {useSettings} = await import('@app/composables/useSettings');
+        const {hasCookieSnapshot, settings, isLoaded, load} = useSettings();
 
         expect(isLoaded.value).toBe(false);
 
@@ -183,19 +156,18 @@ describe('useSettings', () => {
     });
 
     it('starts from the UI scale main passed to the window before settings load', async () => {
-        vi.stubGlobal('window', {electronAPI: createElectronPlatformApiFixture({
-            settings: {
-                get: mockGet,
-                save: mockSave,
-            },
-            startupUiScalePreference: 'large',
-        })});
+        vi.stubGlobal('window', {
+            electronAPI: createElectronPlatformApiFixture({
+                settings: {
+                    get: mockGet,
+                    save: mockSave,
+                },
+                startupUiScalePreference: 'large',
+            }),
+        });
         try {
-            const { useSettings } = await import('@app/composables/useSettings');
-            const {
-                isLoaded,
-                settings,
-            } = useSettings();
+            const {useSettings} = await import('@app/composables/useSettings');
+            const {isLoaded, settings} = useSettings();
 
             expect(isLoaded.value).toBe(false);
             expect(settings.value.uiScale).toBe('large');
@@ -229,14 +201,8 @@ describe('useSettings', () => {
         mockSave.mockResolvedValue(undefined);
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
-        const { useSettings } = await import('@app/composables/useSettings');
-        const {
-            isLoaded,
-            load,
-            settings,
-            save,
-            updateSetting,
-        } = useSettings();
+        const {useSettings} = await import('@app/composables/useSettings');
+        const {isLoaded, load, settings, save, updateSetting} = useSettings();
 
         await load();
         expect(isLoaded.value).toBe(false);
@@ -251,7 +217,7 @@ describe('useSettings', () => {
         expect(settings.value.suppressUnencryptedSaveNotice).toBe(true);
         await vi.waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
 
-        expect(mockSave).toHaveBeenCalledWith({ suppressUnencryptedSaveNotice: true });
+        expect(mockSave).toHaveBeenCalledWith({suppressUnencryptedSaveNotice: true});
         expect(settings.value.locale).toBe('fr');
         expect(settings.value.theme).toBe('dark');
         expect(settings.value.defaultZoomPreset).toBe('150');
@@ -263,7 +229,7 @@ describe('useSettings', () => {
             ...DEFAULT_SETTINGS,
             authorName: 'Stored author',
         });
-        mockSave.mockImplementation(async patch => {
+        mockSave.mockImplementation(async (patch) => {
             emitSettingsChange({
                 ...DEFAULT_SETTINGS,
                 ...patch,
@@ -283,19 +249,10 @@ describe('useSettings', () => {
 
     it('reports a failed settings save and saves the latest payload on the next change', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        mockSave
-            .mockRejectedValueOnce(new Error('temporary failure'))
-            .mockResolvedValue(undefined);
+        mockSave.mockRejectedValueOnce(new Error('temporary failure')).mockResolvedValue(undefined);
 
-        const { useSettings } = await import('@app/composables/useSettings');
-        const {
-            load,
-            settings,
-            save,
-            settingsSaveError,
-            settingsSaveFailure,
-            settingsSaveStatus,
-        } = useSettings();
+        const {useSettings} = await import('@app/composables/useSettings');
+        const {load, settings, save, settingsSaveError, settingsSaveFailure, settingsSaveStatus} = useSettings();
 
         await load();
         settings.value.locale = 'fr';
@@ -309,36 +266,35 @@ describe('useSettings', () => {
 
         settings.value.locale = 'de';
         await expect(save()).resolves.toBe(true);
-        expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({ locale: 'de' }));
+        expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({locale: 'de'}));
         expect(settingsSaveStatus.value).toBe('idle');
         expect(settingsSaveError.value).toBeNull();
         expect(settingsSaveFailure.value).toBeNull();
     });
 
-    it.each([
-        'QuotaExceededError',
-        'SecurityError',
-        'NotAllowedError',
-    ])('retains the %s cause and receipt until a successful retry', async (name) => {
-        vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        mockGet.mockResolvedValue(DEFAULT_SETTINGS);
-        const error = new DOMException('RAW storage detail', name);
-        mockSave.mockRejectedValueOnce(error).mockResolvedValue(undefined);
-        const {useSettings} = await import('@app/composables/useSettings');
-        const settings = useSettings();
-        await settings.load();
-        settings.settings.value.authorName = 'Retained choice';
-        await expect(settings.save()).resolves.toBe(false);
-        expect(settings.settingsSaveStatus.value).toBe('failed');
-        expect(settings.settingsSaveError.value).toEqual({
-            name,
-            message: 'RAW storage detail',
-        });
-        expect(settings.settingsSaveFailure.value?.failure.eventId).toBeTruthy();
-        await expect(settings.save()).resolves.toBe(true);
-        expect(settings.settingsSaveError.value).toBeNull();
-        expect(settings.settingsSaveFailure.value).toBeNull();
-    });
+    it.each(['QuotaExceededError', 'SecurityError', 'NotAllowedError'])(
+        'retains the %s cause and receipt until a successful retry',
+        async (name) => {
+            vi.spyOn(console, 'error').mockImplementation(() => undefined);
+            mockGet.mockResolvedValue(DEFAULT_SETTINGS);
+            const error = new DOMException('RAW storage detail', name);
+            mockSave.mockRejectedValueOnce(error).mockResolvedValue(undefined);
+            const {useSettings} = await import('@app/composables/useSettings');
+            const settings = useSettings();
+            await settings.load();
+            settings.settings.value.authorName = 'Retained choice';
+            await expect(settings.save()).resolves.toBe(false);
+            expect(settings.settingsSaveStatus.value).toBe('failed');
+            expect(settings.settingsSaveError.value).toEqual({
+                name,
+                message: 'RAW storage detail',
+            });
+            expect(settings.settingsSaveFailure.value?.failure.eventId).toBeTruthy();
+            await expect(settings.save()).resolves.toBe(true);
+            expect(settings.settingsSaveError.value).toBeNull();
+            expect(settings.settingsSaveFailure.value).toBeNull();
+        },
+    );
 
     it('keeps the 400 ms pending write and its failure after the Settings child scope closes', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -365,14 +321,11 @@ describe('useSettings', () => {
         vi.useFakeTimers();
         mockSave.mockResolvedValue(undefined);
         const addEventListener = vi.fn<(type: string, listener: () => void) => void>();
-        vi.stubGlobal('window', { addEventListener });
+        vi.stubGlobal('window', {addEventListener});
 
         try {
-            const { useSettings } = await import('@app/composables/useSettings');
-            const {
-                load,
-                updateSetting,
-            } = useSettings();
+            const {useSettings} = await import('@app/composables/useSettings');
+            const {load, updateSetting} = useSettings();
 
             await load();
 
@@ -382,17 +335,16 @@ describe('useSettings', () => {
 
             await vi.advanceTimersByTimeAsync(400);
             expect(mockSave).toHaveBeenCalledTimes(1);
-            expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({ authorName: 'Latest' }));
+            expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({authorName: 'Latest'}));
 
             updateSetting('authorName', 'Unflushed');
-            const pagehideListener = addEventListener.mock.calls
-                .find(([type]) => type === 'pagehide')?.[1];
+            const pagehideListener = addEventListener.mock.calls.find(([type]) => type === 'pagehide')?.[1];
             expect(pagehideListener).toBeDefined();
             pagehideListener?.();
             await vi.advanceTimersByTimeAsync(0);
 
             expect(mockSave).toHaveBeenCalledTimes(2);
-            expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({ authorName: 'Unflushed' }));
+            expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({authorName: 'Unflushed'}));
 
             await vi.advanceTimersByTimeAsync(400);
             expect(mockSave).toHaveBeenCalledTimes(2);
@@ -406,8 +358,8 @@ describe('useSettings', () => {
         vi.useFakeTimers();
         const failureReporter = await import('@app/utils/failureReporter');
         failureReporter.setRendererDiagnosticsPreference('granted');
-        const { useSettings } = await import('@app/composables/useSettings');
-        const { updateSetting } = useSettings();
+        const {useSettings} = await import('@app/composables/useSettings');
+        const {updateSetting} = useSettings();
 
         updateSetting('clientDiagnosticsPreference', 'denied');
 
@@ -429,7 +381,7 @@ describe('useSettings', () => {
             })
             .mockResolvedValue(undefined);
 
-        const { useSettings } = await import('@app/composables/useSettings');
+        const {useSettings} = await import('@app/composables/useSettings');
         const firstSettings = useSettings();
         const secondSettings = useSettings();
 
@@ -444,13 +396,10 @@ describe('useSettings', () => {
         expect(mockSave).toHaveBeenCalledTimes(1);
 
         firstSave.resolve();
-        await Promise.all([
-            firstSavePromise,
-            secondSavePromise,
-        ]);
+        await Promise.all([firstSavePromise, secondSavePromise]);
 
         expect(mockSave).toHaveBeenCalledTimes(2);
-        expect(mockSave).toHaveBeenNthCalledWith(2, { theme: 'dark' });
+        expect(mockSave).toHaveBeenNthCalledWith(2, {theme: 'dark'});
     });
 
     it('drains a setting edit admitted while the close flush is in flight', async () => {
@@ -465,7 +414,7 @@ describe('useSettings', () => {
             })
             .mockResolvedValue(undefined);
 
-        const { useSettings } = await import('@app/composables/useSettings');
+        const {useSettings} = await import('@app/composables/useSettings');
         const settings = useSettings();
         await settings.load();
 
@@ -499,10 +448,12 @@ describe('useSettings', () => {
         instance.updateSetting('authorName', 'Saved author');
         pending.resolve();
         await saving;
-        mockSave.mockImplementationOnce(async patch => { emitSettingsChange({
-            ...baseline,
-            ...patch,
-        }); });
+        mockSave.mockImplementationOnce(async (patch) => {
+            emitSettingsChange({
+                ...baseline,
+                ...patch,
+            });
+        });
         emitSettingsChange({
             ...baseline,
             authorName: 'First edit',
@@ -533,7 +484,7 @@ describe('useSettings', () => {
         instance.updateSetting('authorName', 'Chosen author');
         await expect(instance.save()).resolves.toBe(false);
         expect(instance.settingsSaveStatus.value).toBe('failed');
-        mockSave.mockImplementation(async patch => {
+        mockSave.mockImplementation(async (patch) => {
             stored = {
                 ...stored,
                 ...patch,
@@ -603,21 +554,9 @@ describe('useSettings', () => {
     });
 
     it.each([
-        [
-            'authorName',
-            'Saved author',
-            'First edit',
-        ],
-        [
-            'theme',
-            'light',
-            'dark',
-        ],
-        [
-            'clientDiagnosticsPreference',
-            'denied',
-            'granted',
-        ],
+        ['authorName', 'Saved author', 'First edit'],
+        ['theme', 'light', 'dark'],
+        ['clientDiagnosticsPreference', 'denied', 'granted'],
     ] as const)('preserves a later %s edit returning to its saved value', async (key, savedValue, firstValue) => {
         const baseline = {
             ...DEFAULT_SETTINGS,
@@ -667,12 +606,8 @@ describe('useSettings', () => {
         });
         mockSave.mockImplementationOnce(() => firstSave.promise);
 
-        const { useSettings } = await import('@app/composables/useSettings');
-        const {
-            load,
-            save,
-            settings,
-        } = useSettings();
+        const {useSettings} = await import('@app/composables/useSettings');
+        const {load, save, settings} = useSettings();
         await load();
 
         settings.value.theme = 'dark';
@@ -719,10 +654,7 @@ describe('useSettings', () => {
         });
 
         try {
-            const {
-                disposeSettingsOwner,
-                useSettings,
-            } = await import('@app/composables/useSettings');
+            const {disposeSettingsOwner, useSettings} = await import('@app/composables/useSettings');
             const settings = useSettings();
             await settings.load();
 
@@ -749,24 +681,33 @@ describe('useSettings', () => {
     it('isolates settings runtime owners across separate Nuxt apps', async () => {
         vi.useFakeTimers();
         mockSave.mockResolvedValue(undefined);
-        const appA = { id: 'app-a' };
-        const appB = { id: 'app-b' };
-        const storesByApp = new Map<object, {
-            cookies: Map<string, Ref<unknown>>;
-            state: Map<string, Ref<unknown>>;
-        }>([
-            [appA, {
-                cookies: new Map(),
-                state: new Map(),
-            }],
-            [appB, {
-                cookies: new Map(),
-                state: new Map(),
-            }],
+        const appA = {id: 'app-a'};
+        const appB = {id: 'app-b'};
+        const storesByApp = new Map<
+            object,
+            {
+                cookies: Map<string, Ref<unknown>>;
+                state: Map<string, Ref<unknown>>;
+            }
+        >([
+            [
+                appA,
+                {
+                    cookies: new Map(),
+                    state: new Map(),
+                },
+            ],
+            [
+                appB,
+                {
+                    cookies: new Map(),
+                    state: new Map(),
+                },
+            ],
         ]);
         let activeApp: object = appA;
         vi.stubGlobal('tryUseNuxtApp', () => activeApp);
-        vi.stubGlobal('useCookie', <T>(key: string, options?: { default?: () => T; }) => {
+        vi.stubGlobal('useCookie', <T>(key: string, options?: {default?: () => T}) => {
             const store = storesByApp.get(activeApp)!.cookies;
             if (!store.has(key)) {
                 store.set(key, ref(options?.default ? options.default() : null));
@@ -782,10 +723,7 @@ describe('useSettings', () => {
         });
 
         try {
-            const {
-                disposeSettingsOwner,
-                useSettings,
-            } = await import('@app/composables/useSettings');
+            const {disposeSettingsOwner, useSettings} = await import('@app/composables/useSettings');
 
             activeApp = appA;
             const settingsA = useSettings();
@@ -800,7 +738,7 @@ describe('useSettings', () => {
             // Disposing app B's owner must not cancel app A's pending debounced save.
             await vi.advanceTimersByTimeAsync(400);
             expect(mockSave).toHaveBeenCalledTimes(1);
-            expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({ authorName: 'From App A' }));
+            expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({authorName: 'From App A'}));
 
             activeApp = appA;
             disposeSettingsOwner();
@@ -816,11 +754,11 @@ describe('useSettings', () => {
         mockSave.mockResolvedValue(undefined);
         const onUnmountCleanups: Array<() => void> = [];
         vi.stubGlobal('tryUseNuxtApp', () => ({
-            vueApp: { onUnmount: (cleanup: () => void) => onUnmountCleanups.push(cleanup) },
+            vueApp: {onUnmount: (cleanup: () => void) => onUnmountCleanups.push(cleanup)},
         }));
 
         try {
-            const { useSettings } = await import('@app/composables/useSettings');
+            const {useSettings} = await import('@app/composables/useSettings');
             const settings = useSettings();
             await settings.load();
             expect(settingsChangeListeners.size).toBe(1);
@@ -842,7 +780,7 @@ describe('useSettings', () => {
 
 describe('selectAdoptedSettings', () => {
     it('adopts the committed values of keys the window has no unsaved edit in', async () => {
-        const { selectAdoptedSettings } = await import('@app/composables/useSettings');
+        const {selectAdoptedSettings} = await import('@app/composables/useSettings');
         const saved: ISettingsData = {
             ...DEFAULT_SETTINGS,
             locale: 'en',
@@ -869,7 +807,7 @@ describe('selectAdoptedSettings', () => {
     });
 
     it('lets a withdrawal saved elsewhere replace a local unsaved grant', async () => {
-        const { selectAdoptedSettings } = await import('@app/composables/useSettings');
+        const {selectAdoptedSettings} = await import('@app/composables/useSettings');
         const saved: ISettingsData = {
             ...DEFAULT_SETTINGS,
             clientDiagnosticsPreference: 'denied',
@@ -885,7 +823,7 @@ describe('selectAdoptedSettings', () => {
     });
 
     it('does not let a grant saved elsewhere reopen reporting over a local unsaved withdrawal', async () => {
-        const { selectAdoptedSettings } = await import('@app/composables/useSettings');
+        const {selectAdoptedSettings} = await import('@app/composables/useSettings');
         const saved: ISettingsData = {
             ...DEFAULT_SETTINGS,
             clientDiagnosticsPreference: 'granted',
@@ -905,17 +843,21 @@ describe('selectAdoptedSettings', () => {
     });
 
     it('adopts only a withdrawal before the window has a saved value to compare with', async () => {
-        const { selectAdoptedSettings } = await import('@app/composables/useSettings');
+        const {selectAdoptedSettings} = await import('@app/composables/useSettings');
         const current: ISettingsData = {...DEFAULT_SETTINGS};
 
-        expect(selectAdoptedSettings(current, null, {
-            ...DEFAULT_SETTINGS,
-            locale: 'ru',
-            clientDiagnosticsPreference: 'granted',
-        })).toEqual({});
-        expect(selectAdoptedSettings(current, null, {
-            ...DEFAULT_SETTINGS,
-            clientDiagnosticsPreference: 'denied',
-        })).toEqual({clientDiagnosticsPreference: 'denied'});
+        expect(
+            selectAdoptedSettings(current, null, {
+                ...DEFAULT_SETTINGS,
+                locale: 'ru',
+                clientDiagnosticsPreference: 'granted',
+            }),
+        ).toEqual({});
+        expect(
+            selectAdoptedSettings(current, null, {
+                ...DEFAULT_SETTINGS,
+                clientDiagnosticsPreference: 'denied',
+            }),
+        ).toEqual({clientDiagnosticsPreference: 'denied'});
     });
 });

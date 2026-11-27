@@ -25,37 +25,26 @@
 
 <script setup lang="ts">
 import ScanCleanupWorkspaceLoading from '@app/modules/workspace-shell/components/ScanCleanupWorkspaceLoading.vue';
-import { useDocumentContext } from '@app/modules/workspace-shell/documentContext';
-import { workspaceCommandSinkKey } from '@app/types/workspaceCommand';
-import { useDocumentViewContext } from '@app/modules/workspace-shell/documentViewContext';
+import {useDocumentContext} from '@app/modules/workspace-shell/documentContext';
+import {workspaceCommandSinkKey} from '@app/types/workspaceCommand';
+import {useDocumentViewContext} from '@app/modules/workspace-shell/documentViewContext';
 
 const ScanCleanupWorkspace = defineAsyncComponent({
-    loader: () => import('@app/modules/scan-cleanup/public/workspace')
-        .then(module => module.ScanCleanupWorkspace),
+    loader: () => import('@app/modules/scan-cleanup/public/workspace').then((module) => module.ScanCleanupWorkspace),
     loadingComponent: ScanCleanupWorkspaceLoading,
     delay: 0,
 });
 
-defineProps<{canTeleportToolbar: boolean;}>();
+defineProps<{canTeleportToolbar: boolean}>();
 
-const {
-    controller,
-    file,
-    metadata,
-    pdfDocumentSessionSlot,
-} = useDocumentContext();
+const {controller, file, metadata, pdfDocumentSessionSlot} = useDocumentContext();
 provide(workspaceCommandSinkKey, metadata.workspaceCommandSink);
-const {
-    scanCleanup,
-    scanCleanupSourceSha256,
-    view,
-    isActive,
-} = useDocumentViewContext();
+const {scanCleanup, scanCleanupSourceSha256, view, isActive} = useDocumentViewContext();
 // A PDF's pages are counted by its document, which a returning view's provisional
 // page does not stand for; a page source is counted by its view.
-const totalPages = computed(() => (controller.file.value.isDjvu
-    ? view.totalPages.value
-    : pdfDocumentSessionSlot.session.value?.document.value?.numPages ?? 0));
+const totalPages = computed(() =>
+    controller.file.value.isDjvu ? view.totalPages.value : (pdfDocumentSessionSlot.session.value?.document.value?.numPages ?? 0),
+);
 </script>
 
 <style scoped>

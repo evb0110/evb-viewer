@@ -1,32 +1,15 @@
-import { homedir } from 'node:os';
-import { execFileSync } from 'node:child_process';
-import {
-    dirname,
-    join,
-    relative,
-    resolve,
-} from 'node:path';
-import {
-    existsSync,
-    lstatSync,
-    mkdirSync,
-    readFileSync,
-    realpathSync,
-    symlinkSync,
-    writeFileSync,
-} from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
+import {homedir} from 'node:os';
+import {execFileSync} from 'node:child_process';
+import {dirname, join, relative, resolve} from 'node:path';
+import {existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 // Linked task worktrees are disposable; the installed fallback must survive them.
 let deployedRepo = repo;
 if (existsSync(join(repo, '.git')) && lstatSync(join(repo, '.git')).isFile()) {
-    const commonGitDir = execFileSync('git', [
-        'rev-parse',
-        '--path-format=absolute',
-        '--git-common-dir',
-    ], {
+    const commonGitDir = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
         cwd: repo,
         encoding: 'utf8',
     }).trim();
@@ -84,24 +67,23 @@ const path = join(canonical, 'SKILL.md');
 if (existsSync(path) && !readFileSync(path, 'utf8').includes(marker)) {
     throw new Error(`Refusing to replace an unmanaged skill: ${path}`);
 }
-mkdirSync(canonical, { recursive: true });
+mkdirSync(canonical, {recursive: true});
 writeFileSync(path, content);
-mkdirSync(join(canonical, 'references'), { recursive: true });
+mkdirSync(join(canonical, 'references'), {recursive: true});
 writeFileSync(join(canonical, 'references', 'repository.txt'), deployedRepo + '\n');
-const loaders = [
-    '.codex/skills',
-    '.claude/skills',
-    '.pi/agent/skills',
-    '.config/opencode/skills',
-    '.gemini/skills',
-];
+const loaders = ['.codex/skills', '.claude/skills', '.pi/agent/skills', '.config/opencode/skills', '.gemini/skills'];
 const paths = [canonical];
 for (const loader of loaders) {
     const destination = join(home, loader, name);
-    mkdirSync(dirname(destination), { recursive: true });
+    mkdirSync(dirname(destination), {recursive: true});
     let present = false;
-    try { lstatSync(destination); present = true; } catch (error) {
-        if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') { throw error; }
+    try {
+        lstatSync(destination);
+        present = true;
+    } catch (error) {
+        if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') {
+            throw error;
+        }
     }
     if (present) {
         if (realpathSync(destination) !== realpathSync(canonical)) {
@@ -116,11 +98,20 @@ for (const loader of loaders) {
 const geminiInstructions = join(home, '.gemini', 'GEMINI.md');
 const geminiText = existsSync(geminiInstructions) ? readFileSync(geminiInstructions, 'utf8') : '';
 if (!geminiText.includes(marker)) {
-    writeFileSync(geminiInstructions, geminiText + `\n${marker}\nFor EVB Viewer UI automation, read ~/.agents/skills/${name}/SKILL.md and use its recorded runner.\n`);
+    writeFileSync(
+        geminiInstructions,
+        geminiText + `\n${marker}\nFor EVB Viewer UI automation, read ~/.agents/skills/${name}/SKILL.md and use its recorded runner.\n`,
+    );
 }
-console.log(JSON.stringify({
-    repo,
-    deployedRepo,
-    paths,
-    sha256: createHash('sha256').update(content).digest('hex'),
-}, null, 2));
+console.log(
+    JSON.stringify(
+        {
+            repo,
+            deployedRepo,
+            paths,
+            sha256: createHash('sha256').update(content).digest('hex'),
+        },
+        null,
+        2,
+    ),
+);

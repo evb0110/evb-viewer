@@ -1,33 +1,10 @@
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
-import {
-    copyFile,
-    mkdir,
-    mkdtemp,
-    open as fsOpen,
-    readFile,
-    readdir,
-    rename,
-    rm,
-    stat,
-    writeFile,
-} from 'node:fs/promises';
+import {copyFile, mkdir, mkdtemp, open as fsOpen, readFile, readdir, rename, rm, stat, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    runScanCleanupDetection,
-    type IScanCleanupDetectionRetention,
-} from '@evb/scan-cleanup/core/detection';
-import type {
-    IScanCleanupDetectionRequest,
-    TScanCleanupProgress,
-} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {runScanCleanupDetection, type IScanCleanupDetectionRetention} from '@evb/scan-cleanup/core/detection';
+import type {IScanCleanupDetectionRequest, TScanCleanupProgress} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     INativeScanCleanupManifestV3,
@@ -35,16 +12,10 @@ import type {
     TNativeScanCleanupProgressV3,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import type {TScanCleanupRunSidecar} from '@evb/scan-cleanup/core/types';
-import {
-    createArrayBackedPdfPageSizeStore,
-    type IPdfPageSize,
-} from '@evb/scan-cleanup/core/pdfPageSizes';
+import {createArrayBackedPdfPageSizeStore, type IPdfPageSize} from '@evb/scan-cleanup/core/pdfPageSizes';
 
 const MIB = 1024 * 1024;
-const PNG_1X1 = Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-    'base64',
-);
+const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 
 const fileSystem = {
     copyFile,
@@ -80,11 +51,15 @@ const dirs: string[] = [];
 const resultStores: Array<{close: () => Promise<void>}> = [];
 
 afterEach(async () => {
-    await Promise.all(resultStores.splice(0).map(store => store.close()));
-    await Promise.all(dirs.splice(0).map(dir => rm(dir, {
-        force: true,
-        recursive: true,
-    })));
+    await Promise.all(resultStores.splice(0).map((store) => store.close()));
+    await Promise.all(
+        dirs.splice(0).map((dir) =>
+            rm(dir, {
+                force: true,
+                recursive: true,
+            }),
+        ),
+    );
 });
 
 /**
@@ -97,65 +72,29 @@ afterEach(async () => {
  * document outright, with the same 6.70 MiB largest page.
  */
 const FIXTURE_GEOMETRY: ReadonlyArray<[widthPoints: number, heightPoints: number, pages: number]> = [
-    [
-        841.89,
-        633.89,
-        1,
-    ],
-    [
-        700,
-        568,
-        1,
-    ],
-    [
-        694,
-        522,
-        73,
-    ],
-    [
-        672,
-        500,
-        6,
-    ],
-    [
-        660,
-        486,
-        1,
-    ],
-    [
-        648,
-        470,
-        65,
-    ],
-    [
-        506,
-        786,
-        1,
-    ],
+    [841.89, 633.89, 1],
+    [700, 568, 1],
+    [694, 522, 73],
+    [672, 500, 6],
+    [660, 486, 1],
+    [648, 470, 65],
+    [506, 786, 1],
 ];
 
 function fixturePageSizes(): IPdfPageSize[] {
     // Interleaved so no run of the document shares one geometry, then page 147
     // is pinned to the reported outlier.
-    const pool = FIXTURE_GEOMETRY.flatMap(([
-        widthPoints,
-        heightPoints,
-        pages,
-    ]) => Array.from({length: pages}, () => ({
-        widthPoints,
-        heightPoints,
-    })));
+    const pool = FIXTURE_GEOMETRY.flatMap(([widthPoints, heightPoints, pages]) =>
+        Array.from({length: pages}, () => ({
+            widthPoints,
+            heightPoints,
+        })),
+    );
     // 71 is coprime with 148, so this is a permutation of the pool rather than
     // a resampling of it: every crop size appears exactly as often as reported.
-    const ordered = Array.from({length: pool.length}, (_, index) => pool[index * 71 % pool.length]!);
-    const largest = ordered.findIndex(size => size.widthPoints === 841.89);
-    [
-        ordered[largest],
-        ordered[146],
-    ] = [
-        ordered[146]!,
-        ordered[largest]!,
-    ];
+    const ordered = Array.from({length: pool.length}, (_, index) => pool[(index * 71) % pool.length]!);
+    const largest = ordered.findIndex((size) => size.widthPoints === 841.89);
+    [ordered[largest], ordered[146]] = [ordered[146]!, ordered[largest]!];
     return ordered.map((size, index) => ({
         pageNumber: index + 1,
         xPoints: 0,
@@ -192,7 +131,9 @@ function createRequest(): IScanCleanupDetectionRequest {
     };
 }
 
-interface IStagedManifestPages {pages: Array<Pick<INativeScanCleanupPageV3, 'inputPath' | 'sourcePageIndex' | 'pageMetadataPath'>>;}
+interface IStagedManifestPages {
+    pages: Array<Pick<INativeScanCleanupPageV3, 'inputPath' | 'sourcePageIndex' | 'pageMetadataPath'>>;
+}
 
 /**
  * The part of the real manifest this fake reads, derived from the protocol type
@@ -227,8 +168,7 @@ function createHarness(tempDir: string, options: IHarnessOptions) {
     const releasedPages: number[] = [];
     const scratchPaths: string[] = [];
     let peakResident = 0;
-    const stagedPath = (pageNumber: number, dpi: number) =>
-        join(tempDir, `page-${String(pageNumber)}-${String(dpi)}.png`);
+    const stagedPath = (pageNumber: number, dpi: number) => join(tempDir, `page-${String(pageNumber)}-${String(dpi)}.png`);
     const retention: IScanCleanupDetectionRetention<{id: string}> = {
         openDocument: vi.fn(async () => ({id: 'document'})),
         pageCount: vi.fn(async () => options.pageSizes.length),
@@ -242,12 +182,14 @@ function createHarness(tempDir: string, options: IHarnessOptions) {
             const path = `${stagedPath(pageNumber, dpi)}.${String(renderedPages.length)}.part`;
             // `rm` refuses a directory unless it is recursive, so this is the
             // one refusal a test can stage on any filesystem.
-            if (options.undeletableScratchPages?.has(pageNumber)) await mkdir(path, {recursive: true});
+            if (options.undeletableScratchPages?.has(pageNumber)) {
+                await mkdir(path, {recursive: true});
+            }
             scratchPaths.push(path);
             return path;
         }),
         stagedRasterPath: vi.fn(async (_document, pageNumber, dpi) => stagedPath(pageNumber, dpi)),
-        retain: vi.fn(async input => {
+        retain: vi.fn(async (input) => {
             const path = stagedPath(input.pageNumber, input.dpi);
             await rename(input.scratchPath, path);
             resident.add(input.pageNumber);
@@ -268,13 +210,7 @@ function createHarness(tempDir: string, options: IHarnessOptions) {
         }),
         release: vi.fn(async () => undefined),
     };
-    const renderPage = vi.fn(async (
-        _paths: unknown,
-        _log: unknown,
-        pageNumber: number,
-        _source: string,
-        outputPath: string,
-    ) => {
+    const renderPage = vi.fn(async (_paths: unknown, _log: unknown, pageNumber: number, _source: string, outputPath: string) => {
         renderedPages.push(pageNumber);
         await options.onRender?.(pageNumber);
         if (options.failingPages?.has(pageNumber)) {
@@ -283,10 +219,7 @@ function createHarness(tempDir: string, options: IHarnessOptions) {
         // Page-distinct bytes after IEND, which decoders ignore: a window that
         // handed native the wrong page's raster would be visible in what the
         // sidecar read, not just in the paths the manifest named.
-        await writeFile(outputPath, Buffer.concat([
-            PNG_1X1,
-            Buffer.from(`page-${String(pageNumber)}`),
-        ]));
+        await writeFile(outputPath, Buffer.concat([PNG_1X1, Buffer.from(`page-${String(pageNumber)}`)]));
     });
     return {
         retention,
@@ -316,131 +249,132 @@ function createHarness(tempDir: string, options: IHarnessOptions) {
  * producer publishes that raster, and hands the lease back afterwards. It never
  * touches an input it has not leased.
  */
-function createLeaseSidecar(options: {
-    concurrency?: number;
-    /** Pages re-read after the batch, as document reconciliation does. */
-    reconcilePages?: readonly number[];
-    onLeaseAcquired?: (pageNumber: number) => void;
-} = {}) {
+function createLeaseSidecar(
+    options: {
+        concurrency?: number;
+        /** Pages re-read after the batch, as document reconciliation does. */
+        reconcilePages?: readonly number[];
+        onLeaseAcquired?: (pageNumber: number) => void;
+    } = {},
+) {
     const manifests: TStagedManifest[] = [];
     const leases: Array<{
         event: 'acquired' | 'released';
-        pageNumber: number
+        pageNumber: number;
     }> = [];
     const readBytes = new Map<number, string>();
-    const runSidecar = vi.fn(async (
-        _binary: string,
-        manifestPath: string,
-        signal: AbortSignal,
-        _log: unknown,
-        onProgress: (progress: TNativeScanCleanupProgressV3) => void | Promise<void>,
-    ) => {
-        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as TStagedManifest;
-        manifests.push(manifest);
-        const totalPages = manifest.pages.length;
-        const acquire = async (
-            pageNumber: number,
-            inputPath: string,
-            sourcePageNumber = pageNumber,
+    const runSidecar = vi.fn(
+        async (
+            _binary: string,
+            manifestPath: string,
+            signal: AbortSignal,
+            _log: unknown,
+            onProgress: (progress: TNativeScanCleanupProgressV3) => void | Promise<void>,
         ) => {
-            leases.push({
-                event: 'acquired',
-                pageNumber,
-            });
-            await onProgress({
-                stage: 'page-input-required',
-                completedPages: 0,
-                totalPages,
-                pageNumber: requirePageNumber(pageNumber),
-            });
-            const deadline = Date.now() + 5_000;
-            for (;;) {
-                signal.throwIfAborted();
-                try {
-                    readBytes.set(sourcePageNumber, (await readFile(inputPath)).toString('base64'));
-                    options.onLeaseAcquired?.(sourcePageNumber);
-                    return;
-                } catch (error) {
-                    if (Date.now() > deadline) throw error;
-                    await new Promise(resolve => setTimeout(resolve, 1));
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as TStagedManifest;
+            manifests.push(manifest);
+            const totalPages = manifest.pages.length;
+            const acquire = async (pageNumber: number, inputPath: string, sourcePageNumber = pageNumber) => {
+                leases.push({
+                    event: 'acquired',
+                    pageNumber,
+                });
+                await onProgress({
+                    stage: 'page-input-required',
+                    completedPages: 0,
+                    totalPages,
+                    pageNumber: requirePageNumber(pageNumber),
+                });
+                const deadline = Date.now() + 5_000;
+                for (;;) {
+                    signal.throwIfAborted();
+                    try {
+                        readBytes.set(sourcePageNumber, (await readFile(inputPath)).toString('base64'));
+                        options.onLeaseAcquired?.(sourcePageNumber);
+                        return;
+                    } catch (error) {
+                        if (Date.now() > deadline) {
+                            throw error;
+                        }
+                        await new Promise((resolve) => setTimeout(resolve, 1));
+                    }
                 }
+            };
+            const release = async (pageNumber: number) => {
+                leases.push({
+                    event: 'released',
+                    pageNumber,
+                });
+                await onProgress({
+                    stage: 'page-input-released',
+                    completedPages: 0,
+                    totalPages,
+                    pageNumber: requirePageNumber(pageNumber),
+                });
+            };
+            let completedPages = 0;
+            let nextIndex = 0;
+            await Promise.all(
+                Array.from({length: Math.min(options.concurrency ?? 1, manifest.stagedInputWindow ?? 1, totalPages)}, async () => {
+                    while (nextIndex < totalPages) {
+                        const manifestIndex = nextIndex;
+                        const page = manifest.pages[manifestIndex]!;
+                        nextIndex += 1;
+                        const sourcePageNumber = page.sourcePageIndex + 1;
+                        const pageNumber = manifestIndex + 1;
+                        await acquire(pageNumber, page.inputPath, sourcePageNumber);
+                        await writeFile(
+                            page.pageMetadataPath,
+                            JSON.stringify({
+                                layoutClassification: sourcePageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
+                                layoutConfidence: 0.8,
+                                cutterXPx: sourcePageNumber % 3 === 0 ? 100 : null,
+                                rotationDegrees: 0,
+                                canvasScope: 'page',
+                                excluded: false,
+                                blankOutputsSkipped: 0,
+                                outputCount: sourcePageNumber % 3 === 0 ? 2 : 1,
+                            }),
+                        );
+                        completedPages += 1;
+                        await onProgress({
+                            stage: 'page-analyzed',
+                            completedPages,
+                            totalPages,
+                            pageNumber: requirePageNumber(pageNumber),
+                            classification: sourcePageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
+                            confidence: 0.8,
+                        });
+                        await release(pageNumber);
+                    }
+                }),
+            );
+            // The document-level pass revisits pages the window has long dropped.
+            for (const pageNumber of options.reconcilePages ?? []) {
+                const page = manifest.pages.find((candidate) => candidate.sourcePageIndex + 1 === pageNumber)!;
+                const manifestPageNumber = manifest.pages.indexOf(page) + 1;
+                await acquire(manifestPageNumber, page.inputPath, pageNumber);
+                await release(manifestPageNumber);
             }
-        };
-        const release = async (pageNumber: number) => {
-            leases.push({
-                event: 'released',
-                pageNumber,
-            });
-            await onProgress({
-                stage: 'page-input-released',
-                completedPages: 0,
-                totalPages,
-                pageNumber: requirePageNumber(pageNumber),
-            });
-        };
-        let completedPages = 0;
-        let nextIndex = 0;
-        await Promise.all(Array.from(
-            {length: Math.min(options.concurrency ?? 1, manifest.stagedInputWindow ?? 1, totalPages)},
-            async () => {
-                while (nextIndex < totalPages) {
-                    const manifestIndex = nextIndex;
-                    const page = manifest.pages[manifestIndex]!;
-                    nextIndex += 1;
-                    const sourcePageNumber = page.sourcePageIndex + 1;
-                    const pageNumber = manifestIndex + 1;
-                    await acquire(pageNumber, page.inputPath, sourcePageNumber);
-                    await writeFile(page.pageMetadataPath, JSON.stringify({
-                        layoutClassification: sourcePageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
-                        layoutConfidence: 0.8,
-                        cutterXPx: sourcePageNumber % 3 === 0 ? 100 : null,
-                        rotationDegrees: 0,
-                        canvasScope: 'page',
-                        excluded: false,
-                        blankOutputsSkipped: 0,
-                        outputCount: sourcePageNumber % 3 === 0 ? 2 : 1,
-                    }));
-                    completedPages += 1;
-                    await onProgress({
-                        stage: 'page-analyzed',
-                        completedPages,
-                        totalPages,
-                        pageNumber: requirePageNumber(pageNumber),
-                        classification: sourcePageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
-                        confidence: 0.8,
-                    });
-                    await release(pageNumber);
-                }
-            },
-        ));
-        // The document-level pass revisits pages the window has long dropped.
-        for (const pageNumber of options.reconcilePages ?? []) {
-            const page = manifest.pages.find(candidate => candidate.sourcePageIndex + 1 === pageNumber)!;
-            const manifestPageNumber = manifest.pages.indexOf(page) + 1;
-            await acquire(manifestPageNumber, page.inputPath, pageNumber);
-            await release(manifestPageNumber);
-        }
-        for (const [
-            manifestIndex,
-            page,
-        ] of manifest.pages.entries()) {
-            const pageNumber = manifestIndex + 1;
-            const sourcePageNumber = page.sourcePageIndex + 1;
-            await onProgress({
-                stage: 'page-complete',
-                completedPages: totalPages,
-                totalPages,
-                pageNumber: requirePageNumber(pageNumber),
-                classification: sourcePageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
-                confidence: 0.8,
-                // Progress carries a cutter only for the pages that have one:
-                // the protocol has no null here, unlike page metadata.
-                ...(sourcePageNumber % 3 === 0 ? {cutterXPx: 100} : {}),
-                reconciled: true,
-                clusterAgreement: 1,
-            });
-        }
-    });
+            for (const [manifestIndex, page] of manifest.pages.entries()) {
+                const pageNumber = manifestIndex + 1;
+                const sourcePageNumber = page.sourcePageIndex + 1;
+                await onProgress({
+                    stage: 'page-complete',
+                    completedPages: totalPages,
+                    totalPages,
+                    pageNumber: requirePageNumber(pageNumber),
+                    classification: sourcePageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
+                    confidence: 0.8,
+                    // Progress carries a cutter only for the pages that have one:
+                    // the protocol has no null here, unlike page metadata.
+                    ...(sourcePageNumber % 3 === 0 ? {cutterXPx: 100} : {}),
+                    reconciled: true,
+                    clusterAgreement: 1,
+                });
+            }
+        },
+    );
     return {
         runSidecar,
         manifests,
@@ -450,17 +384,16 @@ function createLeaseSidecar(options: {
 }
 
 function admissionDiagnostics(log: ReturnType<typeof vi.fn>) {
-    const entry = log.mock.calls.find(([
-        ,
-        message,
-    ]) => typeof message === 'string' && message.startsWith('Scan cleanup detection staged raster admission'));
+    const entry = log.mock.calls.find(
+        ([, message]) => typeof message === 'string' && message.startsWith('Scan cleanup detection staged raster admission'),
+    );
     if (entry === undefined) {
         throw new Error('detection published no staged raster admission diagnostics');
     }
-    return JSON.parse((entry[1] as string).replace(
-        'Scan cleanup detection staged raster admission ',
-        '',
-    )) as Record<string, number | boolean | null>;
+    return JSON.parse((entry[1] as string).replace('Scan cleanup detection staged raster admission ', '')) as Record<
+        string,
+        number | boolean | null
+    >;
 }
 
 describe('runScanCleanupDetection staged raster window', () => {
@@ -498,8 +431,7 @@ describe('runScanCleanupDetection staged raster window', () => {
         );
         resultStores.push(detection.resultStore);
 
-        expect(detection.results.map(result => result.pageNumber))
-            .toEqual(Array.from({length: pageCount}, (_, index) => index + 1));
+        expect(detection.results.map((result) => result.pageNumber)).toEqual(Array.from({length: pageCount}, (_, index) => index + 1));
         const diagnostics = admissionDiagnostics(log);
         expect(diagnostics.admitted).toBe(true);
         expect(diagnostics.wholeDocumentBytes as number).toBeGreaterThan(diagnostics.budgetBytes as number);
@@ -520,11 +452,7 @@ describe('runScanCleanupDetection staged raster window', () => {
         });
         const sidecar = createLeaseSidecar({
             concurrency: 2,
-            reconcilePages: [
-                1,
-                74,
-                147,
-            ],
+            reconcilePages: [1, 74, 147],
         });
         const log = vi.fn();
         const progress: TScanCleanupProgress[] = [];
@@ -541,17 +469,14 @@ describe('runScanCleanupDetection staged raster window', () => {
         resultStores.push(detection.resultStore);
 
         expect(detection.results).toHaveLength(148);
-        expect(detection.results.map(result => result.pageNumber))
-            .toEqual(Array.from({length: 148}, (_, index) => index + 1));
+        expect(detection.results.map((result) => result.pageNumber)).toEqual(Array.from({length: 148}, (_, index) => index + 1));
         const diagnostics = admissionDiagnostics(log);
         // The reported fixture staged 629.41 MiB of decoded rasters over its
         // 148 pages under the old single-copy estimate. Admission now doubles
         // each page, because a render and the published raster coexist while
         // the render is in flight, and compares that against one window.
         const singleCopyBytes = pageSizes.reduce((total, size) => {
-            const pixelBytes = Math.ceil(size.widthPoints * 150 / 72)
-                * Math.ceil(size.heightPoints * 150 / 72)
-                * 3;
+            const pixelBytes = Math.ceil((size.widthPoints * 150) / 72) * Math.ceil((size.heightPoints * 150) / 72) * 3;
             return total + pixelBytes + Math.max(64 * 1024, Math.ceil(pixelBytes * 0.01));
         }, 0);
         expect(singleCopyBytes).toBe(659_984_381);
@@ -567,21 +492,19 @@ describe('runScanCleanupDetection staged raster window', () => {
         expect(manifest.stagedInputWindow).toBe(diagnostics.windowPages);
         // Page 147's 841.89 × 633.89 crop is the document's largest raster.
         expect(manifest.stagedInputPeakPixels).toBe(1_754 * 1_321);
-        expect(manifest.pages.map(page => page.sourcePageIndex))
-            .toEqual(Array.from({length: 148}, (_, index) => index));
-        const detectionProgress = progress.filter(item => item.stage === 'detecting');
+        expect(manifest.pages.map((page) => page.sourcePageIndex)).toEqual(Array.from({length: 148}, (_, index) => index));
+        const detectionProgress = progress.filter((item) => item.stage === 'detecting');
         expect(detectionProgress.length).toBeGreaterThan(0);
-        expect(detectionProgress.every(item => (
-            item.rasterizedUnits !== undefined
-            && item.recheckedUnits !== undefined
-        ))).toBe(true);
+        expect(detectionProgress.every((item) => item.rasterizedUnits !== undefined && item.recheckedUnits !== undefined)).toBe(true);
         // Page images read ahead of the verdicts are reported, so the account
         // moves while analysis waits for its next input.
-        expect(detectionProgress.some(item => item.rasterizedUnits! > item.completedUnits)).toBe(true);
-        expect(detectionProgress.map(item => item.rasterizedUnits!))
-            .toEqual([...detectionProgress.map(item => item.rasterizedUnits!)].sort((left, right) => left - right));
-        expect(detectionProgress.map(item => item.recheckedUnits!))
-            .toEqual([...detectionProgress.map(item => item.recheckedUnits!)].sort((left, right) => left - right));
+        expect(detectionProgress.some((item) => item.rasterizedUnits! > item.completedUnits)).toBe(true);
+        expect(detectionProgress.map((item) => item.rasterizedUnits!)).toEqual(
+            [...detectionProgress.map((item) => item.rasterizedUnits!)].sort((left, right) => left - right),
+        );
+        expect(detectionProgress.map((item) => item.recheckedUnits!)).toEqual(
+            [...detectionProgress.map((item) => item.recheckedUnits!)].sort((left, right) => left - right),
+        );
         expect(detectionProgress.at(-1)).toMatchObject({
             rasterizedUnits: 148,
             recheckedUnits: 3,
@@ -595,70 +518,54 @@ describe('runScanCleanupDetection staged raster window', () => {
             yPoints: 0,
             // Deliberately uneven: the window admits pages by the largest ones,
             // so a narrower window must still classify the same pixels.
-            widthPoints: 1_440 - index % 3 * 96,
+            widthPoints: 1_440 - (index % 3) * 96,
             heightPoints: 1_440,
             rotation: 0,
         }));
         // 3,000 × 3,000 pages cost 54 MiB staged with their native copy, so
         // free space picks the window: 572 MiB admits one page, 632 MiB admits
         // two, and 4 GiB admits the producer's normal concurrency.
-        const runs = await Promise.all([
-            572 * MIB,
-            632 * MIB,
-            4_096 * MIB,
-        ].map(async availableScratchBytes => {
-            const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-window-'));
-            dirs.push(tempDir);
-            const harness = createHarness(tempDir, {
-                pageSizes,
-                availableScratchBytes,
-                rasterConcurrency: 2,
-            });
-            const sidecar = createLeaseSidecar({
-                concurrency: 2,
-                reconcilePages: [
-                    2,
-                    9,
-                ],
-            });
-            const log = vi.fn();
-            const detection = await runScanCleanupDetection(
-                createRequest(),
-                new AbortController().signal,
-                harness.retention,
-                harness.dependencies(sidecar.runSidecar),
-                {rasterConcurrency: 2},
-                () => undefined,
-                log,
-            );
-            resultStores.push(detection.resultStore);
-            return {
-                diagnostics: admissionDiagnostics(log),
-                peakResident: harness.peakResident(),
-                readBytes: [...sidecar.readBytes].sort((left, right) => left[0] - right[0]),
-                results: detection.results,
-                manifestPages: sidecar.manifests[0]!.pages.map(page => page.sourcePageIndex),
-            };
-        }));
+        const runs = await Promise.all(
+            [572 * MIB, 632 * MIB, 4_096 * MIB].map(async (availableScratchBytes) => {
+                const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-window-'));
+                dirs.push(tempDir);
+                const harness = createHarness(tempDir, {
+                    pageSizes,
+                    availableScratchBytes,
+                    rasterConcurrency: 2,
+                });
+                const sidecar = createLeaseSidecar({
+                    concurrency: 2,
+                    reconcilePages: [2, 9],
+                });
+                const log = vi.fn();
+                const detection = await runScanCleanupDetection(
+                    createRequest(),
+                    new AbortController().signal,
+                    harness.retention,
+                    harness.dependencies(sidecar.runSidecar),
+                    {rasterConcurrency: 2},
+                    () => undefined,
+                    log,
+                );
+                resultStores.push(detection.resultStore);
+                return {
+                    diagnostics: admissionDiagnostics(log),
+                    peakResident: harness.peakResident(),
+                    readBytes: [...sidecar.readBytes].sort((left, right) => left[0] - right[0]),
+                    results: detection.results,
+                    manifestPages: sidecar.manifests[0]!.pages.map((page) => page.sourcePageIndex),
+                };
+            }),
+        );
 
-        expect(runs.map(run => run.diagnostics.windowPages)).toEqual([
-            1,
-            2,
-            4,
-        ]);
-        expect(runs.map(run => run.diagnostics.renderConcurrency)).toEqual([
-            1,
-            2,
-            2,
-        ]);
+        expect(runs.map((run) => run.diagnostics.windowPages)).toEqual([1, 2, 4]);
+        expect(runs.map((run) => run.diagnostics.renderConcurrency)).toEqual([1, 2, 2]);
         for (const run of runs) {
             expect(run.peakResident).toBeLessThanOrEqual(run.diagnostics.windowPages as number);
         }
         // The comparison has teeth only if every page's raster is distinct.
-        expect(new Set(runs[0]!.readBytes.map(([
-            ,
-            bytes,
-        ]) => bytes)).size).toBe(runs[0]!.readBytes.length);
+        expect(new Set(runs[0]!.readBytes.map(([, bytes]) => bytes)).size).toBe(runs[0]!.readBytes.length);
         // Same classifications, same page order, same pixels handed to native.
         expect(runs[1]!.results).toEqual(runs[0]!.results);
         expect(runs[2]!.results).toEqual(runs[0]!.results);
@@ -718,26 +625,29 @@ describe('runScanCleanupDetection staged raster window', () => {
             rasterConcurrency: 2,
         });
         const publish = vi.fn();
-        const sidecar = createLeaseSidecar({onLeaseAcquired: pageNumber => {
-            if (pageNumber === 3) controller.abort(new Error('canceled by the user'));
-        }});
+        const sidecar = createLeaseSidecar({
+            onLeaseAcquired: (pageNumber) => {
+                if (pageNumber === 3) {
+                    controller.abort(new Error('canceled by the user'));
+                }
+            },
+        });
 
-        await expect(runScanCleanupDetection(
-            createRequest(),
-            controller.signal,
-            harness.retention,
-            harness.dependencies(sidecar.runSidecar),
-            {rasterConcurrency: 2},
-            publish,
-        )).rejects.toThrow('canceled by the user');
+        await expect(
+            runScanCleanupDetection(
+                createRequest(),
+                controller.signal,
+                harness.retention,
+                harness.dependencies(sidecar.runSidecar),
+                {rasterConcurrency: 2},
+                publish,
+            ),
+        ).rejects.toThrow('canceled by the user');
 
         expect(harness.resident.size).toBe(0);
         expect(new Set(harness.releasedPages)).toEqual(new Set(harness.renderedPages));
         // Nothing was published as a completed detection.
-        expect(publish.mock.calls.every(([
-            ,
-            progress,
-        ]) => (progress as {stage: string}).stage !== 'completed')).toBe(true);
+        expect(publish.mock.calls.every(([, progress]) => (progress as {stage: string}).stage !== 'completed')).toBe(true);
         expect(harness.retention.release).toHaveBeenCalledOnce();
     });
 
@@ -745,28 +655,36 @@ describe('runScanCleanupDetection staged raster window', () => {
         const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-window-'));
         dirs.push(tempDir);
         const harness = createHarness(tempDir, {
-            pageSizes: [{
-                pageNumber: 1,
-                xPoints: 0,
-                yPoints: 0,
-                widthPoints: 480,
-                heightPoints: 480,
-                rotation: 0,
-            }],
+            pageSizes: [
+                {
+                    pageNumber: 1,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 480,
+                    heightPoints: 480,
+                    rotation: 0,
+                },
+            ],
             availableScratchBytes: 4_096 * MIB,
             rasterConcurrency: 1,
         });
         let inputPath = '';
         let manifest = '';
         const error = markUnprovenNativeTermination(new Error('reader remains alive'), 'stop unproven');
-        await expect(runScanCleanupDetection(
-            createRequest(), new AbortController().signal, harness.retention,
-            harness.dependencies(async (_binary, manifestPath) => {
-                manifest = manifestPath;
-                inputPath = JSON.parse(await readFile(manifestPath, 'utf8')).pages[0].inputPath;
-                throw error;
-            }), {rasterConcurrency: 1}, () => undefined,
-        )).rejects.toBe(error);
+        await expect(
+            runScanCleanupDetection(
+                createRequest(),
+                new AbortController().signal,
+                harness.retention,
+                harness.dependencies(async (_binary, manifestPath) => {
+                    manifest = manifestPath;
+                    inputPath = JSON.parse(await readFile(manifestPath, 'utf8')).pages[0].inputPath;
+                    throw error;
+                }),
+                {rasterConcurrency: 1},
+                () => undefined,
+            ),
+        ).rejects.toBe(error);
         expect((await readFile(inputPath)).byteLength).toBeGreaterThan(0);
         expect((await readFile(manifest)).byteLength).toBeGreaterThan(0);
     });
@@ -791,14 +709,16 @@ describe('runScanCleanupDetection staged raster window', () => {
 
         // The staging failure is the cause worth reporting, not the abort it
         // raises inside the sidecar.
-        await expect(runScanCleanupDetection(
-            createRequest(),
-            new AbortController().signal,
-            harness.retention,
-            harness.dependencies(sidecar.runSidecar),
-            {rasterConcurrency: 2},
-            () => undefined,
-        )).rejects.toThrow('pdftoppm failed for page 5');
+        await expect(
+            runScanCleanupDetection(
+                createRequest(),
+                new AbortController().signal,
+                harness.retention,
+                harness.dependencies(sidecar.runSidecar),
+                {rasterConcurrency: 2},
+                () => undefined,
+            ),
+        ).rejects.toThrow('pdftoppm failed for page 5');
 
         expect(harness.resident.size).toBe(0);
     });
@@ -825,35 +745,36 @@ describe('runScanCleanupDetection staged raster window', () => {
 
         // The render failure still reaches the caller: the leaked scratch is a
         // diagnostic, never the reported cause.
-        await expect(runScanCleanupDetection(
-            createRequest(),
-            new AbortController().signal,
-            harness.retention,
-            harness.dependencies(sidecar.runSidecar),
-            {rasterConcurrency: 2},
-            () => undefined,
-            log,
-        )).rejects.toThrow('pdftoppm failed for page 3');
+        await expect(
+            runScanCleanupDetection(
+                createRequest(),
+                new AbortController().signal,
+                harness.retention,
+                harness.dependencies(sidecar.runSidecar),
+                {rasterConcurrency: 2},
+                () => undefined,
+                log,
+            ),
+        ).rejects.toThrow('pdftoppm failed for page 3');
 
-        const leaked = harness.scratchPaths.find(path => path.includes('page-3-'));
+        const leaked = harness.scratchPaths.find((path) => path.includes('page-3-'));
         expect(leaked).toBeDefined();
-        const warnings = log.mock.calls.filter(([
-            level,
-            message,
-        ]) => level === 'warn' && typeof message === 'string' && message.includes(leaked!));
+        const warnings = log.mock.calls.filter(
+            ([level, message]) => level === 'warn' && typeof message === 'string' && message.includes(leaked!),
+        );
         expect(warnings).toHaveLength(1);
         expect(warnings[0]![1]).toContain('could not drop the partial detection raster');
         // A render that simply failed leaves nothing behind and says nothing:
         // the refusal is what is worth a line, not every failed page. The
         // lease retries a page its prefetch could not stage, so each refused
         // partial raster gets exactly one line.
-        const refusedPartials = harness.scratchPaths.filter(path => path.includes('page-3-'));
+        const refusedPartials = harness.scratchPaths.filter((path) => path.includes('page-3-'));
         expect(refusedPartials.length).toBeGreaterThan(0);
-        expect(log.mock.calls.filter(([
-            level,
-            message,
-        ]) => level === 'warn'
-            && typeof message === 'string'
-            && message.includes('could not drop the partial detection raster'))).toHaveLength(refusedPartials.length);
+        expect(
+            log.mock.calls.filter(
+                ([level, message]) =>
+                    level === 'warn' && typeof message === 'string' && message.includes('could not drop the partial detection raster'),
+            ),
+        ).toHaveLength(refusedPartials.length);
     });
 });

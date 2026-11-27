@@ -1,12 +1,5 @@
-import {
-    afterAll,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import { join } from 'node:path';
+import {afterAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {join} from 'node:path';
 import type * as ElectronConfigModule from '@electron/config';
 
 const mocks = vi.hoisted(() => ({app: {isPackaged: false}}));
@@ -35,10 +28,7 @@ describe('electron config runtime mode', () => {
     });
 
     it('uses Electron app.isPackaged for development mode detection', async () => {
-        const {
-            config,
-            resolveIsPackaged,
-        }: typeof ElectronConfigModule = await import('@electron/config');
+        const {config, resolveIsPackaged}: typeof ElectronConfigModule = await import('@electron/config');
 
         expect(resolveIsPackaged()).toBe(false);
         expect(config.isDev).toBe(true);
@@ -51,10 +41,7 @@ describe('electron config runtime mode', () => {
     it('uses Electron app.isPackaged for packaged mode detection without inspecting module paths', async () => {
         mocks.app.isPackaged = true;
 
-        const {
-            config,
-            resolveIsPackaged,
-        }: typeof ElectronConfigModule = await import('@electron/config');
+        const {config, resolveIsPackaged}: typeof ElectronConfigModule = await import('@electron/config');
 
         expect(resolveIsPackaged()).toBe(true);
         expect(config.isDev).toBe(false);

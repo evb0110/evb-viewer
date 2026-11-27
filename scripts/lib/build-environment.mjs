@@ -1,7 +1,4 @@
-import {
-    execFileSync,
-    spawnSync,
-} from 'node:child_process';
+import {execFileSync, spawnSync} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import {homedir} from 'node:os';
 import path from 'node:path';
@@ -13,10 +10,7 @@ import {getCargoRustcLauncher} from './cargo-rustc-launcher.mjs';
 // configuration collector. A new named build read adds its name here.
 
 // Compiled into a bundle as a value: the receipt records a digest of each.
-export const BUILD_SECRET_ENVIRONMENT_KEYS = Object.freeze([
-    'SENTRY_BROWSER_DSN',
-    'SENTRY_DESKTOP_DSN',
-]);
+export const BUILD_SECRET_ENVIRONMENT_KEYS = Object.freeze(['SENTRY_BROWSER_DSN', 'SENTRY_DESKTOP_DSN']);
 
 // Tested for presence only: the token's value is not compiled in, so the receipt
 // records whether it is set.
@@ -69,18 +63,11 @@ const GIT_SHA_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 export function resolveBuildGitSha(buildEnv) {
     const gitOptions = {
         encoding: /** @type {const} */ ('utf8'),
-        stdio: /** @type {['ignore', 'pipe', 'ignore']} */ ([
-            'ignore',
-            'pipe',
-            'ignore',
-        ]),
+        stdio: /** @type {['ignore', 'pipe', 'ignore']} */ (['ignore', 'pipe', 'ignore']),
     };
     let status;
     try {
-        status = execFileSync('git', [
-            'status',
-            '--porcelain',
-        ], gitOptions).trim();
+        status = execFileSync('git', ['status', '--porcelain'], gitOptions).trim();
     } catch {
         const ciSha = (buildEnv.GITHUB_SHA || buildEnv.VERCEL_GIT_COMMIT_SHA || '').trim().toLowerCase();
         return GIT_SHA_PATTERN.test(ciSha) ? ciSha : null;
@@ -89,11 +76,7 @@ export function resolveBuildGitSha(buildEnv) {
         return null;
     }
     try {
-        const sha = execFileSync('git', [
-            'rev-parse',
-            '--verify',
-            'HEAD',
-        ], gitOptions).trim().toLowerCase();
+        const sha = execFileSync('git', ['rev-parse', '--verify', 'HEAD'], gitOptions).trim().toLowerCase();
         return GIT_SHA_PATTERN.test(sha) ? sha : null;
     } catch {
         return null;
@@ -107,9 +90,7 @@ export function isVercelBuildOutput(buildEnv) {
 
 /** @param {ReturnType<typeof readBuildEnvironment>} buildEnv */
 export function nuxtOutputDirectory(buildEnv) {
-    return isVercelBuildOutput(buildEnv)
-        ? '.vercel/output'
-        : buildEnv.EVB_NUXT_OUTPUT_DIR?.trim() || 'nuxt-output';
+    return isVercelBuildOutput(buildEnv) ? '.vercel/output' : buildEnv.EVB_NUXT_OUTPUT_DIR?.trim() || 'nuxt-output';
 }
 
 /** @param {NodeJS.ProcessEnv} env */
@@ -125,30 +106,17 @@ export function getCargoFingerprintEnvironment(env) {
         'PKG_CONFIG_PATH',
         'SDKROOT',
     ]);
-    const prefixes = [
-        'AR_',
-        'CARGO_',
-        'EVB_CARGO_',
-        'CC_',
-        'CFLAGS_',
-        'CXX_',
-        'CXXFLAGS_',
-        'LDFLAGS_',
-        'OPENSSL_',
-        'PKG_CONFIG_',
-        'RUST',
-    ];
-    return Object.fromEntries(Object.entries(env)
-        .filter(([key]) => exactKeys.has(key) || prefixes.some(prefix => key.startsWith(prefix)))
-        .sort(([left], [right]) => left.localeCompare(right, 'en')));
+    const prefixes = ['AR_', 'CARGO_', 'EVB_CARGO_', 'CC_', 'CFLAGS_', 'CXX_', 'CXXFLAGS_', 'LDFLAGS_', 'OPENSSL_', 'PKG_CONFIG_', 'RUST'];
+    return Object.fromEntries(
+        Object.entries(env)
+            .filter(([key]) => exactKeys.has(key) || prefixes.some((prefix) => key.startsWith(prefix)))
+            .sort(([left], [right]) => left.localeCompare(right, 'en')),
+    );
 }
-
 
 // Both native and release receipts use the same optional Cargo configuration.
 /** @param {{env?: NodeJS.ProcessEnv, projectRoot: string}} options */
-export function getCargoConfigurationInputs({
-    env = process.env, projectRoot,
-}) {
+export function getCargoConfigurationInputs({env = process.env, projectRoot}) {
     const cargoHome = getCargoHome(env, projectRoot);
     return [
         path.join(projectRoot, '.cargo', 'config'),
@@ -156,7 +124,7 @@ export function getCargoConfigurationInputs({
         path.join(projectRoot, 'rust-toolchain.toml'),
         path.join(cargoHome, 'config'),
         path.join(cargoHome, 'config.toml'),
-    ].filter(inputPath => existsSync(inputPath));
+    ].filter((inputPath) => existsSync(inputPath));
 }
 
 /** @param {NodeJS.ProcessEnv} env @param {string} projectRoot */
@@ -190,19 +158,25 @@ const rustSourceRemaps = new Map();
 function getRustSourceRemap(env, projectRoot, runCommand) {
     const key = JSON.stringify([projectRoot, env.RUSTC, getRustupHome(env, projectRoot), env.RUSTUP_TOOLCHAIN]);
     const cached = runCommand === spawnSync ? rustSourceRemaps.get(key) : undefined;
-    if (cached) return cached;
-    const run = (/** @type {string[]} */ args) => runCommand(env.RUSTC || 'rustc', args, {
-        cwd: projectRoot,
-        encoding: 'utf8',
-        env,
-    });
+    if (cached) {
+        return cached;
+    }
+    const run = (/** @type {string[]} */ args) =>
+        runCommand(env.RUSTC || 'rustc', args, {
+            cwd: projectRoot,
+            encoding: 'utf8',
+            env,
+        });
     const sysroot = run(['--print', 'sysroot']);
     const version = run(['-vV']);
     const commit = version?.status === 0 ? /^commit-hash: ([0-9a-f]{40})$/mu.exec(version.stdout)?.[1] : undefined;
-    const remap = sysroot?.status === 0 && sysroot.stdout.trim() && commit
-        ? [`--remap-path-prefix=${path.join(sysroot.stdout.trim(), 'lib', 'rustlib', 'src', 'rust')}=/rustc/${commit}`]
-        : [];
-    if (runCommand === spawnSync) rustSourceRemaps.set(key, remap);
+    const remap =
+        sysroot?.status === 0 && sysroot.stdout.trim() && commit
+            ? [`--remap-path-prefix=${path.join(sysroot.stdout.trim(), 'lib', 'rustlib', 'src', 'rust')}=/rustc/${commit}`]
+            : [];
+    if (runCommand === spawnSync) {
+        rustSourceRemaps.set(key, remap);
+    }
     return remap;
 }
 
@@ -211,9 +185,7 @@ function getRustSourceRemap(env, projectRoot, runCommand) {
  * @param {{env?: NodeJS.ProcessEnv, extraRustflags?: string[], projectRoot: string, runCommand?: TRunCommand}} options
  * @returns {string[]}
  */
-export function getCargoRustflags({
-    env = process.env, extraRustflags = [], projectRoot, runCommand = spawnSync,
-}) {
+export function getCargoRustflags({env = process.env, extraRustflags = [], projectRoot, runCommand = spawnSync}) {
     return [
         `--remap-path-prefix=${getCargoHome(env, projectRoot)}=/cargo-home`,
         `--remap-path-prefix=${getRustupHome(env, projectRoot)}=/rustup-home`,
@@ -239,29 +211,34 @@ export function getCargoBuildEnvironment({
     projectRoot,
     runCommand = spawnSync,
 }) {
-    const probe = !env.RUSTC_WRAPPER && env.EVB_RUST_SCCACHE === '1'
-        ? runCommand('sccache', ['--version'], {encoding: 'utf8'}) : null;
+    const probe = !env.RUSTC_WRAPPER && env.EVB_RUST_SCCACHE === '1' ? runCommand('sccache', ['--version'], {encoding: 'utf8'}) : null;
     const inner = env.RUSTC_WRAPPER || (probe?.status === 0 ? 'sccache' : '');
     return {
         env: {
             ...env,
-            RUSTC_WRAPPER: platform === 'win32'
-                ? getCargoRustcLauncher(projectRoot, env)
-                : path.join(projectRoot, 'scripts', 'lib', 'cargo-rustc-wrapper.mjs'),
+            RUSTC_WRAPPER:
+                platform === 'win32'
+                    ? getCargoRustcLauncher(projectRoot, env)
+                    : path.join(projectRoot, 'scripts', 'lib', 'cargo-rustc-wrapper.mjs'),
             EVB_CARGO_NODE: process.execPath,
             EVB_CARGO_WRAPPER_SCRIPT: path.join(projectRoot, 'scripts', 'lib', 'cargo-rustc-wrapper.mjs'),
             EVB_CARGO_INNER_WRAPPER: inner,
-            EVB_CARGO_RUSTFLAGS: JSON.stringify(getCargoRustflags({
-                env,
-                projectRoot,
-                runCommand,
-            })),
-            EVB_CARGO_APPLE_RUSTFLAGS: JSON.stringify(platform === 'darwin' ? [
-                '-C',
-                `link-arg=-Wl,-oso_prefix,${projectRoot}`,
-            ] : []),
+            EVB_CARGO_RUSTFLAGS: JSON.stringify(
+                getCargoRustflags({
+                    env,
+                    projectRoot,
+                    runCommand,
+                }),
+            ),
+            EVB_CARGO_APPLE_RUSTFLAGS: JSON.stringify(platform === 'darwin' ? ['-C', `link-arg=-Wl,-oso_prefix,${projectRoot}`] : []),
             EVB_CARGO_WASM_RUSTFLAGS: JSON.stringify(extraRustflags),
         },
-        sccache: env.RUSTC_WRAPPER ? `configured (${inner})` : inner ? String(probe?.stdout).trim() : (env.EVB_RUST_SCCACHE === '1' ? 'unavailable' : 'disabled'),
+        sccache: env.RUSTC_WRAPPER
+            ? `configured (${inner})`
+            : inner
+              ? String(probe?.stdout).trim()
+              : env.EVB_RUST_SCCACHE === '1'
+                ? 'unavailable'
+                : 'disabled',
     };
 }

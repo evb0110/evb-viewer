@@ -2,21 +2,11 @@
 
 import type * as TViMockOriginalModule from '@app/composables/useTypedI18n';
 
-import {
-    afterEach,
-    describe,
-    expect,
-    it,
-    vi,
-} from 'vitest';
-import {
-    defineComponent,
-    h,
-    nextTick,
-} from 'vue';
-import { resolveAnnotationCommentRowMetrics } from '@app/utils/pdfAnnotationCommentRowMetrics';
-import { useTypedI18n } from '@app/composables/useTypedI18n';
-import { BASE_ROOT_FONT_SIZE_PX } from '@app/utils/rootFontSize';
+import {afterEach, describe, expect, it, vi} from 'vitest';
+import {defineComponent, h, nextTick} from 'vue';
+import {resolveAnnotationCommentRowMetrics} from '@app/utils/pdfAnnotationCommentRowMetrics';
+import {useTypedI18n} from '@app/composables/useTypedI18n';
+import {BASE_ROOT_FONT_SIZE_PX} from '@app/utils/rootFontSize';
 import {
     ANNOTATION_COMMENT_FIXTURE_COUNT,
     ANNOTATION_COMMENT_UI_SCALE_MATRIX,
@@ -36,13 +26,18 @@ vi.mock('@app/composables/useTypedI18n', async (importOriginal) => ({
 }));
 
 function stub(marker: string) {
-    return {default: defineComponent({
-        inheritAttrs: false,
-        setup: (_props, {attrs}) => () => h('div', {
-            ...attrs,
-            [marker]: '',
+    return {
+        default: defineComponent({
+            inheritAttrs: false,
+            setup:
+                (_props, {attrs}) =>
+                () =>
+                    h('div', {
+                        ...attrs,
+                        [marker]: '',
+                    }),
         }),
-    })};
+    };
 }
 
 vi.mock('@app/components/AppSearchInput.vue', () => stub('data-search-input-stub'));
@@ -58,7 +53,7 @@ afterEach(() => {
  * this spec mocked above pins the whole label without restating either the mock's
  * output or a shipped translation.
  */
-const { t } = useTypedI18n();
+const {t} = useTypedI18n();
 
 function expectedPageLabel(rowIndex: number) {
     return `${t('annotations.page')} ${rowIndex + 1}`;
@@ -93,19 +88,15 @@ const TALL_SIDEBAR_HEIGHT_PX = 2000;
  * offset down to the bottom edge of the viewport, or to the end of the list when
  * that comes first. Anything less is blank space where rows should be.
  */
-function expectRenderedWindowCoversViewport(
-    host: HTMLElement,
-    container: HTMLElement,
-    stridePx: number,
-    clientHeightPx: number,
-) {
+function expectRenderedWindowCoversViewport(host: HTMLElement, container: HTMLElement, stridePx: number, clientHeightPx: number) {
     const wrapper = readWrapper(host);
     const renderedRowCount = readRows(host).length;
     const listHeightPx = ANNOTATION_COMMENT_FIXTURE_COUNT * stridePx;
 
     expect(wrapper.marginTopPx).toBeLessThanOrEqual(container.scrollTop);
-    expect(wrapper.marginTopPx + renderedRowCount * stridePx)
-        .toBeGreaterThanOrEqual(Math.min(container.scrollTop + clientHeightPx, listHeightPx));
+    expect(wrapper.marginTopPx + renderedRowCount * stridePx).toBeGreaterThanOrEqual(
+        Math.min(container.scrollTop + clientHeightPx, listHeightPx),
+    );
 }
 
 /**
@@ -150,10 +141,7 @@ describe('annotation comments list under UI scaling', () => {
 
     it.each(ANNOTATION_COMMENT_UI_SCALE_MATRIX)('keeps scroll offsets on the same stride at scale %s', async (scale) => {
         applyUiScale(scale);
-        const {
-            host,
-            scrollTo,
-        } = mountAnnotationCommentsList();
+        const {host, scrollTo} = mountAnnotationCommentsList();
         await nextTick();
 
         const metrics = resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX * scale);
@@ -211,10 +199,7 @@ describe('annotation comments list under UI scaling', () => {
         expect(document.activeElement).toBe(focusTarget);
 
         applyUiScale(1.25);
-        await waitForRenderedStride(
-            host,
-            resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX * 1.25).rowStridePx,
-        );
+        await waitForRenderedStride(host, resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX * 1.25).rowStridePx);
 
         // Rescaling must not re-key or remount rows: keyboard focus survives the
         // completed remeasurement, not just the tick before it lands.
@@ -223,10 +208,7 @@ describe('annotation comments list under UI scaling', () => {
 
     it('keeps the active row rendered and marked at a non-default scale', async () => {
         applyUiScale(1.1);
-        const {
-            host,
-            scrollTo,
-        } = mountAnnotationCommentsList({activeIndex: 2});
+        const {host, scrollTo} = mountAnnotationCommentsList({activeIndex: 2});
         await nextTick();
 
         const metrics = resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX * 1.1);
@@ -240,8 +222,7 @@ describe('annotation comments list under UI scaling', () => {
 
         const wrapper = readWrapper(host);
         const rows = readRows(host);
-        const activeOffsetPx = wrapper.marginTopPx
-            + rows.findIndex(row => row.element === activeRow) * metrics.rowStridePx;
+        const activeOffsetPx = wrapper.marginTopPx + rows.findIndex((row) => row.element === activeRow) * metrics.rowStridePx;
 
         // Row index 2 lives at exactly two strides from the top of the list; if the
         // rendered geometry and the virtual stride disagreed, this offset would drift.
@@ -250,11 +231,7 @@ describe('annotation comments list under UI scaling', () => {
 
     it('keeps the same comment at the top of the viewport when the UI scale changes', async () => {
         applyUiScale(1);
-        const {
-            container,
-            host,
-            scrollTo,
-        } = mountAnnotationCommentsList();
+        const {container, host, scrollTo} = mountAnnotationCommentsList();
         await nextTick();
 
         const before = resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX);
@@ -280,11 +257,7 @@ describe('annotation comments list under UI scaling', () => {
 
     it('keeps the rendered window covering a tall sidebar after a scale change', async () => {
         applyUiScale(1.25);
-        const {
-            clientHeightPx,
-            container,
-            host,
-        } = mountAnnotationCommentsList({clientHeightPx: TALL_SIDEBAR_HEIGHT_PX});
+        const {clientHeightPx, container, host} = mountAnnotationCommentsList({clientHeightPx: TALL_SIDEBAR_HEIGHT_PX});
         await nextTick();
 
         const before = resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX * 1.25);
@@ -302,21 +275,11 @@ describe('annotation comments list under UI scaling', () => {
     });
 
     it.each([
-        [
-            1,
-            1.25,
-        ],
-        [
-            1.25,
-            0.9,
-        ],
+        [1, 1.25],
+        [1.25, 0.9],
     ])('preserves a part-way scroll position from scale %s to %s', async (fromScale, toScale) => {
         applyUiScale(fromScale);
-        const {
-            container,
-            host,
-            scrollTo,
-        } = mountAnnotationCommentsList();
+        const {container, host, scrollTo} = mountAnnotationCommentsList();
         await nextTick();
 
         const before = resolveAnnotationCommentRowMetrics(BASE_ROOT_FONT_SIZE_PX * fromScale);
@@ -342,7 +305,6 @@ describe('annotation comments list under UI scaling', () => {
         // into the list the viewport sits may only move by the half pixel that
         // rounding is allowed to cost.
         expect(Number.isInteger(container.scrollTop)).toBe(true);
-        expect(Math.abs(now.depthInRows - seen.depthInRows))
-            .toBeLessThanOrEqual(0.5 / after.rowStridePx);
+        expect(Math.abs(now.depthInRows - seen.depthInRows)).toBeLessThanOrEqual(0.5 / after.rowStridePx);
     });
 });

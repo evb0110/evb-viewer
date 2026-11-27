@@ -1,24 +1,8 @@
-import {
-    constants,
-    mkdtempSync,
-    writeFileSync,
-} from 'node:fs';
-import {
-    mkdtemp,
-    readFile,
-    readdir,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {constants, mkdtempSync, writeFileSync} from 'node:fs';
+import {mkdtemp, readFile, readdir, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    afterEach,
-    beforeEach,
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {
     copyExactPdfFixture,
     EXACT_PDF_FIXTURE_MANIFEST,
@@ -47,14 +31,16 @@ describe('issue 136 CI coverage contracts', () => {
         it('falls back to a bounded stream when Linux clone staging is unsupported', async () => {
             const cloneModes: number[] = [];
 
-            const result = await copyExactPdfFixture(source, target, {copyFileImpl: async (from, to, mode) => {
-                cloneModes.push(mode ?? 0);
-                if (mode === constants.COPYFILE_FICLONE_FORCE) {
-                    writeFileSync(to, 'partial clone');
-                    throw Object.assign(new Error('clone unsupported'), {code: 'ENOTSUP'});
-                }
-                await writeFile(to, await readFile(from));
-            }});
+            const result = await copyExactPdfFixture(source, target, {
+                copyFileImpl: async (from, to, mode) => {
+                    cloneModes.push(mode ?? 0);
+                    if (mode === constants.COPYFILE_FICLONE_FORCE) {
+                        writeFileSync(to, 'partial clone');
+                        throw Object.assign(new Error('clone unsupported'), {code: 'ENOTSUP'});
+                    }
+                    await writeFile(to, await readFile(from));
+                },
+            });
 
             expect(result.mode).toBe('stream');
             expect(cloneModes).toContain(constants.COPYFILE_FICLONE_FORCE);
@@ -69,12 +55,14 @@ describe('issue 136 CI coverage contracts', () => {
 
         try {
             await writeFile(source, 'fixture bytes');
-            await expect(copyExactPdfFixture(source, target, {
-                mode: 'clone',
-                copyFileImpl: async () => {
-                    throw Object.assign(new Error('clone unsupported'), {code: 'ENOTSUP'});
-                },
-            })).rejects.toThrow(/clone staging failed|unsupported/u);
+            await expect(
+                copyExactPdfFixture(source, target, {
+                    mode: 'clone',
+                    copyFileImpl: async () => {
+                        throw Object.assign(new Error('clone unsupported'), {code: 'ENOTSUP'});
+                    },
+                }),
+            ).rejects.toThrow(/clone staging failed|unsupported/u);
             await expect(readFile(target)).rejects.toMatchObject({code: 'ENOENT'});
         } finally {
             await rm(root, {
@@ -91,13 +79,15 @@ describe('issue 136 CI coverage contracts', () => {
 
         try {
             await writeFile(source, 'fixture bytes that exceed the limit');
-            await expect(copyExactPdfFixture(source, target, {
-                maxBytes: 8,
-                mode: 'stream',
-            })).rejects.toThrow(/resource limit/u);
+            await expect(
+                copyExactPdfFixture(source, target, {
+                    maxBytes: 8,
+                    mode: 'stream',
+                }),
+            ).rejects.toThrow(/resource limit/u);
             await expect(readFile(target)).rejects.toMatchObject({code: 'ENOENT'});
             const entries = await readdir(root);
-            expect(entries.filter(entry => entry.endsWith('.tmp'))).toHaveLength(0);
+            expect(entries.filter((entry) => entry.endsWith('.tmp'))).toHaveLength(0);
         } finally {
             await rm(root, {
                 force: true,
@@ -113,10 +103,10 @@ describe('issue 136 CI coverage contracts', () => {
         const controller = new AbortController();
         let releaseClone: (() => void) | undefined;
         let markCloneStarted: (() => void) | undefined;
-        const cloneStarted = new Promise<void>(resolve => {
+        const cloneStarted = new Promise<void>((resolve) => {
             markCloneStarted = resolve;
         });
-        const cloneRelease = new Promise<void>(resolve => {
+        const cloneRelease = new Promise<void>((resolve) => {
             releaseClone = resolve;
         });
 
@@ -137,7 +127,7 @@ describe('issue 136 CI coverage contracts', () => {
             releaseClone?.();
             await expect(readFile(target)).rejects.toMatchObject({code: 'ENOENT'});
             const entries = await readdir(root);
-            expect(entries.filter(entry => entry.endsWith('.tmp'))).toHaveLength(0);
+            expect(entries.filter((entry) => entry.endsWith('.tmp'))).toHaveLength(0);
         } finally {
             releaseClone?.();
             await rm(root, {
@@ -154,10 +144,10 @@ describe('issue 136 CI coverage contracts', () => {
         const controller = new AbortController();
         let releaseSync: (() => void) | undefined;
         let markSyncStarted: (() => void) | undefined;
-        const syncStarted = new Promise<void>(resolve => {
+        const syncStarted = new Promise<void>((resolve) => {
             markSyncStarted = resolve;
         });
-        const syncRelease = new Promise<void>(resolve => {
+        const syncRelease = new Promise<void>((resolve) => {
             releaseSync = resolve;
         });
 
@@ -180,7 +170,7 @@ describe('issue 136 CI coverage contracts', () => {
             releaseSync?.();
             await expect(readFile(target)).rejects.toMatchObject({code: 'ENOENT'});
             const entries = await readdir(root);
-            expect(entries.filter(entry => entry.endsWith('.tmp'))).toHaveLength(0);
+            expect(entries.filter((entry) => entry.endsWith('.tmp'))).toHaveLength(0);
         } finally {
             releaseSync?.();
             await rm(root, {
@@ -202,10 +192,15 @@ describe('issue 136 CI coverage contracts', () => {
         };
         expect(() => validateExactPdfFixtureIdentity(expected, expected)).not.toThrow();
         expect(() => validateExactPdfFixtureIdentity(expected, expectedWithProfile)).not.toThrow();
-        expect(() => validateExactPdfFixtureIdentity({
-            ...expected,
-            sha256: '0'.repeat(64),
-        }, expected)).toThrow(/identity mismatch/u);
+        expect(() =>
+            validateExactPdfFixtureIdentity(
+                {
+                    ...expected,
+                    sha256: '0'.repeat(64),
+                },
+                expected,
+            ),
+        ).toThrow(/identity mismatch/u);
     });
 
     it('pins both public Zaliznyak fixture identities in the manifest', () => {
@@ -225,24 +220,24 @@ describe('issue 136 CI coverage contracts', () => {
 
     it('admits every pinned exact identity only through an explicit runner profile', () => {
         for (const profile of Object.keys(EXACT_PDF_FIXTURE_MANIFEST)) {
-            expect(resolveExactPdfFixtureExpectation({EVB_EXACT_FIXTURE_PROFILE: profile})).toEqual(EXACT_PDF_FIXTURE_MANIFEST[
-                profile as keyof typeof EXACT_PDF_FIXTURE_MANIFEST
-            ]);
+            expect(resolveExactPdfFixtureExpectation({EVB_EXACT_FIXTURE_PROFILE: profile})).toEqual(
+                EXACT_PDF_FIXTURE_MANIFEST[profile as keyof typeof EXACT_PDF_FIXTURE_MANIFEST],
+            );
         }
     });
 
     it('reports fixture absence as a fail-closed opt-in boundary', () => {
-        expect(() => resolveExactPdfFixtureExpectation({})).toThrow(
-            /exact fixture opt-in boundary.*EVB_EXACT_FIXTURE_PROFILE/iu,
-        );
+        expect(() => resolveExactPdfFixtureExpectation({})).toThrow(/exact fixture opt-in boundary.*EVB_EXACT_FIXTURE_PROFILE/iu);
     });
 
     it('rejects arbitrary exact-fixture identity overrides', () => {
-        expect(() => resolveExactPdfFixtureExpectation({
-            EVB_EXACT_FIXTURE_PROFILE: 'auditedZaliznyak882',
-            EVB_EXACT_FIXTURE_BYTES: '1',
-            EVB_EXACT_FIXTURE_PAGES: '1',
-            EVB_EXACT_FIXTURE_SHA256: '0'.repeat(64),
-        })).toThrow(/identity override/u);
+        expect(() =>
+            resolveExactPdfFixtureExpectation({
+                EVB_EXACT_FIXTURE_PROFILE: 'auditedZaliznyak882',
+                EVB_EXACT_FIXTURE_BYTES: '1',
+                EVB_EXACT_FIXTURE_PAGES: '1',
+                EVB_EXACT_FIXTURE_SHA256: '0'.repeat(64),
+            }),
+        ).toThrow(/identity override/u);
     });
 });

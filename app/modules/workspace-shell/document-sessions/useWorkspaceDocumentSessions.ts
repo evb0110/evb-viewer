@@ -1,7 +1,7 @@
-import type { Ref } from 'vue';
-import type { ITab } from '@app/types/tabs';
-import { useFailureToast } from '@app/composables/useFailureToast';
-import type { IWorkspaceDocumentViewSeed } from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
+import type {Ref} from 'vue';
+import type {ITab} from '@app/types/tabs';
+import {useFailureToast} from '@app/composables/useFailureToast';
+import type {IWorkspaceDocumentViewSeed} from '@app/modules/workspace-shell/document-sessions/createWorkspaceDocumentView';
 import {
     createWorkspaceDocumentController,
     identityHasDocument,
@@ -9,8 +9,8 @@ import {
     type IWorkspaceDocumentController,
     type TWorkspaceDocumentAssignment,
 } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import type { IWorkspaceRecordedFailure } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentSnapshot';
-import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
+import type {IWorkspaceRecordedFailure} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentSnapshot';
+import {createTabViewSessionState} from '@app/modules/workspace-shell/tabs/createTabViewSessionState';
 
 /**
  * The document controller of every tab, created with the tab. A split can
@@ -18,26 +18,21 @@ import { createTabViewSessionState } from '@app/modules/workspace-shell/tabs/cre
  * disposed when the last tab viewing it goes. Each tab reads and writes its
  * own view record on it.
  */
-export const useWorkspaceDocumentSessions = (options: {
-    activeTabId: Ref<string | null>;
-    tabs: Ref<ITab[]>;
-}) => {
+export const useWorkspaceDocumentSessions = (options: {activeTabId: Ref<string | null>; tabs: Ref<ITab[]>}) => {
     const sessionsByTabId = shallowRef(new Map<string, IWorkspaceDocumentController>());
     const pendingAssignments = new Map<string, TWorkspaceDocumentAssignment>();
-    const { t } = useTypedI18n();
-    const {
-        presentFailureToast,
-        presentNoticeToast,
-    } = useFailureToast();
+    const {t} = useTypedI18n();
+    const {presentFailureToast, presentNoticeToast} = useFailureToast();
 
     // Every tab's failed open is told here, once, whether the tab then shows
     // Start, keeps its document or is removed. A failure without a receipt is
     // an expected outcome, such as a file that is not a PDF.
     function reportFailure(recorded: IWorkspaceRecordedFailure) {
         const title = recorded.title ?? t('errors.file.open');
-        const description = recorded.fileName && !recorded.message.includes(recorded.fileName)
-            ? `${recorded.fileName}: ${recorded.message}`
-            : recorded.message;
+        const description =
+            recorded.fileName && !recorded.message.includes(recorded.fileName)
+                ? `${recorded.fileName}: ${recorded.message}`
+                : recorded.message;
         if (recorded.failure) {
             presentFailureToast({
                 failure: recorded.failure,
@@ -64,7 +59,7 @@ export const useWorkspaceDocumentSessions = (options: {
     }
 
     function lookupSession(tabId: string | null | undefined) {
-        return tabId ? sessionsByTabId.value.get(tabId) ?? null : null;
+        return tabId ? (sessionsByTabId.value.get(tabId) ?? null) : null;
     }
 
     function getSession(tabId: string | null | undefined) {
@@ -102,28 +97,33 @@ export const useWorkspaceDocumentSessions = (options: {
         const current = sessionsByTabId.value.get(targetTabId);
         const snapshot = source?.snapshot.value;
         // A PDF still opening links too; the view presents it when the open does.
-        const opening = snapshot?.phase === 'opening' ? snapshot.activeTransaction?.target ?? null : null;
-        const isPdf = snapshot?.phase === 'presented'
-            ? !snapshot.identity.isDjvu && identityHasDocument(snapshot.identity)
-            : Boolean(opening?.originalPath && !opening.isDjvu);
+        const opening = snapshot?.phase === 'opening' ? (snapshot.activeTransaction?.target ?? null) : null;
+        const isPdf =
+            snapshot?.phase === 'presented'
+                ? !snapshot.identity.isDjvu && identityHasDocument(snapshot.identity)
+                : Boolean(opening?.originalPath && !opening.isDjvu);
         if (
-            !source
-            || !snapshot
-            || source === current
-            || !isPdf
-            || (current && (snapshotOccupiesTab(current.snapshot.value) || current.views.value.size > 1))
+            !source ||
+            !snapshot ||
+            source === current ||
+            !isPdf ||
+            (current && (snapshotOccupiesTab(current.snapshot.value) || current.views.value.size > 1))
         ) {
             return false;
         }
         const sourceView = source.getView(sourceTabId);
         // The reader's place and panels, not a scan-cleanup surface.
-        source.addView(targetTabId, seed ?? (sourceView
-            ? {
-                toolbarSnapshot: sourceView.toolbarSnapshot.value,
-                viewState: createTabViewSessionState(sourceView.toolbarSnapshot.value),
-                readingAnchor: opening ? null : sourceView.captureReadingAnchor(),
-            }
-            : undefined));
+        source.addView(
+            targetTabId,
+            seed ??
+                (sourceView
+                    ? {
+                          toolbarSnapshot: sourceView.toolbarSnapshot.value,
+                          viewState: createTabViewSessionState(sourceView.toolbarSnapshot.value),
+                          readingAnchor: opening ? null : sourceView.captureReadingAnchor(),
+                      }
+                    : undefined),
+        );
         replaceSession(targetTabId, source);
         return true;
     }
@@ -138,7 +138,7 @@ export const useWorkspaceDocumentSessions = (options: {
     }
 
     function syncTabSessions(tabs: readonly ITab[]) {
-        const liveTabIds = new Set(tabs.map(tab => tab.id));
+        const liveTabIds = new Set(tabs.map((tab) => tab.id));
         let changed = false;
         for (const tab of tabs) {
             if (!sessionsByTabId.value.has(tab.id)) {
@@ -148,10 +148,7 @@ export const useWorkspaceDocumentSessions = (options: {
                 changed = true;
             }
         }
-        for (const [
-            tabId,
-            session,
-        ] of [...sessionsByTabId.value]) {
+        for (const [tabId, session] of [...sessionsByTabId.value]) {
             if (!liveTabIds.has(tabId)) {
                 if (session.removeView(tabId) === 0) {
                     session.dispose();
@@ -167,7 +164,7 @@ export const useWorkspaceDocumentSessions = (options: {
     }
 
     watch(
-        () => options.tabs.value.map(tab => tab.id),
+        () => options.tabs.value.map((tab) => tab.id),
         () => {
             syncTabSessions(options.tabs.value);
         },
@@ -178,31 +175,30 @@ export const useWorkspaceDocumentSessions = (options: {
     );
 
     function getView(tabId: string | null | undefined) {
-        return tabId ? lookupSession(tabId)?.getView(tabId) ?? null : null;
+        return tabId ? (lookupSession(tabId)?.getView(tabId) ?? null) : null;
     }
 
     const documentSessionsByTabId = computed(() => Object.fromEntries(sessionsByTabId.value));
-    const documentViewsByTabId = computed(() => Object.fromEntries([...sessionsByTabId.value].flatMap(([
-        tabId,
-        session,
-    ]) => {
-        const view = session.views.value.get(tabId);
-        return view ? [[
-            tabId,
-            view,
-        ] as const] : [];
-    })));
-    const workspaceRefs = computed(() => new Map(Object.entries(documentViewsByTabId.value).flatMap(([
-        tabId,
-        view,
-    ]) => view.mountedWorkspace.value ? [[
-        tabId,
-        view.mountedWorkspace.value,
-    ] as const] : [])));
+    const documentViewsByTabId = computed(() =>
+        Object.fromEntries(
+            [...sessionsByTabId.value].flatMap(([tabId, session]) => {
+                const view = session.views.value.get(tabId);
+                return view ? [[tabId, view] as const] : [];
+            }),
+        ),
+    );
+    const workspaceRefs = computed(
+        () =>
+            new Map(
+                Object.entries(documentViewsByTabId.value).flatMap(([tabId, view]) =>
+                    view.mountedWorkspace.value ? [[tabId, view.mountedWorkspace.value] as const] : [],
+                ),
+            ),
+    );
     const activeDocumentSession = computed(() => lookupSession(options.activeTabId.value));
     const activeDocumentView = computed(() => {
         const tabId = options.activeTabId.value;
-        return tabId ? activeDocumentSession.value?.getView(tabId) ?? null : null;
+        return tabId ? (activeDocumentSession.value?.getView(tabId) ?? null) : null;
     });
     const activeWorkspace = computed(() => activeDocumentView.value?.mountedWorkspace.value ?? null);
 

@@ -1,17 +1,14 @@
+import {describe, expect, it} from 'vitest';
+import {computeInitialImagePlacementDimensions} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/computeInitialImagePlacementDimensions';
+import {getImagePlacementResizeCursor} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursor';
+import {getImagePlacementResizeCursorStyle} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursorStyle';
 import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
-import { computeInitialImagePlacementDimensions } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/computeInitialImagePlacementDimensions';
-import { getImagePlacementResizeCursor } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursor';
-import { getImagePlacementResizeCursorStyle } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursorStyle';
-import {
-    getShortestImagePlacementAngleDelta, rotateImagePlacementRect,  
+    getShortestImagePlacementAngleDelta,
+    rotateImagePlacementRect,
 } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/rotateImagePlacementRect';
-import { moveImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/moveImagePlacementRect';
-import { resizeImagePlacementRect } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/resizeImagePlacementRect';
-import { snapImagePlacementRotationDegrees } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/snapImagePlacementRotationDegrees';
+import {moveImagePlacementRect} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/moveImagePlacementRect';
+import {resizeImagePlacementRect} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/resizeImagePlacementRect';
+import {snapImagePlacementRotationDegrees} from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/snapImagePlacementRotationDegrees';
 
 function toRadians(degrees: number) {
     return (degrees * Math.PI) / 180;
@@ -29,8 +26,8 @@ function rotatePoint(
     const sin = Math.sin(radians);
 
     return {
-        x: (point.x * cos) - (point.y * sin),
-        y: (point.x * sin) + (point.y * cos),
+        x: point.x * cos - point.y * sin,
+        y: point.x * sin + point.y * cos,
     };
 }
 
@@ -45,8 +42,8 @@ function getHandlePoint(
     rotationDegrees: number,
 ) {
     const center = {
-        x: rect.left + (rect.width / 2),
-        y: rect.top + (rect.height / 2),
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
     };
     const vectors = {
         nw: {
@@ -83,10 +80,13 @@ function getHandlePoint(
         },
     } as const;
     const vector = vectors[handle];
-    const rotated = rotatePoint({
-        x: (vector.x * rect.width) / 2,
-        y: (vector.y * rect.height) / 2,
-    }, rotationDegrees);
+    const rotated = rotatePoint(
+        {
+            x: (vector.x * rect.width) / 2,
+            y: (vector.y * rect.height) / 2,
+        },
+        rotationDegrees,
+    );
 
     return {
         x: center.x + rotated.x,

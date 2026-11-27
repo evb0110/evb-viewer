@@ -15,7 +15,9 @@ let releaseCohortCookie: string | null | undefined;
 let releaseCohortCookieLoadPromise: Promise<string | null> | null = null;
 let releaseCohortCookieRetryAt = 0;
 
-interface IReleaseMetadataLogger {warn: (message: string) => void;}
+interface IReleaseMetadataLogger {
+    warn: (message: string) => void;
+}
 
 interface IResponseHeaders {
     get(name: string): string | null;
@@ -44,10 +46,7 @@ async function readBoundedResponseBody(response: Response) {
     let body = '';
     let receivedBytes = 0;
     for (;;) {
-        const {
-            done,
-            value,
-        } = await reader.read();
+        const {done, value} = await reader.read();
         if (done) {
             break;
         }
@@ -83,7 +82,7 @@ async function loadReleaseCohortCookie(metadataUrl: string, logger: IReleaseMeta
                 name: RELEASE_COHORT_COOKIE_NAME,
                 url: metadataUrl,
             });
-            releaseCohortCookie = cookies.find(cookie => isValidReleaseCohortCookieValue(cookie.value))?.value ?? null;
+            releaseCohortCookie = cookies.find((cookie) => isValidReleaseCohortCookieValue(cookie.value))?.value ?? null;
             releaseCohortCookieRetryAt = 0;
         } catch (error) {
             releaseCohortCookie = undefined;
@@ -134,11 +133,7 @@ async function persistReleaseCohortCookie(value: string, sourceUrl: string, logg
     }
 }
 
-async function fetchRolloutMetadata(
-    url: string,
-    init: RequestInit,
-    logger: IReleaseMetadataLogger,
-) {
+async function fetchRolloutMetadata(url: string, init: RequestInit, logger: IReleaseMetadataLogger) {
     const headers = new Headers(init.headers);
     const cookieValue = await loadReleaseCohortCookie(url, logger);
     if (cookieValue) {
@@ -156,15 +151,16 @@ async function fetchRolloutMetadata(
     return response;
 }
 
-export async function fetchLatestReleaseMetadataVersion(
-    metadataUrl: string,
-    logger: IReleaseMetadataLogger,
-) {
+export async function fetchLatestReleaseMetadataVersion(metadataUrl: string, logger: IReleaseMetadataLogger) {
     try {
-        const response = await fetchRolloutMetadata(metadataUrl, {
-            headers: {accept: 'application/json'},
-            signal: AbortSignal.timeout(METADATA_REQUEST_TIMEOUT_MS),
-        }, logger);
+        const response = await fetchRolloutMetadata(
+            metadataUrl,
+            {
+                headers: {accept: 'application/json'},
+                signal: AbortSignal.timeout(METADATA_REQUEST_TIMEOUT_MS),
+            },
+            logger,
+        );
         if (!response.ok) {
             throw new Error(`Metadata endpoint responded with ${response.status}`);
         }

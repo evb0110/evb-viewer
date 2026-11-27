@@ -1,24 +1,11 @@
-import {
-    mkdtemp,
-    readFile,
-    rm,
-    writeFile,
-} from 'node:fs/promises';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {
-    describe,
-    expect,
-    it,
-} from 'vitest';
+import {describe, expect, it} from 'vitest';
 
 import {createManifest} from '@scripts/generate-interop-corpus.mjs';
 import {verifyInteropRendering} from '@scripts/verify-interop-rendering.mjs';
-import {
-    REQUIRED_CANONICAL_KINDS,
-    validateCorpus,
-    validateManifest,
-} from '@scripts/verify-interop-corpus.mjs';
+import {REQUIRED_CANONICAL_KINDS, validateCorpus, validateManifest} from '@scripts/verify-interop-corpus.mjs';
 
 const corpusDirectory = join(process.cwd(), 'tests/fixtures/electron/interop');
 
@@ -37,7 +24,7 @@ describe('interop corpus verifier', () => {
                 inputPaths: [],
             });
             expect(rendering.files).toHaveLength(2);
-            expect(rendering.files.every(file => file.visualChecks.length === 5)).toBe(true);
+            expect(rendering.files.every((file) => file.visualChecks.length === 5)).toBe(true);
         } finally {
             await rm(temporaryDirectory, {
                 recursive: true,
@@ -90,20 +77,13 @@ describe('interop corpus verifier', () => {
         const temporaryDirectory = await mkdtemp(join(tmpdir(), 'evb-interop-'));
 
         try {
-            const manifest = JSON.parse(
-                await readFile(join(corpusDirectory, 'corpus-manifest.json'), 'utf8'),
-            );
-            const entry = manifest.entries.find(
-                (candidate: {status?: string}) => candidate.status === 'ready',
-            );
+            const manifest = JSON.parse(await readFile(join(corpusDirectory, 'corpus-manifest.json'), 'utf8'));
+            const entry = manifest.entries.find((candidate: {status?: string}) => candidate.status === 'ready');
             const sourcePath = join(corpusDirectory, entry.file);
             const destinationPath = join(temporaryDirectory, entry.file);
             await writeFile(destinationPath, await readFile(sourcePath));
             manifest.entries = [entry];
-            await writeFile(
-                join(temporaryDirectory, 'corpus-manifest.json'),
-                JSON.stringify(manifest, null, 2),
-            );
+            await writeFile(join(temporaryDirectory, 'corpus-manifest.json'), JSON.stringify(manifest, null, 2));
 
             const bytes = Buffer.from(await readFile(destinationPath));
             bytes[bytes.length - 1] = (bytes[bytes.length - 1] ?? 0) ^ 0xff;
@@ -124,13 +104,9 @@ describe('interop corpus verifier', () => {
     });
 
     it('rejects stock provenance that claims an unrelated writer', async () => {
-        const manifest = JSON.parse(
-            await readFile(join(corpusDirectory, 'corpus-manifest.json'), 'utf8'),
-        );
+        const manifest = JSON.parse(await readFile(join(corpusDirectory, 'corpus-manifest.json'), 'utf8'));
         const stockEntry = manifest.entries.find(
-            (candidate: {provenance?: {kind?: string}}) => (
-                candidate.provenance?.kind === 'stock-pdfjs-save-of-synthetic-input'
-            ),
+            (candidate: {provenance?: {kind?: string}}) => candidate.provenance?.kind === 'stock-pdfjs-save-of-synthetic-input',
         );
         stockEntry.provenance.packageName = 'pdfjs-dist';
 
@@ -144,9 +120,7 @@ describe('interop corpus verifier', () => {
     });
 
     it('rejects an acquisition-required entry instead of silently skipping it', async () => {
-        const manifest = JSON.parse(
-            await readFile(join(corpusDirectory, 'corpus-manifest.json'), 'utf8'),
-        );
+        const manifest = JSON.parse(await readFile(join(corpusDirectory, 'corpus-manifest.json'), 'utf8'));
         manifest.entries[0]!.status = 'acquisition-required';
 
         await expect(
@@ -159,9 +133,7 @@ describe('interop corpus verifier', () => {
     });
 
     it('rejects a manifest that omits a required scenario family', async () => {
-        const manifest = JSON.parse(
-            await readFile(join(corpusDirectory, 'corpus-manifest.json'), 'utf8'),
-        );
+        const manifest = JSON.parse(await readFile(join(corpusDirectory, 'corpus-manifest.json'), 'utf8'));
         manifest.requiredCases.richText = false;
 
         await expect(

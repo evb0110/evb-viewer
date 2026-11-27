@@ -1,6 +1,4 @@
-import type { TPageIndex } from '@contracts/pageNumbers';
-
-
+import type {TPageIndex} from '@contracts/pageNumbers';
 
 export function getPageContainer(containerRoot: HTMLElement, pageIndex: TPageIndex) {
     if (pageIndex < 0) {
@@ -8,9 +6,7 @@ export function getPageContainer(containerRoot: HTMLElement, pageIndex: TPageInd
     }
 
     const pageNumber = pageIndex + 1;
-    const directMatch = containerRoot.querySelector<HTMLElement>(
-        `.page_container[data-page="${pageNumber}"]`,
-    );
+    const directMatch = containerRoot.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
     if (directMatch) {
         return directMatch;
     }

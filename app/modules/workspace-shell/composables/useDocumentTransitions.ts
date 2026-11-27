@@ -1,12 +1,9 @@
-import type { Ref } from 'vue';
-import type {
-    IAnnotationCommentSummary,
-    IAnnotationEditorState,
-} from '@app/types/annotations';
-import type { TPdfSource } from '@app/types/pdfUi';
-import type { TDocumentRef } from '@contracts/documentRef';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
-import { annotationIdForSummary } from '@app/modules/pdf-viewer/public';
+import type {Ref} from 'vue';
+import type {IAnnotationCommentSummary, IAnnotationEditorState} from '@app/types/annotations';
+import type {TPdfSource} from '@app/types/pdfUi';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
+import {annotationIdForSummary} from '@app/modules/pdf-viewer/public';
 
 export interface IDocumentTransitionDeps {
     pdfSrc: Ref<TPdfSource | null>;
@@ -27,7 +24,7 @@ export interface IDocumentTransitionDeps {
     resetSearchCache: () => void;
     closeSearch: () => void;
     closeContextMenus: () => void;
-    closeAllAnnotationNotes: (opts?: { saveIfDirty?: boolean }) => Promise<boolean>;
+    closeAllAnnotationNotes: (opts?: {saveIfDirty?: boolean}) => Promise<boolean>;
     consumePreservedSourceReloadMetadata?: (() => boolean) | undefined;
 }
 
@@ -68,7 +65,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         bookmarksDirty.value = false;
         bookmarkEditMode.value = false;
         closeContextMenus();
-        void closeAllAnnotationNotes({ saveIfDirty: false });
+        void closeAllAnnotationNotes({saveIfDirty: false});
         resetAnnotationTracking();
         annotationEditorState.value = {
             isEditing: false,
@@ -82,16 +79,7 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
     // What read the previous bytes resets with each published source; a same-
     // document working-copy switch (a browser Save As, Optimize as a copy) has
     // no open or close to reset in, so its note windows close unsaved.
-    watch([
-        pdfSrc,
-        workingCopyPath,
-    ], ([
-        newSrc,
-        nextPath,
-    ], [
-        oldSrc,
-        previousPath,
-    ]) => {
+    watch([pdfSrc, workingCopyPath], ([newSrc, nextPath], [oldSrc, previousPath]) => {
         const sourceChanged = Boolean(newSrc && newSrc !== oldSrc);
         const workingCopyChanged = nextPath !== previousPath;
         if (sourceChanged) {
@@ -107,17 +95,17 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         }
         if (workingCopyChanged) {
             annotationActiveCommentStableKey.value = null;
-            void closeAllAnnotationNotes({ saveIfDirty: false });
+            void closeAllAnnotationNotes({saveIfDirty: false});
         }
         if (sourceChanged || workingCopyChanged) {
             closeContextMenus();
         }
     });
 
-    watch(annotationComments, comments => {
+    watch(annotationComments, (comments) => {
         if (
-            annotationActiveCommentStableKey.value
-            && !comments.some(comment => annotationIdForSummary(comment) === annotationActiveCommentStableKey.value)
+            annotationActiveCommentStableKey.value &&
+            !comments.some((comment) => annotationIdForSummary(comment) === annotationActiveCommentStableKey.value)
         ) {
             annotationActiveCommentStableKey.value = null;
         }

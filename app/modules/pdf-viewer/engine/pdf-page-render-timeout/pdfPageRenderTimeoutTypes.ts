@@ -1,12 +1,7 @@
-import type { TPageNumber } from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
 
 export type TPageRenderStallStage =
-    | 'page-load'
-    | 'canvas-prepare'
-    | 'canvas-render'
-    | 'text-layer'
-    | 'annotation-layer'
-    | 'annotation-editor-layer';
+    'page-load' | 'canvas-prepare' | 'canvas-render' | 'text-layer' | 'annotation-layer' | 'annotation-editor-layer';
 
 export interface IPageRenderStallPayload {
     pageNumber: TPageNumber;

@@ -1,6 +1,12 @@
 <template>
-    <template v-for="(links, pageNum) in linksByPage" :key="`links-${pageNum}`">
-        <Teleport v-if="linkLayerTargets.get(Number(pageNum))" :to="linkLayerTargets.get(Number(pageNum))!">
+    <template
+        v-for="(links, pageNum) in linksByPage"
+        :key="`links-${pageNum}`"
+    >
+        <Teleport
+            v-if="linkLayerTargets.get(Number(pageNum))"
+            :to="linkLayerTargets.get(Number(pageNum))!"
+        >
             <PdfLinkOverlayLayer
                 :links="links"
                 @navigate-destination="handleLinkDestination"
@@ -10,23 +16,20 @@
 </template>
 
 <script setup lang="ts">
-import { useMutationObserver } from '@vueuse/core';
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {useMutationObserver} from '@vueuse/core';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import PdfLinkOverlayLayer from '@app/modules/pdf-viewer/components/annotations/PdfLinkOverlayLayer.vue';
-import { resolvePdfViewerPortalTargets } from '@app/modules/pdf-viewer/runtime/portal/resolvePdfViewerPortalTargets';
-import type { ILinkAnnotation } from '@app/types/annotations';
+import {resolvePdfViewerPortalTargets} from '@app/modules/pdf-viewer/runtime/portal/resolvePdfViewerPortalTargets';
+import type {ILinkAnnotation} from '@app/types/annotations';
 
 interface IProps {
     viewerContainer: HTMLElement | null;
     linksByPage: Record<number, ILinkAnnotation[]>;
 }
 
-const {
-    linksByPage,
-    viewerContainer,
-} = defineProps<IProps>();
+const {linksByPage, viewerContainer} = defineProps<IProps>();
 
-const emit = defineEmits<{'link-destination': [dest: NonNullable<ILinkAnnotation['dest']>];}>();
+const emit = defineEmits<{'link-destination': [dest: NonNullable<ILinkAnnotation['dest']>]}>();
 
 const portalTargetRefreshTick = ref(0);
 let portalTargetRefreshFrame: number | null = null;
@@ -35,7 +38,7 @@ const linkLayerTargets = computed(() => {
     void portalTargetRefreshTick.value;
     return resolvePdfViewerPortalTargets(
         viewerContainer,
-        Object.keys(linksByPage).map(page => requirePageNumber(Number(page))),
+        Object.keys(linksByPage).map((page) => requirePageNumber(Number(page))),
     );
 });
 
@@ -71,21 +74,16 @@ function schedulePortalTargetRefresh() {
 }
 
 function elementContainsPageContainer(element: Element) {
-    return element.matches('.page_container')
-        || Boolean(element.querySelector('.page_container'));
+    return element.matches('.page_container') || Boolean(element.querySelector('.page_container'));
 }
 
 function mutationTouchesPortalTargets(records: MutationRecord[]) {
     return records.some((record) => {
         if (record.type === 'attributes') {
-            return record.target instanceof Element
-                && record.target.matches('.page_container');
+            return record.target instanceof Element && record.target.matches('.page_container');
         }
 
-        return [
-            ...record.addedNodes,
-            ...record.removedNodes,
-        ].some(node => node instanceof Element && elementContainsPageContainer(node));
+        return [...record.addedNodes, ...record.removedNodes].some((node) => node instanceof Element && elementContainsPageContainer(node));
     });
 }
 
@@ -103,22 +101,12 @@ function handleViewerContainerChange() {
 onMounted(refreshPortalTargets);
 onBeforeUnmount(cancelPortalTargetRefreshFrame);
 
-useMutationObserver(
-    () => viewerContainer,
-    handlePortalTargetMutations,
-    {
-        attributes: true,
-        attributeFilter: [
-            'class',
-            'data-page',
-        ],
-        childList: true,
-        subtree: true,
-    },
-);
+useMutationObserver(() => viewerContainer, handlePortalTargetMutations, {
+    attributes: true,
+    attributeFilter: ['class', 'data-page'],
+    childList: true,
+    subtree: true,
+});
 
-watch(
-    () => viewerContainer,
-    handleViewerContainerChange,
-);
+watch(() => viewerContainer, handleViewerContainerChange);
 </script>
