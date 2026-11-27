@@ -116,6 +116,8 @@ interface IPdfNativeBookmarkState {
 
 interface IPdfNativeShapePointState {count: number;}
 
+interface IPdfNativeShapeSetState extends IPdfNativeShapePointState {strokeCount: number;}
+
 interface IPdfNativePlacedImageByteState {totalBytes: number;}
 
 function normalizePlacedImageBox(value: Record<string, unknown>, label: string, options: IPdfNativeValidationOptions) {
@@ -717,7 +719,7 @@ function normalizeShapePoints(
 function normalizeShapeStrokes(
     value: unknown,
     label: string,
-    state: IPdfNativeShapePointState,
+    state: IPdfNativeShapeSetState,
     options: IPdfNativeValidationOptions,
     shapeState: IPdfNativeShapePointState,
 ) {
@@ -729,6 +731,10 @@ function normalizeShapeStrokes(
     }
     if (value.length > PDF_NATIVE_MUTATION_LIMITS.shapeStrokes) {
         fail(`${label} must contain at most ${PDF_NATIVE_MUTATION_LIMITS.shapeStrokes} strokes`, options);
+    }
+    state.strokeCount += value.length;
+    if (state.strokeCount > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
+        fail(`shape mutations must include at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} strokes`, options);
     }
     return Array.from(value, (points, index) => normalizeShapePoints(
         points,
@@ -772,7 +778,7 @@ function normalizeShapeEnum<T extends string>(
 function normalizeShapeAnnotation(
     value: unknown,
     label: string,
-    state: IPdfNativeShapePointState,
+    state: IPdfNativeShapeSetState,
     options: IPdfNativeValidationOptions,
 ): IPdfNativeShapeAnnotation {
     if (!isRecord(value)) {
@@ -1113,7 +1119,10 @@ function normalizeShapesMutation(
     if (!Array.isArray(value.shapes) || value.shapes.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
         fail(`${label}.shapes must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} shapes`, options);
     }
-    const pointState = {count: 0};
+    const pointState: IPdfNativeShapeSetState = {
+        count: 0,
+        strokeCount: 0,
+    };
     return {
         totalPages: normalizePositiveInteger(value.totalPages, `${label}.totalPages`, options),
         rewriteShapeState: value.rewriteShapeState === true,

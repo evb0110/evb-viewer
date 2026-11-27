@@ -106,6 +106,9 @@ export function collectExpectedNativeIdentityIds(mutations: IPdfNativeMutationSe
         addNewNativeAnnotationIdentityCandidate(ids, editor.stableKey, null, editor.annotationId);
     }
     for (const shape of mutations.shapes?.shapes ?? []) {
+        if (shape === undefined) {
+            fail('shape mutations contain an invalid shape entry');
+        }
         addNewNativeAnnotationIdentityCandidate(ids, shape.stableKey, shape.annotationId, shape.annotationId);
     }
     for (const image of mutations.placedImages ?? []) {
@@ -266,10 +269,13 @@ function splitShapeMutation(
         const chunkShapes: IPdfNativeShapeAnnotation[] = [];
         let pointCount = 0;
         let chunkItemCount = deletedAnnotationIds.length + deletedStableKeys.length;
-        while (chunkShapes.length < Math.min(PDF_NATIVE_MUTATION_LIMITS.shapes, identityChunkItems)) {
+        while (
+            shapeIndex < shapes.shapes.length
+            && chunkShapes.length < Math.min(PDF_NATIVE_MUTATION_LIMITS.shapes, identityChunkItems)
+        ) {
             const shape = shapes.shapes[shapeIndex];
             if (shape === undefined) {
-                break;
+                fail('shape mutations contain an invalid shape entry', {errorKind: 'error'});
             }
             const points = shapePointCount(shape);
             if (points > PDF_NATIVE_MUTATION_LIMITS.shapePoints) {

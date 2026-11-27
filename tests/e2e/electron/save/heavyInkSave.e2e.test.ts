@@ -40,6 +40,7 @@ import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 interface IPdfInkStats {
     annotationCount: number;
     strokeCount: number;
+    strokePointCounts: number[];
     totalPoints: number;
 }
 
@@ -52,6 +53,7 @@ async function readPdfInkStats(filePath: string): Promise<IPdfInkStats> {
     const doc = await PDFDocument.load(readFileSync(filePath));
     let annotationCount = 0;
     let strokeCount = 0;
+    const strokePointCounts: number[] = [];
     let totalPoints = 0;
 
     for (const page of doc.getPages()) {
@@ -67,8 +69,10 @@ async function readPdfInkStats(filePath: string): Promise<IPdfInkStats> {
             for (let strokeIndex = 0; strokeIndex < inkList.size(); strokeIndex += 1) {
                 const stroke = inkList.lookupMaybe(strokeIndex, PDFArray);
                 if (!stroke) continue;
+                const pointsInStroke = Math.floor(stroke.size() / 2);
                 strokeCount += 1;
-                totalPoints += Math.floor(stroke.size() / 2);
+                strokePointCounts.push(pointsInStroke);
+                totalPoints += pointsInStroke;
             }
         }
     }
@@ -76,6 +80,7 @@ async function readPdfInkStats(filePath: string): Promise<IPdfInkStats> {
     return {
         annotationCount,
         strokeCount,
+        strokePointCounts,
         totalPoints,
     };
 }
@@ -281,6 +286,11 @@ it('saves and reopens heavy freehand ink drawings past the 100,000-point mutatio
         expect(failures).toEqual([]);
         expect(savedStats.annotationCount).toBe(EXPECTED_SAVED_SHAPES);
         expect(savedStats.strokeCount).toBe(EXPECTED_SAVED_SHAPES);
+        expect(savedStats.strokePointCounts.filter(count => count === POINTS_PER_SEEDED_SHAPE))
+            .toHaveLength(SEEDED_HEAVY_INK_SHAPES);
+        expect(savedStats.strokePointCounts.filter(count => count !== POINTS_PER_SEEDED_SHAPE))
+            .toHaveLength(EXPECTED_SAVED_SHAPES - SEEDED_HEAVY_INK_SHAPES);
+        expect(savedStats.strokePointCounts.every(count => count >= 2)).toBe(true);
         expect(savedStats.totalPoints).toBeGreaterThan(SEEDED_INK_POINTS);
 
         const dirtyAfterSave = (
