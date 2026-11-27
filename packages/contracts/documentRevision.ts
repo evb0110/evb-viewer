@@ -1,8 +1,8 @@
+import type { TBrand } from '@contracts/brand';
 import {
     parseDocumentRef,
     type TDocumentRef,
 } from '@contracts/documentRef';
-import type { Tagged } from 'type-fest';
 import {
     isOneOf,
     isRecord,
@@ -12,7 +12,7 @@ import {
     type TEpochMs,
 } from '@contracts/timestamps';
 
-export type TDocumentRevisionToken = Tagged<string, 'DocumentRevisionToken'>;
+export type TDocumentRevisionToken = TBrand<string, 'DocumentRevisionToken'>;
 /** Receives a revision the operation itself committed. */
 export type TDocumentCommitReceipt = (revision: TDocumentRevisionToken) => void;
 export type TDocumentRevisionAuthority = 'electron-working-copy' | 'browser-document-store';

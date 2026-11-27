@@ -11,7 +11,10 @@ import {
     createTesseractEngine,
     type TTesseractModuleFactory,
 } from '@ocr-core/tesseractEngine';
-import type {TDesktopOcrEngineRequest} from '@electron/features/ocr/main/ocrEngineHostProtocol';
+import type {
+    IOcrEngineLaneReply,
+    IOcrEngineLaneRequest,
+} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 
 /** Where the engine and the installed models are; the pool passes it to each worker. */
 export interface IOcrEngineWorkerData {
@@ -60,10 +63,7 @@ const recognize = createTesseractEngine({
 
 parentPort!.on('message', async ({
     id, request,
-}: {
-    id: number;
-    request: TDesktopOcrEngineRequest;
-}) => {
+}: IOcrEngineLaneRequest) => {
     try {
         const image = request.image instanceof Uint8Array
             ? request.image
@@ -76,12 +76,12 @@ parentPort!.on('message', async ({
             id,
             ok: true,
             result,
-        }, result.passes.flatMap(pass => pass.outputs.map(output => output.buffer as ArrayBuffer)));
+        } satisfies IOcrEngineLaneReply, result.passes.flatMap(pass => pass.outputs.map(output => output.buffer as ArrayBuffer)));
     } catch (error) {
         parentPort!.postMessage({
             id,
             ok: false,
             error: error instanceof Error ? error.message : String(error),
-        });
+        } satisfies IOcrEngineLaneReply);
     }
 });

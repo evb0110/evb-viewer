@@ -5,9 +5,9 @@ import { onSenderLifetimeEnd } from '@electron/utils/onSenderLifetimeEnd';
 import { normalizeExistingPath } from '@electron/utils/normalizeExistingPath';
 import { isReservedTempPath } from '@electron/utils/pathValidator';
 import {normalizePathForLookup} from '@electron/file-access/normalizePathForLookup';
-import type { Tagged } from 'type-fest';
+import type { TBrand } from '@contracts/brand';
 
-export type TOpenPath = Tagged<string, 'OpenPath'>;
+export type TOpenPath = TBrand<string, 'OpenPath'>;
 
 const logger = createLogger('open-path-capabilities');
 interface IOpenPathGrant { expiresAtMs: number; }

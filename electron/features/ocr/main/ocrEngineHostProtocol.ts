@@ -3,10 +3,7 @@ import {
     BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS,
     BROWSER_OCR_ENGINE_RESULT_SCHEMA,
 } from '@contracts/browserOcrEngine';
-import type {
-    IOcrEngineRequest,
-    IOcrEngineResult,
-} from '@ocr-core/tesseractEngine';
+import type {IOcrEngineRequest} from '@ocr-core/tesseractEngine';
 import type {IOcrEngineWorkerData} from '@electron/features/ocr/main/ocrEngineWorker';
 
 /** A file-backed PNM raster passed by path across the utility-process IPC boundary. */
@@ -42,14 +39,6 @@ export interface IOcrEngineLaneRequest {
     request: TDesktopOcrEngineRequest;
 }
 
-/** A lane's answer to one request, as its engine worker thread sends it. */
-export interface IOcrEngineLaneReply {
-    id: number;
-    ok: boolean;
-    result?: IOcrEngineResult;
-    error?: string;
-}
-
 /**
  * Main to the OCR utility process: start a lane's worker thread, run a page on
  * it, end it, or end every lane and exit.
@@ -72,27 +61,22 @@ export type TOcrEngineHostRequest =
     }
     | {type: 'shutdown'};
 
-/** The OCR utility process to main: what a lane's worker thread did. */
-export type TOcrEngineHostEvent =
-    | {
-        type: 'reply';
-        lane: number;
-        reply: IOcrEngineLaneReply;
-    }
-    | {
-        type: 'error';
-        lane: number;
-        message: string;
-    }
-    | {
-        type: 'exit';
-        lane: number;
-        code: number;
-    };
-
 const laneSchema = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
 // An engine failure carries Tesseract's stderr, which the engine bounds.
 const messageTextSchema = v.pipe(v.string(), v.maxLength(BROWSER_OCR_ENGINE_MAX_STDERR_CHARACTERS + 4_096));
+
+const laneReplySchema = v.union([
+    v.object({
+        id: laneSchema,
+        ok: v.literal(true),
+        result: BROWSER_OCR_ENGINE_RESULT_SCHEMA,
+    }),
+    v.object({
+        id: laneSchema,
+        ok: v.literal(false),
+        error: messageTextSchema,
+    }),
+]);
 
 const hostRequestSchema = v.variant('type', [
     v.object({
@@ -129,18 +113,7 @@ const hostEventSchema = v.variant('type', [
     v.object({
         type: v.literal('reply'),
         lane: laneSchema,
-        reply: v.union([
-            v.object({
-                id: laneSchema,
-                ok: v.literal(true),
-                result: BROWSER_OCR_ENGINE_RESULT_SCHEMA,
-            }),
-            v.object({
-                id: laneSchema,
-                ok: v.literal(false),
-                error: messageTextSchema,
-            }),
-        ]),
+        reply: laneReplySchema,
     }),
     v.object({
         type: v.literal('error'),
@@ -153,6 +126,12 @@ const hostEventSchema = v.variant('type', [
         code: v.pipe(v.number(), v.integer()),
     }),
 ]);
+
+/** A lane's answer to one request, as its engine worker thread sends it. */
+export type IOcrEngineLaneReply = v.InferOutput<typeof laneReplySchema>;
+
+/** The OCR utility process to main: what a lane's worker thread did. */
+export type TOcrEngineHostEvent = v.InferOutput<typeof hostEventSchema>;
 
 export function decodeOcrEngineHostRequest(value: unknown): TOcrEngineHostRequest | null {
     const parsed = v.safeParse(hostRequestSchema, value, {abortEarly: true});

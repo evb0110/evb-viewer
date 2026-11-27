@@ -15,9 +15,13 @@ import {
     type IPdfAppendResult,
 } from '@app/platform/browser/pdfPageEngine';
 import { opfsFileHandle } from '@app/platform/browser/opfsFileHandle';
+import type {
+    TOpfsOperations,
+    TOpfsRequest,
+} from '@app/platform/browser/opfsStore.worker';
+import type {IBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 
 type TPdfAppendRequest = IPdfAppendRequest | IOcrTextLayerAppendRequest;
-import type {IBrowserPageOpsWasmFailure} from '@contracts/browserPageOpsWorker';
 
 interface IResponse {
     id: number;
@@ -95,10 +99,13 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
         else request.resolve(event.data.result);
     });
     worker.addEventListener('error', event => fail(new Error(`The document store worker failed: ${event.message}`)));
-    const call = <T>(op: string, ...args: unknown[]) => new Promise<T>((resolve, reject) => {
+    const call = <K extends keyof TOpfsOperations>(
+        op: K,
+        ...args: Parameters<TOpfsOperations[K]>
+    ) => new Promise<Awaited<ReturnType<TOpfsOperations[K]>>>((resolve, reject) => {
         const id = nextId++;
         pending.set(id, {resolve: resolve as (value: unknown) => void, reject});
-        worker.postMessage({id, op, args});
+        worker.postMessage({id, op, args} satisfies TOpfsRequest<K>);
     });
     const storeFile = (id: number): IStoreFile => {
         const file: IStoreFile = {
@@ -114,12 +121,12 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
         return file;
     };
     const port = {
-        probe: () => call<boolean>('probe'),
-        witnessBlob: blob => call<string>('witnessBlob', blob),
+        probe: () => call('probe'),
+        witnessBlob: blob => call('witnessBlob', blob),
         list: dir => call('list', dir),
         read: path => call('read', path),
         writeAtomic: (path, bytes) => call('writeAtomic', path, bytes),
-        open: async path => storeFile(await call<number>('open', path)),
+        open: async path => storeFile(await call('open', path)),
         copyIn: (source, path) => call('copyIn', source, path),
         copy: (from, to) => call('copy', from, to),
         remove: path => call('remove', path),

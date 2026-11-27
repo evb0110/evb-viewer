@@ -50,17 +50,17 @@ export type {
 const COPY_BYTES = 4 * 1024 * 1024;
 
 export interface IDocumentState {
-    id: string;
-    byteRevision: number;
-    current: IRevision | null;
-    history: readonly THistoryRevision[];
-    destination: string | null;
-    baseline: string | null;
+    readonly id: string;
+    readonly byteRevision: number;
+    readonly current: IRevision | null;
+    readonly history: readonly THistoryRevision[];
+    readonly destination: string | null;
+    readonly baseline: string | null;
     /** Unsaved state not yet in the bytes, applying to `current`; `undefined` when there is none. */
-    drafts: unknown;
-    dirty: boolean;
+    readonly drafts: unknown;
+    readonly dirty: boolean;
     /** Its unsaved work is in a revision file this computer cannot read; see `DamagedDocumentError`. */
-    damaged: boolean;
+    readonly damaged: boolean;
 }
 
 export interface IDraftRevisionGuard {
@@ -548,7 +548,7 @@ export class DocumentDirectory {
     }
 
     /** Moves `moved`, revisions in one file, to a copy of it cut to the most they name: one manifest replace. */
-    private async moveToCopy(moved: IRevision[]) {
+    private async moveToCopy(moved: readonly IRevision[]) {
         const { manifest } = this;
         const { port } = this.store;
         const name = `r${manifest.next}.${manifest.ext}`;

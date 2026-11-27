@@ -478,4 +478,31 @@ describe('open path capabilities', () => {
             vi.doUnmock('@electron/features/page-ops/main/pageStructure');
         }
     });
+
+    it('keeps TOpenPath nominally branded via TBrand', async () => {
+        const filePath = join(tempRoot, 'branded.pdf');
+        writeFileSync(filePath, new Uint8Array([1]));
+
+        const {
+            allowOpenPath,
+            requireOpenPath,
+        } = await import('@electron/file-access/openPathCapabilities');
+        const {requireDocumentRevisionToken} = await import('@contracts/documentRevision');
+
+        expect(allowOpenPath(filePath)).not.toBeNull();
+        const openPath = requireOpenPath(filePath);
+        const asBrand: import('@contracts/brand').TBrand<string, 'OpenPath'> = openPath;
+        const fromBrand: import('@electron/file-access/openPathCapabilities').TOpenPath = asBrand;
+        const token = requireDocumentRevisionToken('rev-1');
+
+        const _checkBrand = (value: typeof openPath) => value;
+        expect(_checkBrand(fromBrand)).toBe(filePath);
+
+        // @ts-expect-error raw strings must not satisfy TOpenPath
+        const _fromRaw: typeof openPath = filePath;
+        // @ts-expect-error distinct TBrand strings must not satisfy TOpenPath
+        const _fromToken: typeof openPath = token;
+
+        expect([_fromRaw, _fromToken]).toEqual([filePath, 'rev-1']);
+    });
 });

@@ -1603,4 +1603,33 @@ describe('save publication facts under fault injection', () => {
         expect(result.status === 'conflict' && result.acknowledgmentError).toBeInstanceOf(Error);
         expect(doc.snapshot().pendingPublish).toEqual({ destination, witness: expectedWitness });
     });
+
+    it('exposes readonly state and snapshot types at compile time', async () => {
+        const doc = await create(store(), { ext: 'pdf', source: new Blob([encode('v1')]), imported: true });
+        const state = doc.state();
+        const manifest = doc.snapshot();
+
+        const _checkReadonly = () => {
+            // @ts-expect-error state fields are readonly
+            state.dirty = false;
+            // @ts-expect-error state history array is readonly
+            state.history.push({ id: 1, witness: 'w' });
+            if (state.current) {
+                // @ts-expect-error revision fields are readonly
+                state.current.length = 0;
+            }
+            // @ts-expect-error manifest fields are readonly
+            manifest.next = 99;
+            // @ts-expect-error manifest history array is readonly
+            manifest.history.pop();
+            if (manifest.unsettled) {
+                // @ts-expect-error manifest unsettled array is readonly
+                manifest.unsettled.push({ destination: 'x' });
+            }
+        };
+
+        expect(typeof _checkReadonly).toBe('function');
+        expect(state.id).toBe(doc.id);
+        expect(manifest.version).toBe(1);
+    });
 });
