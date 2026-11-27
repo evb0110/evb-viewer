@@ -3932,6 +3932,103 @@ describe('scan cleanup pipeline', () => {
         expect(combineManifest).not.toContain('layered-jpeg');
     });
 
+    it('falls back to the original source page when mixed-layer dimensions mismatch without a composite', async () => {
+        const fixture = await setup();
+        let combineManifest = '';
+        const runSidecar: IRunScanCleanupPipelineDependencies['runSidecar'] = vi.fn(async (_binary, manifestPath) => {
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{
+                pageMetadataPath: string;
+                options: {dpi: number};
+                outputs: ICleanupOutput[]
+            }>};
+            const page = manifest.pages[0]!;
+            await writeFile(page.pageMetadataPath, JSON.stringify({
+                layoutClassification: 'single-uncut-page',
+                cutterXPx: null,
+                rotationDegrees: 0,
+                excluded: false,
+                blankOutputsSkipped: 0,
+                outputCount: 1,
+            }));
+            const output = page.outputs[0]!;
+            await writeCleanupOutput(
+                output,
+                'single-uncut-page',
+                true,
+                false,
+                page.options.dpi,
+                false,
+                true,
+            );
+            // Deliberately omit output.outputPath, mark half='full', and corrupt background dimensions.
+            const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8')) as Record<string, unknown>;
+            await writeFile(output.metadataPath, JSON.stringify({
+                ...metadata,
+                half: 'full',
+            }));
+            await writeFile(output.backgroundOutputPath!, ppm(999, 1_400));
+        });
+        const pipelineDependencies = dependencies(runSidecar);
+        pipelineDependencies.getPageCount = vi.fn(async () => 1);
+        pipelineDependencies.detectSourceDpi = vi.fn(async () => dpiDetails(300, [[
+            1,
+            300,
+        ]]));
+        let retainedSourceInAssembly = false;
+        pipelineDependencies.runCommand = vi.fn(async (_command, args) => {
+            const visibility = await rasterSourceInspectionResult(args);
+            if (visibility) return visibility;
+            if (args[0] === '--check') {
+                return {exitCode: 0, stdout: '', stderr: ''};
+            }
+            const manifestIndex = args.indexOf('--compact-manifest');
+            if (manifestIndex !== -1) {
+                combineManifest = await readFile(args[manifestIndex + 1]!, 'utf8');
+            }
+            if (args[0] === 'split-pages' && args.includes(fixture.sourcePdfPath)) {
+                retainedSourceInAssembly = true;
+            }
+            const outputIndex = args.indexOf('--output');
+            const outputPath = outputIndex >= 0 ? args[outputIndex + 1]! : args.at(-1)!;
+            await writeFile(outputPath, '%PDF-1.7\n%%EOF\n');
+            return {exitCode: 0, stdout: '', stderr: ''};
+        });
+        const log = vi.fn();
+
+        const summary = await runScanCleanupPipeline(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: {
+                    ...options,
+                    outputMode: 'mixed',
+                    matchPageSize: false,
+                },
+                sourcePageMetadataByPage: {'1': {
+                    pageNumber: requirePageNumber(1),
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 240,
+                    heightPoints: 336,
+                    rotation: 0,
+                    sourceDpi: 300,
+                }},
+            },
+            pipelinePaths(fixture.dir),
+            new AbortController().signal,
+            vi.fn(),
+            highTierPolicy,
+            log,
+            pipelineDependencies,
+        );
+
+        expect(summary.warnings).toEqual(expect.arrayContaining([
+            expect.stringContaining('using the original source page'),
+        ]));
+        expect(combineManifest).toContain('mixed-layer-fallback-1-0.ppm');
+        expect(retainedSourceInAssembly).toBe(true);
+    });
+
     it('keeps detected BW rasters on the finest measured source grid', async () => {
         const fixture = await setup();
         let finalOptions: Array<{

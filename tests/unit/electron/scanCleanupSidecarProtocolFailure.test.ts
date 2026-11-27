@@ -1,6 +1,11 @@
 import {
     EventEmitter, on,
 } from 'node:events';
+import {
+    mkdtemp, readFile, rm, writeFile,
+} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {PassThrough} from 'node:stream';
 import {
     afterEach,
@@ -241,5 +246,171 @@ describe('scan cleanup sidecar protocol failures', () => {
         releaseOnResult.resolve();
 
         await expect(rejection).resolves.toBe(onResultError);
+    });
+
+    it('rejects when the sidecar exits cleanly with code 0 without emitting a terminal result envelope', async () => {
+        const child = new MockSidecarProcess();
+        const lines = new MockLineReader();
+        mocks.spawn.mockReturnValue(child);
+        mocks.createInterface.mockReturnValue(lines);
+        const {runScanCleanupSidecar} = await import(
+            '@electron/features/scan-cleanup/worker/runScanCleanupSidecar'
+        );
+        const run = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/manifest.json',
+            new AbortController().signal,
+            vi.fn(),
+            () => {},
+        );
+
+        await vi.waitFor(() => expect(mocks.createInterface).toHaveBeenCalledOnce());
+        lines.emit('line', progressLine());
+        child.emit('close', 0, null);
+        lines.close();
+
+        await expect(run).rejects.toMatchObject({
+            name: 'NativeScanCleanupError',
+            code: 'native-failure',
+            message: 'evb-scan-cleanup returned no terminal result envelope',
+        });
+    });
+
+    it('prefers caller abort over wall-clock timeout and marks unproven timeout terminations', async () => {
+        vi.useFakeTimers();
+        mocks.terminateDetachedChildProcess.mockImplementation(() => new Promise(() => {}));
+        const {runScanCleanupSidecar} = await import(
+            '@electron/features/scan-cleanup/worker/runScanCleanupSidecar'
+        );
+        const {getUnprovenNativeTerminationDetail} = await import('@electron/utils/nativeTerminationProof');
+
+        // 1. Caller abort wins over wall-clock timeout when both race before settlement.
+        const abortChild = new MockSidecarProcess();
+        mocks.spawn.mockReturnValueOnce(abortChild);
+        mocks.createInterface.mockReturnValueOnce(new MockLineReader());
+        const controller = new AbortController();
+        const abortError = new DOMException('Caller aborted during timeout', 'AbortError');
+        const abortLog = vi.fn();
+        const abortRun = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/abort-vs-timeout.json',
+            controller.signal,
+            abortLog,
+            () => {},
+            {timeoutMs: 10},
+        ).catch(error => error);
+        await vi.advanceTimersByTimeAsync(10);
+        controller.abort(abortError);
+        await vi.advanceTimersByTimeAsync(3_000);
+        const abortResult = await abortRun;
+        expect(abortResult).toBe(abortError);
+        expect(getUnprovenNativeTerminationDetail(abortResult)).toContain('was not proven dead');
+        expect(abortLog).toHaveBeenCalledWith('warn', expect.stringContaining('was not proven dead'));
+
+        // 2. Pure timeout with unproven termination warns, marks the timeout error,
+        // and defers publication journal replay until the child closes later.
+        const timeoutChild = new MockSidecarProcess();
+        mocks.spawn.mockReturnValueOnce(timeoutChild);
+        mocks.createInterface.mockReturnValueOnce(new MockLineReader());
+        const timeoutLog = vi.fn();
+        const directory = await mkdtemp(join(tmpdir(), 'evb-scan-cleanup-timeout-recovery-'));
+        const manifestPath = join(directory, 'manifest.json');
+        const original = join(directory, 'page.png');
+        const backup = join(directory, 'page.png.evb-tmp-recovery');
+        const journalPath = `${manifestPath}.evb-publication-journal.json`;
+        let deferredRecovery: Promise<boolean> | undefined;
+        try {
+            await writeFile(backup, 'previous destination');
+            await writeFile(journalPath, JSON.stringify({
+                version: 1,
+                manifestPath,
+                entries: [{original, backup}],
+            }));
+            const timeoutRun = runScanCleanupSidecar(
+                '/native/evb-scan-cleanup',
+                manifestPath,
+                new AbortController().signal,
+                timeoutLog,
+                () => {},
+                {
+                    timeoutMs: 10,
+                    onRecoveryPending: recovery => { deferredRecovery = recovery; },
+                },
+            ).catch(error => error);
+            await vi.advanceTimersByTimeAsync(3_010);
+            const timeoutResult = await timeoutRun;
+            expect(timeoutResult).toMatchObject({
+                name: 'NativeScanCleanupError',
+                code: 'native-failure',
+                message: 'evb-scan-cleanup timed out after 10ms',
+            });
+            expect(getUnprovenNativeTerminationDetail(timeoutResult)).toContain('was not proven dead');
+            expect(timeoutLog).toHaveBeenCalledWith('warn', expect.stringContaining('was not proven dead'));
+            expect(deferredRecovery).toBeDefined();
+            await expect(readFile(original, 'utf8')).rejects.toMatchObject({code: 'ENOENT'});
+
+            timeoutChild.emit('close', null, 'SIGKILL');
+            await expect(deferredRecovery!).resolves.toBe(true);
+            await expect(readFile(original, 'utf8')).resolves.toBe('previous destination');
+            await expect(readFile(journalPath)).rejects.toMatchObject({code: 'ENOENT'});
+        } finally {
+            await rm(directory, {recursive: true, force: true});
+        }
+
+        // 3. A synchronous onRecoveryPending throw must not mask the unproven timeout error.
+        const syncThrowChild = new MockSidecarProcess();
+        mocks.spawn.mockReturnValueOnce(syncThrowChild);
+        mocks.createInterface.mockReturnValueOnce(new MockLineReader());
+        const syncThrowLog = vi.fn();
+        const syncThrowRun = runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/sync-throw-timeout.json',
+            new AbortController().signal,
+            syncThrowLog,
+            () => {},
+            {
+                timeoutMs: 10,
+                onRecoveryPending: () => {
+                    throw new Error('Sync recovery owner failure');
+                },
+            },
+        ).catch(error => error);
+        await vi.advanceTimersByTimeAsync(3_010);
+        const syncThrowResult = await syncThrowRun;
+        expect(syncThrowResult).toMatchObject({
+            name: 'NativeScanCleanupError',
+            code: 'native-failure',
+            message: 'evb-scan-cleanup timed out after 10ms',
+        });
+        expect(getUnprovenNativeTerminationDetail(syncThrowResult)).toContain('was not proven dead');
+        expect(syncThrowLog).toHaveBeenCalledWith(
+            'warn',
+            expect.stringContaining('Deferred scan-cleanup recovery owner failed: Error: Sync recovery owner failure'),
+        );
+
+        // 4. A timeout before the manifest sidecar spawns does not register forever-pending recovery.
+        mocks.spawn.mockImplementationOnce(() => {
+            throw new Error('pre-spawn timed out');
+        });
+        mocks.createInterface.mockReturnValueOnce(new MockLineReader());
+        const preSpawnRecovery = vi.fn();
+        const preSpawnResult = await runScanCleanupSidecar(
+            '/native/evb-scan-cleanup',
+            '/scratch/pre-spawn-timeout.json',
+            new AbortController().signal,
+            vi.fn(),
+            () => {},
+            {
+                timeoutMs: 10,
+                onRecoveryPending: preSpawnRecovery,
+            },
+        ).catch(error => error);
+        expect(preSpawnResult).toMatchObject({
+            name: 'NativeScanCleanupError',
+            code: 'native-failure',
+            message: 'evb-scan-cleanup timed out after 10ms',
+        });
+        expect(getUnprovenNativeTerminationDetail(preSpawnResult)).toBeUndefined();
+        expect(preSpawnRecovery).not.toHaveBeenCalled();
     });
 });

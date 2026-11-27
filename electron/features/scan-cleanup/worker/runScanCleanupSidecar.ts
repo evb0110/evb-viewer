@@ -258,6 +258,27 @@ function describeStageTotals(totals: TScanCleanupStageTotalsMs) {
         ]) => `${stage}=${formatSeconds(milliseconds)}`);
 }
 
+function logSidecarStageTimings(
+    log: TWorkerLog,
+    manifestPath: string,
+    startedAt: number,
+    terminalPageTimings: ReadonlyMap<number, TNativeScanCleanupPageStageTimingsV3>,
+    terminalUnkeyedTimings: TNativeScanCleanupPageStageTimingsV3 | null,
+) {
+    const stageTotalsMs: TScanCleanupStageTotalsMs = {
+        decode: 0, analysisLevel: 0, normalization: 0, split: 0,
+        deskew: 0, content: 0, render: 0, write: 0,
+    };
+    for (const timings of terminalPageTimings.values()) addStageTimings(stageTotalsMs, timings);
+    if (terminalUnkeyedTimings !== null) addStageTimings(stageTotalsMs, terminalUnkeyedTimings);
+    log('debug', [
+        'evb-scan-cleanup timings ' + basename(manifestPath) + ':',
+        'wall=' + formatSeconds(performance.now() - startedAt),
+        'timedPages=' + String(terminalPageTimings.size + Number(terminalUnkeyedTimings !== null)),
+        ...describeStageTotals(stageTotalsMs),
+    ].join(' '));
+}
+
 export async function runScanCleanupSidecar(
     binaryPath: string,
     manifestPath: string,
@@ -313,23 +334,29 @@ async function streamScanCleanupSidecar(
     let publicationReplayPromise: Promise<boolean> | null = null;
     let deferredRecoveryPromise: Promise<boolean> | null = null;
     let resolveDeferredRecovery: ((recovered: boolean) => void) | null = null;
-    let deferredRecoverySettled = false;
+    let deferredRecoveryOutcome: boolean | null = null;
 
     const settleDeferredRecovery = (recovered: boolean) => {
-        if (deferredRecoverySettled) return;
-        deferredRecoverySettled = true;
+        if (deferredRecoveryOutcome !== null) return;
+        deferredRecoveryOutcome = recovered;
         resolveDeferredRecovery?.(recovered);
     };
     const ensureDeferredRecovery = () => {
         if (deferredRecoveryPromise === null) {
-            deferredRecoveryPromise = new Promise<boolean>(resolve => {
-                resolveDeferredRecovery = resolve;
-            });
-            const recoveryCallback = options.onRecoveryPending?.(deferredRecoveryPromise);
-            if (recoveryCallback !== undefined) {
-                void recoveryCallback.catch(error => {
-                    log('warn', 'Deferred scan-cleanup recovery owner failed: ' + String(error));
+            deferredRecoveryPromise = deferredRecoveryOutcome !== null
+                ? Promise.resolve(deferredRecoveryOutcome)
+                : new Promise<boolean>(resolve => {
+                    resolveDeferredRecovery = resolve;
                 });
+            try {
+                const recoveryCallback = options.onRecoveryPending?.(deferredRecoveryPromise);
+                if (recoveryCallback !== undefined) {
+                    void recoveryCallback.catch(error => {
+                        log('warn', 'Deferred scan-cleanup recovery owner failed: ' + String(error));
+                    });
+                }
+            } catch (error) {
+                log('warn', 'Deferred scan-cleanup recovery owner failed: ' + String(error));
             }
         }
         return deferredRecoveryPromise;
@@ -429,10 +456,11 @@ async function streamScanCleanupSidecar(
         ? mergeTerminationProofSinks(options.onTerminationProof, recordSidecarProof)
         : undefined;
 
+    const timeoutMs = Math.max(1, options.timeoutMs ?? DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS);
     try {
         await runNativeToolCommand(binaryPath, args, {
             signal: processAbort.signal,
-            timeoutMs: Math.max(1, options.timeoutMs ?? DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS),
+            timeoutMs,
             maxStderrBytes: 64 * 1024,
             longLived: true,
             commandLabel: 'evb-scan-cleanup',
@@ -470,28 +498,22 @@ async function streamScanCleanupSidecar(
         });
         await consumeProgress;
     } catch (cause) {
-        const terminated = terminationConfirmed || (!terminationAttempted && childClosed);
-        if (protocolError !== null) {
-            if (!terminated) log('warn', describeUnprovenTermination());
-            await replayPublicationJournal(terminated);
-            throw withTerminationProof(protocolError, terminated);
-        }
-        if (aborting || signal.aborted) {
-            if (!terminated) log('warn', describeUnprovenTermination());
-            await replayPublicationJournal(terminated);
-            throw withTerminationProof(abortErrorFromSignal(signal), terminated);
-        }
+        const sidecarStarted = childPid !== null || terminationAttempted || childClosed;
+        const terminated = !sidecarStarted || terminationConfirmed || (!terminationAttempted && childClosed);
         const error = cause instanceof Error ? cause : new Error(String(cause));
-        if (error.message.includes('timed out')) {
-            const timeout = new NativeScanCleanupError(
-                'native-failure',
-                'evb-scan-cleanup timed out after '
-                    + String(Math.max(1, options.timeoutMs ?? DEFAULT_SCAN_CLEANUP_SIDECAR_TIMEOUT_MS))
-                    + 'ms',
-            );
-            if (!terminated) log('warn', describeUnprovenTermination());
+        const interruptedFailure = protocolError
+            ?? (aborting || signal.aborted
+                ? abortErrorFromSignal(signal)
+                : error.message.includes('timed out')
+                    ? new NativeScanCleanupError('native-failure', `evb-scan-cleanup timed out after ${String(timeoutMs)}ms`)
+                    : null);
+        if (interruptedFailure !== null) {
+            if (!terminated) {
+                void ensureDeferredRecovery();
+                log('warn', describeUnprovenTermination());
+            }
             await replayPublicationJournal(terminated);
-            throw withTerminationProof(timeout, terminated);
+            throw withTerminationProof(interruptedFailure, terminated);
         }
         if (!terminationAttempted && childClosed && nativeFailure !== null) {
             await replayPublicationJournal(true);
@@ -518,33 +540,12 @@ async function streamScanCleanupSidecar(
         stderr.end();
         protocol.lines.close();
         await consumeProgress;
-        if (childClosed || terminationConfirmed) {
+        if (childClosed || terminationConfirmed || (childPid === null && !terminationAttempted)) {
             await replayPublicationJournal(true);
         } else if (deferredRecoveryPromise !== null) {
             log('warn', 'Retaining scan-cleanup publication journal until the sidecar stops');
         }
-        const stageTotalsMs: TScanCleanupStageTotalsMs = {
-            decode: 0,
-            analysisLevel: 0,
-            normalization: 0,
-            split: 0,
-            deskew: 0,
-            content: 0,
-            render: 0,
-            write: 0,
-        };
-        for (const timings of terminalPageTimings.values()) {
-            addStageTimings(stageTotalsMs, timings);
-        }
-        if (terminalUnkeyedTimings !== null) {
-            addStageTimings(stageTotalsMs, terminalUnkeyedTimings);
-        }
-        log('debug', [
-            'evb-scan-cleanup timings ' + basename(manifestPath) + ':',
-            'wall=' + formatSeconds(performance.now() - startedAt),
-            'timedPages=' + String(terminalPageTimings.size + Number(terminalUnkeyedTimings !== null)),
-            ...describeStageTotals(stageTotalsMs),
-        ].join(' '));
+        logSidecarStageTimings(log, manifestPath, startedAt, terminalPageTimings, terminalUnkeyedTimings);
     }
 
     if (protocolError !== null) {
