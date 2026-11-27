@@ -3,7 +3,11 @@
 
 use std::{io::Cursor, num::NonZeroU64};
 
-use crate::{assert_pixel_limit, composite_channel_over_white, DecodedRaster, Result};
+use crate::{assert_pixel_limit, DecodedRaster, Result};
+
+/// Extra byte allowance above the 1 Bpp indexed frame buffer for GIF extension
+/// blocks and decoder scratch inside the `gif` crate's `MemoryLimit`.
+pub const GIF_DECODER_OVERHEAD_BYTES: usize = 1024 * 1024;
 
 /// Reads the logical screen dimensions from a GIF header without decoding frames.
 pub fn read_gif_dimensions(bytes: &[u8]) -> Result<(u32, u32)> {
@@ -24,13 +28,13 @@ pub fn decode_gif(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
     assert_pixel_limit(screen_width, screen_height, max_pixels)?;
 
     let mut options = gif::DecodeOptions::new();
-    options.set_color_output(gif::ColorOutput::RGBA);
+    // Decode indexed indices (1 Bpp) instead of RGBA (4 Bpp + 1 Bpp converter
+    // scratch) so peak decode memory stays at 4 Bpp (1 Bpp frame + 3 Bpp RGB).
+    options.set_color_output(gif::ColorOutput::Indexed);
     options.check_frame_consistency(true);
-    // Bound internal gif decoder allocations to the admitted canvas size (4 Bpp + overhead).
     let max_bytes = (screen_width as usize)
         .checked_mul(screen_height as usize)
-        .and_then(|p| p.checked_mul(4))
-        .and_then(|b| b.checked_add(1024 * 1024))
+        .and_then(|b| b.checked_add(GIF_DECODER_OVERHEAD_BYTES))
         .ok_or("GIF buffer size overflow")?;
     let limit = NonZeroU64::new(max_bytes as u64).ok_or("GIF memory limit must be positive")?;
     options.set_memory_limit(gif::MemoryLimit::Bytes(limit));
@@ -38,10 +42,16 @@ pub fn decode_gif(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
     let mut decoder = options
         .read_info(Cursor::new(bytes))
         .map_err(|error| format!("Invalid GIF image: {error}"))?;
+    let global_palette = decoder.global_palette().map(<[u8]>::to_vec);
     let frame = decoder
         .read_next_frame()
         .map_err(|error| format!("GIF frame is not decodable: {error}"))?
         .ok_or("GIF contains no decodable frames")?;
+    let palette = frame
+        .palette
+        .as_deref()
+        .or(global_palette.as_deref())
+        .ok_or("GIF frame has no color palette")?;
 
     let canvas_w = screen_width as usize;
     let canvas_h = screen_height as usize;
@@ -55,6 +65,7 @@ pub fn decode_gif(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
     let frame_top = usize::from(frame.top);
     let frame_w = usize::from(frame.width);
     let frame_h = usize::from(frame.height);
+    let transparent = frame.transparent;
     let src = frame.buffer.as_ref();
 
     for fy in 0..frame_h {
@@ -67,24 +78,21 @@ pub fn decode_gif(bytes: &[u8], max_pixels: u64) -> Result<DecodedRaster> {
             if dst_x >= canvas_w {
                 break;
             }
-            let s_off = (fy * frame_w + fx) * 4;
-            if s_off + 3 >= src.len() {
+            let s_off = fy * frame_w + fx;
+            let Some(&index) = src.get(s_off) else {
                 break;
-            }
-            let a = src[s_off + 3];
-            if a == 0 {
+            };
+            if transparent == Some(index) {
                 continue;
             }
+            let plte_offset = usize::from(index) * 3;
+            let Some(colors) = palette.get(plte_offset..plte_offset + 3) else {
+                continue;
+            };
             let d_off = (dst_y * canvas_w + dst_x) * 3;
-            if a == 255 {
-                rgb[d_off] = src[s_off];
-                rgb[d_off + 1] = src[s_off + 1];
-                rgb[d_off + 2] = src[s_off + 2];
-            } else {
-                rgb[d_off] = composite_channel_over_white(src[s_off], a);
-                rgb[d_off + 1] = composite_channel_over_white(src[s_off + 1], a);
-                rgb[d_off + 2] = composite_channel_over_white(src[s_off + 2], a);
-            }
+            rgb[d_off] = colors[0];
+            rgb[d_off + 1] = colors[1];
+            rgb[d_off + 2] = colors[2];
         }
     }
 
@@ -116,6 +124,52 @@ mod tests {
         assert_eq!((decoded.width, decoded.height), (2, 1));
         // Pixel 0 = red, Pixel 1 = transparent -> composited onto white
         assert_eq!(decoded.rgb, vec![255, 0, 0, 255, 255, 255]);
+    }
+
+    #[test]
+    fn decodes_local_palette_subframe_and_interlaced_gif_onto_white_canvas() {
+        let mut bytes = Vec::new();
+        {
+            let global_palette = [0, 0, 0, 255, 255, 255];
+            let mut encoder = gif::Encoder::new(&mut bytes, 3, 2, &global_palette).unwrap();
+            let mut frame = gif::Frame::from_indexed_pixels(2, 1, vec![0, 1], Some(1));
+            frame.left = 1;
+            frame.top = 1;
+            frame.interlaced = true;
+            frame.palette = Some(vec![10, 20, 30, 40, 50, 60]);
+            encoder.write_frame(&frame).unwrap();
+        }
+        let decoded = decode_gif(&bytes, 100).unwrap();
+        assert_eq!((decoded.width, decoded.height), (3, 2));
+        // Row 0: untouched white; Row 1: col 0 white, col 1 local palette[0], col 2 transparent -> white.
+        assert_eq!(
+            decoded.rgb,
+            vec![
+                255, 255, 255, 255, 255, 255, 255, 255, 255, // row 0
+                255, 255, 255, 10, 20, 30, 255, 255, 255, // row 1
+            ]
+        );
+    }
+
+    #[test]
+    fn decodes_gif_with_large_comment_extension_before_first_frame() {
+        let mut bytes = Vec::new();
+        {
+            let palette = [10, 20, 30];
+            let mut encoder = gif::Encoder::new(&mut bytes, 1, 1, &palette).unwrap();
+            let comment = vec![b'A'; 300 * 1024];
+            encoder
+                .write_raw_extension(
+                    gif::AnyExtension(gif::Extension::Comment as u8),
+                    &[&comment],
+                )
+                .unwrap();
+            let frame = gif::Frame::from_indexed_pixels(1, 1, vec![0], None);
+            encoder.write_frame(&frame).unwrap();
+        }
+        let decoded = decode_gif(&bytes, 100).unwrap();
+        assert_eq!((decoded.width, decoded.height), (1, 1));
+        assert_eq!(decoded.rgb, vec![10, 20, 30]);
     }
 
     #[test]

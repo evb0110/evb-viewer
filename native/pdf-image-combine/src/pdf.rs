@@ -395,6 +395,14 @@ impl<W: IoWrite> PdfWriter<W> {
             let page_size = page_size.ok_or("Image placement requires an explicit page size")?;
             validate_image_placement(placement, page_size)?;
         }
+        let icc_components = if let Some(profile) = page.icc_profile.as_deref() {
+            Some(validate_icc_profile_for_color_space(
+                profile,
+                page.color_space,
+            )?)
+        } else {
+            None
+        };
         let page_object = self.next_object;
         let image_object = page_object + 1;
         let content_object = page_object + 2;
@@ -420,12 +428,9 @@ impl<W: IoWrite> PdfWriter<W> {
         );
         self.push_object(page_object, page_body.as_bytes())?;
         self.push_image_object(image_object, page, icc_object)?;
-        if let (Some(object_number), Some(profile)) = (icc_object, page.icc_profile.as_ref()) {
-            let components = if page.color_space == "DeviceGray" {
-                1
-            } else {
-                3
-            };
+        if let (Some(object_number), Some(profile), Some(components)) =
+            (icc_object, page.icc_profile.as_ref(), icc_components)
+        {
             let dict = format!(
                 "<< /N {} /Alternate /{} /Length {} >>",
                 components,
@@ -1128,6 +1133,84 @@ fn validate_provenance_stamp_hex(stamp: &str) -> Result<()> {
         return Err("provenanceStampHex must be a non-empty lowercase hexadecimal string".into());
     }
     Ok(())
+}
+
+/// Returns the channel count for a recognized ICC.1 data color space signature
+/// at header offset 16..20.
+fn icc_profile_data_channels(profile: &[u8]) -> Option<usize> {
+    match profile.get(16..20) {
+        Some(b"GRAY") => Some(1),
+        Some(b"2CLR") => Some(2),
+        Some(
+            b"RGB " | b"XYZ " | b"Lab " | b"Luv " | b"YCbr" | b"Yxy " | b"HSV " | b"HLS " | b"CMY "
+            | b"3CLR",
+        ) => Some(3),
+        Some(b"CMYK" | b"4CLR") => Some(4),
+        Some(b"5CLR") => Some(5),
+        Some(b"6CLR") => Some(6),
+        Some(b"7CLR") => Some(7),
+        Some(b"8CLR") => Some(8),
+        Some(b"9CLR") => Some(9),
+        Some(b"ACLR") => Some(10),
+        Some(b"BCLR") => Some(11),
+        Some(b"CCLR") => Some(12),
+        Some(b"DCLR") => Some(13),
+        Some(b"ECLR") => Some(14),
+        Some(b"FCLR") => Some(15),
+        _ => None,
+    }
+}
+
+/// Validates that an attached ICC profile's declared header and data color space
+/// match the PDF image's `/Alternate` color space and component count `/N`.
+fn validate_icc_profile_for_color_space(profile: &[u8], color_space: &str) -> Result<u8> {
+    let components = match color_space {
+        "DeviceGray" => 1u8,
+        "DeviceRGB" => 3u8,
+        other => {
+            return Err(
+                format!("Unsupported PDF image color space for ICC profile: {other}").into(),
+            );
+        }
+    };
+    let has_acsp = profile.get(36..40) == Some(b"acsp");
+    let has_known_space = icc_profile_data_channels(profile).is_some();
+    if has_acsp || has_known_space {
+        if profile.len() < 128 || !has_acsp {
+            return Err(
+                "ICC profile is truncated or missing the required 128-byte 'acsp' header".into(),
+            );
+        }
+        let declared_len =
+            u32::from_be_bytes([profile[0], profile[1], profile[2], profile[3]]) as usize;
+        if declared_len < 128 || declared_len > profile.len() {
+            return Err(format!(
+                "ICC profile declared size ({declared_len} bytes) is inconsistent with payload length ({} bytes)",
+                profile.len()
+            )
+            .into());
+        }
+    }
+    match profile.get(16..20) {
+        Some(b"GRAY") if components == 1 => Ok(1),
+        Some(b"RGB ") if components == 3 => Ok(3),
+        Some(b"GRAY") => Err(
+            "ICC profile declares GRAY (1 component) but PDF image color space is DeviceRGB (3 components)"
+                .into(),
+        ),
+        Some(b"RGB ") => Err(
+            "ICC profile declares RGB (3 components) but PDF image color space is DeviceGray (1 component)"
+                .into(),
+        ),
+        Some(space) if has_acsp || has_known_space => {
+            let label = String::from_utf8_lossy(space);
+            Err(format!(
+                "ICC profile color space '{label}' is incompatible with PDF image color space {color_space} (/N {components})"
+            )
+            .into())
+        }
+        _ => Ok(components),
+    }
 }
 
 fn resolve_image_transform(value: u16) -> Result<(u16, bool)> {
@@ -3104,5 +3187,53 @@ if (budgetExceededError) {
         haystack
             .windows(needle.len())
             .position(|window| window == needle)
+    }
+
+    #[test]
+    fn pdf_writer_rejects_icc_profile_mismatched_with_color_space() {
+        let make_icc = |space: &[u8; 4]| {
+            let mut profile = vec![0u8; 128];
+            profile[0..4].copy_from_slice(&128u32.to_be_bytes());
+            profile[16..20].copy_from_slice(space);
+            profile[36..40].copy_from_slice(b"acsp");
+            profile
+        };
+        let make_page = |color_space: &'static str, icc_profile: Vec<u8>| ImagePage {
+            width: 1,
+            height: 1,
+            dpi_x: 72,
+            dpi_y: 72,
+            color_space,
+            icc_profile: Some(icc_profile),
+            payload: ImagePayload::Jpeg {
+                data: vec![0xff, 0xd8, 0xff, 0xd9],
+            },
+        };
+
+        // RGB ICC profile cannot be written with DeviceGray (/N 1).
+        assert!(build_pdf(&[make_page("DeviceGray", make_icc(b"RGB "))]).is_err());
+        // GRAY ICC profile cannot be written with DeviceRGB (/N 3).
+        assert!(build_pdf(&[make_page("DeviceRGB", make_icc(b"GRAY"))]).is_err());
+        // CMYK ICC profile cannot be written with DeviceRGB or DeviceGray.
+        assert!(build_pdf(&[make_page("DeviceRGB", make_icc(b"CMYK"))]).is_err());
+        assert!(build_pdf(&[make_page("DeviceGray", make_icc(b"CMYK"))]).is_err());
+
+        // Truncated 20-byte RGB ICC payload (missing 128-byte 'acsp' header) is rejected.
+        let mut truncated_20 = vec![0u8; 20];
+        truncated_20[16..20].copy_from_slice(b"RGB ");
+        assert!(build_pdf(&[make_page("DeviceRGB", truncated_20)]).is_err());
+
+        // 128-byte RGB ICC payload whose declared size exceeds payload length is rejected.
+        let mut truncated_declared = make_icc(b"RGB ");
+        truncated_declared[0..4].copy_from_slice(&512u32.to_be_bytes());
+        assert!(build_pdf(&[make_page("DeviceRGB", truncated_declared)]).is_err());
+
+        // Matching RGB ICC profile with DeviceRGB succeeds with /N 3.
+        let rgb_pdf = build_pdf(&[make_page("DeviceRGB", make_icc(b"RGB "))]).unwrap();
+        assert!(String::from_utf8_lossy(&rgb_pdf).contains("/N 3 /Alternate /DeviceRGB"));
+
+        // Matching GRAY ICC profile with DeviceGray succeeds with /N 1.
+        let gray_pdf = build_pdf(&[make_page("DeviceGray", make_icc(b"GRAY"))]).unwrap();
+        assert!(String::from_utf8_lossy(&gray_pdf).contains("/N 1 /Alternate /DeviceGray"));
     }
 }

@@ -45,6 +45,11 @@ const JPEG_GUARDRAIL_PPI_CAP: f64 = 300.0;
 const JPEG_GUARDRAIL_GRAYSCALE_BPP: f64 = 1.5;
 const JPEG_GUARDRAIL_COLOR_BPP: f64 = 2.25;
 const MAX_PNG_ICC_PROFILE_BYTES: usize = 16 * 1024 * 1024;
+#[cfg(not(target_family = "wasm"))]
+const MAX_WEBP_ICC_PROFILE_BYTES: usize = 16 * 1024 * 1024;
+/// Fixed heap scratch for `gif::Decoder` (`weezl` LZW tables + `BufReader`).
+#[cfg(not(target_family = "wasm"))]
+const GIF_FIXED_DECODER_STATE_BYTES: u64 = 64 * 1024;
 const DEFAULT_MAX_IMAGE_INPUT_MB: usize = 512;
 const MIN_IMAGE_INPUT_MB: usize = 16;
 const MAX_IMAGE_INPUT_MB: usize = 4_096;
@@ -177,27 +182,383 @@ pub(crate) fn estimate_image_bytes_decode_bytes(
             .ok()
             .filter(|&(w, h)| u64::from(w).saturating_mul(u64::from(h)) <= max_pixels)
             .map_or(0, |(w, h)| {
-                u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4)
+                let pixels = u64::from(w).saturating_mul(u64::from(h));
+                let decode_peak = pixels.saturating_mul(3);
+                let encode_peak = estimate_decoded_raster_encode_peak_bytes(w, h, 0, compression);
+                decode_peak.max(encode_peak)
             }),
         "gif" => gif_codec::read_gif_dimensions(bytes)
             .ok()
             .filter(|&(w, h)| u64::from(w).saturating_mul(u64::from(h)) <= max_pixels)
             .map_or(0, |(w, h)| {
-                u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4)
+                let pixels = u64::from(w).saturating_mul(u64::from(h));
+                // `decode_gif` holds the 1 Bpp indexed frame alongside the 3 Bpp RGB
+                // canvas plus fixed LZW/BufReader state and any retained extension block.
+                let ext_bytes = (bytes.len() as u64)
+                    .min(pixels.saturating_add(gif_codec::GIF_DECODER_OVERHEAD_BYTES as u64));
+                let decode_peak = pixels
+                    .saturating_mul(4)
+                    .saturating_add(ext_bytes)
+                    .saturating_add(GIF_FIXED_DECODER_STATE_BYTES);
+                let encode_peak = estimate_decoded_raster_encode_peak_bytes(w, h, 0, compression);
+                decode_peak.max(encode_peak)
             }),
-        "webp" => webp::read_webp_dimensions(bytes)
-            .ok()
-            .filter(|&(w, h)| u64::from(w).saturating_mul(u64::from(h)) <= max_pixels)
-            .map_or(0, |(w, h)| {
-                u64::from(w).saturating_mul(u64::from(h)).saturating_mul(4)
+        "webp" => preflight_webp_metadata(bytes)
+            .filter(|meta| {
+                u64::from(meta.width).saturating_mul(u64::from(meta.height)) <= max_pixels
+            })
+            .map_or(0, |meta| {
+                let decode_peak = estimate_webp_decode_peak_bytes(&meta);
+                let encode_peak = estimate_decoded_raster_encode_peak_bytes(
+                    meta.width,
+                    meta.height,
+                    meta.icc_profile_bytes,
+                    compression,
+                );
+                decode_peak.max(encode_peak)
             }),
         _ => 0,
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
+struct WebpPreflight {
+    width: u32,
+    height: u32,
+    has_alpha: bool,
+    is_animated: bool,
+    is_lossless: bool,
+    has_lossless_alpha_chunk: bool,
+    icc_profile_bytes: u64,
+}
+
+fn read_u32_le(bytes: &[u8], offset: usize) -> Option<u32> {
+    let slice = bytes.get(offset..offset.checked_add(4)?)?;
+    Some(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
+}
+
+fn read_u24_le(bytes: &[u8], offset: usize) -> Option<u32> {
+    let slice = bytes.get(offset..offset.checked_add(3)?)?;
+    Some(u32::from(slice[0]) | (u32::from(slice[1]) << 8) | (u32::from(slice[2]) << 16))
+}
+
+fn parse_vp8_keyframe_dimensions(payload: &[u8]) -> Option<(u32, u32)> {
+    if payload.len() < 10 {
+        return None;
+    }
+    // Bit 0 == 0 indicates a VP8 keyframe; bytes 3..6 are the VP8 magic bytes.
+    if (payload[0] & 1) != 0 || payload[3..6] != [0x9d, 0x01, 0x2a] {
+        return None;
+    }
+    let width = u32::from(u16::from_le_bytes([payload[6], payload[7]]) & 0x3FFF);
+    let height = u32::from(u16::from_le_bytes([payload[8], payload[9]]) & 0x3FFF);
+    Some((width, height))
+}
+
+/// Rejects `VP8X` WebP images whose embedded `VP8 ` bitstream header declares
+/// dimensions inconsistent with the `VP8X` canvas (or first `ANMF` frame rect)
+/// before `image-webp` allocates YUV planes sized to the mismatched frame.
+fn validate_webp_vp8_frame_dimensions(bytes: &[u8]) -> Result<()> {
+    if bytes.len() < 30 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {
+        return Ok(());
+    }
+    if &bytes[12..16] != b"VP8X" {
+        return Ok(());
+    }
+    let Some(riff_size) = read_u32_le(bytes, 4).map(|v| v as usize) else {
+        return Ok(());
+    };
+    let Some(vp8x_size) = read_u32_le(bytes, 16).map(|v| v as usize) else {
+        return Ok(());
+    };
+    if vp8x_size < 10 {
+        return Ok(());
+    }
+    let flags = bytes[20];
+    let is_animated = (flags & 0b0000_0010) != 0;
+    let Some(canvas_width) = read_u24_le(bytes, 24).and_then(|v| v.checked_add(1)) else {
+        return Ok(());
+    };
+    let Some(canvas_height) = read_u24_le(bytes, 27).and_then(|v| v.checked_add(1)) else {
+        return Ok(());
+    };
+
+    let vp8x_rounded = vp8x_size.saturating_add(vp8x_size & 1);
+    let Some(mut pos) = 20usize.checked_add(vp8x_rounded) else {
+        return Ok(());
+    };
+    let max_pos = bytes
+        .len()
+        .min(pos.saturating_add(riff_size.saturating_sub(12)));
+
+    while pos.saturating_add(8) <= max_pos {
+        let fourcc = &bytes[pos..pos + 4];
+        let Some(chunk_size) = read_u32_le(bytes, pos + 4).map(|v| v as usize) else {
+            break;
+        };
+        let payload_start = pos + 8;
+        let payload_end = payload_start.saturating_add(chunk_size).min(bytes.len());
+        let payload = &bytes[payload_start..payload_end];
+        if !is_animated && fourcc == b"VP8 " {
+            if let Some((vp8_w, vp8_h)) = parse_vp8_keyframe_dimensions(payload) {
+                if vp8_w != canvas_width || vp8_h != canvas_height {
+                    return Err(format!(
+                        "WebP VP8 frame dimensions ({vp8_w}x{vp8_h}) do not match VP8X canvas ({canvas_width}x{canvas_height})"
+                    )
+                    .into());
+                }
+            }
+            break;
+        }
+        if is_animated && fourcc == b"ANMF" {
+            if payload.len() >= 24 {
+                if let (Some(fx), Some(fy), Some(fw), Some(fh)) = (
+                    read_u24_le(payload, 0).and_then(|v| v.checked_mul(2)),
+                    read_u24_le(payload, 3).and_then(|v| v.checked_mul(2)),
+                    read_u24_le(payload, 6).and_then(|v| v.checked_add(1)),
+                    read_u24_le(payload, 9).and_then(|v| v.checked_add(1)),
+                ) {
+                    if fx.saturating_add(fw) > canvas_width || fy.saturating_add(fh) > canvas_height
+                    {
+                        return Err("WebP animated frame exceeds VP8X canvas".into());
+                    }
+                    let mut sub_pos = 16usize;
+                    for _ in 0..2 {
+                        if sub_pos.saturating_add(8) > payload.len() {
+                            break;
+                        }
+                        let sub_fourcc = &payload[sub_pos..sub_pos + 4];
+                        let Some(sub_size) = read_u32_le(payload, sub_pos + 4).map(|v| v as usize)
+                        else {
+                            break;
+                        };
+                        let sub_start = sub_pos + 8;
+                        let sub_end = sub_start.saturating_add(sub_size).min(payload.len());
+                        if sub_fourcc == b"VP8 " {
+                            if let Some((vp8_w, vp8_h)) =
+                                parse_vp8_keyframe_dimensions(&payload[sub_start..sub_end])
+                            {
+                                if vp8_w != fw || vp8_h != fh {
+                                    return Err(format!(
+                                        "WebP animated VP8 frame dimensions ({vp8_w}x{vp8_h}) do not match ANMF frame ({fw}x{fh})"
+                                    )
+                                    .into());
+                                }
+                            }
+                            break;
+                        }
+                        let sub_rounded = sub_size.saturating_add(sub_size & 1);
+                        let next_sub = sub_start.saturating_add(sub_rounded);
+                        if next_sub <= sub_pos {
+                            break;
+                        }
+                        sub_pos = next_sub;
+                    }
+                }
+            }
+            break;
+        }
+        let chunk_rounded = chunk_size.saturating_add(chunk_size & 1);
+        let next_pos = payload_start.saturating_add(chunk_rounded);
+        if next_pos <= pos {
+            break;
+        }
+        pos = next_pos;
+    }
+
+    Ok(())
+}
+
+/// Zero-copy preflight of a WebP RIFF container so admission reserves the true
+/// peak decoder buffers (including opaque VP8L's internal 4 Bpp RGBA buffer,
+/// VP8 YUV/ALPH buffers, animated canvas/frame buffers, and retained ICC bytes).
+#[cfg(not(target_family = "wasm"))]
+fn preflight_webp_metadata(bytes: &[u8]) -> Option<WebpPreflight> {
+    validate_webp_vp8_frame_dimensions(bytes).ok()?;
+    let (width, height) = webp::read_webp_dimensions(bytes).ok()?;
+    if bytes.len() < 20 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {
+        return None;
+    }
+    let riff_size = read_u32_le(bytes, 4)? as usize;
+    let first_fourcc = &bytes[12..16];
+    let first_chunk_size = read_u32_le(bytes, 16)? as usize;
+
+    match first_fourcc {
+        b"VP8 " => Some(WebpPreflight {
+            width,
+            height,
+            has_alpha: false,
+            is_animated: false,
+            is_lossless: false,
+            has_lossless_alpha_chunk: false,
+            icc_profile_bytes: 0,
+        }),
+        b"VP8L" => {
+            if bytes.get(20).copied()? != 0x2f {
+                return None;
+            }
+            let header = read_u32_le(bytes, 21)?;
+            let has_alpha = (header >> 28) & 1 != 0;
+            Some(WebpPreflight {
+                width,
+                height,
+                has_alpha,
+                is_animated: false,
+                is_lossless: true,
+                has_lossless_alpha_chunk: false,
+                icc_profile_bytes: 0,
+            })
+        }
+        b"VP8X" => {
+            if first_chunk_size < 10 || bytes.len() < 30 {
+                return None;
+            }
+            let flags = bytes[20];
+            let has_alpha = (flags & 0b0001_0000) != 0;
+            let is_animated = (flags & 0b0000_0010) != 0;
+            let first_chunk_rounded = first_chunk_size.saturating_add(first_chunk_size & 1);
+            let mut pos = 20usize.checked_add(first_chunk_rounded)?;
+            // Match `image-webp`'s RIFF scan bound (`start + chunk_size_rounded + riff_size - 12`).
+            let max_pos = bytes
+                .len()
+                .min(pos.saturating_add(riff_size.saturating_sub(12)));
+
+            let mut saw_iccp = false;
+            let mut icc_profile_bytes = 0u64;
+            let mut saw_vp8l = false;
+            let mut saw_vp8 = false;
+            let mut has_lossless_alpha_chunk = false;
+
+            while pos.saturating_add(8) <= max_pos {
+                let fourcc = &bytes[pos..pos + 4];
+                let chunk_size = read_u32_le(bytes, pos + 4)? as usize;
+                let payload_start = pos + 8;
+                let chunk_rounded = chunk_size.saturating_add(chunk_size & 1);
+                let next_pos = payload_start.saturating_add(chunk_rounded);
+                if payload_start.saturating_add(chunk_size) > bytes.len() {
+                    break;
+                }
+                match fourcc {
+                    b"ICCP" if !saw_iccp => {
+                        saw_iccp = true;
+                        if chunk_size <= MAX_WEBP_ICC_PROFILE_BYTES {
+                            icc_profile_bytes = chunk_size as u64;
+                        }
+                    }
+                    b"VP8L" => saw_vp8l = true,
+                    b"VP8 " => saw_vp8 = true,
+                    b"ALPH" if !has_lossless_alpha_chunk => {
+                        if let Some(&info) = bytes.get(payload_start) {
+                            if (info & 0b0000_0011) == 1 {
+                                has_lossless_alpha_chunk = true;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                if next_pos <= pos {
+                    break;
+                }
+                pos = next_pos;
+            }
+
+            Some(WebpPreflight {
+                width,
+                height,
+                has_alpha,
+                is_animated,
+                is_lossless: saw_vp8l && !saw_vp8,
+                has_lossless_alpha_chunk,
+                icc_profile_bytes,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Peak live heap during `webp::decode_webp`, matching `image-webp`'s live
+/// buffers plus any retained ICC profile.
+#[cfg(not(target_family = "wasm"))]
+fn estimate_webp_decode_peak_bytes(meta: &WebpPreflight) -> u64 {
+    let pixels = u64::from(meta.width).saturating_mul(u64::from(meta.height));
+    let decode_pixels = if meta.is_animated {
+        // Output buffer (3 or 4 Bpp) + animation RGBA canvas (4 Bpp) + first
+        // decoded frame buffer (up to 4 Bpp).
+        let factor = if meta.has_alpha { 12u64 } else { 11u64 };
+        pixels.saturating_mul(factor)
+    } else if meta.is_lossless {
+        if meta.has_alpha {
+            // 4 Bpp RGBA output (composited in place) + up to 1 Bpp transform scratch.
+            pixels.saturating_mul(5)
+        } else {
+            // Opaque VP8L holds a 3 Bpp RGB output buffer alongside `image-webp`'s
+            // internal 4 Bpp RGBA decode buffer + up to 1 Bpp transform scratch.
+            pixels.saturating_mul(8)
+        }
+    } else {
+        // Lossy VP8 allocates macroblock-aligned Y/U/V planes (~1.5 Bpp).
+        let mb_w = u64::from(meta.width).div_ceil(16).saturating_mul(16);
+        let mb_h = u64::from(meta.height).div_ceil(16).saturating_mul(16);
+        let vp8_yuv = mb_w.saturating_mul(mb_h).saturating_mul(3) / 2;
+        if meta.has_alpha {
+            // 4 Bpp RGBA output + VP8 YUV planes + ALPH buffer (1 Bpp raw, or
+            // 4 Bpp RGBA + 1 Bpp green + 1 Bpp transform scratch if lossless ALPH).
+            let alpha_peak = if meta.has_lossless_alpha_chunk {
+                pixels.saturating_mul(6)
+            } else {
+                pixels
+            };
+            pixels
+                .saturating_mul(4)
+                .saturating_add(vp8_yuv)
+                .saturating_add(alpha_peak)
+        } else {
+            pixels.saturating_mul(3).saturating_add(vp8_yuv)
+        }
+    };
+    decode_pixels.saturating_add(meta.icc_profile_bytes)
+}
+
+/// Peak live heap while a decoded 3 Bpp RGB raster (plus optional ICC profile)
+/// is encoded into its final PDF image stream.
+#[cfg(not(target_family = "wasm"))]
+fn estimate_decoded_raster_encode_peak_bytes(
+    width: u32,
+    height: u32,
+    icc_profile_bytes: u64,
+    compression: PdfImageCompression,
+) -> u64 {
+    let rgb_bytes = u64::from(width)
+        .saturating_mul(u64::from(height))
+        .saturating_mul(3);
+    rgb_bytes
+        .saturating_add(icc_profile_bytes)
+        .saturating_add(estimate_netpbm_page_encode_bytes(
+            width,
+            height,
+            3,
+            compression,
+        ))
+}
+
+/// Padded MCU-strip row buffers that `jpeg_encoder::Encoder` allocates while
+/// encoding an image of `width` pixels (`1` component uses one 8-row buffer;
+/// `3` components with 4:2:0 sampling use three 16-row buffers).
+#[cfg(not(target_family = "wasm"))]
+fn estimate_jpeg_row_buffer_bytes(width: u32, channels: u8) -> u64 {
+    if channels == 1 {
+        let buffer_width = u64::from(width).div_ceil(8).saturating_mul(8);
+        buffer_width.saturating_mul(8)
+    } else {
+        let buffer_width = u64::from(width).div_ceil(16).saturating_mul(16);
+        buffer_width.saturating_mul(16).saturating_mul(3)
+    }
+}
+
 /// Peak heap, beyond the source raster, while one Netpbm raster becomes a PDF
 /// image stream: the shared Flate working set for automatic pages, the JPEG
-/// candidate for JPEG pages, and both when a Flate fallback is compared.
+/// candidate plus encoder row buffers for JPEG pages, and the peak across both
+/// phases when a Flate fallback is compared.
 #[cfg(not(target_family = "wasm"))]
 pub(crate) fn estimate_netpbm_page_encode_bytes(
     width: u32,
@@ -208,10 +569,13 @@ pub(crate) fn estimate_netpbm_page_encode_bytes(
     let bytes_per_row = u64::from(width).saturating_mul(u64::from(channels));
     let raster_bytes = bytes_per_row.saturating_mul(u64::from(height));
     let flate = estimate_up_filtered_flate_working_set_bytes(bytes_per_row, u64::from(height));
+    let jpeg = raster_bytes.saturating_add(estimate_jpeg_row_buffer_bytes(width, channels));
     match compression {
         PdfImageCompression::Auto => flate,
-        PdfImageCompression::Jpeg { .. } => raster_bytes,
-        PdfImageCompression::JpegWithFlateFallback { .. } => raster_bytes.saturating_add(flate),
+        PdfImageCompression::Jpeg { .. } => jpeg,
+        PdfImageCompression::JpegWithFlateFallback { .. } => {
+            jpeg.max(raster_bytes.saturating_add(flate))
+        }
     }
 }
 
@@ -810,12 +1174,31 @@ fn decode_raster_by_extension(
     match extension {
         "bmp" => bmp::decode_bmp(bytes, max_pixels),
         "gif" => gif_codec::decode_gif(bytes, max_pixels),
-        "webp" => webp::decode_webp(bytes, max_pixels),
+        "webp" => {
+            validate_webp_vp8_frame_dimensions(bytes)?;
+            webp::decode_webp(bytes, max_pixels)
+        }
         _ => Err(format!("Unsupported raster extension: {extension}").into()),
     }
 }
 
+fn color_space_channels(color_space: &str) -> usize {
+    if color_space == "DeviceGray" {
+        1
+    } else {
+        3
+    }
+}
+
 fn icc_profile_matches_channels(profile: &[u8], channels: usize) -> bool {
+    if profile.len() < 128 || profile.get(36..40) != Some(b"acsp") {
+        return false;
+    }
+    let declared_len =
+        u32::from_be_bytes([profile[0], profile[1], profile[2], profile[3]]) as usize;
+    if declared_len < 128 || declared_len > profile.len() {
+        return false;
+    }
     match profile.get(16..20) {
         Some(b"GRAY") => channels == 1,
         Some(b"RGB ") => channels == 3,
@@ -898,6 +1281,13 @@ fn read_decoded_raster_jpeg_page(
         .dpi
         .or_else(|| default_dpi.map(|dpi| (dpi, dpi)))
         .unwrap_or((DEFAULT_DPI, DEFAULT_DPI));
+    // Keep 3-channel RGB encoding whenever we are retaining an RGB ICC profile
+    // so equal-channel RGB pixels never collapse to 1-channel DeviceGray with a
+    // 3-channel RGB ICC profile.
+    let preserve_rgb = decoded
+        .icc_profile
+        .as_deref()
+        .is_some_and(|profile| icc_profile_matches_channels(profile, 3));
     let prepared = apply_jpeg_processing(
         PreparedNetpbmPixels {
             width: decoded.width,
@@ -909,18 +1299,27 @@ fn read_decoded_raster_jpeg_page(
         processing,
         page_size,
     )?;
-    let (prepared, _, (jpeg_data, jpeg_color_space)) =
-        encode_with_size_guardrail(prepared, max_pixels, quality, page_size, size_guardrail)?;
+    let (prepared, _, (jpeg_data, jpeg_color_space)) = encode_with_size_guardrail(
+        prepared,
+        max_pixels,
+        quality,
+        page_size,
+        size_guardrail,
+        preserve_rgb,
+    )?;
     if use_flate_fallback {
-        let flate = encode_prepared_netpbm_as_flate(&prepared)?;
+        let flate = encode_prepared_netpbm_as_flate(&prepared, preserve_rgb)?;
         if flate.data.len() < jpeg_data.len() {
+            let icc_profile = decoded.icc_profile.filter(|profile| {
+                icc_profile_matches_channels(profile, color_space_channels(flate.color_space))
+            });
             return Ok(ImagePage {
                 width: prepared.width,
                 height: prepared.height,
                 dpi_x,
                 dpi_y,
                 color_space: flate.color_space,
-                icc_profile: decoded.icc_profile,
+                icc_profile,
                 payload: ImagePayload::RawFlate {
                     data: flate.data,
                     decode_params: flate.decode_params,
@@ -928,13 +1327,16 @@ fn read_decoded_raster_jpeg_page(
             });
         }
     }
+    let icc_profile = decoded.icc_profile.filter(|profile| {
+        icc_profile_matches_channels(profile, color_space_channels(jpeg_color_space))
+    });
     Ok(ImagePage {
         width: prepared.width,
         height: prepared.height,
         dpi_x,
         dpi_y,
         color_space: jpeg_color_space,
-        icc_profile: decoded.icc_profile,
+        icc_profile,
         payload: ImagePayload::Jpeg { data: jpeg_data },
     })
 }
@@ -1026,19 +1428,33 @@ fn read_png_jpeg_page(
         processing,
         page_size,
     )?;
-    let (prepared, _, (data, color_space)) =
-        encode_with_size_guardrail(prepared, max_pixels, quality, page_size, size_guardrail)?;
+    let preserve_rgb = channels == 3
+        && png
+            .icc_profile
+            .as_deref()
+            .is_some_and(|profile| icc_profile_matches_channels(profile, 3));
+    let (prepared, _, (data, color_space)) = encode_with_size_guardrail(
+        prepared,
+        max_pixels,
+        quality,
+        page_size,
+        size_guardrail,
+        false,
+    )?;
     if use_flate_fallback {
-        let flate = encode_prepared_netpbm_as_flate(&prepared)?;
+        let flate = encode_prepared_netpbm_as_flate(&prepared, preserve_rgb)?;
         if flate.data.len() < data.len() {
             let (dpi_x, dpi_y) = png_dpi(png.density, default_dpi);
+            let icc_profile = png.icc_profile.filter(|profile| {
+                icc_profile_matches_channels(profile, color_space_channels(flate.color_space))
+            });
             return Ok(ImagePage {
                 width: prepared.width,
                 height: prepared.height,
                 dpi_x,
                 dpi_y,
                 color_space: flate.color_space,
-                icc_profile: png.icc_profile,
+                icc_profile,
                 payload: ImagePayload::RawFlate {
                     data: flate.data,
                     decode_params: flate.decode_params,
@@ -1059,6 +1475,7 @@ fn read_png_jpeg_page(
                 PngColorType::Gray8 | PngColorType::GrayAlpha8
             ) {
             png.icc_profile
+                .filter(|profile| icc_profile_matches_channels(profile, 1))
         } else {
             None
         },
@@ -1124,7 +1541,10 @@ struct FlateCandidate {
     color_space: &'static str,
 }
 
-fn encode_prepared_netpbm_as_flate(prepared: &PreparedNetpbmPixels<'_>) -> Result<FlateCandidate> {
+fn encode_prepared_netpbm_as_flate(
+    prepared: &PreparedNetpbmPixels<'_>,
+    preserve_rgb: bool,
+) -> Result<FlateCandidate> {
     let total_pixels = prepared.width as usize * prepared.height as usize;
     let height = prepared.height as usize;
     let (colors, color_space, data) = if prepared.channels == 1 {
@@ -1133,7 +1553,7 @@ fn encode_prepared_netpbm_as_flate(prepared: &PreparedNetpbmPixels<'_>) -> Resul
             "DeviceGray",
             deflate_up_filtered_slices(prepared.pixels.as_ref(), prepared.width as usize, height)?,
         )
-    } else if is_rgb_data_grayscale(prepared.pixels.as_ref(), total_pixels) {
+    } else if !preserve_rgb && is_rgb_data_grayscale(prepared.pixels.as_ref(), total_pixels) {
         (
             1,
             "DeviceGray",
@@ -1209,10 +1629,16 @@ fn read_netpbm_jpeg_page_data(
     use_flate_fallback: bool,
 ) -> Result<ImagePage> {
     let prepared = prepare_netpbm_for_jpeg(netpbm, max_pixels, processing, page_size)?;
-    let (prepared, _, (jpeg_data, jpeg_color_space)) =
-        encode_with_size_guardrail(prepared, max_pixels, quality, page_size, size_guardrail)?;
+    let (prepared, _, (jpeg_data, jpeg_color_space)) = encode_with_size_guardrail(
+        prepared,
+        max_pixels,
+        quality,
+        page_size,
+        size_guardrail,
+        false,
+    )?;
     if use_flate_fallback {
-        let flate = encode_prepared_netpbm_as_flate(&prepared)?;
+        let flate = encode_prepared_netpbm_as_flate(&prepared, false)?;
         if flate.data.len() < jpeg_data.len() {
             return Ok(ImagePage {
                 width: prepared.width,
@@ -1242,10 +1668,50 @@ fn read_netpbm_jpeg_page_data(
 /// JPEG bytes and the PDF colour space they decode to.
 type EncodedJpeg = (Vec<u8>, &'static str);
 
+fn encode_rgb_pixels_as_jpeg(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+) -> Result<EncodedJpeg> {
+    if width == 0 || height == 0 {
+        return Err("JPEG dimensions must be non-zero".into());
+    }
+    let width_u16 =
+        u16::try_from(width).map_err(|_| format!("JPEG width is too large to encode: {width}"))?;
+    let height_u16 = u16::try_from(height)
+        .map_err(|_| format!("JPEG height is too large to encode: {height}"))?;
+    let expected_len = (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|total_pixels| total_pixels.checked_mul(3))
+        .ok_or("JPEG pixel payload size overflow")?;
+    if pixels.len() != expected_len {
+        return Err(format!(
+            "JPEG pixel payload length {} does not match {width}x{height}x3",
+            pixels.len()
+        )
+        .into());
+    }
+    let mut data = Vec::new();
+    let mut encoder = jpeg_encoder::Encoder::new(&mut data, quality);
+    encoder.set_sampling_factor(jpeg_encoder::SamplingFactor::R_4_2_0);
+    encoder.encode(pixels, width_u16, height_u16, jpeg_encoder::ColorType::Rgb)?;
+    Ok((data, "DeviceRGB"))
+}
+
 fn encode_prepared_netpbm_as_jpeg(
     prepared: &PreparedNetpbmPixels<'_>,
     quality: u8,
+    preserve_rgb: bool,
 ) -> Result<EncodedJpeg> {
+    if preserve_rgb && prepared.channels == 3 {
+        return encode_rgb_pixels_as_jpeg(
+            prepared.pixels.as_ref(),
+            prepared.width,
+            prepared.height,
+            quality,
+        );
+    }
     encode_pixels_as_jpeg(
         prepared.pixels.as_ref(),
         prepared.width,
@@ -1265,8 +1731,9 @@ fn encode_with_size_guardrail<'a>(
     quality: u8,
     page_size: Option<PdfPageSize>,
     guardrail: Option<JpegSizeGuardrail>,
+    preserve_rgb: bool,
 ) -> Result<(PreparedNetpbmPixels<'a>, u8, EncodedJpeg)> {
-    let encoded = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
+    let encoded = encode_prepared_netpbm_as_jpeg(&prepared, quality, preserve_rgb)?;
     let Some(guardrail) = guardrail else {
         return Ok((prepared, quality, encoded));
     };
@@ -1284,7 +1751,7 @@ fn encode_with_size_guardrail<'a>(
     if lower_quality < quality {
         let replaced_bytes = current.0.len();
         drop(current);
-        let lower = encode_prepared_netpbm_as_jpeg(&current_prepared, lower_quality)?;
+        let lower = encode_prepared_netpbm_as_jpeg(&current_prepared, lower_quality, preserve_rgb)?;
         emit_guardrail_action(
             guardrail,
             "quality",
@@ -1308,7 +1775,8 @@ fn encode_with_size_guardrail<'a>(
             drop(current);
             current_prepared =
                 resize_prepared_netpbm(current_prepared, next_width, next_height, max_pixels)?;
-            let downscaled = encode_prepared_netpbm_as_jpeg(&current_prepared, current_quality)?;
+            let downscaled =
+                encode_prepared_netpbm_as_jpeg(&current_prepared, current_quality, preserve_rgb)?;
             emit_guardrail_action(
                 guardrail,
                 "downscale",
@@ -1909,6 +2377,7 @@ mod tests {
                 page: 1,
                 log_json_progress: false,
             }),
+            false,
         )
         .unwrap();
 
@@ -1925,7 +2394,7 @@ mod tests {
         });
         let prepared_100_ppi = dense_gray_guardrail_fixture(100, 100);
         let (q85_data, color_space) =
-            encode_prepared_netpbm_as_jpeg(&prepared_100_ppi, 85).unwrap();
+            encode_prepared_netpbm_as_jpeg(&prepared_100_ppi, 85, false).unwrap();
         let q85_bpp =
             q85_data.len() as f64 * 8.0 / (prepared_100_ppi.width * prepared_100_ppi.height) as f64;
 
@@ -1948,6 +2417,7 @@ mod tests {
                 page: 1,
                 log_json_progress: false,
             }),
+            false,
         )
         .unwrap();
 
@@ -2001,6 +2471,7 @@ mod tests {
                 page: 1,
                 log_json_progress: false,
             }),
+            false,
         )
         .unwrap();
 
@@ -2154,6 +2625,489 @@ mod tests {
                 ImageCompression::Jpeg { .. } => assert!(text.contains("/Filter /DCTDecode")),
                 ImageCompression::JpegWithFlateFallback { .. } => {}
             }
+        }
+    }
+
+    fn synthetic_icc_profile(color_space: &[u8; 4], total_len: usize) -> Vec<u8> {
+        let len = total_len.max(128);
+        let mut profile = vec![0u8; len];
+        profile[0..4].copy_from_slice(&(len as u32).to_be_bytes());
+        profile[16..20].copy_from_slice(color_space);
+        profile[36..40].copy_from_slice(b"acsp");
+        profile
+    }
+
+    fn wrap_vp8l_webp_with_icc(
+        vp8l_webp: &[u8],
+        width: u32,
+        height: u32,
+        has_alpha: bool,
+        icc_profile: &[u8],
+    ) -> Vec<u8> {
+        assert_eq!(&vp8l_webp[0..4], b"RIFF");
+        assert_eq!(&vp8l_webp[8..12], b"WEBP");
+        assert_eq!(&vp8l_webp[12..16], b"VP8L");
+        let vp8l_chunk = &vp8l_webp[12..];
+
+        let mut body = Vec::new();
+        body.extend_from_slice(b"WEBP");
+
+        // VP8X chunk (10 bytes payload)
+        body.extend_from_slice(b"VP8X");
+        body.extend_from_slice(&10u32.to_le_bytes());
+        let mut flags = 0b0010_0000u8; // ICC profile flag
+        if has_alpha {
+            flags |= 0b0001_0000;
+        }
+        body.push(flags);
+        body.extend_from_slice(&[0u8; 3]);
+        let w_minus_1 = width - 1;
+        let h_minus_1 = height - 1;
+        body.extend_from_slice(&[
+            (w_minus_1 & 0xff) as u8,
+            ((w_minus_1 >> 8) & 0xff) as u8,
+            ((w_minus_1 >> 16) & 0xff) as u8,
+        ]);
+        body.extend_from_slice(&[
+            (h_minus_1 & 0xff) as u8,
+            ((h_minus_1 >> 8) & 0xff) as u8,
+            ((h_minus_1 >> 16) & 0xff) as u8,
+        ]);
+
+        // ICCP chunk
+        body.extend_from_slice(b"ICCP");
+        body.extend_from_slice(&(icc_profile.len() as u32).to_le_bytes());
+        body.extend_from_slice(icc_profile);
+        if icc_profile.len() % 2 == 1 {
+            body.push(0);
+        }
+
+        // Original VP8L chunk
+        body.extend_from_slice(vp8l_chunk);
+        if vp8l_chunk.len() % 2 == 1 {
+            body.push(0);
+        }
+
+        let mut out = Vec::with_capacity(8 + body.len());
+        out.extend_from_slice(b"RIFF");
+        out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        out.extend_from_slice(&body);
+        out
+    }
+
+    #[test]
+    fn equal_channel_rgb_webp_with_rgb_icc_preserves_rgb_across_jpeg_flate_and_auto() {
+        use image_webp::{ColorType as WebpColorType, WebPEncoder};
+
+        let width = 32u32;
+        let height = 32u32;
+        let equal_channel_rgb = vec![128u8; (width * height * 3) as usize];
+        let mut plain_webp = Vec::new();
+        WebPEncoder::new(&mut plain_webp)
+            .encode(&equal_channel_rgb, width, height, WebpColorType::Rgb8)
+            .unwrap();
+
+        let rgb_icc = synthetic_icc_profile(b"RGB ", 256);
+        let icc_webp = wrap_vp8l_webp_with_icc(&plain_webp, width, height, false, &rgb_icc);
+
+        // 1. JPEG recompression must keep 3-channel RGB and emit /N 3.
+        let jpeg_page = read_image_page_from_bytes(
+            "gray-rgb-icc.webp",
+            &icc_webp,
+            &PdfBuildOptions::default(),
+            PdfImageCompression::Jpeg { quality: 85 },
+            ImageProcessing::None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(jpeg_page.color_space, "DeviceRGB");
+        assert_eq!(jpeg_page.icc_profile.as_deref(), Some(rgb_icc.as_slice()));
+        let ImagePayload::Jpeg { ref data } = jpeg_page.payload else {
+            panic!("expected JPEG payload");
+        };
+        assert_eq!(parse_jpeg_metadata(data).unwrap().components, 3);
+        let jpeg_pdf = crate::pdf::build_pdf(&[jpeg_page]).unwrap();
+        let jpeg_pdf_text = String::from_utf8_lossy(&jpeg_pdf);
+        assert!(jpeg_pdf_text.contains("/N 3 /Alternate /DeviceRGB"));
+        assert!(!jpeg_pdf_text.contains("/N 1"));
+
+        // 2. JpegWithFlateFallback picks Flate for uniform gray pixels; must also keep 3-channel RGB.
+        let flate_page = read_image_page_from_bytes(
+            "gray-rgb-icc.webp",
+            &icc_webp,
+            &PdfBuildOptions::default(),
+            PdfImageCompression::JpegWithFlateFallback { quality: 85 },
+            ImageProcessing::None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(flate_page.color_space, "DeviceRGB");
+        assert_eq!(flate_page.icc_profile.as_deref(), Some(rgb_icc.as_slice()));
+        let ImagePayload::RawFlate {
+            ref decode_params, ..
+        } = flate_page.payload
+        else {
+            panic!("expected Flate fallback payload for uniform image");
+        };
+        assert!(decode_params.contains("/Colors 3"));
+        let flate_pdf = crate::pdf::build_pdf(&[flate_page]).unwrap();
+        let flate_pdf_text = String::from_utf8_lossy(&flate_pdf);
+        assert!(flate_pdf_text.contains("/N 3 /Alternate /DeviceRGB"));
+        assert!(!flate_pdf_text.contains("/N 1"));
+
+        // 3. Incompatible (CMYK) or truncated ICC payloads must be stripped instead of written.
+        let cmyk_icc = synthetic_icc_profile(b"CMYK", 256);
+        let mut truncated_20_icc = vec![0u8; 20];
+        truncated_20_icc[16..20].copy_from_slice(b"RGB ");
+        let mut truncated_declared_icc = synthetic_icc_profile(b"RGB ", 128);
+        truncated_declared_icc[0..4].copy_from_slice(&512u32.to_be_bytes());
+        for bad_icc in [cmyk_icc, truncated_20_icc, truncated_declared_icc] {
+            let bad_icc_webp = wrap_vp8l_webp_with_icc(&plain_webp, width, height, false, &bad_icc);
+            for compression in [
+                PdfImageCompression::Auto,
+                PdfImageCompression::Jpeg { quality: 85 },
+                PdfImageCompression::JpegWithFlateFallback { quality: 85 },
+            ] {
+                let page = read_image_page_from_bytes(
+                    "gray-bad-icc.webp",
+                    &bad_icc_webp,
+                    &PdfBuildOptions::default(),
+                    compression,
+                    ImageProcessing::None,
+                    None,
+                    None,
+                )
+                .unwrap();
+                assert!(
+                    page.icc_profile.is_none(),
+                    "invalid or incompatible ICC profile should be stripped"
+                );
+                let pdf = crate::pdf::build_pdf(&[page]).unwrap();
+                assert!(!String::from_utf8_lossy(&pdf).contains("/ICCBased"));
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_vp8x_webp_whose_vp8_frame_dimensions_exceed_canvas_before_decoding() {
+        // Construct a VP8X still claiming a 1x1 canvas whose VP8 keyframe header claims 16383x16383.
+        let mut body = Vec::new();
+        body.extend_from_slice(b"WEBP");
+        body.extend_from_slice(b"VP8X");
+        body.extend_from_slice(&10u32.to_le_bytes());
+        body.push(0); // flags
+        body.extend_from_slice(&[0u8; 3]); // reserved
+        body.extend_from_slice(&[0, 0, 0]); // canvas width - 1 = 0 => 1
+        body.extend_from_slice(&[0, 0, 0]); // canvas height - 1 = 0 => 1
+        body.extend_from_slice(b"VP8 ");
+        let vp8_payload: [u8; 10] = [
+            0x10, 0x00, 0x00, // keyframe tag (bit 0 == 0)
+            0x9d, 0x01, 0x2a, // VP8 start code
+            0xff, 0x3f, // width = 16383
+            0xff, 0x3f, // height = 16383
+        ];
+        body.extend_from_slice(&(vp8_payload.len() as u32).to_le_bytes());
+        body.extend_from_slice(&vp8_payload);
+        let mut webp_bomb = Vec::with_capacity(8 + body.len());
+        webp_bomb.extend_from_slice(b"RIFF");
+        webp_bomb.extend_from_slice(&(body.len() as u32).to_le_bytes());
+        webp_bomb.extend_from_slice(&body);
+
+        let err = read_image_page_from_bytes(
+            "mismatch.webp",
+            &webp_bomb,
+            &PdfBuildOptions::default(),
+            PdfImageCompression::Auto,
+            ImageProcessing::None,
+            None,
+            None,
+        )
+        .err()
+        .expect("mismatched VP8X/VP8 dimensions must be rejected before decoding");
+        assert!(
+            err.to_string().contains("do not match VP8X canvas"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn wide_gif_jpeg_and_commented_gif_reservations_cover_row_buffers_and_extensions() {
+        let max_pixels = 10_000_000u64;
+
+        // 16383x1 red GIF in JPEG mode: 3 Bpp RGB raster + JPEG output + 3 padded 16-row buffers.
+        let width = 16_383u16;
+        let mut wide_gif = Vec::new();
+        {
+            let palette = [255, 0, 0];
+            let mut encoder = gif::Encoder::new(&mut wide_gif, width, 1, &palette).unwrap();
+            let frame = gif::Frame::from_indexed_pixels(width, 1, vec![0u8; width as usize], None);
+            encoder.write_frame(&frame).unwrap();
+        }
+        let wide_jpeg = estimate_image_bytes_decode_bytes(
+            "gif",
+            &wide_gif,
+            PdfImageCompression::Jpeg { quality: 85 },
+            max_pixels,
+        );
+        let rgb_bytes = u64::from(width) * 3;
+        let row_buffers = 16_384u64 * 16 * 3;
+        assert!(
+            wide_jpeg >= rgb_bytes + row_buffers + rgb_bytes,
+            "wide_jpeg={wide_jpeg} must cover RGB raster + padded row buffers + JPEG output"
+        );
+
+        // 1x1 GIF with a 300 KiB comment extension before frame 0 is admitted and decoded.
+        let mut commented_gif = Vec::new();
+        {
+            let palette = [10, 20, 30];
+            let mut encoder = gif::Encoder::new(&mut commented_gif, 1, 1, &palette).unwrap();
+            let comment = vec![b'A'; 300 * 1024];
+            encoder
+                .write_raw_extension(
+                    gif::AnyExtension(gif::Extension::Comment as u8),
+                    &[&comment],
+                )
+                .unwrap();
+            let frame = gif::Frame::from_indexed_pixels(1, 1, vec![0], None);
+            encoder.write_frame(&frame).unwrap();
+        }
+        let comment_est = estimate_image_bytes_decode_bytes(
+            "gif",
+            &commented_gif,
+            PdfImageCompression::Jpeg { quality: 85 },
+            max_pixels,
+        );
+        assert!(
+            comment_est >= 300 * 1024,
+            "comment_est={comment_est} must cover 300 KiB buffered GIF comment"
+        );
+        let page = read_image_page_from_bytes(
+            "commented.gif",
+            &commented_gif,
+            &PdfBuildOptions::default(),
+            PdfImageCompression::Auto,
+            ImageProcessing::None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!((page.width, page.height), (1, 1));
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn gif_and_webp_memory_reservations_cover_decode_icc_and_encoder_buffers() {
+        use image_webp::{ColorType as WebpColorType, WebPEncoder};
+
+        let width = 64u32;
+        let height = 64u32;
+        let pixels = u64::from(width) * u64::from(height);
+        let max_pixels = 10_000_000u64;
+
+        let mut gif_bytes = Vec::new();
+        {
+            let palette = [255, 0, 0, 0, 255, 0];
+            let mut encoder =
+                gif::Encoder::new(&mut gif_bytes, width as u16, height as u16, &palette).unwrap();
+            let mut frame = gif::Frame::from_indexed_pixels(
+                width as u16,
+                height as u16,
+                vec![0u8; pixels as usize],
+                Some(1),
+            );
+            frame.palette = None;
+            encoder.write_frame(&frame).unwrap();
+        }
+
+        let mut opaque_webp = Vec::new();
+        WebPEncoder::new(&mut opaque_webp)
+            .encode(
+                &vec![120u8; (pixels * 3) as usize],
+                width,
+                height,
+                WebpColorType::Rgb8,
+            )
+            .unwrap();
+
+        let icc_len = 64 * 1024usize;
+        let rgb_icc = synthetic_icc_profile(b"RGB ", icc_len);
+        let icc_webp = wrap_vp8l_webp_with_icc(&opaque_webp, width, height, false, &rgb_icc);
+
+        let flate_work =
+            estimate_up_filtered_flate_working_set_bytes(u64::from(width) * 3, u64::from(height));
+
+        // GIF: Auto covers RGB canvas + Flate working set; Jpeg covers RGB canvas + encoder output.
+        let gif_auto = estimate_image_bytes_decode_bytes(
+            "gif",
+            &gif_bytes,
+            PdfImageCompression::Auto,
+            max_pixels,
+        );
+        let gif_jpeg = estimate_image_bytes_decode_bytes(
+            "gif",
+            &gif_bytes,
+            PdfImageCompression::Jpeg { quality: 85 },
+            max_pixels,
+        );
+        let gif_fallback = estimate_image_bytes_decode_bytes(
+            "gif",
+            &gif_bytes,
+            PdfImageCompression::JpegWithFlateFallback { quality: 85 },
+            max_pixels,
+        );
+        assert!(gif_auto >= pixels * 3 + flate_work, "gif_auto={gif_auto}");
+        assert!(gif_jpeg >= pixels * 6, "gif_jpeg={gif_jpeg}");
+        assert!(
+            gif_fallback >= pixels * 6 + flate_work,
+            "gif_fallback={gif_fallback}"
+        );
+
+        // Opaque lossless WebP: holds 3 B/px output + 4 B/px RGBA decoder buffer (7+ B/px).
+        let webp_jpeg = estimate_image_bytes_decode_bytes(
+            "webp",
+            &opaque_webp,
+            PdfImageCompression::Jpeg { quality: 85 },
+            max_pixels,
+        );
+        assert!(
+            webp_jpeg >= pixels * 7,
+            "opaque lossless WebP must reserve >= 7 B/px, got {webp_jpeg}"
+        );
+
+        // WebP with ICC profile must include the retained ICC bytes on every compression mode.
+        let icc_webp_jpeg = estimate_image_bytes_decode_bytes(
+            "webp",
+            &icc_webp,
+            PdfImageCompression::Jpeg { quality: 85 },
+            max_pixels,
+        );
+        let icc_webp_auto = estimate_image_bytes_decode_bytes(
+            "webp",
+            &icc_webp,
+            PdfImageCompression::Auto,
+            max_pixels,
+        );
+        let icc_webp_fallback = estimate_image_bytes_decode_bytes(
+            "webp",
+            &icc_webp,
+            PdfImageCompression::JpegWithFlateFallback { quality: 85 },
+            max_pixels,
+        );
+        assert_eq!(
+            icc_webp_jpeg,
+            webp_jpeg + icc_len as u64,
+            "WebP ICC bytes must be added to JPEG reservation"
+        );
+        assert!(
+            icc_webp_auto >= pixels * 3 + icc_len as u64 + flate_work,
+            "icc_webp_auto={icc_webp_auto}"
+        );
+        assert!(
+            icc_webp_fallback >= pixels * 6 + icc_len as u64 + flate_work,
+            "icc_webp_fallback={icc_webp_fallback}"
+        );
+
+        // Alpha lossless WebP reserves 4 B/px RGBA + transform scratch (and >= 6 B/px for JPEG encode).
+        let mut alpha_webp = Vec::new();
+        WebPEncoder::new(&mut alpha_webp)
+            .encode(
+                &vec![120u8; (pixels * 4) as usize],
+                width,
+                height,
+                WebpColorType::Rgba8,
+            )
+            .unwrap();
+        let alpha_webp_jpeg = estimate_image_bytes_decode_bytes(
+            "webp",
+            &alpha_webp,
+            PdfImageCompression::Jpeg { quality: 85 },
+            max_pixels,
+        );
+        assert!(
+            alpha_webp_jpeg >= pixels * 6,
+            "alpha lossless WebP must cover RGB + JPEG encode, got {alpha_webp_jpeg}"
+        );
+        assert!(
+            webp_jpeg > alpha_webp_jpeg,
+            "opaque lossless WebP ({webp_jpeg}) must reserve more than alpha lossless WebP ({alpha_webp_jpeg}) due to internal 4 B/px RGBA buffer"
+        );
+
+        // Oversized WebP ICC (>16 MiB) is ignored by `decode_webp` and must not inflate reservation.
+        let mut oversized_icc_webp = Vec::new();
+        {
+            let vp8l_chunk = &opaque_webp[12..];
+            let mut body = Vec::new();
+            body.extend_from_slice(b"WEBP");
+            body.extend_from_slice(b"VP8X");
+            body.extend_from_slice(&10u32.to_le_bytes());
+            body.push(0b0010_0000);
+            body.extend_from_slice(&[0u8; 3]);
+            let w_minus_1 = width - 1;
+            let h_minus_1 = height - 1;
+            body.extend_from_slice(&[
+                (w_minus_1 & 0xff) as u8,
+                ((w_minus_1 >> 8) & 0xff) as u8,
+                ((w_minus_1 >> 16) & 0xff) as u8,
+                (h_minus_1 & 0xff) as u8,
+                ((h_minus_1 >> 8) & 0xff) as u8,
+                ((h_minus_1 >> 16) & 0xff) as u8,
+            ]);
+            body.extend_from_slice(b"ICCP");
+            let oversized = (MAX_WEBP_ICC_PROFILE_BYTES + 2) as u32;
+            body.extend_from_slice(&oversized.to_le_bytes());
+            body.resize(body.len() + oversized as usize, 0);
+            body.extend_from_slice(vp8l_chunk);
+            if vp8l_chunk.len() % 2 == 1 {
+                body.push(0);
+            }
+            oversized_icc_webp.extend_from_slice(b"RIFF");
+            oversized_icc_webp.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            oversized_icc_webp.extend_from_slice(&body);
+        }
+        assert_eq!(
+            estimate_image_bytes_decode_bytes(
+                "webp",
+                &oversized_icc_webp,
+                PdfImageCompression::Jpeg { quality: 85 },
+                max_pixels,
+            ),
+            webp_jpeg
+        );
+
+        // Budget enforcement: both GIF and opaque lossless WebP serialize under a cap below
+        // 2x their true peak (even though the old 4 B/px estimate would have admitted both).
+        for reservation in [gif_auto, icc_webp_jpeg] {
+            let two_old_estimates = pixels * 4 * 2;
+            let tight_cap = (reservation + 1024).max(two_old_estimates + 1024);
+            assert!(
+                tight_cap < reservation * 2,
+                "tight_cap={tight_cap} must be < 2 * reservation ({})",
+                reservation * 2
+            );
+            let budget = crate::PipelineBudget::new(4, tight_cap);
+            let active = Arc::new(AtomicUsize::new(0));
+            let max_active = Arc::new(AtomicUsize::new(0));
+            let start = Arc::new(Barrier::new(2));
+            thread::scope(|scope| {
+                for seq in 0..2 {
+                    let budget = &budget;
+                    let active = Arc::clone(&active);
+                    let max_active = Arc::clone(&max_active);
+                    let start = Arc::clone(&start);
+                    scope.spawn(move || {
+                        start.wait();
+                        let _guard = budget.reserve_standalone_bytes(seq, reservation).unwrap();
+                        let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        max_active.fetch_max(now, Ordering::SeqCst);
+                        thread::sleep(Duration::from_millis(10));
+                        active.fetch_sub(1, Ordering::SeqCst);
+                    });
+                }
+            });
+            assert_eq!(max_active.load(Ordering::SeqCst), 1);
         }
     }
 }
