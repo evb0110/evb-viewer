@@ -513,4 +513,65 @@ describe('highlight merging and geometry union', () => {
         }]);
         expect(elapsedMs).toBeLessThan(400);
     });
+
+    it('ignores a 4,000-highlight unrelated dense cluster without quadratic adjacency allocation', () => {
+        const unrelatedCluster = Array.from({length: 4_000}, (_, index) => textMarkup({
+            identity: identity(`cluster-${index}`),
+            createdAt: requireEpochMs(1000 + index),
+            quadPoints: [{
+                left: 0.6,
+                top: 0.6,
+                width: 0.1,
+                height: 0.01,
+            }],
+        }));
+        const created = textMarkup({
+            identity: identity('disjoint-created'),
+            createdAt: requireEpochMs(9999),
+            persistedRevision: -1,
+            quadPoints: [{
+                left: 0.1,
+                top: 0.1,
+                width: 0.01,
+                height: 0.01,
+            }],
+        });
+
+        const startedAt = performance.now();
+        const plan = buildTextMarkupSelectionPlan({
+            created,
+            overlapCandidates: [],
+            entities: unrelatedCluster,
+        });
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(plan.replacements).toEqual([]);
+        expect(plan.projection.created.identity.id).toBe(created.identity.id);
+        expect(elapsedMs).toBeLessThan(150);
+    });
+
+    it('unions 400 disjoint staggered quads in O(Q log Q) without revisiting unchanged bands', () => {
+        const staggeredQuads = Array.from({length: 400}, (_, index) => ({
+            left: Number((0.1 + index * 0.0001).toFixed(6)),
+            top: Number((0.1 + index * 0.001).toFixed(6)),
+            width: 0.6,
+            height: 0.0005,
+        }));
+        const created = textMarkup({
+            identity: identity('staggered-disjoint'),
+            persistedRevision: -1,
+            quadPoints: staggeredQuads,
+        });
+
+        const startedAt = performance.now();
+        const plan = buildTextMarkupSelectionPlan({
+            created,
+            overlapCandidates: [],
+            entities: [],
+        });
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(plan.projection.created.quadPoints).toEqual(staggeredQuads);
+        expect(elapsedMs).toBeLessThan(150);
+    });
 });

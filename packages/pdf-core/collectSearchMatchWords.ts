@@ -114,6 +114,10 @@ export interface ISearchPageWordIndex {
     readonly ends: number[];
     readonly prefixMaxStarts: number[];
     readonly prefixMaxEnds: number[];
+    readonly failedLogicalLookups: Set<string>;
+    pageTextChars: Set<number> | null;
+    pageTextBigrams: Set<number> | null;
+    failedIndexOfCount: number;
     nextWordIndex: number;
     fallbackCursor: number;
     logicalTextCursor: number;
@@ -148,9 +152,66 @@ function isValidPageGeometry(page: IPageWithSearchWords): page is IPageWithSearc
     );
 }
 
+function findLogicalWordStart(index: ISearchPageWordIndex, needle: string): number {
+    const pageText = index.page.text;
+    if (pageText === undefined) {
+        return -1;
+    }
+    if (needle.length === 0) {
+        return index.logicalTextCursor <= pageText.length ? index.logicalTextCursor : -1;
+    }
+    if (
+        needle.length > pageText.length - index.logicalTextCursor
+        || index.failedLogicalLookups.has(needle)
+    ) {
+        return -1;
+    }
+    if (index.pageTextChars !== null) {
+        for (let charIndex = 0; charIndex < needle.length; charIndex += 1) {
+            if (!index.pageTextChars.has(needle.charCodeAt(charIndex))) {
+                index.failedLogicalLookups.add(needle);
+                return -1;
+            }
+        }
+    }
+    if (index.pageTextBigrams !== null && needle.length >= 2) {
+        for (let charIndex = 0; charIndex + 1 < needle.length; charIndex += 1) {
+            const bigram = needle.charCodeAt(charIndex) * 65536 + needle.charCodeAt(charIndex + 1);
+            if (!index.pageTextBigrams.has(bigram)) {
+                index.failedLogicalLookups.add(needle);
+                return -1;
+            }
+        }
+    }
+
+    const found = pageText.indexOf(needle, index.logicalTextCursor);
+    if (found >= 0) {
+        return found;
+    }
+
+    // Because logicalTextCursor is monotonically non-decreasing, a needle that
+    // does not appear from logicalTextCursor onward cannot appear later either.
+    index.failedLogicalLookups.add(needle);
+    index.failedIndexOfCount += 1;
+    if (index.pageTextChars === null) {
+        const chars = new Set<number>();
+        for (let charIndex = 0; charIndex < pageText.length; charIndex += 1) {
+            chars.add(pageText.charCodeAt(charIndex));
+        }
+        index.pageTextChars = chars;
+    }
+    if (index.pageTextBigrams === null && index.failedIndexOfCount >= 8) {
+        const bigrams = new Set<number>();
+        for (let charIndex = 0; charIndex + 1 < pageText.length; charIndex += 1) {
+            bigrams.add(pageText.charCodeAt(charIndex) * 65536 + pageText.charCodeAt(charIndex + 1));
+        }
+        index.pageTextBigrams = bigrams;
+    }
+    return -1;
+}
+
 function ensureWordIndexUpTo(index: ISearchPageWordIndex, endOffset: number) {
     const {
-        page,
         pageWords,
         words,
         starts,
@@ -172,9 +233,7 @@ function ensureWordIndexUpTo(index: ISearchPageWordIndex, endOffset: number) {
             continue;
         }
         const wordText = buildOcrTextLayerItemText(word);
-        const logicalWordStart = page.text === undefined
-            ? -1
-            : page.text.indexOf(word.text, index.logicalTextCursor);
+        const logicalWordStart = findLogicalWordStart(index, word.text);
         const wordStart = logicalWordStart >= 0 ? logicalWordStart : index.fallbackCursor;
         const wordEnd = wordStart + word.text.length;
 
@@ -242,6 +301,10 @@ export function createSearchPageWordIndex(
         ends: [],
         prefixMaxStarts: [],
         prefixMaxEnds: [],
+        failedLogicalLookups: new Set(),
+        pageTextChars: null,
+        pageTextBigrams: null,
+        failedIndexOfCount: 0,
         nextWordIndex: 0,
         fallbackCursor: 0,
         logicalTextCursor: 0,

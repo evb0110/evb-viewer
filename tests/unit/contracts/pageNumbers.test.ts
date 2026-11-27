@@ -490,4 +490,40 @@ describe('page number contracts', () => {
         expect(mappedRanges.reduce((sum, segment) => sum + segment.endPage - segment.startPage + 1, 0)).toBe(10_000);
         expect(elapsedMs).toBeLessThan(350);
     });
+
+    it('normalizes raw unsorted complement exclusions without duplicating or leaking excluded pages', () => {
+        const rawComplement = {
+            kind: 'complement' as const,
+            pageCount: 5,
+            excludedPages: [
+                4,
+                2,
+            ],
+        };
+
+        expect([...iteratePageSelection(rawComplement)]).toEqual([
+            1,
+            3,
+            5,
+        ]);
+        expect([...iteratePageSelectionRanges(rawComplement)]).toEqual([
+            {
+                startPage: 1,
+                endPage: 1,
+            },
+            {
+                startPage: 3,
+                endPage: 3,
+            },
+            {
+                startPage: 5,
+                endPage: 5,
+            },
+        ]);
+        expect(isPageSelected(rawComplement, 1)).toBe(true);
+        expect(isPageSelected(rawComplement, 2)).toBe(false);
+        expect(isPageSelected(rawComplement, 3)).toBe(true);
+        expect(isPageSelected(rawComplement, 4)).toBe(false);
+        expect(isPageSelected(rawComplement, 5)).toBe(true);
+    });
 });

@@ -411,9 +411,37 @@ function lowerBoundPage(pages: readonly number[], value: number) {
     return low;
 }
 
+const sortedUniquePagesCache = new WeakMap<readonly number[], {
+    length: number;
+    sorted: readonly number[];
+}>();
+
+function getSortedUniquePages(pages: readonly number[]): readonly number[] {
+    const cached = sortedUniquePagesCache.get(pages);
+    if (cached && cached.length === pages.length) {
+        return cached.sorted;
+    }
+    let strictlyIncreasing = true;
+    for (let index = 1; index < pages.length; index += 1) {
+        if (pages[index - 1]! >= pages[index]!) {
+            strictlyIncreasing = false;
+            break;
+        }
+    }
+    const sorted = strictlyIncreasing
+        ? pages
+        : [...new Set(pages)].sort((left, right) => left - right);
+    sortedUniquePagesCache.set(pages, {
+        length: pages.length,
+        sorted,
+    });
+    return sorted;
+}
+
 function containsSortedPage(pages: readonly number[], page: number) {
-    const index = lowerBoundPage(pages, page);
-    return pages[index] === page;
+    const sorted = getSortedUniquePages(pages);
+    const index = lowerBoundPage(sorted, page);
+    return sorted[index] === page;
 }
 
 function* iteratePageSelectionRange(
@@ -433,8 +461,9 @@ function* iteratePageSelectionRange(
             for (let page = start; page <= end; page += 1) yield page;
             return;
         case 'explicit': {
-            for (let index = lowerBoundPage(selection.pages, start); index < selection.pages.length; index += 1) {
-                const page = selection.pages[index]!;
+            const pages = getSortedUniquePages(selection.pages);
+            for (let index = lowerBoundPage(pages, start); index < pages.length; index += 1) {
+                const page = pages[index]!;
                 if (page > end) {
                     break;
                 }
@@ -457,13 +486,14 @@ function* iteratePageSelectionRange(
         }
         case 'complement': {
             if (selection.excludedPages !== undefined) {
+                const excludedPages = getSortedUniquePages(selection.excludedPages);
                 let nextPage = start;
                 for (
-                    let index = lowerBoundPage(selection.excludedPages, start);
-                    index < selection.excludedPages.length;
+                    let index = lowerBoundPage(excludedPages, start);
+                    index < excludedPages.length;
                     index += 1
                 ) {
-                    const excludedPage = selection.excludedPages[index]!;
+                    const excludedPage = excludedPages[index]!;
                     if (excludedPage > end) {
                         break;
                     }
@@ -486,8 +516,8 @@ function* iteratePageSelectionRange(
             return;
         }
         case 'exceptions': {
-            const included = selection.includedPages;
-            const excluded = selection.excludedPages;
+            const included = getSortedUniquePages(selection.includedPages);
+            const excluded = getSortedUniquePages(selection.excludedPages);
             let includedIndex = lowerBoundPage(included, start);
             let excludedIndex = lowerBoundPage(excluded, start);
             const isExcluded = (page: number) => {
@@ -753,7 +783,7 @@ function* iteratePageSelectionRangesWithin(
             };
             return;
         case 'explicit': {
-            yield* iterateExplicitPageSelectionRangesWithin(selection.pages, start, end);
+            yield* iterateExplicitPageSelectionRangesWithin(getSortedUniquePages(selection.pages), start, end);
             return;
         }
         case 'range':
@@ -785,7 +815,7 @@ function* iteratePageSelectionRangesWithin(
                 ? selection.excludedSelection === undefined
                     ? []
                     : iteratePageSelectionRangesWithin(selection.excludedSelection, start, end)
-                : iterateExplicitPageSelectionRangesWithin(selection.excludedPages, start, end);
+                : iterateExplicitPageSelectionRangesWithin(getSortedUniquePages(selection.excludedPages), start, end);
             let nextPage = start;
             for (const excludedRange of excludedRanges) {
                 if (excludedRange.endPage < start) {
@@ -813,18 +843,20 @@ function* iteratePageSelectionRangesWithin(
             return;
         }
         case 'exceptions': {
-            const excludedStartIndex = lowerBoundPage(selection.excludedPages, start);
+            const excludedPages = getSortedUniquePages(selection.excludedPages);
+            const includedPages = getSortedUniquePages(selection.includedPages);
+            const excludedStartIndex = lowerBoundPage(excludedPages, start);
             yield* mergePageRangeSources(
                 subtractPageRangePages(
                     iteratePageSelectionRangesWithin(selection.base, start, end),
-                    selection.excludedPages,
+                    excludedPages,
                     excludedStartIndex,
                 ),
                 iterateExplicitPageSelectionRangesWithin(
-                    selection.includedPages,
+                    includedPages,
                     start,
                     end,
-                    selection.excludedPages,
+                    excludedPages,
                 ),
             );
             return;

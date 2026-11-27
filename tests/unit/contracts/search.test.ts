@@ -922,4 +922,41 @@ describe('search conformance corpus', () => {
         }
         expect(elapsedMs).toBeLessThan(200);
     });
+
+    it('does not rescan normalized page text quadratically when soft hyphens strip every leading word', async () => {
+        const {buildOcrTextLayerIndexText} = await import('@pdf-core');
+        const count = 4_000;
+        const words = [
+            ...Array.from({length: count}, (_, index) => ({
+                text: 'a\u00AD',
+                x: index * 2,
+                y: 10,
+                width: 2,
+                height: 10,
+            })),
+            {
+                text: `${'z'.repeat(count * 2)}hit`,
+                x: count * 2,
+                y: 10,
+                width: 200,
+                height: 10,
+            },
+        ];
+        const text = buildOcrTextLayerIndexText(words);
+        const hitStart = text.indexOf('hit');
+        expect(hitStart).toBeGreaterThan(0);
+
+        const startedAt = performance.now();
+        const matched = collectSearchMatchWords({
+            text,
+            words,
+            pageWidth: 10_000,
+            pageHeight: 100,
+        }, hitStart, hitStart + 3);
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(matched).toHaveLength(1);
+        expect(matched?.[0]?.text).toBe('hit');
+        expect(elapsedMs).toBeLessThan(150);
+    });
 });
