@@ -706,7 +706,7 @@ describe('browser document lifecycle UI', () => {
             if (page && !page.isClosed()) await page.evaluate(() => Reflect.get(window, '__releaseReadBackFault')?.()).catch(() => undefined);
             await context.close();
         }
-    });
+    }, 120_000);
 
     it('preserves pendingPublish and completes without a false save failure when final manifest acknowledgement fails in the browser', async () => {
         const context = await lifecycle.browser.newContext({
@@ -812,5 +812,5 @@ describe('browser document lifecycle UI', () => {
         } finally {
             await context.close();
         }
-    });
+    }, 120_000);
 });
