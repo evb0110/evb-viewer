@@ -398,6 +398,9 @@ struct PageTreePrefixCache {
     entries: Vec<(u64, ObjectId)>,
     /// Next unscanned index in the node's `/Kids` array.
     next_kid: usize,
+    /// True when `declared_count != kids.len()` so direct indexing never applies
+    /// and cached prefix lookups can bypass reading the node dictionary again.
+    skip_direct_index: bool,
 }
 
 impl PageTreeResolver {
@@ -632,19 +635,22 @@ fn resolve_page_tree_id(
 
     let cached_hit = {
         let prefixes = child_prefixes.borrow();
-        prefixes.get(&node_id).and_then(|cache| {
-            let pos = cache
-                .entries
-                .partition_point(|&(end, _)| end <= target_page_index);
-            cache.entries.get(pos).map(|&(_, kid_id)| {
-                let skipped = if pos == 0 {
-                    0
-                } else {
-                    cache.entries[pos - 1].0
-                };
-                (kid_id, target_page_index - skipped)
+        prefixes
+            .get(&node_id)
+            .filter(|cache| cache.skip_direct_index)
+            .and_then(|cache| {
+                let pos = cache
+                    .entries
+                    .partition_point(|&(end, _)| end <= target_page_index);
+                cache.entries.get(pos).map(|&(_, kid_id)| {
+                    let skipped = if pos == 0 {
+                        0
+                    } else {
+                        cache.entries[pos - 1].0
+                    };
+                    (kid_id, target_page_index - skipped)
+                })
             })
-        })
     };
     if let Some((kid_id, sub_index)) = cached_hit {
         let result =
@@ -665,38 +671,38 @@ fn resolve_page_tree_id(
         PageTreeNodeKind::Pages => {
             let kids = page_tree_kids(document, dictionary)?;
             let declared_count = page_tree_count(document, dictionary)?;
-            let has_cached_prefix = child_prefixes.borrow().contains_key(&node_id);
+            let count_matches_kids =
+                declared_count == u64::try_from(kids.len()).unwrap_or(u64::MAX);
             // A /Kids array whose length equals /Count has one page per child
-            // in a well-formed tree. Indexing that array directly keeps flat
-            // million-page trees sparse; a multi-page child falls through to
-            // the prefix-cached count-aware walk below.
-            if !has_cached_prefix {
+            // in a well-formed tree. Check direct indexing before consulting
+            // the prefix cache so ordinal resolution never depends on which
+            // pages were queried earlier; a non-unit child falls through to
+            // the count-aware prefix walk below.
+            if count_matches_kids {
                 if let Ok(kid_index) = usize::try_from(target_page_index) {
-                    if declared_count == u64::try_from(kids.len()).unwrap_or(u64::MAX) {
-                        if let Some(kid) = kids.get(kid_index) {
-                            let kid_id = page_tree_child_id(kid)?;
-                            let kid_dictionary = page_tree_dictionary(document, kid_id)?;
-                            match page_tree_node_kind(kid_dictionary)? {
-                                PageTreeNodeKind::Page => {
-                                    seen.remove(&node_id);
-                                    return Ok(kid_id);
-                                }
-                                PageTreeNodeKind::Pages
-                                    if page_tree_count(document, kid_dictionary)? == 1 =>
-                                {
-                                    let result = resolve_page_tree_id(
-                                        document,
-                                        kid_id,
-                                        0,
-                                        seen,
-                                        depth + 1,
-                                        child_prefixes,
-                                    );
-                                    seen.remove(&node_id);
-                                    return result;
-                                }
-                                PageTreeNodeKind::Pages => {}
+                    if let Some(kid) = kids.get(kid_index) {
+                        let kid_id = page_tree_child_id(kid)?;
+                        let kid_dictionary = page_tree_dictionary(document, kid_id)?;
+                        match page_tree_node_kind(kid_dictionary)? {
+                            PageTreeNodeKind::Page => {
+                                seen.remove(&node_id);
+                                return Ok(kid_id);
                             }
+                            PageTreeNodeKind::Pages
+                                if page_tree_count(document, kid_dictionary)? == 1 =>
+                            {
+                                let result = resolve_page_tree_id(
+                                    document,
+                                    kid_id,
+                                    0,
+                                    seen,
+                                    depth + 1,
+                                    child_prefixes,
+                                );
+                                seen.remove(&node_id);
+                                return result;
+                            }
+                            PageTreeNodeKind::Pages => {}
                         }
                     }
                 }
@@ -704,28 +710,41 @@ fn resolve_page_tree_id(
             let target_child = {
                 let mut prefixes = child_prefixes.borrow_mut();
                 let cache = prefixes.entry(node_id).or_default();
-                let mut skipped_pages = cache.entries.last().map_or(0, |&(end, _)| end);
-                let mut found = None;
-                while cache.next_kid < kids.len() {
-                    let kid = &kids[cache.next_kid];
-                    let kid_id = page_tree_child_id(kid)?;
-                    let kid_dictionary = page_tree_dictionary(document, kid_id)?;
-                    let kid_count = match page_tree_node_kind(kid_dictionary)? {
-                        PageTreeNodeKind::Page => 1,
-                        PageTreeNodeKind::Pages => page_tree_count(document, kid_dictionary)?,
+                cache.skip_direct_index = !count_matches_kids;
+                let pos = cache
+                    .entries
+                    .partition_point(|&(end, _)| end <= target_page_index);
+                if let Some(&(_, kid_id)) = cache.entries.get(pos) {
+                    let skipped = if pos == 0 {
+                        0
+                    } else {
+                        cache.entries[pos - 1].0
                     };
-                    let end = skipped_pages
-                        .checked_add(kid_count)
-                        .ok_or("PDF page tree page count overflow")?;
-                    cache.entries.push((end, kid_id));
-                    cache.next_kid += 1;
-                    if target_page_index < end {
-                        found = Some((kid_id, target_page_index - skipped_pages));
-                        break;
+                    Some((kid_id, target_page_index - skipped))
+                } else {
+                    let mut skipped_pages = cache.entries.last().map_or(0, |&(end, _)| end);
+                    let mut found = None;
+                    while cache.next_kid < kids.len() {
+                        let kid = &kids[cache.next_kid];
+                        let kid_id = page_tree_child_id(kid)?;
+                        let kid_dictionary = page_tree_dictionary(document, kid_id)?;
+                        let kid_count = match page_tree_node_kind(kid_dictionary)? {
+                            PageTreeNodeKind::Page => 1,
+                            PageTreeNodeKind::Pages => page_tree_count(document, kid_dictionary)?,
+                        };
+                        let end = skipped_pages
+                            .checked_add(kid_count)
+                            .ok_or("PDF page tree page count overflow")?;
+                        cache.entries.push((end, kid_id));
+                        cache.next_kid += 1;
+                        if target_page_index < end {
+                            found = Some((kid_id, target_page_index - skipped_pages));
+                            break;
+                        }
+                        skipped_pages = end;
                     }
-                    skipped_pages = end;
+                    found
                 }
-                found
             };
             match target_child {
                 Some((kid_id, sub_index)) => resolve_page_tree_id(
@@ -1711,5 +1730,21 @@ mod protocol_schema_tests {
             err.contains("its counts place another page"),
             "expected flat-count ambiguity rejection, got: {err}"
         );
+
+        // Sparse unvalidated lookup must be independent of prior query order
+        // (warming the prefix cache via page 2 or page 4 must not change what
+        // page 3 or page 2 resolves to).
+        let fresh = PageTreeResolver::new(&ambiguous).unwrap();
+        let page3_alone = fresh.page_id(&ambiguous, 3).unwrap();
+        let warmed = PageTreeResolver::new(&ambiguous).unwrap();
+        let page2_first = warmed.page_id(&ambiguous, 2).unwrap();
+        let page3_after_2 = warmed.page_id(&ambiguous, 3).unwrap();
+        let page4_after_2 = warmed.page_id(&ambiguous, 4).unwrap();
+        let reverse = PageTreeResolver::new(&ambiguous).unwrap();
+        let page4_first = reverse.page_id(&ambiguous, 4).unwrap();
+        let page2_after_4 = reverse.page_id(&ambiguous, 2).unwrap();
+        assert_eq!(page3_after_2, page3_alone);
+        assert_eq!(page2_after_4, page2_first);
+        assert_eq!(page4_first, page4_after_2);
     }
 }

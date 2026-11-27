@@ -457,13 +457,30 @@ fn check_overlay_xref_budget(
     );
     let wrote_xref_stream = was_xref_stream || new_xref_start > MAX_CLASSIC_XREF_OFFSET;
     let previous_objects = &incremental.get_prev_documents().objects;
-    let new_object_numbers = expected_object_ids
-        .iter()
-        .filter(|id| !previous_objects.contains_key(id))
-        .count();
+    let new_objects = &incremental.new_document.objects;
+    let mut new_object_numbers = 0usize;
+    let mut net_value_delta = 0isize;
+    for id in expected_object_ids {
+        let Some(new_obj) = new_objects.get(id) else {
+            continue;
+        };
+        let stream_length_extra =
+            usize::from(matches!(new_obj, Object::Stream(stream) if !stream.dict.has(b"Length")));
+        let new_values =
+            (crate::pdf_source::object_value_count(new_obj) + stream_length_extra) as isize;
+        let old_values = match previous_objects.get(id) {
+            Some(old_obj) => crate::pdf_source::object_value_count(old_obj) as isize,
+            None => {
+                new_object_numbers += 1;
+                0
+            }
+        };
+        net_value_delta = net_value_delta.saturating_add(new_values - old_values);
+    }
     budget.check_and_record_revision(
         expected_object_ids.len(),
         new_object_numbers,
+        net_value_delta,
         wrote_xref_stream,
     )
 }
@@ -1958,18 +1975,143 @@ mod tests {
             .unwrap();
         assert_eq!(dest[0].as_reference().unwrap(), out_pages[&2]);
 
-        // 2. Cumulative xref section budget refuses exceeding 4,096 sections before writing.
+        // 1b. Cross-batch nested /Next GoTo action with a named destination
+        // targeting page 65 from page 1 (across the 64-page batch boundary).
+        let mut cross_src = Document::with_version("1.5");
+        let cross_pages_id = cross_src.new_object_id();
+        let mut cross_page_ids = Vec::with_capacity(65);
+        for _ in 0..65 {
+            cross_page_ids.push(cross_src.new_object_id());
+        }
+        let cross_link_id = cross_src.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Link",
+            "Rect" => vec![10.into(), 10.into(), 50.into(), 30.into()],
+            "A" => dictionary! {
+                "S" => "URI",
+                "URI" => Object::string_literal("https://example.test/cross"),
+                "Next" => dictionary! {
+                    "S" => "GoTo",
+                    "D" => Object::Name(b"ChapterSixtyFive".to_vec()),
+                },
+            },
+        });
+        for (idx, &pid) in cross_page_ids.iter().enumerate() {
+            let mut page_dict = dictionary! {
+                "Type" => "Page",
+                "Parent" => cross_pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+                "Resources" => dictionary! {},
+            };
+            if idx == 0 {
+                page_dict.set("Annots", vec![Object::Reference(cross_link_id)]);
+            }
+            cross_src.objects.insert(pid, Object::Dictionary(page_dict));
+        }
+        cross_src.objects.insert(
+            cross_pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => cross_page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+                "Count" => 65,
+            }),
+        );
+        let cross_catalog = cross_src.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => cross_pages_id,
+            "Dests" => dictionary! {
+                "ChapterSixtyFive" => vec![Object::Reference(cross_page_ids[64]), Object::Name(b"Fit".to_vec())],
+            },
+        });
+        cross_src.trailer.set("Root", cross_catalog);
+        let mut cross_source_bytes = Vec::new();
+        cross_src.save_to(&mut cross_source_bytes).unwrap();
+        let cross_target_bytes = build_multi_page_pdf(65, false);
+        let cross_instructions = serde_json::json!({
+            "pages": (0..65).map(|i| serde_json::json!({
+                "sourcePageIndex": i,
+                "outputPageIndex": i,
+                "matrix": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            })).collect::<Vec<_>>()
+        })
+        .to_string();
+        let cross_sink = LazyHostSink::new(cross_target_bytes.clone());
+        let mut cross_direct_sink = cross_sink.clone();
+        let cross_append_sink = cross_sink.clone();
+        overlay_text_to_sink_with_limit(
+            || cross_target_bytes.as_slice(),
+            cross_target_bytes.len() as u64,
+            || cross_source_bytes.as_slice(),
+            cross_source_bytes.len() as u64,
+            || cross_sink.clone(),
+            cross_instructions.as_bytes(),
+            &mut cross_direct_sink,
+            |offset, revision| {
+                let mut writer = cross_append_sink.clone();
+                writer.set_cursor(offset);
+                write_overlay_append_revision_to_sink(&mut writer, offset, revision)
+            },
+            1,
+        )
+        .unwrap();
+        let cross_loaded = Document::load_mem(&cross_sink.staged_bytes().unwrap()).unwrap();
+        let cross_out_pages = cross_loaded.get_pages();
+        let cross_annots = page_annotation_array(
+            &cross_loaded,
+            cross_loaded.get_dictionary(cross_out_pages[&1]).unwrap(),
+        )
+        .unwrap();
+        let cross_annot = cross_loaded
+            .get_dictionary(cross_annots[0].as_reference().unwrap())
+            .unwrap();
+        let cross_action = cross_loaded
+            .resolved(cross_annot.get(b"A").unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let cross_next = cross_loaded
+            .resolved(cross_action.get(b"Next").unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let cross_dest = cross_loaded
+            .resolved(cross_next.get(b"D").unwrap())
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(cross_dest[0].as_reference().unwrap(), cross_out_pages[&65]);
+
+        // 2. Cumulative xref section budget refuses exceeding 4,096 sections before writing,
+        // and cumulative object-value budget refuses crossing the 20M-value ceiling.
         let mut budget = crate::pdf_source::IndexedXrefBudget {
             sections: 4_095,
             offsets: 4_095,
             entries: 10,
+            values: 100,
         };
-        budget.check_and_record_revision(3, 2, false).unwrap();
+        budget.check_and_record_revision(3, 2, 10, false).unwrap();
         assert_eq!(budget.sections, 4_096);
+        assert_eq!(budget.values, 110);
         let err = budget
-            .check_and_record_revision(3, 2, false)
+            .check_and_record_revision(3, 2, 10, false)
             .unwrap_err()
             .to_string();
         assert!(err.contains("cross-reference chain"));
+
+        let mut value_budget = crate::pdf_source::IndexedXrefBudget {
+            sections: 1,
+            offsets: 10,
+            entries: 10,
+            values: 19_999_995,
+        };
+        value_budget
+            .check_and_record_revision(1, 1, 5, false)
+            .unwrap();
+        assert_eq!(value_budget.values, 20_000_000);
+        let err = value_budget
+            .check_and_record_revision(1, 1, 1, false)
+            .unwrap_err();
+        assert!(is_too_large_error(err.as_ref()));
+        assert!(err.to_string().contains("20000000-value ceiling"));
     }
 }

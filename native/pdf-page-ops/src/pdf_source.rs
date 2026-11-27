@@ -163,17 +163,19 @@ pub(crate) struct IndexedXrefBudget {
     pub(crate) sections: usize,
     pub(crate) offsets: usize,
     pub(crate) entries: usize,
+    pub(crate) values: usize,
 }
 
 impl IndexedXrefBudget {
     /// Verifies that appending one non-empty revision with `written_objects`
     /// objects (`new_object_numbers` of which were not previously in the base)
-    /// stays within the indexed reader's cumulative xref limits, and advances
-    /// the budget on success.
+    /// and `net_value_delta` change in total PDF object values stays within the
+    /// indexed reader's cumulative limits, and advances the budget on success.
     pub(crate) fn check_and_record_revision(
         &mut self,
         written_objects: usize,
         new_object_numbers: usize,
+        net_value_delta: isize,
         wrote_xref_stream: bool,
     ) -> Result<()> {
         let next_sections = self.sections.saturating_add(1);
@@ -198,11 +200,28 @@ impl IndexedXrefBudget {
                 format!("PDF exceeds the {MAX_PDF_OBJECTS}-object admission ceiling"),
             ));
         }
+        let next_values = if net_value_delta >= 0 {
+            self.values.saturating_add(net_value_delta as usize)
+        } else {
+            self.values.saturating_sub(net_value_delta.unsigned_abs())
+        };
+        if next_values > MAX_SOURCE_VALUES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!("PDF objects exceed the {MAX_SOURCE_VALUES}-value ceiling"),
+            ));
+        }
         self.sections = next_sections;
         self.offsets = next_offsets;
         self.entries = next_entries;
+        self.values = next_values;
         Ok(())
     }
+}
+
+/// Counts PDF values held by `object`, matching `Loader::values_of`.
+pub(crate) fn object_value_count(object: &Object) -> usize {
+    Loader::<[u8]>::values_of(object)
 }
 
 /// A parsed PDF whose stream data stays in its source.
@@ -457,6 +476,8 @@ impl<S: ByteSource> SourcePdf<S> {
                 ));
             }
         }
+        let mut xref_budget = index.budget;
+        xref_budget.values = loader.values;
         Ok(Self {
             document,
             streams: loader.streams,
@@ -464,7 +485,7 @@ impl<S: ByteSource> SourcePdf<S> {
             bytes,
             len,
             xref_start: index.start,
-            xref_budget: index.budget,
+            xref_budget,
         })
     }
 
@@ -487,6 +508,7 @@ impl<S: ByteSource> SourcePdf<S> {
                 "The encrypted PDF requires a password",
             ));
         }
+        let values = document.objects.values().map(object_value_count).sum();
         Ok(Self {
             document,
             streams: HashMap::new(),
@@ -498,6 +520,7 @@ impl<S: ByteSource> SourcePdf<S> {
                 sections: 1,
                 offsets: 1,
                 entries: 0,
+                values,
             },
         })
     }
@@ -1139,6 +1162,7 @@ impl<'a, S: ByteSource + ?Sized> Reader<'a, S> {
             sections: visited.len(),
             offsets: offsets.len(),
             entries: entries.len(),
+            values: 0,
         };
         let max_number = entries.keys().copied().max().unwrap_or(0);
         entries.retain(|_, entry| !matches!(entry, XrefEntry::Free));

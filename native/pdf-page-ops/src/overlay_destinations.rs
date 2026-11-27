@@ -69,38 +69,37 @@ impl<'a> OverlayDestinations<'a> {
                 let Ok(annotation) = annotation.as_dict() else {
                     continue;
                 };
-                let Some(destination) = annotation_destination(self.probe, annotation) else {
-                    continue;
-                };
-                let Some(array) = self.names.resolve(&destination)? else {
-                    continue;
-                };
-                let target = array.first().and_then(|object| object.as_reference().ok());
-                if let Some(&index) = target.and_then(|id| self.page_index_by_id.get(&id)) {
-                    if !self.mapped.contains(&index) {
+                for destination in annotation_action_destinations(self.probe, annotation) {
+                    let Some(array) = self.names.resolve(&destination)? else {
                         continue;
-                    }
-                    if !batch_pages.contains(&index) && !extra.contains(&index) {
-                        if extra.len() >= MAX_SOURCE_PAGE_BATCH_PAGES {
+                    };
+                    let target = array.first().and_then(|object| object.as_reference().ok());
+                    if let Some(&index) = target.and_then(|id| self.page_index_by_id.get(&id)) {
+                        if !self.mapped.contains(&index) {
                             continue;
                         }
-                        extra.insert(index);
-                    }
-                    if let Object::Name(name) | Object::String(name, _) = &destination {
-                        let rest = array[1..]
-                            .iter()
-                            .map(|object| {
-                                self.probe
-                                    .dereference(object)
-                                    .map(|(_, value)| value.clone())
-                            })
-                            .collect::<std::result::Result<Vec<_>, _>>();
-                        if let Ok(rest) = rest {
-                            named.push(NamedDestination {
-                                name: name.clone(),
-                                page_index: index,
-                                rest,
-                            });
+                        if !batch_pages.contains(&index) && !extra.contains(&index) {
+                            if extra.len() >= MAX_SOURCE_PAGE_BATCH_PAGES {
+                                continue;
+                            }
+                            extra.insert(index);
+                        }
+                        if let Object::Name(name) | Object::String(name, _) = &destination {
+                            let rest = array[1..]
+                                .iter()
+                                .map(|object| {
+                                    self.probe
+                                        .dereference(object)
+                                        .map(|(_, value)| value.clone())
+                                })
+                                .collect::<std::result::Result<Vec<_>, _>>();
+                            if let Ok(rest) = rest {
+                                named.push(NamedDestination {
+                                    name: name.clone(),
+                                    page_index: index,
+                                    rest,
+                                });
+                            }
                         }
                     }
                 }
@@ -115,6 +114,56 @@ impl<'a> OverlayDestinations<'a> {
             named,
         })
     }
+}
+
+/// Collects every unresolved internal destination reachable from `annotation`,
+/// including `/Dest`, `/A`, and chained `/Next` actions (dictionaries or arrays).
+fn annotation_action_destinations(document: &Document, annotation: &Dictionary) -> Vec<Object> {
+    let mut destinations = Vec::new();
+    if let Ok(dest) = annotation.get(b"Dest") {
+        if let Ok((_, resolved)) = document.dereference(dest) {
+            destinations.push(resolved.clone());
+        }
+    }
+    let Ok(root_action) = annotation.get(b"A") else {
+        return destinations;
+    };
+    let mut pending = vec![root_action.clone()];
+    let mut visited_ids = HashSet::new();
+    let mut visited_nodes = 0usize;
+    while let Some(item) = pending.pop() {
+        if visited_nodes >= 256 {
+            break;
+        }
+        visited_nodes += 1;
+        let Ok((id, resolved)) = document.dereference(&item) else {
+            continue;
+        };
+        if let Some(id) = id {
+            if !visited_ids.insert(id) {
+                continue;
+            }
+        }
+        match resolved {
+            Object::Array(items) => {
+                for next_item in items {
+                    pending.push(next_item.clone());
+                }
+            }
+            Object::Dictionary(action) => {
+                if let Some(dest) = goto_destination(document, action) {
+                    if let Ok((_, resolved_dest)) = document.dereference(dest) {
+                        destinations.push(resolved_dest.clone());
+                    }
+                }
+                if let Ok(next) = action.get(b"Next") {
+                    pending.push(next.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    destinations
 }
 
 /// A named destination that a subset's links resolve. The subset's catalog

@@ -506,7 +506,8 @@ function createPageOpsWorkerPool() {
             }
             if (queue.length > 0) {
                 pumpQueue();
-            } else {
+            }
+            if (!entry.busy && !entry.closed) {
                 scheduleIdleEviction(entry);
             }
         };
