@@ -1,10 +1,15 @@
 import { tryBuildOptimizedPdfWithNativeImageCombiner } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
+import type {
+    IJobBrokerRunContext,
+    TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 
 interface IBuildOptimizedPdfOptions {
     combineThreads?: number;
     signal?: AbortSignal;
-    onTerminationProof?: (proof: Promise<boolean>) => void;
+    brokerRun?: IJobBrokerRunContext;
+    onTerminationProof?: TTerminationProofSink;
 }
 
 function throwIfAborted(signal: AbortSignal | undefined) {
@@ -30,11 +35,13 @@ export async function buildOptimizedPdf(
         onPageProcessed,
         options.signal === undefined
         && options.combineThreads === undefined
+        && options.brokerRun === undefined
         && options.onTerminationProof === undefined
             ? undefined
             : {
                 ...(options.signal === undefined ? {} : {signal: options.signal}),
                 ...(options.combineThreads === undefined ? {} : {combineThreads: options.combineThreads}),
+                ...(options.brokerRun === undefined ? {} : {brokerRun: options.brokerRun}),
                 ...(options.onTerminationProof === undefined ? {} : {onTerminationProof: options.onTerminationProof}),
             },
     );

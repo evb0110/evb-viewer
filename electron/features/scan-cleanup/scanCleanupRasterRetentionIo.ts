@@ -57,6 +57,7 @@ export function closeScanCleanupPageSizeStores(
     document.pageSizeStore = null;
     document.rasterPageSourceStore = null;
     document.rasterPageSource = null;
+    document.rasterPageSourceReader = null;
     const closing = Promise.all([...stores].map(store => store.close().catch(error => {
         logger.warn(`Scan cleanup could not close the raster page-size store: ${getErrorMessage(error)}`);
     }))).then(() => undefined);

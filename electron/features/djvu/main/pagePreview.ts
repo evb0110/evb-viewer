@@ -30,6 +30,10 @@ import {
     resolveNativePdfImageCombinePath,
 } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import type {
+    IJobBrokerRunContext,
+    TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
@@ -121,8 +125,9 @@ function clampPreviewTargetWidth(
 }
 
 interface IDjvuPagePreviewLifecycleOptions {
+    brokerRun?: IJobBrokerRunContext;
     cancelGroup?: string;
-    onTerminationProof?: (proof: Promise<boolean>) => void;
+    onTerminationProof?: TTerminationProofSink;
     pageNumbers?: readonly number[];
     signal?: AbortSignal;
 }
@@ -474,6 +479,7 @@ export async function renderDjvuPagePreview(
         ], {
             commandLabel: 'evb-pdf-image-combine(djvu-preview)',
             ...(lifecycleOptions.signal ? { signal: lifecycleOptions.signal } : {}),
+            ...(lifecycleOptions.brokerRun ? { brokerRun: lifecycleOptions.brokerRun } : {}),
             ...(lifecycleOptions.onTerminationProof ? { onTerminationProof: lifecycleOptions.onTerminationProof } : {}),
             timeoutMs: 60_000,
         });

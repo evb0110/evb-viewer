@@ -124,7 +124,10 @@ describe('in-process document save fingerprinting and validation', () => {
                 timeoutMs: 60_000,
                 maxStdoutBytes: 1024 * 1024,
                 maxStderrBytes: 256 * 1024,
-                onTerminationProof: expect.any(Function),
+                brokerRun: {
+                    lease: expect.objectContaining({token: expect.any(String)}),
+                    onTerminationProof: expect.any(Function),
+                },
             });
             return {
                 exitCode: 0,
@@ -164,7 +167,7 @@ describe('in-process document save fingerprinting and validation', () => {
                     stderr: '',
                 });
             }
-            options?.onTerminationProof?.(Promise.resolve(false));
+            options?.brokerRun?.onTerminationProof?.(Promise.resolve(false));
             started.resolve(options?.signal);
             return pending.promise;
         });

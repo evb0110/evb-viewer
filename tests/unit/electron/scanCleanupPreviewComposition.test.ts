@@ -37,9 +37,9 @@ import {
     waitForRelease,
 } from '@tests/unit/electron/scanCleanupPreviewHarness';
 import {
-    getJobBrokerLeaseForProofSink,
+    getActiveJobBrokerLease,
     mainJobBroker,
-    type TTerminationProofSink,
+    type IJobBrokerRunContext,
 } from '@electron/resources/jobBroker';
 import {cancelMainOperationsForClosingWorkingCopy} from '@electron/operation-lifecycle/mainOperationLifecycle';
 import {
@@ -70,7 +70,7 @@ const dependenciesOverride = {
         signal: AbortSignal,
         _options: unknown,
         _rasterMaxPixels: number | undefined,
-        work: (onTerminationProof?: TTerminationProofSink) => Promise<T>,
+        work: (brokerRun?: IJobBrokerRunContext) => Promise<T>,
     ) => mainJobBroker.run({
         ownerId,
         kind: 'scan-cleanup-preview',
@@ -82,13 +82,13 @@ const dependenciesOverride = {
             ioWeight: 1,
         },
         signal,
-    }, ({onTerminationProof}) => work(onTerminationProof)),
+    }, brokerRun => work(brokerRun)),
     runWithDetectionLease: <T>(
         ownerId: string,
         signal: AbortSignal,
         policy: {rasterConcurrency: number;},
         _options: unknown,
-        work: (onTerminationProof?: TTerminationProofSink) => Promise<T>,
+        work: (brokerRun?: IJobBrokerRunContext) => Promise<T>,
     ) => mainJobBroker.run({
         ownerId,
         kind: 'scan-cleanup-detect-all',
@@ -101,7 +101,7 @@ const dependenciesOverride = {
         },
         perOwnerLimit: 1,
         signal,
-    }, ({onTerminationProof}) => work(onTerminationProof)),
+    }, brokerRun => work(brokerRun)),
 };
 
 async function previewFixture() {
@@ -1825,8 +1825,8 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 signal,
                 rasterPolicy,
                 undefined,
-                async onTerminationProof => {
-                    expect(getJobBrokerLeaseForProofSink(onTerminationProof)).toBeDefined();
+                async brokerRun => {
+                    expect(getActiveJobBrokerLease(brokerRun)).toBeDefined();
                     return 'detection-ok';
                 },
             )).resolves.toBe('detection-ok');
@@ -1836,8 +1836,8 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 signal,
                 undefined,
                 undefined,
-                async onTerminationProof => {
-                    expect(getJobBrokerLeaseForProofSink(onTerminationProof)).toBeDefined();
+                async brokerRun => {
+                    expect(getActiveJobBrokerLease(brokerRun)).toBeDefined();
                     return 'preview-ok';
                 },
             )).resolves.toBe('preview-ok');
@@ -1928,8 +1928,8 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 signal,
                 rasterPolicy,
                 undefined,
-                async onTerminationProof => {
-                    expect(getJobBrokerLeaseForProofSink(onTerminationProof)).toBeDefined();
+                async brokerRun => {
+                    expect(getActiveJobBrokerLease(brokerRun)).toBeDefined();
                     return 'detection-ok';
                 },
             )).resolves.toBe('detection-ok');
@@ -1939,8 +1939,8 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 signal,
                 undefined,
                 undefined,
-                async onTerminationProof => {
-                    expect(getJobBrokerLeaseForProofSink(onTerminationProof)).toBeDefined();
+                async brokerRun => {
+                    expect(getActiveJobBrokerLease(brokerRun)).toBeDefined();
                     return 'preview-ok';
                 },
             )).resolves.toBe('preview-ok');
@@ -1973,10 +1973,10 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 previewSidecar: [] as string[],
             };
             const runUnderBrokerLikeNativeCommand = async <T>(
-                onTerminationProof: TTerminationProofSink | undefined,
+                brokerRun: IJobBrokerRunContext | undefined,
                 work: () => Promise<T>,
             ): Promise<T> => {
-                if (getJobBrokerLeaseForProofSink(onTerminationProof) !== undefined) {
+                if (getActiveJobBrokerLease(brokerRun) !== undefined) {
                     return work();
                 }
                 return mainJobBroker.run({
@@ -1993,9 +1993,9 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 }, work);
             };
             deps.renderPageBatch = vi.fn(async input => runUnderBrokerLikeNativeCommand(
-                input.onTerminationProof,
+                input.brokerRun,
                 async () => {
-                    const held = getJobBrokerLeaseForProofSink(input.onTerminationProof);
+                    const held = getActiveJobBrokerLease(input.brokerRun);
                     if (held) observedLeaseTokens.detectionBatch.push(held.token);
                     const results = [];
                     for (const target of input.targets) {
@@ -2011,17 +2011,17 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 },
             ));
             deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => runUnderBrokerLikeNativeCommand(
-                args[12],
+                args[13],
                 async () => {
-                    const held = getJobBrokerLeaseForProofSink(args[12]);
+                    const held = getActiveJobBrokerLease(args[13]);
                     if (held) observedLeaseTokens.previewRender.push(held.token);
                     await originalRenderPage(...args);
                 },
             ));
             deps.runSidecar = vi.fn(async (binary, manifestPath, signal, log, onProgress, options) => runUnderBrokerLikeNativeCommand(
-                options?.onTerminationProof,
+                options?.brokerRun,
                 async () => {
-                    const held = getJobBrokerLeaseForProofSink(options?.onTerminationProof);
+                    const held = getActiveJobBrokerLease(options?.brokerRun);
                     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
                         operation?: string;
                         pages: Array<{
@@ -2105,6 +2105,329 @@ describe('scanCleanupPreviewCompositionTest', () => {
             });
         } finally {
             mainJobBroker.reconfigureCapacity(previousCapacity);
+        }
+    });
+
+    it('delivers termination proofs once to the owner when bindScanCleanupTerminationProof is nested on the same context', async () => {
+        const {bindScanCleanupTerminationProof} = await import('@electron/features/scan-cleanup/scanCleanupPreviewShared');
+        const ownerProofs: Array<Promise<boolean>> = [];
+        const localSidecarProofs: Array<Promise<boolean>> = [];
+        const localBatchProofs: Array<Promise<boolean>> = [];
+        const proof = Promise.resolve(true);
+
+        await mainJobBroker.run({
+            ownerId: 'nested-bind-test',
+            kind: 'scan-cleanup-preview',
+            priority: 'visible',
+            resources: {
+                cpuTokens: 1,
+                estimatedResidentBytes: 128 * 1024 * 1024,
+                nativeProcesses: 1,
+                ioWeight: 1,
+            },
+        }, async brokerRun => {
+            const trackedBrokerRun: IJobBrokerRunContext = {
+                ...brokerRun,
+                onTerminationProof: p => {
+                    ownerProofs.push(p);
+                    brokerRun.onTerminationProof(p);
+                },
+            };
+            const baseDeps = {
+                getTempDir: () => '/tmp',
+                renderPage: vi.fn(async () => undefined),
+                renderPagePpm: vi.fn(async () => undefined),
+                renderPageBatch: vi.fn(async input => {
+                    input.brokerRun?.onTerminationProof(proof);
+                    return [];
+                }),
+                runSidecar: vi.fn(async (_b, _m, _s, _l, _p, options) => {
+                    options?.brokerRun?.onTerminationProof(proof);
+                }),
+            };
+            const boundOnce = bindScanCleanupTerminationProof(baseDeps, trackedBrokerRun);
+            const boundTwice = bindScanCleanupTerminationProof(boundOnce, trackedBrokerRun);
+
+            const signal = new AbortController().signal;
+            await boundTwice.runSidecar('/bin/sidecar', '/tmp/m.json', signal, () => undefined, () => undefined, {
+                allowedPathRoot: '/tmp',
+                onTerminationProof: (p: Promise<boolean>) => {
+                    localSidecarProofs.push(p);
+                },
+            });
+            await boundTwice.renderPageBatch!({
+                dpi: 150,
+                log: () => undefined,
+                pdftoppmBinary: '/bin/pdftoppm',
+                signal,
+                sourcePdfPath: '/tmp/source.pdf',
+                targets: [],
+                onTerminationProof: (p: Promise<boolean>) => {
+                    localBatchProofs.push(p);
+                },
+            });
+        });
+
+        expect(localSidecarProofs).toEqual([proof]);
+        expect(localBatchProofs).toEqual([proof]);
+        expect(ownerProofs).toEqual([
+            proof,
+            proof,
+        ]);
+    });
+
+    it('forwards the owning brokerRun lease into shared detectRasterPages probes', async () => {
+        const {deps} = await createScanCleanupPreviewTestContext(dirs, {
+            runWithDetectionLease: defaultDependencies.runWithDetectionLease!,
+            runWithPreviewLease: defaultDependencies.runWithPreviewLease!,
+        });
+        const observedProbeLeases: string[] = [];
+        deps.isRasterDetectionAvailable = () => true;
+        deps.detectRasterPages = vi.fn(async (_sourcePdfPath, _signal, pageNumbers: readonly number[] = [], brokerRun) => {
+            const activeLease = getActiveJobBrokerLease(brokerRun, mainJobBroker);
+            if (activeLease) observedProbeLeases.push(activeLease.token);
+            return createScanCleanupPageRasterSource({
+                pages: pageNumbers,
+                sourceDpiByPage: new Map(pageNumbers.map((pageNumber: number) => [
+                    pageNumber,
+                    300,
+                ] as const)),
+            });
+        });
+        const service = scanCleanupPreviewLifecycle(deps);
+        const owner = sender();
+        try {
+            await expect(previewOf(service, owner, {
+                ...request,
+                visible: true,
+            })).resolves.toMatchObject({pageNumber: 1});
+        } finally {
+            await service.dispose();
+        }
+        expect(observedProbeLeases.length).toBeGreaterThan(0);
+    });
+
+    it('serves both a sibling preview and an immediate replacement cleanly when the starting preview cancels during sourceDpi', async () => {
+        const {scanCleanupRasterRetention} = await import('@electron/features/scan-cleanup/scanCleanupRasterRetention');
+        const {
+            dir, deps,
+        } = await createScanCleanupPreviewTestContext(dirs);
+        const firstProbeStarted = Promise.withResolvers<AbortSignal>();
+        const finishFirstProbeTermination = Promise.withResolvers<void>();
+        let callCount = 0;
+        deps.detectSourceDpi = vi.fn(async (_pdfPath, _pageNumber, probeSignal) => {
+            callCount += 1;
+            if (callCount === 1) {
+                firstProbeStarted.resolve(probeSignal);
+                // Simulate a child process that takes time to finish terminating after abort.
+                await finishFirstProbeTermination.promise;
+                throw probeSignal.reason ?? new DOMException('Aborted', 'AbortError');
+            }
+            expect(probeSignal.aborted).toBe(false);
+            return 300;
+        });
+        const retention = scanCleanupRasterRetention(deps);
+        const doc = await retention.openDocument({
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'rev-1',
+        });
+        const firstController = new AbortController();
+        const siblingController = new AbortController();
+        const replacementController = new AbortController();
+
+        try {
+            await mainJobBroker.run({
+                ownerId: 'preview-1',
+                kind: 'scan-cleanup-preview',
+                priority: 'visible',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 128 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }, async run1 => {
+                const firstRead = retention.sourceDpi(doc, 1, firstController.signal, run1);
+                const probeSignal = await firstProbeStarted.promise;
+                const siblingRead = retention.sourceDpi(doc, 1, siblingController.signal, run1);
+
+                firstController.abort(new DOMException('First canceled', 'AbortError'));
+                await expect(firstRead).rejects.toMatchObject({name: 'AbortError'});
+                expect(probeSignal.aborted).toBe(true);
+
+                // Replacement arrives BEFORE the canceled probe has finished terminating.
+                const replacementRead = retention.sourceDpi(doc, 1, replacementController.signal, run1);
+                await expect(replacementRead).resolves.toBe(300);
+
+                finishFirstProbeTermination.resolve();
+                await expect(siblingRead).resolves.toBe(300);
+            });
+        } finally {
+            await retention.release(doc);
+            await retention.dispose();
+        }
+    });
+
+    it('retains only one owning lease when a shared sourceDpi probe fails with unproven termination', async () => {
+        const {scanCleanupRasterRetention} = await import('@electron/features/scan-cleanup/scanCleanupRasterRetention');
+        const {
+            dir, deps,
+        } = await createScanCleanupPreviewTestContext(dirs);
+        const probeStarted = Promise.withResolvers<IJobBrokerRunContext | undefined>();
+        const releaseUnproven = Promise.withResolvers<void>();
+        const unprovenProof = Promise.withResolvers<boolean>();
+        deps.detectSourceDpi = vi.fn(async (_pdfPath, _pageNumber, _probeSignal, brokerRun) => {
+            probeStarted.resolve(brokerRun);
+            await releaseUnproven.promise;
+            brokerRun?.onTerminationProof(unprovenProof.promise);
+            throw markUnprovenNativeTermination(new Error('pdfimages hung'), 'pdfimages still alive');
+        });
+        const retention = scanCleanupRasterRetention(deps);
+        const doc = await retention.openDocument({
+            sourcePdfPath: join(dir, 'source.pdf'),
+            documentRevision: 'rev-unproven',
+        });
+        const prevCap = mainJobBroker.getSnapshot().capacity;
+        mainJobBroker.reconfigureCapacity({
+            cpuTokens: 2,
+            estimatedResidentBytes: 4 * 1024 * 1024 * 1024,
+            nativeProcesses: 2,
+            ioWeight: 4,
+        });
+        try {
+            const firstDone = mainJobBroker.run({
+                ownerId: 'preview-owner-1',
+                kind: 'scan-cleanup-preview',
+                priority: 'visible',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 128 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }, run1 => retention.sourceDpi(doc, 1, new AbortController().signal, run1)).catch(() => 'failed-1');
+            await probeStarted.promise;
+            const secondDone = mainJobBroker.run({
+                ownerId: 'preview-owner-2',
+                kind: 'scan-cleanup-preview',
+                priority: 'visible',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 128 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }, run2 => retention.sourceDpi(doc, 1, new AbortController().signal, run2)).catch(() => 'failed-2');
+            releaseUnproven.resolve();
+            await expect(firstDone).resolves.toBe('failed-1');
+            await expect(secondDone).resolves.toBe('failed-2');
+            // Only the single probe-owning reservation stays retained; the second slot is free.
+            expect(mainJobBroker.getSnapshot()).toMatchObject({
+                active: 1,
+                used: {nativeProcesses: 1},
+            });
+            unprovenProof.resolve(true);
+            await vi.waitFor(() => expect(mainJobBroker.getSnapshot().active).toBe(0));
+        } finally {
+            await retention.release(doc);
+            await retention.dispose();
+            mainJobBroker.reconfigureCapacity(prevCap);
+        }
+    });
+
+    it('bounds concurrent pdfimages probes to the brokerRun lease nativeProcesses reservation and refuses queued ranges after unproven termination', async () => {
+        const {detectSourceDpiDetails} = await import('@electron/pdf/sourceDpiDetection');
+        const runNativeCommandModule = await import('@electron/native-tools/runNativeToolCommand');
+        let inFlight = 0;
+        let maxInFlight = 0;
+        const firstEntered = Promise.withResolvers<void>();
+        const releaseFirst = Promise.withResolvers<void>();
+        const spy = vi.spyOn(runNativeCommandModule, 'runNativeToolCommand').mockImplementation(async () => {
+            inFlight += 1;
+            maxInFlight = Math.max(maxInFlight, inFlight);
+            if (maxInFlight === 1) {
+                firstEntered.resolve();
+                await releaseFirst.promise;
+            }
+            inFlight -= 1;
+            return {
+                exitCode: 0,
+                stdout: '',
+                stderr: '',
+            };
+        });
+        try {
+            await mainJobBroker.run({
+                ownerId: 'single-slot-probe',
+                kind: 'scan-cleanup-preview',
+                priority: 'visible',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 128 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }, async brokerRun => {
+                // Non-contiguous pages [1, 3] produce two probe ranges; a 1-slot lease must serialize them.
+                const probePromise = detectSourceDpiDetails(
+                    '/tmp/source.pdf',
+                    '/bin/pdfimages',
+                    () => undefined,
+                    undefined,
+                    new AbortController().signal,
+                    [
+                        1,
+                        3,
+                    ],
+                    undefined,
+                    undefined,
+                    brokerRun,
+                );
+                await firstEntered.promise;
+                for (let tick = 0; tick < 5; tick += 1) {
+                    await Promise.resolve();
+                }
+                expect(inFlight).toBe(1);
+                expect(maxInFlight).toBe(1);
+                releaseFirst.resolve();
+                await probePromise;
+            });
+            expect(spy).toHaveBeenCalledTimes(2);
+            expect(maxInFlight).toBe(1);
+
+            // When range 1 rejects with unproven termination, range 2 must NOT start on the occupied slot.
+            spy.mockReset();
+            const unproven = markUnprovenNativeTermination(new Error('range 1 hung'), 'pdfimages still alive');
+            spy.mockRejectedValueOnce(unproven);
+            await mainJobBroker.run({
+                ownerId: 'single-slot-unproven-probe',
+                kind: 'scan-cleanup-preview',
+                priority: 'visible',
+                resources: {
+                    cpuTokens: 1,
+                    estimatedResidentBytes: 128 * 1024 * 1024,
+                    nativeProcesses: 1,
+                    ioWeight: 1,
+                },
+            }, async brokerRun => {
+                await expect(detectSourceDpiDetails(
+                    '/tmp/source.pdf',
+                    '/bin/pdfimages',
+                    () => undefined,
+                    undefined,
+                    new AbortController().signal,
+                    [
+                        1,
+                        3,
+                    ],
+                    undefined,
+                    undefined,
+                    brokerRun,
+                )).rejects.toBe(unproven);
+            });
+            expect(spy).toHaveBeenCalledTimes(1);
+        } finally {
+            spy.mockRestore();
         }
     });
     const scenarios = [

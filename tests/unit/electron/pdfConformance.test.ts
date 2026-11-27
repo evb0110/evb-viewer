@@ -239,7 +239,10 @@ describe('analyzePdfConformanceFile', () => {
                 '/tmp/input.pdf',
             ],
             expect.objectContaining({
-                onTerminationProof: expect.any(Function),
+                brokerRun: expect.objectContaining({
+                    lease: expect.objectContaining({token: expect.any(String)}),
+                    onTerminationProof: expect.any(Function),
+                }),
             }),
         );
         expect(mocks.loggerWarn).not.toHaveBeenCalled();
@@ -763,10 +766,12 @@ describe('conformance admission through the main handler', () => {
                 _command: string,
                 _args: string[],
                 options?: {
+                    brokerRun?: {onTerminationProof?: (proof: Promise<boolean>) => void};
                     onTerminationProof?: (proof: Promise<boolean>) => void;
                     signal?: AbortSignal;
                 },
             ) => new Promise((resolve, reject) => {
+                const terminationProof = options?.brokerRun?.onTerminationProof ?? options?.onTerminationProof;
                 activeCalls += 1;
                 calls.push({
                     resolve: value => {
@@ -777,7 +782,7 @@ describe('conformance admission through the main handler', () => {
                         activeCalls -= 1;
                         reject(error);
                     },
-                    ...(options?.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
+                    ...(terminationProof ? {onTerminationProof: terminationProof} : {}),
                     ...(options?.signal ? {signal: options.signal} : {}),
                 });
             }),

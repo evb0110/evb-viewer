@@ -19,7 +19,10 @@ import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 import {createLogger} from '@electron/utils/createLogger';
-import type {TTerminationProofSink} from '@electron/resources/jobBroker';
+import type {
+    IJobBrokerRunContext,
+    TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 
 const logger = createLogger('scan-cleanup-runner');
 
@@ -49,10 +52,11 @@ export async function runScanCleanupWorkerTask(
     options?: {
         onCheckpointReady?: (entryDir: string) => void;
         /**
-         * The owning broker lease's proof sink. The pipeline's native children
+         * The owning broker run context. The pipeline's native children
          * run under that lease, so a stop that cannot prove them gone keeps it
          * charged.
          */
+        brokerRun?: IJobBrokerRunContext;
         onTerminationProof?: TTerminationProofSink;
     },
 ): Promise<TScanCleanupSummary> {
@@ -101,6 +105,9 @@ export async function runScanCleanupWorkerTask(
                 ...(options?.onCheckpointReady === undefined
                     ? {}
                     : {onCheckpointReadyForCleanup: options.onCheckpointReady}),
+                ...(options?.brokerRun === undefined
+                    ? {}
+                    : {brokerRun: options.brokerRun}),
                 ...(options?.onTerminationProof === undefined
                     ? {}
                     : {onTerminationProof: options.onTerminationProof}),

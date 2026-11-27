@@ -5,7 +5,9 @@ import {
 import {createPdftoppmPageProgress} from '@electron/native-tools/createPdftoppmPageProgress';
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
 import {
-    chainTerminationProofSink,
+    chainJobBrokerRunContext,
+    mergeTerminationProofSinks,
+    type IJobBrokerRunContext,
     type TTerminationProofSink,
 } from '@electron/resources/jobBroker';
 import {getErrorMessage} from '@electron/utils/error';
@@ -14,10 +16,17 @@ import {readPpmDimensions} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import type {TScanCleanupOpenFile} from '@evb/scan-cleanup/core/rasterLayerDimensions';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@evb/scan-cleanup/core/pageBatches';
 import type {
+    IScanCleanupProcessResult,
     IScanCleanupRasterRenderLimits,
+    IScanCleanupRunCommandOptions,
     TScanCleanupLog,
-    TScanCleanupRunCommand,
 } from '@evb/scan-cleanup/core/types';
+
+type TScanCleanupRasterBatchRunCommand = (
+    command: string,
+    args: string[],
+    options?: IScanCleanupRunCommandOptions & {brokerRun?: IJobBrokerRunContext},
+) => Promise<IScanCleanupProcessResult>;
 
 const PDFTOPPM_BATCH_TIMEOUT_MS = 3 * 60 * 1_000;
 // Analyze already owns a bounded 1,024-page manifest. Keeping the Poppler
@@ -46,6 +55,7 @@ interface IScanCleanupRasterBatchInput {
     sourcePdfPath: string;
     targets: readonly IScanCleanupRasterBatchTarget[];
     onPageRendered?: (pageNumber: number) => void;
+    brokerRun?: IJobBrokerRunContext;
     onTerminationProof?: TTerminationProofSink;
 }
 
@@ -95,7 +105,7 @@ function validateTargets(targets: readonly IScanCleanupRasterBatchTarget[]) {
 }
 
 export function createScanCleanupRasterBatchRenderer(
-    runCommand: TScanCleanupRunCommand = runNativeCommand,
+    runCommand: TScanCleanupRasterBatchRunCommand = runNativeCommand,
     fileSystem: IScanCleanupRasterBatchFileSystem,
 ) {
     return async (input: IScanCleanupRasterBatchInput): Promise<IScanCleanupRasterBatchResult[]> => {
@@ -108,6 +118,16 @@ export function createScanCleanupRasterBatchRenderer(
         const prefix = join(scratch, 'page');
         let terminationProof: Promise<boolean> | undefined;
         let failure: unknown;
+        const recordLocalProof: TTerminationProofSink = (proof) => {
+            terminationProof = proof;
+        };
+        const scopedBrokerRun = chainJobBrokerRunContext(
+            chainJobBrokerRunContext(input.brokerRun, input.onTerminationProof),
+            recordLocalProof,
+        );
+        const directProofSink = scopedBrokerRun === undefined
+            ? mergeTerminationProofSinks(input.onTerminationProof, recordLocalProof)
+            : undefined;
         try {
             // Poppler writes PPM; its PNG writer is fixed at maximum zlib
             // compression and would dominate detection on scanned pages.
@@ -128,9 +148,11 @@ export function createScanCleanupRasterBatchRenderer(
                 timeoutMs: PDFTOPPM_BATCH_TIMEOUT_MS,
                 signal: input.signal,
                 log: input.log,
-                onTerminationProof: chainTerminationProofSink(input.onTerminationProof, (proof) => {
-                    terminationProof = proof;
-                }),
+                ...(scopedBrokerRun !== undefined
+                    ? {brokerRun: scopedBrokerRun}
+                    : directProofSink === undefined
+                        ? {}
+                        : {onTerminationProof: directProofSink}),
                 onStderr: createPdftoppmPageProgress(pageNumber => {
                     if (pageNumber < firstPage || pageNumber > lastPage) return;
                     // Progress is a side channel: its failure must neither

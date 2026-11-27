@@ -81,45 +81,124 @@ export type TTerminationProofSink = (proof: Promise<boolean>) => void;
 export interface IJobBrokerRunContext {
     /**
      * Keeps the lease charged until every recorded native child is proven
-     * gone. Passing it to a native command also tells the command that it
-     * runs under this lease, so it does not ask the broker for another.
+     * gone. Passing this context to a native command also tells the command
+     * that it runs under `lease`, so it does not ask the broker for another.
      */
     onTerminationProof: TTerminationProofSink;
+    /**
+     * Raw broker lease-accounting proof sink without caller-specific observers
+     * or transformations, for internal probes (such as `--build-id`) that run
+     * under `lease` without touching caller scratch files.
+     */
+    readonly leaseTerminationProof?: TTerminationProofSink;
     readonly lease: IJobBrokerLease;
-}
-
-// The proof sink a `run` hands its work names the lease that work holds.
-const runLeasesByProofSink = new WeakMap<TTerminationProofSink, {
-    broker: JobBroker;
-    lease: IJobBrokerLease;
-}>();
-
-/** The active lease whose `run` created this proof sink, if any. */
-export function getJobBrokerLeaseForProofSink(sink: TTerminationProofSink | undefined) {
-    const entry = sink === undefined ? undefined : runLeasesByProofSink.get(sink);
-    return entry?.broker.isActive(entry.lease) ? entry.lease : undefined;
+    readonly broker: JobBroker;
 }
 
 /**
- * A sink that records each proof locally and forwards it to the caller's
- * sink, still naming the lease the caller's sink names.
+ * Returns `brokerRun.lease` only when `brokerRun.broker` is a real `JobBroker`
+ * (matching `expectedBroker` when given) and that exact lease is currently
+ * running (not released and not merely retained for an unproven child).
  */
-export function chainTerminationProofSink(
+export function getActiveJobBrokerLease(
+    brokerRun: IJobBrokerRunContext | undefined,
+    expectedBroker?: JobBroker,
+): IJobBrokerLease | undefined {
+    if (brokerRun === undefined || !(brokerRun.broker instanceof JobBroker)) {
+        return undefined;
+    }
+    if (expectedBroker !== undefined && brokerRun.broker !== expectedBroker) {
+        return undefined;
+    }
+    return brokerRun.broker.isRunningLease(brokerRun.lease)
+        ? brokerRun.lease
+        : undefined;
+}
+
+/**
+ * Combines two termination-proof sinks without invoking the same callback
+ * twice when both point to the same function. Invokes `outer` first so a
+ * throwing local observer cannot prevent the owning broker from recording the
+ * proof.
+ */
+export function mergeTerminationProofSinks(
     outer: TTerminationProofSink | undefined,
-    own: TTerminationProofSink,
-): TTerminationProofSink {
+    own: TTerminationProofSink | undefined,
+): TTerminationProofSink | undefined {
     if (outer === undefined) {
         return own;
     }
-    const chained: TTerminationProofSink = (proof) => {
-        own(proof);
-        outer(proof);
-    };
-    const entry = runLeasesByProofSink.get(outer);
-    if (entry !== undefined) {
-        runLeasesByProofSink.set(chained, entry);
+    if (own === undefined || own === outer) {
+        return outer;
     }
-    return chained;
+    return (proof) => {
+        try {
+            outer(proof);
+        } finally {
+            own(proof);
+        }
+    };
+}
+
+/**
+ * Returns a run context with the same `broker` and `lease` as `outer`,
+ * forwarding each proof to `outer.onTerminationProof` first and also recording
+ * it with `own` even if `own` throws.
+ */
+export function chainJobBrokerRunContext(
+    outer: IJobBrokerRunContext,
+    own: TTerminationProofSink | undefined,
+): IJobBrokerRunContext;
+export function chainJobBrokerRunContext(
+    outer: IJobBrokerRunContext | undefined,
+    own: TTerminationProofSink | undefined,
+): IJobBrokerRunContext | undefined;
+export function chainJobBrokerRunContext(
+    outer: IJobBrokerRunContext | undefined,
+    own: TTerminationProofSink | undefined,
+): IJobBrokerRunContext | undefined {
+    if (outer === undefined || own === undefined || own === outer.onTerminationProof) {
+        return outer;
+    }
+    return {
+        broker: outer.broker,
+        lease: outer.lease,
+        leaseTerminationProof: outer.leaseTerminationProof ?? outer.onTerminationProof,
+        onTerminationProof: (proof) => {
+            try {
+                outer.onTerminationProof(proof);
+            } finally {
+                own(proof);
+            }
+        },
+    };
+}
+
+/**
+ * Returns a run context with the same `broker` and `lease` as `outer`,
+ * replacing `onTerminationProof` with the sink produced by `wrap`.
+ */
+export function mapJobBrokerRunTerminationProof(
+    outer: IJobBrokerRunContext,
+    wrap: (outerSink: TTerminationProofSink) => TTerminationProofSink,
+): IJobBrokerRunContext;
+export function mapJobBrokerRunTerminationProof(
+    outer: IJobBrokerRunContext | undefined,
+    wrap: (outerSink: TTerminationProofSink) => TTerminationProofSink,
+): IJobBrokerRunContext | undefined;
+export function mapJobBrokerRunTerminationProof(
+    outer: IJobBrokerRunContext | undefined,
+    wrap: (outerSink: TTerminationProofSink) => TTerminationProofSink,
+): IJobBrokerRunContext | undefined {
+    if (outer === undefined) {
+        return undefined;
+    }
+    return {
+        broker: outer.broker,
+        lease: outer.lease,
+        leaseTerminationProof: outer.leaseTerminationProof ?? outer.onTerminationProof,
+        onTerminationProof: wrap(outer.onTerminationProof),
+    };
 }
 
 // Broker ownership is an admission/fairness identity, not a work identifier.
@@ -134,7 +213,10 @@ export function createStableJobBrokerOwnerId(
     return `${feature}:${senderId}:${logicalOwnerId}`;
 }
 
-interface IActiveJob extends IJobBrokerRequest {token: string;}
+interface IActiveJob extends IJobBrokerRequest {
+    token: string;
+    lease: IJobBrokerLease;
+}
 
 interface IQueuedJob {
     id: number;
@@ -339,16 +421,14 @@ export class JobBroker {
                 }
             });
         };
-        runLeasesByProofSink.set(onTerminationProof, {
-            broker: this,
-            lease,
-        });
         let workStarted = false;
         try {
             request.signal?.throwIfAborted();
             workStarted = true;
             return await work({
+                broker: this,
                 onTerminationProof,
+                leaseTerminationProof: onTerminationProof,
                 lease,
             });
         } finally {
@@ -379,6 +459,15 @@ export class JobBroker {
 
     isActive(lease: Pick<IJobBrokerLease, 'token'>) {
         return this.active.has(lease.token);
+    }
+
+    /**
+     * Whether `lease` is the exact, currently-running lease object issued by
+     * this broker (not released and not merely retained for an unproven child).
+     */
+    isRunningLease(lease: IJobBrokerLease) {
+        const active = this.active.get(lease.token);
+        return active !== undefined && active.lease === lease && !this.retained.has(lease.token);
     }
 
     /**
@@ -479,15 +568,14 @@ export class JobBroker {
             }
             next.removeAbortListener();
             const token = `job-${next.id}`;
+            let released = false;
             const active: IActiveJob = {
                 ...next.request,
                 resources: {...next.request.resources},
                 token,
+                lease: undefined as unknown as IJobBrokerLease,
             };
-            this.active.set(token, active);
-            this.accountLease(active, addResources);
-            let released = false;
-            next.resolve({
+            const lease: IJobBrokerLease = {
                 token,
                 get resources() {
                     return {...active.resources};
@@ -500,7 +588,11 @@ export class JobBroker {
                     return this.release(token);
                 },
                 shrink: resources => !released && this.shrink(token, resources),
-            });
+            };
+            active.lease = lease;
+            this.active.set(token, active);
+            this.accountLease(active, addResources);
+            next.resolve(lease);
         }
     }
 

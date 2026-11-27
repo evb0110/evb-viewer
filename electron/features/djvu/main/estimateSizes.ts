@@ -69,14 +69,11 @@ async function estimatePdfSizeBytes(
                 ioWeight: 2,
             },
             signal,
-        }, async ({
-            lease,
-            onTerminationProof,
-        }) => {
+        }, async (brokerRun) => {
             const pdfBytes = await buildOptimizedPdf([imagePath], dpi, undefined, {
                 signal,
-                combineThreads: resolvePdfImageCombineThreads(lease.resources),
-                onTerminationProof,
+                combineThreads: resolvePdfImageCombineThreads(brokerRun.lease.resources),
+                brokerRun,
             });
             return pdfBytes.length;
         });

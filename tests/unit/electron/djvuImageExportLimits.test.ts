@@ -275,7 +275,10 @@ describe('DjVu image export limits', () => {
             expect.any(String),
             undefined,
             300,
-            expect.any(Function),
+            expect.objectContaining({
+                lease: expect.objectContaining({token: expect.any(String)}),
+                onTerminationProof: expect.any(Function),
+            }),
             1,
             'djvu-tiff-cancel-group',
         );
@@ -301,10 +304,10 @@ describe('DjVu image export limits', () => {
             _tempPath: string,
             _signal: AbortSignal | undefined,
             _dpi: number | undefined,
-            onTerminationProof?: (proof: Promise<boolean>) => void,
+            brokerRun?: {onTerminationProof?: (proof: Promise<boolean>) => void},
         ) => {
             batchPaths = pagePaths;
-            onTerminationProof?.(writerGone.promise);
+            brokerRun?.onTerminationProof?.(writerGone.promise);
             throw markUnprovenNativeTermination(new Error('native TIFF writer timed out'), 'native TIFF writer was not proven dead');
         });
         const {exportDjvuAsMultiPageTiff} = await import('@electron/features/image-export/main/djvuImageExport');
@@ -981,12 +984,18 @@ describe('DjVu size estimates', () => {
             _dpi: number,
             _onPageProcessed?: unknown,
             options?: {
-                onTerminationProof?: (proof: Promise<boolean>) => void;
+                brokerRun?: {
+                    broker: {isActive: (lease: {token: string}) => boolean};
+                    lease: {token: string};
+                    onTerminationProof?: (proof: Promise<boolean>) => void;
+                };
             },
         ) => {
             callIndex += 1;
+            expect(options?.brokerRun).toBeDefined();
+            expect(options?.brokerRun?.broker.isActive(options.brokerRun.lease)).toBe(true);
             if (callIndex === 2) {
-                options?.onTerminationProof?.(Promise.resolve(false));
+                options?.brokerRun?.onTerminationProof?.(Promise.resolve(false));
                 throw markUnprovenNativeTermination(new Error('estimate hung'), 'child alive');
             }
             return new Uint8Array(1000);

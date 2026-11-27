@@ -11,6 +11,7 @@ import { join } from 'path';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import { runDesktopQpdfWasm } from '@electron/native-tools/qpdfWasmWorkerClient';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import type { IJobBrokerRunContext } from '@electron/resources/jobBroker';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {
     PdfCombineCapabilityError,
@@ -29,7 +30,7 @@ const QPDF_OUTPUT_SUCCESS_EXIT_CODES = [
 interface IBookmarkNativeCommandOptions {
     signal?: AbortSignal | undefined;
     cancelGroup?: string | undefined;
-    onTerminationProof?: ((proof: Promise<boolean>) => void) | undefined;
+    brokerRun?: IJobBrokerRunContext | undefined;
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -53,7 +54,7 @@ function createNativeCommandCancellationOptions(options: IBookmarkNativeCommandO
     return {
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
-        ...(options.onTerminationProof ? { onTerminationProof: options.onTerminationProof } : {}),
+        ...(options.brokerRun ? { brokerRun: options.brokerRun } : {}),
     };
 }
 
@@ -86,7 +87,9 @@ async function getBookmarkInputPdfPageCount(
         timeoutMs: QPDF_DJVU_BOOKMARK_PAGE_COUNT_TIMEOUT_MS,
         allowedExitCodes: QPDF_OUTPUT_SUCCESS_EXIT_CODES,
         commandLabel: 'qpdf(djvu-bookmark-page-count)',
-        ...createNativeCommandCancellationOptions(options),
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(options.cancelGroup ? { cancelGroup: options.cancelGroup } : {}),
+        ...(options.brokerRun ? { onTerminationProof: options.brokerRun.onTerminationProof } : {}),
     });
     const pageCount = Number.parseInt(result.stdout.trim(), 10);
     if (!Number.isSafeInteger(pageCount) || pageCount < 1) {
@@ -101,7 +104,7 @@ async function tryEmbedBookmarksWithNativePageOps(
     outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
     signal?: AbortSignal,
-    onTerminationProof?: (proof: Promise<boolean>) => void,
+    brokerRun?: IJobBrokerRunContext,
 ) {
     throwIfAborted(signal);
 
@@ -128,7 +131,7 @@ async function tryEmbedBookmarksWithNativePageOps(
             const totalPages = await getBookmarkInputPdfPageCount(inputPdfPath, {
                 signal,
                 cancelGroup,
-                onTerminationProof,
+                brokerRun,
             });
             throwIfAborted(signal);
             await copyFile(inputPdfPath, workingPath);
@@ -154,7 +157,7 @@ async function tryEmbedBookmarksWithNativePageOps(
                 ...createNativeCommandCancellationOptions({
                     signal,
                     cancelGroup,
-                    onTerminationProof,
+                    brokerRun,
                 }),
             });
             throwIfAborted(signal);
@@ -193,7 +196,7 @@ export async function embedBookmarksIntoPdfFile(
     outputPdfPath: string,
     bookmarks: IPdfBookmarkEntry[],
     signal?: AbortSignal,
-    onTerminationProof?: (proof: Promise<boolean>) => void,
+    brokerRun?: IJobBrokerRunContext,
 ) {
-    return tryEmbedBookmarksWithNativePageOps(inputPdfPath, outputPdfPath, bookmarks, signal, onTerminationProof);
+    return tryEmbedBookmarksWithNativePageOps(inputPdfPath, outputPdfPath, bookmarks, signal, brokerRun);
 }

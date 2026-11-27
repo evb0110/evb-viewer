@@ -1,4 +1,5 @@
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import type { IJobBrokerRunContext } from '@electron/resources/jobBroker';
 
 import * as v from 'valibot';
 
@@ -43,7 +44,14 @@ function parseNativeNetpbmProbe(value: unknown): INativeNetpbmProbe {
         : 'Native Netpbm probe returned invalid metrics');
 }
 
-export async function probeNativeNetpbm(binaryPath: string | null, path: string) {
+export async function probeNativeNetpbm(
+    binaryPath: string | null,
+    path: string,
+    options?: {
+        brokerRun?: IJobBrokerRunContext;
+        signal?: AbortSignal;
+    },
+) {
     if (!binaryPath) {
         return null;
     }
@@ -56,6 +64,8 @@ export async function probeNativeNetpbm(binaryPath: string | null, path: string)
             maxStdoutBytes: 64 * 1024,
             rejectOnStdoutTruncation: true,
             timeoutMs: 60_000,
+            ...(options?.brokerRun === undefined ? {} : {brokerRun: options.brokerRun}),
+            ...(options?.signal === undefined ? {} : {signal: options.signal}),
         });
         return parseNativeNetpbmProbe(JSON.parse(result.stdout));
     } catch (error) {

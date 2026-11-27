@@ -800,14 +800,14 @@ async function embedPdfBookmarks(
                 ioWeight: 3,
             },
             signal,
-        }, async ({onTerminationProof}) => {
+        }, async (brokerRun) => {
             try {
                 await embedBookmarksIntoPdfFile(
                     inputPdfPath,
                     outputPdfPath,
                     bookmarks,
                     signal,
-                    onTerminationProof,
+                    brokerRun,
                 );
             } catch (error) {
                 if (getUnprovenNativeTerminationDetail(error) !== undefined) {

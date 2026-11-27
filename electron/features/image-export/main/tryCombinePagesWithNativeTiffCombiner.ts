@@ -15,7 +15,8 @@ import { createNativeFallbackTestError } from '@electron/native-tools/createNati
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { PDF_IMAGE_COMBINE_THREADS_ENV } from '@electron/native-tools/pdfImageCombineBudget';
 import {
-    chainTerminationProofSink,
+    chainJobBrokerRunContext,
+    type IJobBrokerRunContext,
     type TTerminationProofSink,
 } from '@electron/resources/jobBroker';
 import { atomicReplace } from '@electron/utils/atomicReplace';
@@ -39,7 +40,7 @@ export async function tryCombinePagesWithNativeTiffCombiner(
     tempOutputPath: string,
     signal?: AbortSignal,
     dpi?: number,
-    onTerminationProof?: TTerminationProofSink,
+    brokerRun?: IJobBrokerRunContext,
     combineThreads?: number,
     cancelGroup?: string,
 ) {
@@ -77,12 +78,22 @@ export async function tryCombinePagesWithNativeTiffCombiner(
         if (signal?.aborted) throw abortErrorFromSignal(signal);
         await writeFile(inputsPath, createNativeInputsFileContents(pagePaths), 'utf8');
         // The proof also reaches the caller's lease, which the combine runs under.
-        const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath, signal, dpi, chainTerminationProofSink(
-            onTerminationProof,
-            (proof) => {
-                terminationProof = proof;
-            },
-        ), combineThreads, cancelGroup);
+        const recordLocalProof: TTerminationProofSink = (proof) => {
+            terminationProof = proof;
+        };
+        const chainedBrokerRun = chainJobBrokerRunContext(brokerRun, recordLocalProof);
+        const ok = await runNativeTiffCombine(
+            binaryPath,
+            tempOutputPath,
+            inputsPath,
+            signal,
+            dpi,
+            chainedBrokerRun !== undefined
+                ? {brokerRun: chainedBrokerRun}
+                : {onTerminationProof: recordLocalProof},
+            combineThreads,
+            cancelGroup,
+        );
         if (!ok || !existsSync(tempOutputPath)) {
             const testFailure = createNativeFallbackTestError(
                 runtimeConfig.test.nativeTiffCombineEnabled,
@@ -136,7 +147,7 @@ async function runNativeTiffCombine(
     inputsPath: string,
     signal: AbortSignal | undefined,
     dpi: number | undefined,
-    onTerminationProof: TTerminationProofSink,
+    termination: {brokerRun: IJobBrokerRunContext} | {onTerminationProof: TTerminationProofSink},
     combineThreads?: number,
     cancelGroup?: string,
 ) {
@@ -160,7 +171,7 @@ async function runNativeTiffCombine(
             commandLabel: 'evb-pdf-image-combine(tiff)',
             maxStdoutBytes: 1024,
             maxStderrBytes: 8_192,
-            onTerminationProof,
+            ...termination,
             ...(cancelGroup ? { cancelGroup } : {}),
             ...(env ? { env } : {}),
             ...(signal ? { signal } : {}),

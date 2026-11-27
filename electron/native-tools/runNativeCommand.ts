@@ -56,10 +56,13 @@ import {
     resolvePdfImageCombineThreads,
 } from '@electron/native-tools/pdfImageCombineBudget';
 import {
+    getActiveJobBrokerLease,
     getConfiguredMainJobBroker,
-    getJobBrokerLeaseForProofSink,
+    mergeTerminationProofSinks,
     type IJobBrokerLease,
+    type IJobBrokerRunContext,
     type IJobResourceVector,
+    type TTerminationProofSink,
 } from '@electron/resources/jobBroker';
 import {
     cancelDesktopPageOpsWasmGroup,
@@ -95,13 +98,17 @@ export interface IRunCommandOptions {
     onSpawn?: (pid: number, hasExited: () => boolean, binaryPath?: string) => void;
     onClose?: () => void;
     /**
-     * Receives the child's termination proof, always before the command
-     * rejects with an unproven termination. A proof sink from a broker `run`,
-     * or one chained from it with `chainTerminationProofSink`, also names the
-     * lease the caller holds, so the command runs under that lease, which
-     * stays charged until the proof, instead of taking its own.
+     * Owning broker run context (`broker`, `lease`, `onTerminationProof`).
+     * While `broker.isActive(lease)` holds, the command runs under that lease
+     * instead of taking a second leaf lease, and forwards its termination proof
+     * to `brokerRun.onTerminationProof`.
      */
-    onTerminationProof?: (proof: Promise<boolean>) => void;
+    brokerRun?: IJobBrokerRunContext;
+    /**
+     * Receives the child's termination proof, always before the command
+     * rejects with an unproven termination.
+     */
+    onTerminationProof?: TTerminationProofSink;
     /** Written to the child's stdin with backpressure, then closed. */
     stdin?: AsyncIterable<string>;
     terminationGraceMs?: number;
@@ -197,8 +204,11 @@ async function runNativeCommandUnderLease(
             return runNativeCommandCore(command, args, {
                 ...withLeaseCommandEnv(command, options, lease),
                 onTerminationProof: (proof) => {
-                    onTerminationProof(proof);
-                    options.onTerminationProof?.(proof);
+                    try {
+                        onTerminationProof(proof);
+                    } finally {
+                        options.onTerminationProof?.(proof);
+                    }
                 },
             });
         });
@@ -343,18 +353,49 @@ function getTruncatedOutputMessage(label: 'stdout' | 'stderr', truncated: boolea
         : text;
 }
 
+function resolveNativeCommandAdmission(options: IRunCommandOptions) {
+    const configuredBroker = getConfiguredMainJobBroker();
+    const heldLease = getActiveJobBrokerLease(options.brokerRun, configuredBroker ?? undefined);
+    const callerTerminationProof = heldLease === undefined
+        ? options.onTerminationProof
+        : mergeTerminationProofSinks(
+            options.brokerRun?.onTerminationProof,
+            options.onTerminationProof,
+        );
+    return {
+        heldLease,
+        callerTerminationProof,
+    };
+}
+
 export async function runNativeCommand(
     command: string,
     args: string[],
     options: IRunCommandOptions = {},
 ): Promise<IProcessResult> {
-    const heldLease = getJobBrokerLeaseForProofSink(options.onTerminationProof);
     const appTempNamespace = runtimeConfig.appTempNamespace;
     if (!appTempNamespace || !/^[a-z\d][a-z\d-]{0,63}$/u.test(appTempNamespace) || !isAbsolute(command)) {
-        return runNativeCommandUnderLease(command, args, options, heldLease);
+        const {
+            heldLease,
+            callerTerminationProof,
+        } = resolveNativeCommandAdmission(options);
+        const effectiveOptions = callerTerminationProof === options.onTerminationProof
+            ? options
+            : {
+                ...options,
+                ...(callerTerminationProof === undefined ? {} : {onTerminationProof: callerTerminationProof}),
+            };
+        return runNativeCommandUnderLease(command, args, effectiveOptions, heldLease);
     }
     const namespacePath = getAppTempNamespacePathForNamespace(appTempNamespace);
     const scratchPath = await createManagedScratchTempDir(NATIVE_COMMAND_SCRATCH_PREFIX, namespacePath);
+    // Revalidate the caller's lease after scratch-dir creation so a lease that
+    // ended or became retained while awaiting disk I/O falls back to a fresh
+    // leaf lease without routing the new child's proof to the rejected lease.
+    const {
+        heldLease,
+        callerTerminationProof,
+    } = resolveNativeCommandAdmission(options);
     const manifestIndex = args.indexOf('--manifest');
     const manifestPath = manifestIndex < 0 ? undefined : args[manifestIndex + 1];
     let registration: Promise<IManagedProcessRegistration | null> | null = null;
@@ -422,8 +463,11 @@ export async function runNativeCommand(
                 void proof.then(() => {
                     terminationProofSettled = true;
                 });
-                void cleanupScratchIfProven();
-                options.onTerminationProof?.(proof);
+                try {
+                    callerTerminationProof?.(proof);
+                } finally {
+                    void cleanupScratchIfProven();
+                }
             },
         }, heldLease);
         await cleanupScratchIfProven();

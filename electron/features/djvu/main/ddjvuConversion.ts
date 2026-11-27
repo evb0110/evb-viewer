@@ -33,7 +33,11 @@ import {
 } from '@electron/native-tools/runNativeCommand';
 import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolPath';
 import { getHostResourceProfileSnapshot } from '@electron/resources/hostResourceProfile';
-import { mainJobBroker } from '@electron/resources/jobBroker';
+import {
+    mainJobBroker,
+    type IJobBrokerRunContext,
+    type TTerminationProofSink,
+} from '@electron/resources/jobBroker';
 import { runtimeConfig } from '@electron/runtimeConfig';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { getAppTempDir } from '@electron/utils/appTempDir';
@@ -54,7 +58,8 @@ export interface IRegisteredDjvuProcessOptions {
     timeoutResetsOnStdout?: boolean;
     onStderr?: (chunk: string) => void;
     onStdout?: (chunk: string) => void;
-    onTerminationProof?: (proof: Promise<boolean>) => void;
+    brokerRun?: IJobBrokerRunContext;
+    onTerminationProof?: TTerminationProofSink;
     timeoutMs?: number;
     maxStderrBytes?: number;
     signal?: AbortSignal;
@@ -588,6 +593,9 @@ export async function runRegisteredDjvuProcess(
         if (options.onStdout !== undefined) {
             commandOptions.longLived = true;
             commandOptions.onStdout = options.onStdout;
+        }
+        if (options.brokerRun !== undefined) {
+            commandOptions.brokerRun = options.brokerRun;
         }
         if (options.onTerminationProof !== undefined) {
             commandOptions.onTerminationProof = options.onTerminationProof;

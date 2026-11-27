@@ -1,19 +1,19 @@
 import {
     mainJobBroker,
-    type TTerminationProofSink,
+    type IJobBrokerRunContext,
 } from '@electron/resources/jobBroker';
 import { resolvePdfImageCombineResidentBytes } from '@electron/native-tools/pdfImageCombineBudget';
 
 /**
  * Runs one compact DjVu stage under a main broker lease. The task passes the
- * proof sink to each native stage, which then runs under this lease; a stage
- * whose child is not proven gone keeps the lease charged until it is.
+ * broker run context to each native stage, which then runs under this lease;
+ * a stage whose child is not proven gone keeps the lease charged until it is.
  */
 export function withCompactDjvuResourceLease<T>(options: {
     jobId: string;
     kind: 'page' | 'combine';
     signal?: AbortSignal;
-    task: (onTerminationProof: TTerminationProofSink) => Promise<T>;
+    task: (brokerRun: IJobBrokerRunContext) => Promise<T>;
 }) {
     const isPage = options.kind === 'page';
     return mainJobBroker.run({
@@ -30,5 +30,5 @@ export function withCompactDjvuResourceLease<T>(options: {
         },
         ...(isPage ? {perOwnerLimit: 2} : {}),
         ...(options.signal ? {signal: options.signal} : {}),
-    }, ({onTerminationProof}) => options.task(onTerminationProof));
+    }, brokerRun => options.task(brokerRun));
 }

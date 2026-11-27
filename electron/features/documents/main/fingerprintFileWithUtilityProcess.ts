@@ -4,6 +4,7 @@ import {
 } from 'node:fs/promises';
 import {
     mainJobBroker,
+    type IJobBrokerRunContext,
     type TTerminationProofSink,
 } from '@electron/resources/jobBroker';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
@@ -101,6 +102,7 @@ export async function validateDocumentSaveStagingFile(
     options: {
         timeoutMs: number;
         signal?: AbortSignal;
+        brokerRun?: IJobBrokerRunContext;
         onTerminationProof?: TTerminationProofSink;
     },
 ): Promise<IDocumentSaveUtilityResult> {
@@ -126,6 +128,7 @@ export async function validateDocumentSaveStagingFile(
             maxStderrBytes: 4 * 1024 * 1024,
             ...commandOptions,
             signal: operationSignal,
+            ...(options.brokerRun ? {brokerRun: options.brokerRun} : {}),
             ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
         });
     };
@@ -170,6 +173,7 @@ export async function validateDocumentSaveStagingFile(
                     strict: true,
                     timeoutMs: options.timeoutMs,
                     signal: operationSignal,
+                    ...(options.brokerRun ? {brokerRun: options.brokerRun} : {}),
                     ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
                 });
                 strictStructuralValidated = true;
@@ -206,6 +210,7 @@ export async function validateDocumentSaveStagingFile(
                         strict: true,
                         timeoutMs: options.timeoutMs,
                         signal: operationSignal,
+                        ...(options.brokerRun ? {brokerRun: options.brokerRun} : {}),
                         ...(options.onTerminationProof ? {onTerminationProof: options.onTerminationProof} : {}),
                     });
                 }

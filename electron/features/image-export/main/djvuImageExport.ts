@@ -201,7 +201,7 @@ async function renderDjvuImagePages(
                         ioWeight: 2,
                     },
                     ...(options.signal ? {signal: options.signal} : {}),
-                }, async ({onTerminationProof}) => {
+                }, async (brokerRun) => {
                     const render = await convertDjvuPageToImage(
                         djvuPath,
                         ppmPath,
@@ -209,7 +209,7 @@ async function renderDjvuImagePages(
                         `djvu-image-export-${randomUUID()}`,
                         {
                             format: 'ppm',
-                            onTerminationProof,
+                            onTerminationProof: brokerRun.onTerminationProof,
                             ...(options.signal ? {signal: options.signal} : {}),
                         },
                     );
@@ -234,7 +234,7 @@ async function renderDjvuImagePages(
                         options.signal,
                         options.cancelGroup,
                         pageDpiByNumber.get(page),
-                        onTerminationProof,
+                        brokerRun,
                     );
                 });
                 await mkdir(dirname(outputTemplatePath), {recursive: true});
@@ -342,17 +342,14 @@ export async function exportDjvuAsMultiPageTiff(
                     ioWeight: 3,
                 },
                 ...(options.signal ? {signal: options.signal} : {}),
-            }, ({
-                lease,
-                onTerminationProof,
-            }) => tryCombinePagesWithNativeTiffCombiner(
+            }, brokerRun => tryCombinePagesWithNativeTiffCombiner(
                 batchPaths,
                 stagedPath,
                 nativeTempPath,
                 options.signal,
                 currentBatchDpi,
-                onTerminationProof,
-                resolvePdfImageCombineThreads(lease.resources),
+                brokerRun,
+                resolvePdfImageCombineThreads(brokerRun.lease.resources),
                 options.cancelGroup,
             ));
             if (!combined) {

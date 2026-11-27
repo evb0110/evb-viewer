@@ -7,6 +7,7 @@ import {
 import { stageNativeCombineInputs } from '@electron/image/pdfCombineShared';
 import { tryWritePdfFromInputPathsNative } from '@electron/image/tryCreatePdfFromInputPathsNative';
 import {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
+import type { IJobBrokerRunContext } from '@electron/resources/jobBroker';
 import { getUnprovenNativeTerminationDetail } from '@electron/utils/nativeTerminationProof';
 export {
     isPdfPath, isDjvuPath, isPdfOrImagePath, isSupportedOpenPath,
@@ -21,6 +22,7 @@ export interface ICreatePdfFromInputPathsProgress {
 }
 
 interface ICreatePdfFromInputPathsOptions {
+    brokerRun?: IJobBrokerRunContext;
     onProgress?: (progress: ICreatePdfFromInputPathsProgress) => void;
     signal?: AbortSignal;
 }

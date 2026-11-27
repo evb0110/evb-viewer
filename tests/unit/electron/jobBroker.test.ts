@@ -6,11 +6,14 @@ import {
 } from 'vitest';
 import {
     JobBroker,
+    chainJobBrokerRunContext,
+    getActiveJobBrokerLease,
+    mapJobBrokerRunTerminationProof,
     type IJobBrokerRequest,
+    type IJobBrokerRunContext,
     MAIN_JOB_BROKER_INTERACTIVE_RESERVE,
     MAIN_JOB_BROKER_MAX_INTERACTIVE_JOB_RESOURCES,
     MAIN_JOB_BROKER_MAX_SINGLE_JOB_RESOURCES,
-    getJobBrokerLeaseForProofSink,
     type IJobBrokerLease,
     type IJobResourceVector,
     resolveMainJobBrokerCapacity,
@@ -680,20 +683,105 @@ describe('JobBroker', () => {
         running.splice(0).forEach(lease => lease.release());
     });
 
-    it('names the lease a run holds through its proof sink only while it is held', async () => {
+    it('validates an explicit run context lease only while it is running on the expected broker', async () => {
         const broker = new JobBroker(CAPACITY);
-        let sink: ((proof: Promise<boolean>) => void) | undefined;
+        const otherBroker = new JobBroker(CAPACITY);
+        let capturedRun: IJobBrokerRunContext | undefined;
 
-        await broker.run(createRequest(), async ({
-            lease,
-            onTerminationProof,
-        }) => {
-            sink = onTerminationProof;
-            expect(getJobBrokerLeaseForProofSink(onTerminationProof)).toBe(lease);
+        await broker.run(createRequest(), async (brokerRun) => {
+            capturedRun = brokerRun;
+            expect(getActiveJobBrokerLease(brokerRun)).toBe(brokerRun.lease);
+            expect(getActiveJobBrokerLease(brokerRun, broker)).toBe(brokerRun.lease);
+            expect(getActiveJobBrokerLease(brokerRun, otherBroker)).toBeUndefined();
+            expect(getActiveJobBrokerLease({
+                ...brokerRun,
+                broker: otherBroker,
+            })).toBeUndefined();
+            // Fabricated broker object with isActive: () => true must be rejected.
+            expect(getActiveJobBrokerLease({
+                ...brokerRun,
+                broker: {
+                    isActive: () => true,
+                    isRunningLease: () => true,
+                } as unknown as JobBroker,
+            })).toBeUndefined();
+            // Forged lease object reusing an active token must be rejected.
+            expect(getActiveJobBrokerLease({
+                ...brokerRun,
+                lease: {
+                    token: brokerRun.lease.token,
+                    resources: brokerRun.lease.resources,
+                    release: () => false,
+                    shrink: () => false,
+                },
+            })).toBeUndefined();
         });
 
-        expect(getJobBrokerLeaseForProofSink(sink)).toBeUndefined();
-        expect(getJobBrokerLeaseForProofSink(() => undefined)).toBeUndefined();
+        expect(getActiveJobBrokerLease(capturedRun)).toBeUndefined();
+        expect(getActiveJobBrokerLease(undefined)).toBeUndefined();
+
+        // A completed run retained for an unproven child must not authorize another child.
+        const unprovenProof = Promise.withResolvers<boolean>();
+        let retainedRun: IJobBrokerRunContext | undefined;
+        await broker.run(createRequest(), async (brokerRun) => {
+            retainedRun = brokerRun;
+            brokerRun.onTerminationProof(unprovenProof.promise);
+        });
+        expect(broker.isActive(retainedRun!.lease)).toBe(true);
+        expect(broker.isRunningLease(retainedRun!.lease)).toBe(false);
+        expect(getActiveJobBrokerLease(retainedRun, broker)).toBeUndefined();
+        unprovenProof.resolve(true);
+        await flushMicrotasks();
+        expect(broker.getSnapshot().active).toBe(0);
+    });
+
+    it('delivers termination proofs to the owning broker even if a chained local observer throws', async () => {
+        const broker = new JobBroker(CAPACITY);
+        const proofGate = Promise.withResolvers<boolean>();
+
+        await broker.run(createRequest(), async (brokerRun) => {
+            const chained = chainJobBrokerRunContext(brokerRun, () => {
+                throw new Error('local observer failed');
+            });
+            expect(() => chained.onTerminationProof(proofGate.promise)).toThrow('local observer failed');
+        });
+
+        expect(broker.getSnapshot().active).toBe(1);
+        proofGate.resolve(true);
+        await flushMicrotasks();
+        expect(broker.getSnapshot().active).toBe(0);
+    });
+
+    it('preserves broker and lease across chained and mapped run contexts while forwarding proofs', async () => {
+        const broker = new JobBroker(CAPACITY);
+        const localProofs: Array<Promise<boolean>> = [];
+        const proofGate = Promise.withResolvers<boolean>();
+
+        await broker.run(createRequest(), async (brokerRun) => {
+            const chained = chainJobBrokerRunContext(brokerRun, proof => {
+                localProofs.push(proof);
+            });
+            expect(chained.broker).toBe(broker);
+            expect(chained.lease).toBe(brokerRun.lease);
+            expect(getActiveJobBrokerLease(chained)).toBe(brokerRun.lease);
+
+            const mapped = mapJobBrokerRunTerminationProof(chained, outerSink => proof => {
+                outerSink(proof.then(() => false));
+            });
+            expect(mapped.broker).toBe(broker);
+            expect(mapped.lease).toBe(brokerRun.lease);
+            expect(getActiveJobBrokerLease(mapped)).toBe(brokerRun.lease);
+
+            mapped.onTerminationProof(proofGate.promise);
+        });
+
+        expect(localProofs).toHaveLength(1);
+        expect(broker.getSnapshot().active).toBe(1);
+        proofGate.resolve(true);
+        await expect(localProofs[0]).resolves.toBe(false);
+        await flushMicrotasks();
+        // Mapped proof resolved false (unproven), so the lease stays retained.
+        expect(broker.getSnapshot().active).toBe(1);
     });
 
     it('keeps nested native-process leases admissible on the low tier', async () => {

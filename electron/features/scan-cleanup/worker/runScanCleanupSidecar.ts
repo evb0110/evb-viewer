@@ -30,7 +30,9 @@ import {
 } from '@electron/features/scan-cleanup/native/protocolCodec';
 import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand';
 import {
-    chainTerminationProofSink,
+    chainJobBrokerRunContext,
+    mergeTerminationProofSinks,
+    type IJobBrokerRunContext,
     type TTerminationProofSink,
 } from '@electron/resources/jobBroker';
 import {createScanCleanupSidecarProtocolHandler} from '@evb/scan-cleanup/core/createScanCleanupSidecarProtocolHandler';
@@ -58,7 +60,9 @@ interface IRunScanCleanupSidecarOptions {
     onRecoveryPending?: (recovery: Promise<boolean>) => void | Promise<void>;
     /** Receives additive metadata from a terminal `result` success envelope. */
     onResult?: (result: {documentInkPrior?: TNativeScanCleanupDocumentInkPriorV3}) => void | Promise<void>;
-    /** Owning broker lease proof sink so the sidecar runs under that lease. */
+    /** Owning broker run context so the sidecar runs under that lease. */
+    brokerRun?: IJobBrokerRunContext;
+    /** Optional termination-proof sink when no broker run context is attached. */
     onTerminationProof?: TTerminationProofSink;
 }
 
@@ -408,6 +412,23 @@ async function streamScanCleanupSidecar(
     signal.addEventListener('abort', handleAbort, {once: true});
     if (signal.aborted) handleAbort();
 
+    const recordSidecarProof: TTerminationProofSink = (proof) => {
+        terminationAttempted = true;
+        void proof.then(terminated => {
+            terminationConfirmed = terminated;
+            if (terminated) {
+                void replayPublicationJournal(true);
+            }
+        });
+    };
+    const scopedBrokerRun = chainJobBrokerRunContext(
+        chainJobBrokerRunContext(options.brokerRun, options.onTerminationProof),
+        recordSidecarProof,
+    );
+    const directProofSink = scopedBrokerRun === undefined
+        ? mergeTerminationProofSinks(options.onTerminationProof, recordSidecarProof)
+        : undefined;
+
     try {
         await runNativeToolCommand(binaryPath, args, {
             signal: processAbort.signal,
@@ -440,15 +461,11 @@ async function streamScanCleanupSidecar(
                     void replayPublicationJournal(true);
                 }
             },
-            onTerminationProof: chainTerminationProofSink(options.onTerminationProof, proof => {
-                terminationAttempted = true;
-                void proof.then(terminated => {
-                    terminationConfirmed = terminated;
-                    if (terminated) {
-                        void replayPublicationJournal(true);
-                    }
-                });
-            }),
+            ...(scopedBrokerRun !== undefined
+                ? {brokerRun: scopedBrokerRun}
+                : directProofSink === undefined
+                    ? {}
+                    : {onTerminationProof: directProofSink}),
             log,
         });
         await consumeProgress;

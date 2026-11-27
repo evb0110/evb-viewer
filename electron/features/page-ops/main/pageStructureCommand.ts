@@ -1,6 +1,7 @@
 import {writeFile} from 'fs/promises';
 import {join} from 'path';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
+import type { IJobBrokerRunContext } from '@electron/resources/jobBroker';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { usingManagedScratchScope } from '@electron/utils/managedScratchTemp';
 import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/resolveNativePageOpsPath';
@@ -9,6 +10,7 @@ import { QPDF_TIMEOUT_MS } from '@electron/pdf/pdfPageCount';
 export interface IPageStructureOptions {
     signal?: AbortSignal;
     cancelGroup?: string;
+    brokerRun?: IJobBrokerRunContext;
 }
 
 type TPageStructureCommand = 'delete-pages' | 'extract-pages' | 'reorder-pages' | 'insert-pages' | 'merge-pages';
@@ -53,6 +55,7 @@ export async function runPageStructureCommand(
             commandLabel: `pdf-page-ops(${command})`,
             ...(options.signal ? {signal: options.signal} : {}),
             ...(options.cancelGroup ? {cancelGroup: options.cancelGroup} : {}),
+            ...(options.brokerRun ? {brokerRun: options.brokerRun} : {}),
         });
     });
 }

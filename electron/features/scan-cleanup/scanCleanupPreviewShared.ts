@@ -48,9 +48,11 @@ import type { atomicReplace } from '@electron/utils/atomicReplace';
 import type {
     renderPdfPageToPng,
     renderPdfPageToPpm,
+    TElectronRenderPdfPage,
     TWorkerLog,
 } from '@electron/features/ocr/publicNative';
 import type {createScanCleanupRasterBatchRenderer} from '@electron/features/scan-cleanup/createScanCleanupRasterBatchRenderer';
+import type {runScanCleanupSidecar} from '@electron/features/scan-cleanup/worker/runScanCleanupSidecar';
 
 import type {IScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cleanup/scanCleanupPreviewPolicy';
 
@@ -59,14 +61,14 @@ import type {IScanCleanupRasterAdmissionPolicy} from '@electron/features/scan-cl
 
 
 import type {
+    IDetectedPageRaster,
     IPdfMrcLayers,
     IScanCleanupDetectionResultStore,
     IScanCleanupPageRasterSource,
-    TScanCleanupRenderPage,
-    TScanCleanupRunSidecar,
 } from '@evb/scan-cleanup/core/types';
 import {
-    chainTerminationProofSink,
+    chainJobBrokerRunContext,
+    type IJobBrokerRunContext,
     type TTerminationProofSink,
 } from '@electron/resources/jobBroker';
 
@@ -146,6 +148,13 @@ export interface IRetainedDocument {
     // rasters would otherwise sit on the shared sheet at two resolutions, so a
     // preview that promises lossless needs the same answer the run will reach.
     rasterPageSource: Promise<IScanCleanupPageRasterSource> | null;
+    rasterPageSourceReader?: ((
+        pageNumber: number,
+        caller?: {
+            brokerRun?: IJobBrokerRunContext;
+            signal: AbortSignal;
+        },
+    ) => Promise<IDetectedPageRaster | undefined>) | null;
     rasterPageSourceStore: IPdfPageSizeStore | null;
     // Every preview needs the document's preview DPI and whether all of its
     // pages carry raster metadata. Both are revision facts: one geometry pass
@@ -193,8 +202,17 @@ export interface IScanCleanupRasterRetention {
     ): Promise<IRetainedDocument>;
     pageCount(document: IRetainedDocument, signal: AbortSignal): Promise<number>;
     pageSizeStore(document: IRetainedDocument, signal: AbortSignal): Promise<IPdfPageSizeStore>;
-    sourceDpi(document: IRetainedDocument, pageNumber: number, signal: AbortSignal): Promise<number | null>;
-    rasterPageSource(document: IRetainedDocument, signal: AbortSignal): Promise<IScanCleanupPageRasterSource>;
+    sourceDpi(
+        document: IRetainedDocument,
+        pageNumber: number,
+        signal: AbortSignal,
+        brokerRun?: IJobBrokerRunContext,
+    ): Promise<number | null>;
+    rasterPageSource(
+        document: IRetainedDocument,
+        signal: AbortSignal,
+        brokerRun?: IJobBrokerRunContext,
+    ): Promise<IScanCleanupPageRasterSource>;
     rasterScratchPath(document: IRetainedDocument, pageNumber: number, dpi: number): Promise<string>;
     stagedRasterPath(document: IRetainedDocument, pageNumber: number, dpi: number): Promise<string>;
     releaseRaster(
@@ -429,16 +447,22 @@ export interface IScanCleanupPreviewDependencies {
     renderPage: typeof renderPdfPageToPng;
     renderPagePpm: typeof renderPdfPageToPpm;
     renderPageBatch?: ReturnType<typeof createScanCleanupRasterBatchRenderer>;
-    runSidecar: TScanCleanupRunSidecar;
+    runSidecar: typeof runScanCleanupSidecar;
     resolveBinary: () => string | null;
     resolvePageOpsBinary: () => string | null;
     getTempDir: () => string;
     getPdftoppmBinary: () => string;
-    detectSourceDpi?: (sourcePdfPath: string, pageNumber: number, signal: AbortSignal) => Promise<number | null>;
+    detectSourceDpi?: (
+        sourcePdfPath: string,
+        pageNumber: number,
+        signal: AbortSignal,
+        brokerRun?: IJobBrokerRunContext,
+    ) => Promise<number | null>;
     detectRasterPages?: (
         sourcePdfPath: string,
         signal: AbortSignal,
         pageNumbers?: readonly number[],
+        brokerRun?: IJobBrokerRunContext,
     ) => Promise<IScanCleanupPageRasterSource>;
     /** Whether bounded pdfimages probes can distinguish raster from vector pages. */
     isRasterDetectionAvailable?: () => boolean;
@@ -449,14 +473,14 @@ export interface IScanCleanupPreviewDependencies {
         backgroundOutputPath: string,
         signal: AbortSignal,
         log: TWorkerLog,
-        onTerminationProof?: TTerminationProofSink,
+        brokerRun?: IJobBrokerRunContext,
     ) => Promise<IPdfMrcLayers | null>;
     runWithDetectionLease?: <T>(
         jobId: string,
         signal: AbortSignal,
         rasterPolicy: IScanCleanupRasterAdmissionPolicy,
         options: IScanCleanupOptions | undefined,
-        work: (onTerminationProof?: TTerminationProofSink) => Promise<T>,
+        work: (brokerRun?: IJobBrokerRunContext) => Promise<T>,
     ) => Promise<T>;
     runWithPreviewLease?: <T>(
         ownerId: string,
@@ -464,7 +488,7 @@ export interface IScanCleanupPreviewDependencies {
         signal: AbortSignal,
         options: IScanCleanupOptions | undefined,
         rasterMaxPixels: number | undefined,
-        work: (onTerminationProof?: TTerminationProofSink) => Promise<T>,
+        work: (brokerRun?: IJobBrokerRunContext) => Promise<T>,
     ) => Promise<T>;
     getSourceStatIdentity?: (sourcePdfPath: string) => Promise<string>;
     materializeWorkingCopy: typeof ensureWorkingCopyMaterialized;
@@ -509,17 +533,28 @@ export type IScanCleanupRenderingDependencies = Pick<IScanCleanupPreviewDependen
     | 'isRasterDetectionAvailable' | 'getSourceStatIdentity' | 'materializeWorkingCopy' | 'materializeRequest' | 'readFile'
     | 'stat' | 'getAvailableScratchBytes' | 'fileSystem'> & {nativeAllowedPathRoot?: string;};
 
-function chainProof(
-    outer: TTerminationProofSink,
-    inner: TTerminationProofSink | undefined,
-): TTerminationProofSink {
-    return inner === undefined ? outer : chainTerminationProofSink(outer, inner);
+function mergeBoundBrokerRun(
+    outer: IJobBrokerRunContext,
+    innerBrokerRun: IJobBrokerRunContext | undefined,
+    innerProof?: TTerminationProofSink,
+): IJobBrokerRunContext {
+    if (
+        innerBrokerRun !== undefined
+        && innerBrokerRun.broker === outer.broker
+        && innerBrokerRun.lease === outer.lease
+    ) {
+        return chainJobBrokerRunContext(innerBrokerRun, innerProof);
+    }
+    return chainJobBrokerRunContext(
+        chainJobBrokerRunContext(outer, innerBrokerRun?.onTerminationProof),
+        innerProof,
+    );
 }
 
 /**
- * Binds an owning broker lease's proof sink onto every native-spawning
- * dependency of a detection or preview run so nested commands run under that
- * lease rather than competing for the broker's single leaf escape slot.
+ * Binds an owning broker run context onto every native-spawning dependency of
+ * a detection or preview run so nested commands run under that lease rather
+ * than competing for the broker's single leaf escape slot.
  */
 export function bindScanCleanupTerminationProof<
     TDeps extends Pick<
@@ -531,12 +566,12 @@ export function bindScanCleanupTerminationProof<
     >>,
 >(
     dependencies: TDeps,
-    onTerminationProof: TTerminationProofSink | undefined,
+    brokerRun: IJobBrokerRunContext | undefined,
 ): TDeps {
-    if (onTerminationProof === undefined) {
+    if (brokerRun === undefined) {
         return dependencies;
     }
-    const wrapRenderPage = (render: TScanCleanupRenderPage): TScanCleanupRenderPage => (
+    const wrapRenderPage = (render: TElectronRenderPdfPage): TElectronRenderPdfPage => (
         paths,
         log,
         pageNumber,
@@ -550,6 +585,7 @@ export function bindScanCleanupTerminationProof<
         renderBox,
         annotations,
         innerProof,
+        innerBrokerRun,
     ) => render(
         paths,
         log,
@@ -563,7 +599,8 @@ export function bindScanCleanupTerminationProof<
         limits,
         renderBox,
         annotations,
-        chainProof(onTerminationProof, innerProof),
+        innerProof,
+        mergeBoundBrokerRun(brokerRun, innerBrokerRun),
     );
     return {
         ...dependencies,
@@ -572,10 +609,17 @@ export function bindScanCleanupTerminationProof<
         ...(dependencies.renderPageBatch === undefined
             ? {}
             : {
-                renderPageBatch: input => dependencies.renderPageBatch!({
-                    ...input,
-                    onTerminationProof: chainProof(onTerminationProof, input.onTerminationProof),
-                }),
+                renderPageBatch: input => {
+                    const {
+                        onTerminationProof: innerProof,
+                        brokerRun: innerBrokerRun,
+                        ...restInput
+                    } = input;
+                    return dependencies.renderPageBatch!({
+                        ...restInput,
+                        brokerRun: mergeBoundBrokerRun(brokerRun, innerBrokerRun, innerProof),
+                    });
+                },
             }),
         ...(dependencies.extractMrcLayers === undefined
             ? {}
@@ -587,7 +631,7 @@ export function bindScanCleanupTerminationProof<
                     backgroundOutputPath,
                     signal,
                     log,
-                    innerProof,
+                    innerBrokerRun,
                 ) => dependencies.extractMrcLayers!(
                     sourcePdfPath,
                     pageNumber,
@@ -595,21 +639,28 @@ export function bindScanCleanupTerminationProof<
                     backgroundOutputPath,
                     signal,
                     log,
-                    chainProof(onTerminationProof, innerProof),
+                    mergeBoundBrokerRun(brokerRun, innerBrokerRun),
                 ),
             }),
-        runSidecar: (binaryPath, manifestPath, signal, log, onProgress, options) => dependencies.runSidecar(
-            binaryPath,
-            manifestPath,
-            signal,
-            log,
-            onProgress,
-            {
-                allowedPathRoot: dependencies.nativeAllowedPathRoot ?? dependencies.getTempDir(),
-                ...options,
-                onTerminationProof: chainProof(onTerminationProof, options?.onTerminationProof),
-            },
-        ),
+        runSidecar: (binaryPath, manifestPath, signal, log, onProgress, options) => {
+            const {
+                onTerminationProof: innerProof,
+                brokerRun: innerBrokerRun,
+                ...restOptions
+            } = options ?? {};
+            return dependencies.runSidecar(
+                binaryPath,
+                manifestPath,
+                signal,
+                log,
+                onProgress,
+                {
+                    allowedPathRoot: dependencies.nativeAllowedPathRoot ?? dependencies.getTempDir(),
+                    ...restOptions,
+                    brokerRun: mergeBoundBrokerRun(brokerRun, innerBrokerRun, innerProof),
+                },
+            );
+        },
     };
 }
 

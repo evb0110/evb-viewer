@@ -10,9 +10,15 @@ import {runNativeToolCommand} from '@electron/native-tools/runNativeToolCommand'
 import {isAbortError} from '@electron/utils/abort';
 import {getErrorMessage} from '@electron/utils/error';
 import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
-import {chainTerminationProofSink} from '@electron/resources/jobBroker';
+import {
+    chainJobBrokerRunContext,
+    type IJobBrokerRunContext,
+} from '@electron/resources/jobBroker';
 import {createScanCleanupRenderers} from '@evb/scan-cleanup/adapters/createScanCleanupRenderers';
-import type {IScanCleanupRasterRenderLimits} from '@evb/scan-cleanup/core/types';
+import type {
+    IScanCleanupRasterRenderLimits,
+    TScanCleanupRenderPage,
+} from '@evb/scan-cleanup/core/types';
 export {buildPopplerEnv} from '@electron/native-tools/buildPopplerEnv';
 
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
@@ -24,12 +30,45 @@ export interface IPreparedPopplerPdf {
     warnings: string[];
 }
 
-const renderers = createScanCleanupRenderers(runNativeToolCommand, {
-    maxDimensionPx: OCR_MAX_RASTER_DIMENSION_PX,
-    maxPixels: OCR_MAX_RASTER_PIXELS,
-}, error => getUnprovenNativeTerminationDetail(error) !== undefined, chainTerminationProofSink);
-export const renderPdfPageToPng = renderers.renderPage;
-export const renderPdfPageToPpm = renderers.renderPagePpm;
+function createPopplerRenderers(brokerRun?: IJobBrokerRunContext) {
+    const runCommand: typeof runNativeToolCommand = brokerRun === undefined
+        ? runNativeToolCommand
+        : (command, args, options) => {
+            const {
+                onTerminationProof: innerProof,
+                ...restOptions
+            } = options ?? {};
+            return runNativeToolCommand(command, args, {
+                ...restOptions,
+                brokerRun: chainJobBrokerRunContext(brokerRun, innerProof),
+            });
+        };
+    return createScanCleanupRenderers(runCommand, {
+        maxDimensionPx: OCR_MAX_RASTER_DIMENSION_PX,
+        maxPixels: OCR_MAX_RASTER_PIXELS,
+    }, error => getUnprovenNativeTerminationDetail(error) !== undefined);
+}
+
+const defaultRenderers = createPopplerRenderers();
+
+export type TElectronRenderPdfPage = (
+    ...args: [
+        ...Parameters<TScanCleanupRenderPage>,
+        brokerRun?: IJobBrokerRunContext,
+    ]
+) => Promise<void>;
+
+export const renderPdfPageToPng: TElectronRenderPdfPage = (...args) => {
+    const brokerRun = args[13];
+    const baseArgs = args.slice(0, 13) as Parameters<TScanCleanupRenderPage>;
+    return (brokerRun === undefined ? defaultRenderers : createPopplerRenderers(brokerRun)).renderPage(...baseArgs);
+};
+
+export const renderPdfPageToPpm: TElectronRenderPdfPage = (...args) => {
+    const brokerRun = args[13];
+    const baseArgs = args.slice(0, 13) as Parameters<TScanCleanupRenderPage>;
+    return (brokerRun === undefined ? defaultRenderers : createPopplerRenderers(brokerRun)).renderPagePpm(...baseArgs);
+};
 
 // Most PDFs are directly readable by Poppler. Keep normalization as repair,
 // not a full-document copy paid by every single-page OCR request. The engine

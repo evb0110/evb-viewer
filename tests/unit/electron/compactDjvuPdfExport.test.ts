@@ -531,9 +531,9 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             _processId: string,
             _command: string,
             _args: string[],
-            options?: {onTerminationProof?: (proof: Promise<boolean>) => void},
+            options?: {brokerRun?: {onTerminationProof?: (proof: Promise<boolean>) => void}},
         ) => {
-            options?.onTerminationProof?.(combinerGone.promise);
+            options?.brokerRun?.onTerminationProof?.(combinerGone.promise);
             return {
                 success: false,
                 error: 'DjVu conversion canceled',
