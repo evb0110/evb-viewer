@@ -41,17 +41,19 @@ export type TTranslationKey = TTranslationKeyFromNode<TBaseLocaleSchema>;
 
 export type TTranslationParams<TKey extends TTranslationKey> = TTranslationParamsFromSchema<TBaseLocaleSchema, TKey>;
 
-type TAllowsCountShortcut<TParams> = [TParams] extends [never]
+type TAllowsCountShortcut<TKey extends TTranslationKey> = [TKey] extends [never]
     ? false
-    : TParams extends { count: number }
-        ? [Exclude<keyof TParams, 'count'>] extends [never]
-            ? true
+    : TKey extends unknown
+        ? TTranslationParams<TKey> extends { count: number }
+            ? [Exclude<keyof TTranslationParams<TKey>, 'count'>] extends [never]
+                ? true
+                : false
             : false
-        : false;
+        : never;
 
 export type TTranslateArgs<TKey extends TTranslationKey> = TTranslationParams<TKey> extends undefined
     ? [params?: undefined]
-    : TAllowsCountShortcut<TTranslationParams<TKey>> extends true
+    : [TAllowsCountShortcut<TKey>] extends [true]
         ? [params: TTranslationParams<TKey> | number]
         : [params: TTranslationParams<TKey>];
 

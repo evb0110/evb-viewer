@@ -252,6 +252,19 @@ interface IFeatureInput<TMethodMap extends TMethods, TEventMap extends TEvents> 
     events?: TEventMap;
 }
 
+type TPublicIpcMethodArgs<TSpec extends IPlatformIpcMethodSpec> =
+    'client' extends keyof TSpec
+        ? undefined extends TSpec['client']
+            ? [NonNullable<TSpec['client']>] extends [never]
+                ? Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
+                : NonNullable<TSpec['client']> extends {mapArgs: (...args: infer TArgs) => unknown}
+                    ? TArgs & Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
+                    : Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
+            : TSpec['client'] extends {mapArgs: (...args: infer TArgs) => unknown}
+                ? TArgs
+                : Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
+        : Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>;
+
 type TPublicMethod<TSpec extends TPlatformMethodSpec> =
     TSpec extends IPlatformSyncMethodSpec<infer TArgs, infer TResult>
         ? (...args: v.InferOutput<TArgs>) => v.InferOutput<TResult>
@@ -261,9 +274,7 @@ type TPublicMethod<TSpec extends TPlatformMethodSpec> =
                 : v.InferOutput<TResult>
             : TSpec extends IPlatformIpcMethodSpec
                 ? (
-                    ...args: TSpec['client'] extends {mapArgs: (...args: infer TArgs) => unknown}
-                        ? TArgs
-                        : Extract<v.InferOutput<TSpec['ipc']['args']>, unknown[]>
+                    ...args: TPublicIpcMethodArgs<TSpec>
                 ) => TSpec['kind'] extends 'async'
                     ? Promise<v.InferOutput<TSpec['ipc']['result']>>
                     : v.InferOutput<TSpec['ipc']['result']>

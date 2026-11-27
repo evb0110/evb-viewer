@@ -269,3 +269,55 @@ export const swappedUnionFeature = definePlatformFeature({
         run: Math.random() > 0.5 ? swappedUnionA : swappedUnionB,
     },
 });
+
+const optionalReadonlyMapperSpec: {
+    readonly kind: 'async';
+    readonly channel: 'test:optional-readonly-mapper';
+    readonly ipc: {
+        readonly args: v.StrictTupleSchema<readonly [v.StringSchema<undefined>], undefined>;
+        readonly result: v.BooleanSchema<undefined>;
+    };
+    readonly client?: { readonly mapArgs: (page: number) => readonly [string] };
+    readonly main: {
+        readonly method: 'run';
+        readonly context: 'none';
+    };
+    readonly browser: { readonly method: 'run' };
+    readonly lazy: 'forwarded';
+} = {
+    kind: 'async',
+    channel: 'test:optional-readonly-mapper',
+    ipc: {
+        args: v.strictTuple([v.string()]),
+        result: v.boolean(),
+    },
+    client: {
+        mapArgs: (page: number): readonly [string] => [page.toFixed(0)],
+    },
+    main: {
+        method: 'run',
+        context: 'none',
+    },
+    browser: { method: 'run' },
+    lazy: 'forwarded',
+};
+
+const optionalReadonlyMapperFeature = definePlatformFeature({
+    path: ['testOptionalReadonlyMapper'],
+    required: {
+        browser: true,
+        electron: true,
+    },
+    methods: {
+        run: optionalReadonlyMapperSpec,
+    },
+});
+
+export function verifyOptionalReadonlyMapperCapability(
+    capability: TFeatureCapability<typeof optionalReadonlyMapperFeature>,
+) {
+    // @ts-expect-error optional client.mapArgs taking number must not expose string-only wire args
+    void capability.run('1');
+    // @ts-expect-error omitted client branch requires string wire args, so number is also unsafe
+    void capability.run(1);
+}

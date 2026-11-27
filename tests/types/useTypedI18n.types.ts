@@ -38,5 +38,25 @@ const mixedKey: 'toolbar.openPdf' | 'searchResults.resultCount' = Math.random() 
     ? 'toolbar.openPdf'
     : 'searchResults.resultCount';
 
+t(mixedKey, { count: 2 });
+
 // @ts-expect-error count shorthand must be rejected when a union key includes a plain message
 t(mixedKey, 2);
+
+// @ts-expect-error undefined params must be rejected when a union key includes a plural message
+t(mixedKey, undefined);
+
+const pluralUnionKey: 'searchResults.resultCount' | 'searchResults.pageWithCount' = Math.random() > 0.5
+    ? 'searchResults.resultCount'
+    : 'searchResults.pageWithCount';
+
+t(pluralUnionKey, {
+    count: 2,
+    page: 1,
+});
+
+// @ts-expect-error union of plural keys must still require placeholders from every branch
+t(pluralUnionKey, { count: 2 });
+
+// @ts-expect-error count shorthand must be rejected when any union branch requires extra placeholders
+t(pluralUnionKey, 2);
