@@ -1059,6 +1059,33 @@ it('#1609 explains at undo time that opened bytes could not be retained, while S
         .rejects.toThrow(/opened.*(?:retain|keep|available)|(?:retain|keep).*opened/iu);
 });
 
+it('saves an unchanged revision when a concurrent reader queues materialization before or during Save staging cleanup', async () => {
+    const {entry} = await openPdf();
+    const token = store.documentRevisionToken(entry);
+    expect(token).toBe('1');
+    expect(entry.doc.state().current).toBeNull();
+
+    // Queue a reader's materialize() while clearNextRevision() is executing inside doc.run,
+    // so Save resolves expectedId before materialize() finishes and enters doc.run behind it.
+    const realRun = entry.doc.run.bind(entry.doc);
+    let materializing: ReturnType<typeof entry.doc.materialize> | null = null;
+    let injected = false;
+    const runSpy = vi.spyOn(entry.doc, 'run').mockImplementation(task => realRun(async () => {
+        if (!injected) {
+            injected = true;
+            materializing = entry.doc.materialize();
+        }
+        return task();
+    }));
+    try {
+        const saving = store.saveOpenDocument(entry, token);
+        expect(await saving).toMatchObject({status: 'saved', revision: {id: 1}});
+        expect(await materializing).toMatchObject({id: 1});
+    } finally {
+        runSpy.mockRestore();
+    }
+});
+
 describe('pinned document revisions', () => {
     const APPENDED = new TextEncoder().encode('1 0 obj\n<< /Appended true >>\nendobj\n%%EOF\n');
     const REDONE = new TextEncoder().encode('1 0 obj\n<< /Other append >>\nendobj\n%%EOF\n');

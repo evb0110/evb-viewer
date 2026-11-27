@@ -1244,4 +1244,114 @@ describe('browser recovery diagnostics', () => {
         expect(await repo.save(workingRef, rev2Token, {saveAs: 'handle:staged-recovery-copy'})).toMatchObject({status: 'saved'});
         expect(new TextDecoder().decode(copyDisk.bytes)).toBe('%PDF-1.7 externally replaced +rescued');
     });
+
+    it('reports failed checkpoint naming honestly, retries after transient failure, and preserves an unnamed first byte edit for recovery', async () => {
+        const {store, repo, api} = await recovery();
+        const disk = {bytes: new TextEncoder().encode('%PDF-1.7 original'), lastModified: 1_000};
+        const handle = createFileSystemFileHandle({
+            name: 'first-edit.pdf',
+            getFile: async () => new File([disk.bytes], 'first-edit.pdf', {lastModified: disk.lastModified}),
+        });
+        const sourceRef = await repo.registerFile(new File([disk.bytes], 'first-edit.pdf', {lastModified: disk.lastModified}), {saveHandle: handle});
+        const workingRef = await repo.cloneAsWorkingCopy(sourceRef);
+        const entry = await repo.requireEntry(workingRef);
+        const docId = entry.doc!.id;
+        const originalToken = repo.tokenOf(entry);
+
+        let failCheckpoints = true;
+        const writeAtomic = store.port.writeAtomic.bind(store.port);
+        vi.spyOn(store.port, 'writeAtomic').mockImplementation(async (target, bytes) => {
+            if (failCheckpoints && target.startsWith('workspaces/')) {
+                throw new DOMException('Injected checkpoint write failure', 'QuotaExceededError');
+            }
+            return writeAtomic(target, bytes);
+        });
+
+        const namingOutcomes: boolean[] = [];
+        repo.onDirectoryEdited = async (directory) => {
+            try {
+                const persisted = await api.nameBrowserWorkspaceDirectory('window-fault', directory);
+                namingOutcomes.push(persisted);
+                return persisted;
+            } catch {
+                namingOutcomes.push(false);
+                return false;
+            }
+        };
+
+        // First byte edit succeeds even when checkpoint naming fails, and naming acknowledges `false`.
+        const lease = await repo.stageAppend(workingRef, originalToken, async (file, base) => {
+            const extra = new TextEncoder().encode(' +first-byte-edit');
+            await file.writeAt(base, extra);
+            return base + extra.byteLength;
+        });
+        expect(lease).not.toBeNull();
+        await repo.commitAppend(workingRef, originalToken, lease!);
+        expect(namingOutcomes).toEqual([false]);
+        const snap = entry.doc!.snapshot();
+        expect(snap.next).toBe(3);
+        expect(snap.drafts).toBeUndefined();
+        expect(snap.pendingPublish).toBeUndefined();
+        expect(snap.unsettled).toBeUndefined();
+        expect(await store.port.list('workspaces')).toEqual([]);
+
+        // Once the transient checkpoint fault clears, a subsequent naming call retries and persists.
+        failCheckpoints = false;
+        expect(await repo.nameEdited(entry)).toBe(true);
+        expect(namingOutcomes).toEqual([false, true]);
+        const checkpointsAfterRetry = await readWorkspaceCheckpoints(store.port);
+        expect(Object.values(checkpointsAfterRetry.get('window-fault')?.tabs ?? {}).map(tab => tab.directory)).toContain(docId);
+
+        // Even with all checkpoints removed (simulating crash while checkpoint write was failing), recovery preserves the first byte edit.
+        await removeWorkspaceCheckpoint(store.port, 'window-fault');
+        await repo.release(workingRef);
+        const claimed = await api.claimBrowserWorkspaceCheckpoint('recovery-window');
+        expect(claimed?.tabs.some(tab => tab.workingCopyRef === workingRef)).toBe(true);
+        expect(new TextDecoder().decode(await repo.read(workingRef))).toBe('%PDF-1.7 original +first-byte-edit');
+    });
+
+    it('keeps every recovered unsaved tab named in the checkpoint across consecutive reloads without duplicating tabs', async () => {
+        const {store, repo, api} = await recovery();
+        const windowId = 'reload-two-tabs';
+        const refA = createBrowserDocumentRef('first.pdf', 'dir-a');
+        const refB = createBrowserDocumentRef('second.pdf', 'dir-b');
+        const docA = await createDocument(store, {id: 'dir-a', name: 'first.pdf', source: new Blob(['%PDF-1.7 A'])});
+        const docB = await createDocument(store, {id: 'dir-b', name: 'second.pdf', source: new Blob(['%PDF-1.7 B'])});
+        await docA.close();
+        await docB.close();
+        const layout = {
+            version: 1,
+            capturedAt: 1_000,
+            activePaneId: 'pane-1',
+            activeTabId: 'tab-a',
+            layout: {type: 'leaf', paneId: 'pane-1'},
+            panes: [{paneId: 'pane-1', tabIds: ['tab-a', 'tab-b'], activeTabId: 'tab-a'}],
+            tabs: [
+                {tabId: 'tab-a', paneId: 'pane-1', fileName: 'first.pdf', sourceRef: refA, workingCopyRef: refA, isDirty: true, isDjvu: false, currentPage: null, zoom: null, zoomMode: null},
+                {tabId: 'tab-b', paneId: 'pane-1', fileName: 'second.pdf', sourceRef: refB, workingCopyRef: refB, isDirty: true, isDjvu: false, currentPage: null, zoom: null, zoomMode: null},
+            ],
+        };
+        await writeWorkspaceCheckpoint(store.port, windowId, {
+            tabs: {
+                'dir-a': {directory: 'dir-a', view: null},
+                'dir-b': {directory: 'dir-b', view: null},
+            },
+            layout,
+        });
+
+        repo.onDirectoryEdited = directory => api.nameBrowserWorkspaceDirectory(windowId, directory);
+        const firstClaim = await api.claimBrowserWorkspaceCheckpoint(windowId);
+        expect(firstClaim?.tabs.map(tab => tab.workingCopyRef)).toEqual([refA, refB]);
+        const afterFirstClaim = (await readWorkspaceCheckpoints(store.port)).get(windowId);
+        expect(Object.values(afterFirstClaim?.tabs ?? {}).map(tab => tab.directory).sort()).toEqual(['dir-a', 'dir-b']);
+        await api.saveBrowserWorkspaceCheckpoint(windowId, firstClaim!);
+        await Promise.all([repo.release(refA), repo.release(refB)]);
+
+        // Second reload in a fresh module instance must recover each tab exactly once.
+        vi.resetModules();
+        const second = await recovery();
+        second.repo.onDirectoryEdited = directory => second.api.nameBrowserWorkspaceDirectory(windowId, directory);
+        const secondClaim = await second.api.claimBrowserWorkspaceCheckpoint(windowId);
+        expect(secondClaim?.tabs.map(tab => tab.workingCopyRef)).toEqual([refA, refB]);
+    });
 });

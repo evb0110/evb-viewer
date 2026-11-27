@@ -458,14 +458,19 @@ async function holdCurrentWindowLock() {
     }
 }
 
-async function nameInWindowCheckpoint(directory: string) {
+async function nameInWindowCheckpoint(directory: string): Promise<boolean> {
     const windowId = await holdCurrentWindowLock();
-    if (windowId) await nameBrowserWorkspaceDirectory(windowId, directory);
+    if (!windowId) return false;
+    return nameBrowserWorkspaceDirectory(windowId, directory);
 }
 
 // The window's checkpoint names a document directory before its first edit, as desktop's does.
+// Returns `false` honestly when the checkpoint write fails or no durable store/window is held.
 browserDocumentStore.onDirectoryEdited = directory => nameInWindowCheckpoint(directory)
-    .catch(error => BrowserLogger.warn('workspace-recovery', 'Failed to name a document in the window checkpoint', error));
+    .catch((error) => {
+        BrowserLogger.warn('workspace-recovery', 'Failed to name a document in the window checkpoint', error);
+        return false;
+    });
 
 export const browserWindowTabsCapability: IWindowTabsCapability = {
     browserRecovery: {

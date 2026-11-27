@@ -285,36 +285,76 @@ export async function hasBrowserWorkspaceCheckpoint(windowId: string) {
 
 /** Every store directory this page edited or took with unsaved work. Its window's checkpoint names them all, so a crash cannot leave that work unnamed. */
 const namedDirectories = new Set<string>();
+/** Directories whose naming has durably landed in `persistedWindowId`'s checkpoint. */
+const persistedNamedDirectories = new Set<string>();
+/** Directories included in an in-flight checkpoint write for `persistedWindowId`. */
+const pendingNamedDirectories = new Set<string>();
+let persistedWindowId: string | null = null;
 /** This window's checkpoint as the page found it, named on until the page has claimed what it restores. */
 let startCheckpoint: Promise<ICoreWorkspaceCheckpoint | null | undefined> | null = null;
 /** The layout this page recorded last. */
 let layout: ReturnType<typeof toStoredWorkspaceCheckpoint> | null = null;
-let written = Promise.resolve();
+let written: Promise<boolean> = Promise.resolve(false);
 
 /** Writes this window's checkpoint: the directories it names, then the layout last recorded. One write at a time. */
-function writeWindowCheckpoint(windowId: string) {
-    written = written.catch(() => undefined).then(async () => {
+function writeWindowCheckpoint(windowId: string): Promise<boolean> {
+    if (persistedWindowId !== windowId) {
+        persistedWindowId = windowId;
+        persistedNamedDirectories.clear();
+        pendingNamedDirectories.clear();
+    }
+    const run = written.catch(() => false).then(async () => {
         const {durable} = await browserDocumentStore.stores();
-        if (!durable) return;
-        startCheckpoint ??= readWorkspaceCheckpoints(durable.port).then(checkpoints => checkpoints.get(windowId));
-        const start = await startCheckpoint;
-        const directories = new Set([...namesOf(start), ...namedDirectories]);
-        if (directories.size === 0) {
-            await removeWorkspaceCheckpoint(durable.port, windowId);
-            return;
+        const included = [...namedDirectories];
+        if (!durable) {
+            for (const directory of included) pendingNamedDirectories.delete(directory);
+            return false;
         }
-        await writeWorkspaceCheckpoint(durable.port, windowId, {
-            tabs: Object.fromEntries([...directories].map(directory => [directory, {directory, view: null}])),
-            layout: layout ?? start?.layout ?? null,
-        });
+        try {
+            startCheckpoint ??= readWorkspaceCheckpoints(durable.port)
+                .then(checkpoints => checkpoints.get(windowId))
+                .catch((error: unknown) => {
+                    startCheckpoint = null;
+                    throw error;
+                });
+            const start = await startCheckpoint;
+            const directories = new Set([...namesOf(start), ...included]);
+            if (directories.size === 0) {
+                await removeWorkspaceCheckpoint(durable.port, windowId);
+                persistedNamedDirectories.clear();
+                return true;
+            }
+            await writeWorkspaceCheckpoint(durable.port, windowId, {
+                tabs: Object.fromEntries([...directories].map(directory => [directory, {directory, view: null}])),
+                layout: layout ?? start?.layout ?? null,
+            });
+            if (persistedWindowId === windowId) {
+                for (const directory of included) persistedNamedDirectories.add(directory);
+            }
+            return true;
+        } finally {
+            for (const directory of included) pendingNamedDirectories.delete(directory);
+        }
     });
-    return written;
+    written = run;
+    return run;
 }
 
-/** Names a directory in this window's checkpoint before its first edit; a named one waits for the last write, and fails with it. */
-export function nameBrowserWorkspaceDirectory(windowId: string, directory: string) {
-    if (namedDirectories.has(directory)) return written;
+/** Names a directory in this window's checkpoint before its first edit; retries if a prior write failed. */
+export function nameBrowserWorkspaceDirectory(windowId: string, directory: string): Promise<boolean> {
+    if (persistedWindowId === windowId && namedDirectories.has(directory) && persistedNamedDirectories.has(directory)) {
+        return Promise.resolve(true);
+    }
+    if (persistedWindowId === windowId && namedDirectories.has(directory) && pendingNamedDirectories.has(directory)) {
+        return written;
+    }
     namedDirectories.add(directory);
+    if (persistedWindowId !== windowId) {
+        persistedWindowId = windowId;
+        persistedNamedDirectories.clear();
+        pendingNamedDirectories.clear();
+    }
+    pendingNamedDirectories.add(directory);
     return writeWindowCheckpoint(windowId);
 }
 

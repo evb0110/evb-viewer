@@ -34,6 +34,10 @@ import {
     type TDraftsAfter,
 } from '@document-store/documentDirectory';
 import { createNodeStorePort } from '@document-store/nodeStorePort';
+import {
+    createRevisionTokenCodec,
+    OpenDocument,
+} from '@document-store/openDocument';
 import { saveDocument } from '@document-store/saveDocument';
 import type {
     IStoreFile,
@@ -874,13 +878,13 @@ describe('workspace checkpoints and collection', () => {
             create(store(), { ext: 'pdf', destination }),
             create(store(), { ext: 'pdf', destination }),
             create(store(), { ext: 'pdf', destination }),
-            create(store(), { ext: 'pdf', source: new Blob(['new']) }),
+            create(store(), { ext: 'pdf', source: new Blob(['new']), openOnly: true }),
             create(store(), { ext: 'pdf', destination }),
             create(store(), { ext: 'pdf', source: new Blob(['new']) }),
             create(store(), { ext: 'pdf', source: new Blob(['new']) }),
         ]);
-        // An open's own rewrite (decrypting, normalizing) leaves an unnamed directory that only an open made.
-        await decrypted.mutate(null, rewrite('decrypted'));
+        // An open's own rewrite (decrypting, normalizing) marks itself `openOnly`, so an interrupted open can be collected.
+        await decrypted.mutate(null, { ...rewrite('decrypted'), openOnly: true });
         await drafted.setDrafts(1, { note: 'committed before any checkpoint named it' });
         await edited.mutate(1, append('+1'));
         await edited.mutate(2, append('+2'));
@@ -926,6 +930,106 @@ describe('workspace checkpoints and collection', () => {
         const watched: IStorePort = { ...port, remove: async target => (steps.push(`remove ${target}`), port.remove(target)) };
         await collectDocuments(store(watched), async id => (steps.push(`hold ${id}`), () => steps.push(`release ${id}`)));
         expect(steps).toEqual([`hold ${doc.id}`, `remove documents/${doc.id}`, `release ${doc.id}`]);
+    });
+
+    it('preserves an unnamed first byte edit (next: 3, no drafts, no publish) and older ambiguous dirty manifests when checkpoint naming fails', async () => {
+        const destination = path.join(workDir, 'paper.pdf');
+        await writeFile(destination, 'original-pdf');
+        const port = createNodeStorePort(root);
+        const docStore = store(port);
+
+        // Fault-injected checkpoint write fails, yet the first byte edit still commits (next: 3, 0 drafts, 0 publish records).
+        const failingCheckpointPort: IStorePort = {
+            ...port,
+            writeAtomic: async (target, bytes) => {
+                if (target.startsWith('workspaces/')) throw new Error('Injected checkpoint write failure');
+                return port.writeAtomic(target, bytes);
+            },
+        };
+        const firstAppend = await create(docStore, { ext: 'pdf', destination });
+        await expect(writeWorkspaceCheckpoint(failingCheckpointPort, 'window-1', {
+            tabs: { [firstAppend.id]: { directory: firstAppend.id, view: null } },
+            layout: null,
+        })).rejects.toThrow('Injected checkpoint write failure');
+        await firstAppend.mutate(null, append('+first-edit'));
+        const firstAppendSnap = firstAppend.snapshot();
+        expect(firstAppendSnap.next).toBe(3);
+        expect(firstAppendSnap.drafts).toBeUndefined();
+        expect(firstAppendSnap.pendingPublish).toBeUndefined();
+        expect(firstAppendSnap.unsettled).toBeUndefined();
+        expect(firstAppendSnap.current?.openOnly).toBeUndefined();
+
+        const firstRewrite = await create(docStore, { ext: 'pdf', destination });
+        await firstRewrite.mutate(null, rewrite('first-rewrite'));
+
+        // A subsequent open-time repair on an already-edited document must never downgrade it to openOnly.
+        const repairedAfterEdit = await create(docStore, { ext: 'pdf', destination });
+        await repairedAfterEdit.mutate(null, append('+user-edit'));
+        await repairedAfterEdit.mutate(2, { ...rewrite('repaired-user-edit'), openOnly: true });
+        expect(repairedAfterEdit.snapshot().current?.openOnly).toBeUndefined();
+
+        // Older ambiguous dirty manifest from a previous build (no `openOnly` field, next: 3, no drafts/publish).
+        const legacyAmbiguous = await create(docStore, { ext: 'pdf', source: new Blob(['legacy-unsaved']) });
+        const openOnlyInterrupted = await create(docStore, { ext: 'pdf', destination });
+        await openOnlyInterrupted.mutate(null, { ...rewrite('decrypted-open-only'), openOnly: true });
+
+        await Promise.all([firstAppend, firstRewrite, repairedAfterEdit, legacyAmbiguous, openOnlyInterrupted].map(doc => doc.close()));
+
+        const result = await collectDocuments(docStore, async () => () => {});
+        expect(result.removed).toEqual([openOnlyInterrupted.id]);
+        expect(result.unsaved.sort()).toEqual([firstAppend.id, firstRewrite.id, repairedAfterEdit.id, legacyAmbiguous.id].sort());
+
+        const reopened = await open(docStore, firstAppend.id);
+        expect(await currentText(reopened)).toBe('original-pdf+first-edit');
+    });
+});
+
+describe('OpenDocument shared revision and append lifecycle', () => {
+    it('unifies numeric and browser revision token codecs, stale checks, staged appends, and restore', async () => {
+        const destination = path.join(workDir, 'shared.pdf');
+        await writeFile(destination, 'base');
+        const doc = await create(store(), { ext: 'pdf', destination });
+        const codec = createRevisionTokenCodec('browser');
+        const numeric = createRevisionTokenCodec('numeric');
+        let editNotified = 0;
+        let active = true;
+        const openDoc = new OpenDocument(doc, {
+            codec,
+            isActive: () => active,
+            beforeEdit: async () => { editNotified += 1; },
+        });
+
+        const rev1 = openDoc.token();
+        expect(rev1).toBe(`drt1:browser:${doc.id}:1`);
+        expect(codec.parseId(doc.id, rev1)).toBe(1);
+        expect(codec.parseId('other-doc', rev1)).toBe(-1);
+        expect(numeric.format(doc.id, 2)).toBe('2');
+        expect(numeric.parseId(doc.id, '2')).toBe(2);
+        expect(numeric.parseId(doc.id, 'bad')).toBe(-1);
+
+        expect(openDoc.checkRevision(null, { requireToken: true })).toMatchObject({ status: 'missing-revision' });
+        expect(openDoc.checkRevision(`drt1:browser:${doc.id}:9`)).toMatchObject({ status: 'stale-revision', actual: rev1 });
+
+        const staged = await openDoc.stageAppend(rev1, async (file, base) => {
+            await file.writeAt(base, encode('+staged'));
+            return base + 7;
+        }, { requireToken: true });
+        expect(staged).toMatchObject({ status: 'staged' });
+        if (staged.status !== 'staged') throw new Error('Expected staged append');
+        expect(openDoc.hasPendingAppend()).toBe(true);
+        const committed = await openDoc.commitAppend(rev1, staged.lease, { requireToken: true });
+        expect(committed).toMatchObject({ status: 'committed', revision: { id: 2 }, previousToken: rev1 });
+        expect(editNotified).toBe(1);
+        expect(await currentText(doc)).toBe('base+staged');
+
+        const rev2 = openDoc.token();
+        expect(rev2).toBe(`drt1:browser:${doc.id}:2`);
+        const restored = await openDoc.restore(rev2, rev1, { requireToken: true, ownCurrentFileAfterRestore: true });
+        expect(restored).toMatchObject({ status: 'committed', revision: { id: 1 }, previousToken: rev2, currentToken: rev1 });
+        expect(await currentText(doc)).toBe('base');
+
+        active = false;
+        expect(openDoc.checkRevision(rev1)).toMatchObject({ status: 'stale-revision' });
     });
 });
 
