@@ -1227,4 +1227,64 @@ mod protocol_schema_tests {
             .to_string()
             .contains("shape strokes exceed the 20000-point admission ceiling"));
     }
+
+    #[test]
+    fn multi_shape_payload_at_100000_points_deserializes_cleanly() {
+        let point = r#"{"x":0.2,"y":0.2}"#;
+        let stroke = format!(
+            "[{}]",
+            std::iter::repeat_n(point, MAX_SHAPE_MUTATION_POINTS)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let shape = format!(
+            r##"{{"type":"polyline","pageIndex":0,"x":0.1,"y":0.1,"width":0.3,"height":0.3,"color":"#336699","opacity":1,"strokeWidth":1,"pdfSubtype":"Ink","strokes":[{stroke}]}}"##,
+        );
+        let shapes = std::iter::repeat_n(shape.as_str(), 5)
+            .collect::<Vec<_>>()
+            .join(",");
+        let source = format!(
+            r#"{{"shapes":{{"totalPages":1,"rewriteShapeState":false,"shapes":[{shapes}],"deletedAnnotationIds":[],"deletedStableKeys":[]}}}}"#,
+        );
+
+        let parsed: NativeMutationsFile = serde_json::from_str(&source)
+            .expect("a 100,000-point multi-shape payload must deserialize cleanly");
+        let shapes_mutation = parsed.shapes.expect("shapes mutation must be present");
+        assert_eq!(shapes_mutation.shapes.len(), 5);
+        let total_points: usize = shapes_mutation
+            .shapes
+            .iter()
+            .flat_map(|item| item.strokes.iter())
+            .map(Vec::len)
+            .sum();
+        assert_eq!(total_points, 100_000);
+
+        // 5 shapes * (1 shape + 1 stroke + 19,998 points) = 100,000 sidecar items (exact admission ceiling).
+        let admissible_stroke = format!(
+            "[{}]",
+            std::iter::repeat_n(point, MAX_SHAPE_MUTATION_POINTS - 2)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let admissible_shape = format!(
+            r##"{{"type":"polyline","pageIndex":0,"x":0.1,"y":0.1,"width":0.3,"height":0.3,"color":"#336699","opacity":1,"strokeWidth":1,"pdfSubtype":"Ink","strokes":[{admissible_stroke}]}}"##,
+        );
+        let admissible_shapes = std::iter::repeat_n(admissible_shape.as_str(), 5)
+            .collect::<Vec<_>>()
+            .join(",");
+        let admissible_source = format!(
+            r#"{{"shapes":{{"totalPages":1,"rewriteShapeState":false,"shapes":[{admissible_shapes}],"deletedAnnotationIds":[],"deletedStableKeys":[]}}}}"#,
+        );
+        let admitted = input::read_native_mutations_bytes(admissible_source.as_bytes())
+            .expect("a 100,000-item multi-shape boundary payload must pass native admission");
+        let admitted_shapes = admitted.shapes.expect("admitted shapes must be present");
+        assert_eq!(admitted_shapes.shapes.len(), 5);
+        let admitted_points: usize = admitted_shapes
+            .shapes
+            .iter()
+            .flat_map(|item| item.strokes.iter())
+            .map(Vec::len)
+            .sum();
+        assert_eq!(admitted_points, 99_990);
+    }
 }
