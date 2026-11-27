@@ -119,13 +119,18 @@ export function isDirty(manifest: IManifest) {
         || (current !== undefined && !sameWitness(current.witness, manifest.baseline));
 }
 
+const isUnchangedBaselineCopy = (revision: IRevision, manifest: IManifest) => revision.id === 1
+    && revision.foreign === undefined
+    && revision.witness !== undefined
+    && sameWitness(revision.witness, manifest.baseline);
+
 /** Whether `manifest` has no user edits yet, so an open-time rewrite may still carry `openOnly: true`. */
 export function hasNoUserEdits(manifest: IManifest) {
     return manifest.drafts === undefined
         && manifest.pendingPublish === undefined
         && manifest.unsettled === undefined
-        && (manifest.current === undefined || manifest.current.openOnly === true)
-        && manifest.history.every(revision => !hasFile(revision) || revision.openOnly === true);
+        && (manifest.current === undefined || manifest.current.openOnly === true || isUnchangedBaselineCopy(manifest.current, manifest))
+        && manifest.history.every(revision => !hasFile(revision) || revision.openOnly === true || isUnchangedBaselineCopy(revision, manifest));
 }
 
 /**

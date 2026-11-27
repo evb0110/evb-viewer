@@ -1353,5 +1353,8 @@ describe('browser recovery diagnostics', () => {
         second.repo.onDirectoryEdited = directory => second.api.nameBrowserWorkspaceDirectory(windowId, directory);
         const secondClaim = await second.api.claimBrowserWorkspaceCheckpoint(windowId);
         expect(secondClaim?.tabs.map(tab => tab.workingCopyRef)).toEqual([refA, refB]);
+        expect(secondClaim?.tabs.every(tab => !tab.workingCopyLost)).toBe(true);
+        expect(new TextDecoder().decode(await second.repo.read(refA))).toBe('%PDF-1.7 A');
+        expect(new TextDecoder().decode(await second.repo.read(refB))).toBe('%PDF-1.7 B');
     });
 });

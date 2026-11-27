@@ -283,12 +283,8 @@ export async function hasBrowserWorkspaceCheckpoint(windowId: string) {
     return durable !== null && namesOf((await readWorkspaceCheckpoints(durable.port)).get(windowId)).some(id => unsaved.has(id));
 }
 
-/** Every store directory this page edited or took with unsaved work. Its window's checkpoint names them all, so a crash cannot leave that work unnamed. */
-const namedDirectories = new Set<string>();
-/** Directories whose naming has durably landed in `persistedWindowId`'s checkpoint. */
-const persistedNamedDirectories = new Set<string>();
-/** Directories included in an in-flight checkpoint write for `persistedWindowId`. */
-const pendingNamedDirectories = new Set<string>();
+/** Each directory this page named: `'persisted'` once written, its in-flight write promise, or `null` to retry. */
+const directoryNaming = new Map<string, 'persisted' | Promise<boolean> | null>();
 let persistedWindowId: string | null = null;
 /** This window's checkpoint as the page found it, named on until the page has claimed what it restores. */
 let startCheckpoint: Promise<ICoreWorkspaceCheckpoint | null | undefined> | null = null;
@@ -300,14 +296,16 @@ let written: Promise<boolean> = Promise.resolve(false);
 function writeWindowCheckpoint(windowId: string): Promise<boolean> {
     if (persistedWindowId !== windowId) {
         persistedWindowId = windowId;
-        persistedNamedDirectories.clear();
-        pendingNamedDirectories.clear();
+        for (const dir of directoryNaming.keys()) directoryNaming.set(dir, null);
     }
     const run = written.catch(() => false).then(async () => {
         const {durable} = await browserDocumentStore.stores();
-        const included = [...namedDirectories];
+        const included = [...directoryNaming.keys()];
+        const clearPending = () => {
+            for (const dir of included) if (directoryNaming.get(dir) === run) directoryNaming.set(dir, null);
+        };
         if (!durable) {
-            for (const directory of included) pendingNamedDirectories.delete(directory);
+            clearPending();
             return false;
         }
         try {
@@ -321,19 +319,19 @@ function writeWindowCheckpoint(windowId: string): Promise<boolean> {
             const directories = new Set([...namesOf(start), ...included]);
             if (directories.size === 0) {
                 await removeWorkspaceCheckpoint(durable.port, windowId);
-                persistedNamedDirectories.clear();
                 return true;
             }
             await writeWorkspaceCheckpoint(durable.port, windowId, {
-                tabs: Object.fromEntries([...directories].map(directory => [directory, {directory, view: null}])),
+                tabs: Object.fromEntries([...directories].map(dir => [dir, {directory: dir, view: null}])),
                 layout: layout ?? start?.layout ?? null,
             });
             if (persistedWindowId === windowId) {
-                for (const directory of included) persistedNamedDirectories.add(directory);
+                for (const dir of included) directoryNaming.set(dir, 'persisted');
             }
             return true;
-        } finally {
-            for (const directory of included) pendingNamedDirectories.delete(directory);
+        } catch (error) {
+            clearPending();
+            throw error;
         }
     });
     written = run;
@@ -342,20 +340,13 @@ function writeWindowCheckpoint(windowId: string): Promise<boolean> {
 
 /** Names a directory in this window's checkpoint before its first edit; retries if a prior write failed. */
 export function nameBrowserWorkspaceDirectory(windowId: string, directory: string): Promise<boolean> {
-    if (persistedWindowId === windowId && namedDirectories.has(directory) && persistedNamedDirectories.has(directory)) {
-        return Promise.resolve(true);
-    }
-    if (persistedWindowId === windowId && namedDirectories.has(directory) && pendingNamedDirectories.has(directory)) {
-        return written;
-    }
-    namedDirectories.add(directory);
-    if (persistedWindowId !== windowId) {
-        persistedWindowId = windowId;
-        persistedNamedDirectories.clear();
-        pendingNamedDirectories.clear();
-    }
-    pendingNamedDirectories.add(directory);
-    return writeWindowCheckpoint(windowId);
+    const state = persistedWindowId === windowId ? directoryNaming.get(directory) : undefined;
+    if (state === 'persisted') return Promise.resolve(true);
+    if (state) return state;
+    directoryNaming.set(directory, null);
+    const run = writeWindowCheckpoint(windowId);
+    directoryNaming.set(directory, run);
+    return run;
 }
 
 /** Records this window's layout. */

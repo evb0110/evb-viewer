@@ -35,6 +35,7 @@ async function launch(profile: string, options: {failWorkspaceCheckpointWrites?:
         await context.addInitScript(installPickerHandleFixture);
         if (options.failWorkspaceCheckpointWrites) {
             await context.addInitScript(() => {
+                Reflect.set(window, '__injectedCheckpointWriteFailures', 0);
                 const originalPostMessage = Worker.prototype.postMessage;
                 Worker.prototype.postMessage = function (
                     this: Worker,
@@ -52,6 +53,8 @@ async function launch(profile: string, options: {failWorkspaceCheckpointWrites?:
                         && typeof (message as {args: unknown[]}).args[0] === 'string'
                         && ((message as {args: string[]}).args[0] ?? '').startsWith('workspaces/')
                     ) {
+                        const count = Number(Reflect.get(window, '__injectedCheckpointWriteFailures') ?? 0);
+                        Reflect.set(window, '__injectedCheckpointWriteFailures', count + 1);
                         const id = (message as {id: number}).id;
                         queueMicrotask(() => {
                             this.dispatchEvent(new MessageEvent('message', {
@@ -332,6 +335,8 @@ describe('browser document lifecycle UI', () => {
                 }
                 return {checkpoints, manifests};
             });
+            const injectedFailures = await page.evaluate(() => Number(Reflect.get(window, '__injectedCheckpointWriteFailures') ?? 0));
+            expect(injectedFailures).toBeGreaterThanOrEqual(1);
             expect(storeState.checkpoints).toEqual([]);
             expect(storeState.manifests).toEqual(expect.arrayContaining([
                 expect.objectContaining({next: 3, current: expect.objectContaining({id: 2})}),

@@ -127,6 +127,7 @@ export interface IOpenSaveOptions {
 interface IPendingAppend {
     lease: string;
     token: string;
+    byteRevision: number;
     length: number;
 }
 
@@ -419,7 +420,7 @@ export class OpenDocument {
                     if (length === null) return { status: 'aborted' };
                     if (!this.activeCheck()) return this.stale(expected);
                     lease = crypto.randomUUID();
-                    this.pendingAppend = { lease, token: this.token(), length };
+                    this.pendingAppend = { lease, token: this.token(), byteRevision: this.doc.state().byteRevision, length };
                     return { status: 'staged', lease };
                 } finally {
                     if (lease === null) await file.truncate(base).catch(() => undefined);
@@ -452,7 +453,11 @@ export class OpenDocument {
             const current = this.doc.state().current;
             if (pending?.lease !== lease || !current) return;
             this.pendingAppend = undefined;
-            if (pending.token === this.token() && await this.doc.currentFile().size() === pending.length) {
+            if (
+                pending.token === this.token()
+                && pending.byteRevision === this.doc.state().byteRevision
+                && await this.doc.currentFile().size() === pending.length
+            ) {
                 await this.doc.currentFile().truncate(current.length);
                 await this.doc.currentFile().flush();
             }
@@ -549,7 +554,7 @@ export class OpenDocument {
 
     private requirePendingAppend(lease: string): IPendingAppend {
         const pending = this.pendingAppend;
-        if (pending?.lease !== lease || pending.token !== this.token()) {
+        if (pending?.lease !== lease || pending.token !== this.token() || pending.byteRevision !== this.doc.state().byteRevision) {
             throw new Error('The edit staged for this document is no longer its next revision');
         }
         return pending;

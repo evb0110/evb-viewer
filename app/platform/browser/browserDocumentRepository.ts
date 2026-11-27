@@ -187,11 +187,8 @@ export class BrowserDocumentStore {
     private readonly removalListeners = new Set<(ref: string) => void>();
     private storesPromise: Promise<{durable: IDocumentStore | null; memory: IDocumentStore}> | null = null;
     private readonly recentFiles = new BrowserRecentFilesStore();
-    /**
-     * Awaited before a directory takes its first change that is not part of opening it: its window names it for recovery.
-     * Returns `true` only when the checkpoint durably persisted (or `void` for legacy test overrides), `false` otherwise.
-     */
-    public onDirectoryEdited: (id: string) => Promise<boolean | void> = async () => true;
+    /** Awaited before the first non-open edit so the window names the directory for recovery (`false` if not persisted). */
+    public onDirectoryEdited: (id: string) => Promise<boolean | void> = async () => false;
 
     /** The durable store (the origin private file system) when the browser offers one, and the memory store. */
     public stores() {

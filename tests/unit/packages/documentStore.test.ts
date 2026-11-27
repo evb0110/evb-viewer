@@ -969,7 +969,11 @@ describe('workspace checkpoints and collection', () => {
         expect(repairedAfterEdit.snapshot().current?.openOnly).toBeUndefined();
 
         // Older ambiguous dirty manifest from a previous build (no `openOnly` field, next: 3, no drafts/publish).
-        const legacyAmbiguous = await create(docStore, { ext: 'pdf', source: new Blob(['legacy-unsaved']) });
+        const legacyAmbiguous = await create(docStore, { ext: 'pdf', destination });
+        await legacyAmbiguous.mutate(null, rewrite('legacy-unsaved'));
+        const legacySnap = legacyAmbiguous.snapshot();
+        expect(legacySnap.next).toBe(3);
+        expect(legacySnap.current?.openOnly).toBeUndefined();
         const openOnlyInterrupted = await create(docStore, { ext: 'pdf', destination });
         await openOnlyInterrupted.mutate(null, { ...rewrite('decrypted-open-only'), openOnly: true });
 
