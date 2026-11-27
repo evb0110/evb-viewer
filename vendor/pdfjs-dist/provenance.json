@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "artifact": {
-    "path": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.316-c6bd7213.tgz",
-    "filename": "pdfjs-dist-6.3.316-c6bd7213.tgz",
+    "path": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.317-0b4dd364.tgz",
+    "filename": "pdfjs-dist-6.3.317-0b4dd364.tgz",
     "published": false
   },
   "source": {
     "repository": "https://github.com/evb0110/pdf.js.git",
-    "branch": "evb-1442-background-rendering",
-    "commit": "c6bd72136cf5f51423071ee298e99e251a7cef74",
-    "tree": "f7a8f4f759078918288f5993a5a93404e7dd48b8",
+    "branch": "evb-1734-wide-xref-offsets",
+    "commit": "0b4dd364e07b4370cf5e53b6e57a3b0816afb0cb",
+    "tree": "5a047db1e92a13b5f7cb7dad13e69c2d076eba76",
     "upstreamTag": "v6.3.289",
     "upstreamCommit": "1c8020a7d4e43668ac287a3ecf9a8dbea17e4c56",
     "upstreamTree": "df7e37b2ed4ab43bf3cee8c96348993459e2c457",
@@ -28,41 +28,41 @@
       "node scripts/verify_fork_artifacts.mjs",
       "npm pack ./build/dist --ignore-scripts --json"
     ],
-    "os": "Linux-7.0.0-42-generic-x86_64-with-glibc2.43",
-    "kernel": "7.0.0-42-generic",
-    "arch": "x86_64",
-    "node": "v26.13.0",
+    "os": "Darwin-27.0.0-arm64",
+    "kernel": "27.0.0",
+    "arch": "arm64",
+    "node": "v26.13.1",
     "npm": "11.20.0",
     "environment": "PUPPETEER_SKIP_DOWNLOAD=1",
     "packageLockSha256": "cd9b0ce997a442b17335976706b2fa64707bfb6b8b7d83cfe332acdc5498b6a2",
-    "reproduciblePackSha256": "6fe657ce846fed43376825e73cb61cc10bb9fac048b5d9bbf8cebafe41dcd2c1"
+    "reproduciblePackSha256": "f74b6fb0e71da3e558e3612c6bb0162215044657bbec572139e13a02634cea5a"
   },
   "package": {
     "name": "pdfjs-dist",
-    "version": "6.3.316",
+    "version": "6.3.317",
     "entryCount": 559,
-    "unpackedByteSize": 35027394,
-    "manifest": "pdfjs-dist-6.3.316-c6bd7213.files.sha256",
-    "manifestSha256": "6b11f0fad30205fb629243a2bacae35088a06e3122470edafcf4ef9408ae7844",
+    "unpackedByteSize": 35028501,
+    "manifest": "pdfjs-dist-6.3.317-0b4dd364.files.sha256",
+    "manifestSha256": "d0300caa444fe32b5d327cedda65be9bd114f2d67cc5d7bf4b23bd55aafaa626",
     "manifestFormat": "file<TAB>size<TAB>sha256<TAB>path",
     "sourceMapPolicy": "source maps retained; local absolute paths forbidden",
     "sourceMapCount": 10
   },
   "archive": {
-    "byteSize": 8558953,
-    "sha256": "6fe657ce846fed43376825e73cb61cc10bb9fac048b5d9bbf8cebafe41dcd2c1",
-    "sha512": "cbfd8ff8666ce2a7dca29ac082c1371a073978d1e5ec8fbc13e9f39c18f058347e05f332df274ca5e962f69235d93be0d54185cc7cb80cdab8e47a43b1487adf",
-    "sri": "sha512-y/2P+GZs4qfcoprAgsE3Ggc5eNHl7I+8E+nznBjwWDR+BfMy3ydMpeli9pI12Tvg1UGFzHy4DNq45HpDsUh63w==",
+    "byteSize": 8559365,
+    "sha256": "f74b6fb0e71da3e558e3612c6bb0162215044657bbec572139e13a02634cea5a",
+    "sha512": "f2ddfa05e03d065a847029a5f35f9d30b662560717d5a98426a200a26b05fd86631c1c9b337763167a845af8858378be88bdbca4e3d5f54a1d248cd4cb7778a1",
+    "sri": "sha512-8t36BeA9BlqEcCml81+dMLZiVgcX1amEJqIAomsF/YZjHBybM3djFnqEWviFg3i+iL28pOPV9UodJIzUy3d4oQ==",
     "entryCount": 559,
-    "unpackedByteSize": 35027394,
-    "pack1Sha256": "6fe657ce846fed43376825e73cb61cc10bb9fac048b5d9bbf8cebafe41dcd2c1",
-    "pack2Sha256": "6fe657ce846fed43376825e73cb61cc10bb9fac048b5d9bbf8cebafe41dcd2c1",
+    "unpackedByteSize": 35028501,
+    "pack1Sha256": "f74b6fb0e71da3e558e3612c6bb0162215044657bbec572139e13a02634cea5a",
+    "pack2Sha256": "f74b6fb0e71da3e558e3612c6bb0162215044657bbec572139e13a02634cea5a",
     "reproducible": true
   },
   "evb": {
-    "dependencyKey": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.316-c6bd7213.tgz",
+    "dependencyKey": "file:vendor/pdfjs-dist/pdfjs-dist-6.3.317-0b4dd364.tgz",
     "pnpm": "10.34.5",
-    "lockfilePdfjsIntegrity": "sha512-y/2P+GZs4qfcoprAgsE3Ggc5eNHl7I+8E+nznBjwWDR+BfMy3ydMpeli9pI12Tvg1UGFzHy4DNq45HpDsUh63w==",
+    "lockfilePdfjsIntegrity": "sha512-8t36BeA9BlqEcCml81+dMLZiVgcX1amEJqIAomsF/YZjHBybM3djFnqEWviFg3i+iL28pOPV9UodJIzUy3d4oQ==",
     "publicVersionStamp": "public/pdf/.pdfjs-version",
     "previewDependency": "npm:pdfjs-dist@5.4.296",
     "noNpmPublication": true,
@@ -71,7 +71,7 @@
   "verifier": {
     "path": "scripts/verify-pdfjs-provenance.mjs",
     "version": "1",
-    "sourceSha256": "237a68a4552f93932150c33dae46cb0271fbd910b1e62d835c661849bbe8051e"
+    "sourceSha256": "04ceb639d2a67d5d6efd9d760a63d2ef30a31ce1ed5970ad303e19c3efacb537"
   },
   "verification": {
     "requiredForkMarkers": 20,
