@@ -419,11 +419,11 @@ pub(crate) fn remap_split_catalog(
         let mut nums = Vec::with_capacity(pages.len() * 2);
         for page in pages {
             let source_index = i64::try_from(source_indices[&page.0])?;
-            let mut label = match ranges
-                .iter()
-                .rev()
-                .find(|(start, _)| *start <= source_index)
-            {
+            let matched = ranges
+                .partition_point(|(start, _)| *start <= source_index)
+                .checked_sub(1)
+                .map(|index| &ranges[index]);
+            let mut label = match matched {
                 Some((start, value)) => {
                     let mut label = source.resolved(value)?.as_dict()?.clone();
                     if label.has(b"S") {
@@ -764,15 +764,16 @@ pub(crate) fn source_annotation_entries(source: &Document, page: ObjectId) -> Ve
         .ok()
         .and_then(|page| page_annotation_array(source, page))
         .unwrap_or_default();
+    let mut seen_refs = entries
+        .iter()
+        .filter_map(|entry| entry.as_reference().ok())
+        .collect::<HashSet<_>>();
     let mut cursor = 0;
     while cursor < entries.len() {
         if let Ok((_, object)) = source.dereference(&entries[cursor]) {
             if let Ok(annotation) = object.as_dict() {
                 if let Some(popup) = annotation_related_ref(annotation, b"Popup") {
-                    if !entries
-                        .iter()
-                        .any(|entry| entry.as_reference().ok() == Some(popup))
-                    {
+                    if seen_refs.insert(popup) {
                         entries.push(popup.into());
                     }
                 }
@@ -781,4 +782,126 @@ pub(crate) fn source_annotation_entries(source: &Document, page: ObjectId) -> Ve
         cursor += 1;
     }
     entries
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remap_split_catalog_page_labels_handles_defaults_duplicates_and_large_trees() {
+        let page_count = 1_500_usize;
+        let mut source = Document::with_version("1.5");
+        let pages_id = source.new_object_id();
+        let mut page_ids = Vec::with_capacity(page_count);
+        for _ in 0..page_count {
+            let page_id = source.new_object_id();
+            page_ids.push(page_id);
+            source.objects.insert(
+                page_id,
+                Object::Dictionary(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => pages_id,
+                    "MediaBox" => vec![0.into(), 0.into(), 200.into(), 200.into()],
+                }),
+            );
+        }
+        source.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => page_ids.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
+                "Count" => i64::try_from(page_count).unwrap(),
+            }),
+        );
+        // Start at page index 2 (so indices 0..2 use implicit default "D", St = index + 1),
+        // include duplicate start index 2 (last entry must win: "R", St = 10),
+        // and add a distinct label range for every page 3..page_count.
+        let mut nums: Vec<Object> = vec![
+            Object::Integer(2),
+            Object::Dictionary(dictionary! { "S" => "a", "St" => 1 }),
+            Object::Integer(2),
+            Object::Dictionary(dictionary! { "S" => "R", "St" => 10 }),
+        ];
+        for index in 3..page_count {
+            nums.push(Object::Integer(index as i64));
+            nums.push(Object::Dictionary(dictionary! {
+                "S" => "D",
+                "P" => Object::string_literal(format!("P{index}-")),
+                "St" => 1,
+            }));
+        }
+        let catalog_id = source.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+            "PageLabels" => dictionary! { "Nums" => nums },
+        });
+        source.trailer.set("Root", catalog_id);
+
+        let instructions: Vec<TextLayerInstruction> = (0..page_count)
+            .map(|index| TextLayerInstruction {
+                source_page_index: index,
+                output_page_index: index,
+                matrix: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                source_region: None,
+                filter_to_output_page: false,
+                normalize_greek_micro_sign: false,
+                link_only: false,
+                unmapped_geometry: false,
+            })
+            .collect();
+        let view = PdfRect {
+            x1: 0.0,
+            y1: 0.0,
+            x2: 200.0,
+            y2: 200.0,
+        };
+        let overlay_pages: Vec<OverlayPage<'_>> = page_ids
+            .iter()
+            .zip(&instructions)
+            .map(|(&id, instruction)| (id, id, instruction, view))
+            .collect();
+        let mut target = Document::with_version("1.5");
+        let mut out_catalog = Dictionary::new();
+        remap_split_catalog(
+            &source,
+            &mut target,
+            &mut out_catalog,
+            SplitCatalog::Source,
+            &overlay_pages,
+        )
+        .unwrap();
+
+        let out_nums = out_catalog
+            .get(b"PageLabels")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"Nums")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(out_nums.len(), page_count * 2);
+
+        // Index 0 & 1: implicit default "D" with St = 1 and St = 2.
+        let label0 = out_nums[1].as_dict().unwrap();
+        assert_eq!(label0.get(b"S").unwrap().as_name().unwrap(), b"D");
+        assert_eq!(label0.get(b"St").unwrap().as_i64().unwrap(), 1);
+        let label1 = out_nums[3].as_dict().unwrap();
+        assert_eq!(label1.get(b"S").unwrap().as_name().unwrap(), b"D");
+        assert_eq!(label1.get(b"St").unwrap().as_i64().unwrap(), 2);
+
+        // Index 2: duplicate start index -> last matching range ("R", St = 10).
+        let label2 = out_nums[5].as_dict().unwrap();
+        assert_eq!(label2.get(b"S").unwrap().as_name().unwrap(), b"R");
+        assert_eq!(label2.get(b"St").unwrap().as_i64().unwrap(), 10);
+
+        // Last page: exact prefix & start.
+        let last_label = out_nums[(page_count - 1) * 2 + 1].as_dict().unwrap();
+        assert_eq!(
+            last_label.get(b"P").unwrap().as_str().unwrap(),
+            format!("P{}-", page_count - 1).as_bytes()
+        );
+        assert_eq!(last_label.get(b"St").unwrap().as_i64().unwrap(), 1);
+    }
 }

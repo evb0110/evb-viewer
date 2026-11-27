@@ -12,7 +12,7 @@ import {
 import { fileURLToPath } from 'url';
 import { groupContiguousPages } from '@electron/pdf/pdfTextPageBatching';
 import {
-    inspectPdfPageTextVisibility,
+    openPdfPageTextVisibilitySession,
     type TOcrPdfTextVisibilityAnalysis,
 } from '@electron/pdf/inspectPdfPageTextVisibility';
 import { resolveNativePageOpsPath } from '@electron/features/page-ops/public/nativePageOpsPath';
@@ -490,81 +490,93 @@ async function* streamPdfPageTextRanges(
     let inspectedWindows = 0;
     let measuredWindows = 0;
     let measuredAreas = new Map<number, IPopplerTextArea>();
-    for (const [
-        index,
-        window,
-    ] of windows.entries()) {
-        signal?.throwIfAborted();
-        await assertSource();
-        // Starting a window reports its first page, so progress moves while
-        // the visibility pass reads a group of windows ahead of pdftotext.
-        onProgress?.(window.firstPage);
-        if (index >= inspectedWindows) {
-            // One load inspects every page of this window and the next ones,
-            // before pdftotext reads any of them, so pages whose text is EVB's
-            // decoded OCR layer skip it. It runs to completion between
-            // pdftotext runs: a visibility reader kept open across them held a
-            // native command slot while its extraction waited for one, and
-            // eight such readers deadlocked extraction.
-            inspectedWindows = index + VISIBILITY_WINDOWS_PER_LOAD;
-            inspection = await inspectPdfPageTextVisibility({
-                pdfPath,
-                pageNumbers: windows.slice(index, inspectedWindows).flatMap(later => range(later.firstPage, later.lastPage + 1)),
-                pdfPageOpsBinary: resolvePageOpsBinary(),
-                tempDir: getAppTempDir(),
-                ...(signal === undefined ? {} : {signal}),
-                withEvbOcrText: true,
-            });
-            if (inspection.status === 'degraded') {
-                log.warn(`OCR layers keep the layout reading order: ${inspection.message}`);
-                // Each load reads the whole PDF, and a document that cannot be
-                // read fails every later load the same way: a 760 MB report
-                // spent 44 s on each of its eleven. Its later windows keep the
-                // layout reading order without asking again.
-                if (inspection.reason !== 'native-tool-failed') inspectedWindows = windows.length;
-            }
-        }
-        if (visiblePageOnly && index >= measuredWindows) {
-            measuredWindows = index + 1;
-            while (measuredWindows < Math.min(windows.length, index + PAGE_BOX_WINDOWS_PER_READ)
-                && windows[measuredWindows]?.firstPage === (windows[measuredWindows - 1]?.lastPage ?? 0) + 1) {
-                measuredWindows += 1;
-            }
-            measuredAreas = await readCroppedPageAreas(pdfPath, {
-                firstPage: window.firstPage,
-                lastPage: windows[measuredWindows - 1]?.lastPage ?? window.lastPage,
-            }, signal);
-        }
-        const areas = new Map([...measuredAreas].filter(([page]) => page >= window.firstPage && page <= window.lastPage));
-        const decoded = readDecodedOcrLayers(window, inspection, areas);
-        const poppler = await readRemainingPopplerPageTexts(pdfPath, window, decoded, areas, signal);
-        if (poppler === null) {
-            await assertSource();
-            yield* streamPdfjsPageTexts(pdfPath, window, signal);
-            continue;
-        }
-        const orderedPages = await readPdfPageTextsInReadingOrder(
-            pdfPath,
-            poppler.pages,
-            inspection,
-            areas,
-            signal,
-            visiblePageOnly,
-        );
-        const pages = [
-            ...orderedPages,
-            ...decoded.values(),
-        ]
-            .filter(page => page.pageNumber <= poppler.endPage)
-            .sort((left, right) => left.pageNumber - right.pageNumber);
-        await assertSource();
-        for (const page of pages) {
+    const visibilitySession = openPdfPageTextVisibilitySession({
+        pdfPath,
+        pdfPageOpsBinary: resolvePageOpsBinary(),
+        tempDir: getAppTempDir(),
+        withEvbOcrText: true,
+        reuseSession: windows.length > VISIBILITY_WINDOWS_PER_LOAD,
+    });
+    try {
+        for (const [
+            index,
+            window,
+        ] of windows.entries()) {
             signal?.throwIfAborted();
-            yield page;
+            await assertSource();
+            // Starting a window reports its first page, so progress moves while
+            // the visibility pass reads a group of windows ahead of pdftotext.
+            onProgress?.(window.firstPage);
+            if (index >= inspectedWindows) {
+                // One bounded load inspects every page of this window and the next
+                // ones before pdftotext reads any of them, so pages whose text is
+                // EVB's decoded OCR layer skip Poppler. Each window call finishes
+                // and releases its worker before pdftotext runs so visibility work
+                // never holds a native-command or worker slot across Poppler calls,
+                // while multi-window builds reuse one parsed source index in WASM.
+                inspectedWindows = index + VISIBILITY_WINDOWS_PER_LOAD;
+                inspection = await visibilitySession.inspectPages(
+                    windows.slice(index, inspectedWindows).flatMap(later => range(later.firstPage, later.lastPage + 1)),
+                    signal,
+                );
+                if (inspection.status === 'degraded') {
+                    log.warn(`OCR layers keep the layout reading order: ${inspection.message}`);
+                    // A document that cannot be read fails every later load the same
+                    // way; later windows keep the layout reading order without asking
+                    // again.
+                    if (inspection.reason !== 'native-tool-failed') {
+                        inspectedWindows = windows.length;
+                        void visibilitySession.close().catch(() => undefined);
+                    }
+                }
+            }
+            if (visiblePageOnly && index >= measuredWindows) {
+                measuredWindows = index + 1;
+                while (measuredWindows < Math.min(windows.length, index + PAGE_BOX_WINDOWS_PER_READ)
+                    && windows[measuredWindows]?.firstPage === (windows[measuredWindows - 1]?.lastPage ?? 0) + 1) {
+                    measuredWindows += 1;
+                }
+                measuredAreas = await readCroppedPageAreas(pdfPath, {
+                    firstPage: window.firstPage,
+                    lastPage: windows[measuredWindows - 1]?.lastPage ?? window.lastPage,
+                }, signal);
+            }
+            const areas = new Map([...measuredAreas].filter(([page]) => page >= window.firstPage && page <= window.lastPage));
+            const decoded = readDecodedOcrLayers(window, inspection, areas);
+            const poppler = await readRemainingPopplerPageTexts(pdfPath, window, decoded, areas, signal);
+            if (poppler === null) {
+                await assertSource();
+                yield* streamPdfjsPageTexts(pdfPath, window, signal);
+                continue;
+            }
+            const orderedPages = await readPdfPageTextsInReadingOrder(
+                pdfPath,
+                poppler.pages,
+                inspection,
+                areas,
+                signal,
+                visiblePageOnly,
+            );
+            const pages = [
+                ...orderedPages,
+                ...decoded.values(),
+            ]
+                .filter(page => page.pageNumber <= poppler.endPage)
+                .sort((left, right) => left.pageNumber - right.pageNumber);
+            await assertSource();
+            for (const page of pages) {
+                signal?.throwIfAborted();
+                yield page;
+            }
+            if (poppler.endPage < window.lastPage) {
+                return;
+            }
         }
-        if (poppler.endPage < window.lastPage) {
-            return;
-        }
+    } finally {
+        // Release any worker-cached visibility session asynchronously so a
+        // completed or canceled search never stalls behind an unrelated
+        // long-running page operation on the worker that held the session.
+        void visibilitySession.close().catch(() => undefined);
     }
 }
 

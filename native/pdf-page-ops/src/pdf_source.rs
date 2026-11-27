@@ -15,7 +15,7 @@ const MAX_OBJECT_BYTES: usize = MAX_DECOMPRESSED_PDF_STREAM_BYTES;
 /// the memory it parses into as its byte ceiling alone does not. A reader
 /// that selected the keys it uses allowed a million values; this one parses
 /// the keys it leaves unused too.
-const MAX_OBJECT_ELEMENTS: usize = 2_000_000;
+pub(crate) const MAX_OBJECT_ELEMENTS: usize = 2_000_000;
 /// The most values all the objects one read parses hold together: room for
 /// a document at the object and page ceilings, well below what wasm32 memory
 /// holds once parsed.
@@ -140,6 +140,102 @@ enum OpenMode {
     AppendBase,
 }
 
+#[cfg(test)]
+thread_local! {
+    static SOURCE_PDF_OPEN_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_source_pdf_open_count() {
+    SOURCE_PDF_OPEN_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn source_pdf_open_count() -> usize {
+    SOURCE_PDF_OPEN_COUNT.with(std::cell::Cell::get)
+}
+
+/// Cumulative cross-reference budget carried across in-memory incremental
+/// appends so the writer enforces the exact same limits as `Reader::index_at`
+/// before publishing a revision.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct IndexedXrefBudget {
+    pub(crate) sections: usize,
+    pub(crate) offsets: usize,
+    pub(crate) entries: usize,
+    pub(crate) values: usize,
+}
+
+impl IndexedXrefBudget {
+    /// Verifies that appending one non-empty revision with `written_objects`
+    /// objects (`new_object_numbers` of which were not previously in the base)
+    /// and `net_value_delta` change in total PDF object values stays within the
+    /// indexed reader's cumulative limits, and advances the budget on success.
+    pub(crate) fn check_and_record_revision(
+        &mut self,
+        written_objects: usize,
+        new_object_numbers: usize,
+        net_value_delta: isize,
+        wrote_xref_stream: bool,
+    ) -> Result<()> {
+        let next_sections = self.sections.saturating_add(1);
+        if next_sections > MAX_XREF_SECTIONS {
+            return Err(corrupt("PDF cross-reference chain loops or is too long"));
+        }
+        let added_offsets = 1usize
+            .saturating_add(written_objects)
+            .saturating_add(usize::from(wrote_xref_stream));
+        let next_offsets = self.offsets.saturating_add(added_offsets);
+        if next_offsets > MAX_SOURCE_VALUES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!("PDF cross-references list more than {MAX_SOURCE_VALUES} entries"),
+            ));
+        }
+        let added_entries = new_object_numbers.saturating_add(usize::from(wrote_xref_stream));
+        let next_entries = self.entries.saturating_add(added_entries);
+        if next_entries > MAX_PDF_OBJECTS {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!("PDF exceeds the {MAX_PDF_OBJECTS}-object admission ceiling"),
+            ));
+        }
+        let xref_stream_values = if wrote_xref_stream {
+            // An appended cross-reference stream dictionary adds /Type, /Size,
+            // /W [1 8 2], /Root, /Prev, /Length, optional /Info+/ID, and an
+            // /Index array with at most one [start count] pair per written object.
+            16usize.saturating_add(written_objects.saturating_mul(2))
+        } else {
+            0
+        };
+        let next_values = if net_value_delta >= 0 {
+            self.values
+                .saturating_add(net_value_delta as usize)
+                .saturating_add(xref_stream_values)
+        } else {
+            self.values
+                .saturating_sub(net_value_delta.unsigned_abs())
+                .saturating_add(xref_stream_values)
+        };
+        if next_values > MAX_SOURCE_VALUES {
+            return Err(domain_error(
+                NativeErrorCode::TooLarge,
+                format!("PDF objects exceed the {MAX_SOURCE_VALUES}-value ceiling"),
+            ));
+        }
+        self.sections = next_sections;
+        self.offsets = next_offsets;
+        self.entries = next_entries;
+        self.values = next_values;
+        Ok(())
+    }
+}
+
+/// Counts PDF values held by `object`, matching `Loader::values_of`.
+pub(crate) fn object_value_count(object: &Object) -> usize {
+    Loader::<[u8]>::values_of(object)
+}
+
 /// A parsed PDF whose stream data stays in its source.
 pub(crate) struct SourcePdf<S> {
     pub(crate) document: Document,
@@ -151,6 +247,8 @@ pub(crate) struct SourcePdf<S> {
     len: u64,
     /// The terminal `startxref` offset, which an appended revision names as `/Prev`.
     xref_start: u64,
+    /// Cumulative xref chain counts read at open time.
+    xref_budget: IndexedXrefBudget,
 }
 
 impl SourcePdf<File> {
@@ -253,6 +351,8 @@ impl<S: ByteSource> SourcePdf<S> {
     }
 
     fn open_indexed(bytes: S, len: u64, mode: OpenMode, named: &[ObjectId]) -> Result<Self> {
+        #[cfg(test)]
+        SOURCE_PDF_OPEN_COUNT.with(|count| count.set(count.get().saturating_add(1)));
         let mut reader = Reader::new(&bytes, len)?;
         reader.strict = matches!(mode, OpenMode::StrictVerify);
         let index = match mode {
@@ -290,6 +390,7 @@ impl<S: ByteSource> SourcePdf<S> {
                                                 bytes,
                                                 len,
                                                 xref_start: index.start,
+                                                xref_budget: index.budget,
                                             });
                                         }
                                     }
@@ -387,6 +488,8 @@ impl<S: ByteSource> SourcePdf<S> {
                 ));
             }
         }
+        let mut xref_budget = index.budget;
+        xref_budget.values = loader.values;
         Ok(Self {
             document,
             streams: loader.streams,
@@ -394,6 +497,7 @@ impl<S: ByteSource> SourcePdf<S> {
             bytes,
             len,
             xref_start: index.start,
+            xref_budget,
         })
     }
 
@@ -416,6 +520,7 @@ impl<S: ByteSource> SourcePdf<S> {
                 "The encrypted PDF requires a password",
             ));
         }
+        let values = document.objects.values().map(object_value_count).sum();
         Ok(Self {
             document,
             streams: HashMap::new(),
@@ -423,7 +528,25 @@ impl<S: ByteSource> SourcePdf<S> {
             bytes,
             len: len as u64,
             xref_start,
+            xref_budget: IndexedXrefBudget {
+                sections: 1,
+                offsets: 1,
+                entries: 0,
+                values,
+            },
         })
+    }
+
+    /// The source byte length recorded when this index was opened.
+    #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+    pub(crate) fn len(&self) -> u64 {
+        self.len
+    }
+
+    /// The cumulative cross-reference section, offset, and entry counts parsed
+    /// when this source was opened.
+    pub(crate) fn xref_budget(&self) -> IndexedXrefBudget {
+        self.xref_budget
     }
 
     /// The source byte range of a stream whose data this source holds.
@@ -853,6 +976,7 @@ struct XrefIndex {
     offsets: Vec<u64>,
     trailer: Dictionary,
     xref_type: XrefType,
+    budget: IndexedXrefBudget,
 }
 
 fn corrupt(message: impl Into<String>) -> Box<dyn Error> {
@@ -1046,6 +1170,12 @@ impl<'a, S: ByteSource + ?Sized> Reader<'a, S> {
         if !trailer.has(b"Root") {
             return Err(corrupt("PDF trailer has no /Root"));
         }
+        let budget = IndexedXrefBudget {
+            sections: visited.len(),
+            offsets: offsets.len(),
+            entries: entries.len(),
+            values: 0,
+        };
         let max_number = entries.keys().copied().max().unwrap_or(0);
         entries.retain(|_, entry| !matches!(entry, XrefEntry::Free));
         offsets.sort_unstable();
@@ -1058,6 +1188,7 @@ impl<'a, S: ByteSource + ?Sized> Reader<'a, S> {
             offsets,
             trailer,
             xref_type: xref_type.unwrap_or(XrefType::CrossReferenceTable),
+            budget,
         })
     }
 

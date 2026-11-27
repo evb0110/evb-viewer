@@ -58,11 +58,15 @@ interface IWarmPageOpsWorker {
     busy: boolean;
     closed: boolean;
     idleTimer: NodeJS.Timeout | null;
+    visibilitySessions: Set<number>;
 }
 
 interface IQueuedTask {
     wasmPath: string;
     args: string[];
+    visibilitySessionId: number | undefined;
+    closeVisibilitySessionId: number | undefined;
+    targetWorker?: IWarmPageOpsWorker;
     signal: AbortSignal | undefined;
     timeoutMs: number | undefined;
     cancelGroup: string | undefined;
@@ -74,6 +78,35 @@ interface IQueuedTask {
     reject: (reason: unknown) => void;
     onAbort?: () => void;
     onCancelGroup?: () => Promise<boolean>;
+}
+
+function parseVisibilitySessionArgs(args: readonly string[]): {
+    visibilitySessionId: number | undefined;
+    closeVisibilitySessionId: number | undefined;
+} {
+    if (args[0] !== 'ocr-text-visibility') {
+        return {
+            visibilitySessionId: undefined,
+            closeVisibilitySessionId: undefined,
+        };
+    }
+    let visibilitySessionId: number | undefined;
+    let closeVisibilitySessionId: number | undefined;
+    for (let i = 1; i + 1 < args.length; i += 1) {
+        if (args[i] === '--session-id') {
+            const parsed = Number(args[i + 1]);
+            if (Number.isSafeInteger(parsed) && parsed > 0) visibilitySessionId = parsed;
+            i += 1;
+        } else if (args[i] === '--close-session') {
+            const parsed = Number(args[i + 1]);
+            if (Number.isSafeInteger(parsed) && parsed > 0) closeVisibilitySessionId = parsed;
+            i += 1;
+        }
+    }
+    return {
+        visibilitySessionId,
+        closeVisibilitySessionId,
+    };
 }
 
 export interface IRunDesktopPageOpsWasmOptions {
@@ -238,6 +271,7 @@ function createPageOpsWorkerPool() {
             return Promise.resolve(true);
         }
         entry.closed = true;
+        entry.visibilitySessions.clear();
         clearIdleTimer(entry);
         workers.delete(entry);
         return entry.worker.terminate().then(() => true, () => false);
@@ -257,9 +291,52 @@ function createPageOpsWorkerPool() {
     }
 
     function pumpQueue() {
-        while (queue.length > 0) {
-            const next = queue[0]!;
-            const idleSamePath = [...workers].find(
+        let index = 0;
+        while (index < queue.length) {
+            const next = queue[index]!;
+            if (next.targetWorker !== undefined) {
+                const target = next.targetWorker;
+                if (target.closed || !workers.has(target)) {
+                    queue.splice(index, 1);
+                    if (next.onAbort) {
+                        next.signal?.removeEventListener('abort', next.onAbort);
+                    }
+                    if (next.onCancelGroup) {
+                        unregisterCancel(next.cancelGroup, next.onCancelGroup);
+                    }
+                    next.resolve({
+                        stdout: '{}',
+                        stderr: '',
+                        exitCode: 0,
+                    });
+                    continue;
+                }
+                if (target.busy) {
+                    index += 1;
+                    continue;
+                }
+                queue.splice(index, 1);
+                if (next.onAbort) {
+                    next.signal?.removeEventListener('abort', next.onAbort);
+                }
+                if (next.onCancelGroup) {
+                    unregisterCancel(next.cancelGroup, next.onCancelGroup);
+                }
+                if (next.signal?.aborted) {
+                    next.reject(getAbortReason(next.signal));
+                    continue;
+                }
+                dispatchToWorker(target, next);
+                continue;
+            }
+            const targetSessionId = next.visibilitySessionId ?? next.closeVisibilitySessionId;
+            const idleSameSession = targetSessionId === undefined
+                ? undefined
+                : [...workers].find(
+                    entry => !entry.busy && !entry.closed && entry.wasmPath === next.wasmPath
+                        && entry.visibilitySessions.has(targetSessionId),
+                );
+            const idleSamePath = idleSameSession ?? [...workers].find(
                 entry => !entry.busy && !entry.closed && entry.wasmPath === next.wasmPath,
             );
             const idleAny = idleSamePath ?? [...workers].find(entry => !entry.busy && !entry.closed);
@@ -268,10 +345,11 @@ function createPageOpsWorkerPool() {
                 if (idleAny) {
                     void destroyWorker(idleAny);
                 } else {
-                    return;
+                    index += 1;
+                    continue;
                 }
             }
-            queue.shift();
+            queue.splice(index, 1);
             if (next.onAbort) {
                 next.signal?.removeEventListener('abort', next.onAbort);
             }
@@ -358,6 +436,7 @@ function createPageOpsWorkerPool() {
                 busy: true,
                 closed: false,
                 idleTimer: null,
+                visibilitySessions: new Set(),
             };
             startupSettled = true;
             cleanupStartupCancel();
@@ -385,6 +464,9 @@ function createPageOpsWorkerPool() {
     function dispatchToWorker(entry: IWarmPageOpsWorker, task: IQueuedTask) {
         entry.busy = true;
         clearIdleTimer(entry);
+        if (task.visibilitySessionId !== undefined) {
+            entry.visibilitySessions.add(task.visibilitySessionId);
+        }
         const requestId = ++nextRequestId;
         const rollback = prepareAbortedWriteRollback(task.args);
         let settled = false;
@@ -407,6 +489,9 @@ function createPageOpsWorkerPool() {
             if (settled) return;
             settled = true;
             cleanup();
+            if (task.closeVisibilitySessionId !== undefined) {
+                entry.visibilitySessions.delete(task.closeVisibilitySessionId);
+            }
             entry.busy = false;
             try {
                 const checked = applyStdoutLimit(
@@ -421,7 +506,8 @@ function createPageOpsWorkerPool() {
             }
             if (queue.length > 0) {
                 pumpQueue();
-            } else {
+            }
+            if (!entry.busy && !entry.closed) {
                 scheduleIdleEviction(entry);
             }
         };
@@ -565,10 +651,17 @@ function createPageOpsWorkerPool() {
             }
             return runInlineFallback(wasmPath, args, options);
         }
-        return new Promise((resolve, reject) => {
+        const {
+            visibilitySessionId,
+            closeVisibilitySessionId,
+        } = parseVisibilitySessionArgs(args);
+        const enqueueTask = (targetWorker?: IWarmPageOpsWorker) => new Promise<IProcessResult>((resolve, reject) => {
             const task: IQueuedTask = {
                 wasmPath,
                 args: [...args],
+                visibilitySessionId,
+                closeVisibilitySessionId,
+                ...(targetWorker === undefined ? {} : {targetWorker}),
                 signal: options.signal,
                 timeoutMs: options.timeoutMs,
                 cancelGroup: options.cancelGroup,
@@ -609,6 +702,25 @@ function createPageOpsWorkerPool() {
             queue.push(task);
             pumpQueue();
         });
+
+        if (closeVisibilitySessionId !== undefined) {
+            const holders = [...workers].filter(
+                entry => !entry.closed && entry.wasmPath === wasmPath && entry.visibilitySessions.has(closeVisibilitySessionId),
+            );
+            if (holders.length === 0) {
+                return Promise.resolve({
+                    stdout: '{}',
+                    stderr: '',
+                    exitCode: 0,
+                });
+            }
+            return Promise.all(holders.map(holder => enqueueTask(holder))).then(() => ({
+                stdout: '{}',
+                stderr: '',
+                exitCode: 0,
+            }));
+        }
+        return enqueueTask();
     }
 
     function cancelGroup(cancelGroup: string) {

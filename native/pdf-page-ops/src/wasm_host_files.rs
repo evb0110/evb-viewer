@@ -24,11 +24,19 @@ extern "C" {
     fn evb_host_sink_read(offset: f64, pointer: *mut u8, len: usize) -> i32;
 }
 
+/// Bounded LRU capacity for cached single-open OCR visibility sessions per WASM
+/// instance so multi-window desktop search parses each source graph once while
+/// keeping WASM memory bounded.
+const MAX_CACHED_VISIBILITY_SESSIONS: usize = 4;
+
 thread_local! {
     /// The length of the sink, including the copies the host still has to make.
     static SINK_LEN: Cell<u64> = const { Cell::new(0) };
     /// An edit written and awaiting its host's copies, then OP_VERIFY_WRITTEN.
     static WRITTEN: RefCell<Option<(Vec<SourcePdf<HostSource>>, PageSubset)>> = const { RefCell::new(None) };
+    /// Single-open OCR text visibility sessions keyed by caller session id (LRU at front).
+    static VISIBILITY_SESSIONS: RefCell<Vec<(u32, OcrTextVisibilitySession<HostSource>)>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 fn host_result(status: i32) -> io::Result<()> {
@@ -190,7 +198,7 @@ pub(crate) fn run_file_request(request: &[u8]) -> Result<Vec<u8>> {
     Ok(response)
 }
 
-/// Reads source 0, the one source a read takes.
+/// Reads source 0, the one source a read takes (or closes a cached visibility session).
 fn read_source(
     operation: u32,
     after_page: u32,
@@ -198,6 +206,17 @@ fn read_source(
     tail: &[u8],
     source_count: u32,
 ) -> Result<Vec<u8>> {
+    if operation == OP_OCR_TEXT_VISIBILITY
+        && after_page != 0
+        && source_count == 0
+        && pages.is_empty()
+        && tail == b"close"
+    {
+        VISIBILITY_SESSIONS.with(|sessions| {
+            sessions.borrow_mut().retain(|(id, _)| *id != after_page);
+        });
+        return encode_bytes(RESPONSE_JSON, b"{}".to_vec());
+    }
     let valid_shape = source_count == 1
         && match operation {
             OP_OCR_TEXT_VISIBILITY => true,
@@ -297,10 +316,32 @@ fn read_source(
                 b"with-evb-ocr-text" => true,
                 _ => return Err("OCR text visibility takes no option but with-evb-ocr-text".into()),
             };
-            encode_bytes(
-                RESPONSE_JSON,
-                ocr_text_visibility_from_source(HostSource(0), len, pages, with_evb_ocr_text)?,
-            )
+            let report = if after_page == 0 {
+                ocr_text_visibility_from_source(HostSource(0), len, pages, with_evb_ocr_text)?
+            } else {
+                let cached = VISIBILITY_SESSIONS.with(|sessions| {
+                    let mut sessions = sessions.borrow_mut();
+                    sessions
+                        .iter()
+                        .position(|(id, _)| *id == after_page)
+                        .map(|index| sessions.remove(index).1)
+                });
+                let mut session = match cached {
+                    Some(session) if session.source_len() == len => session,
+                    _ => OcrTextVisibilitySession::open(HostSource(0), len)?,
+                };
+                let report = session.inspect_pages_json(pages, with_evb_ocr_text)?;
+                VISIBILITY_SESSIONS.with(|sessions| {
+                    let mut sessions = sessions.borrow_mut();
+                    sessions.retain(|(id, _)| *id != after_page);
+                    if sessions.len() >= MAX_CACHED_VISIBILITY_SESSIONS {
+                        sessions.remove(0);
+                    }
+                    sessions.push((after_page, session));
+                });
+                report
+            };
+            encode_bytes(RESPONSE_JSON, report)
         }
     }
 }
