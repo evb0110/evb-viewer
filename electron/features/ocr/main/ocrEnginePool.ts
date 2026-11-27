@@ -8,6 +8,7 @@ import {getRuntimeTessdataDir} from '@electron/features/ocr/languageModels';
 import {
     createOcrModelBytesReader,
     getOcrRuntimePolicy,
+    OCR_ENGINE_WASM_HEAP_RECYCLE_BYTES,
     resolveOcrLaneResources,
     sumOcrModelBytes,
 } from '@electron/features/ocr/main/ocrRuntimePolicy';
@@ -15,6 +16,7 @@ import {createAbortError} from '@contracts/isAbortError';
 import type {TOcrModelCode} from '@contracts/ocrLanguages';
 import type {IOcrEngineLaneReply, TDesktopOcrEngineRequest} from '@electron/features/ocr/main/ocrEngineHostProtocol';
 import {mainJobBroker, type IJobBrokerLease, type IJobBrokerRequest, type JobBroker} from '@electron/resources/jobBroker';
+import {getUnprovenNativeTerminationDetail, markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 import {resolveUnpackedWorkerPath} from '@electron/utils/workerTask';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -22,6 +24,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ENGINE_IDLE_TTL_MS = 60_000;
 // One Tesseract pass may run three minutes, as in the browser.
 const PASS_TIMEOUT_MS = 3 * 60 * 1000;
+// How long a canceled/timed-out/failed pass waits for its lane to confirm exit
+// before reporting unproven termination so callers do not unlink open rasters.
+const LANE_EXIT_PROOF_TIMEOUT_MS = 5_000;
 
 interface IEngineWorker {
     worker: IOcrEngineLane | null;
@@ -29,13 +34,17 @@ interface IEngineWorker {
     /** Termination was requested or the worker exited; it takes no more passes. */
     ending: boolean;
     exited: boolean;
+    exitedDeferred: PromiseWithResolvers<void>;
+    exitPromise?: Promise<void>;
     idleTimer?: NodeJS.Timeout;
     /**
-     * The most memory a pass on this worker has needed. WebAssembly memory
-     * never shrinks and loaded models stay, so the worker holds it until it
-     * exits, idle or not.
+     * The most memory a pass on this worker has needed (or its reported
+     * retained WASM heap plus cached models). WebAssembly memory never shrinks
+     * and loaded models stay, so the worker holds it until it exits, idle or not.
      */
     residentBytes: number;
+    /** Actual retained WASM linear-memory high-water mark reported by the worker thread. */
+    retainedWasmBytes: number;
     /** Memory-only leases charging `residentBytes`, released once the worker has exited. */
     memoryLeases: IJobBrokerLease[];
     /** The installed bytes of every model the worker's engine has read and keeps. */
@@ -56,6 +65,13 @@ const WORKER_EXITED = new Error('OCR worker exited while its pass waited');
 // Ends a pass's wait for the broker when its worker was asked to stop
 // meanwhile, to free memory, after an error or because the pool shut down.
 const WORKER_ENDED = new Error('OCR worker was ended while its pass waited');
+// Associates an unproven-termination pass error with its lane's eventual exit
+// acknowledgement so callers can defer raster cleanup until the reader exits.
+const unprovenLaneExitPromises = new WeakMap<Error, Promise<void>>();
+
+export function getOcrEngineLaneExitPromise(error: unknown): Promise<void> | undefined {
+    return error instanceof Error ? unprovenLaneExitPromises.get(error) : undefined;
+}
 
 export interface IOcrEnginePoolOptions {
     size: () => number;
@@ -65,6 +81,10 @@ export interface IOcrEnginePoolOptions {
     startLane: () => IOcrEngineLane;
     /** The broker charged for each worker: a core while it runs a pass, its memory until it exits. */
     broker: JobBroker;
+    /** Recycle a worker between pages once its retained WASM linear memory exceeds this cap. */
+    maxRetainedWasmBytes?: number;
+    /** Max wait for lane exit acknowledgement on cancel/timeout/error before marking unproven termination. */
+    exitProofTimeoutMs?: number;
 }
 
 /**
@@ -81,7 +101,12 @@ export interface IOcrEnginePoolOptions {
  */
 export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     const {broker} = options;
+    const maxRetainedWasmBytes = options.maxRetainedWasmBytes ?? OCR_ENGINE_WASM_HEAP_RECYCLE_BYTES;
+    const exitProofTimeoutMs = options.exitProofTimeoutMs ?? LANE_EXIT_PROOF_TIMEOUT_MS;
     const workers = new Set<IEngineWorker>();
+    // Undercharged lanes that failed a retained-heap top-up and are exiting;
+    // no new OCR pass is admitted into the pool until they exit and free RAM.
+    const underchargedExiting = new Set<IEngineWorker>();
     const waiters: Array<() => void> = [];
     const readModelBytes = createOcrModelBytesReader(options.tessdataDir);
     let nextId = 0;
@@ -91,6 +116,12 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
 
     const wakeWaiter = () => {
         waiters.shift()?.();
+    };
+
+    const wakeAllWaiters = () => {
+        for (const wake of waiters.splice(0)) {
+            wake();
+        }
     };
 
     const releaseMemory = (entry: IEngineWorker) => {
@@ -104,33 +135,77 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
         entry.exited = true;
         clearTimeout(entry.idleTimer);
         workers.delete(entry);
+        const clearedUndercharged = underchargedExiting.delete(entry);
         releaseMemory(entry);
         // A message to an exited worker is dropped silently, so its queued
         // pass must not be granted to it; it starts again on a fresh one.
         entry.admission?.controller.abort(WORKER_EXITED);
-        wakeWaiter();
+        entry.exitedDeferred.resolve();
+        if (clearedUndercharged && underchargedExiting.size === 0) {
+            wakeAllWaiters();
+        } else {
+            wakeWaiter();
+        }
     };
 
     // Asks the worker to stop; its memory stays charged until it has. A pass
     // still queued for it leaves the broker now rather than when the thread
-    // exits, which a worker wedged in its engine may never do.
-    const end = (entry: IEngineWorker) => {
-        if (entry.ending) {
-            return;
+    // exits, which a worker wedged in its engine may never do. When
+    // `keepSlotUntilExit` is set (an undercharged lane recycling after a failed
+    // top-up), the pool blocks new admissions until exit so no replacement lane
+    // starts while the uncharged heap is still live.
+    const end = (entry: IEngineWorker, options?: {keepSlotUntilExit?: boolean}): Promise<void> => {
+        if (!entry.ending) {
+            entry.ending = true;
+            clearTimeout(entry.idleTimer);
+            if (options?.keepSlotUntilExit) {
+                underchargedExiting.add(entry);
+            } else {
+                workers.delete(entry);
+            }
+            entry.admission?.controller.abort(WORKER_ENDED);
+            if (entry.worker) {
+                entry.exitPromise = entry.worker.terminate().then(
+                    () => exited(entry),
+                    () => undefined,
+                );
+            } else {
+                exited(entry);
+                entry.exitPromise = Promise.resolve();
+            }
+            if (!options?.keepSlotUntilExit) {
+                wakeWaiter();
+            }
         }
-        entry.ending = true;
-        clearTimeout(entry.idleTimer);
-        workers.delete(entry);
-        entry.admission?.controller.abort(WORKER_ENDED);
-        if (entry.worker) {
-            void entry.worker.terminate().then(
-                () => exited(entry),
-                () => undefined,
-            );
-        } else {
-            exited(entry);
+        return entry.exitPromise ?? entry.exitedDeferred.promise;
+    };
+
+    /**
+     * Waits for the terminated lane to acknowledge exit before rejecting a
+     * canceled/timed-out/failed pass, so callers never unlink a file-backed
+     * raster while the worker thread may still be opening or reading it.
+     */
+    const waitForLaneExit = async (entry: IEngineWorker): Promise<boolean> => {
+        if (entry.exited) {
+            return true;
         }
-        wakeWaiter();
+        void end(entry);
+        if (entry.exited) {
+            return true;
+        }
+        let proofTimer: NodeJS.Timeout | undefined;
+        try {
+            const settledBeforeTimeout = await Promise.race([
+                entry.exitedDeferred.promise.then(() => true),
+                new Promise<boolean>((resolve) => {
+                    proofTimer = setTimeout(() => resolve(false), exitProofTimeoutMs);
+                    proofTimer.unref();
+                }),
+            ]);
+            return settledBeforeTimeout && entry.exited;
+        } finally {
+            clearTimeout(proofTimer);
+        }
     };
 
     const park = (entry: IEngineWorker) => {
@@ -150,13 +225,16 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
 
     const reclaimIdleWorkers = () => {
         for (const entry of Array.from(workers)) {
+            if (entry.ending) {
+                continue;
+            }
             if (!entry.busy) {
-                end(entry);
+                void end(entry);
             } else if (entry.admission !== null && entry.residentBytes > 0 && broker.isQueued(entry.admission.request)) {
                 // Two warm workers each waiting for memory the other holds
                 // would otherwise wait for good. Ending it moves its pass to
                 // a fresh worker.
-                end(entry);
+                void end(entry);
             }
         }
     };
@@ -168,25 +246,29 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
             if (closed) {
                 throw new Error('The OCR engine pool was shut down');
             }
-            const idle = [...workers].find((entry) => !entry.busy);
-            if (idle) {
-                clearTimeout(idle.idleTimer);
-                idle.busy = true;
-                return idle;
-            }
-            if (workers.size < Math.max(1, options.size())) {
-                const entry: IEngineWorker = {
-                    worker: null,
-                    busy: true,
-                    ending: false,
-                    exited: false,
-                    residentBytes: 0,
-                    memoryLeases: [],
-                    cachedModels: new Map(),
-                    admission: null,
-                };
-                workers.add(entry);
-                return entry;
+            if (underchargedExiting.size === 0) {
+                const idle = [...workers].find((entry) => !entry.busy && !entry.ending);
+                if (idle) {
+                    clearTimeout(idle.idleTimer);
+                    idle.busy = true;
+                    return idle;
+                }
+                if (workers.size < Math.max(1, options.size())) {
+                    const entry: IEngineWorker = {
+                        worker: null,
+                        busy: true,
+                        ending: false,
+                        exited: false,
+                        exitedDeferred: Promise.withResolvers<void>(),
+                        residentBytes: 0,
+                        retainedWasmBytes: 0,
+                        memoryLeases: [],
+                        cachedModels: new Map(),
+                        admission: null,
+                    };
+                    workers.add(entry);
+                    return entry;
+                }
             }
             await new Promise<void>((resolve) => {
                 const wake = () => {
@@ -204,15 +286,87 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     };
 
     // What a pass on this worker needs: its own models and page, and the
-    // other models its engine still keeps.
+    // other models its engine still keeps, never below its actual retained WASM
+    // linear-memory high-water mark plus cached models.
     const resolvePassBytes = (entry: IEngineWorker, modelSizes: ReadonlyMap<TOcrModelCode, number>, workingBytes: number) => {
         let otherCachedBytes = 0;
+        let passModelBytes = 0;
         for (const [code, bytes] of entry.cachedModels) {
             if (!modelSizes.has(code)) {
                 otherCachedBytes += bytes;
             }
         }
-        return Math.min(broker.getSnapshot().capacity.estimatedResidentBytes, workingBytes + otherCachedBytes);
+        for (const bytes of modelSizes.values()) {
+            passModelBytes += bytes;
+        }
+        const retainedBytes = entry.retainedWasmBytes > 0 ? entry.retainedWasmBytes + otherCachedBytes + passModelBytes : 0;
+        return Math.min(broker.getSnapshot().capacity.estimatedResidentBytes, Math.max(workingBytes + otherCachedBytes, retainedBytes));
+    };
+
+    /**
+     * Charges the broker immediately for retained WASM linear-memory growth
+     * beyond the pre-pass estimate without waiting in the broker queue. Returns
+     * false when the broker lacks headroom so the caller can recycle the worker
+     * cleanly between pages instead of overcommitting memory.
+     */
+    const chargeRetainedMemory = (entry: IEngineWorker, ownerId: string, extraBytes: number) => {
+        if (extraBytes <= 0) {
+            return true;
+        }
+        if (entry.ending || entry.exited) {
+            return false;
+        }
+        const snapshot = broker.getSnapshot();
+        const fitsTotal =
+            snapshot.used.estimatedResidentBytes + extraBytes <=
+            snapshot.capacity.estimatedResidentBytes + snapshot.interactiveReserve.estimatedResidentBytes;
+        const fitsBulk = snapshot.usedBulk.estimatedResidentBytes + extraBytes <= snapshot.capacity.estimatedResidentBytes;
+        if (!fitsTotal || !fitsBulk) {
+            return false;
+        }
+        const probeAbort = new AbortController();
+        const request: IJobBrokerRequest = {
+            ownerId,
+            kind: 'ocr-engine-retained-heap',
+            priority: 'user',
+            resources: {
+                cpuTokens: 0,
+                estimatedResidentBytes: extraBytes,
+                nativeProcesses: 0,
+                ioWeight: 0,
+            },
+            signal: probeAbort.signal,
+        };
+        let accepted = true;
+        const leasePromise = broker.acquire(request);
+        if (broker.isQueued(request)) {
+            accepted = false;
+            probeAbort.abort();
+        }
+        // Always retain or release every granted lease based on the actual
+        // acquisition outcome, regardless of other jobs granted during dispatch.
+        void leasePromise.then(
+            (extraLease) => {
+                if (!accepted || entry.exited) {
+                    extraLease.release();
+                    return;
+                }
+                entry.memoryLeases.push(extraLease);
+            },
+            () => {
+                if (accepted) {
+                    entry.residentBytes = Math.max(0, entry.residentBytes - extraBytes);
+                    if (!entry.ending && !entry.exited) {
+                        void end(entry);
+                    }
+                }
+            },
+        );
+        if (!accepted) {
+            return false;
+        }
+        entry.residentBytes += extraBytes;
+        return true;
     };
 
     // A worker and the lease for the core and memory a pass adds to it.
@@ -301,11 +455,54 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
             const {entry, growth, passLease} = await admitPass(signal, ownerId, modelSizes, workingBytes);
             entry.residentBytes += growth;
             // The worker keeps what the pass added and the models it read; the
-            // core goes back. It is idle before its charge changes, so work
-            // already short of memory may end it at once.
-            const keepWorker = () => {
+            // core goes back. Actual retained WASM linear memory is charged to
+            // the broker, and a worker whose WASM heap crossed the high-water
+            // cap (or cannot be charged) is recycled cleanly between pages.
+            const keepWorker = (reportedWasmBytes?: number) => {
                 for (const [code, bytes] of modelSizes) {
                     entry.cachedModels.set(code, bytes);
+                }
+                if (reportedWasmBytes !== undefined) {
+                    entry.retainedWasmBytes = Math.max(entry.retainedWasmBytes, reportedWasmBytes);
+                }
+                // Keep the retained total unclamped so a worker whose real
+                // WASM heap + cached models exceed broker capacity cannot hide
+                // its deficit behind the capacity clamp and stay warm.
+                const retainedTotalBytes =
+                    reportedWasmBytes === undefined ? 0 : entry.retainedWasmBytes + sumOcrModelBytes(entry.cachedModels);
+                const extraBytes = Math.max(0, retainedTotalBytes - entry.residentBytes);
+                const chargedExtra = chargeRetainedMemory(entry, ownerId, extraBytes);
+                const topUpFailed = extraBytes > 0 && !chargedExtra;
+                const shouldRecycle =
+                    entry.ending ||
+                    entry.exited ||
+                    (reportedWasmBytes !== undefined && entry.retainedWasmBytes > maxRetainedWasmBytes) ||
+                    topUpFailed;
+                if (shouldRecycle) {
+                    if (topUpFailed) {
+                        // The lane holds more memory than the broker charged; keep its
+                        // full pass lease (including CPU) until exit so the broker does
+                        // not admit replacement work while the undercharged heap is live.
+                        entry.memoryLeases.push(passLease);
+                    } else if (growth > 0) {
+                        entry.memoryLeases.push(passLease);
+                        passLease.shrink({
+                            cpuTokens: 0,
+                            estimatedResidentBytes: growth,
+                            nativeProcesses: 0,
+                            ioWeight: 0,
+                        });
+                    } else {
+                        passLease.release();
+                    }
+                    if (entry.exited) {
+                        releaseMemory(entry);
+                    } else if (!entry.ending) {
+                        void end(entry, {keepSlotUntilExit: topUpFailed});
+                    } else {
+                        wakeWaiter();
+                    }
+                    return;
                 }
                 if (growth > 0) {
                     entry.memoryLeases.push(passLease);
@@ -327,29 +524,65 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                 if (entry.exited) {
                     releaseMemory(entry);
                 } else {
-                    end(entry);
+                    void end(entry);
                 }
             };
             const id = nextId++;
             const worker = entry.worker!;
             return new Promise<IOcrEngineResult>((resolve, reject) => {
-                const settle = (error: Error | null, result?: IOcrEngineResult) => {
+                let settling = false;
+                const detach = () => {
                     clearTimeout(timer);
                     signal.removeEventListener('abort', onAbort);
                     worker.off('message', onMessage);
                     worker.off('error', onError);
                     worker.off('exit', onExit);
+                };
+                const settle = (error: Error | null, result?: IOcrEngineResult) => {
+                    detach();
                     if (error) {
                         reject(error);
                     } else {
                         resolve(result!);
                     }
                 };
-                const onMessage = (message: IOcrEngineLaneReply) => {
-                    if (message.id !== id) {
+                const failAndAwaitLaneExit = (error: Error) => {
+                    if (settling) {
                         return;
                     }
-                    keepWorker();
+                    settling = true;
+                    detach();
+                    discardWorker();
+                    void waitForLaneExit(entry).then((exitedCleanly) => {
+                        if (!exitedCleanly) {
+                            // Always wrap into a fresh lane-owned error so a shared
+                            // AbortSignal.reason is never mutated with one lane's exit proof.
+                            const unprovenError = new Error(error.message, {cause: error});
+                            markUnprovenNativeTermination(
+                                unprovenError,
+                                `OCR engine lane did not confirm exit within ${exitProofTimeoutMs}ms; its raster input may still be open`,
+                            );
+                            unprovenLaneExitPromises.set(unprovenError, entry.exitedDeferred.promise);
+                            reject(unprovenError);
+                            return;
+                        }
+                        // If a sibling lane aborted the shared signal with its own
+                        // unproven-termination error while THIS lane exited cleanly,
+                        // reject with a clean AbortError so this page's raster is
+                        // not tied to the sibling's stuck exit promise.
+                        if (getUnprovenNativeTerminationDetail(error) !== undefined) {
+                            reject(createAbortError('OCR was canceled'));
+                            return;
+                        }
+                        reject(error);
+                    });
+                };
+                const onMessage = (message: IOcrEngineLaneReply) => {
+                    if (message.id !== id || settling) {
+                        return;
+                    }
+                    settling = true;
+                    keepWorker(message.wasmMemoryBytes);
                     if (message.ok) {
                         settle(null, message.result);
                     } else {
@@ -357,20 +590,21 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                     }
                 };
                 const onError = (error: Error) => {
-                    discardWorker();
-                    settle(new Error(`The OCR engine stopped: ${error.message}`, {cause: error}));
+                    failAndAwaitLaneExit(new Error(`The OCR engine stopped: ${error.message}`, {cause: error}));
                 };
                 const onExit = (code: number) => {
+                    if (settling) {
+                        return;
+                    }
+                    settling = true;
                     discardWorker();
                     settle(new Error(`The OCR engine exited with code ${code}`));
                 };
                 const onAbort = () => {
-                    discardWorker();
-                    settle(signal.reason instanceof Error ? signal.reason : createAbortError('OCR was canceled'));
+                    failAndAwaitLaneExit(signal.reason instanceof Error ? signal.reason : createAbortError('OCR was canceled'));
                 };
                 const timer = setTimeout(() => {
-                    discardWorker();
-                    settle(new Error('Tesseract did not finish within its time limit'));
+                    failAndAwaitLaneExit(new Error('Tesseract did not finish within its time limit'));
                 }, PASS_TIMEOUT_MS * request.passes.length);
                 worker.on('message', onMessage);
                 worker.on('error', onError);
