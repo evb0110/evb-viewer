@@ -1,8 +1,10 @@
 <template>
     <nav v-if="isBrowserRuntime" class="app-menu-bar" :aria-label="t('toolbar.appMenu')">
-        <Teleport to="body">
-            <div :data-text-edit-menu="menuPortalId" />
-        </Teleport>
+        <ClientOnly>
+            <Teleport to="body">
+                <div :data-text-edit-menu="menuPortalId" />
+            </Teleport>
+        </ClientOnly>
         <UDropdownMenu
             v-model:open="menuOpen"
             :modal="false"
@@ -739,6 +741,7 @@ function getMenuShortcut(item: unknown) {
 @use '@app/assets/css/toolbar-menu-shared';
 
 .app-menu {
+    z-index: var(--app-z-menu);
     min-width: min(var(--app-toolbar-app-menu-min-width), var(--app-floating-panel-viewport-width));
 }
 
