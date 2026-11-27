@@ -2689,6 +2689,8 @@ fn process_fresh_bilevel_output(input: BilevelProcessingInput<'_>) -> BilevelPro
     let filter_source = dark_background_filter_source
         .as_ref()
         .unwrap_or(&rendered_source_gray);
+    let mut protected_picture: Option<BinaryImage> = None;
+    let mut raw_gradient_bounds: Option<RawGradientBounds> = None;
     let (binary, despeckle_fallback, binarization_mode, binarization_diagnostics) =
         if let Some(binary) = dark_background_binary {
             // The dark-cover detector has already produced the polarity-correct
@@ -2705,33 +2707,42 @@ fn process_fresh_bilevel_output(input: BilevelProcessingInput<'_>) -> BilevelPro
                 (mode == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
             let binarization_started = Instant::now();
             let (binary, diagnostics, despeckle_fallback, stage_timings) =
-                binarize_normalized_with_diagnostics(BinarizationInput {
-                    normalized: &rendered_gray,
-                    raw_source: &rendered_source_gray,
-                    routing_diagnostics,
-                    global_threshold_source,
-                    options,
-                    calibration,
-                    picture_mask: rendered_picture_mask,
-                    text_vicinity: rendered_text_vicinity_mask,
-                    spread_plan,
-                    detect_dark_background: !dark_background_detector_removed_by_picture_mask,
-                });
+                binarize_normalized_with_diagnostics_shared(
+                    BinarizationInput {
+                        normalized: &rendered_gray,
+                        raw_source: &rendered_source_gray,
+                        routing_diagnostics,
+                        global_threshold_source,
+                        options,
+                        calibration,
+                        picture_mask: rendered_picture_mask,
+                        text_vicinity: rendered_text_vicinity_mask,
+                        spread_plan,
+                        detect_dark_background: !dark_background_detector_removed_by_picture_mask,
+                    },
+                    Some(&mut protected_picture),
+                    Some(&mut raw_gradient_bounds),
+                );
             timings.threshold_preparation_ms += stage_timings.preparation_ms;
             timings.thresholding_ms += stage_timings.thresholding_ms;
             timings.binary_postprocess_ms += stage_timings.postprocess_ms;
             timings.binarization_ms += binarization_started.elapsed().as_secs_f64() * 1_000.0;
             (binary, despeckle_fallback, Some(mode), Some(diagnostics))
         };
+    if !is_dark_background_ocr && protected_picture.is_none() {
+        protected_picture =
+            rendered_picture_mask.map(|mask| protected_picture_mask(mask, options.dpi));
+    }
     // This fallback reconstructs horizontal rules from the ordinary dark-ink
     // polarity. A dark cover already has a polarity-correct global mask, and
     // running the rule rescue against its inverted texture would turn cover
     // grain into connected marks that split otherwise valid title words.
     let binary = if !is_dark_background_ocr {
-        restore_genuine_horizontal_rules(
+        restore_genuine_horizontal_rules_with_protected(
             &binary,
             filter_source,
             rendered_picture_mask,
+            protected_picture.as_ref(),
             rendered_text_mask,
             rendered_text_vicinity_mask,
             options.dpi,
@@ -2740,10 +2751,12 @@ fn process_fresh_bilevel_output(input: BilevelProcessingInput<'_>) -> BilevelPro
         binary
     };
     let conservative = binary.clone();
-    let binary = filter_soft_shallow_bleed_components(
+    let binary = filter_soft_shallow_bleed_components_with_shared(
         &binary,
         filter_source,
         rendered_picture_mask,
+        protected_picture.as_ref(),
+        raw_gradient_bounds.as_ref(),
         rendered_text_mask,
         rendered_text_vicinity_mask,
         options.dpi,
@@ -2752,6 +2765,8 @@ fn process_fresh_bilevel_output(input: BilevelProcessingInput<'_>) -> BilevelPro
             Some(crate::BinarizationMode::Wolf | crate::BinarizationMode::Sauvola)
         ),
     );
+    drop(raw_gradient_bounds);
+    drop(protected_picture);
     let binary = enforce_source_ink_support(
         binary,
         filter_source,
@@ -2962,38 +2977,46 @@ fn process_mixed_without_picture(input: MixedProcessingInput<'_>) -> MixedProces
     let route = routing_diagnostics.route;
     let global_threshold_source =
         (route == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
+    let mut raw_gradient_bounds: Option<RawGradientBounds> = None;
     let binarization_started = Instant::now();
     let (binary, diagnostics, despeckle_fallback, stage_timings) =
-        binarize_normalized_with_diagnostics(BinarizationInput {
-            normalized: &rendered_gray,
-            raw_source: &rendered_source_gray,
-            routing_diagnostics,
-            global_threshold_source,
-            options,
-            calibration,
-            picture_mask: rendered_picture_mask.as_ref(),
-            text_vicinity: rendered_text_vicinity_mask.as_ref(),
-            spread_plan,
-            detect_dark_background: true,
-        });
+        binarize_normalized_with_diagnostics_shared(
+            BinarizationInput {
+                normalized: &rendered_gray,
+                raw_source: &rendered_source_gray,
+                routing_diagnostics,
+                global_threshold_source,
+                options,
+                calibration,
+                picture_mask: rendered_picture_mask.as_ref(),
+                text_vicinity: rendered_text_vicinity_mask.as_ref(),
+                spread_plan,
+                detect_dark_background: true,
+            },
+            None,
+            Some(&mut raw_gradient_bounds),
+        );
     timings.threshold_preparation_ms += stage_timings.preparation_ms;
     timings.thresholding_ms += stage_timings.thresholding_ms;
     timings.binary_postprocess_ms += stage_timings.postprocess_ms;
     timings.binarization_ms += binarization_started.elapsed().as_secs_f64() * 1_000.0;
     let mode = diagnostics.route;
-    let binary = restore_genuine_horizontal_rules(
+    let binary = restore_genuine_horizontal_rules_with_protected(
         &binary,
         &rendered_source_gray,
+        None,
         None,
         rendered_text_mask.as_ref(),
         rendered_text_vicinity_mask.as_ref(),
         options.dpi,
     );
     let conservative = binary.clone();
-    let binary = filter_soft_shallow_bleed_components(
+    let binary = filter_soft_shallow_bleed_components_with_shared(
         &binary,
         &rendered_source_gray,
         None,
+        None,
+        raw_gradient_bounds.as_ref(),
         rendered_text_mask.as_ref(),
         rendered_text_vicinity_mask.as_ref(),
         options.dpi,
@@ -3002,6 +3025,7 @@ fn process_mixed_without_picture(input: MixedProcessingInput<'_>) -> MixedProces
             crate::BinarizationMode::Wolf | crate::BinarizationMode::Sauvola
         ),
     );
+    drop(raw_gradient_bounds);
     let binary = enforce_source_ink_support(
         binary,
         &rendered_source_gray,
@@ -3137,8 +3161,11 @@ fn process_mixed_output(input: MixedProcessingInput<'_>) -> MixedProcessingOutpu
             |plan| plan.diagnostics(),
         );
         let binarization_started = Instant::now();
+        let protected_picture = protected_picture_mask(picture_mask, options.dpi);
+        timings.threshold_preparation_ms += binarization_started.elapsed().as_secs_f64() * 1_000.0;
+        let mut raw_gradient_bounds: Option<RawGradientBounds> = None;
         let (binary, diagnostics, despeckle_fallback, stage_timings) =
-            binarize_normalized_with_diagnostics_excluding(
+            binarize_normalized_with_diagnostics_excluding_shared(
                 &rendered_gray,
                 &rendered_source_gray,
                 routing_diagnostics,
@@ -3146,8 +3173,10 @@ fn process_mixed_output(input: MixedProcessingInput<'_>) -> MixedProcessingOutpu
                 options,
                 calibration,
                 picture_mask,
+                Some(&protected_picture),
                 rendered_text_vicinity_mask.as_ref(),
                 spread_plan,
+                Some(&mut raw_gradient_bounds),
             );
         timings.threshold_preparation_ms += stage_timings.preparation_ms;
         timings.thresholding_ms += stage_timings.thresholding_ms;
@@ -3191,18 +3220,21 @@ fn process_mixed_output(input: MixedProcessingInput<'_>) -> MixedProcessingOutpu
             rendered_text_mask.as_ref(),
             options.dpi,
         );
-        let binary = restore_genuine_horizontal_rules(
+        let binary = restore_genuine_horizontal_rules_with_protected(
             &binary,
             &rendered_source_gray,
             Some(picture_mask),
+            Some(&protected_picture),
             rendered_text_mask.as_ref(),
             rendered_text_vicinity_mask.as_ref(),
             options.dpi,
         );
-        let binary = filter_soft_shallow_bleed_components(
+        let binary = filter_soft_shallow_bleed_components_with_shared(
             &binary,
             &rendered_source_gray,
             Some(picture_mask),
+            Some(&protected_picture),
+            raw_gradient_bounds.as_ref(),
             rendered_text_mask.as_ref(),
             rendered_text_vicinity_mask.as_ref(),
             options.dpi,
@@ -3211,6 +3243,8 @@ fn process_mixed_output(input: MixedProcessingInput<'_>) -> MixedProcessingOutpu
                 crate::BinarizationMode::Wolf | crate::BinarizationMode::Sauvola
             ),
         );
+        drop(raw_gradient_bounds);
+        drop(protected_picture);
         // Producer MRC selections are excellent glyph evidence,
         // but they can also contain dark samples from photographs
         // and reliefs. The Mixed partition is authoritative: a
