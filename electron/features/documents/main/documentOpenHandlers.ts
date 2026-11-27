@@ -46,7 +46,6 @@ import {
     MAX_OPEN_INPUT_PATHS,
 } from '@electron/features/documents/public/assertOpenInputPathCount';
 import {runtimeConfig} from '@electron/runtimeConfig';
-import {findPdfStructurePreservationRefusal} from '@contracts/nativeErrors';
 
 const logger = createLogger('documents-dialogs');
 const E2E_OPEN_IMAGE_PATH_ENV = 'EVB_E2E_OPEN_IMAGE_PATH';
@@ -62,8 +61,7 @@ const activeDirectBatchRequests = new Map<string, AbortController>();
 // An expected refusal (a file that changed, is damaged, is gone or is too
 // large) is told by the renderer, so it is a warning here, not an error report.
 function createDocumentOpenError(error: unknown, failureMessage: string) {
-    const structureRefusal = findPdfStructurePreservationRefusal(error);
-    const refused = error instanceof DocumentOpenRefusalError || error instanceof PdfDecryptTooLargeError || structureRefusal !== null;
+    const refused = error instanceof DocumentOpenRefusalError || error instanceof PdfDecryptTooLargeError;
     if (refused) {
         logger.warn(`${failureMessage}: ${getErrorMessage(error)}`);
     } else {
@@ -87,11 +85,6 @@ function createDocumentOpenError(error: unknown, failureMessage: string) {
             message: error.code,
             ...(error.fileName === undefined ? {} : {fileName: error.fileName}),
         }));
-    }
-    // A structure the tool cannot preserve keeps its code across IPC, so the
-    // renderer can say why instead of reporting a generic failure.
-    if (structureRefusal) {
-        return new Error(encodeSerializableErrorEnvelope(structureRefusal));
     }
     return errorWithDetails(te('errors.file.open'), error);
 }

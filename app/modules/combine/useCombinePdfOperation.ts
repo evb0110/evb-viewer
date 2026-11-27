@@ -21,10 +21,7 @@ import {removeCompletedCombineSnapshot} from '@app/services/pdf/removeCompletedC
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {TTranslateFn} from '@i18n-app';
 import {BrowserLogger} from '@app/utils/browserLogger';
-import {
-    NATIVE_ERROR_ENVELOPE_SCHEMA,
-    isPdfStructurePreservationRefusal,
-} from '@contracts/nativeErrors';
+import {NATIVE_ERROR_ENVELOPE_SCHEMA} from '@contracts/nativeErrors';
 import {DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA} from '@contracts/documentOpenErrors';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
 import {hasElectronAPI} from '@app/utils/platform';
@@ -102,15 +99,13 @@ export const useCombinePdfOperation = <T extends {
                     ?? BrowserLogger.error('pdf-combine', 'PDF combine controller failed', error, {code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED'});
             }
             const envelope = expected && findSerializableErrorEnvelope(error.cause, DOCUMENT_OPEN_ERROR_ENVELOPE_SCHEMA);
-            combineError.value = isPdfStructurePreservationRefusal(error)
-                ? translate('errors.pdfStructurePreservation')
-                : expected
-                    ? envelope && envelope.code === 'browser-byte-limit' && envelope.maxBytes !== undefined
-                        ? translate('errors.browser.documentTooLarge', {limitMiB: Math.round(envelope.maxBytes / (1024 * 1024))})
-                        : !hasElectronAPI() && findSerializableErrorEnvelope(error.cause, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code === 'too-large'
-                            ? translate('errors.browser.notEnoughMemory')
-                            : translate('errors.file.invalid')
-                    : translate(phase.value === 'opening' ? 'errors.file.open' : 'combinePdf.combineFailed');
+            combineError.value = expected
+                ? envelope && envelope.code === 'browser-byte-limit' && envelope.maxBytes !== undefined
+                    ? translate('errors.browser.documentTooLarge', {limitMiB: Math.round(envelope.maxBytes / (1024 * 1024))})
+                    : !hasElectronAPI() && findSerializableErrorEnvelope(error.cause, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code === 'too-large'
+                        ? translate('errors.browser.notEnoughMemory')
+                        : translate('errors.file.invalid')
+                : translate(phase.value === 'opening' ? 'errors.file.open' : 'combinePdf.combineFailed');
         } finally {
             progress.value = null;
             abortController = null;

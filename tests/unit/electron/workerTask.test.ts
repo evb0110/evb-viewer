@@ -286,7 +286,7 @@ describe('workerTask', () => {
         }
     });
 
-    it('preserves typed scratch shortfall figures across the worker result frame', async () => {
+    it('preserves generic structured details across the worker result frame', async () => {
         mocks.throwConstructorError = false;
         const {
             createWorkerTaskErrorFrame,
@@ -296,13 +296,19 @@ describe('workerTask', () => {
         const workerError = Object.assign(new Error('not enough scratch'), {
             name: 'ScanCleanupInsufficientScratchError',
             code: 'insufficient-scratch',
-            availableBytes: 700 * 1024 * 1024,
-            requiredBytes: 2_304 * 1024 * 1024,
+            details: {
+                scratchShortfall: {
+                    availableBytes: 700 * 1024 * 1024,
+                    requiredBytes: 2_304 * 1024 * 1024,
+                },
+            },
         });
         const workerFrame = createWorkerTaskErrorFrame(workerError, {source: 'scan-cleanup'});
-        expect(workerFrame.scratchShortfall).toEqual({
-            availableBytes: 700 * 1024 * 1024,
-            requiredBytes: 2_304 * 1024 * 1024,
+        expect(workerFrame.details).toEqual({
+            scratchShortfall: {
+                availableBytes: 700 * 1024 * 1024,
+                requiredBytes: 2_304 * 1024 * 1024,
+            },
         });
         mocks.nextMessage = {
             type: 'result',
@@ -320,9 +326,11 @@ describe('workerTask', () => {
         expect(error).toBeInstanceOf(WorkerTaskError);
         expect(error).toMatchObject({
             code: 'insufficient-scratch',
-            scratchShortfall: {
-                availableBytes: 700 * 1024 * 1024,
-                requiredBytes: 2_304 * 1024 * 1024,
+            details: {
+                scratchShortfall: {
+                    availableBytes: 700 * 1024 * 1024,
+                    requiredBytes: 2_304 * 1024 * 1024,
+                },
             },
         });
     });
@@ -813,25 +821,29 @@ describe('workerTask', () => {
         expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
     });
 
-    it('carries typed scratch figures across the worker result frame', async () => {
+    it('carries domain details supplied via frame options so domain code decodes them', async () => {
         mocks.throwConstructorError = false;
         const {
             createWorkerTaskErrorFrame,
             runResultWorkerTask,
         } = await import('@electron/utils/workerTask');
         const {ScanCleanupInsufficientScratchError} = await import('@evb/scan-cleanup/core/errors');
+        const {scanCleanupScratchShortfall} = await import('@electron/features/scan-cleanup/scanCleanupPreviewPolicy');
         const scratchError = new ScanCleanupInsufficientScratchError(512, 1_024);
-        expect(scratchError.availableBytes).toBe(scratchError.scratchShortfall.availableBytes);
-        expect(scratchError.requiredBytes).toBe(scratchError.scratchShortfall.requiredBytes);
         const workerFrame = createWorkerTaskErrorFrame(
             scratchError,
-            {source: 'scan-cleanup'},
+            {
+                source: 'scan-cleanup',
+                details: {scratchShortfall: scratchError.scratchShortfall},
+            },
         );
         expect(workerFrame).toMatchObject({
             code: 'insufficient-scratch',
-            scratchShortfall: {
-                availableBytes: 512,
-                requiredBytes: 1_024,
+            details: {
+                scratchShortfall: {
+                    availableBytes: 512,
+                    requiredBytes: 1_024,
+                },
             },
         });
         mocks.nextMessage = {
@@ -848,11 +860,12 @@ describe('workerTask', () => {
             createWorkerExitError: code => new Error(`exit: ${code}`),
         }).catch((cause: unknown) => cause);
 
-        expect(error).toMatchObject({
-            code: 'insufficient-scratch',
-            scratchShortfall: {
-                availableBytes: 512,
-                requiredBytes: 1_024,
+        expect(scanCleanupScratchShortfall(error)).toEqual({
+            details: {
+                scratchShortfall: {
+                    availableBytes: 512,
+                    requiredBytes: 1_024,
+                },
             },
         });
     });
@@ -1369,7 +1382,31 @@ describe('workerTask', () => {
         expect((error as Error).message).toBe('invalid payload');
     });
 
-    it('rejects a result frame with an invalid scratch shortfall', async () => {
+    it('omits uncloneable details so the error frame still survives structured clone', async () => {
+        const {createWorkerTaskErrorFrame} = await import('@electron/utils/workerTask');
+        const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
+        const workerError = markUnprovenNativeTermination(
+            Object.assign(new Error('disk error'), {
+                code: 'EIO',
+                details: {describe: () => 'disk error'},
+            }),
+            'child pid 99 still alive',
+        );
+
+        const frame = createWorkerTaskErrorFrame(workerError, {source: 'image-export:tiff-combine-worker'});
+        expect(frame).toEqual({
+            message: 'disk error',
+            name: 'Error',
+            code: 'EIO',
+            canceled: false,
+            retryable: false,
+            source: 'image-export:tiff-combine-worker',
+            terminationUnproven: 'child pid 99 still alive',
+        });
+        expect(() => structuredClone(frame)).not.toThrow();
+    });
+
+    it('rejects a result frame with an invalid error code field', async () => {
         mocks.throwConstructorError = false;
         mocks.nextMessage = {
             type: 'result',
@@ -1377,11 +1414,29 @@ describe('workerTask', () => {
             error: 'not enough scratch',
             errorFrame: {
                 message: 'not enough scratch',
-                scratchShortfall: {
-                    availableBytes: 'not-a-number',
-                    requiredBytes: 1_024,
-                },
+                code: '',
             },
+        };
+        const {runResultWorkerTask} = await import('@electron/utils/workerTask');
+
+        await expect(runResultWorkerTask({
+            workerPath: '/tmp/worker.js',
+            workerData: {ok: true},
+            invalidPayloadMessage: 'invalid payload',
+            createWorkerExitError: code => new Error(`exit: ${code}`),
+        })).rejects.toThrow('invalid payload');
+    });
+
+    it('rejects an array error frame with expando properties instead of acknowledging cancellation', async () => {
+        mocks.throwConstructorError = false;
+        mocks.nextMessage = {
+            type: 'result',
+            ok: false,
+            error: 'failed',
+            errorFrame: Object.assign([], {
+                message: 'failed',
+                canceled: true,
+            }),
         };
         const {runResultWorkerTask} = await import('@electron/utils/workerTask');
 

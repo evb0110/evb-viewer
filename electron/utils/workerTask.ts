@@ -8,14 +8,13 @@ import {
 } from 'worker_threads';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
-    SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA,
-    type IScanCleanupScratchShortfall,
-} from '@contracts/scan-cleanup/ipc';
+    parseWorkerTaskErrorFrame,
+    type IWorkerTaskErrorFrame,
+} from '@contracts/workerTaskErrorFrame';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
-import * as v from 'valibot';
 import {
     getUnprovenNativeTerminationDetail,
     markUnprovenNativeTermination,
@@ -23,23 +22,7 @@ import {
 
 const workerTaskLog = createLogger('worker-task');
 
-export interface IWorkerTaskErrorFrame {
-    message: string;
-    name?: string;
-    code?: string;
-    canceled?: boolean;
-    retryable?: boolean;
-    source?: string;
-    /** Typed storage figures that must survive a worker structured-clone boundary. */
-    scratchShortfall?: IScanCleanupScratchShortfall;
-    /**
-     * Set when the worker stopped a native process tree without being able to
-     * prove it died. A symbol-tagged error cannot survive the structured clone
-     * between a worker and main, so the outcome travels as data on the frame and
-     * is re-attached to the `WorkerTaskError` main throws.
-     */
-    terminationUnproven?: string;
-}
+export type {IWorkerTaskErrorFrame};
 
 type TResultWorkerPayload =
     | {
@@ -103,7 +86,7 @@ export class WorkerTaskError extends Error {
     readonly canceled: boolean;
     readonly retryable: boolean;
     readonly source: string | undefined;
-    readonly scratchShortfall: IScanCleanupScratchShortfall | undefined;
+    readonly details: unknown;
 
     constructor(frame: IWorkerTaskErrorFrame) {
         super(frame.message);
@@ -112,7 +95,7 @@ export class WorkerTaskError extends Error {
         this.canceled = frame.canceled ?? false;
         this.retryable = frame.retryable ?? false;
         this.source = frame.source;
-        this.scratchShortfall = frame.scratchShortfall;
+        this.details = frame.details;
         if (frame.terminationUnproven !== undefined) {
             markUnprovenNativeTermination(this, frame.terminationUnproven);
         }
@@ -129,23 +112,20 @@ function getErrorStringProperty(error: unknown, key: 'name' | 'code') {
         : undefined;
 }
 
-function getScratchShortfallProperty(error: unknown): IScanCleanupScratchShortfall | undefined {
-    if (!isRecord(error)) {
+function readCloneableErrorDetails(error: unknown, explicitDetails: unknown): unknown {
+    try {
+        const candidate = explicitDetails !== undefined
+            ? explicitDetails
+            : isRecord(error) && 'details' in error
+                ? error.details
+                : undefined;
+        if (candidate === undefined) {
+            return undefined;
+        }
+        return structuredClone(candidate);
+    } catch {
         return undefined;
     }
-    const value = error.scratchShortfall ?? (
-        error.code === 'insufficient-scratch'
-            ? {
-                availableBytes: error.availableBytes,
-                requiredBytes: error.requiredBytes,
-            }
-            : undefined
-    );
-    if (value === undefined) {
-        return undefined;
-    }
-    const result = v.safeParse(SCAN_CLEANUP_SCRATCH_SHORTFALL_SCHEMA, value, {abortEarly: true});
-    return result.success ? result.output : undefined;
 }
 
 export function createWorkerTaskErrorFrame(
@@ -153,6 +133,7 @@ export function createWorkerTaskErrorFrame(
     options: {
         source?: string;
         retryable?: boolean;
+        details?: unknown;
     } = {},
 ): IWorkerTaskErrorFrame {
     const frame: IWorkerTaskErrorFrame = {
@@ -177,9 +158,9 @@ export function createWorkerTaskErrorFrame(
     if (terminationUnproven !== undefined) {
         frame.terminationUnproven = terminationUnproven;
     }
-    const scratchShortfall = getScratchShortfallProperty(error);
-    if (scratchShortfall !== undefined) {
-        frame.scratchShortfall = scratchShortfall;
+    const details = readCloneableErrorDetails(error, options.details);
+    if (details !== undefined) {
+        frame.details = details;
     }
     return frame;
 }
@@ -191,46 +172,6 @@ export function resolveUnpackedWorkerPath(baseDir: string, workerFileName: strin
         return unpackedPath;
     }
     return defaultPath;
-}
-
-function parseWorkerTaskErrorFrame(value: unknown): IWorkerTaskErrorFrame | null {
-    if (!isRecord(value) || typeof value.message !== 'string') {
-        return null;
-    }
-    if (value.name !== undefined && typeof value.name !== 'string') {
-        return null;
-    }
-    if (value.code !== undefined && typeof value.code !== 'string') {
-        return null;
-    }
-    if (value.canceled !== undefined && typeof value.canceled !== 'boolean') {
-        return null;
-    }
-    if (value.retryable !== undefined && typeof value.retryable !== 'boolean') {
-        return null;
-    }
-    if (value.source !== undefined && typeof value.source !== 'string') {
-        return null;
-    }
-    const scratchShortfall = value.scratchShortfall === undefined
-        ? undefined
-        : getScratchShortfallProperty({scratchShortfall: value.scratchShortfall});
-    if (value.scratchShortfall !== undefined && scratchShortfall === undefined) {
-        return null;
-    }
-    if (value.terminationUnproven !== undefined && typeof value.terminationUnproven !== 'string') {
-        return null;
-    }
-    return {
-        message: value.message,
-        ...(value.name === undefined ? {} : {name: value.name}),
-        ...(value.code === undefined ? {} : {code: value.code}),
-        ...(value.canceled === undefined ? {} : {canceled: value.canceled}),
-        ...(value.retryable === undefined ? {} : {retryable: value.retryable}),
-        ...(value.source === undefined ? {} : {source: value.source}),
-        ...(scratchShortfall === undefined ? {} : {scratchShortfall}),
-        ...(value.terminationUnproven === undefined ? {} : {terminationUnproven: value.terminationUnproven}),
-    };
 }
 
 function parseResultWorkerPayload(payload: unknown): TResultWorkerPayload | null {
