@@ -379,6 +379,10 @@ async function startBrowserIntegrationHarness({
         detached: process.platform !== 'win32',
         env: buildNuxtDevServerEnv({
             ...process.env,
+            // Match Vitest's globalSetup environment so Nuxt sets `import.meta.test = true`
+            // (disabling the dev-error-overlay HMR client plugin on Playwright-routed pages).
+            TEST: process.env.TEST ?? 'true',
+            VITEST: process.env.VITEST ?? 'true',
             SENTRY_BROWSER_DSN: `http://consenttest@127.0.0.1:${String(port)}/1`,
         }, port, sessionName),
         stdio: [
