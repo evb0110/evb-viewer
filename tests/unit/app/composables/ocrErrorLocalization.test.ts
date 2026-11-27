@@ -81,4 +81,35 @@ describe('useOcrErrorLocalizer', () => {
             'errors.ocr.start',
         )).toBe('errors.file.invalid');
     });
+
+    it('rejects shallow objects with unknown codes or missing envelope fields', async () => {
+        const { useOcrErrorLocalizer } = await import('@app/composables/useOcrErrorLocalizer');
+        const { localizeOcrError } = useOcrErrorLocalizer();
+
+        expect(localizeOcrError({
+            code: 'ENOENT',
+            message: 'file not found',
+        }, 'errors.ocr.start')).toBe('errors.ocr.start');
+
+        expect(localizeOcrError({
+            code: 'OCR_INTERNAL_ERROR',
+            message: 'missing required fields',
+        }, 'errors.ocr.start')).toBe('errors.ocr.start');
+
+        expect(localizeOcrError({
+            code: 'OCR_INTERNAL_ERROR',
+            message: 'bad retryable',
+            retryable: 'yes',
+            details: { timestamp: 1 },
+        }, 'errors.ocr.start')).toBe('errors.ocr.start');
+
+        expect(localizeOcrError({
+            errorEnvelope: {
+                code: 'OCR_WORKER_UNAVAILABLE',
+                message: 'Worker exited',
+                retryable: true,
+                details: { timestamp: 1234 },
+            },
+        }, 'errors.ocr.start')).toBe('errors.ocr.errorCode.workerUnavailable: Worker exited');
+    });
 });

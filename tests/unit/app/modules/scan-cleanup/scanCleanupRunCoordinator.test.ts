@@ -3,6 +3,7 @@
 import {createRequire} from 'node:module';
 import {runInThisContext} from 'node:vm';
 import {build} from 'esbuild';
+import AppFailureToastDescription from '@app/components/AppFailureToastDescription.vue';
 import {FULL_SCAN_CLEANUP_SUPPORT} from '@contracts/scan-cleanup/scanCleanupPlatformFeature';
 import {
     beforeEach,
@@ -223,6 +224,7 @@ async function loadClientCoordinator() {
         platform: 'node',
         packages: 'external',
         external: [
+            '@app/components/AppFailureToastDescription.vue',
             '@app/utils/getScanCleanupCapability',
             '@app/utils/browserLogger',
             '@app/utils/platform',
@@ -232,6 +234,7 @@ async function loadClientCoordinator() {
     });
     const nodeRequire = createRequire(import.meta.url);
     const dependencies = new Map<string, unknown>([
+        ['@app/components/AppFailureToastDescription.vue', AppFailureToastDescription],
         ['@app/utils/getScanCleanupCapability', {getScanCleanupCapability: () => capability.value}],
         ['@app/utils/browserLogger', {BrowserLogger: {
             debug: diagnosticMocks.debug,

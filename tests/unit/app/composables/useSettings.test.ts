@@ -7,7 +7,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { Ref } from 'vue';
+import {
+    ref,
+    type Ref,
+} from 'vue';
 import type { ISettingsData } from '@contracts/shared';
 import {
     DEFAULT_SETTINGS,
@@ -697,6 +700,143 @@ describe('useSettings', () => {
             theme: 'dark',
         });
         expect(settings.value.locale).toBe('en');
+    });
+
+    it('cancels a pending debounced save when save() runs explicitly or the owner is disposed', async () => {
+        vi.useFakeTimers();
+        mockGet.mockResolvedValue(DEFAULT_SETTINGS);
+        mockSave.mockImplementation(async (patch) => {
+            emitSettingsChange({
+                ...DEFAULT_SETTINGS,
+                ...patch,
+            });
+        });
+        const addEventListener = vi.fn<(type: string, listener: () => void) => void>();
+        const removeEventListener = vi.fn<(type: string, listener: () => void) => void>();
+        vi.stubGlobal('window', {
+            addEventListener,
+            removeEventListener,
+        });
+
+        try {
+            const {
+                disposeSettingsOwner,
+                useSettings,
+            } = await import('@app/composables/useSettings');
+            const settings = useSettings();
+            await settings.load();
+
+            settings.updateSetting('authorName', 'Immediate Save');
+            await expect(settings.save()).resolves.toBe(true);
+            expect(mockSave).toHaveBeenCalledTimes(1);
+
+            await vi.advanceTimersByTimeAsync(400);
+            expect(mockSave).toHaveBeenCalledTimes(1);
+
+            settings.updateSetting('authorName', 'Cancelled On Dispose');
+            disposeSettingsOwner();
+            expect(removeEventListener).toHaveBeenCalledWith('pagehide', expect.any(Function));
+            expect(settingsChangeListeners.size).toBe(0);
+
+            await vi.advanceTimersByTimeAsync(400);
+            expect(mockSave).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('isolates settings runtime owners across separate Nuxt apps', async () => {
+        vi.useFakeTimers();
+        mockSave.mockResolvedValue(undefined);
+        const appA = { id: 'app-a' };
+        const appB = { id: 'app-b' };
+        const storesByApp = new Map<object, {
+            cookies: Map<string, Ref<unknown>>;
+            state: Map<string, Ref<unknown>>;
+        }>([
+            [appA, {
+                cookies: new Map(),
+                state: new Map(),
+            }],
+            [appB, {
+                cookies: new Map(),
+                state: new Map(),
+            }],
+        ]);
+        let activeApp: object = appA;
+        vi.stubGlobal('tryUseNuxtApp', () => activeApp);
+        vi.stubGlobal('useCookie', <T>(key: string, options?: { default?: () => T; }) => {
+            const store = storesByApp.get(activeApp)!.cookies;
+            if (!store.has(key)) {
+                store.set(key, ref(options?.default ? options.default() : null));
+            }
+            return store.get(key);
+        });
+        vi.stubGlobal('useState', <T>(key: string, init: () => T) => {
+            const store = storesByApp.get(activeApp)!.state;
+            if (!store.has(key)) {
+                store.set(key, ref(init()));
+            }
+            return store.get(key);
+        });
+
+        try {
+            const {
+                disposeSettingsOwner,
+                useSettings,
+            } = await import('@app/composables/useSettings');
+
+            activeApp = appA;
+            const settingsA = useSettings();
+            await settingsA.load();
+            settingsA.updateSetting('authorName', 'From App A');
+
+            activeApp = appB;
+            const settingsB = useSettings();
+            await settingsB.load();
+            disposeSettingsOwner();
+
+            // Disposing app B's owner must not cancel app A's pending debounced save.
+            await vi.advanceTimersByTimeAsync(400);
+            expect(mockSave).toHaveBeenCalledTimes(1);
+            expect(mockSave).toHaveBeenCalledWith(expect.objectContaining({ authorName: 'From App A' }));
+
+            activeApp = appA;
+            disposeSettingsOwner();
+        } finally {
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('disposes the app-scoped settings owner when its Vue app unmounts', async () => {
+        vi.useFakeTimers();
+        mockGet.mockResolvedValue(DEFAULT_SETTINGS);
+        mockSave.mockResolvedValue(undefined);
+        const onUnmountCleanups: Array<() => void> = [];
+        vi.stubGlobal('tryUseNuxtApp', () => ({
+            vueApp: { onUnmount: (cleanup: () => void) => onUnmountCleanups.push(cleanup) },
+        }));
+
+        try {
+            const { useSettings } = await import('@app/composables/useSettings');
+            const settings = useSettings();
+            await settings.load();
+            expect(settingsChangeListeners.size).toBe(1);
+
+            settings.updateSetting('authorName', 'Cancelled On App Unmount');
+            for (const cleanup of onUnmountCleanups) {
+                cleanup();
+            }
+
+            expect(settingsChangeListeners.size).toBe(0);
+            await vi.advanceTimersByTimeAsync(400);
+            expect(mockSave).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+            vi.unstubAllGlobals();
+        }
     });
 });
 

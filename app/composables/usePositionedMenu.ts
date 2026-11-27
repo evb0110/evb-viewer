@@ -3,7 +3,7 @@ import {
     onClickOutside,
     useEventListener,
 } from '@vueuse/core';
-import { useContextMenuPosition } from '@app/composables/useContextMenuPosition';
+import { clampElementToViewport } from '@app/composables/useContextMenuPosition';
 
 interface IPositionedMenuState {
     visible: boolean;
@@ -35,7 +35,6 @@ export const usePositionedMenu = <TMenuState extends IPositionedMenuState>(
     createInitialState: () => TMenuState,
     options: IUsePositionedMenuOptions = {},
 ) => {
-    const { clampElementToViewport } = useContextMenuPosition();
     const windowTarget = typeof window === 'undefined' ? undefined : window;
 
     const menu = ref(createInitialState()) as Ref<TMenuState>;

@@ -1,3 +1,4 @@
+import * as v from 'valibot';
 import { getErrorMessage } from '@app/utils/error';
 import { stripIpcInvocationPrefix } from '@app/utils/stripIpcInvocationPrefix';
 import { useTypedI18n } from '@app/composables/useTypedI18n';
@@ -5,7 +6,11 @@ import {
     ocrErrorCodeMessageKeys,
     ocrErrorMessageKeys,
 } from '@app/utils/ocr/ocrErrorMessageKeys';
-import type { IOcrErrorEnvelope } from '@contracts/electronApiOcr';
+import {
+    OCR_ERROR_ENVELOPE_SCHEMA,
+    type IOcrErrorEnvelope,
+} from '@contracts/electronApiOcr';
+import { isRecord } from '@contracts/runtimeGuards';
 import type { TOcrErrorFallbackKey } from '@app/utils/ocr/ocrErrorMessageKeys';
 
 function normalizeOcrErrorMessage(message: string) {
@@ -21,22 +26,15 @@ function truncateOcrErrorDetails(message: string) {
 }
 
 function isOcrErrorEnvelope(value: unknown): value is IOcrErrorEnvelope {
-    return typeof value === 'object'
-        && value !== null
-        && typeof (value as { message?: unknown }).message === 'string'
-        && typeof (value as { code?: unknown }).code === 'string';
+    return v.safeParse(OCR_ERROR_ENVELOPE_SCHEMA, value, {abortEarly: true}).success;
 }
 
 function getOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | null {
     if (isOcrErrorEnvelope(value)) {
         return value;
     }
-    if (
-        typeof value === 'object'
-        && value !== null
-        && isOcrErrorEnvelope((value as { errorEnvelope?: unknown }).errorEnvelope)
-    ) {
-        return (value as { errorEnvelope: IOcrErrorEnvelope }).errorEnvelope;
+    if (isRecord(value) && isOcrErrorEnvelope(value.errorEnvelope)) {
+        return value.errorEnvelope;
     }
     return null;
 }

@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import {
     effectScope,
+    ref,
     type Ref,
 } from 'vue';
 import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
@@ -170,5 +171,75 @@ describe('usePlatformHydratedState', () => {
         await expect(hydrated.retryNow()).resolves.toBe('recovered');
         expect(hydrated.state.value).toBe('recovered');
         expect(hydrated.isResolved.value).toBe(true);
+    });
+
+    it('isolates in-flight hydration promises and retry counters across separate Nuxt apps', async () => {
+        const appA = { id: 'nuxt-app-a' };
+        const appB = { id: 'nuxt-app-b' };
+        const stateStoresByApp = new Map<object, Map<string, Ref<unknown>>>([
+            [appA, new Map()],
+            [appB, new Map()],
+        ]);
+        let activeApp: object = appA;
+
+        vi.stubGlobal('tryUseNuxtApp', () => activeApp);
+        vi.stubGlobal('useState', <T>(key: string, init: () => T) => {
+            const store = stateStoresByApp.get(activeApp)!;
+            if (!store.has(key)) {
+                store.set(key, ref(init()));
+            }
+            return store.get(key);
+        });
+
+        const scopeA = effectScope();
+        const scopeB = effectScope();
+        onTestFinished(() => {
+            scopeA.stop();
+            scopeB.stop();
+            vi.unstubAllGlobals();
+        });
+
+        const deferredA = createDeferred<string>();
+        const deferredB = createDeferred<string>();
+        const loadValueA = vi.fn(() => deferredA.promise);
+        const loadValueB = vi.fn(() => deferredB.promise);
+
+        let stateA!: ReturnType<typeof usePlatformHydratedState<string>>;
+        let stateB!: ReturnType<typeof usePlatformHydratedState<string>>;
+
+        activeApp = appA;
+        scopeA.run(() => {
+            stateA = usePlatformHydratedState({
+                key: 'isolated-shared-key',
+                initialValue: () => 'initial-a',
+                initialResolved: false,
+                loadValue: loadValueA,
+            });
+        });
+        const loadA = stateA.load();
+        expect(loadValueA).toHaveBeenCalledTimes(1);
+
+        activeApp = appB;
+        scopeB.run(() => {
+            stateB = usePlatformHydratedState({
+                key: 'isolated-shared-key',
+                initialValue: () => 'initial-b',
+                initialResolved: false,
+                loadValue: loadValueB,
+            });
+        });
+        const loadB = stateB.load();
+        expect(loadValueB).toHaveBeenCalledTimes(1);
+
+        deferredB.resolve('loaded-b');
+        await expect(loadB).resolves.toBe('loaded-b');
+        expect(stateB.state.value).toBe('loaded-b');
+        expect(stateA.isResolved.value).toBe(false);
+        expect(stateA.state.value).toBe('initial-a');
+
+        deferredA.resolve('loaded-a');
+        await expect(loadA).resolves.toBe('loaded-a');
+        expect(stateA.state.value).toBe('loaded-a');
+        expect(stateB.state.value).toBe('loaded-b');
     });
 });

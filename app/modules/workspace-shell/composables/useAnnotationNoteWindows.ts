@@ -83,17 +83,14 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             draftText: {
                 enumerable: true,
                 get: () => state.draftText,
-                set: value => { state.draftText = String(value); },
             },
             minimized: {
                 enumerable: true,
                 get: () => state.minimized,
-                set: value => { state.minimized = Boolean(value); },
             },
             position: {
                 enumerable: true,
                 get: () => state.position,
-                set: value => { state.position = value as IAnnotationNotePosition; },
             },
             ownerViewId: {
                 enumerable: true,
@@ -145,7 +142,6 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             dirty: {
                 enumerable: true,
                 get: () => metadata.dirty,
-                set: value => { metadata.dirty = Boolean(value); },
             },
             saving: {
                 enumerable: true,

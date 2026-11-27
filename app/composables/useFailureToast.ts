@@ -1,6 +1,15 @@
-import type {VNode} from 'vue';
+import {
+    h,
+    type VNode,
+} from 'vue';
+import AppFailureToastDescription from '@app/components/AppFailureToastDescription.vue';
 import type {IPresentedFailureCapture} from '@app/utils/failureReporter';
-import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {
+    isFailureSeverity,
+    type FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
+import { isRecord } from '@contracts/runtimeGuards';
+import { isEpochMs } from '@contracts/timestamps';
 import type {TTranslateFn} from '@i18n-app';
 
 export interface IFailureToastAction {
@@ -58,19 +67,19 @@ const FAILURE_ERROR_ID_SHORT_LENGTH = 8;
 // A failure carries an action and an Error ID, so it stays longer than the
 // library's five seconds; hovering the stack pauses it either way.
 const FAILURE_TOAST_DURATION_MS = 10_000;
-const TOAST_ICONS: Record<TToastTone, string> = {
+const TOAST_ICONS = {
     error: 'i-ph-warning-circle',
     warning: 'i-ph-warning',
     info: 'i-ph-info',
     success: 'i-ph-check-circle',
-};
+} as const satisfies Record<TToastTone, string>;
 
 export function getFailureErrorId(receipt: FailureReceipt) {
     return receipt.eventId.slice(0, FAILURE_ERROR_ID_SHORT_LENGTH);
 }
 
 export function getNonEmptyDetails(values: Array<string | undefined>) {
-    return values.filter((value): value is string => Boolean(value?.trim())).join('\n');
+    return values.filter(line => line !== undefined && line.trim().length > 0).join('\n');
 }
 
 /** A failure's reason and short Error ID, labeled in the reader's language. */
@@ -103,27 +112,37 @@ export async function copyTextToClipboard(text: string) {
     }
 }
 
+function isFailureReceiptShape(value: unknown): value is FailureReceipt {
+    return isRecord(value)
+        && typeof value.eventId === 'string'
+        && value.eventId.length > 0
+        && typeof value.code === 'string'
+        && value.code.length > 0
+        && isEpochMs(value.occurredAt)
+        && isFailureSeverity(value.severity);
+}
+
 export function isFailurePresentation(value: unknown): value is FailurePresentation {
-    return Boolean(
-        value
-        && typeof value === 'object'
-        && 'failure' in value
-        && Boolean(value.failure),
-    );
+    if (!isRecord(value)) {
+        return false;
+    }
+    if (typeof value.title !== 'string') {
+        return false;
+    }
+    if (value.description !== undefined && typeof value.description !== 'string') {
+        return false;
+    }
+    if (value.technicalDetails !== undefined && typeof value.technicalDetails !== 'string') {
+        return false;
+    }
+    if (value.persistent !== undefined && typeof value.persistent !== 'boolean') {
+        return false;
+    }
+    return isFailureReceiptShape(value.failure);
 }
 
 export async function copyFailurePresentation(presentation: FailurePresentation) {
     return copyTextToClipboard(formatFailurePresentationCopy(presentation));
-}
-
-// The reason reads first; the Error ID is a quiet second line for support.
-function renderFailureDescription(presentation: FailurePresentation, getErrorIdLabel: () => string) {
-    return () => h('span', {class: 'app-toast-failure-description'}, [
-        presentation.description
-            ? h('span', {class: 'app-toast-failure-reason'}, presentation.description)
-            : null,
-        h('span', {class: 'app-toast-error-id'}, `${getErrorIdLabel()}: ${getFailureErrorId(presentation.failure)}`),
-    ]);
 }
 
 export function createFailureToastPresenter(
@@ -165,7 +184,12 @@ export function createFailureToastPresenter(
             icon: TOAST_ICONS.error,
             ui: {root: 'app-toast-failure'},
             title: presentation.title,
-            description: renderFailureDescription(presentation, () => t('errors.runtime.errorId')),
+            // The reason reads first; the Error ID is a quiet second line for support.
+            description: () => h(AppFailureToastDescription, {
+                reason: presentation.description,
+                errorIdLabel: t('errors.runtime.errorId'),
+                errorId: getFailureErrorId(presentation.failure),
+            }),
             actions: actions(false),
             duration,
             ...(presentation.persistent ? {progress: false} : {}),
@@ -202,6 +226,5 @@ export const useFailureToast = () => {
     return {
         presentFailureToast,
         presentNoticeToast,
-        copyFailurePresentation,
     };
 };

@@ -106,7 +106,9 @@ describe('useAppUpdates', () => {
 
         const anotherConsumer = useAppUpdates();
         expect(anotherConsumer.dialog.value.open).toBe(true);
-        updates.dialog.value.open = false;
+        expect(Object.isFrozen(updates.dialog.value)).toBe(true);
+        expect(Object.getOwnPropertyDescriptor(updates.dialog.value, 'open')?.set).toBeUndefined();
+        updates.closeDialog();
         expect(anotherConsumer.dialog.value.open).toBe(false);
         locale.value = 'ru';
         expect(updates.dialog.value.open).toBe(false);
@@ -537,6 +539,161 @@ describe('useAppUpdates', () => {
             reason: 'install-failed',
         });
         expect(ui.dialog.value.failure?.technicalDetails).toBe('Installation failed');
+    });
+
+    it('isolates shell-provided updater owners and disposes the platform subscription cleanly', async () => {
+        const {
+            createSSRApp,
+            defineComponent,
+            h,
+        } = await import('vue');
+        const { renderToString } = await import('vue/server-renderer');
+        const unsubscribers = [
+            vi.fn(),
+            vi.fn(),
+        ];
+        const listeners: Array<(status: IAppUpdateStatus) => void> = [];
+        const pendingGetState = Promise.withResolvers<IAppUpdateStatus>();
+        let getStateCallCount = 0;
+        let onStatusCallCount = 0;
+        platformApi = createElectronPlatformApiFixture({updates: {
+            getState: vi.fn((): Promise<IAppUpdateStatus> => {
+                const index = getStateCallCount;
+                getStateCallCount += 1;
+                if (index === 0) {
+                    return pendingGetState.promise;
+                }
+                return Promise.resolve({
+                    phase: 'idle',
+                    origin: 'auto',
+                    version: null,
+                    percent: null,
+                    message: null,
+                });
+            }),
+            onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                listeners.push(callback);
+                const unsubscribe = unsubscribers[onStatusCallCount] ?? vi.fn();
+                onStatusCallCount += 1;
+                return unsubscribe;
+            }),
+        }});
+
+        const {
+            provideAppUpdates,
+            useAppUpdates,
+        } = await import('@app/composables/useAppUpdates');
+
+        let ownerA!: ReturnType<typeof provideAppUpdates>;
+        let childA!: ReturnType<typeof useAppUpdates>;
+        let ownerB!: ReturnType<typeof provideAppUpdates>;
+
+        const ChildA = defineComponent({
+            setup() {
+                childA = useAppUpdates();
+                return () => null;
+            },
+        });
+        await renderToString(createSSRApp(defineComponent({
+            setup() {
+                ownerA = provideAppUpdates();
+                return () => h(ChildA);
+            },
+        })));
+        await renderToString(createSSRApp(defineComponent({
+            setup() {
+                ownerB = provideAppUpdates();
+                return () => null;
+            },
+        })));
+
+        const initA = ownerA.ensureInitialized();
+        await ownerB.ensureInitialized();
+
+        listeners[1]?.({
+            phase: 'available',
+            origin: 'manual',
+            version: '3.0.0',
+            percent: null,
+            message: null,
+            requestedHere: true,
+        });
+        expect(ownerB.dialog.value.open).toBe(true);
+        expect(ownerA.dialog.value.open).toBe(false);
+        expect(childA.dialog.value.open).toBe(false);
+
+        ownerA.dispose();
+        expect(unsubscribers[0]).toHaveBeenCalledOnce();
+        pendingGetState.resolve({
+            phase: 'error',
+            origin: 'manual',
+            version: '3.0.0',
+            percent: null,
+            message: 'stale after dispose',
+            requestedHere: true,
+        });
+        await expect(initA).resolves.toBe(false);
+        expect(ownerA.dialog.value.open).toBe(false);
+        expect(ownerA.status.value.phase).toBe('idle');
+
+        ownerB.dispose();
+        expect(unsubscribers[1]).toHaveBeenCalledOnce();
+    });
+
+    it('ignores late action rejections after owner disposal and unsubscribes standalone app fallbacks on unmount', async () => {
+        const skipDeferred = Promise.withResolvers<void>();
+        const unsubscribe = vi.fn();
+        let statusListener: ((status: IAppUpdateStatus) => void) | null = null;
+        platformApi = createElectronPlatformApiFixture({updates: {
+            onStatus: vi.fn((callback: (status: IAppUpdateStatus) => void) => {
+                statusListener = callback;
+                return unsubscribe;
+            }),
+            skipVersion: vi.fn(() => skipDeferred.promise),
+        }});
+
+        const {
+            createAppUpdatesOwner,
+            useAppUpdates,
+        } = await import('@app/composables/useAppUpdates');
+
+        const owner = createAppUpdatesOwner();
+        await owner.ensureInitialized();
+        requireStatusListener(statusListener)({
+            phase: 'available',
+            origin: 'manual',
+            version: '4.0.0',
+            percent: null,
+            message: null,
+            requestedHere: true,
+        });
+        const pendingSkip = owner.skipUpdateVersion();
+        owner.dispose();
+        skipDeferred.reject(new Error('disk full after teardown'));
+        await pendingSkip;
+        expect(owner.dialogOpen.value).toBe(false);
+        expect(owner.status.value.phase).toBe('idle');
+        expect(browserLoggerErrorMock).not.toHaveBeenCalled();
+
+        const standaloneUnsubscribe = vi.fn();
+        platformApi = createElectronPlatformApiFixture({updates: {
+            onStatus: vi.fn(() => standaloneUnsubscribe),
+        }});
+        const onUnmountCleanups: Array<() => void> = [];
+        vi.stubGlobal('tryUseNuxtApp', () => ({
+            vueApp: { onUnmount: (cleanup: () => void) => onUnmountCleanups.push(cleanup) },
+        }));
+        try {
+            const standaloneUpdates = useAppUpdates();
+            await standaloneUpdates.ensureInitialized();
+            expect(onUnmountCleanups).toHaveLength(1);
+            for (const cleanup of onUnmountCleanups) {
+                cleanup();
+            }
+            expect(standaloneUnsubscribe).toHaveBeenCalledOnce();
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 
 });

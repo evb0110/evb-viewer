@@ -63,22 +63,12 @@ export const useWorkspaceDocumentSessions = (options: {
         });
     }
 
-    function ensureSession(tabId: string) {
-        const existing = sessionsByTabId.value.get(tabId);
-        if (existing) {
-            return existing;
-        }
-        const session = createController(tabId, pendingAssignments.get(tabId));
-        pendingAssignments.delete(tabId);
-        sessionsByTabId.value.set(tabId, session);
-        triggerRef(sessionsByTabId);
-        return session;
+    function lookupSession(tabId: string | null | undefined) {
+        return tabId ? sessionsByTabId.value.get(tabId) ?? null : null;
     }
 
     function getSession(tabId: string | null | undefined) {
-        return tabId && options.tabs.value.some(tab => tab.id === tabId)
-            ? ensureSession(tabId)
-            : null;
+        return lookupSession(tabId);
     }
 
     /** Assigns a document to a tab that may not exist yet in the pane graph. */
@@ -147,10 +137,16 @@ export const useWorkspaceDocumentSessions = (options: {
         return true;
     }
 
-    watch(options.tabs, (tabs) => {
+    function syncTabSessions(tabs: readonly ITab[]) {
         const liveTabIds = new Set(tabs.map(tab => tab.id));
+        let changed = false;
         for (const tab of tabs) {
-            ensureSession(tab.id);
+            if (!sessionsByTabId.value.has(tab.id)) {
+                const session = createController(tab.id, pendingAssignments.get(tab.id));
+                pendingAssignments.delete(tab.id);
+                sessionsByTabId.value.set(tab.id, session);
+                changed = true;
+            }
         }
         for (const [
             tabId,
@@ -161,13 +157,28 @@ export const useWorkspaceDocumentSessions = (options: {
                     session.dispose();
                 }
                 sessionsByTabId.value.delete(tabId);
-                triggerRef(sessionsByTabId);
+                pendingAssignments.delete(tabId);
+                changed = true;
             }
         }
-    }, {immediate: true});
+        if (changed) {
+            triggerRef(sessionsByTabId);
+        }
+    }
+
+    watch(
+        () => options.tabs.value.map(tab => tab.id),
+        () => {
+            syncTabSessions(options.tabs.value);
+        },
+        {
+            immediate: true,
+            flush: 'sync',
+        },
+    );
 
     function getView(tabId: string | null | undefined) {
-        return tabId ? getSession(tabId)?.getView(tabId) ?? null : null;
+        return tabId ? lookupSession(tabId)?.getView(tabId) ?? null : null;
     }
 
     const documentSessionsByTabId = computed(() => Object.fromEntries(sessionsByTabId.value));
@@ -188,8 +199,11 @@ export const useWorkspaceDocumentSessions = (options: {
         tabId,
         view.mountedWorkspace.value,
     ] as const] : [])));
-    const activeDocumentSession = computed(() => getSession(options.activeTabId.value));
-    const activeDocumentView = computed(() => getView(options.activeTabId.value));
+    const activeDocumentSession = computed(() => lookupSession(options.activeTabId.value));
+    const activeDocumentView = computed(() => {
+        const tabId = options.activeTabId.value;
+        return tabId ? activeDocumentSession.value?.getView(tabId) ?? null : null;
+    });
     const activeWorkspace = computed(() => activeDocumentView.value?.mountedWorkspace.value ?? null);
 
     return {
