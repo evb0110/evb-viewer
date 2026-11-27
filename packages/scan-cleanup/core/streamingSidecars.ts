@@ -7,6 +7,7 @@ import {
 import {join} from 'path';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {getErrorMessage} from '@contracts/getErrorMessage';
+import {SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS} from '@evb/scan-cleanup/core/assembleCompactScanCleanupPages';
 import type {IScanCleanupTextLayerInstruction} from '@evb/scan-cleanup/core/compactManifest';
 import {ScanCleanupStreamingEvidenceError} from '@evb/scan-cleanup/core/errors';
 import {
@@ -121,7 +122,7 @@ async function mergeScanCleanupPdfPathSidecarUnchecked({
             await runCommand(qpdfBinary, qpdfArgs, {
                 signal,
                 commandLabel: 'qpdf(scan-cleanup:merge-bounded-batches)',
-                timeoutMs: 10 * 60 * 1000,
+                timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
                 log,
             });
             await appendJsonLine(nextHandle, {path: mergedPath});

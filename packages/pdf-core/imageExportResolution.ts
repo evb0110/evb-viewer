@@ -1,7 +1,7 @@
 import {uniq} from 'es-toolkit/array';
 import {range} from 'es-toolkit/math';
 
-const POINTS_PER_INCH = 72;
+export const PDF_POINTS_PER_INCH = 72;
 const DEFAULT_EXPORT_RENDER_DPI = 300;
 const PDF_EXPORT_DPI_PROBE_SAMPLE_PAGES = 8;
 const PPM_HEADER_AND_ROUNDING_RESERVE_BYTES = 64 * 1024;
@@ -40,14 +40,14 @@ export function resolveExportRenderDpi(detectedDpi: number | null, pageSizes: re
         return requestedDpi;
     }
 
-    const dimensionLimitedDpi = Math.floor((IMAGE_EXPORT_MAX_RENDER_DIMENSION * POINTS_PER_INCH) / longestSidePts);
+    const dimensionLimitedDpi = Math.floor((IMAGE_EXPORT_MAX_RENDER_DIMENSION * PDF_POINTS_PER_INCH) / longestSidePts);
     return Math.max(1, Math.min(requestedDpi, dimensionLimitedDpi));
 }
 
 /** Match the browser canvas bounds without letting Poppler round DPI first. */
 export function resolveExportRenderSize(size: IExportPageSize, dpi: number, rotated = false) {
-    const width = Math.ceil(size.widthPts * dpi / POINTS_PER_INCH);
-    const height = Math.ceil(size.heightPts * dpi / POINTS_PER_INCH);
+    const width = Math.ceil(size.widthPts * dpi / PDF_POINTS_PER_INCH);
+    const height = Math.ceil(size.heightPts * dpi / PDF_POINTS_PER_INCH);
     return rotated ? {
         width: height,
         height: width,

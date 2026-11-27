@@ -98,6 +98,13 @@ export function scanCleanupScratchShortfall(
     return {details: {scratchShortfall: parsed.output}};
 }
 
+export const SCAN_CLEANUP_EVENT_REPLAY_TTL_MS = 60_000;
+export const SCAN_CLEANUP_TERMINAL_RECORD_TTL_MS = 60_000;
+export const SCAN_CLEANUP_JOB_RETENTION_POLICY = {
+    eventReplayTtlMs: SCAN_CLEANUP_EVENT_REPLAY_TTL_MS,
+    terminalRecordTtlMs: SCAN_CLEANUP_TERMINAL_RECORD_TTL_MS,
+} as const;
+
 const SCAN_CLEANUP_RASTER_BROKER_PROCESS_RESERVE = 1;
 const SCAN_CLEANUP_PREVIEW_RASTER_BYTES_PER_PIXEL = 4;
 

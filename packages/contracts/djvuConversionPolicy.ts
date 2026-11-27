@@ -45,7 +45,7 @@ export const DJVU_PDF_CONVERSION_PRESET_SUBSAMPLES = [
 export const DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT = 8_000_000_000;
 
 const FALLBACK_BOOK_PAGE_AREA_SQUARE_INCHES = 8.5 * 11;
-const DEFAULT_DJVU_SOURCE_DPI = 300;
+export const DEFAULT_DJVU_SOURCE_DPI = 300;
 
 function normalizePositiveInteger(value: number, fallback: number) {
     return Number.isFinite(value) && value > 0

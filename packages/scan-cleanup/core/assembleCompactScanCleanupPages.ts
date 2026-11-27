@@ -28,6 +28,8 @@ import {
     ScanCleanupContractError, ScanCleanupNativeToolUnavailableError,
 } from '@evb/scan-cleanup/core/errors';
 
+export const SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS = 10 * 60 * 1000;
+
 export type IRenderedCleanupOutputPage = IScanCleanupRenderedOutput<string>;
 
 function appendQpdfPageSelection(
@@ -69,7 +71,7 @@ async function assertSourceAnnotationsHaveGeometry(
         log,
         ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
         commandLabel: 'qpdf(scan-cleanup:refused-annotation-pages)',
-        timeoutMs: 10 * 60 * 1000,
+        timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
     });
     // Every annotation the pages carry, links and form fields included: the
     // editor's parser leaves those out, and none survives non-affine geometry.
@@ -83,7 +85,7 @@ async function assertSourceAnnotationsHaveGeometry(
     ], {
         signal,
         commandLabel: 'evb-pdf-page-ops(annotation-index:scan-cleanup)',
-        timeoutMs: 10 * 60 * 1000,
+        timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
         log,
         ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
     });
@@ -172,7 +174,7 @@ export async function overlayScanCleanupTextLayer(
     ], {
         signal,
         commandLabel: 'evb-pdf-page-ops(overlay-text:scan-cleanup)',
-        timeoutMs: 10 * 60 * 1000,
+        timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
         log,
         ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
     });
@@ -239,7 +241,7 @@ export async function assembleWithCompactSourcePages(
         ], {
             signal,
             commandLabel: 'evb-pdf-page-ops(split-pages:compact-scan-cleanup-pages)',
-            timeoutMs: 10 * 60 * 1000,
+            timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
             log,
             ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
         });
@@ -287,7 +289,7 @@ export async function assembleWithCompactSourcePages(
         await dependencies.runCommand(paths.qpdfBinary, qpdfArgs, {
             signal,
             commandLabel: 'qpdf(scan-cleanup:retain-compact-source-pages)',
-            timeoutMs: 10 * 60 * 1000,
+            timeoutMs: SCAN_CLEANUP_ASSEMBLY_STEP_TIMEOUT_MS,
             log,
             ...(onTerminationProof === undefined ? {} : {onTerminationProof}),
         });

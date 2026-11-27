@@ -21,7 +21,10 @@ import type {
     IWorkspaceSurfaceBudgetController,
     IWorkspaceSurfaceLease,
 } from '@app/modules/document-viewer/public';
-import {workspaceSurfaceBudgetController} from '@app/modules/document-viewer/public';
+import {
+    RGBA_BYTES_PER_PIXEL,
+    workspaceSurfaceBudgetController,
+} from '@app/modules/document-viewer/public';
 import { PDF_PAGE_RENDER_TIMEOUT_MS } from '@app/constants/timeouts';
 import { getErrorMessage } from '@app/utils/error';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
@@ -456,7 +459,7 @@ export function createPdfPageRasterScheduler(
             const reservationRequest: Parameters<typeof surfaceBudget.reserve>[0] = {
                 scopeId: surfaceScopeId,
                 category,
-                bytes: Math.max(1, Math.ceil(work.demand.estimatedPixels)) * 4,
+                bytes: Math.max(1, Math.ceil(work.demand.estimatedPixels)) * RGBA_BYTES_PER_PIXEL,
                 priority: LANE_ORDER[work.demand.lane],
                 // A raster on screen stays charged until replaced.
                 canEvict: () => residents.has(work.key) && !isPageVisiblyDemanded(work),
@@ -845,14 +848,14 @@ export function createPdfPageRasterScheduler(
         let reservedPixels = 0;
         for (const work of queued.values()) {
             queuedByLane[work.demand.lane] += 1;
-            reservedPixels += (work.reservation?.bytes ?? 0) / 4;
+            reservedPixels += (work.reservation?.bytes ?? 0) / RGBA_BYTES_PER_PIXEL;
         }
         for (const work of inFlight.values()) {
             inFlightByLane[work.demand.lane] += 1;
-            reservedPixels += (work.reservation?.bytes ?? 0) / 4;
+            reservedPixels += (work.reservation?.bytes ?? 0) / RGBA_BYTES_PER_PIXEL;
         }
         for (const resident of residents.values()) {
-            reservedPixels += resident.reservation.bytes / 4;
+            reservedPixels += resident.reservation.bytes / RGBA_BYTES_PER_PIXEL;
         }
         return {
             accepting,
