@@ -350,57 +350,156 @@ pub fn resize_pixels(
         .checked_mul(nh)
         .and_then(|value| value.checked_mul(ch))
         .ok_or("Resized pixel payload size overflow")?;
+    const TILE_X: usize = 256;
+
+    #[derive(Clone, Copy, Default)]
+    struct XSpan {
+        sx_start: usize,
+        sx_end: usize,
+        first_ox: f64,
+        last_ox: f64,
+        span_x: f64,
+    }
+
     let mut output = vec![0u8; output_len];
-    if next_width < source_width || next_height < source_height {
-        let scale_x = sw as f64 / nw as f64;
-        let scale_y = sh as f64 / nh as f64;
+    let scale_x = sw as f64 / nw as f64;
+    let scale_y = sh as f64 / nh as f64;
+    let source_row_len = sw * ch;
+
+    let mut x_spans = [XSpan::default(); TILE_X];
+    let mut gray_sums = [0.0f64; TILE_X];
+    let mut rgb_sums = [[0.0f64; 3]; TILE_X];
+
+    for x_tile in (0..nw).step_by(TILE_X) {
+        let tile_len = (nw - x_tile).min(TILE_X);
+        for (slot, span) in x_spans[..tile_len].iter_mut().enumerate() {
+            let x = x_tile + slot;
+            let x0 = x as f64 * scale_x;
+            let x1 = (x + 1) as f64 * scale_x;
+            let sx_start = x0.floor() as usize;
+            let sx_end = x1.ceil().min(sw as f64) as usize;
+            let first_ox = if sx_start < sx_end {
+                ((sx_start + 1) as f64).min(x1) - (sx_start as f64).max(x0)
+            } else {
+                0.0
+            };
+            let last_ox = if sx_end > sx_start + 1 {
+                let last = sx_end - 1;
+                ((last + 1) as f64).min(x1) - (last as f64).max(x0)
+            } else {
+                0.0
+            };
+            *span = XSpan {
+                sx_start,
+                sx_end,
+                first_ox,
+                last_ox,
+                span_x: x1 - x0,
+            };
+        }
+
         for y in 0..nh {
             let y0 = y as f64 * scale_y;
             let y1 = (y + 1) as f64 * scale_y;
             let sy_start = y0.floor() as usize;
             let sy_end = y1.ceil().min(sh as f64) as usize;
-            for x in 0..nw {
-                let x0 = x as f64 * scale_x;
-                let x1 = (x + 1) as f64 * scale_x;
-                let sx_start = x0.floor() as usize;
-                let sx_end = x1.ceil().min(sw as f64) as usize;
-                let output_offset = (y * nw + x) * ch;
-                let area = (x1 - x0) * (y1 - y0);
-                for channel in 0..ch {
-                    let mut weighted_sum = 0.0;
-                    for sy in sy_start..sy_end {
-                        let overlap_y = ((sy + 1) as f64).min(y1) - (sy as f64).max(y0);
-                        if overlap_y <= 0.0 {
+            let span_y = y1 - y0;
+
+            if ch == 1 {
+                gray_sums[..tile_len].fill(0.0);
+                for sy in sy_start..sy_end {
+                    let overlap_y = ((sy + 1) as f64).min(y1) - (sy as f64).max(y0);
+                    if overlap_y <= 0.0 {
+                        continue;
+                    }
+                    let src_row = &pixels[sy * source_row_len..(sy + 1) * source_row_len];
+                    for (sum, span) in gray_sums[..tile_len].iter_mut().zip(&x_spans[..tile_len]) {
+                        if span.sx_start >= span.sx_end {
                             continue;
                         }
-                        for sx in sx_start..sx_end {
-                            let overlap_x = ((sx + 1) as f64).min(x1) - (sx as f64).max(x0);
-                            if overlap_x <= 0.0 {
-                                continue;
+                        if span.first_ox > 0.0 {
+                            *sum += f64::from(src_row[span.sx_start]) * span.first_ox * overlap_y;
+                        }
+                        let interior_end = span.sx_end.saturating_sub(1);
+                        if span.sx_start + 1 < interior_end {
+                            if overlap_y == 1.0 {
+                                for &px in &src_row[span.sx_start + 1..interior_end] {
+                                    *sum += f64::from(px);
+                                }
+                            } else {
+                                for &px in &src_row[span.sx_start + 1..interior_end] {
+                                    *sum += f64::from(px) * overlap_y;
+                                }
                             }
-                            let source_offset = (sy * sw + sx) * ch;
-                            weighted_sum +=
-                                f64::from(pixels[source_offset + channel]) * overlap_x * overlap_y;
+                        }
+                        if span.sx_end > span.sx_start + 1 && span.last_ox > 0.0 {
+                            *sum += f64::from(src_row[span.sx_end - 1]) * span.last_ox * overlap_y;
                         }
                     }
-                    output[output_offset + channel] =
-                        (weighted_sum / area).round().clamp(0.0, 255.0) as u8;
                 }
-            }
-        }
-    } else {
-        for y in 0..nh {
-            let sy = ((y as f64 + 0.5) * sh as f64 / nh as f64)
-                .floor()
-                .min((sh - 1) as f64) as usize;
-            for x in 0..nw {
-                let sx = ((x as f64 + 0.5) * sw as f64 / nw as f64)
-                    .floor()
-                    .min((sw - 1) as f64) as usize;
-                let source_offset = (sy * sw + sx) * ch;
-                let output_offset = (y * nw + x) * ch;
-                output[output_offset..output_offset + ch]
-                    .copy_from_slice(&pixels[source_offset..source_offset + ch]);
+                let out_slice = &mut output[y * nw + x_tile..y * nw + x_tile + tile_len];
+                for ((target, &sum), span) in out_slice
+                    .iter_mut()
+                    .zip(&gray_sums[..tile_len])
+                    .zip(&x_spans[..tile_len])
+                {
+                    *target = (sum / (span.span_x * span_y)).round().clamp(0.0, 255.0) as u8;
+                }
+            } else {
+                rgb_sums[..tile_len].fill([0.0; 3]);
+                for sy in sy_start..sy_end {
+                    let overlap_y = ((sy + 1) as f64).min(y1) - (sy as f64).max(y0);
+                    if overlap_y <= 0.0 {
+                        continue;
+                    }
+                    let src_row = &pixels[sy * source_row_len..(sy + 1) * source_row_len];
+                    for (sums, span) in rgb_sums[..tile_len].iter_mut().zip(&x_spans[..tile_len]) {
+                        if span.sx_start >= span.sx_end {
+                            continue;
+                        }
+                        if span.first_ox > 0.0 {
+                            let base = span.sx_start * 3;
+                            sums[0] += f64::from(src_row[base]) * span.first_ox * overlap_y;
+                            sums[1] += f64::from(src_row[base + 1]) * span.first_ox * overlap_y;
+                            sums[2] += f64::from(src_row[base + 2]) * span.first_ox * overlap_y;
+                        }
+                        let interior_end = span.sx_end.saturating_sub(1);
+                        if span.sx_start + 1 < interior_end {
+                            let interior = &src_row[(span.sx_start + 1) * 3..interior_end * 3];
+                            if overlap_y == 1.0 {
+                                for px in interior.chunks_exact(3) {
+                                    sums[0] += f64::from(px[0]);
+                                    sums[1] += f64::from(px[1]);
+                                    sums[2] += f64::from(px[2]);
+                                }
+                            } else {
+                                for px in interior.chunks_exact(3) {
+                                    sums[0] += f64::from(px[0]) * overlap_y;
+                                    sums[1] += f64::from(px[1]) * overlap_y;
+                                    sums[2] += f64::from(px[2]) * overlap_y;
+                                }
+                            }
+                        }
+                        if span.sx_end > span.sx_start + 1 && span.last_ox > 0.0 {
+                            let base = (span.sx_end - 1) * 3;
+                            sums[0] += f64::from(src_row[base]) * span.last_ox * overlap_y;
+                            sums[1] += f64::from(src_row[base + 1]) * span.last_ox * overlap_y;
+                            sums[2] += f64::from(src_row[base + 2]) * span.last_ox * overlap_y;
+                        }
+                    }
+                }
+                let out_slice =
+                    &mut output[(y * nw + x_tile) * 3..(y * nw + x_tile + tile_len) * 3];
+                for ((target, sums), span) in out_slice
+                    .chunks_exact_mut(3)
+                    .zip(&rgb_sums[..tile_len])
+                    .zip(&x_spans[..tile_len])
+                {
+                    let area = span.span_x * span_y;
+                    target[0] = (sums[0] / area).round().clamp(0.0, 255.0) as u8;
+                    target[1] = (sums[1] / area).round().clamp(0.0, 255.0) as u8;
+                    target[2] = (sums[2] / area).round().clamp(0.0, 255.0) as u8;
+                }
             }
         }
     }
@@ -440,15 +539,19 @@ pub fn recompress_jpeg(
     if pixels.len() != metadata.width as usize * metadata.height as usize * channels as usize {
         return Err("Decoded JPEG does not match its frame size".into());
     }
-    let resized = resize_pixels(
-        &pixels,
-        metadata.width,
-        metadata.height,
-        channels,
-        width,
-        height,
-        max_pixels,
-    )?;
+    let resized = if width == metadata.width && height == metadata.height {
+        pixels
+    } else {
+        resize_pixels(
+            &pixels,
+            metadata.width,
+            metadata.height,
+            channels,
+            width,
+            height,
+            max_pixels,
+        )?
+    };
     let (data, color_space) = encode_pixels_as_jpeg(&resized, width, height, channels, quality)?;
     Ok(RecompressedJpeg {
         data,
@@ -700,5 +803,91 @@ mod tests {
             &[0x3f, 0x00, 0x11, 0xff, 0xd9]
         });
         jpeg
+    }
+
+    #[test]
+    fn separable_resize_matches_2d_area_average() {
+        fn ref_2d(pixels: &[u8], sw: usize, sh: usize, ch: usize, nw: usize, nh: usize) -> Vec<u8> {
+            let mut out = vec![0u8; nw * nh * ch];
+            let sx_scale = sw as f64 / nw as f64;
+            let sy_scale = sh as f64 / nh as f64;
+            for y in 0..nh {
+                let y0 = y as f64 * sy_scale;
+                let y1 = (y + 1) as f64 * sy_scale;
+                for x in 0..nw {
+                    let x0 = x as f64 * sx_scale;
+                    let x1 = (x + 1) as f64 * sx_scale;
+                    let area = (x1 - x0) * (y1 - y0);
+                    for c in 0..ch {
+                        let mut sum = 0.0;
+                        for sy in (y0.floor() as usize)..(y1.ceil().min(sh as f64) as usize) {
+                            let oy = ((sy + 1) as f64).min(y1) - (sy as f64).max(y0);
+                            if oy <= 0.0 {
+                                continue;
+                            }
+                            for sx in (x0.floor() as usize)..(x1.ceil().min(sw as f64) as usize) {
+                                let ox = ((sx + 1) as f64).min(x1) - (sx as f64).max(x0);
+                                if ox <= 0.0 {
+                                    continue;
+                                }
+                                sum += f64::from(pixels[(sy * sw + sx) * ch + c]) * ox * oy;
+                            }
+                        }
+                        out[(y * nw + x) * ch + c] = (sum / area).round().clamp(0.0, 255.0) as u8;
+                    }
+                }
+            }
+            out
+        }
+
+        // Exact legacy f64 boundary case: 4x1 -> 3x1 with [0, 2, 0, 0] produces
+        // 0.4999999999999999 for the first pixel, which rounds to 0.
+        let boundary = [0u8, 2, 0, 0];
+        assert_eq!(
+            resize_pixels(&boundary, 4, 1, 1, 3, 1, 1_000_000).unwrap(),
+            ref_2d(&boundary, 4, 1, 1, 3, 1)
+        );
+        assert_eq!(
+            resize_pixels(&boundary, 4, 1, 1, 3, 1, 1_000_000).unwrap(),
+            vec![0, 1, 0]
+        );
+
+        // Exact two-axis legacy FP multiplication-order fixture: 4x4 with
+        // pixel (1, 1) = 100 resized to 3x3 must preserve (1, 0) = 12 and
+        // (0, 1) = 13.
+        let mut two_axis = vec![0u8; 16];
+        two_axis[5] = 100;
+        let expected_two_axis = ref_2d(&two_axis, 4, 4, 1, 3, 3);
+        let actual_two_axis = resize_pixels(&two_axis, 4, 4, 1, 3, 3, 1_000_000).unwrap();
+        assert_eq!(actual_two_axis, expected_two_axis);
+        assert_eq!(actual_two_axis[1], 12);
+        assert_eq!(actual_two_axis[3], 13);
+
+        let mut state = 0x4a50_4547_5253_5a31_u64;
+        for (sw, sh, nw, nh, ch) in [
+            (17, 13, 7, 5, 1),
+            (17, 13, 7, 5, 3),
+            (20, 12, 10, 12, 3),
+            (12, 20, 12, 7, 1),
+            (31, 29, 13, 11, 3),
+        ] {
+            let pixels: Vec<u8> = (0..sw * sh * ch)
+                .map(|_| {
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1_442_695_040_888_963_407);
+                    (state >> 56) as u8
+                })
+                .collect();
+            let actual = resize_pixels(
+                &pixels, sw as u32, sh as u32, ch as u8, nw as u32, nh as u32, 1_000_000,
+            )
+            .unwrap();
+            let expected = ref_2d(&pixels, sw, sh, ch, nw, nh);
+            assert_eq!(
+                actual, expected,
+                "mismatch for {sw}x{sh}->{nw}x{nh} ch={ch}"
+            );
+        }
     }
 }

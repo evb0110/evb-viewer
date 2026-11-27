@@ -255,4 +255,26 @@ mod tests {
             Err(Jbig2Error::NonZeroPaddingBits { row: 0 })
         );
     }
+
+    #[test]
+    fn round_trips_wide_sparse_row_under_white_context() {
+        // 8,000-pixel row with an isolated black MSB in every byte so `c3`
+        // clears back to 0 at every byte boundary while both preceding rows are
+        // white. Exercises the cached zero-above lookahead end.
+        let width = 8_000u32;
+        let height = 3u32;
+        let stride = (width / 8) as usize;
+        let mut rows = vec![0u8; stride * height as usize];
+        for byte in &mut rows[2 * stride..3 * stride] {
+            *byte = 0x80;
+        }
+        let encoded = encode_pdf_generic(Bilevel {
+            width,
+            height,
+            rows: &rows,
+        })
+        .unwrap();
+        let decoded = decode_pdf_generic(&encoded, DecodeLimits::default()).unwrap();
+        assert_eq!(decoded.rows, rows);
+    }
 }
