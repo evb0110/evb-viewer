@@ -87,7 +87,7 @@ function trackStoreOperation<T>(operation: Promise<T>) {
 const settingsSubscribers = new Set<(settings: IScanCleanupSettingsChange) => void>();
 
 function broadcastSettings(settings: IScanCleanupSettingsChange) {
-    for (const subscriber of settingsSubscribers) subscriber(settings);
+    for (const subscriber of settingsSubscribers) {subscriber(settings);}
 }
 
 async function createDurableSettingsStore(onSettingsChanged = broadcastSettings, replace = rename) {
@@ -128,10 +128,10 @@ describe('scan cleanup renderer preference store', () => {
         capability.value.updateSettings.mockImplementation(async request => {
             const result = createDefaultScanCleanupSettingsFile();
             Object.assign(result.settings, request.settingsPatch);
-            if (request.settingsPatch !== undefined) broadcastSettings({
+            if (request.settingsPatch !== undefined) {broadcastSettings({
                 settings: result.settings,
                 requestId: request.requestId,
-            });
+            });}
             return result;
         });
         settingsSubscribers.clear();
@@ -147,7 +147,7 @@ describe('scan cleanup renderer preference store', () => {
         platform.desktop = true;
         resetScanCleanupPreferencesStore();
         // A settling operation can start another (a read that leads to a write).
-        while (pendingStoreOperations.size > 0) await Promise.allSettled([...pendingStoreOperations]);
+        while (pendingStoreOperations.size > 0) {await Promise.allSettled([...pendingStoreOperations]);}
         await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
             recursive: true,
             force: true,
@@ -1030,7 +1030,7 @@ describe('scan cleanup renderer preference store', () => {
         expect(settings.values.outputMode).toBe(action === 'switch' ? 'bw' : 'color');
         expect((await createScanCleanupSettingsStore({filePath}).get()).documentOverrides[firstHash]?.outputMode).toBe('grayscale');
         expect(capability.value.updateSettings).toHaveBeenCalledTimes(action === 'discard' ? 1 : 0);
-        if (action !== 'dispose') app.unmount();
+        if (action !== 'dispose') {app.unmount();}
     });
 
     it.each([
@@ -1076,8 +1076,8 @@ describe('scan cleanup renderer preference store', () => {
         app.mount(host);
         try {
             await vi.waitFor(() => expect(settings.documentSettingsReady.value).toBe(true));
-            if (unchangedPage) expect(settings.values.pageOverrides['1']?.rotationDegrees).toBe(90);
-            if (action === 'reset') selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));
+            if (unchangedPage) {expect(settings.values.pageOverrides['1']?.rotationDegrees).toBe(90);}
+            if (action === 'reset') {selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 90}));}
             // Page 1 is already turned: the bulk turn changes only page 2.
             if (unchangedPage) {
                 selection.selectPage(2, 'toggle', [
@@ -1090,7 +1090,7 @@ describe('scan cleanup renderer preference store', () => {
                     rotationDegrees: 90,
                 }));
             }
-            else selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 180}));
+            else {selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 180}));}
             await nextTick();
             await flushScanCleanupDocumentPreferencesStore();
             if (action === 'reset') {
@@ -2214,7 +2214,7 @@ describe('scan cleanup renderer preference store', () => {
         capability.value.updateSettings.mockImplementation(async request => {
             if (request.document?.sourceSha256 === firstHash) {
                 attempts += 1;
-                if (fail) throw new Error('storage unavailable');
+                if (fail) {throw new Error('storage unavailable');}
             }
             return createDefaultScanCleanupSettingsFile();
         });
@@ -2359,7 +2359,7 @@ describe.each([
         const module = await import('@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore');
         renderers.push(module);
         const preferences = module.getScanCleanupPreferencesStore();
-        if (wait) await module.whenScanCleanupPreferencesReady();
+        if (wait) {await module.whenScanCleanupPreferencesReady();}
         return {
             module,
             preferences,
@@ -2377,28 +2377,28 @@ describe.each([
 
     async function owner(replace = rename) {
         const main = await createDurableSettingsStore(event => {
-            if (order === 'reply-before-event') held.push(event);
-            else broadcastSettings(event);
+            if (order === 'reply-before-event') {held.push(event);}
+            else {broadcastSettings(event);}
         }, replace);
         connectMainProcessSettings(main.store);
         return main;
     }
 
     async function settle(flush: Promise<unknown>) {
-        if (order === 'event-before-reply') return flush;
+        if (order === 'event-before-reply') {return flush;}
         let settled = false;
         void flush.finally(() => { settled = true; }).catch(() => undefined);
         while (!settled || held.length > 0) {
             await vi.waitFor(() => expect(settled || held.length > 0).toBe(true));
-            for (const event of held.splice(0)) broadcastSettings(event);
+            for (const event of held.splice(0)) {broadcastSettings(event);}
             await nextTick();
         }
         return flush;
     }
 
     async function beforeEvent(flush: Promise<unknown>) {
-        if (order === 'event-before-reply') await flush;
-        else await vi.waitFor(() => expect(held.length).toBeGreaterThan(0));
+        if (order === 'event-before-reply') {await flush;}
+        else {await vi.waitFor(() => expect(held.length).toBeGreaterThan(0));}
     }
 
     beforeEach(() => {
@@ -2411,7 +2411,7 @@ describe.each([
     });
 
     afterEach(async () => {
-        for (const module of renderers.splice(0)) module.resetScanCleanupPreferencesStore();
+        for (const module of renderers.splice(0)) {module.resetScanCleanupPreferencesStore();}
         settingsSubscribers.clear();
         await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {
             recursive: true,
@@ -2626,7 +2626,7 @@ describe.each([
         await nextTick();
         const flush = a.module.flushScanCleanupPreferencesStore();
         await committed.promise;
-        if (held.length > 0) broadcastSettings(held.shift()!);
+        if (held.length > 0) {broadcastSettings(held.shift()!);}
         await nextTick();
         b.preferences.readingOrder = 'ltr';
         await nextTick();
@@ -2652,7 +2652,7 @@ describe.each([
     it('retains a failed write and accepts an explicit retry', async () => {
         let fail = false;
         const main = await owner(async (source, target) => {
-            if (fail) throw new Error('simulated disk replacement failure');
+            if (fail) {throw new Error('simulated disk replacement failure');}
             await rename(source, target);
         });
         const a = await renderer();

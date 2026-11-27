@@ -180,7 +180,7 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
             };
         }
         const initial = displayedRect(previewRect());
-        for (const move of moves) layer.dispatchEvent(pointer('pointermove', move));
+        for (const move of moves) {layer.dispatchEvent(pointer('pointermove', move));}
         await nextTick();
         const canonicalPreview = previewRect();
         const preview = displayedRect(canonicalPreview);
@@ -397,7 +397,7 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
             || (armedTool === 'text' && targetKind === 'text-box')
             || targetKind === 'shape';
         expect(host.querySelectorAll('[data-annotation-kind]')).toHaveLength(sameKind ? 1 : 2);
-        if (sameKind) expect(target.classList.contains('is-selected')).toBe(true);
+        if (sameKind) {expect(target.classList.contains('is-selected')).toBe(true);}
         const original = surface.getEntitiesForPage(0).find(entity => entity.identity.id === existing.identity.id)!;
         const rectOf = (entity: typeof original) => entity.kind === 'note' ? entity.position : 'rect' in entity ? entity.rect : null;
         // A note holds the icon its writer saves, so compare with where it was created.
@@ -599,12 +599,12 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
             width: textBox.style.width,
         }).toEqual(preview);
         if (completion !== 'type') {
-            if (completion === 'save') surface.commitPendingTextBoxDraftsForSave();
-            else if (completion === 'blur') layer.focus();
-            else editor.dispatchEvent(new KeyboardEvent('keydown', {
+            if (completion === 'save') {surface.commitPendingTextBoxDraftsForSave();}
+            else if (completion === 'blur') {layer.focus();}
+            else {editor.dispatchEvent(new KeyboardEvent('keydown', {
                 bubbles: true,
                 key: 'Escape',
-            }));
+            }));}
             await nextTick();
             expect(surface.getEntitiesForPage(0)).toHaveLength(0);
             expect(surface.hasTextBoxDraftPending(entity.identity.id)).toBe(false);
@@ -631,7 +631,7 @@ describe('PdfAnnotationEditorLayer placement interactions', () => {
         expect(committed.text).toBe('typed after gesture');
         expect(committed.rect.left).toBeCloseTo(entity.rect.left);
         expect(committed.rect.top).toBeCloseTo(entity.rect.top);
-        if (gesture === 'resize') expect(committed.rect.width).toBeCloseTo(entity.rect.width);
+        if (gesture === 'resize') {expect(committed.rect.width).toBeCloseTo(entity.rect.width);}
         expect(surface.hasTextBoxDraftPending(entity.identity.id)).toBe(false);
         expect(surface.editingId.value).toBeNull();
     });

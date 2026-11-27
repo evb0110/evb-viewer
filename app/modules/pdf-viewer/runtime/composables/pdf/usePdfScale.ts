@@ -151,7 +151,7 @@ export const usePdfScale = (
         const width = resolveCurrentSpreadBaseWidth(
             metrics, toValue(viewMode), toValue(numPages), page,
         );
-        if (!height || !width) return false;
+        if (!height || !width) {return false;}
 
         // Decide scrollbar admission from the unobstructed viewport, never
         // from the scale already reduced by that scrollbar. Otherwise hiding

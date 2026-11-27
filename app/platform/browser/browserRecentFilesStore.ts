@@ -143,7 +143,7 @@ export function pruneRecentFiles(recentFiles: IRecentFile[]) {
     const keptRefs = new Set<string>();
     const evictedRefs = new Set<string>();
     for (const recentFile of recentFiles) {
-        if (keptRefs.has(recentFile.originalPath)) continue;
+        if (keptRefs.has(recentFile.originalPath)) {continue;}
         if (keptRecentFiles.length >= RECENT_FILES_LIMIT) {
             evictedRefs.add(recentFile.originalPath);
             continue;

@@ -217,19 +217,19 @@ function completeEdit(payload?: {
     const input = document.activeElement;
     const restoreFocus = input?.matches('.pdf-bookmark-item-input')
         && input.closest<HTMLElement>('[data-bookmark-id]')?.dataset.bookmarkId === rowId;
-    if (payload) emit('save-edit', payload);
-    else emit('cancel-edit');
+    if (payload) {emit('save-edit', payload);}
+    else {emit('cancel-edit');}
     // Pointer blur leaves its next target in charge. Keyboard completion uses
     // the tree's reveal while the edited row is still retained for this flush.
-    if (restoreFocus) void focusRow(rowId);
+    if (restoreFocus) {void focusRow(rowId);}
 }
 
 function handleWheel(event: WheelEvent) {
     const list = containerProps.ref.value;
-    if (!editingId || !list || !event.cancelable || event.shiftKey) return;
-    if (event.deltaX !== 0 || event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) return;
+    if (!editingId || !list || !event.cancelable || event.shiftKey) {return;}
+    if (event.deltaX !== 0 || event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) {return;}
     const interaction = resolveDocumentWheelInteraction(event, list);
-    if (interaction.intent !== 'scroll') return;
+    if (interaction.intent !== 'scroll') {return;}
     // Apply editing input in event order. The compositor's delayed default can
     // otherwise overtake the subsequent keyboard completion reveal.
     event.preventDefault();

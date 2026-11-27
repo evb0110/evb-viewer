@@ -712,7 +712,7 @@ describe('usePdfSearch', () => {
         let delayed: ((response: IPdfSearchRunResult) => void) | undefined;
         mockSearch.run.mockImplementation(async (_path, query, options) => {
             expect(query).toBe('alpha');
-            if (delayed) return new Promise<IPdfSearchRunResult>(resolve => { delayed = resolve; });
+            if (delayed) {return new Promise<IPdfSearchRunResult>(resolve => { delayed = resolve; });}
             const start = options.resultOffset === 'last' ? 62 : options.resultOffset ?? 0;
             return {
                 results: Array.from({length: Math.min(500, 562 - start)}, (_, index) => {

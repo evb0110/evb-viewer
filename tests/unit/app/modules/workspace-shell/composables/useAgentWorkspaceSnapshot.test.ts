@@ -708,7 +708,7 @@ describe('useAgentWorkspaceSnapshot command guards', () => {
             });
             expect(session.snapshot.value.identity.revisionInfo?.token).toBe('reader-revision');
             expect(session.validateCommandTarget(before).ok).toBe(false);
-            if (savedTarget) expect(session.validateCommandTarget(savedTarget).ok).toBe(false);
+            if (savedTarget) {expect(session.validateCommandTarget(savedTarget).ok).toBe(false);}
             expect(response.successor).toBeUndefined();
         } finally {
             finish.resolve(undefined);

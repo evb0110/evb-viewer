@@ -465,7 +465,7 @@ describe('useWorkspaceCrashCheckpoint write timing', () => {
     }
 
     async function settle() {
-        for (let turn = 0; turn < 5; turn += 1) await nextEventLoopTurn();
+        for (let turn = 0; turn < 5; turn += 1) {await nextEventLoopTurn();}
     }
 
     it('writes an opened document at once and waits for the debounce on page and zoom changes', async () => {
@@ -534,7 +534,7 @@ describe('useWorkspaceCrashCheckpoint write timing', () => {
         const saved: IWorkspaceCheckpoint[] = [];
         const saveWorkspaceCheckpoint = vi.fn(async (checkpoint: IWorkspaceCheckpoint) => {
             saved.push(checkpoint);
-            if (saved.length === 2) await finishWrite.promise;
+            if (saved.length === 2) {await finishWrite.promise;}
             return true;
         });
         const {options, dispose} = mountCheckpoint(saveWorkspaceCheckpoint);
@@ -581,7 +581,7 @@ describe('useWorkspaceCrashCheckpoint write timing', () => {
                 await failFirst.promise;
                 throw new Error('disk full');
             }
-            if (calls === 3) throw new Error('still full');
+            if (calls === 3) {throw new Error('still full');}
             return true;
         });
         const {options, checkpoint, dispose} = mountCheckpoint(saveWorkspaceCheckpoint);

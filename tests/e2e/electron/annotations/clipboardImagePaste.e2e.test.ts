@@ -45,7 +45,7 @@ describe('clipboard image paste', () => {
             canvas.width = 48;
             canvas.height = 32;
             const context = canvas.getContext('2d');
-            if (!context) throw new Error('Canvas 2D context is unavailable');
+            if (!context) {throw new Error('Canvas 2D context is unavailable');}
             context.fillStyle = '#d22f48';
             context.fillRect(0, 0, canvas.width, canvas.height);
             const blob = await new Promise<Blob>((resolve, reject) => {

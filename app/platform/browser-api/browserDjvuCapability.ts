@@ -110,7 +110,7 @@ export const browserDjvuCapability = {
         return Promise.resolve(handle);
     },
     releaseViewingPath(djvuPath) {
-        if (isBrowserDocumentRef(djvuPath)) releaseBrowserDjvuViewingWorker(djvuPath);
+        if (isBrowserDocumentRef(djvuPath)) {releaseBrowserDjvuViewingWorker(djvuPath);}
         return Promise.resolve();
     },
     cancelPagePreview(_requestId) {
@@ -179,7 +179,7 @@ export const browserDjvuCapability = {
             const pageSizes = await getDjvuWorkerPageSizes(worker);
             const requestedPageNumber = requirePageNumber(pageNumber, pageSizes.length);
             const pageSize = pageSizes[requestedPageNumber - 1];
-            if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+            if (!pageSize) {throw new RangeError(`DjVu page ${pageNumber} is outside the document`);}
             return renderDjvuPagePreviewPng(
                 worker,
                 requestedPageNumber,

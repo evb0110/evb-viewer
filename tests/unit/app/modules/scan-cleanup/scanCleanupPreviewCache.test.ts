@@ -352,7 +352,7 @@ describe('scan cleanup renderer preview cache', () => {
         );
 
         const cache = createScanCleanupPreviewCache();
-        for (const pageNumber of pages) cache.set(keyFor(pageNumber, false), result(new Uint8Array(1024), []));
+        for (const pageNumber of pages) {cache.set(keyFor(pageNumber, false), result(new Uint8Array(1024), []));}
         expect(cache.size).toBe(pages.length);
         const bytesBeforeDetection = cache.byteLength;
 
@@ -368,7 +368,7 @@ describe('scan cleanup renderer preview cache', () => {
         // second generation beside it.
         expect(cache.get(keyFor(pages[0]!, true))).toBeUndefined();
         expect(cache.size).toBe(pages.length - 1);
-        for (const pageNumber of pages) cache.set(keyFor(pageNumber, true), result(new Uint8Array(1024), []));
+        for (const pageNumber of pages) {cache.set(keyFor(pageNumber, true), result(new Uint8Array(1024), []));}
         expect(cache.size).toBe(pages.length);
         expect(cache.byteLength).toBe(bytesBeforeDetection);
         for (const pageNumber of pages) {

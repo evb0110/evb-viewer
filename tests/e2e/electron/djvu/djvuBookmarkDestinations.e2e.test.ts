@@ -149,7 +149,7 @@ describe('DjVu converted bookmark destinations', () => {
         await waitForFunctionInPage(session.page, () => {
             const dialog = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
                 .find(element => element.textContent?.includes('Convert DjVu to PDF'));
-            if (!dialog) return false;
+            if (!dialog) {return false;}
             const button = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button'))
                 .find(candidate => candidate.textContent?.trim() === 'Convert' && !candidate.disabled);
             return button !== undefined;

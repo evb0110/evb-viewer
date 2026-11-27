@@ -120,7 +120,7 @@ export function createPdfReloadWaiter(options: ICreatePdfReloadWaiterOptions) {
         const left = new Promise<void>((resolve) => {
             const timer = setTimeout(resolve, PDF_OPEN_SURFACE_SETTLE_TIMEOUT_MS);
             const unwatch = watch(() => outcome.value === 'withdrawn' || !isCurrentReload(), (gone) => {
-                if (gone) resolve();
+                if (gone) {resolve();}
             }, {immediate: true});
             stop = () => {
                 clearTimeout(timer);

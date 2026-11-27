@@ -32,7 +32,7 @@ vi.mock('@electron/pdf/pdfAppendBase', () => ({rewritePdfWithQpdf: (...args: unk
 const fixtures = resolve('native/pdf-page-ops/tests/fixtures/damaged-recovery');
 afterEach(async () => {
     await store.setDocumentStoreRootForTests(null);
-    if (state.root) await rm(state.root, {recursive: true, force: true});
+    if (state.root) {await rm(state.root, {recursive: true, force: true});}
     vi.clearAllMocks();
 });
 

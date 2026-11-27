@@ -402,7 +402,7 @@ describe('DjVu image export limits', () => {
             };
         });
         mocks.convertPage.mockImplementation(async (_source: string, ppmPath: string, page: number) => {
-            if (page === 2) throw new Error('second page failed');
+            if (page === 2) {throw new Error('second page failed');}
             await writeFile(ppmPath, 'ppm');
             return {
                 success: true,
@@ -450,7 +450,7 @@ describe('DjVu image export limits', () => {
             };
         });
         mocks.convertPpmToImage.mockImplementation(async (ppmPath: string) => {
-            if (ppmPath.includes('page-2.ppm')) throw new Error('second page failed');
+            if (ppmPath.includes('page-2.ppm')) {throw new Error('second page failed');}
             const pngPath = `${ppmPath}.png`;
             await writeFile(pngPath, 'png');
             return pngPath;
@@ -606,7 +606,7 @@ describe('DjVu image export limits', () => {
             const paths = await exportDjvuPagesAsPng('/books/book.djvu', join(tempDir, 'book.png'), {
                 scratch: {using: async (_prefix, run) => run(tempDir)},
                 beforePublish: async () => {
-                    if (publications++ === 0) await writeFile(rival, 'earlier page bytes');
+                    if (publications++ === 0) {await writeFile(rival, 'earlier page bytes');}
                 },
             });
             expect(paths).toEqual([
@@ -614,7 +614,7 @@ describe('DjVu image export limits', () => {
                 join(tempDir, 'book-page-002.png'),
             ]);
             expect(await readFile(rival, 'utf8')).toBe('earlier page bytes');
-            for (const path of paths) expect(await readFile(path, 'utf8')).toBe('new page bytes');
+            for (const path of paths) {expect(await readFile(path, 'utf8')).toBe('new page bytes');}
             expect(listStagedNames(tempDir)).toEqual([]);
         } finally {
             mocks.commitStagedFilePublications.mockReset();

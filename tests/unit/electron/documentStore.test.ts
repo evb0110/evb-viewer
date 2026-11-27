@@ -86,9 +86,9 @@ vi.mock('node:fs', async (importOriginal) => {
     const {basename: nameOf, dirname: folderOf} = await import('node:path');
     fat32.renumber = (path, stats) => {
         const ino = (stats as {ino?: unknown} | undefined)?.ino;
-        if (!fat32.dir || typeof path !== 'string' || folderOf(path) !== fat32.dir || typeof ino !== 'bigint') return stats;
+        if (!fat32.dir || typeof path !== 'string' || folderOf(path) !== fat32.dir || typeof ino !== 'bigint') {return stats;}
         const name = nameOf(path);
-        if (!fat32.names.has(name)) fat32.names.set(name, BigInt(fat32.names.size + 1));
+        if (!fat32.names.has(name)) {fat32.names.set(name, BigInt(fat32.names.size + 1));}
         (stats as {ino: bigint}).ino = (ino << 16n) + fat32.names.get(name)!;
         return stats;
     };
@@ -265,8 +265,8 @@ describe('desktop document store', () => {
         let missing = 0;
         let watching = true;
         const watch = () => {
-            if (!existsSync(pdf)) missing += 1;
-            if (watching) setImmediate(watch);
+            if (!existsSync(pdf)) {missing += 1;}
+            if (watching) {setImmediate(watch);}
         };
         watch();
         try {
@@ -444,13 +444,13 @@ describe('desktop document store', () => {
         const {pdf, entry} = await openPdf();
         const copy = await crashDuringPublish(entry, await writeTemp('edited.pdf', EDITED));
         const outside = new TextEncoder().encode('%PDF-1.7\nwritten elsewhere\n%%EOF\n');
-        if (state === 'foreign') await rename(await writeTemp('outside.pdf', outside), pdf);
+        if (state === 'foreign') {await rename(await writeTemp('outside.pdf', outside), pdf);}
         // What the exchange leaves: the PDF's name holds the staged copy, the staging name the file it displaced.
         const aside = join(tempRoot, 'exchanging');
         await rename(pdf, aside);
         await rename(copy, pdf);
         await rename(aside, copy);
-        if (state === 'linked') await link(copy, displaced(pdf));
+        if (state === 'linked') {await link(copy, displaced(pdf));}
         const id = entry.doc.id;
         await restart();
 
@@ -462,7 +462,7 @@ describe('desktop document store', () => {
         expect((await readdir(dirname(pdf))).filter(name => name.startsWith('.') || name.includes('report')).sort())
             .toEqual(state === 'foreign' ? ['report (original).pdf', 'report.pdf'] : ['report.pdf']);
         expect(await findKeptOriginal(pdf)).toBe(state === 'foreign' ? kept : undefined);
-        if (state === 'foreign') expect(await readFile(kept)).toEqual(Buffer.from(outside));
+        if (state === 'foreign') {expect(await readFile(kept)).toEqual(Buffer.from(outside));}
     });
 
     it.each([true, false])('settles an interrupted Save before a Save As elsewhere, or keeps it to settle later (PDF readable: %s)', async (readable) => {
@@ -474,7 +474,7 @@ describe('desktop document store', () => {
         const real = {...publication};
         const unreadable = (destination: string) => !readable && destination === pdf;
         publication.witness = (destination, content) => (unreadable(destination) ? Promise.reject(new Error('EACCES')) : real.witness(destination, content));
-        if (real.settle) publication.settle = (record, baseline) => (unreadable(record.destination) ? Promise.reject(new Error('EACCES')) : real.settle!(record, baseline));
+        if (real.settle) {publication.settle = (record, baseline) => (unreadable(record.destination) ? Promise.reject(new Error('EACCES')) : real.settle!(record, baseline));}
         const copy = join(tempRoot, 'copy.pdf');
         try {
             expect(await store.saveOpenDocument(entry, store.documentRevisionToken(entry), {saveAs: copy})).toMatchObject({status: 'saved'});
@@ -1157,12 +1157,12 @@ describe('#1609 recovery diagnostics', () => {
 describe('#1609 kept original diagnostics', () => {
     it.each(['unreadable', 'invalid JSON'])('reports %s notices file without replacing it', async damage => {
         const notices = join(tempRoot, 'kept-original-notices.json');
-        if (damage === 'unreadable') await mkdir(notices);
-        else await writeFile(notices, '{broken');
+        if (damage === 'unreadable') {await mkdir(notices);}
+        else {await writeFile(notices, '{broken');}
         expect(await findKeptOriginal(join(tempRoot, 'report.pdf'))).toBeUndefined();
         expect.soft(retainedDiagnostics()).toContain(JSON.stringify(notices));
         expect(retainedDiagnostics()).toMatch(damage === 'unreadable' ? /EISDIR|directory/iu : /SyntaxError|Expected property name|Unexpected token|invalid JSON|parse/iu);
-        if (damage === 'invalid JSON') expect(await readFile(notices, 'utf8')).toBe('{broken');
+        if (damage === 'invalid JSON') {expect(await readFile(notices, 'utf8')).toBe('{broken');}
     });
 
     it('reports a failed dismissal write with the notices file, original PDF and error', async () => {
@@ -1374,7 +1374,7 @@ describe('pinned document revisions', () => {
         const reached = gate();
         const held = gate();
         fileChecks.before = async (path) => {
-            if (path !== pdf) return;
+            if (path !== pdf) {return;}
             reached.resolve();
             await held.promise;
         };
@@ -1412,7 +1412,7 @@ describe('pinned document revisions', () => {
         // Another program points the path at other bytes right after the first check and back right before the last.
         // On Windows, the open read handle in `copyAdmittedFile` itself blocks renaming over the file (`EPERM`/`EBUSY`).
         fileChecks.after = async (path) => {
-            if (path !== pdf || ++checks !== 1) return;
+            if (path !== pdf || ++checks !== 1) {return;}
             await link(pdf, aside);
             try {
                 await rename(other, pdf);
@@ -1427,7 +1427,7 @@ describe('pinned document revisions', () => {
             }
         };
         fileChecks.before = async (path) => {
-            if (path !== pdf || checks !== 1) return;
+            if (path !== pdf || checks !== 1) {return;}
             checks += 1;
             if (!swapBlockedOnWindows) {
                 await rename(aside, pdf);

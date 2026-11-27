@@ -195,7 +195,7 @@ async function measureStagedSourceBytes(directory: string) {
         try {
             const fileStat = await stat(join(directory, file));
             if (fileStat.ino !== 0) {
-                if (seenInodes.has(fileStat.ino)) continue;
+                if (seenInodes.has(fileStat.ino)) {continue;}
                 seenInodes.add(fileStat.ino);
             }
             total += fileStat.size;

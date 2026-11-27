@@ -434,7 +434,7 @@ describe('DocumentWorkspace navigation command', () => {
         };
         workspace.documentContext.file.pdfSrc.value = source;
         await workspace.presentPendingOpen();
-        for (const view of surfaceRenders.presentations.values()) view.presentDocument();
+        for (const view of surfaceRenders.presentations.values()) {view.presentDocument();}
         await nextTick();
         const anchors = [...surfaceRenders.presentations.values()].map(view => view.captureReadingAnchor());
 
@@ -482,7 +482,7 @@ describe('DocumentWorkspace navigation command', () => {
         };
         workspace.documentContext.file.pdfSrc.value = source;
         await workspace.presentPendingOpen();
-        for (const view of surfaceRenders.presentations.values()) view.presentDocument();
+        for (const view of surfaceRenders.presentations.values()) {view.presentDocument();}
         await nextTick();
         workspace.expose.handleGoToPage(4);
         workspace.documentContext.file.pdfSrc.value = {...source};
@@ -535,7 +535,7 @@ describe('DocumentWorkspace navigation command', () => {
         file.originalPath.value = path;
         file.isDirty.value = true;
         await workspace.presentPendingOpen();
-        for (const view of surfaceRenders.presentations.values()) view.presentDocument();
+        for (const view of surfaceRenders.presentations.values()) {view.presentDocument();}
         await nextTick();
 
         let releaseOperation!: () => void;

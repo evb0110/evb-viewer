@@ -241,19 +241,19 @@ async function readVisiblePopplerPageTexts(
     signal?: AbortSignal,
     contentOrder = false,
 ) {
-    if (areas.size === 0) return readPopplerPageTexts(pdfPath, range, signal, contentOrder);
+    if (areas.size === 0) {return readPopplerPageTexts(pdfPath, range, signal, contentOrder);}
     const areaKey = (pageNumber: number) => JSON.stringify(areas.get(pageNumber) ?? null);
     const pages: IPageText[] = [];
     for (let firstPage = range.firstPage; firstPage <= range.lastPage;) {
         let lastPage = firstPage;
-        while (lastPage < range.lastPage && areaKey(lastPage + 1) === areaKey(firstPage)) lastPage += 1;
+        while (lastPage < range.lastPage && areaKey(lastPage + 1) === areaKey(firstPage)) {lastPage += 1;}
         const run = await readPopplerPageTexts(pdfPath, {
             firstPage,
             lastPage,
         }, signal, contentOrder, areas.get(firstPage));
-        if (run === null) return null;
+        if (run === null) {return null;}
         pages.push(...run);
-        if (run.length < lastPage - firstPage + 1) break;
+        if (run.length < lastPage - firstPage + 1) {break;}
         firstPage = lastPage + 1;
     }
     return pages;
@@ -380,9 +380,9 @@ async function readPdfPageTextsInReadingOrder(
                 firstPage,
                 lastPage,
             }, signal)) {
-                if (reread.has(page.pageNumber)) rereadTexts.push(page);
+                if (reread.has(page.pageNumber)) {rereadTexts.push(page);}
             }
-            for (const page of rereadTexts) orderedTexts.set(page.pageNumber, page);
+            for (const page of rereadTexts) {orderedTexts.set(page.pageNumber, page);}
         } catch (error) {
             signal?.throwIfAborted();
             log.warn(`Right-to-left pages ${firstPage}-${lastPage} keep Poppler's text: ${getErrorMessage(error)}`);
@@ -406,7 +406,7 @@ async function readRemainingPopplerPageTexts(
     const pages: IPageText[] = [];
     for (const run of groupContiguousPages(range(window.firstPage, window.lastPage + 1).filter(page => !decoded.has(page)))) {
         const runPages = await readVisiblePopplerPageTexts(pdfPath, run, areas, signal);
-        if (runPages === null) return null;
+        if (runPages === null) {return null;}
         pages.push(...runPages);
         if (runPages.length < run.lastPage - run.firstPage + 1) {
             return {
@@ -445,7 +445,7 @@ export function streamPdfPageTexts(
             ]) : cancellation.signal, onProgress, visiblePageOnly);
         } catch (error) {
             if (getUnprovenNativeTerminationDetail(error) !== undefined
-                || !cancellation.signal.aborted || signal?.aborted) throw error;
+                || !cancellation.signal.aborted || signal?.aborted) {throw error;}
         }
     })();
     const finish = iterator.return.bind(iterator);
@@ -587,7 +587,7 @@ export async function readPdfPageTexts(
     signal?: AbortSignal,
 ): Promise<IPageText[]> {
     const texts: IPageText[] = [];
-    if (pageNumbers.length === 0) return texts;
+    if (pageNumbers.length === 0) {return texts;}
     for await (const page of streamPdfPageTextRanges(pdfPath, groupContiguousPages([...pageNumbers]), signal)) {
         texts.push(page);
     }

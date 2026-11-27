@@ -261,7 +261,7 @@ describe('browser document lifecycle UI', () => {
                 }));
                 expect(paint.background).not.toBe('rgba(0, 0, 0, 0)');
                 expect(paint.width).toBeGreaterThan(0);
-                if (fragmented) expect(await page.locator('#layer > span').first().locator('.pdf-search-highlight').count()).toBe(0);
+                if (fragmented) {expect(await page.locator('#layer > span').first().locator('.pdf-search-highlight').count()).toBe(0);}
             } finally {
                 const label = fragmented ? 'fragmented' : 'literal';
                 await page.screenshot({path: resolve(evidenceDir, `${label}.png`)});
@@ -621,13 +621,13 @@ describe('optional search-cache mutation completion proof', () => {
             await page.locator('.page_container--rendered[data-page="1"] canvas').first().waitFor({timeout: 30000});
             await page.evaluate(async () => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('Initial real PDF did not settle');
+                if (!await api.waitForActiveDocumentOpenSettled?.()) {throw new Error('Initial real PDF did not settle');}
             });
             const workingPath = await page.evaluate(() => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
                 return api.readActiveWorkspaceStateValues?.<{workingCopyPath?: string}>(['workingCopyPath']).workingCopyPath;
             });
-            if (!workingPath) throw new Error('Real working document identity is missing');
+            if (!workingPath) {throw new Error('Real working document identity is missing');}
             if (!await page.locator('[data-thumbnail-page="1"]').first().isVisible()) {
                 await page.getByRole('button', {
                     name: 'Toggle Sidebar',
@@ -668,9 +668,9 @@ describe('optional search-cache mutation completion proof', () => {
                 legacy.onversionchange = () => {};
                 IDBFactory.prototype.open = function(name: string, version?: number) {
                     const request = version === undefined ? original.call(this, name) : original.call(this, name, version);
-                    if (name === cacheName) request.onblocked = () => {
+                    if (name === cacheName) {request.onblocked = () => {
                         Reflect.set(window, '__br02CacheRequests', Reflect.get(window, '__br02CacheRequests') + 1);
-                    };
+                    };}
                     return request;
                 };
                 Reflect.set(window, '__br02ReleaseCache', () => {IDBFactory.prototype.open = original; legacy.close();});
@@ -683,7 +683,7 @@ describe('optional search-cache mutation completion proof', () => {
             let storedBytes: number[] = [];
             await expect.poll(async () => {
                 storedBytes = await readPersistedDocumentBytes(page!, workingPath);
-                if (!storedBytes.length) return null;
+                if (!storedBytes.length) {return null;}
                 return (await PDFDocument.load(Uint8Array.from(storedBytes))).getPage(0).getRotation().angle;
             }, {timeout: 15000}).toBe(90);
             writeFileSync(resolve(evidenceDir, `${fault}-committed.pdf`), Buffer.from(storedBytes));
@@ -708,7 +708,7 @@ describe('optional search-cache mutation completion proof', () => {
             const saved = await PDFDocument.load(readFileSync(savedPath));
             expect(saved.getPage(0).getRotation().angle).toBe(90);
             expect(saved.getPageCount()).toBe(1);
-            if (fault === 'denied') expect(problems.length).toBeGreaterThan(0);
+            if (fault === 'denied') {expect(problems.length).toBeGreaterThan(0);}
             expect(
                 problems.every(problem => problem.includes('[search] Optional search-cache invalidation failed')),
                 JSON.stringify(problems),
@@ -776,7 +776,7 @@ describe('optional search-cache mutation completion proof', () => {
             await page.locator('.page_container--rendered[data-page="1"] canvas').first().waitFor({timeout: 30_000});
             await page.evaluate(async () => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF did not settle');
+                if (!await api.waitForActiveDocumentOpenSettled?.()) {throw new Error('PDF did not settle');}
             });
             if (!await page.locator('[data-thumbnail-page="1"]').first().isVisible()) {
                 await page.getByRole('button', {
@@ -799,7 +799,7 @@ describe('optional search-cache mutation completion proof', () => {
             }), {timeout: 15_000}).toBe(true);
             await page.evaluate(async () => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-                if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('Rotated PDF did not settle');
+                if (!await api.waitForActiveDocumentOpenSettled?.()) {throw new Error('Rotated PDF did not settle');}
             });
             await page.waitForFunction(() => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
@@ -838,13 +838,13 @@ describe('optional search-cache mutation completion proof', () => {
                 let wordRange: Range | null = null;
                 while ((node = walker.nextNode())) {
                     const at = node.textContent?.indexOf('proof') ?? -1;
-                    if (at < 0) continue;
+                    if (at < 0) {continue;}
                     wordRange = document.createRange();
                     wordRange.setStart(node, at);
                     wordRange.setEnd(node, at + 5);
                     break;
                 }
-                if (!wordRange) throw new Error('Rendered proof word is absent');
+                if (!wordRange) {throw new Error('Rendered proof word is absent');}
                 const word = wordRange.getBoundingClientRect();
                 const highlight = element.getBoundingClientRect();
                 const renderedCanvas = canvas.getBoundingClientRect();
@@ -860,11 +860,11 @@ describe('optional search-cache mutation completion proof', () => {
                 for (let py = 0; py < height; py += 1) {
                     for (let px = 0; px < width; px += 1) {
                         const offset = (py * width + px) * 4;
-                        if (pixels[offset]! >= 128 || pixels[offset + 1]! >= 128 || pixels[offset + 2]! >= 128) continue;
+                        if (pixels[offset]! >= 128 || pixels[offset + 1]! >= 128 || pixels[offset + 2]! >= 128) {continue;}
                         darkPixels += 1;
                         const clientX = renderedCanvas.left + (x + px + 0.5) / sx;
                         const clientY = renderedCanvas.top + (y + py + 0.5) / sy;
-                        if (clientX >= highlight.left && clientX <= highlight.right && clientY >= highlight.top && clientY <= highlight.bottom) paintedPixelsInBox += 1;
+                        if (clientX >= highlight.left && clientX <= highlight.right && clientY >= highlight.top && clientY <= highlight.bottom) {paintedPixelsInBox += 1;}
                     }
                 }
                 return {
@@ -961,7 +961,7 @@ it.each([
             const response = await route.fetch();
             const source = await response.text();
             const marker = 'const mergedResults = response.results.map';
-            if (!source.includes(marker)) throw new Error('Search result setup seam missing');
+            if (!source.includes(marker)) {throw new Error('Search result setup seam missing');}
             const ordinal = 1;
             const start = 7;
             const setup = `response.results = response.results.slice(0, 1).map(result => ({...result, pageNumber: 1, pageMatchIndex: ${ordinal}, matchIndex: ${ordinal}, startOffset: ${start}, endOffset: ${start + 6}, words: undefined, excerpt: {before: '', match: 'needle', after: ''}})); `;
@@ -993,20 +993,20 @@ it.each([
         writeFileSync(resolve(out, 'text-runs.json'), JSON.stringify(await layer.locator(':scope > span').allTextContents(), null, 2));
         await page.evaluate(async () => {
             const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
-            if (!await api.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF did not settle');
+            if (!await api.waitForActiveDocumentOpenSettled?.()) {throw new Error('PDF did not settle');}
         });
         if (!await page.getByRole('tab', {
             name: 'Search',
             exact: true,
-        }).isVisible()) await page.getByRole('button', {
+        }).isVisible()) {await page.getByRole('button', {
             name: 'Toggle Sidebar',
             exact: true,
-        }).click();
+        }).click();}
         await page.getByRole('tab', {
             name: 'Search',
             exact: true,
         }).click();
-        if (regex) await page.locator('.document-search-bar button').filter({hasText: '.*'}).click();
+        if (regex) {await page.locator('.document-search-bar button').filter({hasText: '.*'}).click();}
 
         const input = page.locator('.document-search-bar input:visible').first();
         await input.fill('needle');
@@ -1077,15 +1077,15 @@ it.each([
     let glyph = 0;
     for (let index = 0; index < fontData.readUInt16BE(cmap + 2); index += 1) {
         const subtable = cmap + fontData.readUInt32BE(cmap + 4 + index * 8 + 4);
-        if (fontData.readUInt16BE(subtable) !== 12) continue;
+        if (fontData.readUInt16BE(subtable) !== 12) {continue;}
         for (let group = 0; group < fontData.readUInt32BE(subtable + 12); group += 1) {
             const position = subtable + 16 + group * 12;
             const start = fontData.readUInt32BE(position);
             const end = fontData.readUInt32BE(position + 4);
-            if (start <= 0xFB03 && 0xFB03 <= end) glyph = fontData.readUInt32BE(position + 8) + 0xFB03 - start;
+            if (start <= 0xFB03 && 0xFB03 <= end) {glyph = fontData.readUInt32BE(position + 8) + 0xFB03 - start;}
         }
     }
-    if (!glyph) throw new Error('The public DejaVu font has no ffi ligature');
+    if (!glyph) {throw new Error('The public DejaVu font has no ffi ligature');}
     const head = tables.get('head')!;
     const hhea = tables.get('hhea')!;
     const hmtx = tables.get('hmtx')!;
@@ -1182,7 +1182,7 @@ end
             const response = await route.fetch();
             const source = await response.text();
             const marker = 'const mergedResults = response.results.map';
-            if (!source.includes(marker)) throw new Error('Search setup seam missing');
+            if (!source.includes(marker)) {throw new Error('Search setup seam missing');}
             await route.fulfill({
                 response,
                 body: source.replace(marker,
@@ -1210,7 +1210,7 @@ end
         const layer = page.locator('.page_container[data-page="1"] .textLayer').first();
         await page.waitForFunction(() => document.querySelector('.page_container[data-page="1"] .textLayer')?.getAttribute('data-pdf-text-layer-ready') === 'true', undefined, {timeout: 30000});
         await page.evaluate(async () => {
-            if (!await (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi).waitForActiveDocumentOpenSettled?.()) throw new Error('PDF did not settle');
+            if (!await (Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi).waitForActiveDocumentOpenSettled?.()) {throw new Error('PDF did not settle');}
         });
         const before = await layer.textContent();
         expect(before).toBe('ﬃﬃ');
@@ -1221,10 +1221,10 @@ end
         if (!await page.getByRole('tab', {
             name: 'Search',
             exact: true,
-        }).isVisible()) await page.getByRole('button', {
+        }).isVisible()) {await page.getByRole('button', {
             name: 'Toggle Sidebar',
             exact: true,
-        }).click();
+        }).click();}
         await page.getByRole('tab', {
             name: 'Search',
             exact: true,
@@ -1235,7 +1235,7 @@ end
                 reason?: string
             }>};
             const outcome = await monitor.waitForSettled({timeoutMs: 10000});
-            if (!outcome.settled) throw new Error(outcome.reason ?? 'Sidebar layout did not settle');
+            if (!outcome.settled) {throw new Error(outcome.reason ?? 'Sidebar layout did not settle');}
         });
         // Sidebar opening can change fit-width, so sample ink in this layout.
         const inkBounds = await layer.locator(':scope > span').evaluate(span => {
@@ -1337,7 +1337,7 @@ it('finds words in an invisible text layer placed glyph by glyph', async () => {
             index,
             character,
         ] of [...'Recognizedscan words'].entries()) {
-            if (index === 'Recognized'.length) x += 14 * 0.3;
+            if (index === 'Recognized'.length) {x += 14 * 0.3;}
             operators.push(setTextMatrix(1, 0, 0, 1, x, 700), showText(font.encodeText(character)));
             x += font.widthOfTextAtSize(character, 14);
         }
@@ -1516,7 +1516,7 @@ it.each([
         await waitForOpenFileReady(page);
         keepFileChooserInterceptionEnabled(page);
         let bytes: Buffer;
-        if (fixture) bytes = readFileSync(resolve('tests/fixtures/browser/search', `${fixture}.pdf`));
+        if (fixture) {bytes = readFileSync(resolve('tests/fixtures/browser/search', `${fixture}.pdf`));}
         else {
             const pdf = await PDFDocument.create();
             const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -1560,7 +1560,7 @@ it.each([
             name: 'Search',
             exact: true,
         }).click();
-        if (regex) await page.locator('.document-search-bar button[aria-label="Use regular expression"]:visible').click();
+        if (regex) {await page.locator('.document-search-bar button[aria-label="Use regular expression"]:visible').click();}
         const input = page.locator('.document-search-bar input:visible').first();
         await input.fill(query); await input.press('Enter');
         const results = page.locator('.document-search-result:visible');
@@ -1580,7 +1580,7 @@ it.each([
             ? page.locator(`.page_container[data-page="${pageNumber}"] .pdf-word-box--current`)
             : layer.locator('.pdf-search-highlight--current');
         await expect.poll(() => paint.count()).toBeGreaterThan(0);
-        if (painted) await expect.poll(() => paint.evaluateAll(elements => elements.map(element => (element as HTMLElement).dataset.word ?? element.textContent).join(''))).toBe(painted);
+        if (painted) {await expect.poll(() => paint.evaluateAll(elements => elements.map(element => (element as HTMLElement).dataset.word ?? element.textContent).join(''))).toBe(painted);}
         const target = await page.evaluate<{
             left: number;
             right: number;

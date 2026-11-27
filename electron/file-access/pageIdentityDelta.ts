@@ -310,7 +310,7 @@ export function createDeleteIdentityDelta(pageCount: number, deletedPages: reado
         oldPage = deletedEnd + 1;
         index += 1;
     }
-    if (oldPage <= pageCount) appendMapping(ranges, oldPage, newPage, pageCount - oldPage + 1);
+    if (oldPage <= pageCount) {appendMapping(ranges, oldPage, newPage, pageCount - oldPage + 1);}
     return createLegacyOrRangeDelta(pageCount, [], ranges, nextPageCount);
 }
 
@@ -572,7 +572,7 @@ export function createReorderIdentityDelta(pageCount: number, order: readonly nu
         index += count;
         outputPage += count;
     }
-    if (seen.size !== pageCount) throw new Error('Page identity reorder is not a permutation');
+    if (seen.size !== pageCount) {throw new Error('Page identity reorder is not a permutation');}
     return createLegacyOrRangeDelta(pageCount, [], ranges, pageCount);
 }
 

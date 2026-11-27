@@ -113,9 +113,9 @@ onBrowserWorkingCopyClose(async ref => {
             base,
             detail,
         ].filter(work => work !== null && work.ref === ref);
-        if (base?.ref === ref) base = null;
-        if (detail?.ref === ref) detail = null;
-        if (retainedBase?.ref === ref) retainedBase = null;
+        if (base?.ref === ref) {base = null;}
+        if (detail?.ref === ref) {detail = null;}
+        if (retainedBase?.ref === ref) {retainedBase = null;}
         if (previewSource?.ref === ref) {
             previewSource.release();
             previewSource = null;
@@ -137,7 +137,7 @@ function baseIdentity(request: IScanCleanupPreviewRequest) {
 }
 
 async function retire(work: IPreviewWork | null) {
-    if (work === null) return;
+    if (work === null) {return;}
     work.controller.abort(new DOMException('Scan cleanup preview was superseded.', 'AbortError'));
     await work.promise.catch(() => undefined);
 }
@@ -179,8 +179,8 @@ async function renderPreview(
             signal,
             base: detailBase,
             emitRaw: event => {
-                if (signal.aborted) return;
-                for (const listener of [...previewRawListeners]) listener(event);
+                if (signal.aborted) {return;}
+                for (const listener of [...previewRawListeners]) {listener(event);}
             },
         });
     }).finally(() => borrow.release());
@@ -193,7 +193,7 @@ function settled(work: IPreviewWork, requestId: TRequestId): Promise<TScanCleanu
             requestId,
         }),
         (error: unknown) => {
-            if (work.controller.signal.aborted || isAbortError(error)) return {canceled: true as const};
+            if (work.controller.signal.aborted || isAbortError(error)) {return {canceled: true as const};}
             throw error;
         },
     );
@@ -219,7 +219,7 @@ async function previewBase(request: IScanCleanupPreviewRequest, identity: string
     base = work;
     detail = null;
     void work.promise.then(rendering => {
-        if (base !== work || rendering.base === null) return;
+        if (base !== work || rendering.base === null) {return;}
         retainedBase = {
             identity,
             ownerId: request.ownerId,
@@ -229,7 +229,7 @@ async function previewBase(request: IScanCleanupPreviewRequest, identity: string
             value: rendering.base,
         };
     }, () => undefined).finally(() => {
-        if (base === work) base = null;
+        if (base === work) {base = null;}
     });
     return settled(work, request.requestId);
 }
@@ -251,7 +251,7 @@ async function previewDetail(request: IScanCleanupPreviewRequest, identity: stri
     });
     detail = work;
     void work.promise.finally(() => {
-        if (detail === work) detail = null;
+        if (detail === work) {detail = null;}
     }).catch(() => undefined);
     return settled(work, request.requestId);
 }
@@ -308,9 +308,9 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
                 base,
                 detail,
             ].filter(retires);
-            if (retires(base)) base = null;
-            if (retires(detail)) detail = null;
-            if (retires(retainedBase)) retainedBase = null;
+            if (retires(base)) {base = null;}
+            if (retires(detail)) {detail = null;}
+            if (retires(retainedBase)) {retainedBase = null;}
             return claimed;
         });
         await Promise.all(retiring.map(retire));
@@ -335,8 +335,8 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
                 base,
                 detail,
             ].filter(work => work !== null && work.ref === request.sourcePdfPath);
-            if (base?.ref === request.sourcePdfPath) base = null;
-            if (detail?.ref === request.sourcePdfPath) detail = null;
+            if (base?.ref === request.sourcePdfPath) {base = null;}
+            if (detail?.ref === request.sourcePdfPath) {detail = null;}
             return claimed;
         }).then(async retiring => {
             await Promise.all(retiring.map(retire));
@@ -375,7 +375,7 @@ export const browserScanCleanupCapability: IScanCleanupCapability = {
                 request.document.patch,
             );
         }
-        if (settings !== null) announceSettings(settings, request.requestId);
+        if (settings !== null) {announceSettings(settings, request.requestId);}
         return readSettings(request.document);
     },
     onPreviewRaw(listener) {

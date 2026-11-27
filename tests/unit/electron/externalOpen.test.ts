@@ -185,7 +185,7 @@ describe('external open delivery across windows', () => {
             createWindow: noopAsync,
             dispatchOpenPaths(paths) {
                 const target = getRegisteredMainWindow();
-                if (!target) return false;
+                if (!target) {return false;}
                 target.webContents.send('menu:openExternalPaths', paths);
                 return true;
             },

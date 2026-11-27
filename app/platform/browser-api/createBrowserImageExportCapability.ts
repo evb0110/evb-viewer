@@ -275,7 +275,7 @@ async function encodeCanvasAs(
 ) {
     if (format === 'tiff') {
         const context = canvas.getContext('2d');
-        if (!context) throw new Error('Canvas 2D context is unavailable');
+        if (!context) {throw new Error('Canvas 2D context is unavailable');}
         const {data} = context.getImageData(0, 0, canvas.width, canvas.height);
         const rgba = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
         return encodeRenderedTiffToBytes([{
@@ -532,14 +532,14 @@ async function pickImageExportDirectory() {
     const showDirectoryPicker = typeof window === 'undefined'
         ? undefined
         : (window as Window & {showDirectoryPicker?: TBrowserOutputDirectoryPicker}).showDirectoryPicker;
-    if (typeof showDirectoryPicker !== 'function') return undefined;
+    if (typeof showDirectoryPicker !== 'function') {return undefined;}
     try {
         return await showDirectoryPicker.call(window, {
             mode: 'readwrite',
             id: 'evb-image-export',
         });
     } catch (error) {
-        if (isAbortError(error)) return null;
+        if (isAbortError(error)) {return null;}
         throw error;
     }
 }
@@ -549,10 +549,10 @@ async function hasDirectoryEntry(directory: FileSystemDirectoryHandle, name: str
         await directory.getFileHandle(name);
         return true;
     } catch (error) {
-        if (!(error instanceof DOMException)) throw error;
-        if (error.name === 'NotFoundError') return false;
+        if (!(error instanceof DOMException)) {throw error;}
+        if (error.name === 'NotFoundError') {return false;}
         // A folder of that name occupies the name; lost access ends the export.
-        if (error.name === 'TypeMismatchError') return true;
+        if (error.name === 'TypeMismatchError') {return true;}
         throw error;
     }
 }
@@ -577,10 +577,10 @@ async function removeFailedDirectoryExport(
     initial: File,
     error: unknown,
 ) {
-    if (initial.size !== 0 || error instanceof BrowserFileWriteOutcomeError) return;
+    if (initial.size !== 0 || error instanceof BrowserFileWriteOutcomeError) {return;}
     try {
         const current = await directory.getFileHandle(handle.name);
-        if (!await handle.isSameEntry(current)) return;
+        if (!await handle.isSameEntry(current)) {return;}
         const file = await current.getFile();
         if (file.size === 0 && file.lastModified === initial.lastModified) {
             await directory.removeEntry(handle.name);
@@ -615,10 +615,10 @@ async function exportImagePagesToDirectory(
                 await removeFailedDirectoryExport(directory, handle, initial, error);
                 throw error;
             });
-            if (!outputRef) throw new Error('A handle-backed image export cannot be canceled');
+            if (!outputRef) {throw new Error('A handle-backed image export cannot be canceled');}
             outputRefs.push(outputRef);
             onPageWritten(index + 1);
-            if (index % 2 === 1) await yieldToBrowser();
+            if (index % 2 === 1) {await yieldToBrowser();}
         }
     } catch (error) {
         await releaseImageExports(outputRefs);
@@ -667,7 +667,7 @@ async function exportImagePagesAsZip(
                 await yieldToBrowser();
             }
             const centralSize = sumBy(centralHeaders, header => header.byteLength);
-            for (const header of centralHeaders) await sink.write(header);
+            for (const header of centralHeaders) {await sink.write(header);}
             await sink.write(makeEndOfCentralDirectory(centralHeaders.length, centralSize, offset));
         } catch (error) {
             await sink.abort();
@@ -718,7 +718,7 @@ async function chooseImageExportDestination(
         };
     }
     const directory = await pickImageExportDirectory();
-    if (directory === null) return null;
+    if (directory === null) {return null;}
     return directory ? {
         kind: 'directory',
         directory,
@@ -744,11 +744,11 @@ async function writeBrowserImagePages(
         percent: (processed / targetPages.length) * 100,
     });
     const [firstPage] = targetPages;
-    if (firstPage === undefined) return CANCELED_IMAGE_EXPORT;
+    if (firstPage === undefined) {return CANCELED_IMAGE_EXPORT;}
     if (destination.kind === 'file') {
         const bytes = await renderPage(firstPage, resolveImageExportFormat(destination.saveTarget.fileName, 'jpeg'));
         const outputRef = await saveImageExport(destination.saveTarget, bytes);
-        if (!outputRef) return CANCELED_IMAGE_EXPORT;
+        if (!outputRef) {return CANCELED_IMAGE_EXPORT;}
         onPageWritten(1);
         return {
             success: true as const,
@@ -790,7 +790,7 @@ async function exportBrowserDjvuPagesAsImages(
             return pageSize;
         });
         const destination = targetPages.length ? await chooseImageExportDestination(targetPages.length, targetPages[0]!) : null;
-        if (!destination) return CANCELED_IMAGE_EXPORT;
+        if (!destination) {return CANCELED_IMAGE_EXPORT;}
         // DjVuLibre WASM returns upright full-resolution RGBA directly.
         return await writeBrowserImagePages(destination, 'djvu', targetPages, async (pageNumber, format) => {
             const pageSize = pageSizes[targetPages.indexOf(pageNumber)]!;
@@ -803,7 +803,7 @@ async function exportBrowserDjvuPagesAsImages(
                 canvas.width = rendered.width;
                 canvas.height = rendered.height;
                 const context = canvas.getContext('2d', {willReadFrequently: true});
-                if (!context) throw new Error('Canvas 2D context is unavailable for DjVu image export');
+                if (!context) {throw new Error('Canvas 2D context is unavailable for DjVu image export');}
                 const clamped = new Uint8ClampedArray(rendered.bytes.byteLength);
                 clamped.set(rendered.bytes);
                 context.putImageData(new ImageData(clamped, rendered.width, rendered.height), 0, 0);
@@ -844,7 +844,7 @@ function buildDjvuTiffPageDescriptors(
 ) {
     return targetPages.map((pageNumber) => {
         const pageSize = sizes[pageNumber - 1];
-        if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+        if (!pageSize) {throw new RangeError(`DjVu page ${pageNumber} is outside the document`);}
         assertBrowserDjvuRasterDimensions(pageSize.width, pageSize.height, `DjVu page ${pageNumber}`);
         return {
             pageNumber,
@@ -867,7 +867,7 @@ async function exportBrowserDjvuAsTiff(
         suggestedName: fileName,
         pickerTypes: buildTiffSaveTypes(),
     });
-    if (!destination) return CANCELED_IMAGE_EXPORT;
+    if (!destination) {return CANCELED_IMAGE_EXPORT;}
     const worker = await createDjvuWorkerFromPath(workingCopyPath);
     try {
         const sizes = await getDjvuWorkerPageSizes(worker);
@@ -952,7 +952,7 @@ async function exportRenderedPagesAsTiff(
                 const outputRef = 'handle' in target
                     ? await storeTiffAtHandle(target.handle, fileSize)
                     : target.stagingRef;
-                if ('stagingRef' in target) await browserDocumentStore.touchRecentFile(outputRef);
+                if ('stagingRef' in target) {await browserDocumentStore.touchRecentFile(outputRef);}
                 outputRefs.push(outputRef);
                 published = true;
                 processedPages += group.length;
@@ -1032,7 +1032,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 };
                 stream = await devices.getDisplayMedia(options);
             } catch (error) {
-                if (isAbortError(error) || (error instanceof DOMException && error.name === 'NotAllowedError')) return null;
+                if (isAbortError(error) || (error instanceof DOMException && error.name === 'NotAllowedError')) {return null;}
                 throw error;
             }
             const stop = () => stream.getTracks().forEach(track => track.stop());
@@ -1063,7 +1063,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 assertSource();
                 await track!.applyConstraints({resizeMode: 'none'} as MediaTrackConstraints);
                 assertSource();
-                if (!local.target.isConnected) throw new DOMException('The capture target retired', 'AbortError');
+                if (!local.target.isConnected) {throw new DOMException('The capture target retired', 'AbortError');}
                 const target = await cropFactory.fromElement(local.target);
                 assertSource();
                 await track!.cropTo(target);
@@ -1084,10 +1084,10 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 canvas.width = bitmap.width;
                 canvas.height = bitmap.height;
                 const context = canvas.getContext('2d');
-                if (!context) throw new Error('Capture canvas is unavailable');
+                if (!context) {throw new Error('Capture canvas is unavailable');}
                 context.drawImage(bitmap, 0, 0);
                 const encoded = await canvasToBlob(canvas, 'image/png');
-                if (encoded.size > CAPTURE_MAX_BYTES) throw new RangeError('Capture exceeds the encoded byte limit');
+                if (encoded.size > CAPTURE_MAX_BYTES) {throw new RangeError('Capture exceeds the encoded byte limit');}
                 const png = new Uint8Array(await encoded.arrayBuffer());
                 local.assertCurrent();
                 return png;
@@ -1096,7 +1096,7 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
                 local.signal.removeEventListener('abort', stop);
                 events.forEach(name => track?.removeEventListener(name, invalidate));
                 bitmap?.close();
-                if (canvas) releaseCanvas(canvas);
+                if (canvas) {releaseCanvas(canvas);}
             }
         },
         async exportPdfToImages(workingCopyPath, pageNumbers, requestId, sourceKind) {
@@ -1109,12 +1109,12 @@ export function createBrowserImageExportCapability(): IImageExportCapability {
             let destination = pageNumbers?.length
                 ? await chooseImageExportDestination(pageNumbers.length, pageNumbers[0]!)
                 : undefined;
-            if (destination === null) return CANCELED_IMAGE_EXPORT;
+            if (destination === null) {return CANCELED_IMAGE_EXPORT;}
             const pdfDocument = await loadBrowserPdfjsDocument(workingCopyPath);
             try {
                 const targetPages = getTargetPages(pdfDocument, pageNumbers);
                 destination ??= targetPages.length ? await chooseImageExportDestination(targetPages.length, targetPages[0]!) : null;
-                if (!destination) return CANCELED_IMAGE_EXPORT;
+                if (!destination) {return CANCELED_IMAGE_EXPORT;}
                 const dpi = await browserImageExportConfig(pdfDocument, targetPages);
                 return await writeBrowserImagePages(
                     destination,

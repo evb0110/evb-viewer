@@ -39,7 +39,7 @@ export function createScanCleanupSidecarProtocolHandler({
         stderrBytes += chunk.length;
         while (stderrBytes > SCAN_CLEANUP_STDERR_LIMIT_BYTES) {
             const first = stderrChunks[0];
-            if (first === undefined) break;
+            if (first === undefined) {break;}
             const excess = stderrBytes - SCAN_CLEANUP_STDERR_LIMIT_BYTES;
             if (first.length <= excess) {
                 stderrChunks.shift();
@@ -54,7 +54,7 @@ export function createScanCleanupSidecarProtocolHandler({
     const boundedStdout = new Transform({transform(chunk: Buffer, _encoding, callback) {
         let lineStart = 0;
         for (let index = 0; index < chunk.length; index += 1) {
-            if (chunk[index] !== 0x0a) continue;
+            if (chunk[index] !== 0x0a) {continue;}
             pendingLineBytes += index - lineStart + 1;
             if (pendingLineBytes > SCAN_CLEANUP_PROTOCOL_MAX_LINE_BYTES) {
                 callback(new Error(

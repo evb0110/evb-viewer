@@ -37,7 +37,7 @@ export function encodeScanCleanupEngineWorkerName(threads: number | null) {
 
 /** The threads of the engine a worker named `name` runs, or null for today's single-threaded engine. */
 export function readScanCleanupEngineWorkerThreads(name: string | undefined) {
-    if (!name?.startsWith(PREFIX)) return null;
+    if (!name?.startsWith(PREFIX)) {return null;}
     const threads = Number(name.slice(PREFIX.length));
     return Number.isInteger(threads) && threads >= 1 && threads <= MAX_SCAN_CLEANUP_ENGINE_THREADS ? threads : null;
 }

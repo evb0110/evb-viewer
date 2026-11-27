@@ -28,7 +28,7 @@ interface ISourceEntry {
 
 const sources = new Map<string, ISourceEntry>();
 const retire = (key: string, entry: ISourceEntry) => {
-    if (sources.get(key) === entry) sources.delete(key);
+    if (sources.get(key) === entry) {sources.delete(key);}
 };
 
 const count = v.pipe(v.number(), v.safeInteger(), v.minValue(0));
@@ -114,8 +114,8 @@ async function openSource(ref: string, revision: string, signal: AbortSignal): P
     ] of inspected.pages.entries()) {
         const facts = v.parse(INSPECTED_PAGE_FACTS_SCHEMA, record);
         const pageNumber = index + 1;
-        if (!facts.rasterInventoryComplete) incompleteRasterPages.add(pageNumber);
-        if (facts.hasAnnotations) annotatedPages.add(pageNumber);
+        if (!facts.rasterInventoryComplete) {incompleteRasterPages.add(pageNumber);}
+        if (facts.hasAnnotations) {annotatedPages.add(pageNumber);}
         for (const use of facts.rasterUses) {
             rasterRows.push({
                 pageNumber,
@@ -206,10 +206,10 @@ export function borrowBrowserScanCleanupSource(ref: string, revision: string) {
         /** Lends no new borrower this snapshot. */
         retire: () => retire(key, borrowed),
         release() {
-            if (released) return;
+            if (released) {return;}
             released = true;
             borrowed.borrowers -= 1;
-            if (borrowed.borrowers > 0) return;
+            if (borrowed.borrowers > 0) {return;}
             retire(key, borrowed);
             evictBrowserPageOpsDocumentCache(key);
             borrowed.controller.abort(new DOMException('Scan cleanup source was released.', 'AbortError'));
@@ -228,7 +228,7 @@ function abortReason(signal: AbortSignal) {
 
 /** Waits for a shared promise on behalf of one caller, who may stop waiting without canceling it. */
 export function awaitScanCleanupSource<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-    if (signal.aborted) return Promise.reject(abortReason(signal));
+    if (signal.aborted) {return Promise.reject(abortReason(signal));}
     return new Promise<T>((resolve, reject) => {
         const abort = () => reject(abortReason(signal));
         signal.addEventListener('abort', abort, {once: true});

@@ -103,7 +103,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         if (activeCount !== 0 || queued.size !== 0) {
             return;
         }
-        for (const resolve of idleWaiters) resolve();
+        for (const resolve of idleWaiters) {resolve();}
         idleWaiters.clear();
     }
 
@@ -131,7 +131,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         }
         queued.set(demand.pageNumber, demand);
         const inFlight = active.get(demand.pageNumber);
-        if (inFlight && inFlight.key !== demandKey(demand)) inFlight.controller.abort();
+        if (inFlight && inFlight.key !== demandKey(demand)) {inFlight.controller.abort();}
     }
 
     function nextQueuedDemand() {
@@ -251,22 +251,22 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
                 previous.releaseOnce.release();
             }
         } catch (error) {
-            if (renderTimedOut && controller.signal.reason === error) options.onError?.(error, demand);
+            if (renderTimedOut && controller.signal.reason === error) {options.onError?.(error, demand);}
             else if (!controller.signal.aborted && isAbortError(error)) {
                 // The source refused the page, as a closing document does;
                 // asking again at once would spin, so the next reconcile asks.
-                if (desired.get(pageNumber) === demand) desired.delete(pageNumber);
-            } else if (!controller.signal.aborted) options.onError?.(error, demand);
+                if (desired.get(pageNumber) === demand) {desired.delete(pageNumber);}
+            } else if (!controller.signal.aborted) {options.onError?.(error, demand);}
         } finally {
             if (renderTimer !== null) {
                 clearTimeout(renderTimer);
                 renderTimer = null;
             }
             pendingLease?.releaseOnce.release();
-            if (active.get(pageNumber) === activeEntry) active.delete(pageNumber);
+            if (active.get(pageNumber) === activeEntry) {active.delete(pageNumber);}
             activeCount -= 1;
             const latestDemand = desired.get(pageNumber);
-            if (latestDemand) enqueueIfNeeded(latestDemand);
+            if (latestDemand) {enqueueIfNeeded(latestDemand);}
             pumpQueue();
             notifyIdle();
         }
@@ -278,13 +278,13 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         }
         while (activeCount < maxConcurrency && queued.size > 0) {
             const demand = nextQueuedDemand();
-            if (!demand) break;
+            if (!demand) {break;}
             queued.delete(demand.pageNumber);
-            if (active.has(demand.pageNumber)) continue;
+            if (active.has(demand.pageNumber)) {continue;}
             const latest = desired.get(demand.pageNumber);
-            if (!latest || demandKey(latest) !== demandKey(demand)) continue;
+            if (!latest || demandKey(latest) !== demandKey(demand)) {continue;}
             const existing = committed.get(demand.pageNumber);
-            if (existing && isCommittedDemandSatisfied(existing, latest)) continue;
+            if (existing && isCommittedDemandSatisfied(existing, latest)) {continue;}
             void startRender(latest);
         }
         notifyIdle();
@@ -305,13 +305,13 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         normalized.forEach((demand, pageNumber) => desired.set(pageNumber, demand));
 
         for (const pageNumber of [...queued.keys()]) {
-            if (!desired.has(pageNumber)) queued.delete(pageNumber);
+            if (!desired.has(pageNumber)) {queued.delete(pageNumber);}
         }
         for (const [
             pageNumber,
             entry,
         ] of [...active.entries()]) {
-            if (!desired.has(pageNumber)) entry.controller.abort();
+            if (!desired.has(pageNumber)) {entry.controller.abort();}
         }
         // Departure cancels work, not completed pixels. The existing surface
         // budget can reclaim demoted entries through their lease invalidation.
@@ -322,7 +322,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         ] of committed) {
             entry.lease.setPriority?.(desired.get(pageNumber)?.priority ?? 'prefetch');
         }
-        for (const demand of desired.values()) enqueueIfNeeded(demand);
+        for (const demand of desired.values()) {enqueueIfNeeded(demand);}
         pumpQueue();
     }
 
@@ -330,7 +330,7 @@ export function createDocumentThumbnailScheduler(options: IDocumentThumbnailSche
         desired.clear();
         queued.clear();
         active.forEach(entry => entry.controller.abort());
-        for (const pageNumber of [...committed.keys()]) releaseCommitted(pageNumber);
+        for (const pageNumber of [...committed.keys()]) {releaseCommitted(pageNumber);}
         notifyIdle();
     }
 

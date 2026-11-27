@@ -84,7 +84,7 @@ describe('browser Scan Cleanup workspace, long document', () => {
             expect(await page.evaluate(async () => {
                 const name = (await indexedDB.databases())
                     .find(database => database.name?.startsWith('evb-viewer-scan-cleanup-detection-'))?.name;
-                if (name === undefined) return null;
+                if (name === undefined) {return null;}
                 const database = await new Promise<IDBDatabase>((resolve, reject) => {
                     const open = indexedDB.open(name);
                     open.onsuccess = () => resolve(open.result);

@@ -101,7 +101,7 @@ describe('scan cleanup tab restore', () => {
             const observer = new MutationObserver(() => {
                 for (const node of document.querySelectorAll<HTMLElement>('[data-slot="title"], [data-slot="description"]')) {
                     const text = node.innerText;
-                    if (/Scan cleanup failed|Cleanup requires a completed uniform page analysis/u.test(text)) failures.add(text);
+                    if (/Scan cleanup failed|Cleanup requires a completed uniform page analysis/u.test(text)) {failures.add(text);}
                 }
             });
             observer.observe(document.body, {

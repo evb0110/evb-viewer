@@ -54,7 +54,7 @@ describe('document search query validation', () => {
             '[',
             'Жёлтый',
             '日本語',
-        ]) expect(getDocumentSearchQueryError(query, DEFAULT_DOCUMENT_SEARCH_OPTIONS)).toBeNull();
+        ]) {expect(getDocumentSearchQueryError(query, DEFAULT_DOCUMENT_SEARCH_OPTIONS)).toBeNull();}
         expect(getDocumentSearchQueryError('^"hello"$', regex)).toBeNull();
     });
 

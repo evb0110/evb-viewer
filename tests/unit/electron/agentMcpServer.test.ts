@@ -351,7 +351,7 @@ describe('processMcpRequest', () => {
     }) => {
         const options = createOptions();
         options.runCommand.mockImplementation(async command => {
-            if (command.name !== 'run_action') throw new Error('Expected an action command');
+            if (command.name !== 'run_action') {throw new Error('Expected an action command');}
             return {
                 ok: true,
                 dryRun: command.arguments.dryRun,
@@ -631,7 +631,7 @@ describe('processMcpRequest', () => {
         };
         setActiveAssistantMcpSessionScope(binding);
         setAssistantTurnSuccessorListener((current, successor) => {
-            if (!accepted || current.turnGeneration !== 1) return false;
+            if (!accepted || current.turnGeneration !== 1) {return false;}
             setActiveAssistantMcpSessionScope({
                 ...binding,
                 commandTarget: successor.commandTarget,
@@ -1036,7 +1036,7 @@ describe('processMcpRequest', () => {
                     ...snapshot,
                     activeTabId: other.tabId,
                 };
-                if (command.name === 'go_to_page') other.currentPage = command.arguments.page;
+                if (command.name === 'go_to_page') {other.currentPage = command.arguments.page;}
             }
             return {ok: true};
         });
@@ -1531,19 +1531,19 @@ describe('bookmark replacement confirmation', () => {
         });
         const options = createOptions();
         options.runCommand.mockImplementation(async (command) => {
-            if (command.name !== 'run_action') throw new Error('Unexpected command');
+            if (command.name !== 'run_action') {throw new Error('Unexpected command');}
             const {
                 id, input = {}, dryRun,
             } = command.arguments;
-            if (dryRun) return {
+            if (dryRun) {return {
                 id,
                 dryRun: true,
-            };
-            if (id === 'bookmarks.set_tree') return {...owner.setAgentBookmarkTree(input, id)};
-            if (id === 'bookmarks.apply_plan') return {...owner.applyAgentBookmarkPlan(input, id)};
-            if (id === 'bookmarks.update') return {...owner.updateAgentBookmark(input, id)};
-            if (id === 'bookmarks.preview_tree') return {...owner.previewAgentBookmarkPlan(input, id)};
-            if (id === 'bookmarks.delete') return {...owner.deleteAgentBookmark(input, id)};
+            };}
+            if (id === 'bookmarks.set_tree') {return {...owner.setAgentBookmarkTree(input, id)};}
+            if (id === 'bookmarks.apply_plan') {return {...owner.applyAgentBookmarkPlan(input, id)};}
+            if (id === 'bookmarks.update') {return {...owner.updateAgentBookmark(input, id)};}
+            if (id === 'bookmarks.preview_tree') {return {...owner.previewAgentBookmarkPlan(input, id)};}
+            if (id === 'bookmarks.delete') {return {...owner.deleteAgentBookmark(input, id)};}
             throw new Error(`Unexpected action ${id}`);
         });
         for (const [

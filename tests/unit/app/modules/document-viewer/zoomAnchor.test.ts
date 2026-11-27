@@ -255,12 +255,12 @@ describe('document zoom anchor', () => {
                     width: 300,
                     left: 0,
                 });
-                if (facing && index + 1 < pageCount) layouts.push({
+                if (facing && index + 1 < pageCount) {layouts.push({
                     top,
                     height: heights[1]!,
                     width: 300,
                     left: 320,
-                });
+                });}
                 top += Math.max(heights[0]!, facing ? heights[1]! : 0) + gap;
             }
             for (let probe = 0; probe < 20; probe += 1) {

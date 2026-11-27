@@ -43,7 +43,7 @@ async function readClippedToolbarControls(page: Page) {
         ]);
         return [...toolbar.querySelectorAll<HTMLButtonElement>('button')].flatMap(button => {
             const rect = button.getBoundingClientRect();
-            if (!rect.width || !rect.height || getComputedStyle(button).visibility === 'hidden') return [];
+            if (!rect.width || !rect.height || getComputedStyle(button).visibility === 'hidden') {return [];}
             let ancestor = button.parentElement;
             const bounds = toolbar.getBoundingClientRect();
             let clipped = rect.left < bounds.left - 1 || rect.right > bounds.right + 1
@@ -159,14 +159,14 @@ it('keeps settings and document controls readable and reachable from phone to de
         }).click();
         keepFileChooserInterceptionEnabled(page);
         const pdf = await PDFDocument.create();
-        for (let index = 1; index <= 60; index += 1) pdf.addPage([
+        for (let index = 1; index <= 60; index += 1) {pdf.addPage([
             420,
             600,
         ]).drawText(`Mobile reading page ${index}`, {
             x: 24,
             y: 560,
             size: 18,
-        });
+        });}
         const chooser = page.waitForEvent('filechooser');
         await page.getByRole('button', {
             name: 'Open File',
@@ -332,14 +332,14 @@ it('fits Start, menus and the sidebar to a touch phone', async () => {
         expect.soft(startChrome.railLabelPx, 'small text grows on a touch screen').toBeGreaterThanOrEqual(13);
         keepFileChooserInterceptionEnabled(page);
         const pdf = await PDFDocument.create();
-        for (let index = 1; index <= 8; index += 1) pdf.addPage([
+        for (let index = 1; index <= 8; index += 1) {pdf.addPage([
             420,
             600,
         ]).drawText(`Phone page ${index}`, {
             x: 24,
             y: 560,
             size: 18,
-        });
+        });}
         const chooser = page.waitForEvent('filechooser');
         await page.getByRole('button', {
             name: 'Open File',

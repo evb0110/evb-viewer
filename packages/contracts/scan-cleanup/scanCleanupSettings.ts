@@ -333,8 +333,8 @@ export function applyScanCleanupDocumentPreferencePatch(
             page,
             override,
         ] of Object.entries(patch.overrideEdits)) {
-            if (override === null) Reflect.deleteProperty(overrides, page);
-            else overrides[page] = cloneScanCleanupPreferenceValue(override);
+            if (override === null) {Reflect.deleteProperty(overrides, page);}
+            else {overrides[page] = cloneScanCleanupPreferenceValue(override);}
         }
         entry.overrides = overrides;
         wrote = true;
@@ -682,39 +682,39 @@ function hasStoredScanCleanupGlobalRepair(value: unknown): boolean {
     if (Object.keys(stored).some(key => !allowedKeys.has(key))) {
         return true;
     }
-    if (stored.layoutMode !== undefined && !isScanCleanupLayoutMode(stored.layoutMode)) return true;
-    if (stored.binarization !== undefined && !isScanCleanupBinarizationMethod(stored.binarization)) return true;
-    if (stored.normalizeIllumination !== undefined && typeof stored.normalizeIllumination !== 'boolean') return true;
-    if (stored.preserveOriginalQuality !== undefined && typeof stored.preserveOriginalQuality !== 'boolean') return true;
-    if (stored.readingOrder !== undefined && !isScanCleanupReadingOrder(stored.readingOrder)) return true;
+    if (stored.layoutMode !== undefined && !isScanCleanupLayoutMode(stored.layoutMode)) {return true;}
+    if (stored.binarization !== undefined && !isScanCleanupBinarizationMethod(stored.binarization)) {return true;}
+    if (stored.normalizeIllumination !== undefined && typeof stored.normalizeIllumination !== 'boolean') {return true;}
+    if (stored.preserveOriginalQuality !== undefined && typeof stored.preserveOriginalQuality !== 'boolean') {return true;}
+    if (stored.readingOrder !== undefined && !isScanCleanupReadingOrder(stored.readingOrder)) {return true;}
     if (stored.thickness !== undefined && (
         typeof stored.thickness !== 'number'
         ||
         !Number.isSafeInteger(stored.thickness)
         || stored.thickness < -5
         || stored.thickness > 5
-    )) return true;
-    if (stored.crop !== undefined && typeof stored.crop !== 'boolean') return true;
-    if (stored.matchPageSize !== undefined && typeof stored.matchPageSize !== 'boolean') return true;
-    if (stored.pageAlignment !== undefined && !isScanCleanupPageAlignment(stored.pageAlignment)) return true;
-    if (stored.marginsMm !== undefined && hasStoredScanCleanupMarginRepair(stored.marginsMm)) return true;
+    )) {return true;}
+    if (stored.crop !== undefined && typeof stored.crop !== 'boolean') {return true;}
+    if (stored.matchPageSize !== undefined && typeof stored.matchPageSize !== 'boolean') {return true;}
+    if (stored.pageAlignment !== undefined && !isScanCleanupPageAlignment(stored.pageAlignment)) {return true;}
+    if (stored.marginsMm !== undefined && hasStoredScanCleanupMarginRepair(stored.marginsMm)) {return true;}
     if (stored.marginMm !== undefined && (
         typeof stored.marginMm !== 'number'
         || !Number.isFinite(stored.marginMm)
         || stored.marginMm < 0
         || stored.marginMm > SCAN_CLEANUP_MARGIN_MAX_MM
-    )) return true;
-    if (stored.despeckleLevel !== undefined && !isScanCleanupDespeckleLevel(stored.despeckleLevel)) return true;
-    if (stored.despeckle !== undefined && typeof stored.despeckle !== 'boolean') return true;
-    if (stored.autoDewarp !== undefined && typeof stored.autoDewarp !== 'boolean') return true;
+    )) {return true;}
+    if (stored.despeckleLevel !== undefined && !isScanCleanupDespeckleLevel(stored.despeckleLevel)) {return true;}
+    if (stored.despeckle !== undefined && typeof stored.despeckle !== 'boolean') {return true;}
+    if (stored.autoDewarp !== undefined && typeof stored.autoDewarp !== 'boolean') {return true;}
     if (stored.autoDewarpDepth !== undefined && (
         typeof stored.autoDewarpDepth !== 'number'
         || !Number.isFinite(stored.autoDewarpDepth)
         || stored.autoDewarpDepth < SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN
         || stored.autoDewarpDepth > SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX
-    )) return true;
-    if (stored.skipBlankPages !== undefined && typeof stored.skipBlankPages !== 'boolean') return true;
-    if (stored.firstRunGuidanceDismissed !== undefined && typeof stored.firstRunGuidanceDismissed !== 'boolean') return true;
+    )) {return true;}
+    if (stored.skipBlankPages !== undefined && typeof stored.skipBlankPages !== 'boolean') {return true;}
+    if (stored.firstRunGuidanceDismissed !== undefined && typeof stored.firstRunGuidanceDismissed !== 'boolean') {return true;}
     return false;
 }
 
@@ -729,18 +729,18 @@ function hasStoredScanCleanupDocumentRepair(value: unknown): boolean {
         'marginsMm',
         'outputMode',
         'lastUsedAtMs',
-    ].includes(key))) return true;
+    ].includes(key))) {return true;}
     if (
         typeof stored.lastUsedAtMs !== 'number'
         || !Number.isFinite(stored.lastUsedAtMs)
         || stored.lastUsedAtMs < 0
-    ) return true;
-    if (stored.outputMode !== undefined && !isScanCleanupOutputModeSetting(stored.outputMode)) return true;
-    if (stored.marginsMm !== undefined && hasStoredScanCleanupMarginRepair(stored.marginsMm)) return true;
+    ) {return true;}
+    if (stored.outputMode !== undefined && !isScanCleanupOutputModeSetting(stored.outputMode)) {return true;}
+    if (stored.marginsMm !== undefined && hasStoredScanCleanupMarginRepair(stored.marginsMm)) {return true;}
     try {
         const budget = createScanCleanupInputBudget();
-        if (stored.overrides !== undefined) decodeScanCleanupPageOverrides(stored.overrides, budget);
-        if (stored.pageOverrideDefaults !== undefined) decodeScanCleanupPageOverride(stored.pageOverrideDefaults, budget);
+        if (stored.overrides !== undefined) {decodeScanCleanupPageOverrides(stored.overrides, budget);}
+        if (stored.pageOverrideDefaults !== undefined) {decodeScanCleanupPageOverride(stored.pageOverrideDefaults, budget);}
     } catch {
         return true;
     }

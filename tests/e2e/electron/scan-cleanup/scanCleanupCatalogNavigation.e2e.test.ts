@@ -65,17 +65,17 @@ describe('compact cleanup catalog navigation', () => {
                 const control = id ? document.getElementById(id) : el.parentElement?.querySelector('[role="checkbox"],input[type="checkbox"]');
                 return control?.getAttribute('aria-checked') === 'true' || (control instanceof HTMLInputElement && control.checked);
             });
-            if (checked) await clickAsUser(page, label!);
+            if (checked) {await clickAsUser(page, label!);}
         }
         await clickAsUser(page, '[role=radio][aria-label="Auto — recommended per page"]');
-        if (await page.$eval('.scan-cleanup-advanced-toggle', el => el.getAttribute('aria-expanded') !== 'true')) await clickAsUser(page, '.scan-cleanup-advanced-toggle');
+        if (await page.$eval('.scan-cleanup-advanced-toggle', el => el.getAttribute('aria-expanded') !== 'true')) {await clickAsUser(page, '.scan-cleanup-advanced-toggle');}
         for (const label of await page.$$('label')) {
-            if (!await label.evaluate(el => el.textContent?.trim() === 'Normalize uneven illumination')) continue;
+            if (!await label.evaluate(el => el.textContent?.trim() === 'Normalize uneven illumination')) {continue;}
             const checked = await label.evaluate(el => {
                 const id = el.getAttribute('for');
                 return (id ? document.getElementById(id) : el.parentElement?.querySelector('[role="checkbox"]'))?.getAttribute('aria-checked') === 'true';
             });
-            if (checked) await clickAsUser(page, label);
+            if (checked) {await clickAsUser(page, label);}
             break;
         }
         expect(await page.$$eval('.scan-thumbnail-exclude-toggle', els => els.map(el => el.getAttribute('aria-checked')))).toEqual([
@@ -106,7 +106,7 @@ describe('compact cleanup catalog navigation', () => {
         await clickAsUser(page, '[data-thumbnail-page="1"]');
         await openDocumentSidebarTab(page, 'Bookmarks');
         await page.waitForSelector('.document-bookmark-item__title');
-        for (const toggle of await page.$$('.document-bookmark-item__toggle[aria-expanded="false"]')) await clickAsUser(page, toggle);
+        for (const toggle of await page.$$('.document-bookmark-item__toggle[aria-expanded="false"]')) {await clickAsUser(page, toggle);}
         const nesting = await page.$$eval('.document-bookmark-item__title', els => els.map(el => ({
             title: el.textContent?.trim(),
             left: el.getBoundingClientRect().left,

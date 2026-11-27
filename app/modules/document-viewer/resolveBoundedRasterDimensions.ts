@@ -18,8 +18,8 @@ export function resolveBoundedRasterDimensions(options: {
     let height = Math.max(1, Math.min(maxDimension, Math.round(options.height * scale)));
     // Correct rounding on the longer axis to retain the strict area budget.
     if (width * height > options.maxPixels) {
-        if (height >= width) height = Math.max(1, Math.floor(options.maxPixels / width));
-        else width = Math.max(1, Math.floor(options.maxPixels / height));
+        if (height >= width) {height = Math.max(1, Math.floor(options.maxPixels / width));}
+        else {width = Math.max(1, Math.floor(options.maxPixels / height));}
     }
     return {
         width,

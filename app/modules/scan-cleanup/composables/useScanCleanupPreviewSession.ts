@@ -94,8 +94,8 @@ export function createScanCleanupPreviewPrefetcher<TRequest, TResult>(
             const current = queued;
             queued = null;
             for (const candidate of current.candidates) {
-                if (current.generation !== generation) break;
-                if (dependencies.isCached(candidate.key)) continue;
+                if (current.generation !== generation) {break;}
+                if (dependencies.isCached(candidate.key)) {continue;}
                 try {
                     // A prefetch that reached the renderer is stored even when
                     // navigation has already moved past it. The key names the
@@ -105,12 +105,12 @@ export function createScanCleanupPreviewPrefetcher<TRequest, TResult>(
                     // A cancelled or dropped prefetch answers with nothing;
                     // the page is requested again when the user reaches it.
                     const prefetched = await dependencies.preview(candidate.request);
-                    if (prefetched !== null) dependencies.store(candidate.key, prefetched);
+                    if (prefetched !== null) {dependencies.store(candidate.key, prefetched);}
                 } catch {
                     // Aborted or failed: the next schedule re-queues whatever
                     // the user still wants.
                 }
-                if (current.generation !== generation) break;
+                if (current.generation !== generation) {break;}
             }
         }
     }
@@ -122,8 +122,8 @@ export function createScanCleanupPreviewPrefetcher<TRequest, TResult>(
         const current = drainQueue();
         worker = current;
         void current.finally(() => {
-            if (worker === current) worker = null;
-            if (queued) startWorker();
+            if (worker === current) {worker = null;}
+            if (queued) {startWorker();}
         }).catch(() => undefined);
     }
 
@@ -392,7 +392,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 !inFlightPreviewRequestIds.has(requestId)
                 && requestId !== activeVisibleRequestId
             ));
-            if (evictable === undefined) break;
+            if (evictable === undefined) {break;}
             streamedRawByRequest.delete(evictable);
         }
     }
@@ -404,7 +404,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         metadataByPage.delete(pageNumber);
         metadataByPage.set(pageNumber, metadata);
         for (const oldest of metadataByPage.keys()) {
-            if (metadataByPage.size <= PREVIEW_METADATA_PAGE_CACHE_LIMIT) break;
+            if (metadataByPage.size <= PREVIEW_METADATA_PAGE_CACHE_LIMIT) {break;}
             metadataByPage.delete(oldest);
         }
     }
@@ -503,7 +503,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const streamed = streamedRawByRequest.get(previewResult.requestId ?? requestId)
             ?? retainedRawForPage(previewResult.pageNumber)
             ?? heldBase;
-        if (!streamed) throw new Error('Scan cleanup preview arrived without its page raster');
+        if (!streamed) {throw new Error('Scan cleanup preview arrived without its page raster');}
         return {
             ...previewResult,
             rawImageData: streamed.rawImageData,
@@ -832,7 +832,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         const requestId = nextRequestId();
         activeVisibleRequestId = requestId;
         const retainedRaw = retainedRawForPage(requestPage);
-        if (retainedRaw) rawResult.value = retainedRaw;
+        if (retainedRaw) {rawResult.value = retainedRaw;}
         const initialRequest = scheduledPage === null;
         // A navigation reaches the previous page's key unchanged; anything else
         // — a settings change, a new document prior, another source — makes
@@ -855,7 +855,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             : cache.get(key);
         // Original must never keep painting the raw bytes from the page that
         // was just left while this page has no cached raster of its own.
-        if (!cached && viewMode.value === 'original') rawResult.value = null;
+        if (!cached && viewMode.value === 'original') {rawResult.value = null;}
         if (cached) {
             showFrame(key, cached);
             rawResult.value = cached;
@@ -865,7 +865,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             void scheduleAdjacentPrefetch(cached, requestOptions, requestSourcePath);
             return;
         }
-        if (!navigated) prefetcher.supersede();
+        if (!navigated) {prefetcher.supersede();}
         void capability.cancelPreview({
             sourcePdfPath: requestSourcePath,
             ownerId: options.ownerId,
@@ -955,7 +955,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 error.value = failure.message;
                 errorCode.value = failure.code;
             } finally {
-                if (requestSequence === sequence) loading.value = false;
+                if (requestSequence === sequence) {loading.value = false;}
             }
         };
         // A deliberate page turn goes straight through: nothing is rendering, so
@@ -1110,7 +1110,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 && !isAbortError(caught)
             ) {
                 const failure = describePreviewFailure(caught);
-                if (failure.code !== 'canceled') detailError.value = failure;
+                if (failure.code !== 'canceled') {detailError.value = failure;}
             }
         } finally {
             if (requestSequence === detailSequence) {
@@ -1133,14 +1133,14 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     const stopRawStream = getScanCleanupCapability()?.onPreviewRaw(acceptStreamedRaw) ?? null;
 
     watch(options.active, active => {
-        if (active) schedule();
+        if (active) {schedule();}
         // An inactive tab still owns its document. Stop only renderer-visible
         // preview work here: detection and a Run waiting on it share the raw
         // raster document in the main process, so invalidating that document
         // would abort the run with “Scan cleanup document was closed”. A real
         // document lifecycle change and unmount still call cancel() below and
         // invalidate the retained document.
-        else cancel(false);
+        else {cancel(false);}
     }, {immediate: true});
     watch(options.lifecycleDocumentKey, (key, previousKey) => {
         if (previousKey !== null && isScanCleanupLifecycleIdentityPromotion(

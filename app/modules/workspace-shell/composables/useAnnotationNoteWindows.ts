@@ -252,7 +252,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             }
             metadata.error = null;
             metadata.order = ++nextOrder;
-            if (!metadata.dirty) existing.draftText = text;
+            if (!metadata.dirty) {existing.draftText = text;}
             return;
         }
         states.value.push({
@@ -275,13 +275,13 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     function bringAnnotationNoteToFront(value: string) {
         const id = resolveId(value);
         const metadata = id ? runtime.get(id) : null;
-        if (metadata) metadata.order = ++nextOrder;
+        if (metadata) {metadata.order = ++nextOrder;}
     }
 
     function minimizeAnnotationNote(value: string) {
         const id = resolveId(value);
         const state = id ? stateById(id) : null;
-        if (state) state.minimized = true;
+        if (state) {state.minimized = true;}
     }
 
     function restoreAnnotationNote(value: string, viewId: string | null = null) {
@@ -293,12 +293,12 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         claimForView(state, viewId);
         state.minimized = false;
         const metadata = runtime.get(id);
-        if (metadata) metadata.order = ++nextOrder;
+        if (metadata) {metadata.order = ++nextOrder;}
     }
 
     function clearTimer(id: AnnotationId) {
         const timer = timers.get(id);
-        if (timer !== undefined) clearTimeout(timer);
+        if (timer !== undefined) {clearTimeout(timer);}
         timers.delete(id);
     }
 
@@ -445,7 +445,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
             metadata.error = deps.reportNoteFailure?.({
                 cause,
                 ...(typeof metadata.error === 'object' && metadata.error ? {previous: metadata.error} : {}),
-                retry: () => { if (ownsAttempt()) void persistAnnotationNote(id); },
+                retry: () => { if (ownsAttempt()) {void persistAnnotationNote(id);} },
             }) ?? t('errors.annotation.updateNote');
             return false;
         };
@@ -497,7 +497,7 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
 
     function getAnnotationNoteFailurePresentation() {
         for (const metadata of runtime.values()) {
-            if (metadata.dirty && metadata.error && typeof metadata.error === 'object') return metadata.error;
+            if (metadata.dirty && metadata.error && typeof metadata.error === 'object') {return metadata.error;}
         }
         return undefined;
     }
@@ -583,8 +583,8 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
     function setAnnotationNoteWindowError(value: string, message: string | null) {
         const id = resolveId(value);
         const metadata = id ? runtime.get(id) : null;
-        if (metadata) metadata.error = message === null ? null
-            : deps.reportNoteFailure?.({message}) ?? message;
+        if (metadata) {metadata.error = message === null ? null
+            : deps.reportNoteFailure?.({message}) ?? message;}
     }
 
     // Each canonical revision: an explicit deletion closes its window, even a

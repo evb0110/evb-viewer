@@ -123,7 +123,7 @@ function selectScanCleanupDetectionByPage<T>(
         record,
     ] of records) {
         const value = select(record);
-        if (value !== null && value !== undefined) selected.set(pageNumber, value);
+        if (value !== null && value !== undefined) {selected.set(pageNumber, value);}
     }
     return selected;
 }
@@ -293,8 +293,8 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     let rememberedSourcePath = options.sourcePath.value;
 
     function rememberDocumentAliases(lifecycleKey: string | null | undefined) {
-        if (lifecycleKey) documentAliases.add(lifecycleKey);
-        if (options.sourcePath.value) documentAliases.add(options.sourcePath.value);
+        if (lifecycleKey) {documentAliases.add(lifecycleKey);}
+        if (options.sourcePath.value) {documentAliases.add(options.sourcePath.value);}
     }
 
     function enqueueDetectionRetirement(detectionJobId: TJobId, documentRevision: string) {
@@ -321,7 +321,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     }
                     const waiters = terminalWaiters.get(detectionJobId);
                     waiters?.delete(finish);
-                    if (waiters?.size === 0) terminalWaiters.delete(detectionJobId);
+                    if (waiters?.size === 0) {terminalWaiters.delete(detectionJobId);}
                     resolve();
                 };
                 detectionRetirementFinishes.add(finish);
@@ -345,7 +345,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                         ownerId: options.ownerId,
                         documentRevision,
                     }).catch(() => null);
-                    if (!state || detectionIsTerminal(state)) finish();
+                    if (!state || detectionIsTerminal(state)) {finish();}
                 }).catch(finish);
             });
         });
@@ -377,7 +377,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     requirePageNumber(pageNumber, options.totalPages.value),
                 ),
             );
-            if (classification !== undefined) layouts.set(pageNumber, classification);
+            if (classification !== undefined) {layouts.set(pageNumber, classification);}
         }
         return layouts;
     });
@@ -578,7 +578,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     }
 
     function settleTerminalWaiters(jobId: TJobId) {
-        for (const settle of terminalWaiters.get(jobId) ?? []) settle();
+        for (const settle of terminalWaiters.get(jobId) ?? []) {settle();}
         terminalWaiters.delete(jobId);
     }
 
@@ -622,7 +622,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     function detachDetectionJob(jobRevision: string) {
         const detached = jobState.value;
         requestGeneration += 1;
-        if (detached) settleTerminalWaiters(detached.jobId);
+        if (detached) {settleTerminalWaiters(detached.jobId);}
         if (detached && !detectionIsTerminal(detached)) {
             void enqueueDetectionRetirement(detached.jobId, jobRevision);
         }
@@ -640,7 +640,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         }
         autoPending.value = false;
         const key = options.lifecycleDocumentKey.value;
-        if (key !== null) detectionSessionCache.delete(key);
+        if (key !== null) {detectionSessionCache.delete(key);}
     }
 
     function clearDetectionEvidenceForPages(pageNumbers: ReadonlySet<number>) {
@@ -668,7 +668,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         update(next);
         if (documentPageCount > DETECTION_RESULT_ARRAY_COMPATIBILITY_LIMIT) {
             for (const pageNumber of next.keys()) {
-                if (next.size <= DETECTION_PAGE_CACHE_LIMIT) break;
+                if (next.size <= DETECTION_PAGE_CACHE_LIMIT) {break;}
                 next.delete(pageNumber);
             }
         }
@@ -717,7 +717,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             abandonUnobservedDetection(state.jobId);
             return;
         }
-        if (detectionIsTerminal(state)) settleTerminalWaiters(state.jobId);
+        if (detectionIsTerminal(state)) {settleTerminalWaiters(state.jobId);}
         if (lifecycle.isDisposed() || state.jobId !== currentJobId()) {
             return;
         }
@@ -860,7 +860,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             }
             return;
         } finally {
-            if (!lifecycle.isDisposed()) starting.value = false;
+            if (!lifecycle.isDisposed()) {starting.value = false;}
         }
         if (isStale()) {
             if (result.started) {
@@ -921,7 +921,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         await Promise.resolve()
             .then(() => capability.cancelDetection(result.jobId, owner))
             .catch(() => false);
-        if (!isStale()) abandonUnobservedDetection(result.jobId, failure);
+        if (!isStale()) {abandonUnobservedDetection(result.jobId, failure);}
     }
 
     async function refreshDetection() {
@@ -1071,11 +1071,11 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 }
                 settled.value = true;
                 detectionWaitResolvers.delete(finish);
-                if (timeout !== null) clearTimeout(timeout);
+                if (timeout !== null) {clearTimeout(timeout);}
                 if (targetJobId && terminalWaiter) {
                     const waiters = terminalWaiters.get(targetJobId);
                     waiters?.delete(terminalWaiter);
-                    if (waiters?.size === 0) terminalWaiters.delete(targetJobId);
+                    if (waiters?.size === 0) {terminalWaiters.delete(targetJobId);}
                 }
                 if (caught === undefined) {
                     resolve();
@@ -1130,7 +1130,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                     // run waiting for evidence must keep its event waiter in
                     // place; cancellation, conversely, may treat absence as
                     // terminal because there is no remaining work to stop.
-                    if (cancelCurrent) finish();
+                    if (cancelCurrent) {finish();}
                     return;
                 }
                 applyState(latest);
@@ -1332,10 +1332,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             // The workspace can stay mounted while its document is closed,
             // and closing can clear the path before the legacy key. A panel
             // unmount alone keeps the entry for a later reopen.
-            if (sourcePath === null) discardScanCleanupDetectionStateForAliases([...documentAliases]);
+            if (sourcePath === null) {discardScanCleanupDetectionStateForAliases([...documentAliases]);}
             // A new source releases the previous document's aliases, so
             // closing the new one keeps that document's restore entry.
-            if (sourcePath !== previousSourcePath) documentAliases.clear();
+            if (sourcePath !== previousSourcePath) {documentAliases.clear();}
         }
         if (!promoted || jobState.value === null) {
             autoPending.value = Boolean(options.active() && sourcePath);
@@ -1365,9 +1365,9 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         // A promotion owns both spellings of one document. On a real source
         // switch, retaining the previous document here would let closing the
         // new document evict an unrelated recent restore entry.
-        if (!sourceChanged) rememberDocumentAliases(previousKey);
+        if (!sourceChanged) {rememberDocumentAliases(previousKey);}
         rememberDocumentAliases(key);
-        if (promoted) return;
+        if (promoted) {return;}
         if (key === null) {
             discardScanCleanupDetectionStateForAliases([...documentAliases]);
             documentAliases.clear();
@@ -1397,7 +1397,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             const enteredAutomaticMode = automaticMode && !wasAutomaticMode;
             if (enteredAutomaticMode) {
                 const key = options.lifecycleDocumentKey.value;
-                if (key !== null) autoDetectionCanceledDocuments.delete(key);
+                if (key !== null) {autoDetectionCanceledDocuments.delete(key);}
             }
             if (becameActive || enteredAutomaticMode) {
                 scheduleAutoDetect();
@@ -1433,7 +1433,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
                 && changedPages.size === 0
                 && withoutMargins(currentDocumentSignature) === withoutMargins(observedDocumentSignature));
         } else {
-            if (changedPages.size > 0) clearDetectionEvidenceForPages(changedPages);
+            if (changedPages.size > 0) {clearDetectionEvidenceForPages(changedPages);}
         }
         observedDocumentSignature = currentDocumentSignature;
         observedPageOverrideSignatures = currentPageSignatures;
@@ -1442,7 +1442,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
             return;
         }
         const key = options.lifecycleDocumentKey.value;
-        if (key !== null) detectionSessionCache.delete(key);
+        if (key !== null) {detectionSessionCache.delete(key);}
         if (!isDetecting.value) {
             jobState.value = null;
             scheduleAutoDetect();
@@ -1473,10 +1473,10 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
     );
     onBeforeUnmount(() => {
         lifecycle.dispose();
-        for (const finish of [...detectionRetirementFinishes]) finish();
-        for (const timeout of detectionRetirementTimeouts) clearTimeout(timeout);
+        for (const finish of [...detectionRetirementFinishes]) {finish();}
+        for (const timeout of detectionRetirementTimeouts) {clearTimeout(timeout);}
         detectionRetirementTimeouts.clear();
-        for (const finish of [...detectionWaitResolvers]) finish();
+        for (const finish of [...detectionWaitResolvers]) {finish();}
         if (scheduledAutoDetection !== null) {
             clearTimeout(scheduledAutoDetection);
             scheduledAutoDetection = null;
@@ -1570,7 +1570,7 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
 
     return {
         activePages: computed<ReadonlySet<number>>(() => {
-            if (!isDetecting.value) return new Set();
+            if (!isDetecting.value) {return new Set();}
             const total = resolveDetectionDocumentPageCount();
             return new Set((jobState.value?.progress.activePageNumbers ?? [])
                 .filter(pageNumber => pageNumber >= 1 && pageNumber <= total));

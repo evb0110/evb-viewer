@@ -14,11 +14,11 @@ export function getCargoRustcLauncher(projectRoot, env) {
         encoding: 'utf8',
         env,
     });
-    if (version.status !== 0) throw new Error(`Cannot identify rustc: ${version.stderr || version.error}`);
+    if (version.status !== 0) {throw new Error(`Cannot identify rustc: ${version.stderr || version.error}`);}
     const identity = createHash('sha256').update(readFileSync(source)).update(version.stdout).digest('hex');
     const directory = path.join(projectRoot, '.tmp', 'cargo-rustc-launcher');
     const executable = path.join(directory, `${identity}.exe`);
-    if (existsSync(executable)) return executable;
+    if (existsSync(executable)) {return executable;}
     mkdirSync(directory, {recursive: true});
     const temporary = path.join(directory, `${identity}-${process.pid}-${randomBytes(8).toString('hex')}.exe`);
     try {
@@ -31,11 +31,11 @@ export function getCargoRustcLauncher(projectRoot, env) {
             env,
             stdio: 'inherit',
         });
-        if (result.status !== 0) throw new Error(`Cannot compile Cargo rustc launcher: ${result.error || result.status}`);
+        if (result.status !== 0) {throw new Error(`Cannot compile Cargo rustc launcher: ${result.error || result.status}`);}
         try {
             renameSync(temporary, executable);
         } catch (error) {
-            if (!existsSync(executable)) throw error;
+            if (!existsSync(executable)) {throw error;}
         }
     } finally {
         rmSync(temporary, {force: true});

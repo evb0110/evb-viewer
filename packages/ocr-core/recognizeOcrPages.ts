@@ -111,14 +111,14 @@ export class OcrJobMessages<T> {
     public omitted = 0;
     public push(...items: T[]) {
         for (const item of items) {
-            if (this.items.length < MAX_JOB_MESSAGES) this.items.push(item);
-            else this.omitted += 1;
+            if (this.items.length < MAX_JOB_MESSAGES) {this.items.push(item);}
+            else {this.omitted += 1;}
         }
     }
 }
 
 function throwIfAborted(signal: AbortSignal) {
-    if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError');
+    if (signal.aborted) {throw signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError');}
 }
 
 function errorMessage(error: unknown) {
@@ -274,7 +274,7 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
                 });
             }
             let raster = await input.renderPage(pageNumber, dpi, signal);
-            if (raster.diagnostic) pageDiagnostics.push(raster.diagnostic);
+            if (raster.diagnostic) {pageDiagnostics.push(raster.diagnostic);}
             const result = await input.runEngine({
                 image: raster.image,
                 models: [...request.languages] as TOcrModelCode[],
@@ -298,7 +298,7 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
                     tsv = early.tsv;
                     wordEdits = early.wordEdits;
                     // The reread PDF was recognized on this raster; one diagnostic per page.
-                    if (early.raster.diagnostic && !raster.diagnostic) pageDiagnostics.push(early.raster.diagnostic);
+                    if (early.raster.diagnostic && !raster.diagnostic) {pageDiagnostics.push(early.raster.diagnostic);}
                     raster = early.raster;
                 } catch (error) {
                     throwIfAborted(signal);
@@ -347,7 +347,7 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
         try {
             const restored = await input.restorePage?.(request.pageNumber) ?? null;
             const page = restored ?? await recognizePage(request);
-            if (!restored) await input.acceptPage(page);
+            if (!restored) {await input.acceptPage(page);}
             diagnostics.push(...page.diagnostics);
             recognizedCount += 1;
         } catch (error) {
@@ -370,7 +370,7 @@ export async function recognizeOcrPages<TImage>(input: IRecognizeOcrPagesInput<T
         },
     ));
     const failed = lanes.find(lane => lane.status === 'rejected');
-    if (failed?.status === 'rejected') throw failed.reason;
+    if (failed?.status === 'rejected') {throw failed.reason;}
     return {
         recognizedCount,
         errors,

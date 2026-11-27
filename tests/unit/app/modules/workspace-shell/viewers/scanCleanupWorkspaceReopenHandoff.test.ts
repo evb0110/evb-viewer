@@ -54,7 +54,7 @@ function createDocument(identity: Record<string, string>, views: Record<string, 
         workspace,
     ]) => {
         const view = createWorkspaceDocumentView(tabId, {isDocumentFailed: () => false});
-        if (workspace) view.mount(workspace);
+        if (workspace) {view.mount(workspace);}
         return [
             tabId,
             view,
@@ -252,7 +252,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
                     delete sessions.value.output;
                     return false;
                 }
-                if (scenario === 'cancelled-dialog') return false;
+                if (scenario === 'cancelled-dialog') {return false;}
                 await writeFile(savedPath, scenario === 'reopen-same-path'
                     ? 'REOPENED-DOCUMENT-BYTES'
                     : 'CLEANUP-OUTPUT-BYTES');
@@ -313,7 +313,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
                 documentRef: requireDocumentRef('/working/reloaded.pdf'),
             });
         }
-        if (scenario === 'title-renamed') outputFixture.updateIdentity({fileName: 'Renamed title'});
+        if (scenario === 'title-renamed') {outputFixture.updateIdentity({fileName: 'Renamed title'});}
         if (scenario === 'reopen-same-path') {
             sessions.value.output = cast<IWorkspaceDocumentController>({
                 views: output.views,
@@ -326,7 +326,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
                 }}),
             });
         }
-        if (scenario === 'moved-window' || scenario === 'closed-before-click') delete sessions.value.output;
+        if (scenario === 'moved-window' || scenario === 'closed-before-click') {delete sessions.value.output;}
         const shouldSave = ![
             'save-as-renamed',
             'moved-window',

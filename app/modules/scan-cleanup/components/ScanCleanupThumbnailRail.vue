@@ -337,7 +337,7 @@ const selectedPositions = computed(() => {
     const positions = new Set<number>();
     for (const page of selectedPages) {
         const position = orderedPages.value.positionOf(page);
-        if (position >= 1) positions.add(position);
+        if (position >= 1) {positions.add(position);}
     }
     return positions;
 });
@@ -523,16 +523,16 @@ const KEY_TARGETS: Readonly<Record<string, (position: number, count: number) => 
     PageDown: position => position + PAGE_KEYBOARD_STEP,
 };
 function handleKeydown(event: KeyboardEvent) {
-    if (disabled || (event.target instanceof Element && event.target.closest('button, input, select'))) return;
+    if (disabled || (event.target instanceof Element && event.target.closest('button, input, select'))) {return;}
     const pages = orderedPages.value;
     if (event.key === ' ') {
         event.preventDefault();
-        if (!event.repeat) emit('select-page', selectionLeader, 'toggle', pages);
+        if (!event.repeat) {emit('select-page', selectionLeader, 'toggle', pages);}
         return;
     }
     const target = KEY_TARGETS[event.key]?.(Math.max(1, pages.positionOf(selectionLeader)), pages.length);
     const page = target === undefined ? undefined : pages.pageAt(Math.min(pages.length, Math.max(1, target)));
-    if (page === undefined) return;
+    if (page === undefined) {return;}
     event.preventDefault();
     emit('select-page', page, event.shiftKey ? 'range' : 'single', pages);
 }

@@ -544,7 +544,7 @@ function createPageLabelIssues(
     const complete = isPageLabelArray(lookup) || segments.every(segment => segment.style === null);
     if (isPageLabelArray(lookup)) {
         for (const label of lookup) {
-            if (label) counts.set(label, (counts.get(label) ?? 0) + 1);
+            if (label) {counts.set(label, (counts.get(label) ?? 0) + 1);}
         }
     } else {
         for (const segment of segments) {

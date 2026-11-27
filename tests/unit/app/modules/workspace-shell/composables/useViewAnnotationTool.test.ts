@@ -111,8 +111,8 @@ describe('useViewAnnotationTool', () => {
         expect.soft(tools.annotationTool.value).toBe('text');
         expect.soft(deps.dragMode.value).toBe(true);
         expect.soft(menuOpen.value).toBe(true);
-        if (accepted) protection.resolve(undefined);
-        else protection.reject(new Error('ENOSPC'));
+        if (accepted) {protection.resolve(undefined);}
+        else {protection.reject(new Error('ENOSPC'));}
         expect(await changing).toBe(accepted);
         expect(tools.annotationTool.value).toBe(accepted ? 'rectangle' : 'text');
         expect(deps.dragMode.value).toBe(!accepted);

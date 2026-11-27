@@ -388,8 +388,8 @@ function revealVirtualRowSpan(startIndex: number, endIndex: number) {
 
 async function togglePage(pageIndex: number) {
     const isExpanding = !expandedPages.value.has(pageIndex);
-    if (isExpanding) expandedPages.value.add(pageIndex);
-    else expandedPages.value.delete(pageIndex);
+    if (isExpanding) {expandedPages.value.add(pageIndex);}
+    else {expandedPages.value.delete(pageIndex);}
     if (!isExpanding) {
         return;
     }

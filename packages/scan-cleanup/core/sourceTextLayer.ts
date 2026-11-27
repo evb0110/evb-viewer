@@ -25,9 +25,9 @@ export function reduceScanCleanupSourceTextOmission(
     let count = 0;
     const pages: NonNullable<TScanCleanupSummary['sourceTextOmission']>['pages'] = [];
     for (const page of report.pages) {
-        if (!page.evbOcrLayer && !page.paintedText && !page.hiddenText) continue;
+        if (!page.evbOcrLayer && !page.paintedText && !page.hiddenText) {continue;}
         count += 1;
-        if (pages.length < 20) pages.push(requirePageNumber(page.pageNumber));
+        if (pages.length < 20) {pages.push(requirePageNumber(page.pageNumber));}
     }
     return count === 0 ? undefined : {
         count,

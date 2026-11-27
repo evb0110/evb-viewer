@@ -26,7 +26,7 @@ const parityEvidenceDir = process.env.EVB_C11_C12_EVIDENCE_DIR ? resolve(process
 
 
 async function parityScreenshot(page: Page, name: string) {
-    if (parityEvidenceDir === null) return;
+    if (parityEvidenceDir === null) {return;}
     mkdirSync(parityEvidenceDir, {recursive: true});
     await page.screenshot({
         path: resolve(parityEvidenceDir, `${name}.png`),
@@ -59,8 +59,8 @@ async function openParityEditMenu(page: Page, keyboard = false) {
         name: 'Menu',
         exact: true,
     });
-    if (keyboard) await trigger.press('Enter');
-    else await trigger.click();
+    if (keyboard) {await trigger.press('Enter');}
+    else {await trigger.click();}
     await page.getByRole('menu').first().waitFor();
     await parityScreenshot(page, 'c12-edit-menu');
     // The baseline must fail on the omission before testing the new behavior.
@@ -83,13 +83,13 @@ async function parityEdit(page: Page, name: string, keyboard = false) {
         // Traverse the real menu's roving focus, including disabled entries.
         const limit = await page.getByRole('menuitem').count() + 1;
         for (let step = 0; step < limit; step += 1) {
-            if (await item.evaluate(element => element.contains(document.activeElement))) break;
+            if (await item.evaluate(element => element.contains(document.activeElement))) {break;}
             await page.keyboard.press('ArrowDown');
         }
         expect(await item.evaluate(element => element.contains(document.activeElement))).toBe(true);
         expect(await page.locator('[role="menuitem"][data-highlighted]').count()).toBe(1);
         await page.keyboard.press('Enter');
-    } else await item.click();
+    } else {await item.click();}
     await page.getByRole('menu').first().waitFor({state: 'hidden'});
 }
 
@@ -98,7 +98,7 @@ async function selectParityTail(page: Page, field: Locator, count: number) {
     await field.press('ControlOrMeta+A');
     await page.keyboard.press('ArrowRight');
     await page.keyboard.down('Shift');
-    for (let index = 0; index < count; index += 1) await page.keyboard.press('ArrowLeft');
+    for (let index = 0; index < count; index += 1) {await page.keyboard.press('ArrowLeft');}
     await page.keyboard.up('Shift');
 }
 

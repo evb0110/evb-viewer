@@ -154,14 +154,14 @@ function parsePageList(value) {
         if (range) {
             const from = Number(range[1]);
             const to = Number(range[2]);
-            if (from < 1 || to < from) throw new Error(`Invalid page range: ${part}`);
+            if (from < 1 || to < from) {throw new Error(`Invalid page range: ${part}`);}
             return Array.from({length: to - from + 1}, (_, index) => from + index);
         }
         const page = Number(part);
-        if (!Number.isSafeInteger(page) || page < 1) throw new Error(`Invalid page: ${part}`);
+        if (!Number.isSafeInteger(page) || page < 1) {throw new Error(`Invalid page: ${part}`);}
         return [page];
     });
-    if (new Set(pages).size !== pages.length) throw new Error('Page selection contains duplicates');
+    if (new Set(pages).size !== pages.length) {throw new Error('Page selection contains duplicates');}
     return pages.sort((left, right) => left - right);
 }
 
@@ -207,9 +207,9 @@ function parseArgs(argv) {
             throw new Error(`Unknown argument: ${argument}`);
         }
         const value = argv[index + 1];
-        if (!value || value.startsWith('--')) throw new Error(`${argument} requires a value`);
+        if (!value || value.startsWith('--')) {throw new Error(`${argument} requires a value`);}
         index += 1;
-        if (argument === '--pages') parsed.pages = parsePageList(value);
+        if (argument === '--pages') {parsed.pages = parsePageList(value);}
         else if (argument === '--overlay-edge-tolerance' || argument === '--overlay-ink-tolerance') {
             const tolerance = Number(value);
             if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance >= 0.5) {
@@ -225,7 +225,7 @@ function parseArgs(argv) {
                 throw new Error('--preview-render-dpi must be a positive integer');
             }
         }
-        else parsed[argument.slice(2).replace(/-([a-z])/gu, (_, letter) => letter.toUpperCase())] = resolve(value);
+        else {parsed[argument.slice(2).replace(/-([a-z])/gu, (_, letter) => letter.toUpperCase())] = resolve(value);}
     }
     if (!parsed.source || !parsed.out || !parsed.pages) {
         throw new Error('--source, --pages, and --out are required');
@@ -248,7 +248,7 @@ function resolveTool(binaryName, crateName, environmentName) {
         projectRoot,
         environmentName === undefined ? undefined : process.env[environmentName],
     );
-    if (!path) throw new Error(`Required tool is unavailable: ${binaryName}`);
+    if (!path) {throw new Error(`Required tool is unavailable: ${binaryName}`);}
     return path;
 }
 
@@ -265,8 +265,8 @@ function runStreaming(command, args, options = {}) {
         });
         child.once('error', reject);
         child.once('exit', (code, signal) => {
-            if (code === 0) resolvePromise();
-            else reject(new Error(`${command} exited with ${code ?? signal ?? 'unknown'}`));
+            if (code === 0) {resolvePromise();}
+            else {reject(new Error(`${command} exited with ${code ?? signal ?? 'unknown'}`));}
         });
     });
 }
@@ -310,7 +310,7 @@ function inkBounds(bitmap, threshold) {
     for (let y = 0; y < bitmap.height; y += 1) {
         const rowOffset = y * bitmap.width;
         for (let x = 0; x < bitmap.width; x += 1) {
-            if (bitmap.data[rowOffset + x] >= threshold) continue;
+            if (bitmap.data[rowOffset + x] >= threshold) {continue;}
             left = Math.min(left, x);
             top = Math.min(top, y);
             right = Math.max(right, x);
@@ -350,18 +350,18 @@ function lineBands(bitmap, bounds) {
         let ink = 0;
         const rowOffset = y * bitmap.width;
         for (let x = bounds.left; x < bounds.right; x += 1) {
-            if (bitmap.data[rowOffset + x] < METRIC_INK_THRESHOLD) ink += 1;
+            if (bitmap.data[rowOffset + x] < METRIC_INK_THRESHOLD) {ink += 1;}
         }
-        if (ink >= minimumRowInk) activeRows.push(y);
+        if (ink >= minimumRowInk) {activeRows.push(y);}
     }
     const bands = [];
     for (const y of activeRows) {
         const current = bands.at(-1);
-        if (!current || y - current.bottom > 2) bands.push({
+        if (!current || y - current.bottom > 2) {bands.push({
             top: y,
             bottom: y + 1,
-        });
-        else current.bottom = y + 1;
+        });}
+        else {current.bottom = y + 1;}
     }
     return bands.filter(band => band.bottom - band.top >= 2);
 }
@@ -376,7 +376,7 @@ function horizontalRuns(bitmap, rect, maximumRun) {
             if (ink) {
                 run += 1;
             } else if (run > 0) {
-                if (run <= maximumRun) runs.push(run);
+                if (run <= maximumRun) {runs.push(run);}
                 run = 0;
             }
         }
@@ -412,12 +412,12 @@ function wordWeights(bitmap, bounds, bands) {
                 top: band.top,
                 bottom: band.bottom,
             }, Math.max(3, Math.round(height * 1.5)));
-            if (runs.length >= 3) weights.push(mean(runs));
+            if (runs.length >= 3) {weights.push(mean(runs));}
         };
         let gap = 0;
         for (let index = 0; index <= occupied.length; index += 1) {
             if (occupied[index] === true) {
-                if (start === null) start = index;
+                if (start === null) {start = index;}
                 lastInk = index;
                 gap = 0;
             } else if (start !== null) {
@@ -742,7 +742,7 @@ async function compareIndependentReaderInk(nativeOutputPath, finalRasterPath, me
     const points = [];
     for (let y = 3; y < expected.height - 3 && points.length < INDEPENDENT_INK_SAMPLE_LIMIT; y += 5) {
         for (let x = 3; x < expected.width - 3 && points.length < INDEPENDENT_INK_SAMPLE_LIMIT; x += 5) {
-            if (expected.data[y * expected.width + x] >= INDEPENDENT_INK_THRESHOLD) continue;
+            if (expected.data[y * expected.width + x] >= INDEPENDENT_INK_THRESHOLD) {continue;}
             points.push({
                 expectedX: x,
                 expectedY: y,
@@ -760,7 +760,7 @@ async function compareIndependentReaderInk(nativeOutputPath, finalRasterPath, me
     const matches = points.filter(point => {
         for (let dy = -1; dy <= 1; dy += 1) {
             for (let dx = -1; dx <= 1; dx += 1) {
-                if (read(point.finalX + dx, point.finalY + dy) < INDEPENDENT_READER_THRESHOLD) return true;
+                if (read(point.finalX + dx, point.finalY + dy) < INDEPENDENT_READER_THRESHOLD) {return true;}
             }
         }
         return false;
@@ -768,7 +768,7 @@ async function compareIndependentReaderInk(nativeOutputPath, finalRasterPath, me
     const wrongCalibrationMatches = points.filter(point => {
         for (let dy = -1; dy <= 1; dy += 1) {
             for (let dx = -1; dx <= 1; dx += 1) {
-                if (read(point.finalX + wrongCalibrationOffsetPx + dx, point.finalY + dy) < INDEPENDENT_READER_THRESHOLD) return true;
+                if (read(point.finalX + wrongCalibrationOffsetPx + dx, point.finalY + dy) < INDEPENDENT_READER_THRESHOLD) {return true;}
             }
         }
         return false;
@@ -818,7 +818,7 @@ export function measureOverlayContainment(bitmap, rect, inkTolerance, edgeTolera
     for (let y = 0; y < bitmap.height; y += 1) {
         const rowOffset = y * bitmap.width;
         for (let x = 0; x < bitmap.width; x += 1) {
-            if (bitmap.data[rowOffset + x] >= MARGIN_INK_THRESHOLD) continue;
+            if (bitmap.data[rowOffset + x] >= MARGIN_INK_THRESHOLD) {continue;}
             inkTotal += 1;
             columns[x] += 1;
             rows[y] += 1;
@@ -1016,7 +1016,7 @@ export async function loadDetection(args, tools) {
             pageCount: results.length,
         });
         try {
-            for (const result of results) await resultStore.append(result);
+            for (const result of results) {await resultStore.append(result);}
         } catch (error) {
             await resultStore.close();
             throw error;
@@ -1062,7 +1062,7 @@ async function main() {
         scanCleanup: resolveTool('evb-scan-cleanup', 'scan-cleanup', 'EVB_SCAN_CLEANUP_PATH'),
     };
     const suppliedFinal = process.argv.includes('--final-pdf');
-    if (!suppliedFinal) await runFinalConversion(args);
+    if (!suppliedFinal) {await runFinalConversion(args);}
     const detection = await loadDetection(args, tools);
     try {
     // Anchors exist only where the CLI applies ink alignment; elsewhere it passes none.
@@ -1074,7 +1074,7 @@ async function main() {
         const layoutByPage = {};
         await detection.resultStore.forEachChunk(results => {
             for (const result of results) {
-                if (!result.sourcePageMetadata) throw new Error('Detection cache does not carry source geometry for every page');
+                if (!result.sourcePageMetadata) {throw new Error('Detection cache does not carry source geometry for every page');}
                 pageSizes.push(result.sourcePageMetadata);
                 layoutByPage[String(result.pageNumber)] = result.classification;
             }
@@ -1255,7 +1255,7 @@ async function main() {
                         metadata: JSON.parse(await readFile(output.metadataPath, 'utf8')),
                     });
                 } catch (error) {
-                    if (error?.code !== 'ENOENT') throw error;
+                    if (error?.code !== 'ENOENT') {throw error;}
                 }
             }
             const previewLeaves = [];
@@ -1285,8 +1285,8 @@ async function main() {
             const provisionalManifestPath = join(pageDirectory, 'provisional-preview-manifest.json');
             const provisionalPageMetadataPath = join(pageDirectory, 'provisional-preview-page.json');
             const provisionalManifest = structuredClone(manifest);
-            if (provisionalDocumentCanvas === null) delete provisionalManifest.documentCanvas;
-            else provisionalManifest.documentCanvas = provisionalDocumentCanvas;
+            if (provisionalDocumentCanvas === null) {delete provisionalManifest.documentCanvas;}
+            else {provisionalManifest.documentCanvas = provisionalDocumentCanvas;}
             provisionalManifest.pages[0].outputs = provisionalOutputs;
             provisionalManifest.pages[0].pageMetadataPath = provisionalPageMetadataPath;
             // Progressive detection has observed layout but no pagePlanEvidence yet; do not hide
@@ -1314,7 +1314,7 @@ async function main() {
                         }),
                     });
                 } catch (error) {
-                    if (error?.code !== 'ENOENT') throw error;
+                    if (error?.code !== 'ENOENT') {throw error;}
                 }
             }
             const provisionalComposite = join(pageDirectory, 'provisional-preview-composite.png');
@@ -1322,7 +1322,7 @@ async function main() {
             const contextLeafComparisons = [];
             for (const settledLeaf of previewLeaves) {
                 const provisionalLeaf = provisionalLeaves.find(leaf => leaf.half === settledLeaf.half);
-                if (!provisionalLeaf) continue;
+                if (!provisionalLeaf) {continue;}
                 const settledBytes = await readFile(settledLeaf.metricsPath);
                 const provisionalBytes = await readFile(provisionalLeaf.metricsPath);
                 contextLeafComparisons.push({
@@ -1411,7 +1411,7 @@ async function main() {
                 const previewLeaf = previewLeaves[index];
                 const finalLeaf = finalLeaves[index];
                 const nativeOutput = outputMetadata.find(output => output.metadata.half === previewLeaf.half);
-                if (!nativeOutput) throw new Error(`Missing native output for ${previewLeaf.half}`);
+                if (!nativeOutput) {throw new Error(`Missing native output for ${previewLeaf.half}`);}
                 independentReaderInk.push({
                     half: previewLeaf.half,
                     ...await compareIndependentReaderInk(
@@ -1433,8 +1433,8 @@ async function main() {
                 const weightComparison = compareMetrics(previewWeight, finalWeight, previewBitmap.width / finalBitmap.width);
                 const marginComparison = compareMargins(previewMargins, finalMargins);
                 const violations = weightAgreementViolations(weightComparison);
-                if (marginComparison === null) violations.push('ink-margin-unmeasurable');
-                else if (marginComparison.maximum > INK_MARGIN_LIMIT) violations.push('ink-margin');
+                if (marginComparison === null) {violations.push('ink-margin-unmeasurable');}
+                else if (marginComparison.maximum > INK_MARGIN_LIMIT) {violations.push('ink-margin');}
                 if (!previewLeaves[index].overlayContainment.pass) {
                     violations.push('overlay-containment');
                 }
@@ -1549,7 +1549,7 @@ async function main() {
                 })),
             })),
         }, null, 2) + '\n');
-        if (args.check && violations.length > 0) process.exitCode = 1;
+        if (args.check && violations.length > 0) {process.exitCode = 1;}
     } finally {
         await detection.resultStore.close();
     }

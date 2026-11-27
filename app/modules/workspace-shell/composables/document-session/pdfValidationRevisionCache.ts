@@ -27,7 +27,7 @@ function cacheSuccessfulValidation(key: string, validation: IPdfValidationResult
     successfulValidations.set(key, validation);
     while (successfulValidations.size > MAX_VALIDATED_REVISIONS) {
         const oldestKey = successfulValidations.keys().next().value;
-        if (oldestKey === undefined) break;
+        if (oldestKey === undefined) {break;}
         successfulValidations.delete(oldestKey);
     }
 }
@@ -73,7 +73,7 @@ export async function validatePdfRevision(
             cacheResult: 'miss',
         };
     } finally {
-        if (pendingValidations.get(key) === task) pendingValidations.delete(key);
+        if (pendingValidations.get(key) === task) {pendingValidations.delete(key);}
     }
 }
 

@@ -85,7 +85,7 @@ class HostLane extends EventEmitter implements IOcrEngineLane {
     }
 
     postMessage(message: IOcrEngineLaneRequest) {
-        if (this.exited) return;
+        if (this.exited) {return;}
         this.send({
             type: 'run',
             lane: this.id,
@@ -94,21 +94,21 @@ class HostLane extends EventEmitter implements IOcrEngineLane {
     }
 
     terminate() {
-        if (!this.exited) this.send({
+        if (!this.exited) {this.send({
             type: 'end',
             lane: this.id,
-        });
+        });}
         return this.exitedPromise;
     }
 
     fail(error: Error) {
-        if (this.exited) return;
+        if (this.exited) {return;}
         // As for a worker thread, an error with no listener must not throw into main.
-        if (this.listenerCount('error') > 0) this.emit('error', error);
+        if (this.listenerCount('error') > 0) {this.emit('error', error);}
     }
 
     markExited(code: number) {
-        if (this.exited) return;
+        if (this.exited) {return;}
         this.exitCode = code;
         this.resolveExited(code);
         this.emit('exit', code);
@@ -137,9 +137,9 @@ export function createOcrEngineHost(options: IOcrEngineHostOptions) {
     let nextLane = 0;
 
     const send = (host: IHostProcess, request: TOcrEngineHostRequest) => {
-        if (host.exited) return;
+        if (host.exited) {return;}
         // A closing process only needs to hear that it should exit.
-        if (host.closing && request.type !== 'shutdown') return;
+        if (host.closing && request.type !== 'shutdown') {return;}
         if (!host.spawned) {
             host.outbox.push(request);
             return;
@@ -154,7 +154,7 @@ export function createOcrEngineHost(options: IOcrEngineHostOptions) {
     // Ends a process now. Before it has started there is no process to kill,
     // so it gets its grace time again once it has.
     const kill = (host: IHostProcess, reason: string) => {
-        if (host.exited) return;
+        if (host.exited) {return;}
         if (!host.spawned) {
             host.killPending = true;
             return;
@@ -177,11 +177,11 @@ export function createOcrEngineHost(options: IOcrEngineHostOptions) {
     const retire = (host: IHostProcess) => {
         host.closing = true;
         host.outbox.length = 0;
-        if (current === host) current = null;
+        if (current === host) {current = null;}
     };
 
     const close = (host: IHostProcess) => {
-        if (host.closing) return;
+        if (host.closing) {return;}
         retire(host);
         send(host, {type: 'shutdown'});
         armKill(host);
@@ -191,7 +191,7 @@ export function createOcrEngineHost(options: IOcrEngineHostOptions) {
     // pages: every page on it fails now rather than at its time limit, and it
     // is killed. Its lanes exit with it.
     const abandon = (host: IHostProcess, message: string) => {
-        if (host.exited) return;
+        if (host.exited) {return;}
         log.warn('OCR engine process sent an invalid message', {
             code: 'OCR_ENGINE_HOST_INVALID_MESSAGE',
             pid: host.child.pid,
@@ -199,23 +199,23 @@ export function createOcrEngineHost(options: IOcrEngineHostOptions) {
         });
         retire(host);
         const error = new Error(message);
-        for (const lane of host.lanes.values()) lane.fail(error);
+        for (const lane of host.lanes.values()) {lane.fail(error);}
         kill(host, 'sent an invalid message');
     };
 
     const laneExited = (host: IHostProcess, lane: HostLane, code: number) => {
         host.lanes.delete(lane.id);
         lane.markExited(code);
-        if (host.lanes.size === 0) close(host);
+        if (host.lanes.size === 0) {close(host);}
     };
 
     const hostExited = (host: IHostProcess, code: number) => {
-        if (host.exited) return;
+        if (host.exited) {return;}
         host.exited = true;
         host.outbox.length = 0;
         clearTimeout(host.killTimer);
         processes.delete(host);
-        if (current === host) current = null;
+        if (current === host) {current = null;}
         const lanes = Array.from(host.lanes.values());
         host.lanes.clear();
         if (!host.closing) {
@@ -227,9 +227,9 @@ export function createOcrEngineHost(options: IOcrEngineHostOptions) {
                 lanes: lanes.length,
                 ...(host.failure ? {failure: host.failure} : {}),
             });
-            for (const lane of lanes) lane.fail(error);
+            for (const lane of lanes) {lane.fail(error);}
         }
-        for (const lane of lanes) lane.markExited(code);
+        for (const lane of lanes) {lane.markExited(code);}
     };
 
     const spawn = (): IHostProcess => {
@@ -249,7 +249,7 @@ export function createOcrEngineHost(options: IOcrEngineHostOptions) {
         processes.add(host);
         child.once('spawn', () => {
             host.spawned = true;
-            for (const request of host.outbox.splice(0)) send(host, request);
+            for (const request of host.outbox.splice(0)) {send(host, request);}
             if (host.killPending) {
                 host.killPending = false;
                 armKill(host);
@@ -267,7 +267,7 @@ export function createOcrEngineHost(options: IOcrEngineHostOptions) {
             });
         });
         child.on('message', (value: unknown) => {
-            if (host.exited) return;
+            if (host.exited) {return;}
             const event = decodeOcrEngineHostEvent(value);
             if (!event) {
                 const laneId = (value as {lane?: unknown} | null)?.lane;
@@ -289,7 +289,7 @@ export function createOcrEngineHost(options: IOcrEngineHostOptions) {
             }
             const lane = host.lanes.get(event.lane);
             // A lane that has exited may still have a message in flight.
-            if (!lane) return;
+            if (!lane) {return;}
             switch (event.type) {
                 case 'reply':
                     lane.emit('message', event.reply);
@@ -324,7 +324,7 @@ export function createOcrEngineHost(options: IOcrEngineHostOptions) {
         },
         /** Asks every OCR utility process to end its lanes and exit. */
         shutdown() {
-            for (const host of processes) close(host);
+            for (const host of processes) {close(host);}
         },
     };
 }

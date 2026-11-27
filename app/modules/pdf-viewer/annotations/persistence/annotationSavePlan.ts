@@ -358,7 +358,7 @@ export function selectSerializationBackend(
     const selected = plan.routeConstraints.forceRewrite
         ? allowed.find(backend => backend === 'native-append')
         : allowed[0];
-    if (!selected) throw new Error('No serialization backend satisfies the immutable plan constraints');
+    if (!selected) {throw new Error('No serialization backend satisfies the immutable plan constraints');}
     return selected;
 }
 
@@ -368,11 +368,11 @@ function assertValidAnnotationSerializationPlan(steps: readonly IAnnotationMutat
     steps.forEach(step => stepsById.has(step.id) || stepsById.set(step.id, step));
     steps.forEach((step) => {
         step.dependsOn.forEach((dependency) => {
-            if (!stepsById.has(dependency)) throw new Error(`Missing annotation-plan dependency ${dependency}`);
+            if (!stepsById.has(dependency)) {throw new Error(`Missing annotation-plan dependency ${dependency}`);}
         });
         if (step.operation === 'write-free-text-contents') {
             const hasPrepare = step.dependsOn.some(id => stepsById.get(id)?.operation === 'prepare-free-text-appearance');
-            if (!hasPrepare) throw new Error('FreeText contents require a prepared blank appearance and point rect');
+            if (!hasPrepare) {throw new Error('FreeText contents require a prepared blank appearance and point rect');}
         }
     });
 }

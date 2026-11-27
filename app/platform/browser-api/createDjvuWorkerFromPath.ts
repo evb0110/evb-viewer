@@ -316,7 +316,7 @@ function readCachedDjvuPageTable(
         entry = created;
         pageTableCache.set(versionKey, created);
         for (const key of pageTableCache.keys()) {
-            if (pageTableCache.size <= DJVU_PAGE_TABLE_CACHE_ENTRIES) break;
+            if (pageTableCache.size <= DJVU_PAGE_TABLE_CACHE_ENTRIES) {break;}
             pageTableCache.delete(key);
         }
     }
@@ -446,16 +446,16 @@ function getSearchMatchWords(
     while (low < high) {
         const middle = Math.floor((low + high) / 2);
         const offset = searchable.offsets[middle];
-        if (offset && offset.endOffset <= startOffset) low = middle + 1;
-        else high = middle;
+        if (offset && offset.endOffset <= startOffset) {low = middle + 1;}
+        else {high = middle;}
     }
     const words: IOcrWord[] = [];
     for (let index = low; index < searchable.offsets.length && words.length < 256; index += 1) {
         const offset = searchable.offsets[index];
-        if (!offset) break;
-        if (offset.startOffset >= endOffset) break;
+        if (!offset) {break;}
+        if (offset.startOffset >= endOffset) {break;}
         const word = searchable.words[index];
-        if (word) words.push(word);
+        if (word) {words.push(word);}
     }
     return words;
 }
@@ -530,7 +530,7 @@ export async function searchDjvuWorkerText(
                     rotation: 0 as const,
                 } : {}),
             };
-            if (resultOffset === 'last') results[currentMatchIndex % SEARCH_RESULT_LIMIT] = result;
+            if (resultOffset === 'last') {results[currentMatchIndex % SEARCH_RESULT_LIMIT] = result;}
             else {
                 results.push(result);
                 progressResults.push(result);
@@ -777,7 +777,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
                 const parsedRequestId = requestId === undefined ? null : parseRequestId(requestId);
                 const requestIds = parsedRequestId ? [parsedRequestId] : [...pageRequestIds ?? []];
                 for (const activeRequestId of requestIds) {
-                    if (!activePreviewRequestIds.has(activeRequestId)) continue;
+                    if (!activePreviewRequestIds.has(activeRequestId)) {continue;}
                     canceledPreviewRequestIds.add(activeRequestId);
                     cancelPreviewRequest(activeRequestId);
                 }
@@ -951,7 +951,7 @@ export async function createDjvuPagePreviewSourceFromPath(djvuPath: TDocumentRef
             }
             if (nodeCount % 64 === 0) {
                 await yieldToBrowser();
-                if (terminated) throw new Error('DjVu conversion canceled');
+                if (terminated) {throw new Error('DjVu conversion canceled');}
             }
         }
         return result;

@@ -32,8 +32,8 @@ export function createTestPdfViewportWritePort() {
         },
         apply(container, write) {
             writes.push(write);
-            if (write.left !== undefined) container.scrollLeft = write.left;
-            if (write.top !== undefined) container.scrollTop = write.top;
+            if (write.left !== undefined) {container.scrollLeft = write.left;}
+            if (write.top !== undefined) {container.scrollTop = write.top;}
             return true;
         },
         consumeAuthorityScroll: () => false,

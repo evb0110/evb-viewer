@@ -79,8 +79,8 @@ export async function installProbe(page: Page) {
             ]);
         };
         Reflect.set(Worker.prototype, 'addEventListener', function(this: Worker, type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions) {
-            if (!listener) return;
-            if (type !== 'message') return add.call(this, type, listener, options);
+            if (!listener) {return;}
+            if (type !== 'message') {return add.call(this, type, listener, options);}
             const wrapped: EventListener = event => {
                 const deliver = () => typeof listener === 'function'
                     ? listener.call(this, event)
@@ -90,13 +90,13 @@ export async function installProbe(page: Page) {
                     // No fake raster, cleanup result, or application method is used.
                     probe.holdNext = false;
                     probe.held.push(deliver);
-                } else deliver();
+                } else {deliver();}
             };
             listeners.set(listener, wrapped);
             return add.call(this, type, wrapped, options);
         });
         Reflect.set(Worker.prototype, 'removeEventListener', function(this: Worker, type: string, listener: EventListenerOrEventListenerObject | null, options?: boolean | EventListenerOptions) {
-            if (!listener) return;
+            if (!listener) {return;}
             return remove.call(this, type, listeners.get(listener) ?? listener, options);
         });
     });
@@ -124,7 +124,7 @@ export async function showWorkspace(page: Page) {
         name: 'Got it',
         exact: true,
     });
-    if (await guidance.count()) await guidance.click();
+    if (await guidance.count()) {await guidance.click();}
 }
 
 export async function waitForPixels(page: Page, pageNumber: number, totalPages = 3) {
@@ -166,10 +166,10 @@ export async function cleanedInkTop(page: Page) {
         const {data} = context.getImageData(0, 0, canvas.width, canvas.height);
         for (let y = 0; y < canvas.height; y += 1) {
             for (let x = 0; x < canvas.width; x += 1) {
-                if (data[(y * canvas.width + x) * 4]! < 128) return {
+                if (data[(y * canvas.width + x) * 4]! < 128) {return {
                     row: y,
                     height: canvas.height,
-                };
+                };}
             }
         }
         return null;
@@ -258,7 +258,7 @@ export async function prepareConversionSource(page: Page) {
         name: 'Link margins',
         exact: true,
     });
-    if (await linked.getAttribute('aria-checked') !== 'true') await linked.click();
+    if (await linked.getAttribute('aria-checked') !== 'true') {await linked.click();}
     const margins = page.getByRole('spinbutton', {
         name: 'All sides (mm)',
         exact: true,
@@ -272,7 +272,7 @@ export async function prepareConversionSource(page: Page) {
         name: 'Advanced',
         exact: true,
     });
-    if (await advanced.getAttribute('aria-expanded') !== 'true') await advanced.click();
+    if (await advanced.getAttribute('aria-expanded') !== 'true') {await advanced.click();}
     await page.getByRole('checkbox', {
         name: 'Normalize uneven illumination',
         exact: true,
@@ -318,13 +318,13 @@ function pageImages(pdf: PDFDocument, resources: PDFDict | undefined) {
     };
     const visit = (dictionary: PDFDict | undefined) => {
         const objects = dictionary?.lookup(PDFName.of('XObject'));
-        if (!(objects instanceof PDFDict)) return;
+        if (!(objects instanceof PDFDict)) {return;}
         for (const ref of objects.values()) {
             const object = pdf.context.lookup(ref);
-            if (!(object instanceof PDFRawStream) || seen.has(object)) continue;
+            if (!(object instanceof PDFRawStream) || seen.has(object)) {continue;}
             seen.add(object);
             const subtype = object.dict.lookup(PDFName.of('Subtype'))?.toString();
-            if (subtype === '/Image') images.push(imageInfo(object));
+            if (subtype === '/Image') {images.push(imageInfo(object));}
             if (subtype === '/Form') {
                 const nested = object.dict.lookup(PDFName.of('Resources'));
                 visit(nested instanceof PDFDict ? nested : dictionary);
@@ -360,7 +360,7 @@ export async function inspectConversionPdf(bytes: Uint8Array) {
             pdf.catalog,
             info,
         ].flatMap(dictionary => {
-            if (!(dictionary instanceof PDFDict)) return [];
+            if (!(dictionary instanceof PDFDict)) {return [];}
             const value = dictionary.lookup(PDFName.of('EVBScanCleanup'));
             return value instanceof PDFString || value instanceof PDFHexString ? [value.decodeText()] : [];
         });
@@ -416,7 +416,7 @@ export function assertConversionPdf(
                 expect(page.images.some(image => image.imageMask !== 'true'), 'a continuous-tone background').toBe(true);
             }
             for (const image of page.images) {
-                if (mode.name === 'B&W') expect(image.bits).toBe('1');
+                if (mode.name === 'B&W') {expect(image.bits).toBe('1');}
                 if (mode.name === 'Gray') {
                     expect(image.bits).toBe('8');
                     expect(image.colorSpace).toBe('/DeviceGray');
@@ -489,14 +489,14 @@ export function assertConversionPdf(
             matchPageSize: false,
             normalizeIllumination: false,
         });
-        if (mode.name === 'Auto') expect([
+        if (mode.name === 'Auto') {expect([
             'auto',
             'bw',
             'grayscale',
             'color',
             'mixed',
-        ]).toContain(options.outputMode);
-        else expect(options.outputMode).toBe(mode.name === 'Keep original images' ? 'color' : mode.outputMode);
+        ]).toContain(options.outputMode);}
+        else {expect(options.outputMode).toBe(mode.name === 'Keep original images' ? 'color' : mode.outputMode);}
         expect(options.experimental.autoDewarp).toBe(false);
     }
     return stamp;

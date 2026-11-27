@@ -67,7 +67,7 @@ describe('browser PDF region screenshot', () => {
                 NM: PDFString.of('foreign-highlight'),
                 F: 4,
             }));
-            if (identity === 'unnamed') fixture.context.lookup(foreign, PDFDict).delete(PDFName.of('NM'));
+            if (identity === 'unnamed') {fixture.context.lookup(foreign, PDFDict).delete(PDFName.of('NM'));}
             pdfPage.node.set(PDFName.of('Annots'), fixture.context.obj([foreign]));
             keepFileChooserInterceptionEnabled(page);
             const chooser = page.waitForEvent('filechooser');
@@ -127,7 +127,7 @@ describe('browser PDF region screenshot', () => {
             await page.mouse.wheel(0, -5000);
             await page.waitForFunction(() => document.querySelector('#pdf-viewer')!.scrollTop === 0);
             const bounds = await renderedPage.boundingBox();
-            if (!bounds) throw new Error('The annotation page is not visible');
+            if (!bounds) {throw new Error('The annotation page is not visible');}
             const y = bounds.y + 46 * bounds.height / 792;
             await page.mouse.move(bounds.x + 42 * bounds.width / 612, y);
             await page.mouse.down();
@@ -168,7 +168,7 @@ describe('browser PDF region screenshot', () => {
                 name: 'Save',
                 exact: true,
             });
-            if (await save.isEnabled()) await save.click();
+            if (await save.isEnabled()) {await save.click();}
             const sourceRef = await page.evaluate(() => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
                 return api.readActiveWorkspaceStateValues?.<{originalPath: string}>(['originalPath']).originalPath;

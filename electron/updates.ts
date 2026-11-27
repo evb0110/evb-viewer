@@ -192,7 +192,7 @@ function isUpdaterRuntimeSupported() {
 function getUpdateFailureReason(error: unknown, operation: 'check' | 'download' | 'install'): TAppUpdateReason {
     const cause = error instanceof Error && error.cause ? error.cause : error;
     if (operation === 'install' && process.platform === 'darwin' && cause instanceof Error && 'code' in cause
-        && (cause.code === 'EACCES' || cause.code === 'EPERM' || cause.code === 'EROFS')) return 'install-permission-denied';
+        && (cause.code === 'EACCES' || cause.code === 'EPERM' || cause.code === 'EROFS')) {return 'install-permission-denied';}
     if (isAbortError(cause) || (cause instanceof Error && cause.name === 'TimeoutError')) {
         return operation === 'check' ? 'check-timed-out' : `${operation}-failed`;
     }
@@ -531,7 +531,7 @@ function setAutoUpdaterListeners() {
         }
         logUpdateCheckFailure(error, currentCheckOrigin);
         const version = downloadedVersion;
-        if (!version) return;
+        if (!version) {return;}
         clearDownloadedCandidate(version);
         updateStatus({
             phase: 'error',
@@ -558,7 +558,7 @@ function setAutoUpdaterListeners() {
 
 async function finishDownloadedUpdate(requesters: Set<number> | null) {
     const version = downloadedVersion;
-    if (!version) return;
+    if (!version) {return;}
     try {
         if (discardDownloadedCandidateIfNotNewer('download event')) {
             updateStatus({
@@ -1029,7 +1029,7 @@ export function downloadAvailableUpdate(requester: IUpdateRequester) {
                 currentDownloadCancellationToken = null;
             }
             currentDownloadPromise = null;
-            if (operationRequesters === requesters) operationRequesters = null;
+            if (operationRequesters === requesters) {operationRequesters = null;}
         });
 
     return { started: true };
@@ -1161,7 +1161,7 @@ export async function shutdownUpdates() {
         currentCheckPromise,
         currentDownloadPromise,
     ]) {
-        if (!pending) continue;
+        if (!pending) {continue;}
         try {
             await waitForBoundedOperation(pending, {
                 timeoutMs: UPDATER_SHUTDOWN_WAIT_TIMEOUT_MS,

@@ -93,5 +93,5 @@ export async function mountDocumentSidebarHost(
 
 /** Unmounts every sidebar this harness mounted. */
 export function unmountDocumentSidebarHosts() {
-    for (const unmount of [...mounted]) unmount();
+    for (const unmount of [...mounted]) {unmount();}
 }

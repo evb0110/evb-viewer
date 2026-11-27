@@ -458,7 +458,7 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                 } catch (error) {
                     // An aborted visual wait still places; the terminal report
                     // below remains the single owner of failure.
-                    if (signal.aborted || !isAbortError(error)) throw error;
+                    if (signal.aborted || !isAbortError(error)) {throw error;}
                 }
                 assertCurrent(next, signal);
                 if (deps.refineAfterVisual) {

@@ -213,7 +213,7 @@ describe('desktop OCR job billing', () => {
 
         // Both pages reach the engine before the job writes its PDF.
         expect(charges, JSON.stringify(result)).toHaveLength(2);
-        for (const charge of charges) expect(charge.used).toBe(charge.expected);
+        for (const charge of charges) {expect(charge.used).toBe(charge.expected);}
         expect(mainJobBroker.getSnapshot().active).toBe(0);
     });
 });

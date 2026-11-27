@@ -102,7 +102,7 @@ export class BrowserOcrJobError extends Error {
 }
 
 function throwIfAborted(signal: AbortSignal) {
-    if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError');
+    if (signal.aborted) {throw signal.reason instanceof Error ? signal.reason : new DOMException('OCR was canceled', 'AbortError');}
 }
 
 async function sha256Hex(bytes: Uint8Array<ArrayBuffer>) {
@@ -198,14 +198,14 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
     try {
         stage('pdf-prep');
         const visibility = await readVisibility(source, input.pages.map(page => page.pageNumber), signal);
-        if (visibility.warning) errors.push(visibility.warning);
+        if (visibility.warning) {errors.push(visibility.warning);}
         // Probe selected pages once; all lanes receive the same DPI.
         const renderDpi = input.options.renderDpi;
         const sourceDpiByPage = new Map<number, number>();
         const queue: IOcrSearchablePdfPage[] = [];
         let finestSourceDpi: number | null = null;
         let maxPageArea = 0;
-        if (renderDpi === undefined) stage('dpi-inspection');
+        if (renderDpi === undefined) {stage('dpi-inspection');}
         for (const request of input.pages) {
             throwIfAborted(signal);
             const page = await pdf.getPage(request.pageNumber).catch(() => null);
@@ -222,7 +222,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                 errors.push(...selection.warnings);
                 diagnostics.push(...selection.diagnostics);
                 queue.push(...selection.pages);
-                if (!page || selection.pages.length === 0) continue;
+                if (!page || selection.pages.length === 0) {continue;}
                 const viewport = page.getViewport({scale: 1});
                 // In user-space units, as the raster is rendered.
                 maxPageArea = Math.max(maxPageArea, viewport.width * viewport.height / (viewport.userUnit || 1) ** 2);
@@ -270,7 +270,7 @@ export async function runBrowserOcrJob(input: IBrowserOcrJobInput): Promise<TBro
                     ...size,
                     image: (await renderBrowserOcrRaster(page, dpi, signal)).image,
                 };
-                if (cleanupMode === undefined) return rendered;
+                if (cleanupMode === undefined) {return rendered;}
                 const failed = (reason: string): IOcrDiagnostic => ({
                     code: 'OCR_PREPROCESSING_FAILED',
                     severity: 'warning',

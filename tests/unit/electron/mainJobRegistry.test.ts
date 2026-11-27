@@ -52,7 +52,7 @@ describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
         await Promise.all([...registries].map(jobs => jobs.dispose()));
         registries.clear();
         try {
-            for (const assertion of teardownAssertions) assertion();
+            for (const assertion of teardownAssertions) {assertion();}
         } finally {
             teardownAssertions.clear();
             resetMainOperationLifecycleForTests();
@@ -163,8 +163,8 @@ describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
         const jobs = registry(); const ownerSender = sender(11); const actor = {sender: ownerSender}; const closedOnOwnerLoss = vi.fn();
         const active = start(jobs, actor, 'owner-loss', context => new Promise<IResult>((_resolve, reject) => {
             const abort = () => reject(context.signal.reason);
-            if (context.signal.aborted) abort();
-            else context.signal.addEventListener('abort', abort, {once: true});
+            if (context.signal.aborted) {abort();}
+            else {context.signal.addEventListener('abort', abort, {once: true});}
         }));
         expect(jobs.subscribe('owner-loss', actor, vi.fn(), closedOnOwnerLoss)).not.toBeNull();
 
@@ -207,12 +207,12 @@ describe('createMainJobRegistry violations', {timeout: 20_000}, () => {
             initialProgress: initial(`scratch-${index}`), ownerLifecycle: {destroyed: 'cancel'},
             run: context => context.scratch.using('pdfExport-', async scratchPath => {
                 paths.push(scratchPath); await writeFile(join(scratchPath, 'work'), 'data');
-                if (mode === 'failure') throw new Error('scratch failure');
-                if (mode === 'cancel') await new Promise<void>((_resolve, reject) => {
+                if (mode === 'failure') {throw new Error('scratch failure');}
+                if (mode === 'cancel') {await new Promise<void>((_resolve, reject) => {
                     const abort = () => reject(context.signal.reason);
-                    if (context.signal.aborted) abort();
-                    else context.signal.addEventListener('abort', abort, {once: true});
-                });
+                    if (context.signal.aborted) {abort();}
+                    else {context.signal.addEventListener('abort', abort, {once: true});}
+                });}
                 return {value: 'done'};
             }),
         }));

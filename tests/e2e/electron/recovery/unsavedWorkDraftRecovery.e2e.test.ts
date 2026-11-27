@@ -98,10 +98,10 @@ it.each(['text-box', 'note', 'rejected-note'])(
                         || !rect
                         || rect.width <= 0
                         || rect.height <= 0
-                    ) return false;
+                    ) {return false;}
                     const x = rect.left + rect.width * 0.42;
                     const y = rect.top + rect.height * 0.31;
-                    if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) return false;
+                    if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) {return false;}
                     return document.elementFromPoint(x, y) === background
                         ? {
                             x,
@@ -143,7 +143,7 @@ it.each(['text-box', 'note', 'rejected-note'])(
                 }
             }
             const pid = getSessionInfo(session.name)?.electronPid;
-            if (typeof pid !== 'number') throw new Error('Owned Electron main PID is missing');
+            if (typeof pid !== 'number') {throw new Error('Owned Electron main PID is missing');}
             await session.page.keyboard.type(draftText, {delay: 10});
             // Recovery promises one durable draft write after the change, independent of host speed.
             await expect.poll(() => JSON.stringify(readWorkspaceRecoveryRecords(session.name)), {timeout: 30_000})
@@ -158,7 +158,7 @@ it.each(['text-box', 'note', 'rejected-note'])(
             session = await startElectronE2ESession(sessionName, {clean: false});
             await waitForPdfLoaded(session.page, 60_000);
             await waitForViewerInteractive(session.page, 60_000);
-            if (kind !== 'text-box') await openDocumentSidebarTab(session.page, 'annotations');
+            if (kind !== 'text-box') {await openDocumentSidebarTab(session.page, 'annotations');}
             await session.page.waitForFunction((text: string) => {
                 const boxes = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-text-box'));
                 const notes = Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'));
@@ -209,7 +209,7 @@ it('keeps an unsaved page edit through a crash and a reboot that empties the tem
         await requireWorkspaceCommand(session.page, 'handleRotateCw', [[1]]);
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
         await expect.poll(() => {
-            if (!hasWorkspaceCrashCheckpoint(session.name)) return null;
+            if (!hasWorkspaceCrashCheckpoint(session.name)) {return null;}
             const record = readWorkspaceRecoveryRecords(session.name)[0] as {checkpoint?: {tabs?: Array<{isDirty?: boolean}>}} | undefined;
             return record?.checkpoint?.tabs?.[0]?.isDirty ?? null;
         }, {timeout: 60_000}).toBe(true);
@@ -272,7 +272,7 @@ it('keeps a restored tab\'s unsaved changes for a later start when its working c
         await waitForWorkspaceToolbarIdle(session.page, {timeoutMs: 60_000});
         const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
         const readStoredTab = () => {
-            if (!hasWorkspaceCrashCheckpoint(session.name)) return null;
+            if (!hasWorkspaceCrashCheckpoint(session.name)) {return null;}
             const record = readWorkspaceRecoveryRecords(session.name)[0] as {checkpoint?: {tabs?: Array<{
                 isDirty?: boolean;
                 workingCopyRef?: string | null;
@@ -286,7 +286,7 @@ it('keeps a restored tab\'s unsaved changes for a later start when its working c
         // Remove only the current bytes; retain the recovery manifest.
         const documentDirectory = dirname(workingCopyPath);
         const revision = decodeManifest(readFileSync(join(documentDirectory, 'manifest.json'))).current;
-        if (!revision) throw new Error('Rotation did not create a document revision');
+        if (!revision) {throw new Error('Rotation did not create a document revision');}
         const revisionPath = join(documentDirectory, revision.file);
         const awayPath = `${revisionPath}.away`;
         const crashAndRestart = async (from: string, to: string) => {
@@ -347,7 +347,7 @@ it('saves unsaved notes whose pending Save plan is past 4 MiB', async () => {
             const handle = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle();
             const plan = handle?.captureCanonicalAnnotationRecovery?.();
             const template = plan?.entities.find(entity => entity.kind === 'note');
-            if (!handle?.restoreCanonicalAnnotationRecovery || !plan || !template) return null;
+            if (!handle?.restoreCanonicalAnnotationRecovery || !plan || !template) {return null;}
             const {metadata: _metadata, ...annotations} = plan;
             const changed = plan.changedFields?.[template.identity.id] ?? [];
             for (let first = 0; first < count; first += 32) {
@@ -366,7 +366,7 @@ it('saves unsaved notes whose pending Save plan is past 4 MiB', async () => {
             }
             return count;
         }, {count: 80, contents: pasted});
-        if (copies === null) throw new Error('The created note is not among the unsaved annotations');
+        if (copies === null) {throw new Error('The created note is not among the unsaved annotations');}
 
         const readFailures = () => session.page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('.app-toast-failure'))
             .map(toast => toast.innerText.trim()));

@@ -19,9 +19,9 @@ export function resolvePdfjsOperatorListObjects(
 ): Promise<ReadonlyMap<string, unknown>> {
     const ids = new Set<string>();
     for (let index = 0; index < operatorList.fnArray.length; index += 1) {
-        if (operatorList.fnArray[index] !== pdfjsRuntime.OPS.dependency) continue;
+        if (operatorList.fnArray[index] !== pdfjsRuntime.OPS.dependency) {continue;}
         for (const id of operatorList.argsArray[index] ?? []) {
-            if (typeof id === 'string') ids.add(id);
+            if (typeof id === 'string') {ids.add(id);}
         }
     }
     // The renderer adapter owns this PDF.js-only callback API. Consumers get
@@ -70,7 +70,7 @@ export function resolvePdfjsOperatorListObjects(
                         return;
                     }
                     objects.set(id, value);
-                    if (objects.size === ids.size) complete();
+                    if (objects.size === ids.size) {complete();}
                 });
             }
         } catch (error) {

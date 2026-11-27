@@ -213,11 +213,11 @@ describe('usePdfFile façade', () => {
         const file = createFacade();
         await file.openFile(pdfResult('save-cleanup'));
         file.isDirty.value = true;
-        if (sourceKind === 'path') file.pdfSrc.value = {
+        if (sourceKind === 'path') {file.pdfSrc.value = {
             kind: 'path',
             path: requireDocumentRef('/tmp/save-cleanup.pdf'),
             size: PDF_BYTES.byteLength,
-        };
+        };}
         const loadedSource = file.pdfSrc.value;
         const cleanup = Promise.withResolvers<undefined>();
         const dependencyPublication = Promise.withResolvers<{size: number}>();
@@ -496,7 +496,7 @@ describe('usePdfFile façade', () => {
             message,
         };
         mocks.nativeApply.mockImplementationOnce(async () => {
-            if (kind === 'thrown') throw new Error(message);
+            if (kind === 'thrown') {throw new Error(message);}
             return {
                 applied: false,
                 validation: null,

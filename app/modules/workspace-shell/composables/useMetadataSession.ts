@@ -98,7 +98,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     const commandSink: IWorkspaceCommandSink = {
         register: registerCommand,
         reset: source => {
-            if (source === 'file' || source === undefined) preservedReload = null;
+            if (source === 'file' || source === undefined) {preservedReload = null;}
             workspaceUndoTimeline.resetSource(source);
         },
         forget: workspaceUndoTimeline.forgetSourceEntries,
@@ -112,7 +112,7 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
     /** The field's value as written to the working bytes, or as read from them when `written` is absent. */
     function acknowledgeWorkingMetadata<T>(field: 'bookmarkItems' | 'pageLabelRanges', written?: T) {
         const value = written ?? currentMetadata(field);
-        if (value !== undefined) workingMetadata[field] = structuredClone(toRaw(value));
+        if (value !== undefined) {workingMetadata[field] = structuredClone(toRaw(value));}
         return written;
     }
     const differsFromWorkingBytes = (field: 'bookmarkItems' | 'pageLabelRanges', value: unknown) => (
@@ -121,9 +121,9 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
 
     function synchronizeMetadata(field: 'bookmarkItems' | 'pageLabelRanges') {
         acknowledgeWorkingMetadata(field);
-        if (preservesSourceReload()) return;
-        if (preservedReload) metadataHistory?.captureCleanState()(field);
-        else metadataHistory?.markCurrentStateClean(field);
+        if (preservesSourceReload()) {return;}
+        if (preservedReload) {metadataHistory?.captureCleanState()(field);}
+        else {metadataHistory?.markCurrentStateClean(field);}
     }
 
     const bookmarkState = useBookmarkState({
@@ -198,8 +198,8 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         restoreRecovery: (recovery: IWorkspaceMetadataRecovery) => {
             // Restored edits stay dirty, but do not create a second authored history.
             metadataHistory.restoreCurrentState(() => {
-                if (recovery.bookmarks) bookmarkState.restoreRecovery(recovery.bookmarks);
-                if (recovery.pageLabels) pageLabelState.restoreRecovery(recovery.pageLabels);
+                if (recovery.bookmarks) {bookmarkState.restoreRecovery(recovery.bookmarks);}
+                if (recovery.pageLabels) {pageLabelState.restoreRecovery(recovery.pageLabels);}
             });
         },
     };

@@ -418,7 +418,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
             ...(commandTarget ? {commandTarget} : {}),
             recordDocumentCommit: (revision) => {
                 const command = activeCommands.get(request.requestId);
-                if (command) command.committedRevision = revision;
+                if (command) {command.committedRevision = revision;}
             },
             assertCurrentDocument: (contextOptions = {}) => {
                 assertCommandCurrentDocument(
@@ -582,7 +582,7 @@ export const useAgentWorkspaceSnapshot = (options: IUseAgentWorkspaceSnapshotOpt
     function describeCommandSuccessor(scope: IAgentCommandExecutionScope | undefined, committedRevision: TDocumentRevisionToken | undefined) {
         const documentIdentity = scope?.commandTarget && committedRevision ? getTabDocumentIdentity(scope.tabId) : null;
         const commandTarget = documentIdentity?.token === committedRevision ? getTabCommandTarget(scope?.tabId ?? '') : null;
-        if (!commandTarget || !documentIdentity || isEqual(commandTarget, scope?.commandTarget)) return undefined;
+        if (!commandTarget || !documentIdentity || isEqual(commandTarget, scope?.commandTarget)) {return undefined;}
         // Plain copies: the session's reactive identity cannot cross IPC.
         return {
             commandTarget: {...commandTarget},

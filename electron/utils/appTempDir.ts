@@ -186,7 +186,7 @@ export function getAppTempDir() {
     // every folder this call made gets its entry on disk.
     for (let directory = tempDir; created !== undefined; directory = dirname(directory)) {
         fsyncDirectorySync(dirname(directory));
-        if (directory === created || dirname(directory) === directory) break;
+        if (directory === created || dirname(directory) === directory) {break;}
     }
     if (created !== undefined && created !== tempDir && process.platform === 'darwin') {
         // Working copies need no Time Machine copy. The sticky exclusion is an

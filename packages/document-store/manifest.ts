@@ -108,7 +108,7 @@ function isManifest(value: unknown): value is IManifest {
 
 export function decodeManifest(bytes: Uint8Array): IManifest {
     const value = decodeJson(bytes);
-    if (!isManifest(value)) throw new Error('Unreadable document manifest');
+    if (!isManifest(value)) {throw new Error('Unreadable document manifest');}
     return value;
 }
 

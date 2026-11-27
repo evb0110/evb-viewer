@@ -54,7 +54,7 @@ vi.mock('@app/platform/browserWindowTabs', async importOriginal => ({
 vi.mock('@app/platform/browserDocumentStore', async importOriginal => ({
     ...await importOriginal<typeof TBrowserDocumentStore>(),
     get browserDocumentStore() {
-        if (!serviceState.store) throw new Error('Missing working-copy test store');
+        if (!serviceState.store) {throw new Error('Missing working-copy test store');}
         return serviceState.store;
     },
 }));
@@ -131,7 +131,7 @@ async function closeStoreDocuments() {
 }
 
 function loadService() {
-    if (!serviceState.store) throw new Error('Missing working-copy test store');
+    if (!serviceState.store) {throw new Error('Missing working-copy test store');}
     return {
         browserDocumentStore: serviceState.store,
         ...workingCopyService,
@@ -212,7 +212,7 @@ describe('browser working-copy decryption', () => {
         const manifests: IManifest[] = [];
         const writeAtomic = durable.port.writeAtomic.bind(durable.port);
         vi.spyOn(durable.port, 'writeAtomic').mockImplementation(async (path, bytes) => {
-            if (path.endsWith('/manifest.json')) manifests.push(decodeManifest(bytes));
+            if (path.endsWith('/manifest.json')) {manifests.push(decodeManifest(bytes));}
             return writeAtomic(path, bytes);
         });
         const openPicked = async () => {
@@ -223,7 +223,7 @@ describe('browser working-copy decryption', () => {
             const pickedPath = await browserDocumentStore.registerFile(await handle.getFile(), {...PDF_SOURCE_OPTIONS, saveHandle: handle});
             wasmRun.mockResolvedValueOnce({data: DECRYPTED_PDF, pageCount: 1});
             const opened = await openDocumentPaths([pickedPath], undefined, {password: 'correct-password'});
-            if (opened?.kind !== 'pdf') throw new Error('Expected an opened PDF');
+            if (opened?.kind !== 'pdf') {throw new Error('Expected an opened PDF');}
             return {workingPath: opened.workingPath, doc: (await browserDocumentStore.requireEntry(opened.workingPath)).doc!};
         };
         wasmRun.mockResolvedValueOnce({
@@ -232,7 +232,7 @@ describe('browser working-copy decryption', () => {
         });
 
         const result = await openDocumentPaths([sourcePath], undefined, {password: 'correct-password'});
-        if (result?.kind !== 'pdf') throw new Error('Expected an opened PDF');
+        if (result?.kind !== 'pdf') {throw new Error('Expected an opened PDF');}
 
         expect(result).toMatchObject({wasEncrypted: true});
         expect(manifests).not.toHaveLength(0);
@@ -1368,7 +1368,7 @@ describe('Chrome extension launch', () => {
                     await file.close();
                     opened.set(path, opened.get(path)! - 1);
                 };
-                if (!/\/r\d+\.pdf$/u.test(path)) return {...file, close};
+                if (!/\/r\d+\.pdf$/u.test(path)) {return {...file, close};}
                 return {...file, close, writeAt: async (offset: number, bytes: Uint8Array) => {
                     await file.writeAt(offset, bytes);
                     writes.push(bytes.byteLength);

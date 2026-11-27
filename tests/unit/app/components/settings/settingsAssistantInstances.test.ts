@@ -130,10 +130,10 @@ function mount() {
     unmounts.push(() => { app.unmount(); host.remove(); });
     return host;
 }
-async function settle() { for (let i = 0; i < 8; i++) await nextTick(); }
+async function settle() { for (let i = 0; i < 8; i++) {await nextTick();} }
 function click(host: HTMLElement, label: string) {
     const target = [...host.querySelectorAll('button')].find(button => button.textContent === label);
-    if (!target) throw new Error('Missing button ' + label);
+    if (!target) {throw new Error('Missing button ' + label);}
     target.click();
 }
 beforeEach(() => {

@@ -177,14 +177,14 @@ export function resolveScanCleanupDominantPaperRect(
         for (let dx = -1; dx <= 1; dx += 1) {
             for (let dy = -1; dy <= 1; dy += 1) {
                 const neighbour = tally.cohorts.get(cohortKey(widthStep + dx, heightStep + dy));
-                if (neighbour === undefined) continue;
+                if (neighbour === undefined) {continue;}
                 count += neighbour.count;
                 if (isLargerScanCleanupPaperRect(neighbour.rect, rect)) {
                     rect = neighbour.rect;
                 }
             }
         }
-        if (rect === null) continue;
+        if (rect === null) {continue;}
         if (best === null
             || count > best.count
             || (count === best.count && isLargerScanCleanupPaperRect(rect, best.rect))) {

@@ -145,7 +145,7 @@ function createJobOcrEngine(job: Pick<IOcrJob, 'jobId' | 'paths' | 'runEngine' |
     return async (request: TDesktopOcrEngineRequest, signal: AbortSignal) => {
         let failure: unknown;
         try {
-            if (!readModelBytes) return await job.runEngine(request, signal);
+            if (!readModelBytes) {return await job.runEngine(request, signal);}
             const modelBytes = sumOcrModelBytes(await readModelBytes(request.models));
             return await mainJobBroker.run({
                 ownerId: `ocr:${job.jobId}`,
@@ -251,7 +251,7 @@ async function recognizeOcrJobPages(stage: {
             const sourceDpi = options.renderDpi === undefined
                 ? await detectSourceDpiDetails(popplerSourcePdfPath, paths.pdfimagesBinary, log, popplerEnv, jobSignal, pageNumbers)
                     .catch((error: unknown) => {
-                        if (jobSignal.aborted || isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+                        if (jobSignal.aborted || isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) {throw error;}
                         log('warn', 'Source DPI inspection failed; using default OCR resolution', {error: getErrorMessage(error)});
                         return null;
                     })
@@ -259,7 +259,7 @@ async function recognizeOcrJobPages(stage: {
             const sourceDpiByPage = new Map<number, number>();
             for (const pageNumber of pageNumbers) {
                 const raster = await sourceDpi?.getPageRaster(pageNumber);
-                if (raster !== undefined) sourceDpiByPage.set(pageNumber, raster.dpi);
+                if (raster !== undefined) {sourceDpiByPage.set(pageNumber, raster.dpi);}
             }
             publish(batchFirstPage, batchOffset, {phase: 'page-size-probing'});
             let pageSizeProbe = await pageSizeSource.read(popplerSourcePdfPath, pageNumbers);
@@ -469,7 +469,7 @@ export async function runOcrJob(job: IOcrJob): Promise<TOcrJobResult> {
         resultPath = undefined;
         const error = jobAbort.signal.aborted ? jobAbort.signal.reason : caughtError;
         jobFailure = error;
-        if (getUnprovenNativeTerminationDetail(error) !== undefined || signal.aborted) throw error;
+        if (getUnprovenNativeTerminationDetail(error) !== undefined || signal.aborted) {throw error;}
         const errMsg = getErrorMessage(error);
         log('error', 'Critical OCR job failure', {jobId: job.jobId, error: errMsg});
         return {success: false, errors: [`Critical error: ${errMsg}`]};

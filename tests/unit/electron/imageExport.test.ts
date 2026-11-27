@@ -328,10 +328,10 @@ vi.mock('@electron/utils/managedScratchTemp', async importOriginal => ({
             failure = error;
             throw error;
         } finally {
-            if (getUnprovenNativeTerminationDetail(failure) === undefined) await rm(scratchPath, {
+            if (getUnprovenNativeTerminationDetail(failure) === undefined) {await rm(scratchPath, {
                 force: true,
                 recursive: true,
-            });
+            });}
         }
     },
 }));
@@ -1520,16 +1520,16 @@ describe('image export', () => {
             'book-001-1.png',
             'book-002-1.png',
         ]);
-        for (const path of pathsA) expectSinglePixelPng(await readFile(path), [
+        for (const path of pathsA) {expectSinglePixelPng(await readFile(path), [
             255,
             0,
             0,
-        ]);
-        for (const path of pathsB) expectSinglePixelPng(await readFile(path), [
+        ]);}
+        for (const path of pathsB) {expectSinglePixelPng(await readFile(path), [
             0,
             0,
             255,
-        ]);
+        ]);}
         expect(listStagedNames(tempDir)).toEqual([]);
         expect((await readdir(tempDir)).sort()).toEqual([
             ...pathsA,
@@ -1805,7 +1805,7 @@ describe('image export', () => {
             vi.stubGlobal('ImageData', ImageData);
             vi.stubGlobal('Path2D', Path2D);
             vi.stubGlobal('document', {createElement: (tag: string) => {
-                if (tag !== 'canvas') throw new Error(`Unexpected element: ${tag}`);
+                if (tag !== 'canvas') {throw new Error(`Unexpected element: ${tag}`);}
                 return createCanvas(1, 1);
             }});
             const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -1933,8 +1933,8 @@ describe('image export', () => {
                     : await browser.exportPdfToImages(outputRef, [requirePageNumber(1)]);
                 expect(browserResult.success).toBe(true);
                 const desktopPath = join(tempDir, `desktop-${fileName}`);
-                if (format === 'multipage-tiff') await exportPdfAsMultiPageTiff(sourcePath, desktopPath);
-                else await exportPdfPagesAsImages(sourcePath, desktopPath);
+                if (format === 'multipage-tiff') {await exportPdfAsMultiPageTiff(sourcePath, desktopPath);}
+                else {await exportPdfPagesAsImages(sourcePath, desktopPath);}
                 const desktopBytes = new Uint8Array(await readFile(desktopPath));
                 const dimensions = async (bytes: Uint8Array) => {
                     if (extension === 'tiff') {
@@ -1953,7 +1953,7 @@ describe('image export', () => {
                     }
                     const image = await loadImage(Buffer.from(bytes));
                     const metadata = readBrowserRasterImageMetadata(bytes, `.${extension}`);
-                    if (!metadata) throw new Error('The exported raster has no readable metadata');
+                    if (!metadata) {throw new Error('The exported raster has no readable metadata');}
                     return {
                         pixels: [
                             image.width,
@@ -2784,7 +2784,7 @@ describe('image export', () => {
         const writerRead = Promise.withResolvers<undefined>();
         mocks.holdReads = path => {
             const held = basename(dirname(path)).startsWith('render-pages-') && listStagedNames(tempDir).length > 0;
-            if (held) writerRead.resolve(undefined);
+            if (held) {writerRead.resolve(undefined);}
             return held;
         };
         const outputPath = join(tempDir, 'interrupted-writer.tiff');
@@ -3199,7 +3199,7 @@ describe('image export', () => {
         await expect(exportPdfPagesAsImages(source, output, {pageNumbers: [1]})).resolves.toEqual([output]);
         expect(subsetVerified).toBe(true);
         expect((await readFile(output)).length).toBeGreaterThan(0);
-        for (const scope of mocks.managedScratchDirs) expect(existsSync(scope.path)).toBe(false);
+        for (const scope of mocks.managedScratchDirs) {expect(existsSync(scope.path)).toBe(false);}
     });
 
     it.each(process.platform === 'win32' ? ['ordinary'] : [

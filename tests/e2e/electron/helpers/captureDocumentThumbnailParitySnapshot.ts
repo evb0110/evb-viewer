@@ -132,7 +132,7 @@ export async function captureDocumentThumbnailParitySnapshot(
         const frameStyle = getComputedStyle(frame);
         const labelStyle = getComputedStyle(label);
         const probe = (window as IDocumentThumbnailParityWindow).__documentThumbnailParityProbe;
-        if (probe) probe.active = false;
+        if (probe) {probe.active = false;}
         const value = current.dataset.page ?? current.dataset.thumbnailPage ?? '';
         return {
             activeTab: activeTab?.textContent?.trim() ?? '',

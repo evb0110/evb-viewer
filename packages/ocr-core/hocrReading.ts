@@ -46,7 +46,7 @@ export function readHocrLines(hocr: string): IHocrLine[] {
     starts.forEach((start, index) => {
         const title = start[1]!;
         const box = title.match(BOX);
-        if (!box) return;
+        if (!box) {return;}
         const chunk = hocr.slice(start.index, starts[index + 1]?.index ?? hocr.length);
         const words: IHocrWord[] = [];
         for (const wordChunk of chunk.split('<span class=\'ocrx_word\'').slice(1)) {
@@ -66,9 +66,9 @@ export function readHocrLines(hocr: string): IHocrLine[] {
                     choices: part === 0 ? choices : new Map(),
                 }));
             }
-            if (chars.length > 0) words.push({chars});
+            if (chars.length > 0) {words.push({chars});}
         }
-        if (words.length === 0) return;
+        if (words.length === 0) {return;}
         lines.push({
             box: [
                 Number(box[1]),

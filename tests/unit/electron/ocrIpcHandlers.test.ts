@@ -711,12 +711,12 @@ class FakeLane extends EventEmitter {
     }
     postMessage({id}: {id: number}) {
         // As in Node, a message to an exited worker is dropped without an error.
-        if (this.dead) return;
+        if (this.dead) {return;}
         void Promise.resolve(boundary.replyGate).then(() => this.emit('message', {id, ok: true, result: {passes: []}}));
     }
     async terminate() {
         await boundary.terminateGate;
-        if (this.dead) this.terminatedAfterDeath = true;
+        if (this.dead) {this.terminatedAfterDeath = true;}
         this.dead = true;
         this.emit('exit', 0);
         return 0;
@@ -725,7 +725,7 @@ class FakeLane extends EventEmitter {
 
 function startFakeLane() {
     const error = boundary.constructorError?.();
-    if (error) throw error;
+    if (error) {throw error;}
     return new FakeLane();
 }
 
@@ -764,7 +764,7 @@ describe('OCR engine pool idle shutdown', () => {
         }, new AbortController().signal)).resolves.toEqual({passes: []});
         expect(vi.getTimerCount()).toBe(1);
         const worker = boundary.workers[0]!;
-        if (end === 'terminate') pool.terminate();
+        if (end === 'terminate') {pool.terminate();}
         else {
             worker.dead = true;
             worker.emit('exit', 0);
@@ -1345,13 +1345,13 @@ class FakeUtilityChild extends EventEmitter {
     killed = false;
     constructor(readonly path: string, readonly serviceName: string | undefined) {
         super();
-        if (FakeUtilityChild.autoSpawn) void Promise.resolve().then(() => this.spawn());
+        if (FakeUtilityChild.autoSpawn) {void Promise.resolve().then(() => this.spawn());}
     }
     spawn() {
-        if (!this.exited) this.emit('spawn');
+        if (!this.exited) {this.emit('spawn');}
     }
     postMessage(request: TOcrEngineHostRequest) {
-        if (this.exited) return;
+        if (this.exited) {return;}
         this.requests.push(request);
         switch (request.type) {
             case 'start':
@@ -1360,7 +1360,7 @@ class FakeUtilityChild extends EventEmitter {
             case 'run': {
                 const {lane, message} = request;
                 void Promise.resolve(boundary.replyGate).then(() => {
-                    if (this.lanes.has(lane)) this.send({type: 'reply', lane, reply: {id: message.id, ok: true, result: {passes: []}}});
+                    if (this.lanes.has(lane)) {this.send({type: 'reply', lane, reply: {id: message.id, ok: true, result: {passes: []}}});}
                 });
                 return;
             }
@@ -1370,15 +1370,15 @@ class FakeUtilityChild extends EventEmitter {
                 }
                 return;
             case 'shutdown':
-                if (this.exitOnShutdown) void Promise.resolve().then(() => this.exit(0));
+                if (this.exitOnShutdown) {void Promise.resolve().then(() => this.exit(0));}
                 return;
         }
     }
     send(event: TOcrEngineHostEvent) {
-        if (!this.exited) this.emit('message', event);
+        if (!this.exited) {this.emit('message', event);}
     }
     exit(code: number) {
-        if (this.exited) return;
+        if (this.exited) {return;}
         this.exited = true;
         this.lanes.clear();
         this.emit('exit', code);

@@ -570,7 +570,7 @@ describe('document open surface session', () => {
         beginSurface(session);
         const first = session.navigate(createPageNavigationRequest(7, 'toolbar'))!;
         const stop = watch(() => session.viewportSession.value.observedPage, page => {
-            if (page === 7) session.navigate(createPageNavigationRequest(9, 'toolbar'));
+            if (page === 7) {session.navigate(createPageNavigationRequest(9, 'toolbar'));}
         }, {flush: 'sync'});
         expect(session.reportNavigation(first, {
             kind: 'placed',

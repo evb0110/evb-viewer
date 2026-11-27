@@ -286,15 +286,15 @@ let discovered: Promise<IAssistantInstanceConfig[]> | null = null;
 let known: IAssistantInstanceConfig[] | undefined;
 /** Only the current discovery publishes: a superseded one neither replaces `known` nor clears its successor. */
 function localSetups() {
-    if (discovered) return discovered;
+    if (discovered) {return discovered;}
     const pending: Promise<IAssistantInstanceConfig[]> = getAssistantShellEnvironment().then(discoverAssistantLocalSetups).then(setups => {
         if (discovered === pending) {
             known = setups;
-            for (const listener of listeners) listener();
+            for (const listener of listeners) {listener();}
         }
         return setups;
     }, (error: unknown) => {
-        if (discovered === pending) discovered = null;
+        if (discovered === pending) {discovered = null;}
         logger.warn(`Local assistant discovery failed: ${sanitizeAssistantProviderText(getErrorMessage(error))}`);
         return defaultAssistantLocalSetups();
     });
@@ -583,13 +583,13 @@ export async function resolveAssistantLaunchContext(
     const label = assistantInstanceLabel(instance);
     const instanceEnv = decryptEnvironment(stored.environment, label);
     const env = {...await getAssistantShellEnvironment()};
-    if (instance.driver === 'claude') for (const name of CLAUDE_HOST_ENV) delete env[name];
+    if (instance.driver === 'claude') {for (const name of CLAUDE_HOST_ENV) {delete env[name];}}
     // Adapted from T3 Code instanceEnvironment.ts (0b6f482dc5), MIT.
     for (const [key, value] of Object.entries(instanceEnv)) {
         const name = process.platform === 'win32' ? key.toUpperCase() : key;
         if (process.platform === 'win32') {
             for (const inherited of Object.keys(env)) {
-                if (inherited.toUpperCase() === name) delete env[inherited];
+                if (inherited.toUpperCase() === name) {delete env[inherited];}
             }
         }
         env[name] = name === 'CODEX_HOME' || name === 'CLAUDE_CONFIG_DIR' ? expandHome(value) : value;

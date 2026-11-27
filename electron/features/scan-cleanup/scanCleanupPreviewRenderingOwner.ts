@@ -86,7 +86,7 @@ export function scanCleanupPreviewRenderingOwner(
     const deferredBaseAnalysisInvalidations = new Set<string>();
     const baseAnalysisCleanupPromises = new Set<Promise<void>>();
     const scheduleBaseAnalysisRemoval = (analysis: IBasePreviewAnalysis, analysisKey?: string) => {
-        if (isWorkingCopyQuarantined(analysis.sourcePdfPath)) return Promise.resolve();
+        if (isWorkingCopyQuarantined(analysis.sourcePdfPath)) {return Promise.resolve();}
         if (analysisKey !== undefined && (baseAnalysisPins.get(analysisKey) ?? 0) > 0) {
             const pending = pendingBaseAnalysisRemovals.get(analysisKey) ?? [];
             pending.push(analysis);
@@ -166,7 +166,7 @@ export function scanCleanupPreviewRenderingOwner(
                     pending.push(analysis);
                     pendingBaseAnalysisRemovals.set(key, pending);
                 }
-                else void scheduleBaseAnalysisRemoval(analysis);
+                else {void scheduleBaseAnalysisRemoval(analysis);}
             }
         }
     };
@@ -224,7 +224,7 @@ export function scanCleanupPreviewRenderingOwner(
         // looking at in the old one is not a visible page any more. Without
         // this the map keeps one entry per document a session ever opened.
         for (const key of visiblePages.keys()) {
-            if (key.startsWith(ownerPrefix) && key !== documentPrefix) visiblePages.delete(key);
+            if (key.startsWith(ownerPrefix) && key !== documentPrefix) {visiblePages.delete(key);}
         }
         return documentPrefix;
     };
@@ -242,7 +242,7 @@ export function scanCleanupPreviewRenderingOwner(
     ) => {
         signal.throwIfAborted();
         const runWithLease = dependencies.runWithPreviewLease;
-        if (!runWithLease) throw new Error('Scan cleanup preview requires injected admission capability');
+        if (!runWithLease) {throw new Error('Scan cleanup preview requires injected admission capability');}
         for (;;) {
             const attempt = new AbortController();
             const abortAttempt = () => attempt.abort(signal.reason);
@@ -266,7 +266,7 @@ export function scanCleanupPreviewRenderingOwner(
                 if (!admission.granted) {
                     signal.throwIfAborted();
                     // Anything but a readmission is the request's own failure.
-                    if (attempt.signal.reason === PREVIEW_ADMISSION_REISSUED) continue;
+                    if (attempt.signal.reason === PREVIEW_ADMISSION_REISSUED) {continue;}
                 }
                 throw error;
             } finally {
@@ -322,7 +322,7 @@ export function scanCleanupPreviewRenderingOwner(
         // A windowed cancellation is always issued for a navigation that
         // still wants the visible page, so only a whole-document
         // cancellation forgets which page that is.
-        if (request.retainPages === undefined) visiblePages.delete(documentPrefix);
+        if (request.retainPages === undefined) {visiblePages.delete(documentPrefix);}
         if (request.invalidateRawCache !== false) {
             if (canceledEntries.length === 0 && !otherOwnerHasWork) {
                 rawRasterRetention.invalidate(request.sourcePdfPath, request.documentRevision);
@@ -343,10 +343,10 @@ export function scanCleanupPreviewRenderingOwner(
                 key,
                 entry,
             ] of active) {
-                if (key.startsWith(senderPrefix)) entry.cancel(RENDERER_DESTROYED_CANCELLATION_REASON);
+                if (key.startsWith(senderPrefix)) {entry.cancel(RENDERER_DESTROYED_CANCELLATION_REASON);}
             }
             for (const key of visiblePages.keys()) {
-                if (key.startsWith(senderPrefix)) visiblePages.delete(key);
+                if (key.startsWith(senderPrefix)) {visiblePages.delete(key);}
             }
         },
         async dispose() {
@@ -376,7 +376,7 @@ export function scanCleanupPreviewRenderingOwner(
             const documentPrefix = abortStalePreviewRequests(sender, request);
             // The renderer names the page the user is looking at on the request
             // that will display it; everything else is an adjacent prefetch.
-            if (request.visible === true) visiblePages.set(documentPrefix, request.pageNumber);
+            if (request.visible === true) {visiblePages.set(documentPrefix, request.pageNumber);}
             const activeKey = previewRequestKey(documentPrefix, request);
             // Navigating onto a page whose prefetch is still running adopts that
             // run: no second raster, no second sidecar, and the caller inherits
@@ -466,7 +466,7 @@ export function scanCleanupPreviewRenderingOwner(
                     mainFrameNavigation: 'cancel',
                 },
                 onCancel: () => void (jobSettledRef.current ?? Promise.resolve()).then(() => {
-                    if (unprovenTermination || entryStateRef.current?.canceledAsResult) return;
+                    if (unprovenTermination || entryStateRef.current?.canceledAsResult) {return;}
                     releaseCanceledPreviewResources(
                         request,
                         claimId,
@@ -530,7 +530,7 @@ export function scanCleanupPreviewRenderingOwner(
                                 releaseBaseAnalysisPin,
                                 rasterPolicy.rasterMaxPixels,
                             );
-                            if (context.signal.aborted) throw context.signal.reason;
+                            if (context.signal.aborted) {throw context.signal.reason;}
                             return result.canceled === true
                                 ? result
                                 : {
@@ -585,7 +585,7 @@ export function scanCleanupPreviewRenderingOwner(
                 },
             );
             const cancel = (reason?: string) => {
-                if (!admission.granted) entryStateRef.current!.canceledAsResult = true;
+                if (!admission.granted) {entryStateRef.current!.canceledAsResult = true;}
                 return handle.cancel(reason);
             };
             const entryState: IPreviewEntry = {
@@ -611,7 +611,7 @@ export function scanCleanupPreviewRenderingOwner(
             void settledTail.finally(() => {
                 // Only this entry leaves the index: a replacement under the
                 // same key outlives the late tail of the run it superseded.
-                if (active.get(activeKey) === entryState) active.delete(activeKey);
+                if (active.get(activeKey) === entryState) {active.delete(activeKey);}
                 const documentKey = baseAnalysisDocumentKey(request.sourcePdfPath, request.documentRevision);
                 const documentStillActive = [...active.keys()].some(key => key.includes(
                     `\u0000${request.documentRevision}\u0000${request.sourcePdfPath}\u0000`,

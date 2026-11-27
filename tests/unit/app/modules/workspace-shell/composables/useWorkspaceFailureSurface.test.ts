@@ -250,7 +250,7 @@ describe('useWorkspaceFailureSurface', () => {
                 reason: 'original-changed',
                 validation: null,
             });
-        if (!('reason' in result) || !result.reason) throw new Error('The save refusal lost its reason');
+        if (!('reason' in result) || !result.reason) {throw new Error('The save refusal lost its reason');}
         const surface = useWorkspaceFailureSurface();
         let destination = '';
         surface.reportSaveFailure('changed-original', 'persist-rejected', undefined, undefined, {
@@ -291,7 +291,7 @@ describe('useWorkspaceFailureSurface', () => {
                 validation: null,
                 keptFilePath,
             });
-        if (!('reason' in result) || !result.reason || !('keptFilePath' in result)) throw new Error('The late conflict lost its kept path');
+        if (!('reason' in result) || !result.reason || !('keptFilePath' in result)) {throw new Error('The late conflict lost its kept path');}
         const surface = useWorkspaceFailureSurface();
         let destination = '';
         surface.reportSaveFailure('late-original-change', 'persist-rejected', undefined, undefined, {
@@ -323,7 +323,7 @@ describe('useWorkspaceFailureSurface', () => {
             validation: null,
             error: {code: 'native-failure', message: 'The document as it was opened is no longer available'},
         });
-        if (!result.reason) throw new Error('The save refusal lost its reason');
+        if (!result.reason) {throw new Error('The save refusal lost its reason');}
         const surface = useWorkspaceFailureSurface();
         surface.reportSaveFailure('opened-version-gone', 'persist-rejected', undefined, undefined, {
             channel: 'native',

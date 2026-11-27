@@ -175,7 +175,7 @@ describe.each([
                     exact: true,
                 }).click();
             }
-            if (regex) await page.locator('.document-search-bar button').filter({hasText: '.*'}).click();
+            if (regex) {await page.locator('.document-search-bar button').filter({hasText: '.*'}).click();}
             const input = page.locator('.document-search-bar input:visible').first();
             const current = () => page.evaluate(highlightMode => {
                 const ranges = highlightMode === 'css'
@@ -189,12 +189,12 @@ describe.each([
                     const layer = range.startContainer.parentElement?.closest('.textLayer');
                     const run = [...layer?.children ?? []].find(child => child.contains(range.startContainer));
                     const ink = document.createRange();
-                    if (run) ink.selectNodeContents(run);
+                    if (run) {ink.selectNodeContents(run);}
                     return {
                         text: range.toString(),
                         offset: (() => {
                             const prefix = document.createRange();
-                            if (layer) prefix.setStart(layer, 0);
+                            if (layer) {prefix.setStart(layer, 0);}
                             prefix.setEnd(range.startContainer, range.startOffset);
                             return prefix.toString().length;
                         })(),
@@ -286,7 +286,7 @@ describe.each([
                 });
                 writeFileSync(resolve(out, 'outcomes.json'), JSON.stringify(observations, null, 2));
                 expect.soft(count).toBe(testCase.count);
-                if (count !== testCase.count) continue;
+                if (count !== testCase.count) {continue;}
                 for (const index of [
                     0,
                     testCase.count - 1,
@@ -302,7 +302,7 @@ describe.each([
                             reason?: string
                         }>};
                         const outcome = await monitor.waitForSettled({timeoutMs: 10000});
-                        if (!outcome.settled) throw new Error(outcome.reason ?? 'Viewer did not settle');
+                        if (!outcome.settled) {throw new Error(outcome.reason ?? 'Viewer did not settle');}
                     });
                     const paint = await current();
                     expect([...new Set(paint.map(range => range.page))]).toEqual([index === 0 ? 1 : 2]);
@@ -331,7 +331,7 @@ describe.each([
 describe('saved RTL OCR search', () => {
     it('finds Arabic and pointed Hebrew OCR words with highlights after reopening saved bytes', async () => {
         const evidence = process.env.EVB_RTL_SEARCH_EVIDENCE_DIR;
-        if (evidence) mkdirSync(evidence, {recursive: true});
+        if (evidence) {mkdirSync(evidence, {recursive: true});}
         const saved = readFileSync(resolve('tests/fixtures/browser/rtl-ocr/saved-rtl-ocr.pdf'));
         for (const opening of [
             'initial',
@@ -416,7 +416,7 @@ describe('saved RTL OCR search', () => {
                     await page.evaluate(async () => {
                         const monitor = Reflect.get(window, '__evbViewerInvariants') as {waitForSettled: (options: {timeoutMs: number}) => Promise<{settled: boolean}>;};
                         const outcome = await monitor.waitForSettled({timeoutMs: 10_000});
-                        if (!outcome.settled) throw new Error('Viewer did not settle after search navigation');
+                        if (!outcome.settled) {throw new Error('Viewer did not settle after search navigation');}
                     });
                     const paint = await readHighlight();
                     if (evidence) {
@@ -430,7 +430,7 @@ describe('saved RTL OCR search', () => {
                     expect.soft(paint.canvasVisible).toBe(true);
                     expect.soft(paint.wordBox).not.toBeNull();
                     expect.soft(paint.highlightBox).not.toBeNull();
-                    if (!paint.wordBox || !paint.highlightBox) continue;
+                    if (!paint.wordBox || !paint.highlightBox) {continue;}
                     const word = paint.wordBox;
                     const highlight = paint.highlightBox;
                     expect(highlight.right - highlight.left).toBeGreaterThan(0);
@@ -444,7 +444,7 @@ describe('saved RTL OCR search', () => {
                     expect(highlight.bottom).toBeGreaterThanOrEqual(word.bottom - 1);
                 }
             } finally {
-                if (evidence) await page.screenshot({path: resolve(evidence, `${opening}-final.png`)});
+                if (evidence) {await page.screenshot({path: resolve(evidence, `${opening}-final.png`)});}
                 await page.context().close();
             }
         }

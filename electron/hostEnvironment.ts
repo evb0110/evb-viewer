@@ -436,7 +436,7 @@ export async function restoreHostNormalWindowForWindow(
     }
     // The content area itself, not the window: its frame differs by
     // platform and by whether the window has been shown.
-    if (contentSize !== undefined) window.setContentSize(contentSize.width, contentSize.height, false);
+    if (contentSize !== undefined) {window.setContentSize(contentSize.width, contentSize.height, false);}
     return snapshotHostWindowStateForWindow(window);
 }
 

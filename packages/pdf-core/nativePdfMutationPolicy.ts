@@ -364,7 +364,7 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
         PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkItems,
         Math.floor((PDF_NATIVE_IDENTITY_BINDING_LIMITS.chunkBytes - 1) / maxEntryBytes),
     );
-    if (identityChunkItems === 0) fail('A native annotation identity exceeds the report byte budget');
+    if (identityChunkItems === 0) {fail('A native annotation identity exceeds the report byte budget');}
     const noteChunkItems = Math.min(PDF_NATIVE_MUTATION_LIMITS.noteChanges, identityChunkItems);
     const noteChunks: Array<Pick<TPdfNativeMutationChunk, 'updates' | 'geometryUpdates' | 'placedImageGeometryUpdates' | 'freeTextNotes' | 'deletes'>> = [];
     let updateIndex = 0;
@@ -512,7 +512,7 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
     appendFamilyChunks('textBoxes', textBoxes.length ? textBoxChunks : [], (chunk, value) => {
         chunk.textBoxes = value;
         if (value.some(box => box.originalAppearance?.sourceAnnotationId !== undefined)) {
-            if (mutations.originalAppearanceSource === undefined) fail('Original appearance restore requires its immutable document source');
+            if (mutations.originalAppearanceSource === undefined) {fail('Original appearance restore requires its immutable document source');}
             chunk.originalAppearanceSource = mutations.originalAppearanceSource;
         }
     });
@@ -546,6 +546,6 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
     }
     appendFamilyChunks('markup', markupChunks, (chunk, value) => {chunk.markup = value;});
     appendFamilyChunks('placedImages', mutations.placedImages?.length ? imageChunks : [], (chunk, value) => {chunk.placedImages = value;});
-    if (Object.keys(base).length === 0) fail('native PDF mutations could not be split into bounded chunks');
+    if (Object.keys(base).length === 0) {fail('native PDF mutations could not be split into bounded chunks');}
     return chunks;
 }

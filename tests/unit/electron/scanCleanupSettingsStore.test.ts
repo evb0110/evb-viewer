@@ -145,7 +145,7 @@ describe('file-backed scan-cleanup settings store', () => {
             filePath,
             onSettingsChanged: change => { published.push(change); },
             replace: async (source, target) => {
-                if (fail) throw new Error('disk replacement failure');
+                if (fail) {throw new Error('disk replacement failure');}
                 await rename(source, target);
             },
         });

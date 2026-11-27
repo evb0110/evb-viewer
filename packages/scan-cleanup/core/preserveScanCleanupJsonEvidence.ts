@@ -81,7 +81,7 @@ export async function preserveScanCleanupJsonEvidence(
             'pagesSidecarPath',
         ]) {
             const value = report[field];
-            if (typeof value !== 'string') continue;
+            if (typeof value !== 'string') {continue;}
             const fileName = basename(value);
             if (jsonFiles.includes(fileName)) {
                 report[field] = join(evidenceDir, fileName);

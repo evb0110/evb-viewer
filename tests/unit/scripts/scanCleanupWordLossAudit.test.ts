@@ -55,7 +55,7 @@ function buildMinimalPdf() {
     });
     const xrefOffset = body.length;
     body += `xref\n0 ${String(objects.length + 1)}\n0000000000 65535 f \n`;
-    for (const offset of offsets) body += `${String(offset).padStart(10, '0')} 00000 n \n`;
+    for (const offset of offsets) {body += `${String(offset).padStart(10, '0')} 00000 n \n`;}
     body += `trailer\n<< /Size ${String(objects.length + 1)} /Root 1 0 R /Info 4 0 R >>\nstartxref\n${String(xrefOffset)}\n%%EOF\n`;
     return Buffer.from(body, 'latin1');
 }
@@ -410,11 +410,11 @@ function buildNonlinearCleanedRaster(
             76,
             128,
         ].entries()) {
-        if (removeFirstComponent && index === 0) continue;
+        if (removeFirstComponent && index === 0) {continue;}
         for (let y = 32; y < 56; y += 1) {
             const mappedLeft = Math.round(left + warp(y));
             for (let x = mappedLeft; x < mappedLeft + 10; x += 1) {
-                if (x >= 0 && x < source.width) pixels[y * source.width + x] = 1;
+                if (x >= 0 && x < source.width) {pixels[y * source.width + x] = 1;}
             }
         }
     }
@@ -649,11 +649,11 @@ async function injectStamp(source: string, output: string, stampHex: string, upd
     const trailer = trailerEntry?.trailer as IQpdfJsonEntry | undefined;
     const trailerValue = trailer?.value as IQpdfJsonEntry | undefined;
     const infoReference = trailerValue?.['/Info'];
-    if (typeof infoReference !== 'string') throw new Error('test PDF has no qpdf Info reference');
+    if (typeof infoReference !== 'string') {throw new Error('test PDF has no qpdf Info reference');}
     const infoEntry = qpdfJson.qpdf.find(entry => Object.hasOwn(entry, `obj:${infoReference}`));
     const infoObject = infoEntry?.[`obj:${infoReference}`] as IQpdfJsonEntry | undefined;
     const infoValue = infoObject?.value as IQpdfJsonEntry | undefined;
-    if (infoValue === undefined) throw new Error('test PDF has no qpdf Info object');
+    if (infoValue === undefined) {throw new Error('test PDF has no qpdf Info object');}
     infoValue['/EVBScanCleanup'] = `u:${stampHex}`;
     await writeFile(updatePath, JSON.stringify(qpdfJson));
     await execFileAsync(qpdfBinary, [

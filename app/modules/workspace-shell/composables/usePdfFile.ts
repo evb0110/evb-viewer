@@ -92,7 +92,7 @@ export const usePdfFile = (options: IPdfFileOptions) => {
         pathsToCleanup.forEach(path => clearOcrCache(path));
 
         // The views let go of the document before its source clears, as a replacement's do.
-        if (sessionState.pdfSrc.value) options.resetDocumentPresentation();
+        if (sessionState.pdfSrc.value) {options.resetDocumentPresentation();}
         sessionState.resetForClose();
         clearPdfConformanceProfile();
         history.resetCommandSink();

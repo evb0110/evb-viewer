@@ -282,7 +282,7 @@ describe('atomicReplace', () => {
             const {atomicReplace} = await import('@electron/utils/atomicReplace');
 
             const assertDestinationCurrent = async () => {
-                if (readFileSync(destinationPath, 'utf8') !== admitted) throw new Error('Original file changed on disk');
+                if (readFileSync(destinationPath, 'utf8') !== admitted) {throw new Error('Original file changed on disk');}
             };
 
             await expect(atomicReplace(sourcePath, destinationPath, {assertDestinationCurrent}))
@@ -313,8 +313,8 @@ describe('atomicReplace', () => {
             const source = join(root, 'staged.tmp');
             const destination = join(root, 'export.png');
             await fs.writeFile(source, 'export bytes');
-            if (kind === 'file') await fs.writeFile(destination, 'earlier bytes');
-            if (kind === 'symlink') await fs.symlink(join(root, 'absent'), destination);
+            if (kind === 'file') {await fs.writeFile(destination, 'earlier bytes');}
+            if (kind === 'symlink') {await fs.symlink(join(root, 'absent'), destination);}
             const {moveFileToMissingPath} = await import('@electron/utils/atomicReplace');
             if (kind === 'missing') {
                 await moveFileToMissingPath(source, destination);
@@ -322,8 +322,8 @@ describe('atomicReplace', () => {
             } else {
                 await expect(moveFileToMissingPath(source, destination)).rejects.toMatchObject({code: 'EEXIST'});
                 expect(await fs.readFile(source, 'utf8')).toBe('export bytes');
-                if (kind === 'file') expect(await fs.readFile(destination, 'utf8')).toBe('earlier bytes');
-                else expect(await fs.readlink(destination)).toBe(join(root, 'absent'));
+                if (kind === 'file') {expect(await fs.readFile(destination, 'utf8')).toBe('earlier bytes');}
+                else {expect(await fs.readlink(destination)).toBe(join(root, 'absent'));}
             }
         } finally {
             vi.doUnmock('fs/promises');
@@ -385,9 +385,9 @@ describe('atomicReplace', () => {
                 sourceSnapshot,
             }));
             if (cut !== 'journal') {
-                if (edited) await fs.writeFile(destination, 'external');
+                if (edited) {await fs.writeFile(destination, 'external');}
                 await fs.rename(destination, backup);
-                if (cut === 'install') await fs.rename(staged, destination);
+                if (cut === 'install') {await fs.rename(staged, destination);}
             }
             const {atomicReplace} = await import('@electron/utils/atomicReplace');
             await atomicReplace(staged, destination, {
@@ -396,7 +396,7 @@ describe('atomicReplace', () => {
             }).catch(() => undefined);
             expect(readFileSync(destination, 'utf8')).toBe(cut === 'install' ? 'accepted-saved-work'
                 : cut === 'displace' && edited ? 'external' : 'original');
-            if (cut === 'install' && edited) expect(readFileSync(backup, 'utf8')).toBe('external');
+            if (cut === 'install' && edited) {expect(readFileSync(backup, 'utf8')).toBe('external');}
         } finally {
             vi.doUnmock('fs/promises');
             rmSync(root, {

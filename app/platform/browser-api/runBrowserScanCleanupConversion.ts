@@ -158,11 +158,11 @@ function createEngineIdentities() {
     let conflict: string | null = null;
     const observe = (role: TEngineRole) => (sha256: string) => {
         const known = identities[role];
-        if (known !== undefined && known !== sha256) conflict = role;
+        if (known !== undefined && known !== sha256) {conflict = role;}
         identities[role] = sha256;
     };
     const throwIfChanged = () => {
-        if (conflict !== null) throw new BrowserScanCleanupEngineChangedError(conflict);
+        if (conflict !== null) {throw new BrowserScanCleanupEngineChangedError(conflict);}
     };
     return {
         observe,
@@ -280,7 +280,7 @@ export async function runBrowserScanCleanupConversion({
                 const metadataPages: IPdfPageSize[] = [];
                 for (let pageNumber = 1; !largeStreamingRun && pageNumber <= documentPageCount; pageNumber += 1) {
                     const page = request.sourcePageMetadataByPage?.[String(pageNumber)];
-                    if (page?.pageNumber !== pageNumber) break;
+                    if (page?.pageNumber !== pageNumber) {break;}
                     metadataPages.push(page);
                 }
                 const pageSizeStore = createArrayBackedPdfPageSizeStore(
@@ -331,7 +331,7 @@ export async function runBrowserScanCleanupConversion({
                     ? createArrayBackedPdfPageSizeStore(geometryRecords)
                     : coordinated.pageSizeStore;
                 const engines = createEngineIdentities();
-                if (source.pageOpsEngineSha256 !== null) engines.observe('pdfPageOps')(source.pageOpsEngineSha256);
+                if (source.pageOpsEngineSha256 !== null) {engines.observe('pdfPageOps')(source.pageOpsEngineSha256);}
                 const sourceBytes = await readSource();
                 const sourceSha256 = await sha256Hex(new Uint8Array(sourceBytes));
                 const browserContext: IBrowserConversionContext = {
@@ -457,7 +457,7 @@ async function runRasterConversion(
         for (const [
             pageNumber,
             raster,
-        ] of planned.detectedRasterByPage) detectedRasterByPage.set(pageNumber, raster);
+        ] of planned.detectedRasterByPage) {detectedRasterByPage.set(pageNumber, raster);}
         if (!sourceMrcFallbackReported && planned.rasterPlans.some(plan => resolveScanCleanupSourceMrcCandidacy(
             batchRequest,
             plan,
@@ -518,7 +518,7 @@ async function runRasterConversion(
                 const pageGeometry = planned.pageGeometryByNumber.get(pageNumber)!;
                 const maxPixels = resolveScanCleanupPipelineMaxPixels(plan.resolvedOutputMode, undefined);
                 activePages.start(pageNumber);
-                if (!pageSignal.aborted) publishRendering();
+                if (!pageSignal.aborted) {publishRendering();}
                 try {
                     const raster = await rasterizePage(context, pageGeometry, plan.dpi, maxPixels, pageSignal);
                     if (!pageSignal.aborted) {
@@ -599,7 +599,7 @@ async function runRasterConversion(
                     if (!pageSignal.aborted) {
                         const previousSize = completedPageNumbers.size;
                         completedPageNumbers.add(pageNumber);
-                        if (completedPageNumbers.size !== previousSize) completedPagesVersion += 1;
+                        if (completedPageNumbers.size !== previousSize) {completedPagesVersion += 1;}
                         publishRendering();
                     }
                     return {
@@ -863,8 +863,8 @@ function prepareRenderedPage(context: IBrowserConversionContext, input: IPrepare
             );
         }
         pageOutputs.push(renderedOutput);
-        if (!metadata.skewApplied) deskewSkipped += 1;
-        if (request.options.crop && metadata.contentBox == null) cropSkipped += 1;
+        if (!metadata.skewApplied) {deskewSkipped += 1;}
+        if (request.options.crop && metadata.contentBox == null) {cropSkipped += 1;}
     }
     collectScanCleanupPageOutputs({
         request,
@@ -887,7 +887,7 @@ function prepareRenderedPage(context: IBrowserConversionContext, input: IPrepare
 }
 
 async function inspectOmittedSourceText(context: IBrowserConversionContext, pages: readonly number[]) {
-    if (pages.length === 0) return undefined;
+    if (pages.length === 0) {return undefined;}
     const report = await runBrowserPageOpsWorkerRequest('ocrTextVisibility', {
         source: new Blob([new Uint8Array(context.sourceBytes)]),
         pages: [...new Set(pages)],
@@ -986,7 +986,7 @@ async function runLosslessConversion(
         for (const [
             index,
             page,
-        ] of facts.entries()) nativeOptionsBySource.set(page.pageNumber, manifest.pages[index]!.options);
+        ] of facts.entries()) {nativeOptionsBySource.set(page.pageNumber, manifest.pages[index]!.options);}
         const finishedPages = await runBrowserScanCleanupAnalysis({
             pages: facts.map((page, index) => ({
                 options: manifest.pages[index]!.options,
@@ -1025,7 +1025,7 @@ async function runLosslessConversion(
                 if (job.view === 'primary' && !job.rerun) {
                     const previousSize = completed.size;
                     completed.add(pageNumber);
-                    if (completed.size !== previousSize) completedVersion += 1;
+                    if (completed.size !== previousSize) {completedVersion += 1;}
                 }
                 publishClassifying();
             },
@@ -1050,7 +1050,7 @@ async function runLosslessConversion(
                 summary,
                 pageMetadataBySource,
             });
-            if (analyzed !== null) analyzedPages.push(analyzed);
+            if (analyzed !== null) {analyzedPages.push(analyzed);}
         }
     }
     activePages.clear();

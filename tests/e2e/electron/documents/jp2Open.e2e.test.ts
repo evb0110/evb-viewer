@@ -64,7 +64,7 @@ it('opens JP2 scans and combines them with PNG while preserving their compressed
     await expect.poll(async () => page.evaluate(() => {
         const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active .page_container--rendered canvas');
         const context = canvas?.getContext('2d');
-        if (!canvas || !context) return null;
+        if (!canvas || !context) {return null;}
         return [
             0.25,
             0.75,
@@ -133,7 +133,7 @@ it('opens JP2 scans and combines them with PNG while preserving their compressed
 
 function pbmDarkFraction(pbm: Buffer) {
     const header = /^P4\s+(\d+)\s+(\d+)\s/u.exec(pbm.toString('latin1'));
-    if (!header) throw new Error('Expected a binary PBM');
+    if (!header) {throw new Error('Expected a binary PBM');}
     const width = Number(header[1]);
     const height = Number(header[2]);
     const stride = Math.ceil(width / 8);
@@ -141,7 +141,7 @@ function pbmDarkFraction(pbm: Buffer) {
     let dark = 0;
     for (let y = 0; y < height; y += 1) {
         for (let x = 0; x < width; x += 1) {
-            if ((rows[y * stride + (x >> 3)]! & (0x80 >> (x & 7))) !== 0) dark += 1;
+            if ((rows[y * stride + (x >> 3)]! & (0x80 >> (x & 7))) !== 0) {dark += 1;}
         }
     }
     return dark / (width * height);
@@ -169,11 +169,11 @@ it('opens a 1-bit CCITT Group 4 TIFF as a page with the source polarity', async 
     await expect.poll(async () => page.evaluate(() => {
         const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active .page_container--rendered canvas');
         const context = canvas?.getContext('2d');
-        if (!canvas || !context || canvas.width === 0) return null;
+        if (!canvas || !context || canvas.width === 0) {return null;}
         const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
         let dark = 0;
         for (let index = 0; index < data.length; index += 4) {
-            if (data[index]! * 77 + data[index + 1]! * 150 + data[index + 2]! * 29 < 128 * 256) dark += 1;
+            if (data[index]! * 77 + data[index + 1]! * 150 + data[index + 2]! * 29 < 128 * 256) {dark += 1;}
         }
         return dark / (data.length / 4);
     }), {timeout: 20_000}).toBeCloseTo(sourceDarkFraction, 1);

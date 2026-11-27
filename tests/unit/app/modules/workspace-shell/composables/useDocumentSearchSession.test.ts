@@ -40,7 +40,7 @@ function createMatch(pageIndex: number, matchIndex: number) {
 function withSession<T>(factory: () => T) {
     const scope = effectScope();
     const session = scope.run(factory);
-    if (!session) throw new Error('Document search test session failed to initialize');
+    if (!session) {throw new Error('Document search test session failed to initialize');}
     return {
         session,
         stop: () => scope.stop(),
@@ -122,7 +122,7 @@ describe('useDocumentSearchSession', () => {
         const harness = withSession(() => useDocumentSearchSession({backend: {
             minQueryLength: 2,
             search: async request => {
-                if (pending) return pending.promise;
+                if (pending) {return pending.promise;}
                 const allResults = Array.from({length: 561}, (_, index) => ({
                     ...createMatch(index === 560 ? 1 : 0, index),
                     pageMatchIndex: index === 560 ? 0 : index,

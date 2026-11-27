@@ -119,7 +119,7 @@ function requestEngine<TSchema extends v.GenericSchema>(
             reject,
             resolveData: (data) => {
                 const parsed = v.safeParse(schema, data, {abortEarly: true});
-                if (!parsed.success) return false;
+                if (!parsed.success) {return false;}
                 resolve(parsed.output);
                 return true;
             },
@@ -172,7 +172,7 @@ async function readAppendAdmissionVerdict(
             ...(options.timeoutMs === undefined ? {} : {timeoutMs: options.timeoutMs}),
         });
     } catch (error) {
-        if (options.signal?.aborted) throw error;
+        if (options.signal?.aborted) {throw error;}
         if (error instanceof BrowserPageOpsWorkerUnavailableError) {
             throw new BrowserQpdfEngineUnavailableError(error.message);
         }

@@ -357,7 +357,7 @@ describe('page ops platform feature schemas', () => {
         ]));
         if (pageYRatio === null || Number.isFinite(pageYRatio) && pageYRatio >= 0 && pageYRatio <= 1) {
             expect(decode()[2]?.metadataSnapshot?.bookmarks?.[0]?.pageYRatio).toBe(pageYRatio);
-        } else expect(decode).toThrow('pageYRatio');
+        } else {expect(decode).toThrow('pageYRatio');}
     });
 
     it('accepts a 10,001-item outline for structural page operations', () => {

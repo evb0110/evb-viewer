@@ -243,7 +243,7 @@ describe('browserPdfjsDocumentInit', () => {
             } = await import('@app/platform/browser-api/browserPdfjsDocumentInit');
             const init = await createPdfjsDocumentInitFromBrowserDocument(await getPdfjsLib(), ref, {onRangeReadFailure: vi.fn()});
             const range = 'range' in init ? init.range : undefined;
-            if (!range) throw new Error('Expected a PDF.js range transport');
+            if (!range) {throw new Error('Expected a PDF.js range transport');}
             bytes[bytes.length - 1] = 9;
             currentFile = new File([bytes], currentFile.name, {lastModified: 11});
             range.requestDataRange?.(2 * 1024 * 1024, 3 * 1024 * 1024);
@@ -275,7 +275,7 @@ describe('browserPdfjsDocumentInit', () => {
             {onRangeReadFailure},
         );
         const range = 'range' in init ? init.range : undefined;
-        if (!range) throw new Error('Expected a PDF.js range transport');
+        if (!range) {throw new Error('Expected a PDF.js range transport');}
         expect(init).toMatchObject({rangeChunkSize: 1024 * 1024});
 
         const readsBeforeTailRequest = browserDocumentStoreMock.readRange.mock.calls.length;
@@ -326,7 +326,7 @@ describe('browserPdfjsDocumentInit', () => {
             'browser://documents/ordered.pdf',
         );
         const range = 'range' in init ? init.range : undefined;
-        if (!range) throw new Error('Expected a PDF.js range transport');
+        if (!range) {throw new Error('Expected a PDF.js range transport');}
 
         range.requestDataRange?.(1024 * 1024, 1024 * 1024 + 16);
         range.requestDataRange?.(1024 * 1024 + 64, 1024 * 1024 + 80);
@@ -429,7 +429,7 @@ describe('browserPdfjsDocumentInit', () => {
                 'browser://documents/refresh-range.pdf',
             );
             const range = 'range' in init ? init.range : undefined;
-            if (!range) throw new Error('Expected a PDF.js range transport');
+            if (!range) {throw new Error('Expected a PDF.js range transport');}
 
             expireMiddleRange = true;
             range.requestDataRange?.(1024 * 1024, 1024 * 1024 + 32);

@@ -1226,7 +1226,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             totalPages: () => 3,
         });
         const settle = async () => {
-            for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+            for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
         };
         const box = (yNormalized: number) => ({
             xNormalized: 0.1,
@@ -2169,7 +2169,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         let detailAvailable = false;
         vi.mocked(harness.value.preview).mockImplementation(async request => {
             if (request.detail) {
-                if (!detailAvailable) throw new Error('detail service failed');
+                if (!detailAvailable) {throw new Error('detail service failed');}
                 return tile;
             }
             return previewResult(request.pageNumber, 'single-uncut-page');

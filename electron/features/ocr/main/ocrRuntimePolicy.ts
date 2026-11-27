@@ -166,6 +166,6 @@ export function createOcrModelBytesReader(tessdataDir: string) {
 
 export function sumOcrModelBytes(sizes: ReadonlyMap<TOcrModelCode, number>) {
     let total = 0;
-    for (const size of sizes.values()) total += size;
+    for (const size of sizes.values()) {total += size;}
     return total;
 }

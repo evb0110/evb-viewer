@@ -145,7 +145,7 @@ describe('annotation tombstone serialization', () => {
     it('keeps a materialized shape deletion before its reference is reconciled', () => {
         const store = new AnnotationStore();
         const entity = fixtures().find(value => value.kind === 'shape');
-        if (!entity || entity.kind !== 'shape') throw new Error('Expected shape fixture');
+        if (!entity || entity.kind !== 'shape') {throw new Error('Expected shape fixture');}
         store.import({
             ...entity,
             materialized: true,

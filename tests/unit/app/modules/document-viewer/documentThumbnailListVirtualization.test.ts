@@ -39,7 +39,7 @@ function measureRailRows(padding = 0) {
     const fallback = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!;
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
         const rail = this.closest<HTMLElement>('[data-document-thumbnail-rail]');
-        if (!rail || (this !== rail && !this.matches('[data-thumbnail-page]'))) return fallback.call(this);
+        if (!rail || (this !== rail && !this.matches('[data-thumbnail-page]'))) {return fallback.call(this);}
         const top = this === rail ? 0 : padding + Number.parseFloat(this.style.transform.slice(11)) - rail.scrollTop;
         const height = this === rail ? 600 : Number.parseFloat(this.style.height);
         return {

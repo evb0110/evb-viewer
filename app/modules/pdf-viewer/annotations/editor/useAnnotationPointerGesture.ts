@@ -292,7 +292,7 @@ export const useAnnotationPointerGesture = (
 
     function finishTextSelection(event: IAnnotationPointerEvent): ITextSelectionPointerGesture | null {
         const gesture = updateTextSelection(event);
-        if (gesture) textSelection.value = null;
+        if (gesture) {textSelection.value = null;}
         return gesture;
     }
 
@@ -325,9 +325,9 @@ export const useAnnotationPointerGesture = (
     }
 
     function cancel(gesture?: IAnnotationGesture) {
-        if (gesture && active.value?.gesture !== gesture) return false;
+        if (gesture && active.value?.gesture !== gesture) {return false;}
         active.value = null;
-        if (!gesture) textSelection.value = null;
+        if (!gesture) {textSelection.value = null;}
         return true;
     }
 

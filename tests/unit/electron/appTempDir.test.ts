@@ -362,7 +362,7 @@ describe('app temp directory namespace', () => {
             expect(existsSync(registration!.entryPath)).toBe(false);
             expect(existsSync(scratchPath)).toBe(false);
         } finally {
-            if (tool.exitCode === null && tool.signalCode === null) tool.kill('SIGKILL');
+            if (tool.exitCode === null && tool.signalCode === null) {tool.kill('SIGKILL');}
             mocks.paths.userData = '/profiles/default';
             rmSync(tempRoot, {
                 force: true,

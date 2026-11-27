@@ -54,7 +54,7 @@ async function batches<TInput, TOutput>(items: TInput[], task: (item: TInput) =>
     for (const batch of chunk(items, 6)) {
         const results = await Promise.allSettled(batch.map(task));
         for (const result of results) {
-            if (result.status === 'rejected') throw result.reason;
+            if (result.status === 'rejected') {throw result.reason;}
             output.push(result.value);
         }
     }
@@ -64,7 +64,7 @@ async function batches<TInput, TOutput>(items: TInput[], task: (item: TInput) =>
 function storage(credentials: NodeJS.ProcessEnv) {
     const accessKey = credentials.YANDEX_S3_ACCESS_KEY_ID ?? credentials.MIRROR_S3_ACCESS_KEY_ID;
     const secretKey = credentials.YANDEX_S3_SECRET_KEY ?? credentials.MIRROR_S3_SECRET_KEY;
-    if (!accessKey || !secretKey) throw new Error('Set YANDEX_S3_ACCESS_KEY_ID and YANDEX_S3_SECRET_KEY in .env.yandex.local or the environment.');
+    if (!accessKey || !secretKey) {throw new Error('Set YANDEX_S3_ACCESS_KEY_ID and YANDEX_S3_SECRET_KEY in .env.yandex.local or the environment.');}
     return async (method: 'GET' | 'HEAD' | 'PUT' | 'DELETE', key: string, {
         body = '', headers = {}, query = '',
     }: IS3RequestOptions = {}) => {
@@ -141,7 +141,7 @@ async function sanitizeSource(source: string) {
     const registry = path.join(source, 'packages/contracts/ocrLanguages.ts');
     const original = await readFile(registry, 'utf8');
     const upstream = 'https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/${TESSDATA_BEST_REF}/';
-    if (original.split(upstream).length !== 2) throw new Error('OCR download contract changed; expected exactly one upstream URL template.');
+    if (original.split(upstream).length !== 2) {throw new Error('OCR download contract changed; expected exactly one upstream URL template.');}
     await writeFile(registry, original.replace(upstream, '/ocr-models/${TESSDATA_BEST_REF}/'));
 }
 
@@ -175,7 +175,7 @@ async function publicBytes(url: string) {
         cache: 'no-store',
         redirect: 'error',
     });
-    if (!response.ok) throw new Error(`Mirror verification ${url}: HTTP ${response.status}`);
+    if (!response.ok) {throw new Error(`Mirror verification ${url}: HTTP ${response.status}`);}
     return Buffer.from(await response.arrayBuffer());
 }
 
@@ -225,7 +225,7 @@ function mergedHeadWasmRun(sha: string) {
         'rev-parse',
         `${commit}^{tree}`,
     ]);
-    if (!base || !head || tree(head) !== tree(sha)) return undefined;
+    if (!base || !head || tree(head) !== tree(sha)) {return undefined;}
     try {
         command('git', [
             'merge-base',
@@ -246,11 +246,11 @@ async function deploy() {
         console.log('Usage: pnpm deploy:web:yandex:prod [--bucket=web-evb-viewer]\nCredentials: .env.yandex.local or YANDEX_S3_ACCESS_KEY_ID / YANDEX_S3_SECRET_KEY. Requires gh, pnpm and a successful CI run for HEAD.');
         return;
     }
-    if (args.some(arg => !arg.startsWith('--bucket=')) || args.length > 1) throw new Error('Unsupported arguments. Use --help.');
+    if (args.some(arg => !arg.startsWith('--bucket=')) || args.length > 1) {throw new Error('Unsupported arguments. Use --help.');}
     const bucket = args[0]?.slice('--bucket='.length) ?? 'web-evb-viewer';
-    if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/u.test(bucket)) throw new Error('Use a bucket name of 3–63 lowercase letters, digits and hyphens, with no dots.');
+    if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/u.test(bucket)) {throw new Error('Use a bucket name of 3–63 lowercase letters, digits and hyphens, with no dots.');}
     let local: NodeJS.ProcessEnv = {};
-    try { local = parseEnv(await readFile(path.join(projectRoot, '.env.yandex.local'), 'utf8')); } catch (error) { if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error; }
+    try { local = parseEnv(await readFile(path.join(projectRoot, '.env.yandex.local'), 'utf8')); } catch (error) { if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {throw error;} }
     const s3 = storage({
         ...local,
         ...process.env,
@@ -258,16 +258,16 @@ async function deploy() {
     if (command('git', [
         'status',
         '--porcelain',
-    ])) throw new Error('Commit or preserve working changes before deploying.');
+    ])) {throw new Error('Commit or preserve working changes before deploying.');}
     const sha = command('git', [
         'rev-parse',
         'HEAD',
     ]);
     const version = resolveViewerAppVersion(projectRoot);
     const run = successfulCiRun(sha);
-    if (!run) throw new Error(`HEAD ${sha} has no successful CI run. Wait for CI before deploying.`);
+    if (!run) {throw new Error(`HEAD ${sha} has no successful CI run. Wait for CI before deploying.`);}
     const wasmRun = hasBrowserWasm(run.databaseId) ? run : mergedHeadWasmRun(sha);
-    if (!wasmRun) throw new Error(`CI run ${run.databaseId} has no browser-wasm artifact, and no run on a merged head with the same tree has one.`);
+    if (!wasmRun) {throw new Error(`CI run ${run.databaseId} has no browser-wasm artifact, and no run on a merged head with the same tree has one.`);}
     const releaseLock = await acquireProductionDeployLock({
         env: process.env,
         projectId: `yandex:${bucket}`,
@@ -378,7 +378,7 @@ async function deploy() {
         const security = config.routes.find(route => route.headers?.['Content-Security-Policy'])?.headers;
         const policy = security?.['Content-Security-Policy'];
         const referrer = security?.['Referrer-Policy'];
-        if (!policy || !referrer) throw new Error('Build output has no security policy. Refusing to publish.');
+        if (!policy || !referrer) {throw new Error('Build output has no security policy. Refusing to publish.');}
         const escape = (value: string) => value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
         // Object Storage cannot emit arbitrary security headers. Preserve the
         // directives HTML supports; frame-ancestors requires an HTTP header.
@@ -391,12 +391,12 @@ async function deploy() {
             for (const entry of await readdir(directory, {withFileTypes: true})) {
                 const key = `${prefix}${entry.name}`;
                 const name = path.join(directory, entry.name);
-                if (entry.isDirectory()) await collect(name, `${key}/`);
+                if (entry.isDirectory()) {await collect(name, `${key}/`);}
                 else if (entry.isFile() && !isolatedOnly.has(key)) {
                     let body = await readFile(name);
                     if (key.endsWith('.html')) {
                         const html = body.toString();
-                        if (!html.includes('<head>')) throw new Error(`Cannot inject security metadata: ${key} has no <head> tag.`);
+                        if (!html.includes('<head>')) {throw new Error(`Cannot inject security metadata: ${key} has no <head> tag.`);}
                         body = Buffer.from(html.replace('<head>', () => `<head>${metadata}`));
                     }
                     assets.push({
@@ -409,7 +409,7 @@ async function deploy() {
         }
         await collect(path.join(output, 'static'));
         const index = assets.find(asset => asset.key === 'index.html');
-        if (!index) throw new Error('Static output is missing index.html.');
+        if (!index) {throw new Error('Static output is missing index.html.');}
         const exists = await s3('HEAD', bucket);
         if (exists.status === 404) {
             await (await s3('PUT', bucket)).body?.cancel();
@@ -432,9 +432,9 @@ async function deploy() {
             }
         } else {
             const manifest = await s3('GET', `${bucket}/mirror-manifest.json`);
-            if (!manifest.ok) throw new Error('Existing bucket is not a Viewer mirror; refusing to change it.');
+            if (!manifest.ok) {throw new Error('Existing bucket is not a Viewer mirror; refusing to change it.');}
             const identity = v.parse(v.object({bucket: v.string()}), await manifest.json());
-            if (identity.bucket !== bucket) throw new Error('Existing bucket is not a Viewer mirror; refusing to change it.');
+            if (identity.bucket !== bucket) {throw new Error('Existing bucket is not a Viewer mirror; refusing to change it.');}
         }
         const xml = '<WebsiteConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IndexDocument><Suffix>index.html</Suffix></IndexDocument><RoutingRules><RoutingRule><Condition><KeyPrefixEquals>workspace</KeyPrefixEquals></Condition><Redirect><ReplaceKeyWith></ReplaceKeyWith><HttpRedirectCode>302</HttpRedirectCode><Protocol>https</Protocol></Redirect></RoutingRule></RoutingRules></WebsiteConfiguration>';
         await (await s3('PUT', bucket, {
@@ -444,7 +444,7 @@ async function deploy() {
         })).body?.cancel();
         const put = async (key: string, body: Buffer<ArrayBuffer>, sha256: string, cache: string) => {
             const current = await s3('HEAD', `${bucket}/${key}`);
-            if (current.ok && current.headers.get('x-amz-meta-sha256') === sha256 && Number(current.headers.get('content-length')) === body.length) return;
+            if (current.ok && current.headers.get('x-amz-meta-sha256') === sha256 && Number(current.headers.get('content-length')) === body.length) {return;}
             const response = await s3('PUT', `${bucket}/${key}`, {
                 body,
                 headers: {
@@ -454,16 +454,16 @@ async function deploy() {
                     'cache-control': cache,
                 },
             });
-            if (!response.ok) throw new Error(`Upload failed: ${key}`);
+            if (!response.ok) {throw new Error(`Upload failed: ${key}`);}
             await response.body?.cancel();
         };
         const immutable = 'public, max-age=31536000, immutable';
         const revalidate = 'no-cache, max-age=0, must-revalidate';
         await batches(modelData, async model => {
             const existing = await s3('HEAD', `${bucket}/${model.key}`);
-            if (existing.ok && existing.headers.get('x-amz-meta-sha256') === model.sha256 && Number(existing.headers.get('content-length')) === model.bytes) return;
+            if (existing.ok && existing.headers.get('x-amz-meta-sha256') === model.sha256 && Number(existing.headers.get('content-length')) === model.bytes) {return;}
             const body = await publicBytes(model.url);
-            if (body.length !== model.bytes || digest(body) !== model.sha256) throw new Error(`OCR model integrity mismatch: ${model.key}`);
+            if (body.length !== model.bytes || digest(body) !== model.sha256) {throw new Error(`OCR model integrity mismatch: ${model.key}`);}
             await put(model.key, body, model.sha256, immutable);
         });
         await batches(assets.filter(asset => asset !== index), asset => put(asset.key, asset.body, asset.sha256, asset.key.startsWith('_nuxt/') && !asset.key.startsWith('_nuxt/builds/') ? immutable : revalidate));
@@ -474,13 +474,13 @@ async function deploy() {
             ...assets.filter(asset => asset.key.endsWith('.wasm')),
             ...assets.filter(asset => asset.key.endsWith('.js') && asset.key.startsWith('_nuxt/')),
         ], async asset => {
-            if (digest(await publicBytes(`${url}/${asset.key}`)) !== asset.sha256) throw new Error(`Public asset mismatch: ${asset.key}`);
+            if (digest(await publicBytes(`${url}/${asset.key}`)) !== asset.sha256) {throw new Error(`Public asset mismatch: ${asset.key}`);}
         });
         const previous = await s3('GET', `${bucket}/index.html`);
         const previousIndex = previous.ok ? Buffer.from(await previous.arrayBuffer()) : null;
         try {
             await put(index.key, index.body, index.sha256, revalidate);
-            if (digest(await publicBytes(`${url}/`)) !== index.sha256) throw new Error('Published home page does not match the build.');
+            if (digest(await publicBytes(`${url}/`)) !== index.sha256) {throw new Error('Published home page does not match the build.');}
             const manifest = Buffer.from(`${JSON.stringify({
                 bucket,
                 url,
@@ -494,8 +494,8 @@ async function deploy() {
             await put('mirror-manifest.json', manifest, digest(manifest), revalidate);
         } catch (error) {
             try {
-                if (previousIndex) await put('index.html', previousIndex, digest(previousIndex), revalidate);
-                else await (await s3('DELETE', `${bucket}/index.html`)).body?.cancel();
+                if (previousIndex) {await put('index.html', previousIndex, digest(previousIndex), revalidate);}
+                else {await (await s3('DELETE', `${bucket}/index.html`)).body?.cancel();}
             } catch (restoreError) {
                 console.error(`Home page restoration failed: ${getCliErrorMessage(restoreError)}`);
             }

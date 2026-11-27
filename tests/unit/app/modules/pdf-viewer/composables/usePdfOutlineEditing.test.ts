@@ -257,7 +257,7 @@ describe('usePdfOutlineEditing', () => {
                 item,
                 target,
             ] of targets ?? []) {
-                if (!target) continue;
+                if (!target) {continue;}
                 item.pageIndex ??= requirePageIndex(target.pageIndex);
                 item.pageYRatio ??= target.pageYRatio;
             }
@@ -343,11 +343,11 @@ describe('usePdfOutlineEditing', () => {
         await started.promise;
         const harness = createEditingHarness(items);
         harness.emitBookmarksChange.mockImplementation(() => controller.abort());
-        if (operation === 'rename') harness.editing.renameBookmark({
+        if (operation === 'rename') {harness.editing.renameBookmark({
             id: '1',
             title: 'renamed',
-        });
-        else if (operation === 'delete') harness.editing.removeBookmark('1');
+        });}
+        else if (operation === 'delete') {harness.editing.removeBookmark('1');}
         else {
             harness.selectedBookmarkIds.value = new Set(['1']);
             const dragging = usePdfOutlineDragDrop(

@@ -11,7 +11,7 @@ export const canceledWrite = () => new DOMException('The write was canceled', 'A
 export function streamWriter(stream: ReadableStream<Uint8Array>): TRevisionWriter {
     let read = false;
     return async file => {
-        if (read) throw new Error('A streamed document can be stored only once');
+        if (read) {throw new Error('A streamed document can be stored only once');}
         read = true;
         const reader = stream.getReader();
         const batch = new Uint8Array(BROWSER_DOCUMENT_CHUNK_SIZE);
@@ -30,10 +30,10 @@ export function streamWriter(stream: ReadableStream<Uint8Array>): TRevisionWrite
                     batch.set(next.value.subarray(at, at + count), filled);
                     filled += count;
                     at += count;
-                    if (filled === batch.byteLength) await write();
+                    if (filled === batch.byteLength) {await write();}
                 }
             }
-            if (filled > 0) await write();
+            if (filled > 0) {await write();}
         } catch (error) {
             await reader.cancel(error).catch(() => undefined);
             throw error;
@@ -54,7 +54,7 @@ export function pushRevisionStream(commit: (source: TRevisionWriter) => Promise<
     const written = commit(streamWriter(readable));
     let end: {reason: unknown} | 'close' | null = null;
     const ended = () => {
-        if (end !== null && end !== 'close') throw end.reason;
+        if (end !== null && end !== 'close') {throw end.reason;}
     };
     const abort = async (reason: unknown = canceledWrite()) => {
         if (end === null) {

@@ -590,16 +590,16 @@ export function createPdfPageOpsWasmRunner(
     const hostImports: WebAssembly.Imports = {
         evb_host: {
             evb_host_source_len(index: number): number {
-                if (!activeIo) return -1;
+                if (!activeIo) {return -1;}
                 return ensureSourceLenSync(activeIo, index);
             },
             evb_host_source_read(index: number, offset: number, pointer: number, len: number): number {
-                if (!activeIo || !activeIo.memory) return -1;
-                if (!Number.isFinite(offset) || offset < 0 || len < 0) return -1;
-                if (len === 0) return 0;
+                if (!activeIo || !activeIo.memory) {return -1;}
+                if (!Number.isFinite(offset) || offset < 0 || len < 0) {return -1;}
+                if (len === 0) {return 0;}
                 try {
                     const fd = ensureSourceFdSync(activeIo, index);
-                    if (fd < 0) return -1;
+                    if (fd < 0) {return -1;}
                     const view = getCheckedWasmMemoryView(activeIo.memory, pointer, len, 'evb_host_source_read');
                     return readExactSync(fd, view, offset) ? 0 : -1;
                 } catch {
@@ -607,16 +607,16 @@ export function createPdfPageOpsWasmRunner(
                 }
             },
             evb_host_source_copy(index: number, offset: number, len: number, at: number): number {
-                if (!activeIo) return -1;
+                if (!activeIo) {return -1;}
                 if (!Number.isFinite(offset) || !Number.isFinite(len) || !Number.isFinite(at)) {
                     return -1;
                 }
-                if (offset < 0 || len < 0 || at < 0) return -1;
+                if (offset < 0 || len < 0 || at < 0) {return -1;}
                 try {
                     const srcFd = ensureSourceFdSync(activeIo, index);
-                    if (srcFd < 0) return -1;
+                    if (srcFd < 0) {return -1;}
                     const sink = ensureSinkOpen(activeIo);
-                    if (!sink || sink.fd === null) return -1;
+                    if (!sink || sink.fd === null) {return -1;}
                     if (len > 0 && !streamCopyFdRangeSync(srcFd, offset, len, sink.fd, at, copyBuffer)) {
                         return -1;
                     }
@@ -628,11 +628,11 @@ export function createPdfPageOpsWasmRunner(
                 }
             },
             evb_host_sink_write(at: number, pointer: number, len: number): number {
-                if (!activeIo || !activeIo.memory) return -1;
-                if (!Number.isFinite(at) || at < 0 || len < 0) return -1;
+                if (!activeIo || !activeIo.memory) {return -1;}
+                if (!Number.isFinite(at) || at < 0 || len < 0) {return -1;}
                 try {
                     const sink = activeIo.sink;
-                    if (!sink) return -1;
+                    if (!sink) {return -1;}
                     // Lazy copy-on-first-append: when an incremental op targets a separate output
                     // file and its VERY FIRST write begins at `source0Len`, clone or sparse-copy
                     // source 0's prefix first so no-op runs copy 0 bytes and full rewrites that
@@ -646,7 +646,7 @@ export function createPdfPageOpsWasmRunner(
                     ) {
                         const source0 = activeIo.sources[0];
                         const source0Fd = source0 ? ensureSourceFdSync(activeIo, 0) : -1;
-                        if (!source0 || source0Fd < 0) return -1;
+                        if (!source0 || source0Fd < 0) {return -1;}
                         if (sink.fd !== null) {
                             closeSync(sink.fd);
                             sink.fd = null;
@@ -663,7 +663,7 @@ export function createPdfPageOpsWasmRunner(
                     } else if (sink.fd === null) {
                         ensureSinkOpen(activeIo);
                     }
-                    if (sink.fd === null) return -1;
+                    if (sink.fd === null) {return -1;}
                     if (len > 0) {
                         const view = getCheckedWasmMemoryView(activeIo.memory, pointer, len, 'evb_host_sink_write');
                         if (!writeExactSync(sink.fd, view, at)) {
@@ -678,12 +678,12 @@ export function createPdfPageOpsWasmRunner(
                 }
             },
             evb_host_sink_read(offset: number, pointer: number, len: number): number {
-                if (!activeIo || !activeIo.memory) return -1;
+                if (!activeIo || !activeIo.memory) {return -1;}
                 const sink = activeIo.sink;
                 if (!sink || sink.fd === null || !Number.isFinite(offset) || offset < 0 || len < 0) {
                     return -1;
                 }
-                if (len === 0) return 0;
+                if (len === 0) {return 0;}
                 try {
                     const view = getCheckedWasmMemoryView(activeIo.memory, pointer, len, 'evb_host_sink_read');
                     return readExactSync(sink.fd, view, offset) ? 0 : -1;

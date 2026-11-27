@@ -67,10 +67,10 @@ export async function readDocumentBytes(page: Page, reference?: string) {
     const documentRef = reference === undefined
         ? await getActiveWorkspaceWorkingCopyPath(page)
         : parseDocumentRef(reference);
-    if (documentRef === null) throw new Error('Invalid document reference');
+    if (documentRef === null) {throw new Error('Invalid document reference');}
     const bytes = await evaluateInPage(page, async (ref: TDocumentRef) => {
         const files = (window as IE2EWindow).electronAPI?.documentFiles;
-        if (!files) throw new Error('Document files API is unavailable');
+        if (!files) {throw new Error('Document files API is unavailable');}
         return Array.from(await files.readFile(ref));
     }, documentRef);
     return Buffer.from(bytes);

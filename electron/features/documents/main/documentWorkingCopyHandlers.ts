@@ -76,7 +76,7 @@ async function preparePdf(entry: IOpenDocument, readPath: string, options: IPrep
     let wasEncrypted = false;
     try {
         const encrypted = await isPdfFileEncrypted(readPath);
-        if (!encrypted && !await pdfNeedsAppendBaseRewrite(readPath, options.signal)) return false;
+        if (!encrypted && !await pdfNeedsAppendBaseRewrite(readPath, options.signal)) {return false;}
         await rewriteOpenDocument(entry, async (staged) => {
             if (encrypted) {
                 const decryption = await decryptWorkingCopyWithWriter(staged, options.password, options.signal);
@@ -111,7 +111,7 @@ export async function createDocumentFromFile(source: TOpenPath, originalPath: st
         ...(originalPath === undefined ? {} : {originalPath}),
         ...(ownerWebContentsId === undefined ? {} : {ownerWebContentsId}),
     });
-    if (isPdfPath(source)) await preparePdf(entry, await requireDocumentFile(entry), {});
+    if (isPdfPath(source)) {await preparePdf(entry, await requireDocumentFile(entry), {});}
     return entry;
 }
 
@@ -151,7 +151,7 @@ function resolveTrustedOriginalDocument(originalPath: string | undefined, warnin
         throw new Error('Invalid original path');
     }
     const ref = normalized ? findWorkingCopyPathByOriginalPath(normalized, senderId) : null;
-    if (normalized && !ref) logger.warn(`Ignoring untrusted original path for ${warningContext}`);
+    if (normalized && !ref) {logger.warn(`Ignoring untrusted original path for ${warningContext}`);}
     return ref ? requireOpenDocument(ref, senderId) : null;
 }
 
@@ -171,12 +171,12 @@ export async function handleCreateWorkingCopyFromData(
     }
     const validatedPassword = assertOptionalPdfDecryptPassword(password);
     const document = resolveTrustedOriginalDocument(originalPath, 'createWorkingCopyFromData', context.senderId);
-    if (document) return (await createRevisionOf(document, data, context.senderId)).ref;
+    if (document) {return (await createRevisionOf(document, data, context.senderId)).ref;}
     const entry = await createDocumentFromSource(data, {
         ext: extensionOf(normalizedName),
         ...(context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId}),
     });
-    if (isPdfPath(normalizedName)) await preparePdf(entry, await requireDocumentFile(entry), {password: validatedPassword});
+    if (isPdfPath(normalizedName)) {await preparePdf(entry, await requireDocumentFile(entry), {password: validatedPassword});}
     return entry.ref;
 }
 
@@ -191,11 +191,11 @@ export async function handleCreateWorkingCopyFromPath(
     }
     const validatedPassword = assertOptionalPdfDecryptPassword(password);
     const source = getWorkingCopyBackingEntry(sourcePath, context.senderId);
-    if (source) return (await forkOpenDocument(source, context.senderId)).ref;
+    if (source) {return (await forkOpenDocument(source, context.senderId)).ref;}
     const document = originalPath === sourcePath
         ? null
         : resolveTrustedOriginalDocument(originalPath, 'createWorkingCopyFromPath', context.senderId);
-    if (document) return (await createRevisionOf(document, sourcePath, context.senderId)).ref;
+    if (document) {return (await createRevisionOf(document, sourcePath, context.senderId)).ref;}
     try {
         return (await openFileAsDocument(sourcePath, context.senderId, {password: validatedPassword})).entry.ref;
     } catch (error) {

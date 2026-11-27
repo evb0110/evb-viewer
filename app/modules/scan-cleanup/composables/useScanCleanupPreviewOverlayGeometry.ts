@@ -116,7 +116,7 @@ export const useScanCleanupPreviewOverlayGeometry = (
         if (previous === htmlElement) {
             return;
         }
-        if (previous) outputResizeObserver?.unobserve(previous);
+        if (previous) {outputResizeObserver?.unobserve(previous);}
         if (!htmlElement) {
             outputFitAreas.delete(half);
             Reflect.deleteProperty(outputFitAreaSizes, half);
@@ -133,7 +133,7 @@ export const useScanCleanupPreviewOverlayGeometry = (
         if (previous === htmlElement) {
             return;
         }
-        if (previous) outputResizeObserver?.unobserve(previous);
+        if (previous) {outputResizeObserver?.unobserve(previous);}
         if (!htmlElement) {
             outputCanvases.delete(half);
             Reflect.deleteProperty(outputCanvasRects, half);
@@ -288,8 +288,8 @@ export const useScanCleanupPreviewOverlayGeometry = (
             return;
         }
         outputResizeObserver = new ResizeObserver(updateOutputFitAreaSizes);
-        for (const element of outputFitAreas.values()) outputResizeObserver.observe(element);
-        for (const element of outputCanvases.values()) outputResizeObserver.observe(element);
+        for (const element of outputFitAreas.values()) {outputResizeObserver.observe(element);}
+        for (const element of outputCanvases.values()) {outputResizeObserver.observe(element);}
         updateOutputFitAreaSizes();
     }
 

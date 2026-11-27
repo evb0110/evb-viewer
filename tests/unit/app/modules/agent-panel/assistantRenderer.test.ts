@@ -144,10 +144,10 @@ function mount(component: Component = AgentAssistantPanel, props: Record<string,
     unmounts.push(() => { app.unmount(); host.remove(); });
     return host;
 }
-async function settle() { for (let index = 0; index < 6; index++) await nextTick(); }
+async function settle() { for (let index = 0; index < 6; index++) {await nextTick();} }
 function button(host: HTMLElement, label: string) {
     const found = [...host.querySelectorAll('button')].find(node => node.textContent === label || node.getAttribute('aria-label') === label);
-    if (!found) throw new Error('Missing button ' + label);
+    if (!found) {throw new Error('Missing button ' + label);}
     return found;
 }
 // The picker lists the open provider's models as options; a provider is chosen in its rail first.
@@ -157,18 +157,18 @@ async function pickModel(host: HTMLElement, label: string, instanceLabel?: strin
         await settle();
     }
     const row = [...host.querySelectorAll<HTMLElement>('[role="option"]')].find(node => node.querySelector('.row-name')?.firstChild?.textContent === label);
-    if (!row) throw new Error('Missing model ' + label);
+    if (!row) {throw new Error('Missing model ' + label);}
     row.click();
     await settle();
 }
 function radio(host: HTMLElement, label: string) {
     const found = [...host.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find(node => node.textContent?.trim() === label);
-    if (!found) throw new Error('Missing choice ' + label);
+    if (!found) {throw new Error('Missing choice ' + label);}
     return found;
 }
 async function draft(host: HTMLElement, text: string) {
     const input = host.querySelector('textarea');
-    if (!input) throw new Error('Missing composer');
+    if (!input) {throw new Error('Missing composer');}
     input.value = text;
     input.dispatchEvent(new Event('input', { bubbles: true }));
     await settle();
@@ -216,7 +216,7 @@ describe('assistant renderer on instance contract', () => {
         await settle();
         expect(host.textContent).toContain('Existing');
         expect(host.querySelector('.provider-banner')?.textContent).not.toContain('OTHER FAILURE');
-        if (state !== 'checking') expect(host.querySelector('.provider-banner')?.textContent).toContain('initialize failed: actual network detail');
+        if (state !== 'checking') {expect(host.querySelector('.provider-banner')?.textContent).toContain('initialize failed: actual network detail');}
         await draft(host, 'next message');
         const send = host.querySelector<HTMLButtonElement>('.composer-send');
         expect(send?.disabled).toBe(false);
@@ -763,7 +763,7 @@ describe('timeline presentation and following', () => {
         const host = mount(AssistantTimeline, props);
         await settle();
         const viewport = host.querySelector<HTMLElement>('.assistant-timeline');
-        if (!viewport) throw new Error('Missing viewport');
+        if (!viewport) {throw new Error('Missing viewport');}
         Object.defineProperties(viewport, {
             scrollHeight: {
                 configurable: true,
@@ -1061,7 +1061,7 @@ describe('timeline viewport', () => {
         const host = mount(AssistantTimeline, props);
         await settle();
         const viewport = host.querySelector<HTMLElement>('.assistant-timeline');
-        if (!viewport) throw new Error('Missing viewport');
+        if (!viewport) {throw new Error('Missing viewport');}
         geometry(viewport, 1200, 400);
         for (const top of [800, 100]) {
             viewport.scrollTop = top;
@@ -1079,7 +1079,7 @@ describe('timeline viewport', () => {
         const host = mount(AssistantTimeline, timelineProps([item('answer', 'assistant', 'Answer')]));
         await settle();
         const viewport = host.querySelector<HTMLElement>('.assistant-timeline');
-        if (!viewport) throw new Error('Missing viewport');
+        if (!viewport) {throw new Error('Missing viewport');}
         geometry(viewport, 1200, 400);
         viewport.scrollTop = 800;
         viewport.dispatchEvent(new Event('scroll'));
@@ -1101,7 +1101,7 @@ describe('timeline viewport', () => {
         await settle();
         const viewport = host.querySelector<HTMLElement>('.assistant-timeline');
         const content = host.querySelector<HTMLElement>('.timeline-content');
-        if (!viewport || !content) throw new Error('Missing timeline');
+        if (!viewport || !content) {throw new Error('Missing timeline');}
         geometry(viewport, 700, 400);
         Object.defineProperty(content, 'offsetHeight', {
             configurable: true,

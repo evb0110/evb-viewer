@@ -81,12 +81,12 @@ export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSl
                     currentPage,
                     destinationPage,
                 ]) {
-                    if (anchor === undefined) continue;
+                    if (anchor === undefined) {continue;}
                     for (
                         let page = Math.max(1, anchor - radius);
                         page <= Math.min(pageCount, anchor + radius);
                         page += 1
-                    ) semanticPages.add(page);
+                    ) {semanticPages.add(page);}
                 }
                 const candidates = new Set([
                     ...normalizedViewportPages,
@@ -108,7 +108,7 @@ export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSl
                     ? null
                     : normalizePage(destinationPage);
                 const requiredPages = new Set<number>(normalizedViewportPages);
-                if (destination !== null) requiredPages.add(destination);
+                if (destination !== null) {requiredPages.add(destination);}
                 requiredPages.add(normalizePage(currentPage));
                 const ranked = [...candidates].sort((left, right) => {
                     const leftRequired = requiredPages.has(left) ? 0 : 1;

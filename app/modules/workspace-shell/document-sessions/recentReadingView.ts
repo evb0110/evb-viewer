@@ -150,7 +150,7 @@ export async function seedOpeningSource(
     } catch (error) {
         BrowserLogger.warn('recent-files', 'The reading view could not be read', error);
     }
-    if (!reading) return;
+    if (!reading) {return;}
     const pageCount = await sourcePageCount();
     if (reading.pageCount !== pageCount || opening.reader.moved() || openingReaders.get(controller) !== opening) {
         return;

@@ -482,14 +482,14 @@ export const useOcrPopupPresenter = ({
 
         if (progress.value.phase === 'model-prep') {
             const download = progress.value.modelDownload;
-            if (!download) return t('ocr.preparing');
+            if (!download) {return t('ocr.preparing');}
             const language = t(OCR_LANGUAGE_NAME_KEYS[download.languageCode], undefined);
             const retry = t('ocr.modelDownload.retrying', {
                 language,
                 attempt: download.attempt,
                 attempts: download.maxAttempts,
             });
-            if (download.retrying) return retry;
+            if (download.retrying) {return retry;}
             const formatMegabytes = (bytes: number) => (bytes / 1_000_000).toLocaleString(locale.value, {
                 minimumFractionDigits: 1,
                 maximumFractionDigits: 1,
@@ -910,7 +910,7 @@ export const useOcrPopupPresenter = ({
             activeOcrSourcePage.value = null;
             try {
                 const applied = await applying;
-                if (pendingAppliedOcrRequestId.value !== searchablePdfResult.requestId) return;
+                if (pendingAppliedOcrRequestId.value !== searchablePdfResult.requestId) {return;}
                 if (applied) {
                     showSuccessState.value = true;
                     stopSuccessStateReset();
@@ -919,12 +919,12 @@ export const useOcrPopupPresenter = ({
                     clearResults();
                 }
             } catch (applyError) {
-                if (pendingAppliedOcrRequestId.value !== searchablePdfResult.requestId) return;
+                if (pendingAppliedOcrRequestId.value !== searchablePdfResult.requestId) {return;}
                 error.value = t('errors.ocr.createSearchablePdf');
                 clearResults();
                 BrowserLogger.error('ocr', 'Failed to apply the recognized PDF', {error: applyError}, {code: 'RENDERER_OCR_RUN_FAILED'});
             } finally {
-                if (pendingAppliedOcrRequestId.value === searchablePdfResult.requestId) pendingAppliedOcrRequestId.value = null;
+                if (pendingAppliedOcrRequestId.value === searchablePdfResult.requestId) {pendingAppliedOcrRequestId.value = null;}
             }
         }
     });

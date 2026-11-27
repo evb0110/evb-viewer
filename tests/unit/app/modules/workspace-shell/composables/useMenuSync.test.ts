@@ -120,7 +120,7 @@ describe('useMenuSync', () => {
         activeDocumentRecord.value = createWorkspaceDocumentRecord({toolbarSnapshot: {
             ...activeDocumentRecord.value.toolbarSnapshot, ...next,
         }});
-        if ('addTab' in scenario && scenario.addTab) tabs.value.push({id: 'tab-2'});
+        if ('addTab' in scenario && scenario.addTab) {tabs.value.push({id: 'tab-2'});}
         await nextTick();
         expect(mocks.setMenuDocumentState).toHaveBeenLastCalledWith(expect.objectContaining({...expected, ...after}));
         expect(mocks.setMenuTabCount).toHaveBeenLastCalledWith(tabs.value.length);

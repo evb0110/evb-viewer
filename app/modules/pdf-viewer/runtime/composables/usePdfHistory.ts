@@ -110,7 +110,7 @@ export const usePdfHistory = (deps: {
         (deps.runWithDocumentOperationLease ?? runWithoutDocumentOperationLease)('history', async () => {
             const didRun = await runTimelineHistoryRoute(direction, direction === 'undo' ? undoHistory : redoHistory);
             const revision = deps.documentRevisionToken?.value;
-            if (didRun && revision) onCommitted?.(revision);
+            if (didRun && revision) {onCommitted?.(revision);}
             return didRun;
         })
     );

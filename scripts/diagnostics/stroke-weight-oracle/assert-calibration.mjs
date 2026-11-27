@@ -66,8 +66,8 @@ const referencePages = new Map(
 );
 for (const page of report.pages) {
     const expected = referencePages.get(page.imageName);
-    if (!expected) throw new Error(`unexpected calibration page ${page.imageName}`);
-    if (page.offenderCount !== 0) throw new Error(`${page.imageName} has ${page.offenderCount} offenders`);
+    if (!expected) {throw new Error(`unexpected calibration page ${page.imageName}`);}
+    if (page.offenderCount !== 0) {throw new Error(`${page.imageName} has ${page.offenderCount} offenders`);}
     if (page.maxLineP95P50Ratio > expected.maxLineP95P50Ratio + 1e-6) {
         throw new Error(
             `${page.imageName} p95/p50 regressed: ${expected.maxLineP95P50Ratio} -> ${page.maxLineP95P50Ratio}`,

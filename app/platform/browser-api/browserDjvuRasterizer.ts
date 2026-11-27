@@ -91,7 +91,7 @@ export async function decodeDjvuPageImageData(
 ) {
     throwIfDjvuCanceled(signal);
     const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
-    if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+    if (!pageSize) {throw new RangeError(`DjVu page ${pageNumber} is outside the document`);}
     const decodeWidth = targetSize?.width ?? pageSize.width;
     const decodeHeight = targetSize?.height ?? pageSize.height;
     const context = `DjVu page ${pageNumber}`;
@@ -141,7 +141,7 @@ export async function renderDjvuPage(
 ): Promise<IRenderedDjvuPage> {
     throwIfDjvuCanceled(signal);
     const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
-    if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+    if (!pageSize) {throw new RangeError(`DjVu page ${pageNumber} is outside the document`);}
     const effectiveSubsample = Math.max(1, subsample);
     const targetWidth = Math.max(1, Math.round(pageSize.width / effectiveSubsample));
     const targetHeight = Math.max(1, Math.round(pageSize.height / effectiveSubsample));
@@ -177,7 +177,7 @@ export async function renderDjvuPagePreviewPng(
 ) {
     throwIfDjvuCanceled(signal);
     const pageSize = (await getDjvuWorkerPageSizes(worker))[pageNumber - 1];
-    if (!pageSize) throw new RangeError(`DjVu page ${pageNumber} is outside the document`);
+    if (!pageSize) {throw new RangeError(`DjVu page ${pageNumber} is outside the document`);}
     const width = Math.max(1, Math.min(pageSize.width, Math.round(targetWidth)));
     const height = Math.max(1, Math.round(width * pageSize.height / Math.max(1, pageSize.width)));
     assertBrowserDjvuRasterDimensions(width, height, `DjVu page ${pageNumber} preview`);

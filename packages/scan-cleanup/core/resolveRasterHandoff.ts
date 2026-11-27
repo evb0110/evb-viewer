@@ -360,7 +360,7 @@ export async function mapScanCleanupRasterPages<T, R>(
     });
     const settled = await Promise.allSettled(workers);
     const rejected = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
-    if (rejected) throw rejected.reason;
+    if (rejected) {throw rejected.reason;}
     return results;
 }
 

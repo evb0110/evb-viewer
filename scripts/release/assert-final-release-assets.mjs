@@ -40,9 +40,9 @@ assertUpdaterArtifactIntegrity({
     artifactsDir,
     readMetadataText: readMetadata,
 });
-if (signedMac) assertMacUpdaterMetadataHashes({
+if (signedMac) {assertMacUpdaterMetadataHashes({
     artifactNames: files,
     artifactsDir,
     readMetadataText: readMetadata,
-});
+});}
 process.stdout.write(`Final release assets validated for ${version}: ${files.length} files.\n`);

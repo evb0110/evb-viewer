@@ -107,7 +107,7 @@ async function readBodyWithStallTimeout(
                 reader.read(),
                 stalled,
             ]);
-            if (chunk.done) break;
+            if (chunk.done) {break;}
             if (receivedBytes + chunk.value.byteLength > totalBytes) {
                 throw new BrowserOcrModelError(`OCR model ${code} download is larger than the pinned model`, false);
             }
@@ -166,8 +166,8 @@ async function downloadAttempt(
         }
         return bytes;
     } catch (error) {
-        if (signal.aborted) throw abortError(signal);
-        if (attemptController.signal.reason instanceof BrowserOcrModelError) throw attemptController.signal.reason;
+        if (signal.aborted) {throw abortError(signal);}
+        if (attemptController.signal.reason instanceof BrowserOcrModelError) {throw attemptController.signal.reason;}
         throw error instanceof BrowserOcrModelError
             ? error
             : new BrowserOcrModelError(`OCR model ${code} download failed: ${error instanceof Error ? error.message : String(error)}`, true);
@@ -194,7 +194,7 @@ function waitBeforeRetry(signal: AbortSignal, attempt: number) {
 async function downloadAndStore(code: TOcrModelCode, signal: AbortSignal, report: TProgressListener) {
     // Another tab may be downloading the same model; take turns and reuse its result.
     const run = async () => {
-        if (await hasCachedOcrModel(code)) return;
+        if (await hasCachedOcrModel(code)) {return;}
         for (let attempt = 1; ; attempt += 1) {
             try {
                 const bytes = await downloadAttempt(code, attempt, signal, report);
@@ -203,7 +203,7 @@ async function downloadAndStore(code: TOcrModelCode, signal: AbortSignal, report
                 return;
             } catch (error) {
                 const retryable = error instanceof BrowserOcrModelError && error.retryable;
-                if (signal.aborted || !retryable || attempt >= DOWNLOAD_ATTEMPTS) throw error;
+                if (signal.aborted || !retryable || attempt >= DOWNLOAD_ATTEMPTS) {throw error;}
                 report({
                     languageCode: code,
                     receivedBytes: 0,
@@ -224,8 +224,8 @@ async function downloadAndStore(code: TOcrModelCode, signal: AbortSignal, report
 }
 
 function waitOrAbort(promise: Promise<void>, signal: AbortSignal | undefined) {
-    if (!signal) return promise;
-    if (signal.aborted) return Promise.reject(abortError(signal));
+    if (!signal) {return promise;}
+    if (signal.aborted) {return Promise.reject(abortError(signal));}
     return new Promise<void>((resolve, reject) => {
         const onAbort = () => reject(abortError(signal));
         signal.addEventListener('abort', onAbort, {once: true});
@@ -257,9 +257,9 @@ export async function ensureBrowserOcrModel(
         };
         created.promise = downloadAndStore(code, controller.signal, (progress) => {
             created.progress = progress;
-            for (const listener of listeners) listener(progress);
+            for (const listener of listeners) {listener(progress);}
         }).finally(() => {
-            if (downloads.get(code) === created) downloads.delete(code);
+            if (downloads.get(code) === created) {downloads.delete(code);}
         });
         created.promise.catch(() => {});
         downloads.set(code, created);
@@ -268,14 +268,14 @@ export async function ensureBrowserOcrModel(
     const listener = options.onProgress;
     if (listener) {
         download.listeners.add(listener);
-        if (download.progress) listener(download.progress);
+        if (download.progress) {listener(download.progress);}
     }
     download.waiters += 1;
     try {
         await waitOrAbort(download.promise, options.signal);
     } finally {
         download.waiters -= 1;
-        if (listener) download.listeners.delete(listener);
+        if (listener) {download.listeners.delete(listener);}
         if (options.signal?.aborted && download.waiters === 0 && downloads.get(code) === download) {
             download.controller.abort(abortError(options.signal));
         }

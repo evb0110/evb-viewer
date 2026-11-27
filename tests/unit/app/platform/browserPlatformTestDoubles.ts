@@ -579,7 +579,7 @@ export class FakeLockManager {
 
     public releaseElsewhere(name: string) {
         const lock = this.held.get(name)?.values().next().value;
-        if (lock) this.release(lock);
+        if (lock) {this.release(lock);}
     }
 
     // Required by the LockManager-shaped object consumed structurally by the browser lease store.
@@ -597,9 +597,9 @@ export class FakeLockManager {
             name,
             mode: options.mode ?? 'exclusive',
         };
-        if (options.signal?.aborted) throw new DOMException('The lock request was aborted.', 'AbortError');
+        if (options.signal?.aborted) {throw new DOMException('The lock request was aborted.', 'AbortError');}
         if (!this.canGrant(lock) || this.waiting.get(name)?.length) {
-            if (options.ifAvailable) return callback(null);
+            if (options.ifAvailable) {return callback(null);}
             await new Promise<void>((granted, withdrawn) => {
                 const queue = this.waiting.get(name) ?? [];
                 const waiter = {
@@ -648,13 +648,13 @@ export class FakeLockManager {
     private release(lock: IFakeLock) {
         const held = this.held.get(lock.name);
         held?.delete(lock);
-        if (!held?.size) this.held.delete(lock.name);
+        if (!held?.size) {this.held.delete(lock.name);}
         this.pump(lock.name);
     }
 
     private pump(name: string) {
         const queue = this.waiting.get(name);
-        while (queue?.[0] && this.canGrant(queue[0].lock)) queue.shift()!.grant();
-        if (!queue?.length) this.waiting.delete(name);
+        while (queue?.[0] && this.canGrant(queue[0].lock)) {queue.shift()!.grant();}
+        if (!queue?.length) {this.waiting.delete(name);}
     }
 }

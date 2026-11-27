@@ -719,7 +719,7 @@ function leb(value: number | bigint, signed = false, width = 0): number[] {
         if (done) {
             // Pad a non-minimal encoding with continuation bytes of the sign.
             const fill = signed && remaining === -1n ? 0x7f : 0x00;
-            while (out.length + 1 < width) out.push(fill | 0x80);
+            while (out.length + 1 < width) {out.push(fill | 0x80);}
             out.push(fill);
             return out;
         }
@@ -776,9 +776,9 @@ describe('browser WASM bulk memory lowering', () => {
                 for (const base of [0, 3, 1000, end - length]) {
                     for (const delta of [-40, -9, -8, -7, -1, 0, 1, 7, 8, 9, 40]) {
                         const source = base + delta;
-                        if (source >= 0 && source + length <= end) cases.push(['copy', base, source, length]);
+                        if (source >= 0 && source + length <= end) {cases.push(['copy', base, source, length]);}
                     }
-                    for (const value of [0, 1, 0x7f, 0x80, 0xff, 0x1ab, -1, -128]) cases.push(['fill', base, value, length]);
+                    for (const value of [0, 1, 0x7f, 0x80, 0xff, 0x1ab, -1, -128]) {cases.push(['fill', base, value, length]);}
                 }
             }
             cases.push(['copy', end, 0, 0], ['copy', 0, end, 0], ['fill', end, 9, 0]);

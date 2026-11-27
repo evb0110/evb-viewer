@@ -340,7 +340,7 @@ async function createBrowserDjvuPdfOutputSink(
         return BrowserHandlePdfSink.create(outputPath, saveTarget.saveHandle, saveTarget.saveName, signal);
     }
     const sink = await BrowserStoredPdfSink.create(outputPath);
-    if (signal?.aborted) await sink.abort();
+    if (signal?.aborted) {await sink.abort();}
     throwIfCanceled(signal);
     return sink;
 }
@@ -600,7 +600,7 @@ async function buildDjvuPdfWithWasm(options: {
                     // caller, reports that reason rather than its own stop.
                     throw pageSignal.aborted ? pageSignal.reason : error;
                 } finally {
-                    if (worker) idleWorkers.push(worker);
+                    if (worker) {idleWorkers.push(worker);}
                 }
             },
             consumeChunk: async (chunk) => {
@@ -744,7 +744,7 @@ async function detectBrowserDjvuHasText(djvuPath: TDocumentRef, worker: IDjvuWor
     if (hasText || scanComplete) {
         textScanResults.set(versionKey, hasText);
         for (const key of textScanResults.keys()) {
-            if (textScanResults.size <= DJVU_TEXT_SCAN_CACHE_ENTRIES) break;
+            if (textScanResults.size <= DJVU_TEXT_SCAN_CACHE_ENTRIES) {break;}
             textScanResults.delete(key);
         }
     }

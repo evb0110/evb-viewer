@@ -1038,10 +1038,10 @@ describe('scoped committed additive upserts', () => {
         const outside = note('outside', {pageIndex: requirePageIndex(1)});
         store.replaceFromDocument([outside], []);
         const added = factory('added');
-        if (added.kind === 'shape') store.createShape(added);
-        else if (added.kind === 'text-box') store.createTextBox(added);
-        else if (added.kind === 'placed-image') store.createPlacedImage(added);
-        else store.createTextMarkup(added);
+        if (added.kind === 'shape') {store.createShape(added);}
+        else if (added.kind === 'text-box') {store.createTextBox(added);}
+        else if (added.kind === 'placed-image') {store.createPlacedImage(added);}
+        else {store.createTextMarkup(added);}
         const frontier = store.beginSave();
         store.markPersisted(frontier, [{
             annotationId: 'added',
@@ -1140,7 +1140,7 @@ describe('scoped committed additive upserts', () => {
             const store = new AnnotationStore();
             store.importMany(() => {
                 for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
-                    for (let slot = 0; slot < 3; slot += 1) store.import(inkOnPage(`ink-${pageIndex}-${slot}`, pageIndex, true));
+                    for (let slot = 0; slot < 3; slot += 1) {store.import(inkOnPage(`ink-${pageIndex}-${slot}`, pageIndex, true));}
                 }
             });
             return store;
@@ -1212,7 +1212,7 @@ describe('scoped committed additive upserts', () => {
         const store = new AnnotationStore();
         store.importMany(() => {
             for (let pageIndex = 0; pageIndex < 3; pageIndex += 1) {
-                for (let slot = 0; slot < 3; slot += 1) store.import(inkOnPage(`ink-${pageIndex}-${slot}`, pageIndex, true));
+                for (let slot = 0; slot < 3; slot += 1) {store.import(inkOnPage(`ink-${pageIndex}-${slot}`, pageIndex, true));}
             }
         });
         const before = store.list().map(entity => entity.identity.id);

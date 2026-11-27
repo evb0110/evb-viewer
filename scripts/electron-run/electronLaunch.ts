@@ -317,7 +317,7 @@ async function startElectron(cdpPort: number, initialOpenPaths: string[] = []): 
 export async function allocateAutomationPorts(logTiming: (message: string) => void) {
     const serverPort = await findFreePort();
     let cdpPort = await findFreePort();
-    while (cdpPort === serverPort) cdpPort = await findFreePort();
+    while (cdpPort === serverPort) {cdpPort = await findFreePort();}
     const ports = {
         serverPort,
         cdpPort,

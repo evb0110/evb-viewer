@@ -76,7 +76,7 @@ export async function resolvePageMetadataSourceTargets(
         || needsResolution(item.items)
     ));
     const binaryPath = resolveNativePageOpsPath();
-    if (!binaryPath) throw new Error('Native bookmark target resolution is unavailable');
+    if (!binaryPath) {throw new Error('Native bookmark target resolution is unavailable');}
     // The renderer omits bookmarks it has not read since the last reload. The
     // working PDF still holds them, and qpdf is about to rewrite their pages, so
     // read them here instead of letting a deleted page keep its bookmark. An
@@ -99,7 +99,7 @@ export async function resolvePageMetadataSourceTargets(
         const {pageLabels: _labels, pageLabelRanges: _ranges, ...rest} = metadata;
         metadata = rest;
     }
-    if (!needsResolution(metadata.bookmarks ?? [])) return metadata;
+    if (!needsResolution(metadata.bookmarks ?? [])) {return metadata;}
     return usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async tempDir => {
         const mutationsPath = join(tempDir, 'targets.json');
         const bookmarks: IPdfBookmarkEntry[] = [];
@@ -126,7 +126,7 @@ export async function resolvePageMetadataSourceTargets(
                 ...JSON.parse(result.stdout),
                 untitledBookmarkLabel: metadata.untitledBookmarkLabel,
             });
-            if (!resolved.bookmarks) throw new Error('Native bookmark target resolution returned no bookmarks');
+            if (!resolved.bookmarks) {throw new Error('Native bookmark target resolution returned no bookmarks');}
             const level = (chunk.continuation?.bookmarkPath ?? [])
                 .reduce<readonly IPdfBookmarkEntry[]>((items, index) => items[index]!.items, bookmarks);
             // Decoding owns these arrays; the contract exposes readonly views.
@@ -175,7 +175,7 @@ function remapKnownPageLabels(
         });
     } else {
         for (const range of delta.ranges ?? []) {
-            if (range.kind !== 'retain' && range.kind !== 'move') continue;
+            if (range.kind !== 'retain' && range.kind !== 'move') {continue;}
             for (let offset = 0; offset < range.count; offset += 1) {
                 remapped[range.toPageNumber - 1 + offset] = pageLabels[range.fromPageNumber - 1 + offset];
             }
@@ -245,10 +245,10 @@ function remapCompactPageLabelRanges(
         }
         for (let index = first; index < sourceRanges.length; index += 1) {
             const sourceRange = sourceRanges[index]!;
-            if (sourceRange.startPage > sourceEndPage) break;
+            if (sourceRange.startPage > sourceEndPage) {break;}
             const overlapStart = Math.max(sourceStartPage, sourceRange.startPage);
             const overlapEnd = Math.min(sourceEndPage, sourceRange.endPage);
-            if (overlapStart > overlapEnd) continue;
+            if (overlapStart > overlapEnd) {continue;}
             append({
                 startPage: destinationStartPage + overlapStart - sourceStartPage,
                 style: sourceRange.style,

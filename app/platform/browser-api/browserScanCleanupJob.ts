@@ -249,7 +249,7 @@ export async function renderPageRaster(
     });
     const rendered = await runRasterRequest().catch(async (error: unknown) => {
         // Without a page-ops worker, PDF.js paints the page.
-        if (error instanceof BrowserPageOpsWorkerUnavailableError) return null;
+        if (error instanceof BrowserPageOpsWorkerUnavailableError) {return null;}
         // An in-place OPFS append (or discarded append) invalidates previously
         // opened File handles; re-check the revision and refresh once if still current.
         const isStaleFileHandle = error instanceof Error
@@ -259,7 +259,7 @@ export async function renderPageRaster(
         if (isStaleFileHandle && source.refreshSource && !signal.aborted) {
             const refreshed = await source.refreshSource();
             return runRasterRequest(refreshed).catch((retryError: unknown) => {
-                if (retryError instanceof BrowserPageOpsWorkerUnavailableError) return null;
+                if (retryError instanceof BrowserPageOpsWorkerUnavailableError) {return null;}
                 throw retryError;
             });
         }
@@ -269,7 +269,7 @@ export async function renderPageRaster(
         const {
             width, height,
         } = rendered.report;
-        if (width > SCAN_CLEANUP_MAX_DIMENSION_PX || height > SCAN_CLEANUP_MAX_DIMENSION_PX) throw tooLarge(width, height);
+        if (width > SCAN_CLEANUP_MAX_DIMENSION_PX || height > SCAN_CLEANUP_MAX_DIMENSION_PX) {throw tooLarge(width, height);}
         const ppm = createPpmRaster(width, height);
         if (rendered.data.byteLength !== ppm.image.byteLength - ppm.offset) {
             throw new Error('Scan cleanup page raster does not match its size');
@@ -347,7 +347,7 @@ function copy(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
 /** The document facts a preview of one recorded page starts from, as desktop measures them. */
 function readDocumentFacts(source: IBrowserScanCleanupSource, pageSize: IPdfPageSize | undefined) {
     const facts = createScanCleanupPreviewDocumentFacts();
-    for (const page of source.pageSizes) facts.add(page);
+    for (const page of source.pageSizes) {facts.add(page);}
     return resolveScanCleanupPreviewPageFacts(facts.seal(), pageSize);
 }
 
@@ -619,7 +619,7 @@ async function renderBase(
             estimatePixels: () => canonical.width * canonical.height,
             rasterize: () => Promise.resolve(copy(canonical.ppm)),
         });
-        if (plan.rawPng === undefined) throw new Error('Scan cleanup preserve-quality preview has no original');
+        if (plan.rawPng === undefined) {throw new Error('Scan cleanup preserve-quality preview has no original');}
         return {
             result: projectScanCleanupLosslessPreview({
                 pageNumber: request.pageNumber,
@@ -890,7 +890,7 @@ export async function runBrowserScanCleanupAnalysis({
             pages: [...pages],
             analyses,
         }, signal, onEngineIdentity, concurrency));
-        if (plan.kind === 'finished') return plan.pages;
+        if (plan.kind === 'finished') {return plan.pages;}
         let onAnalyzedChain = Promise.resolve();
         const notifyAnalyzed = onAnalyzed === undefined
             ? null

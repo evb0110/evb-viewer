@@ -119,7 +119,7 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
                 helper,
             ]) {
                 const pid = Number(value);
-                if (Number.isSafeInteger(pid) && pid > 0) pids.push(pid);
+                if (Number.isSafeInteger(pid) && pid > 0) {pids.push(pid);}
             }
         }
         for (const pid of pids.splice(0)) {
@@ -182,7 +182,7 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
             },
             stdio: 'pipe',
         });
-        if (child.pid) pids.push(child.pid);
+        if (child.pid) {pids.push(child.pid);}
         let output = '';
         child.stdout.on('data', data => { output += String(data); });
         child.stderr.on('data', data => { output += String(data); });
@@ -417,9 +417,9 @@ describe.skipIf(process.platform === 'win32')('packaged automation runner lifecy
             if (env) { childPid = Number(env.split('\n')[3]); break; }
             await delay(25);
         }
-        if (!childPid) throw new Error(`Fixture did not write user-data.env within 10 seconds. Runner output: ${run.output()}`);
+        if (!childPid) {throw new Error(`Fixture did not write user-data.env within 10 seconds. Runner output: ${run.output()}`);}
         expect(childPid).toBeGreaterThan(0);
-        if (phase === 'running') run.child.kill('SIGTERM');
+        if (phase === 'running') {run.child.kill('SIGTERM');}
         await run.exited;
         expect(isProcessAlive(childPid!)).toBe(false);
         expect(run.child.signalCode).toBeNull();

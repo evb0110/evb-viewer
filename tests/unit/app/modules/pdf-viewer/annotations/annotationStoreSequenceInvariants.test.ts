@@ -98,7 +98,7 @@ describe('AnnotationStore interleaved sequence invariants', () => {
         store.undo();
         const recovered = new AnnotationStore();
         const persisted = store.get(created.identity.id)!;
-        if (persisted.kind !== 'note') throw new Error('Expected the saved note');
+        if (persisted.kind !== 'note') {throw new Error('Expected the saved note');}
         recovered.replaceFromDocument([persisted], []);
         recovered.import({...persisted, contents: 'recovered edit', revision: persisted.revision + 1}, {preserveSavedBaseline: true});
         expect(unwritten(recovered)).toEqual(['working-note']);
@@ -239,8 +239,8 @@ describe('AnnotationStore interleaved sequence invariants', () => {
                 if (op === 1) {
                     const entity = store.get(id)!;
                     const value = entity.kind === 'note' ? `edit-${step}` : `#${step.toString(16).padStart(6, '0')}`;
-                    if (entity.kind === 'note') store.updateNote(id, {contents: value});
-                    else store.updateShape(id, {strokeColor: value});
+                    if (entity.kind === 'note') {store.updateNote(id, {contents: value});}
+                    else {store.updateShape(id, {strokeColor: value});}
                     expected = expected.map(item => item.id === id ? {
                         ...item,
                         value,

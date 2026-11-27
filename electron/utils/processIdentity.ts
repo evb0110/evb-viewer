@@ -130,7 +130,7 @@ function queryNativeIdentityHost(command: string) {
                 child,
                 answers: [],
                 end: () => {
-                    if (nativeIdentityHost === started) nativeIdentityHost = null;
+                    if (nativeIdentityHost === started) {nativeIdentityHost = null;}
                     lines.close();
                     started.answers.splice(0).forEach(answer => answer(null));
                     child.kill();
@@ -138,7 +138,7 @@ function queryNativeIdentityHost(command: string) {
             };
             lines.on('line', line => {
                 started.answers.shift()?.(line.trim());
-                if (started.answers.length === 0) (child.stdout as Socket).unref();
+                if (started.answers.length === 0) {(child.stdout as Socket).unref();}
             });
             child.once('error', started.end).once('close', started.end);
             child.stdin.once('error', started.end);

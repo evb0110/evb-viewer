@@ -406,7 +406,7 @@ export async function runNativeCommand(
     let unregistration: Promise<void> | null = null;
     const settledRegistration = () => registration ?? Promise.resolve(null);
     const unregister = () => {
-        if (registration === null) return Promise.resolve();
+        if (registration === null) {return Promise.resolve();}
         unregistration ??= registration.then(child => child?.unregister()).then(() => undefined, (error: unknown) => options.log?.('warn', `Could not remove a managed process record: ${getErrorMessage(error)}`));
         return unregistration;
     };
@@ -416,7 +416,7 @@ export async function runNativeCommand(
             const processTreeGone = terminationProof !== null
                 ? await terminationProof
                 : processId === null || (childClosed && !isProcessTreeAlive(processId));
-            if (!processTreeGone) return;
+            if (!processTreeGone) {return;}
             try {
                 if (!await removeManagedScratchTempDir(scratchPath, NATIVE_COMMAND_SCRATCH_PREFIX, namespacePath)) {
                     options.log?.('warn', `Could not remove managed native scratch directory "${scratchPath}"`);
@@ -455,7 +455,7 @@ export async function runNativeCommand(
             onClose: () => {
                 childClosed = true;
                 // A close can precede recording an abnormal Windows tree outcome.
-                if (terminationProof !== null) void cleanupScratchIfProven();
+                if (terminationProof !== null) {void cleanupScratchIfProven();}
                 options.onClose?.();
             },
             onTerminationProof: proof => {
@@ -564,7 +564,7 @@ function runNativeCommandCore(
         let closeCallbackCalled = false;
         const ignoreLateProcessError = () => undefined;
         const notifyClose = () => {
-            if (closeCallbackCalled) return;
+            if (closeCallbackCalled) {return;}
             closeCallbackCalled = true;
             try {
                 onClose?.();
@@ -907,8 +907,8 @@ function runNativeCommandCore(
                     if (!closeSignal) {
                         const structuredError = parseNativeErrorEnvelope(outputSnapshot.stderr);
                         if (structuredError) {
-                            if (process.platform === 'win32') requestTermination(structuredError);
-                            else finalizeReject(structuredError);
+                            if (process.platform === 'win32') {requestTermination(structuredError);}
+                            else {finalizeReject(structuredError);}
                             return;
                         }
                     }
@@ -930,8 +930,8 @@ function runNativeCommandCore(
                         outputSnapshot.stdout,
                         outputSnapshot.stderr,
                     );
-                    if (process.platform === 'win32') requestTermination(error);
-                    else finalizeReject(error);
+                    if (process.platform === 'win32') {requestTermination(error);}
+                    else {finalizeReject(error);}
                     return;
                 }
                 if (rejectOnStdoutTruncation && outputSnapshot.stdoutTruncated) {

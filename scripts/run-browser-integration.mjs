@@ -52,7 +52,7 @@ const DIRECT_SHUTDOWN_SIGNALS = process.platform === 'win32'
 
 /** @param {number} pgid */
 function isProcessGroupPresentUnix(pgid) {
-    if (process.platform === 'win32' || !Number.isFinite(pgid) || pgid <= 0 || pgid === process.pid) return false;
+    if (process.platform === 'win32' || !Number.isFinite(pgid) || pgid <= 0 || pgid === process.pid) {return false;}
     try {
         process.kill(-pgid, 0);
         return true;
@@ -88,12 +88,12 @@ function collectLiveProcessGroupPidsUnix(pgid) {
         const pids = [];
         for (const line of output.split('\n')) {
             const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\S+)/u);
-            if (!match) continue;
+            if (!match) {continue;}
             const pid = Number(match[1]);
             const group = Number(match[2]);
             const stat = match[3] ?? '';
-            if (group !== pgid || !Number.isFinite(pid) || pid <= 0) continue;
-            if (stat.startsWith('Z') || stat.startsWith('X')) continue;
+            if (group !== pgid || !Number.isFinite(pid) || pid <= 0) {continue;}
+            if (stat.startsWith('Z') || stat.startsWith('X')) {continue;}
             pids.push(pid);
         }
         return {
@@ -147,7 +147,7 @@ function inspectProcessGroupUnix(pgid) {
  * @param {NodeJS.Signals} signal
  */
 function killProcessGroupUnix(pgid, signal) {
-    if (process.platform === 'win32' || !Number.isFinite(pgid) || pgid <= 0 || pgid === process.pid) return;
+    if (process.platform === 'win32' || !Number.isFinite(pgid) || pgid <= 0 || pgid === process.pid) {return;}
     try {
         process.kill(-pgid, signal);
     } catch {}
@@ -172,11 +172,11 @@ function killProcessGroupUnix(pgid, signal) {
  */
 function createTrackedProcess(child, processTree) {
     const pid = child.pid;
-    if (!pid || !Number.isFinite(pid) || pid <= 0) return null;
+    if (!pid || !Number.isFinite(pid) || pid <= 0) {return null;}
     let exited = child.exitCode !== null || child.signalCode !== null;
     let groupCleared = false;
     const syncGroupCleared = () => {
-        if (!exited) return;
+        if (!exited) {return;}
         if (process.platform === 'win32' || !isProcessGroupPresentUnix(pid)) {
             groupCleared = true;
         }
@@ -193,7 +193,7 @@ function createTrackedProcess(child, processTree) {
         pid,
         isRootRunning: () => !exited && processTree.isProcessAlive(pid),
         hasActiveGroup: () => {
-            if (process.platform === 'win32' || groupCleared) return false;
+            if (process.platform === 'win32' || groupCleared) {return false;}
             if (exited && !isProcessGroupPresentUnix(pid)) {
                 groupCleared = true;
                 return false;
@@ -220,7 +220,7 @@ function forceKillTrackedProcessesSync(targets, processTree) {
     /** @type {ITrackedProcess[]} */
     const trackedList = [];
     for (const target of targets) {
-        if (!target) continue;
+        if (!target) {continue;}
         trackedList.push(target);
         if (target.isRootRunning()) {
             liveRoots.add(target.pid);
@@ -268,7 +268,7 @@ function forceKillTrackedProcessesSync(targets, processTree) {
  * @param {IProcessTreeHelper} processTree
  */
 async function terminateTrackedProcessTree(target, label, processTree) {
-    if (!target) return;
+    if (!target) {return;}
     const rootWasRunning = target.isRootRunning();
     const terminated = rootWasRunning ? await processTree.killProcessTree(target.pid) : true;
     const checkRemaining = () => {
@@ -303,7 +303,7 @@ async function terminateTrackedProcessTree(target, label, processTree) {
                         verified: true,
                         pids: [],
                     };
-                if (!groupState.alive && groupState.verified) break;
+                if (!groupState.alive && groupState.verified) {break;}
                 await new Promise(resolveWait => setTimeout(resolveWait, 80));
             }
         }
@@ -413,10 +413,10 @@ async function startBrowserIntegrationHarness({
     process.on('exit', forceKillOnExit);
 
     const stopBrowserServer = async () => {
-        if (!browserServerPromise) return;
+        if (!browserServerPromise) {return;}
         const activeServer = await browserServerPromise.catch(() => null);
         browserServerPromise = null;
-        if (!activeServer) return;
+        if (!activeServer) {return;}
         const browserProc = activeServer.process();
         if (!trackedBrowser && browserProc) {
             trackedBrowser = createTrackedProcess(browserProc, processTree);
@@ -455,7 +455,7 @@ async function startBrowserIntegrationHarness({
     /** @type {Promise<void> | null} */
     let stopPromise = null;
     const stop = () => {
-        if (stopPromise) return stopPromise;
+        if (stopPromise) {return stopPromise;}
         stopPromise = (async () => {
             const results = await Promise.allSettled([
                 stopBrowserServer(),
@@ -511,13 +511,13 @@ async function startBrowserIntegrationHarness({
                     : AbortSignal.timeout(Math.max(1, deadline - Date.now()));
                 const response = await fetch(origin, { signal: requestSignal });
                 await response.body?.cancel();
-                if (response.ok) break;
+                if (response.ok) {break;}
             } catch {
                 // The development server is still compiling or binding.
             }
             await new Promise((resolveWait) => {
                 const timer = setTimeout(resolveWait, 250);
-                if (!abortSignal) return;
+                if (!abortSignal) {return;}
                 const onAbort = () => {
                     clearTimeout(timer);
                     resolveWait(undefined);
@@ -554,7 +554,7 @@ async function runSupervisedCli() {
     const args = process.argv.slice(2);
     // pnpm run SCRIPT -- OPTIONS retains the separator. Vitest treats everything
     // after it as positional arguments, so remove it before forwarding the options.
-    if (args[0] === '--') args.shift();
+    if (args[0] === '--') {args.shift();}
 
     const { tsImport } = await import('tsx/esm/api');
     const processTree = await tsImport('./electron-run/electronRunProcessTree.ts', import.meta.url);
@@ -581,7 +581,7 @@ async function runSupervisedCli() {
     };
 
     const finalizePendingSignal = () => {
-        if (!receivedSignal || signalReraised) return false;
+        if (!receivedSignal || signalReraised) {return false;}
         signalReraised = true;
         removeSignalHandlers();
         reraiseSignal(receivedSignal);
@@ -602,7 +602,7 @@ async function runSupervisedCli() {
             receivedSignal = signal;
             abortController.abort();
         }
-        if (teardownPromise) return teardownPromise;
+        if (teardownPromise) {return teardownPromise;}
         teardownPromise = (async () => {
             // Keep signal handlers installed while teardown runs so a second
             // signal (or a signal arriving during ordinary teardown) cannot
@@ -671,7 +671,7 @@ async function runSupervisedCli() {
             exitSignal,
         ] = await once(vitestChild, 'close');
         await teardown(null);
-        if (finalizePendingSignal()) return;
+        if (finalizePendingSignal()) {return;}
         removeSignalHandlers();
         process.exitCode = exitCode ?? (exitSignal ? 1 : 1);
     } catch (error) {
@@ -681,7 +681,7 @@ async function runSupervisedCli() {
             return;
         }
         await teardown(null);
-        if (finalizePendingSignal()) return;
+        if (finalizePendingSignal()) {return;}
         removeSignalHandlers();
         throw error;
     }
@@ -719,7 +719,7 @@ export async function setup(project) {
     let stopDirectPromise = null;
 
     const stopDirect = () => {
-        if (stopDirectPromise) return stopDirectPromise;
+        if (stopDirectPromise) {return stopDirectPromise;}
         stopDirectPromise = (async () => {
             const resolvedHarness = harness ?? (harnessPromise ? await harnessPromise.catch(() => null) : null);
             if (resolvedHarness) {
@@ -741,7 +741,7 @@ export async function setup(project) {
     };
 
     const finalizeDirectSignal = () => {
-        if (!receivedDirectSignal || directSignalReraised) return false;
+        if (!receivedDirectSignal || directSignalReraised) {return false;}
         directSignalReraised = true;
         removeDirectSignalHandlers();
         reraiseSignal(receivedDirectSignal);

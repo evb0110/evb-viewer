@@ -64,8 +64,8 @@ async function countAnnotationColourPixels(
                 red,
             });
         }
-        if (red < 100 && green < 100 && blue < 100) darkPixels += 1;
-        if (blue > 100 && blue > red * 1.4 && blue > green * 1.15) bluePixels += 1;
+        if (red < 100 && green < 100 && blue < 100) {darkPixels += 1;}
+        if (blue > 100 && blue > red * 1.4 && blue > green * 1.15) {bluePixels += 1;}
     }
     matchedRed.sort((left, right) => left.green - right.green);
     const medianRed = matchedRed[Math.floor(matchedRed.length / 2)];
@@ -172,7 +172,7 @@ describe('Electron E2E - screenshot annotation output', () => {
             };
         });
         const underlyingGlyphs = await page.$eval('.editor-pane.is-active .page_container[data-page="1"] canvas', (element, region) => {
-            if (!(element instanceof HTMLCanvasElement)) throw new Error('Page canvas is missing');
+            if (!(element instanceof HTMLCanvasElement)) {throw new Error('Page canvas is missing');}
             const canvas = element;
             const rect = canvas.getBoundingClientRect();
             const pixels = canvas.getContext('2d')!.getImageData(
@@ -183,7 +183,7 @@ describe('Electron E2E - screenshot annotation output', () => {
             ).data;
             let count = 0;
             for (let offset = 0; offset < pixels.length; offset += 4) {
-                if (pixels[offset]! < 100 && pixels[offset + 1]! < 100 && pixels[offset + 2]! < 100) count += 1;
+                if (pixels[offset]! < 100 && pixels[offset + 1]! < 100 && pixels[offset + 2]! < 100) {count += 1;}
             }
             return count * rect.width / canvas.width * rect.height / canvas.height;
         }, clip);
@@ -319,7 +319,7 @@ describe('Electron E2E - screenshot annotation output', () => {
         const pngPath = join(evidenceDirectory, `clipboard-${Date.now()}.png`);
         const clipboardPng = Buffer.from(await page.evaluate(async () => {
             const item = (await navigator.clipboard.read()).find(candidate => candidate.types.includes('image/png'));
-            if (!item) throw new Error('The clipboard holds no PNG image');
+            if (!item) {throw new Error('The clipboard holds no PNG image');}
             return Array.from(new Uint8Array(await (await item.getType('image/png')).arrayBuffer()));
         }));
         console.log(`SCREENSHOT_CAPTURE_LATENCY_MS ${Math.round(performance.now() - captureStartedAt)}`);
@@ -336,7 +336,7 @@ describe('Electron E2E - screenshot annotation output', () => {
     it('copies the composed multilingual view without saving accepted edits or changing Undo', async () => {
         async function retainEvidence(files: Record<string, Uint8Array | string>) {
             const evidenceDirectory = process.env.EVB_R3_EVIDENCE_DIR;
-            if (!evidenceDirectory) return;
+            if (!evidenceDirectory) {return;}
             await mkdir(evidenceDirectory, {recursive: true});
             await Promise.all(Object.entries(files).map(([
                 name,
@@ -467,7 +467,7 @@ describe('Electron E2E - screenshot annotation output', () => {
             const overlay = host?.querySelector<HTMLElement>('.snip-overlay');
             const viewer = host?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
             const selection = overlay?.querySelector<HTMLElement>('.snip-selection');
-            if (!host || !overlay || !viewer || !selection) throw new Error('The initiating reference capture view is unavailable');
+            if (!host || !overlay || !viewer || !selection) {throw new Error('The initiating reference capture view is unavailable');}
             const clean = host.classList.contains('is-capture-clean');
             const overlayClean = overlay.classList.contains('is-clean');
             const visibility = overlay.style.visibility;
@@ -609,8 +609,8 @@ describe('Electron E2E - screenshot annotation output', () => {
             try {await reference.evaluate(value => value.restore());} catch (error) {referenceFailures.push(error);}
             try {await reference.dispose();} catch (error) {referenceFailures.push(error);}
         }
-        for (const failure of referenceFailures.slice(1)) onTestFinished(() => {throw failure;});
-        if (referenceFailures.length) throw referenceFailures[0];
+        for (const failure of referenceFailures.slice(1)) {onTestFinished(() => {throw failure;});}
+        if (referenceFailures.length) {throw referenceFailures[0];}
         await clickAsUser(page, '[data-capture-confirm]');
         await page.waitForSelector('.snip-overlay.is-active', {
             hidden: true,
@@ -618,7 +618,7 @@ describe('Electron E2E - screenshot annotation output', () => {
         });
         const clipboard = Buffer.from(await page.evaluate(async () => {
             const item = (await navigator.clipboard.read()).find(value => value.types.includes('image/png'));
-            if (!item) throw new Error('Clipboard PNG is missing');
+            if (!item) {throw new Error('Clipboard PNG is missing');}
             return Array.from(new Uint8Array(await (await item.getType('image/png')).arrayBuffer()));
         }));
         const actual = await decode(clipboard);

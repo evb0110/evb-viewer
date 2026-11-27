@@ -219,7 +219,7 @@ describe('pdfViewportGeometry', () => {
             paddingTop: 20,
             paddingBottom: 20,
         });
-        if (!layout) throw new Error('Expected layout');
+        if (!layout) {throw new Error('Expected layout');}
         const geometry = createPdfViewportGeometryFromLayout(layout, {
             width: 1_000,
             height: 800,
@@ -599,7 +599,7 @@ function createPhysicalScrollLayout(mixedHeights: boolean, scale = 2) {
         paddingTop: 20,
         paddingBottom: 20,
     });
-    if (!layout) throw new Error('Expected page layout');
+    if (!layout) {throw new Error('Expected page layout');}
     return layout;
 }
 
@@ -663,7 +663,7 @@ describe.each([
         const origin = resolveLayoutPhysicalScrollOrigin(before, top, viewportHeight, null);
         const reflowed = resolveLayoutPhysicalScrollOrigin(after, top, viewportHeight, origin);
         const segment = getLayoutPhysicalScrollSegment(after, reflowed);
-        if (!segment) throw new Error('Expected physical scroll segment');
+        if (!segment) {throw new Error('Expected physical scroll segment');}
         const firstRow = after.base.pageRowIndices[segment.firstPage - 1]!;
         expect(reflowed).not.toBe(origin);
         expect(getLayoutRowTop(after, firstRow) - reflowed).toBe(after.paddingTop);
@@ -681,7 +681,7 @@ describe.each([
         ]) {
             const origin = resolveLayoutPhysicalScrollOrigin(layout, top, viewportHeight, null);
             const segment = getLayoutPhysicalScrollSegment(layout, origin);
-            if (!segment) throw new Error('Expected physical scroll segment');
+            if (!segment) {throw new Error('Expected physical scroll segment');}
             const firstRow = layout.base.pageRowIndices[segment.firstPage - 1]!;
             expect(segment.origin).toBe(origin);
             expect(getLayoutRowTop(layout, firstRow) - origin).toBe(layout.paddingTop);
@@ -698,7 +698,7 @@ describe.each([
         const contentHeight = getLayoutContentHeight(layout);
         const lastOrigin = resolveLayoutPhysicalScrollOrigin(layout, contentHeight - viewportHeight, viewportHeight, 0);
         const last = getLayoutPhysicalScrollSegment(layout, lastOrigin);
-        if (!last) throw new Error('Expected last physical scroll segment');
+        if (!last) {throw new Error('Expected last physical scroll segment');}
         expect(last.origin + last.height).toBe(contentHeight);
         expect(last.lastPage).toBe(layout.base.totalPages);
         expect(last.height).toBeGreaterThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
@@ -726,7 +726,7 @@ describe.each([
         expect(rowBottom).toBeGreaterThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
         const origin = resolveLayoutPhysicalScrollOrigin(layout, PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, viewportHeight, 0);
         const segment = getLayoutPhysicalScrollSegment(layout, origin);
-        if (!segment) throw new Error('Expected physical scroll segment');
+        if (!segment) {throw new Error('Expected physical scroll segment');}
         expect(segment.firstPage).toBeLessThanOrEqual(layout.base.rowStartPages[row]!);
         expect(segment.lastPage).toBeGreaterThanOrEqual(layout.base.rowEndPages[row]!);
         expect(rowTop - origin).toBeGreaterThanOrEqual(layout.paddingTop);
@@ -742,7 +742,7 @@ describe.each([
         ]) {
             const origin = resolveLayoutPhysicalScrollOrigin(layout, top, viewportHeight, null);
             const segment = getLayoutPhysicalScrollSegment(layout, origin);
-            if (!segment) throw new Error('Expected physical scroll segment');
+            if (!segment) {throw new Error('Expected physical scroll segment');}
             const geometry = createPdfViewportGeometryFromLayout(layout, {
                 width: 1_000,
                 height: viewportHeight,
@@ -769,7 +769,7 @@ describe.each([
                     });
                     expect(scroll.top).toBeGreaterThanOrEqual(0);
                     expect(scroll.top).toBeLessThanOrEqual(maxTop);
-                    if (page === layout.base.totalPages && pageYFraction === 1) expect(scroll.top).toBe(maxTop);
+                    if (page === layout.base.totalPages && pageYFraction === 1) {expect(scroll.top).toBe(maxTop);}
                 }
             }
         }

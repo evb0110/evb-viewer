@@ -14,7 +14,7 @@ export const useDocumentWheelZoomSessionBoundaries = (options: {
     useEventListener(import.meta.client ? document : null, 'pointerdown', resetForInteraction, {capture: true});
     useEventListener(import.meta.client ? document : null, 'keydown', resetForInteraction, {capture: true});
     watch(options.isInteractionActive, (active) => {
-        if (!active) options.reset();
+        if (!active) {options.reset();}
     });
     return resetForInteraction;
 };

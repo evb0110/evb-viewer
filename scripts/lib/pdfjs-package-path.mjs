@@ -40,7 +40,7 @@ export function isPdfjsPackagePath(filePath) {
             ? (segments[index - 1] === '@evb0110' || segments[index - 1] === '@pdfjs-dist'
                 ? `${segments[index - 1]}/${segments[index]}` : segments[index])
             : null;
-        if (!name || !PACKAGE_NAMES.has(name)) continue;
+        if (!name || !PACKAGE_NAMES.has(name)) {continue;}
         const parent = segments[index - (name.includes('/') ? 2 : 1)];
         const child = segments[index + 1];
         if (parent === 'node_modules' || (PACKAGE_CONTENT.has(child) && LINKED_PACKAGE_FILES.has(segments[index + 2]))) {

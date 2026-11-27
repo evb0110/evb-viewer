@@ -23,7 +23,7 @@ export async function createPdfConformanceFixture(kind: TPdfConformanceFixtureKi
     const pdf = await PDFDocument.create();
     // An unfiltered stream object written before the catalog structure makes
     // a large, valid fixture, its structure away from the file's first bytes.
-    if (padding) pdf.context.register(pdf.context.stream(padding));
+    if (padding) {pdf.context.register(pdf.context.stream(padding));}
     const page = pdf.addPage([
         612,
         792,

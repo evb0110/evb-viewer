@@ -136,7 +136,7 @@ export function createOcrPageSizeSource(input: IOcrPageSizeSourceInput): IOcrPag
                     pageSizes: await readPageSizes(await openStore(pdfPath, pdfPageOpsBinary), pageNumbers, input.signal),
                 };
             } catch (error) {
-                if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+                if (getUnprovenNativeTerminationDetail(error) !== undefined) {throw error;}
                 abortIfRequested(input.signal);
                 const message = `Native PDF page-size inspection failed; OCR resource budgeting is using conservative defaults: ${getErrorMessage(error)}`;
                 input.log?.('warn', message);

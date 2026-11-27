@@ -137,7 +137,7 @@ function parsePageSelector(value, label) {
         const range = /^(\d+)-(\d+)$/u.exec(trimmed);
         if (!range) {
             const page = Number(trimmed);
-            if (!Number.isSafeInteger(page) || page < 1) throw new Error(`Invalid pages for ${label}`);
+            if (!Number.isSafeInteger(page) || page < 1) {throw new Error(`Invalid pages for ${label}`);}
             return [page];
         }
         const from = Number(range[1]);
@@ -249,7 +249,7 @@ async function runCorpus({
         join(workDir, name),
         '--keep-artifacts',
     ];
-    if (allowMissingExpectations) args.push('--allow-missing-expectations');
+    if (allowMissingExpectations) {args.push('--allow-missing-expectations');}
     await runChecked('pnpm', args, {env});
 }
 
@@ -426,10 +426,10 @@ export function validateWordLossReport(report, name, pages, baseline) {
         if ((row.flagged === true) !== flagged) {
             throw new Error(`${name} word-loss report page ${String(row.page)} has inconsistent flag fields`);
         }
-        if (row.status === 'error') errorPages.push(row.page);
-        if (flagged) flaggedPages.push(row.page);
-        if (inventedFlagged) inventedPages.push(row.page);
-        if (silhouetteFlagged) silhouettePages.push(row.page);
+        if (row.status === 'error') {errorPages.push(row.page);}
+        if (flagged) {flaggedPages.push(row.page);}
+        if (inventedFlagged) {inventedPages.push(row.page);}
+        if (silhouetteFlagged) {silhouettePages.push(row.page);}
         if (lossFlagged || silhouetteFlagged) {
             throw new Error(`${name} word-loss baseline cannot suppress text-loss or silhouette flags on page ${String(row.page)}`);
         }
@@ -501,7 +501,7 @@ async function runCliConversion({
     pages,
 }) {
     const source = configuredPath(entry.source, env, `${name} source PDF`);
-    if (!await readableFile(source)) throw new Error(`${name} source PDF is missing: ${source}`);
+    if (!await readableFile(source)) {throw new Error(`${name} source PDF is missing: ${source}`);}
     const output = join(outputRoot, `${name}.cleaned.pdf`);
     await mkdir(outputRoot, {recursive: true});
     await runChecked(process.execPath, conversionArgs(source, output, pages), {env});
@@ -593,10 +593,10 @@ async function renderHeaderPages({
                 pageRoot,
             ], {env});
             const rendered = (await readdir(outputRoot)).filter(name => name.startsWith(`${basename(pageRoot)}-`));
-            if (rendered.length === 0) throw new Error(`pdftoppm did not render Rome source page ${String(sourcePage)}`);
+            if (rendered.length === 0) {throw new Error(`pdftoppm did not render Rome source page ${String(sourcePage)}`);}
         }
     }
-    if (!await readableFile(source)) throw new Error(`Rome source PDF disappeared during header render: ${source}`);
+    if (!await readableFile(source)) {throw new Error(`Rome source PDF disappeared during header render: ${source}`);}
 }
 
 async function runStep(results, label, action) {
@@ -693,9 +693,9 @@ async function main() {
         'linguae-layouts',
     ]) {
         const entry = await runStep(results, `load CLI fixture: ${name}`, () => cliEntry(manifest, name));
-        if (entry === null) continue;
+        if (entry === null) {continue;}
         const pages = await runStep(results, `resolve CLI pages: ${name}`, () => cliPages(entry, name, env));
-        if (pages === null && entry.pages !== undefined) continue;
+        if (pages === null && entry.pages !== undefined) {continue;}
         const converted = await runStep(results, `CLI parity conversion: ${name}`, () => runCliConversion({
             entry,
             env,
@@ -778,7 +778,7 @@ async function main() {
     await writeSummary(args.workDir, results);
     const failed = results.filter(result => result.status === 'FAIL');
     process.stdout.write(`\n${formatSummary(results)}\n`);
-    if (failed.length > 0) process.exitCode = 1;
+    if (failed.length > 0) {process.exitCode = 1;}
 }
 
 async function writeSummary(workDir, results) {

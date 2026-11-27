@@ -129,10 +129,10 @@ async function dragMarkupSelection(page: Page, points: Pick<Awaited<ReturnType<t
     const topAfterPress = await page.$eval(`.page_container[data-page="${hit.pageNumber}"]`, element => element.getBoundingClientRect().top);
     expect(topAfterPress, 'Starting text selection must not move the page under the pointer').toBeCloseTo(hit.top!, 0);
     await page.mouse.move(points.end.x, points.end.y, {steps: 16});
-    if (!captureBeforeRelease) await page.mouse.up();
+    if (!captureBeforeRelease) {await page.mouse.up();}
     const selected = await page.evaluate(() => {
         const selection = document.getSelection();
-        if (!selection?.rangeCount) throw new Error(`Mouse drag did not select text: ${document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdfViewer')?.className}`);
+        if (!selection?.rangeCount) {throw new Error(`Mouse drag did not select text: ${document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdfViewer')?.className}`);}
         const range = selection.getRangeAt(0);
         const rects = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')].flatMap(span => {
             const node = span.firstChild;
@@ -160,7 +160,7 @@ async function dragMarkupSelection(page: Page, points: Pick<Awaited<ReturnType<t
             rects,
         };
     });
-    if (captureBeforeRelease) await page.mouse.up();
+    if (captureBeforeRelease) {await page.mouse.up();}
     return selected;
 }
 
@@ -197,8 +197,8 @@ async function expectMarkupGeometry(page: Page, expected: ISelectionRect[], comp
                 const y = (ys[row - 1]! + ys[row]!) / 2;
                 const area = (xs[column]! - xs[column - 1]!) * (ys[row]! - ys[row - 1]!);
                 const expectedContains = contains(expected, x, y);
-                if (expectedContains) coveredArea += area;
-                if (contains(actual, x, y) !== expectedContains) changedArea += area;
+                if (expectedContains) {coveredArea += area;}
+                if (contains(actual, x, y) !== expectedContains) {changedArea += area;}
             }
         }
         expect(changedArea, 'Merged geometry must cover exactly the selected text area').toBeLessThan(0.00001);
@@ -234,7 +234,7 @@ async function highlightPaintColor(page: Page) {
             right: Math.min(innerWidth, Math.floor(rect.right - 2)),
             bottom: Math.min(innerHeight - 30, Math.floor(rect.bottom - 2)),
         })).find(rect => rect.right > rect.left && rect.bottom > rect.top);
-        if (!visible) throw new Error('Highlight must have a visible hit area');
+        if (!visible) {throw new Error('Highlight must have a visible hit area');}
         return {
             left: visible.left,
             top: visible.top,
@@ -329,7 +329,7 @@ async function placementPoint(page: Page) {
             x: left + (right - left) * 0.2,
             y: top + (bottom - top) * 0.35,
         };
-        if (!element.contains(document.elementFromPoint(point.x, point.y))) throw new Error('Text placement point is obstructed');
+        if (!element.contains(document.elementFromPoint(point.x, point.y))) {throw new Error('Text placement point is obstructed');}
         return point;
     });
 }
@@ -360,7 +360,7 @@ async function resize(page: Page, handle: string, dx: number, dy: number) {
         const rect = element.getBoundingClientRect();
         const x = rect.x + rect.width / 2;
         const y = rect.y + rect.height / 2;
-        if (!element.contains(document.elementFromPoint(x, y))) throw new Error('Text resize handle is obstructed');
+        if (!element.contains(document.elementFromPoint(x, y))) {throw new Error('Text resize handle is obstructed');}
         return {
             x,
             y,
@@ -453,7 +453,7 @@ describe('Electron E2E - text interaction contract', () => {
                 const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .pdfViewer');
                 const mark = document.querySelector<SVGElement>('.editor-pane.is-active g[data-annotation-kind="text-markup"]');
                 const targetPage = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="2"]');
-                if (!viewer || !mark || !targetPage) throw new Error('Rendered annotation, page and viewport are required');
+                if (!viewer || !mark || !targetPage) {throw new Error('Rendered annotation, page and viewport are required');}
                 const rect = mark.getBoundingClientRect();
                 const pageRect = targetPage.getBoundingClientRect();
                 const viewport = viewer.getBoundingClientRect();
@@ -556,19 +556,19 @@ describe('Electron E2E - text interaction contract', () => {
                     let complete: (() => Promise<void>) | undefined;
                     const seen = new Set<IViewerVNode>();
                     const visit = (vnode: IViewerVNode | undefined) => {
-                        if (!vnode || seen.has(vnode) || complete) return;
+                        if (!vnode || seen.has(vnode) || complete) {return;}
                         seen.add(vnode);
                         const owner = vnode.component;
                         if (owner) {
                             complete = owner.exposed?.commitPdfEditorsForSave;
                             visit(owner.subTree);
                         }
-                        if (Array.isArray(vnode.children)) vnode.children.forEach(visit);
+                        if (Array.isArray(vnode.children)) {vnode.children.forEach(visit);}
                         visit(vnode.ssContent);
                         visit(vnode.ssFallback);
                     };
                     visit(document.querySelector<HTMLElement & {_vnode?: IViewerVNode}>('#__nuxt')?._vnode);
-                    if (!complete) throw new Error('The loaded viewer must settle its editors before fixture cleanup');
+                    if (!complete) {throw new Error('The loaded viewer must settle its editors before fixture cleanup');}
                     await complete();
                 });
             } finally {
@@ -624,7 +624,7 @@ describe('Electron E2E - text interaction contract', () => {
         // Merge into an already saved annotation to exercise its stable PDF
         // identity and the native geometry rewrite, not only draft creation.
         await saveViaWindowHandle(page, 30_000);
-        if (process.env.EVB_MARKUP_EVIDENCE_DIR) copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'first-saved.pdf'));
+        if (process.env.EVB_MARKUP_EVIDENCE_DIR) {copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'first-saved.pdf'));}
 
         await clickAnnotationTool(page, 'Highlight');
         const expandedPoints = await markupSelectionPoints(page);
@@ -659,7 +659,7 @@ describe('Electron E2E - text interaction contract', () => {
         await expectMarkupGeometry(page, expandedSelection.rects, true);
         expect(await highlightPaintColor(page)).toBe(before);
         await saveViaWindowHandle(page, 30_000);
-        if (process.env.EVB_MARKUP_EVIDENCE_DIR) copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'merged-saved.pdf'));
+        if (process.env.EVB_MARKUP_EVIDENCE_DIR) {copyFileSync(path, join(process.env.EVB_MARKUP_EVIDENCE_DIR, 'merged-saved.pdf'));}
 
         expect(await readPdfAnnotationSummary(path)).toEqual({
             total: initialAnnotations.total + 1,
@@ -736,7 +736,7 @@ describe('Electron E2E - text interaction contract', () => {
         await expect.poll(() => page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .note-item[data-annotation-kind="text-markup"] .note-item-text', element => element.textContent?.replace(/\s+/gu, ''))).toBe(expected.text.replace(/\s+/gu, ''));
         expect(await page.$eval('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .tool-button[data-tool="select"]', element => element.getAttribute('aria-pressed'))).toBe('true');
         await page.mouse.click(points.end.x, points.end.y + 150);
-        if (tool === 'highlight') await expectHighlightPaint(page);
+        if (tool === 'highlight') {await expectHighlightPaint(page);}
         if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
             await page.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, `${tool}-committed.png`)});
         }
@@ -781,7 +781,7 @@ describe('Electron E2E - text interaction contract', () => {
         await waitForViewerInteractive(reopened);
         await reopened.waitForSelector(`${MARKUP}[data-markup-subtype="${subtype}"]`);
         await expectMarkupGeometry(reopened, expected.rects, tool === 'highlight');
-        if (tool === 'highlight') await expectHighlightPaint(reopened);
+        if (tool === 'highlight') {await expectHighlightPaint(reopened);}
         if (process.env.EVB_MARKUP_EVIDENCE_DIR) {
             await reopened.screenshot({path: join(process.env.EVB_MARKUP_EVIDENCE_DIR, `${tool}-reopened.png`)});
         }
@@ -847,7 +847,7 @@ describe('Electron E2E - text interaction contract', () => {
             const span = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')]
                 .find(candidate => candidate.textContent?.includes('Open the project'));
             const rect = span?.getBoundingClientRect();
-            if (!rect) throw new Error('The linked line has no text layer span');
+            if (!rect) {throw new Error('The linked line has no text layer span');}
             return {
                 start: {
                     x: rect.left + 3,
@@ -912,7 +912,7 @@ describe('Electron E2E - text interaction contract', () => {
             const span = [...document.querySelectorAll<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .text-layer span')]
                 .find(candidate => candidate.textContent?.includes(text));
             const rect = span?.getBoundingClientRect();
-            if (!rect) throw new Error(`No text layer span for ${text}`);
+            if (!rect) {throw new Error(`No text layer span for ${text}`);}
             return [
                 text,
                 {
@@ -979,7 +979,7 @@ describe('Electron E2E - text interaction contract', () => {
         await waitForViewerInteractive(page);
         const points = await page.$eval(matchSelector, element => {
             const node = element.firstChild;
-            if (!(node instanceof Text)) throw new Error('Search result has no text node');
+            if (!(node instanceof Text)) {throw new Error('Search result has no text node');}
             const range = document.createRange();
             range.setStart(node, 0);
             range.setEnd(node, node.length);
@@ -1153,7 +1153,7 @@ describe('Electron E2E - text interaction contract', () => {
             const rect = element.getBoundingClientRect();
             const x = rect.x + rect.width / 2;
             const y = rect.y + rect.height / 2;
-            if (!element.contains(document.elementFromPoint(x, y))) throw new Error('Text move grip is obstructed');
+            if (!element.contains(document.elementFromPoint(x, y))) {throw new Error('Text move grip is obstructed');}
             return {
                 x,
                 y,
@@ -1200,7 +1200,7 @@ describe('Electron E2E - text interaction contract', () => {
             const rect = element.getBoundingClientRect();
             const x = rect.x + rect.width / 2;
             const y = rect.y + rect.height / 2;
-            if (!element.contains(document.elementFromPoint(x, y))) throw new Error('Text move grip is obstructed');
+            if (!element.contains(document.elementFromPoint(x, y))) {throw new Error('Text move grip is obstructed');}
             return {
                 x,
                 y,
@@ -1359,14 +1359,14 @@ describe('Electron E2E - text interaction contract', () => {
                     pageRect.bottom - box.bottom,
                 ];
             });
-            for (const distance of bounds) expect(distance).toBeGreaterThanOrEqual(-1);
+            for (const distance of bounds) {expect(distance).toBeGreaterThanOrEqual(-1);}
         }
         async function dragGrip(dx: number, dy: number) {
             const start = await page.$eval('.editor-pane.is-active [data-pdf-annotation-move-handle]', element => {
                 const rect = element.getBoundingClientRect();
                 const x = rect.x + rect.width / 2;
                 const y = rect.y + rect.height / 2;
-                if (!element.contains(document.elementFromPoint(x, y))) throw new Error('Rotated text move grip is obstructed');
+                if (!element.contains(document.elementFromPoint(x, y))) {throw new Error('Rotated text move grip is obstructed');}
                 return {
                     x,
                     y,

@@ -30,7 +30,7 @@ const NUMERIC_REVISION_CODEC: IRevisionTokenCodec = {
     format: (_docId, revisionId) => String(revisionId),
     formatCurrent: doc => String(doc.state().current?.id ?? 1),
     parseId: (_docId, token) => {
-        if (!/^\d+$/u.test(token)) return -1;
+        if (!/^\d+$/u.test(token)) {return -1;}
         const id = Number(token);
         return Number.isSafeInteger(id) ? id : -1;
     },
@@ -50,7 +50,7 @@ const BROWSER_REVISION_CODEC: IRevisionTokenCodec = {
     },
     parseId: (docId, token) => {
         const match = /^drt1:browser:([^:]+):(\d+)(?::([fs]))?$/u.exec(token);
-        if (!match || match[1] !== docId) return -1;
+        if (!match || match[1] !== docId) {return -1;}
         const id = Number(match[2]);
         const foreign: TForeignRevisionState | undefined = match[3] === 'f' ? 'committed' : match[3] === 's' ? 'staged' : undefined;
         return Number.isSafeInteger(id) && formatBrowserToken(docId, id, foreign) === token ? id : -1;
@@ -180,9 +180,9 @@ export class OpenDocument {
     /** Resolves a caller's token into the store's expected revision id (`null` for unmaterialized rev 1, `-1` if stale). */
     resolveExpectedId(expected: string | null | undefined, options: { allowStagedBase?: boolean } = {}): number | null {
         const current = this.doc.state().current;
-        if (expected === null || expected === undefined) return current?.id ?? null;
+        if (expected === null || expected === undefined) {return current?.id ?? null;}
         const currentToken = this.codec.format(this.doc.id, current?.id ?? 1, current?.foreign);
-        if (expected === currentToken) return current?.id ?? null;
+        if (expected === currentToken) {return current?.id ?? null;}
         if (options.allowStagedBase === true && current?.foreign === 'staged' && expected === this.codec.format(this.doc.id, 1)) {
             return 1;
         }
@@ -194,7 +194,7 @@ export class OpenDocument {
         const current = state.current;
         const currentToken = this.codec.format(this.doc.id, current?.id ?? 1, current?.foreign);
         if (!expected) {
-            if (options.requireToken) return { status: 'missing-revision', currentToken };
+            if (options.requireToken) {return { status: 'missing-revision', currentToken };}
             if (
                 options.strict
                 || !this.activeCheck()
@@ -214,7 +214,7 @@ export class OpenDocument {
         const allowStagedBase = options.strict ? false : (options.allowStagedBase ?? false);
         const matches = expected === currentToken
             || (allowStagedBase && current?.foreign === 'staged' && expected === this.codec.format(this.doc.id, 1));
-        if (!matches) return { status: 'stale-revision', expected, actual: currentToken };
+        if (!matches) {return { status: 'stale-revision', expected, actual: currentToken };}
         return { status: 'ok', expectedId: current?.id ?? null, currentToken };
     }
 
@@ -234,12 +234,12 @@ export class OpenDocument {
             expectedByteRevision: checkByteRevision,
         });
         const pre = checkCurrent();
-        if (pre.status !== 'ok') return pre;
+        if (pre.status !== 'ok') {return pre;}
         const isEdit = !options.openOnly && !(mutation.kind === 'rewrite' && (mutation.imported || mutation.openOnly));
-        if (isEdit) await this.beforeEditHook?.();
+        if (isEdit) {await this.beforeEditHook?.();}
         await this.beforeMutationHook?.();
         await options.beforeRun?.();
-        if (!this.activeCheck()) return this.stale(expected);
+        if (!this.activeCheck()) {return this.stale(expected);}
         let previousToken = this.token();
         const result = await this.doc.run(async (): Promise<TMutationResult> => {
             previousToken = this.token();
@@ -268,7 +268,7 @@ export class OpenDocument {
         try {
             const result = await this.doc.run(async (): Promise<TMutationResult> => {
                 const manifest = this.doc.snapshot();
-                if (!isStillCurrent()) return { status: 'stale-revision', current: manifest.current ?? null };
+                if (!isStillCurrent()) {return { status: 'stale-revision', current: manifest.current ?? null };}
                 const { current, next, ext } = manifest;
                 const name = `r${current ? next : next + 1}.${ext}`;
                 const output = this.doc.path(name);
@@ -322,13 +322,13 @@ export class OpenDocument {
                         const latest = this.doc.snapshot();
                         const stillReferenced = latest.current?.file === name
                             || latest.history.some(rev => 'file' in rev && rev.file === name);
-                        if (!stillReferenced) await this.doc.store.port.remove(output).catch(() => undefined);
+                        if (!stillReferenced) {await this.doc.store.port.remove(output).catch(() => undefined);}
                     }
                 }
             });
             return this.mapMutationResult(expected, previousToken, result);
         } catch (error) {
-            if (!this.activeCheck()) return this.stale(expected);
+            if (!this.activeCheck()) {return this.stale(expected);}
             throw error;
         }
     }
@@ -340,10 +340,10 @@ export class OpenDocument {
     ): Promise<TOpenRestoreResult> {
         const capturedByteRevision = this.doc.state().byteRevision;
         const pre = this.checkRevision(expected, { requireToken: options.requireToken ?? false });
-        if (pre.status !== 'ok') return pre;
+        if (pre.status !== 'ok') {return pre;}
         await this.beforeEditHook?.();
         await this.beforeMutationHook?.();
-        if (!this.activeCheck()) return this.stale(expected);
+        if (!this.activeCheck()) {return this.stale(expected);}
         const previousToken = this.token();
         const targetId = this.parseRevisionId(targetToken);
         let result;
@@ -363,10 +363,10 @@ export class OpenDocument {
                 return outcome;
             });
         } catch (error) {
-            if (!this.activeCheck()) return this.stale(expected);
+            if (!this.activeCheck()) {return this.stale(expected);}
             throw error;
         }
-        if (result.status === 'stale-revision') return this.stale(expected);
+        if (result.status === 'stale-revision') {return this.stale(expected);}
         if (result.status === 'conflict') {
             const { history, baseline } = this.doc.state();
             const target = history.find(item => item.id === targetId);
@@ -400,34 +400,34 @@ export class OpenDocument {
             allowStagedBase: allowForeignBase,
         };
         const pre = this.checkRevision(expected, revOpts);
-        if (pre.status !== 'ok') return pre;
+        if (pre.status !== 'ok') {return pre;}
         try {
             return await this.doc.run(async (): Promise<TOpenStageAppendResult> => {
                 const beforeEnsure = this.checkRevision(expected, revOpts);
-                if (beforeEnsure.status !== 'ok') return beforeEnsure;
-                if (await this.doc.ensureCurrent(allowForeignBase) === null) return { status: 'conflict' };
-                if (!this.activeCheck()) return this.stale(expected);
+                if (beforeEnsure.status !== 'ok') {return beforeEnsure;}
+                if (await this.doc.ensureCurrent(allowForeignBase) === null) {return { status: 'conflict' };}
+                if (!this.activeCheck()) {return this.stale(expected);}
                 await this.doc.applyOwnCurrentFile();
                 const afterOwn = this.checkRevision(expected, revOpts);
-                if (afterOwn.status !== 'ok') return afterOwn;
+                if (afterOwn.status !== 'ok') {return afterOwn;}
                 this.pendingAppend = undefined;
                 const base = this.doc.state().current!.length;
                 const file = this.doc.currentFile();
                 let lease: string | null = null;
                 try {
-                    if (await file.size() > base) await file.truncate(base);
+                    if (await file.size() > base) {await file.truncate(base);}
                     const length = await append(file, base);
-                    if (length === null) return { status: 'aborted' };
-                    if (!this.activeCheck()) return this.stale(expected);
+                    if (length === null) {return { status: 'aborted' };}
+                    if (!this.activeCheck()) {return this.stale(expected);}
                     lease = crypto.randomUUID();
                     this.pendingAppend = { lease, token: this.token(), byteRevision: this.doc.state().byteRevision, length };
                     return { status: 'staged', lease };
                 } finally {
-                    if (lease === null) await file.truncate(base).catch(() => undefined);
+                    if (lease === null) {await file.truncate(base).catch(() => undefined);}
                 }
             });
         } catch (error) {
-            if (!this.activeCheck()) return this.stale(expected);
+            if (!this.activeCheck()) {return this.stale(expected);}
             throw error;
         }
     }
@@ -439,19 +439,19 @@ export class OpenDocument {
     ): Promise<TOpenMutationResult> {
         await this.beforeEditHook?.();
         await this.beforeMutationHook?.();
-        if (!this.activeCheck()) return this.stale(expected);
+        if (!this.activeCheck()) {return this.stale(expected);}
         const previousToken = this.token();
         const result = await this.doc.run(() => this.commitPendingAppendInQueue(expected, lease, options.requireToken ?? false));
-        if (result.status === 'missing-revision') return result;
+        if (result.status === 'missing-revision') {return result;}
         return this.mapMutationResult(expected, previousToken, result);
     }
 
     async discardAppend(lease: string): Promise<void> {
-        if (this.pendingAppend?.lease !== lease) return;
+        if (this.pendingAppend?.lease !== lease) {return;}
         await this.doc.run(async () => {
             const pending = this.pendingAppend;
             const current = this.doc.state().current;
-            if (pending?.lease !== lease || !current) return;
+            if (pending?.lease !== lease || !current) {return;}
             this.pendingAppend = undefined;
             if (
                 pending.token === this.token()
@@ -475,7 +475,7 @@ export class OpenDocument {
     async prepareInPlaceAppend(allowForeignBase = false): Promise<IRevision | null> {
         await this.beforeMutationHook?.();
         const materialized = await this.doc.materialize(allowForeignBase);
-        if (!materialized) return null;
+        if (!materialized) {return null;}
         return this.doc.ownCurrentFile();
     }
 
@@ -499,13 +499,13 @@ export class OpenDocument {
                     requireToken: options.requireToken ?? false,
                     allowStagedBase: true,
                 });
-                if (check.status !== 'ok') return check;
+                if (check.status !== 'ok') {return check;}
                 await this.beforeEditHook?.();
                 await this.beforeMutationHook?.();
-                if (!this.activeCheck()) return this.stale(expected);
+                if (!this.activeCheck()) {return this.stale(expected);}
                 const committed = await this.doc.run(() => this.commitPendingAppendInQueue(expected, options.commitLease!, options.requireToken ?? false));
-                if (committed.status === 'missing-revision') return committed;
-                if (committed.status === 'stale-revision') return this.stale(expected);
+                if (committed.status === 'missing-revision') {return committed;}
+                if (committed.status === 'stale-revision') {return this.stale(expected);}
                 if (committed.status === 'conflict') {
                     return { status: 'result', result: committed, previousToken, currentToken: this.token() };
                 }
@@ -516,16 +516,16 @@ export class OpenDocument {
                         requireToken: true,
                         allowStagedBase: true,
                     });
-                    if (check.status !== 'ok') return check;
+                    if (check.status !== 'ok') {return check;}
                 }
-                if (options.commitReplacement !== undefined) await this.beforeEditHook?.();
+                if (options.commitReplacement !== undefined) {await this.beforeEditHook?.();}
                 await this.beforeMutationHook?.();
                 await options.beforeSave?.();
-                if (!this.activeCheck()) return this.stale(expected);
+                if (!this.activeCheck()) {return this.stale(expected);}
                 // Resolve after pre-save hooks (which may drain a queued unchanged materialization).
                 expectedId = this.resolveExpectedId(expected, { allowStagedBase: true });
             }
-            if (!this.activeCheck()) return this.stale(expected);
+            if (!this.activeCheck()) {return this.stale(expected);}
             const saveOptions = {
                 ...(options.commitReplacement ? { commit: { ...options.commitReplacement, drafts: 'clear' as const } } : {}),
                 ...(options.saveAs !== undefined ? { saveAs: options.saveAs } : {}),
@@ -547,7 +547,7 @@ export class OpenDocument {
             }
             return { status: 'result', result, previousToken, currentToken: this.token() };
         } catch (error) {
-            if (!this.activeCheck()) return this.stale(expected);
+            if (!this.activeCheck()) {return this.stale(expected);}
             throw error;
         }
     }
@@ -566,8 +566,8 @@ export class OpenDocument {
         requireToken: boolean,
     ): Promise<TMutationResult | { status: 'missing-revision'; currentToken: string }> {
         const check = this.checkRevision(expected, { requireToken, allowStagedBase: true });
-        if (check.status === 'missing-revision') return check;
-        if (check.status === 'stale-revision') return { status: 'stale-revision', current: this.doc.state().current ?? null };
+        if (check.status === 'missing-revision') {return check;}
+        if (check.status === 'stale-revision') {return { status: 'stale-revision', current: this.doc.state().current ?? null };}
         const { length } = this.requirePendingAppend(lease);
         if (await this.doc.currentFile().size() !== length) {
             throw new Error('The edit staged for this document is no longer its next revision');
@@ -585,8 +585,8 @@ export class OpenDocument {
         previousToken: string,
         result: TMutationResult,
     ): TOpenMutationResult {
-        if (result.status === 'stale-revision') return this.stale(expected);
-        if (result.status === 'conflict') return result;
+        if (result.status === 'stale-revision') {return this.stale(expected);}
+        if (result.status === 'conflict') {return result;}
         return { status: 'committed', revision: result.revision, previousToken, currentToken: this.token() };
     }
 }

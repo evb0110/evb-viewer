@@ -78,5 +78,26 @@ describe('Stylelint invariants', () => {
             'app/assets/css/Bad_Name.css',
         )).resolves.toHaveLength(2);
     });
+
+    it('rejects invalid media queries and unknown property values in standalone CSS files', async () => {
+        const badResult = await stylelint.lint({
+            code: '@media (min-width: ) { .fixture { color: not-a-real-color; } }',
+            codeFilename: 'app/components/fixture.css',
+            config: stylelintConfig,
+        });
+        expect((badResult.results[0]?.warnings ?? []).map(warning => warning.rule)).toEqual(
+            expect.arrayContaining([
+                'declaration-property-value-no-unknown',
+                'media-query-no-invalid',
+            ]),
+        );
+
+        const goodResult = await stylelint.lint({
+            code: '@media (width >= 48rem) { .fixture { color: var(--app-space-sm); } }',
+            codeFilename: 'app/components/fixture.css',
+            config: stylelintConfig,
+        });
+        expect(goodResult.results[0]?.warnings ?? []).toHaveLength(0);
+    });
 });
 

@@ -10,10 +10,10 @@ window.__filmCapture = async function filmCapture({
     const undo = [];
     const setStyle = (el, props) => {
         const old = {};
-        for (const k of Object.keys(props)) old[k] = [
+        for (const k of Object.keys(props)) {old[k] = [
             el.style.getPropertyValue(k),
             el.style.getPropertyPriority(k),
-        ];
+        ];}
         undo.push(() => {
             for (const [
                 k,
@@ -21,12 +21,12 @@ window.__filmCapture = async function filmCapture({
                     v,
                     p,
                 ],
-            ] of Object.entries(old)) el.style.setProperty(k, v, p);
+            ] of Object.entries(old)) {el.style.setProperty(k, v, p);}
         });
         for (const [
             k,
             v,
-        ] of Object.entries(props)) el.style.setProperty(k, v, 'important');
+        ] of Object.entries(props)) {el.style.setProperty(k, v, 'important');}
     };
     const added = [];
     const addNode = (node, insert) => {
@@ -68,12 +68,12 @@ window.__filmCapture = async function filmCapture({
 
     const effectiveOpacity = (el) => {
         let o = 1;
-        for (let e = el; e && e.nodeType === 1; e = e.parentElement) o *= parseFloat(getComputedStyle(e).opacity) || 0;
+        for (let e = el; e && e.nodeType === 1; e = e.parentElement) {o *= parseFloat(getComputedStyle(e).opacity) || 0;}
         return o;
     };
     const isVisible = (el) => {
         const r = el.getBoundingClientRect();
-        if (r.width === 0 || r.height === 0) return false;
+        if (r.width === 0 || r.height === 0) {return false;}
         const cs = getComputedStyle(el);
         return cs.visibility !== 'hidden' && cs.display !== 'none';
     };
@@ -114,14 +114,14 @@ window.__filmCapture = async function filmCapture({
     // 2b. Visually hidden elements (sr-only: clip-path inset(50%) / clip rect(0 0 0 0)) - dom-to-svg ignores clipping.
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
-        if (/inset\((50|100)%\)/.test(cs.clipPath) || /rect\(0px,? 0px,? 0px,? 0px\)/.test(cs.clip)) setStyle(el, { visibility: 'hidden' });
+        if (/inset\((50|100)%\)/.test(cs.clipPath) || /rect\(0px,? 0px,? 0px,? 0px\)/.test(cs.clip)) {setStyle(el, { visibility: 'hidden' });}
     }
 
     // 2c. text-overflow: ellipsis - truncate overflowing single-text elements to what the browser shows.
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
-        if (cs.textOverflow !== 'ellipsis' || el.scrollWidth <= el.clientWidth + 1) continue;
-        if (el.childNodes.length !== 1 || el.firstChild.nodeType !== Node.TEXT_NODE) continue;
+        if (cs.textOverflow !== 'ellipsis' || el.scrollWidth <= el.clientWidth + 1) {continue;}
+        if (el.childNodes.length !== 1 || el.firstChild.nodeType !== Node.TEXT_NODE) {continue;}
         const node = el.firstChild;
         const original = node.nodeValue;
         undo.push(() => {
@@ -132,8 +132,8 @@ window.__filmCapture = async function filmCapture({
         while (lo < hi) {
             const mid = Math.ceil((lo + hi) / 2);
             node.nodeValue = `${original.slice(0, mid).trimEnd()}…`;
-            if (el.scrollWidth <= el.clientWidth + 1) lo = mid;
-            else hi = mid - 1;
+            if (el.scrollWidth <= el.clientWidth + 1) {lo = mid;}
+            else {hi = mid - 1;}
         }
         node.nodeValue = `${original.slice(0, lo).trimEnd()}…`;
     }
@@ -142,9 +142,9 @@ window.__filmCapture = async function filmCapture({
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
         const rad = parseFloat(cs.borderTopLeftRadius);
-        if (!(rad > 1000)) continue;
+        if (!(rad > 1000)) {continue;}
         const r = el.getBoundingClientRect();
-        if (!r.width || !r.height) continue;
+        if (!r.width || !r.height) {continue;}
         setStyle(el, { 'border-radius': `${Math.min(r.width, r.height) / 2}px` });
     }
 
@@ -152,9 +152,9 @@ window.__filmCapture = async function filmCapture({
     //     fill the parent the parent's radius (radio dots, avatars, pill buttons).
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
-        if (cs.overflow === 'visible' || !(parseFloat(cs.borderTopLeftRadius) > 0)) continue;
+        if (cs.overflow === 'visible' || !(parseFloat(cs.borderTopLeftRadius) > 0)) {continue;}
         const r = el.getBoundingClientRect();
-        if (!r.width || !r.height) continue;
+        if (!r.width || !r.height) {continue;}
         for (const child of el.querySelectorAll('*')) {
             const c = child.getBoundingClientRect();
             if (Math.abs(c.left - r.left) < 1.5 && Math.abs(c.top - r.top) < 1.5 && Math.abs(c.width - r.width) < 1.5 && Math.abs(c.height - r.height) < 1.5) {
@@ -166,7 +166,7 @@ window.__filmCapture = async function filmCapture({
     // 3. Canvases (PDF pages) -> in-place images.
     const canvasInfo = [];
     for (const cv of document.querySelectorAll('canvas')) {
-        if (!isVisible(cv)) continue;
+        if (!isVisible(cv)) {continue;}
         let url;
         try {
             url = cv.toDataURL('image/webp', 0.8);
@@ -179,7 +179,7 @@ window.__filmCapture = async function filmCapture({
         const r = cv.getBoundingClientRect();
         const img = document.createElement('img');
         const cs = getComputedStyle(cv);
-        for (let i = 0; i < cs.length; i++) img.style.setProperty(cs[i], cs.getPropertyValue(cs[i]));
+        for (let i = 0; i < cs.length; i++) {img.style.setProperty(cs[i], cs.getPropertyValue(cs[i]));}
         img.style.width = `${r.width}px`;
         img.style.height = `${r.height}px`;
         img.src = url;
@@ -191,11 +191,11 @@ window.__filmCapture = async function filmCapture({
     //     (EVB Player's full window mode) would be drawn under later siblings. Hide what it covers.
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
-        if (cs.position !== 'fixed' || !(parseInt(cs.zIndex, 10) > 0) || !isVisible(el)) continue;
+        if (cs.position !== 'fixed' || !(parseInt(cs.zIndex, 10) > 0) || !isVisible(el)) {continue;}
         const r = el.getBoundingClientRect();
-        if (r.width * r.height < 0.9 * width * viewportHeight) continue;
+        if (r.width * r.height < 0.9 * width * viewportHeight) {continue;}
         for (const other of document.querySelectorAll('body *')) {
-            if (!el.contains(other) && !other.contains(el)) setStyle(other, { visibility: 'hidden' });
+            if (!el.contains(other) && !other.contains(el)) {setStyle(other, { visibility: 'hidden' });}
         }
         break;
     }
@@ -203,7 +203,7 @@ window.__filmCapture = async function filmCapture({
     // 3b. Videos -> in-place images. dom-to-svg cannot draw a <video>; the recorder supplies the
     //     current frame per media file name (window.__filmVideoFrames), drawn with the element's object-fit.
     for (const video of document.querySelectorAll('video')) {
-        if (!isVisible(video)) continue;
+        if (!isVisible(video)) {continue;}
         let name = '';
         try {
             const src = new URL(video.currentSrc || video.src);
@@ -219,7 +219,7 @@ window.__filmCapture = async function filmCapture({
         const r = video.getBoundingClientRect();
         const img = document.createElement('img');
         const cs = getComputedStyle(video);
-        for (let i = 0; i < cs.length; i++) img.style.setProperty(cs[i], cs.getPropertyValue(cs[i]));
+        for (let i = 0; i < cs.length; i++) {img.style.setProperty(cs[i], cs.getPropertyValue(cs[i]));}
         img.style.width = `${r.width}px`;
         img.style.height = `${r.height}px`;
         img.style.objectFit = cs.objectFit === 'fill' ? 'contain' : cs.objectFit;
@@ -232,7 +232,7 @@ window.__filmCapture = async function filmCapture({
     //      so the SVG would point at nothing. Swap in a data URL of the same pixels.
     const blobLoads = [];
     for (const image of document.querySelectorAll('img')) {
-        if (!image.currentSrc.startsWith('blob:') || !image.naturalWidth) continue;
+        if (!image.currentSrc.startsWith('blob:') || !image.naturalWidth) {continue;}
         const surface = document.createElement('canvas');
         surface.width = image.naturalWidth;
         surface.height = image.naturalHeight;
@@ -247,7 +247,7 @@ window.__filmCapture = async function filmCapture({
     // 3c. Range inputs: dom-to-svg writes their value as text instead of drawing a slider. Draw the
     //     track, fill and thumb the app paints (EVB Player's .seek-range/.volume-range) and hide the input.
     for (const range of document.querySelectorAll('input[type="range"]')) {
-        if (!isVisible(range)) continue;
+        if (!isVisible(range)) {continue;}
         const r = range.getBoundingClientRect();
         const cs = getComputedStyle(range);
         const min = Number(range.min || 0);
@@ -305,9 +305,9 @@ window.__filmCapture = async function filmCapture({
     //     as a solid block. Chrome drops the default 180deg from computed styles, so use a direction it keeps.
     for (const el of document.querySelectorAll('body *')) {
         const image = getComputedStyle(el).backgroundImage;
-        if (!image.includes('linear-gradient(')) continue;
+        if (!image.includes('linear-gradient(')) {continue;}
         const fixed = image.replace(/linear-gradient\((?!\s*(?:to\s|-?[\d.]+(?:deg|turn|rad|grad)))/g, 'linear-gradient(180.01deg, ');
-        if (fixed !== image) setStyle(el, { 'background-image': fixed });
+        if (fixed !== image) {setStyle(el, { 'background-image': fixed });}
     }
 
     // 4. Pseudo-elements -> real spans.
@@ -316,19 +316,19 @@ window.__filmCapture = async function filmCapture({
     let pseudoCount = 0;
     const pseudoHosts = [];
     for (const el of document.querySelectorAll('body *')) {
-        if (el.closest('svg') || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') continue;
+        if (el.closest('svg') || el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') {continue;}
         for (const which of [
             '::before',
             '::after',
         ]) {
             const ps = getComputedStyle(el, which);
             const content = ps.content;
-            if (!content || content === 'none' || content === 'normal' || ps.display === 'none') continue;
+            if (!content || content === 'none' || content === 'normal' || ps.display === 'none') {continue;}
             const text = /^["'].*["']$/.test(content)
                 ? content.slice(1, -1).replace(/\\([0-9a-f]{1,6})\s?/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
                 : '';
             const span = document.createElement('span');
-            for (let i = 0; i < ps.length; i++) span.style.setProperty(ps[i], ps.getPropertyValue(ps[i]));
+            for (let i = 0; i < ps.length; i++) {span.style.setProperty(ps[i], ps.getPropertyValue(ps[i]));}
             span.textContent = text;
             const cls = `film-ps-${pseudoCount++}`;
             el.classList.add(cls);
@@ -345,9 +345,9 @@ window.__filmCapture = async function filmCapture({
     const MODERN = /(oklab|oklch|lab|lch|color-mix|color)\((?:[^()]|\([^()]*\))*\)/;
     for (const el of document.querySelectorAll('*')) {
         const bg = getComputedStyle(el).backgroundImage;
-        if (!bg.includes('gradient(') || !MODERN.test(bg)) continue;
+        if (!bg.includes('gradient(') || !MODERN.test(bg)) {continue;}
         let fixed = bg;
-        for (let guard = 0; guard < 60 && MODERN.test(fixed); guard++) fixed = fixed.replace(MODERN, (c) => toRgb(c));
+        for (let guard = 0; guard < 60 && MODERN.test(fixed); guard++) {fixed = fixed.replace(MODERN, (c) => toRgb(c));}
         setStyle(el, { 'background-image': fixed });
     }
 
@@ -356,18 +356,18 @@ window.__filmCapture = async function filmCapture({
     for (const el of document.querySelectorAll('*')) {
         const cs = getComputedStyle(el);
         const mask = cs.maskImage || cs.webkitMaskImage;
-        if (!mask || !mask.startsWith('url("')) continue;
+        if (!mask || !mask.startsWith('url("')) {continue;}
         if (!isVisible(el) || [
             'IMG',
             'INPUT',
             'SVG',
-        ].includes(el.tagName)) continue;
+        ].includes(el.tagName)) {continue;}
         const src = mask.slice(5, mask.indexOf('")'));
         let data = null;
-        if (src.startsWith('data:image/svg+xml;base64,')) data = atob(src.slice(26));
-        else if (src.startsWith('data:image/svg+xml')) data = decodeURIComponent(src.slice(src.indexOf(',') + 1));
-        else if (/^https?:/.test(src)) data = await fetch(src).then((res) => res.text()).catch(() => null);
-        if (!data || !data.includes('<svg')) continue;
+        if (src.startsWith('data:image/svg+xml;base64,')) {data = atob(src.slice(26));}
+        else if (src.startsWith('data:image/svg+xml')) {data = decodeURIComponent(src.slice(src.indexOf(',') + 1));}
+        else if (/^https?:/.test(src)) {data = await fetch(src).then((res) => res.text()).catch(() => null);}
+        if (!data || !data.includes('<svg')) {continue;}
         const color = toRgb(cs.backgroundColor);
         // Masks only use alpha, so any paint colour is the icon colour.
         const tinted = data.replace(/(fill|stroke)=(['"])(?!none)[^'"]*\2/g, `$1=$2${color}$2`).replace('<svg', `<svg fill="${color}"`);
@@ -392,7 +392,7 @@ window.__filmCapture = async function filmCapture({
     //     dom-to-svg draws borders as straight lines, so a spinner comes out as a square.
     const ringLoads = [];
     for (const el of document.querySelectorAll('body *')) {
-        if (el.closest('svg') || !isVisible(el)) continue;
+        if (el.closest('svg') || !isVisible(el)) {continue;}
         const cs = getComputedStyle(el);
         // Layout size, not the bounding box: a rotated spinner's box grows with the angle.
         const r = {
@@ -400,8 +400,8 @@ window.__filmCapture = async function filmCapture({
             height: el.offsetHeight,
         };
         const w = parseFloat(cs.borderTopWidth) || 0;
-        if (!w || !r.width || Math.abs(r.width - r.height) > 1) continue;
-        if (!(parseFloat(cs.borderTopLeftRadius) >= r.width / 2 - 1)) continue;
+        if (!w || !r.width || Math.abs(r.width - r.height) > 1) {continue;}
+        if (!(parseFloat(cs.borderTopLeftRadius) >= r.width / 2 - 1)) {continue;}
         const sides = [
             'Top',
             'Right',
@@ -412,7 +412,7 @@ window.__filmCapture = async function filmCapture({
             width: parseFloat(cs[`border${s}Width`]) || 0,
             style: cs[`border${s}Style`],
         }));
-        if (sides.some((s) => s.style !== 'solid' || Math.abs(s.width - w) > 0.5)) continue;
+        if (sides.some((s) => s.style !== 'solid' || Math.abs(s.width - w) > 0.5)) {continue;}
         const size = r.width;
         const rad = (size - w) / 2;
         const c = size / 2;
@@ -436,7 +436,7 @@ window.__filmCapture = async function filmCapture({
             height: `${size}px`,
             maxWidth: 'none',
         });
-        if (cs.position === 'static') setStyle(el, { position: 'relative' });
+        if (cs.position === 'static') {setStyle(el, { position: 'relative' });}
         // A frozen rotation differs per state and makes the ring jump between frames; record it at rest.
         setStyle(el, {
             'border-color': 'transparent',
@@ -452,7 +452,7 @@ window.__filmCapture = async function filmCapture({
     // 7. Tailwind rings (zero-blur box-shadows) -> bordered sibling at the same place.
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
-        if (cs.boxShadow === 'none' || !isVisible(el) || el.parentElement?.tagName === 'TR') continue;
+        if (cs.boxShadow === 'none' || !isVisible(el) || el.parentElement?.tagName === 'TR') {continue;}
         const r = el.getBoundingClientRect();
         let replaced = false;
         for (const part of cs.boxShadow.split(/,(?![^(]*\))/)) {
@@ -464,9 +464,9 @@ window.__filmCapture = async function filmCapture({
                 blur = 0,
                 spread = 0,
             ] = nums;
-            if (!color || blur !== 0 || spread <= 0) continue;
+            if (!color || blur !== 0 || spread <= 0) {continue;}
             const rgb = toRgb(color);
-            if (rgb.endsWith(', 0.000)')) continue;
+            if (rgb.endsWith(', 0.000)')) {continue;}
             const inset = part.includes('inset');
             const grow = inset ? 0 : spread;
             const ring = document.createElement('div');
@@ -481,7 +481,7 @@ window.__filmCapture = async function filmCapture({
             placeSibling(el, ring, r.left - grow + ox, r.top - grow + oy);
             replaced = true;
         }
-        if (replaced) setStyle(el, { 'box-shadow': 'none' });
+        if (replaced) {setStyle(el, { 'box-shadow': 'none' });}
     }
 
     // 8. Form fields: dom-to-svg draws neither values nor placeholders. Blank the native value and
@@ -499,9 +499,9 @@ window.__filmCapture = async function filmCapture({
             'number',
             'tel',
             '',
-        ].includes(type)) continue;
-        if (!isVisible(el) || effectiveOpacity(el) < 0.05 || el.getAttribute('aria-hidden') === 'true') continue;
-        if (el.readOnly && el.tabIndex === -1) continue; // auto-grow sizer clones (Vuetify etc.)
+        ].includes(type)) {continue;}
+        if (!isVisible(el) || effectiveOpacity(el) < 0.05 || el.getAttribute('aria-hidden') === 'true') {continue;}
+        if (el.readOnly && el.tabIndex === -1) {continue;} // auto-grow sizer clones (Vuetify etc.)
         const isSelect = el.tagName === 'SELECT';
         const isArea = el.tagName === 'TEXTAREA';
         const cs = getComputedStyle(el);
@@ -549,7 +549,7 @@ window.__filmCapture = async function filmCapture({
         });
         const span = document.createElement('span');
         text.split('\n').forEach((line, n) => {
-            if (n > 0) span.append(document.createElement('br'));
+            if (n > 0) {span.append(document.createElement('br'));}
             span.append(document.createTextNode(line));
         });
         twin.append(span);
@@ -595,11 +595,11 @@ window.__filmCapture = async function filmCapture({
                 rect = marker.getBoundingClientRect();
                 marker.remove();
             }
-            if (rect) caretPos = [
+            if (rect) {caretPos = [
                 Math.round(rect.left),
                 Math.round(rect.top),
                 Math.round(rect.height),
-            ];
+            ];}
         }
     }
 
@@ -607,8 +607,8 @@ window.__filmCapture = async function filmCapture({
     const transformed = [];
     for (const el of document.querySelectorAll('body *')) {
         const cs = getComputedStyle(el);
-        if (cs.transform === 'none' && cs.rotate === 'none' && cs.translate === 'none' && cs.scale === 'none') continue;
-        if (cs.transform.startsWith('matrix3d')) continue;
+        if (cs.transform === 'none' && cs.rotate === 'none' && cs.translate === 'none' && cs.scale === 'none') {continue;}
+        if (cs.transform.startsWith('matrix3d')) {continue;}
         let mx = new DOMMatrix();
         if (cs.translate !== 'none') {
             const box = el.getBoundingClientRect();
@@ -633,7 +633,7 @@ window.__filmCapture = async function filmCapture({
             ] = cs.scale.split(' ').map(parseFloat);
             mx = mx.scale(sx, sy ?? sx);
         }
-        if (cs.transform !== 'none') mx = mx.multiply(new DOMMatrix(cs.transform));
+        if (cs.transform !== 'none') {mx = mx.multiply(new DOMMatrix(cs.transform));}
         const m = [
             mx.a,
             mx.b,
@@ -642,7 +642,7 @@ window.__filmCapture = async function filmCapture({
             mx.e,
             mx.f,
         ];
-        if (m[0] === 1 && m[1] === 0 && m[2] === 0 && m[3] === 1 && Math.abs(m[4]) < 0.01 && Math.abs(m[5]) < 0.01) continue;
+        if (m[0] === 1 && m[1] === 0 && m[2] === 0 && m[3] === 1 && Math.abs(m[4]) < 0.01 && Math.abs(m[5]) < 0.01) {continue;}
         const cls = `film-tf-${transformed.length}`;
         el.classList.add(cls);
         transformed.push({
@@ -652,13 +652,13 @@ window.__filmCapture = async function filmCapture({
             origin: cs.transformOrigin.split(' ').map(parseFloat),
         });
     }
-    for (const t of transformed) setStyle(t.el, {
+    for (const t of transformed) {setStyle(t.el, {
         transform: 'none',
         rotate: 'none',
         translate: 'none',
         scale: 'none',
         transition: 'none',
-    });
+    });}
     // Untransformed boxes can lie outside the viewport (a dialog centred with translate(-50%, -50%) moves
     // half its width right); dom-to-svg skips everything outside its capture area, so widen the area to them.
     let areaLeft = 0;
@@ -681,16 +681,16 @@ window.__filmCapture = async function filmCapture({
     const nlNodes = [];
     while (nlWalker.nextNode()) {
         const node = nlWalker.currentNode;
-        if (!node.nodeValue.replace(/\n+$/, '').includes('\n')) continue;
+        if (!node.nodeValue.replace(/\n+$/, '').includes('\n')) {continue;}
         const parent = node.parentElement;
-        if (!parent || parent.closest('textarea, script, style, svg')) continue;
-        if (!/^pre/.test(getComputedStyle(parent).whiteSpace)) continue;
+        if (!parent || parent.closest('textarea, script, style, svg')) {continue;}
+        if (!/^pre/.test(getComputedStyle(parent).whiteSpace)) {continue;}
         nlNodes.push(node);
     }
     for (const node of nlNodes) {
         const parts = [];
         node.nodeValue.split('\n').forEach((line, n) => {
-            if (n > 0) parts.push(document.createElement('br'));
+            if (n > 0) {parts.push(document.createElement('br'));}
             parts.push(document.createTextNode(line));
         });
         node.replaceWith(...parts);
@@ -707,7 +707,7 @@ window.__filmCapture = async function filmCapture({
     const rtlNodes = [];
     while (walker.nextNode()) {
         RTL.lastIndex = 0;
-        if (RTL.test(walker.currentNode.nodeValue) && !walker.currentNode.parentElement?.closest('textarea, input')) rtlNodes.push(walker.currentNode);
+        if (RTL.test(walker.currentNode.nodeValue) && !walker.currentNode.parentElement?.closest('textarea, input')) {rtlNodes.push(walker.currentNode);}
     }
     for (const node of rtlNodes) {
         const text = node.nodeValue;
@@ -743,7 +743,7 @@ window.__filmCapture = async function filmCapture({
     for (const t of transformed) {
         t.el.classList.remove(t.cls);
         const g = root.querySelector(`[class~="${t.cls}"]`);
-        if (!g) continue;
+        if (!g) {continue;}
         const [
             a,
             b,
@@ -762,7 +762,7 @@ window.__filmCapture = async function filmCapture({
     ]) {
         const kids = [...ctxEl.children];
         const boundary = kids.find((k) => /StackLevelZero|PositiveStackLevels/.test(k.dataset?.stackingLayer || ''));
-        if (!boundary) continue;
+        if (!boundary) {continue;}
         for (const k of kids.slice(kids.indexOf(boundary) + 1)) {
             if (k.dataset?.stackingLayer || [
                 'title',
@@ -770,14 +770,14 @@ window.__filmCapture = async function filmCapture({
                 'clipPath',
                 'defs',
                 'style',
-            ].includes(k.localName)) continue;
+            ].includes(k.localName)) {continue;}
             ctxEl.insertBefore(k, boundary);
         }
     }
     // ...and it never sorts the root context's z-index layers.
     for (const layer of root.querySelectorAll('[data-stacking-layer$="StackLevels"]')) {
         const kids = [...layer.children].sort((a, b) => (parseInt(a.dataset.zIndex, 10) || 0) - (parseInt(b.dataset.zIndex, 10) || 0));
-        for (const kid of kids) layer.append(kid);
+        for (const kid of kids) {layer.append(kid);}
     }
     for (const node of root.querySelectorAll('[fill], [stroke], [stop-color], [flood-color]')) {
         for (const attr of [
@@ -787,7 +787,7 @@ window.__filmCapture = async function filmCapture({
             'flood-color',
         ]) {
             const v = node.getAttribute(attr);
-            if (v && /(oklab|oklch|lab|lch|color-mix|color)\(/.test(v)) node.setAttribute(attr, toRgb(v));
+            if (v && /(oklab|oklch|lab|lch|color-mix|color)\(/.test(v)) {node.setAttribute(attr, toRgb(v));}
         }
     }
     root.setAttribute('width', String(width));
@@ -801,25 +801,25 @@ window.__filmCapture = async function filmCapture({
         parts,
     ] of rtlUndo) {
         parts[0].replaceWith(node);
-        for (const part of parts.slice(1)) part.remove();
+        for (const part of parts.slice(1)) {part.remove();}
     }
     for (const [
         node,
         parts,
     ] of nlUndo.reverse()) {
         parts[0].replaceWith(node);
-        for (const part of parts.slice(1)) part.remove();
+        for (const part of parts.slice(1)) {part.remove();}
     }
     for (const [
         el,
         value,
-    ] of restores) el.value = value;
-    for (const node of added) node.remove();
+    ] of restores) {el.value = value;}
+    for (const node of added) {node.remove();}
     for (const [
         el,
         cls,
-    ] of pseudoHosts) el.classList.remove(cls);
-    for (const fn of undo.reverse()) fn();
+    ] of pseudoHosts) {el.classList.remove(cls);}
+    for (const fn of undo.reverse()) {fn();}
 
     let svg = new XMLSerializer().serializeToString(root);
     svg = svg

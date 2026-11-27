@@ -57,7 +57,7 @@ class SessionHarness {
 
     dispatch(event: TDocumentViewportSessionEvent) {
         const result = reduceDocumentViewportSession(this.state, event);
-        if (result.accepted) this.state = result.state;
+        if (result.accepted) {this.state = result.state;}
         return result;
     }
 

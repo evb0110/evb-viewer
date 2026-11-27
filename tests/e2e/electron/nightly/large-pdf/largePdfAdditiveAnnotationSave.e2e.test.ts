@@ -165,7 +165,7 @@ function readPlacedImagePositions(page: Page) {
             `.editor-pane.is-active .page_container[data-page="${pageNumber}"]`,
         );
         const box = container?.getBoundingClientRect();
-        if (!container || !box || box.width <= 0 || box.height <= 0) return [];
+        if (!container || !box || box.width <= 0 || box.height <= 0) {return [];}
         return Array.from(container.querySelectorAll<HTMLElement>(
             '.pdf-annotation-editor-layer [data-annotation-kind="placed-image"]',
         )).map((entity) => {
@@ -443,7 +443,7 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
                 if (width > 0 && height > 0) {
                     const pixels = canvas.getContext('2d')?.getImageData(x, y, width, height).data ?? [];
                     for (let i = 0; i < pixels.length; i += 4) {
-                        if (pixels[i + 1]! > pixels[i]! + 20 && pixels[i + 1]! > pixels[i + 2]! + 20) greenPixels++;
+                        if (pixels[i + 1]! > pixels[i]! + 20 && pixels[i + 1]! > pixels[i + 2]! + 20) {greenPixels++;}
                     }
                 }
             }
@@ -506,7 +506,7 @@ largePdfDescribe('Electron E2E - Large PDF additive annotation saves', () => {
             deleteSaveMs,
         };
         console.info(`[large-pdf existing edits] ${JSON.stringify(timings)}`);
-        for (const duration of Object.values(timings)) expect(duration, JSON.stringify(timings)).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
+        for (const duration of Object.values(timings)) {expect(duration, JSON.stringify(timings)).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);}
         await waitForWholeAnnotationInventory(page);
         const savedCount = await readPanelAnnotationCount(page);
         expect(savedCount).not.toBeNull();

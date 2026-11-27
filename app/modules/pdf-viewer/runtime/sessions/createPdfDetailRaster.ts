@@ -156,7 +156,7 @@ export function createPdfDetailRaster(options: {
 
     function removeShown(pageNumber: TPageNumber) {
         const detail = shown.get(pageNumber);
-        if (!detail) return;
+        if (!detail) {return;}
         shown.delete(pageNumber);
         options.canvasRenderer.cleanupCanvasRenderResult(detail.render);
     }
@@ -171,7 +171,7 @@ export function createPdfDetailRaster(options: {
         id: options.sourceId,
         async prepare(demand, page, signal, captureSettlement) {
             const job = jobs.get(demand.renderKey);
-            if (!job || !isJobCurrent(job)) return null;
+            if (!job || !isJobCurrent(job)) {return null;}
             const shouldContinue = () => !signal.aborted && isJobCurrent(job);
             const render = await options.canvasRenderer.prepareCanvasRender(page, job.scale, {
                 region: {
@@ -205,7 +205,7 @@ export function createPdfDetailRaster(options: {
                 job, render,
             } = prepared;
             const host = options.getMountedTarget(job.pageNumber)?.detailHost;
-            if (!host || !isJobCurrent(job)) return false;
+            if (!host || !isJobCurrent(job)) {return false;}
             const previous = shown.get(job.pageNumber);
             // Shown before the scheduler takes it, so a budget eviction during
             // that commit removes this canvas. The scheduler releases the one
@@ -217,11 +217,11 @@ export function createPdfDetailRaster(options: {
             });
             if (!commitRaster()) {
                 render.canvas.remove();
-                if (previous) shown.set(job.pageNumber, previous);
-                else shown.delete(job.pageNumber);
+                if (previous) {shown.set(job.pageNumber, previous);}
+                else {shown.delete(job.pageNumber);}
                 return false;
             }
-            if (previous) options.canvasRenderer.cleanupCanvasRenderResult(previous.render);
+            if (previous) {options.canvasRenderer.cleanupCanvasRenderResult(previous.render);}
             jobs.delete(job.demand.renderKey);
             return true;
         },
@@ -231,9 +231,9 @@ export function createPdfDetailRaster(options: {
             }
         },
         release(pageNumber, reason) {
-            if (reason === 'raster-replaced') return;
+            if (reason === 'raster-replaced') {return;}
             const evicted = shown.get(pageNumber);
-            if (reason === 'surface-budget-eviction' && evicted) refuse(pageNumber, evicted.demand.renderKey);
+            if (reason === 'surface-budget-eviction' && evicted) {refuse(pageNumber, evicted.demand.renderKey);}
             removeShown(pageNumber);
         },
         onRenderUncommitted(outcome) {
@@ -252,14 +252,14 @@ export function createPdfDetailRaster(options: {
     } | null {
         const surface = options.getMountedTarget(pageNumber)?.container.querySelector<HTMLElement>('.page_canvas');
         const viewer = options.viewerContainer.value;
-        if (!surface || !viewer) return null;
+        if (!surface || !viewer) {return null;}
         const page = surface.getBoundingClientRect();
         const box = viewer.getBoundingClientRect();
         const left = Math.max(page.left, box.left + viewer.clientLeft);
         const top = Math.max(page.top, box.top + viewer.clientTop);
         const right = Math.min(page.right, box.left + viewer.clientLeft + viewer.clientWidth);
         const bottom = Math.min(page.bottom, box.top + viewer.clientTop + viewer.clientHeight);
-        if (right - left < 1 || bottom - top < 1) return null;
+        if (right - left < 1 || bottom - top < 1) {return null;}
         return {
             x0: (left - page.left) / page.width,
             y0: (top - page.top) / page.height,
@@ -274,7 +274,7 @@ export function createPdfDetailRaster(options: {
     function planPage(pageNumber: TPageNumber, ordinal: number, activeScheduler: IPdfPageRasterScheduler): IDetailJob | 'keep' | 'drop' {
         // While its whole-page raster is replaced, a shown detail stretches
         // with it like any committed raster.
-        if (!options.isCommittedVisual(pageNumber)) return 'keep';
+        if (!options.isCommittedVisual(pageNumber)) {return 'keep';}
         const committed = options.pageResources.get(pageNumber).shown;
         const base = committed?.render;
         const quality = committed?.quality;
@@ -282,9 +282,9 @@ export function createPdfDetailRaster(options: {
         if (
             !base || !quality || quality.intent !== 'settled' || !quality.wasClamped
             || sourceMaxPixels !== null && sourceMaxPixels <= options.settledMaxCanvasPixels
-        ) return 'drop';
+        ) {return 'drop';}
         const visible = readVisibleArea(pageNumber);
-        if (!visible) return 'keep';
+        if (!visible) {return 'keep';}
         const scale = options.getScale();
         const outputScale = options.getOutputScale();
         const rotation = options.getRotation();
@@ -299,8 +299,8 @@ export function createPdfDetailRaster(options: {
             current: current && isSameScale(current.scale, scale) && isSameScale(current.outputScale, outputScale)
                 && current.content.rotation === rotation ? current.area : null,
         });
-        if (area === 'current') return 'keep';
-        if (area === null) return 'drop';
+        if (area === 'current') {return 'keep';}
+        if (area === null) {return 'drop';}
         const renderKey = [
             pageNumber,
             scale,
@@ -311,9 +311,9 @@ export function createPdfDetailRaster(options: {
             area.x1,
             area.y1,
         ].join(':');
-        if (refused.get(pageNumber)?.has(renderKey)) return 'keep';
+        if (refused.get(pageNumber)?.has(renderKey)) {return 'keep';}
         const pending = jobs.get(renderKey);
-        if (pending) return pending;
+        if (pending) {return pending;}
         return {
             pageNumber,
             area,
@@ -351,16 +351,16 @@ export function createPdfDetailRaster(options: {
             refused.clear();
             scheduler = activeScheduler;
         }
-        if (!activeScheduler) return;
+        if (!activeScheduler) {return;}
         const required = new Set(requiredPages);
         for (const pageNumber of refused.keys()) {
-            if (!required.has(pageNumber)) refused.delete(pageNumber);
+            if (!required.has(pageNumber)) {refused.delete(pageNumber);}
         }
         for (const [
             pageNumber,
             detail,
         ] of shown) {
-            if (!required.has(pageNumber) || !isContentCurrent(pageNumber, detail.content)) clear(pageNumber);
+            if (!required.has(pageNumber) || !isContentCurrent(pageNumber, detail.content)) {clear(pageNumber);}
         }
         const demands: IPdfRasterDemand[] = [];
         const nextJobs: IDetailJob[] = [];
@@ -370,7 +370,7 @@ export function createPdfDetailRaster(options: {
                 clear(pageNumber);
             } else if (plan === 'keep') {
                 const detail = shown.get(pageNumber);
-                if (detail) demands.push(detail.demand);
+                if (detail) {demands.push(detail.demand);}
             } else {
                 nextJobs.push(plan);
             }
@@ -383,12 +383,12 @@ export function createPdfDetailRaster(options: {
         } else {
             nextJobs.forEach((job) => {
                 const detail = shown.get(job.pageNumber);
-                if (detail) demands.push(detail.demand);
+                if (detail) {demands.push(detail.demand);}
             });
         }
         const demandKeys = new Set(demands.map(demand => demand.renderKey));
         for (const key of jobs.keys()) {
-            if (!demandKeys.has(key)) jobs.delete(key);
+            if (!demandKeys.has(key)) {jobs.delete(key);}
         }
         activeScheduler.setDemand({
             sourceId: options.sourceId,
@@ -408,7 +408,7 @@ export function createPdfDetailRaster(options: {
             key,
             job,
         ] of jobs) {
-            if (job.pageNumber === pageNumber) jobs.delete(key);
+            if (job.pageNumber === pageNumber) {jobs.delete(key);}
         }
         scheduler?.invalidate({
             pages: [pageNumber],
@@ -426,7 +426,7 @@ export function createPdfDetailRaster(options: {
             if ([
                 shown.get(pageNumber),
                 ...jobs.values(),
-            ].some(detail => detail?.pageNumber === pageNumber && !isSameContent(detail.content, content))) clear(pageNumber);
+            ].some(detail => detail?.pageNumber === pageNumber && !isSameContent(detail.content, content))) {clear(pageNumber);}
         },
         cancel() {
             jobs.clear();

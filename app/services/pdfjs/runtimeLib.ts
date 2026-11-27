@@ -244,7 +244,7 @@ async function assertPdfjsVendoredAssetVersionOnce(
         // Only a passed check is remembered: after a failed request, the next
         // open asks again instead of failing on the old rejection.
         check.catch(() => {
-            if (vendoredAssetVersionPromise === check) vendoredAssetVersionPromise = null;
+            if (vendoredAssetVersionPromise === check) {vendoredAssetVersionPromise = null;}
         });
     }
     await vendoredAssetVersionPromise;

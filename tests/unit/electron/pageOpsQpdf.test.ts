@@ -37,20 +37,20 @@ describe.runIf(process.platform !== 'win32')('desktop qpdf WASM virtual path sea
             async function fixture(path: string, count: number, word: string) {
                 const document = await PDFDocument.create();
                 const font = await document.embedFont(StandardFonts.Helvetica);
-                for (let i = 0; i < count; i++) document.addPage().drawText(word, {font});
+                for (let i = 0; i < count; i++) {document.addPage().drawText(word, {font});}
                 await writeFile(path, await document.save());
             }
             const separator = scenario === 'cr' ? '\r' : scenario === 'crlf' ? '\r\n' : '\n';
             const source = join(directory, `source${separator}name.pdf`);
             const output = join(directory, scenario === 'output-lf' ? 'output\nname.pdf' : 'output.pdf');
             await fixture(source, 1, sentinel);
-            if (scenario === 'lf-with-sibling') await fixture(join(directory, 'source name.pdf'), 2, 'WRONG_SPACE_SIBLING');
+            if (scenario === 'lf-with-sibling') {await fixture(join(directory, 'source name.pdf'), 2, 'WRONG_SPACE_SIBLING');}
             let operand = source;
             if (scenario === 'symlink') {
                 operand = join(directory, 'link\nsource.pdf');
                 await symlink(source, operand);
             }
-            if (scenario === 'relative') operand = `source${separator}name.pdf`;
+            if (scenario === 'relative') {operand = `source${separator}name.pdf`;}
             try {
                 await runQpdfCommand([
                     operand,

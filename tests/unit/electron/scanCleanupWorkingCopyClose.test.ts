@@ -361,7 +361,7 @@ describe('closing a source document during scan cleanup', () => {
         const webContents = sender();
         try {
             const first = await service.start(webContents, startRequest(workingPath));
-            if (!first.started) throw new Error('Expected the original cleanup to start');
+            if (!first.started) {throw new Error('Expected the original cleanup to start');}
             const signal = await entered.promise;
             expect(service.cancel(webContents, first.jobId, owner)).toBe(true);
             expect(signal.aborted).toBe(true);
@@ -402,10 +402,10 @@ describe('closing a source document during scan cleanup', () => {
         const webContents = lifecycleSender(OWNER_WEB_CONTENTS_ID);
         const completed = Promise.withResolvers<TScanCleanupDetectionJobState>();
         webContents.send.mockImplementation((channel: string, frame: TScanCleanupDetectionJobState) => {
-            if (channel !== SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState) return;
-            if (frame.status === 'completed') completed.resolve(frame);
-            if (frame.status === 'failed') completed.reject(new Error(frame.error));
-            if (frame.status === 'canceled') completed.reject(new Error(frame.status));
+            if (channel !== SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState) {return;}
+            if (frame.status === 'completed') {completed.resolve(frame);}
+            if (frame.status === 'failed') {completed.reject(new Error(frame.error));}
+            if (frame.status === 'canceled') {completed.reject(new Error(frame.status));}
         });
         const detection = {
             ...startRequest(workingPath),
@@ -514,7 +514,7 @@ describe('closing a source document during scan cleanup', () => {
         const service = createScanCleanupService();
         const webContents = sender();
         const started = await service.start(webContents, startRequest(workingPath));
-        if (!started.started) throw new Error('Expected scan cleanup to start');
+        if (!started.started) {throw new Error('Expected scan cleanup to start');}
         const signal = await observed.promise;
         expect(signal.aborted).toBe(false);
         expect(snapshotMainOperations()).toEqual([expect.objectContaining({
@@ -563,7 +563,7 @@ describe('closing a source document during scan cleanup', () => {
         const service = createScanCleanupService();
         const webContents = sender();
         const started = await service.start(webContents, startRequest(workingPath));
-        if (!started.started) throw new Error('Expected scan cleanup to start');
+        if (!started.started) {throw new Error('Expected scan cleanup to start');}
         await observed.promise;
 
         await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
@@ -589,7 +589,7 @@ describe('closing a source document during scan cleanup', () => {
         const service = createScanCleanupService();
         const webContents = sender();
         const started = await service.start(webContents, startRequest(workingPath));
-        if (!started.started) throw new Error('Expected scan cleanup to start');
+        if (!started.started) {throw new Error('Expected scan cleanup to start');}
         await vi.waitFor(() => {
             expect(service.getState(webContents, started.jobId, owner)).toMatchObject({
                 status: 'failed',
@@ -628,7 +628,7 @@ describe('closing a source document during scan cleanup', () => {
         const service = createScanCleanupService();
         const webContents = sender();
         const started = await service.start(webContents, startRequest(other.workingPath));
-        if (!started.started) throw new Error('Expected scan cleanup to start');
+        if (!started.started) {throw new Error('Expected scan cleanup to start');}
         const signal = await observed.promise;
 
         await cleanupWorkingCopy(closing.workingPath, OWNER_WEB_CONTENTS_ID);
@@ -676,7 +676,7 @@ describe('closing a source document during scan cleanup', () => {
         const service = createScanCleanupService();
         const webContents = sender();
         const started = await service.start(webContents, startRequest(workingPath));
-        if (!started.started) throw new Error('Expected scan cleanup to start');
+        if (!started.started) {throw new Error('Expected scan cleanup to start');}
         await observed.promise;
 
         await cleanupWorkingCopy(workingPath, OWNER_WEB_CONTENTS_ID);
@@ -807,7 +807,7 @@ describe('closing a source document during scan cleanup', () => {
         });
 
         const startedCanceled = await service.start(webContents, startRequest(workingPath));
-        if (!startedCanceled.started) throw new Error('Expected scan cleanup to start');
+        if (!startedCanceled.started) {throw new Error('Expected scan cleanup to start');}
         try {
             await workerReady.promise;
             // Cancel arrives BEFORE the worker's result reaches main's markCommitStarted().
@@ -853,7 +853,7 @@ describe('closing a source document during scan cleanup', () => {
         });
 
         const startedCommitted = await service.start(webContents, startRequest(workingPath));
-        if (!startedCommitted.started) throw new Error('Expected second scan cleanup to start');
+        if (!startedCommitted.started) {throw new Error('Expected second scan cleanup to start');}
         await vi.waitFor(() => {
             expect(service.getState(webContents, startedCommitted.jobId, owner)).toMatchObject({status: 'completed'});
         });

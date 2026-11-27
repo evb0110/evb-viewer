@@ -599,7 +599,7 @@ describe('AnnotationStore public API', () => {
             readInto(live, [onPage('first-read-id', 1)], 'rev-1');
             edit(live);
             live.remapPages(swapPages);
-            if (rereadLanded) readInto(live, [onPage('reordered-read-id', 0)], 'rev-2', [], true);
+            if (rereadLanded) {readInto(live, [onPage('reordered-read-id', 0)], 'rev-2', [], true);}
             const recovery = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(live, [noteDraft(live)])));
             const recovered = new AnnotationStore();
             readInto(recovered, [onPage('reordered-read-id', 0)], 'rev-2');
@@ -647,7 +647,7 @@ describe('AnnotationStore public API', () => {
             expect(edited.recovered.hasChangesSinceSavedBaseline('note')).toBe(true);
 
             // A version 1 snapshot names no changed fields, so its tombstones bind to nothing.
-            if (version === 1) return;
+            if (version === 1) {return;}
             const deleted = reorder(store => store.delete(asAnnotationId('first-read-id')), rereadLanded);
             restoreCanonicalAnnotationRecovery(deleted.recovered, {...deleted.recovery, drafts: []});
             expect(deleted.recovered.list()).toEqual([]);

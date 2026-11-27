@@ -472,7 +472,7 @@ function* iteratePageSelectionRange(
         case 'none':
             return;
         case 'all':
-            for (let page = start; page <= end; page += 1) yield page;
+            for (let page = start; page <= end; page += 1) {yield page;}
             return;
         case 'explicit': {
             const pages = getSortedUniquePages(selection.pages, sortedCache);
@@ -488,14 +488,14 @@ function* iteratePageSelectionRange(
         case 'range': {
             const rangeStart = Math.max(start, selection.startPage);
             const rangeEnd = Math.min(end, selection.endPage);
-            for (let page = rangeStart; page <= rangeEnd; page += 1) yield page;
+            for (let page = rangeStart; page <= rangeEnd; page += 1) {yield page;}
             return;
         }
         case 'predicate': {
             let page = start;
-            if (selection.predicate === 'even' && page % 2 !== 0) page += 1;
-            if (selection.predicate === 'odd' && page % 2 === 0) page += 1;
-            for (; page <= end; page += 2) yield page;
+            if (selection.predicate === 'even' && page % 2 !== 0) {page += 1;}
+            if (selection.predicate === 'odd' && page % 2 === 0) {page += 1;}
+            for (; page <= end; page += 2) {yield page;}
             return;
         }
         case 'complement': {
@@ -511,22 +511,22 @@ function* iteratePageSelectionRange(
                     if (excludedPage > end) {
                         break;
                     }
-                    for (let page = nextPage; page < excludedPage; page += 1) yield page;
+                    for (let page = nextPage; page < excludedPage; page += 1) {yield page;}
                     nextPage = excludedPage + 1;
                 }
-                for (let page = nextPage; page <= end; page += 1) yield page;
+                for (let page = nextPage; page <= end; page += 1) {yield page;}
                 return;
             }
             if (selection.excludedSelection === undefined) {
-                for (let page = start; page <= end; page += 1) yield page;
+                for (let page = start; page <= end; page += 1) {yield page;}
                 return;
             }
             let nextPage = start;
             for (const excludedPage of iteratePageSelectionRange(selection.excludedSelection, start, end, sortedCache)) {
-                for (let page = nextPage; page < excludedPage; page += 1) yield page;
+                for (let page = nextPage; page < excludedPage; page += 1) {yield page;}
                 nextPage = excludedPage + 1;
             }
-            for (let page = nextPage; page <= end; page += 1) yield page;
+            for (let page = nextPage; page <= end; page += 1) {yield page;}
             return;
         }
         case 'exceptions': {
@@ -604,16 +604,16 @@ export function* iteratePageSelection(selection: TPageSelection): Generator<numb
         case 'none':
             return;
         case 'all':
-            for (let page = 1; page <= selection.pageCount; page += 1) yield page;
+            for (let page = 1; page <= selection.pageCount; page += 1) {yield page;}
             return;
         case 'explicit':
             yield* selection.pages;
             return;
         case 'range':
-            for (let page = selection.startPage; page <= selection.endPage; page += 1) yield page;
+            for (let page = selection.startPage; page <= selection.endPage; page += 1) {yield page;}
             return;
         case 'predicate':
-            for (let page = selection.predicate === 'even' ? 2 : 1; page <= selection.pageCount; page += 2) yield page;
+            for (let page = selection.predicate === 'even' ? 2 : 1; page <= selection.pageCount; page += 2) {yield page;}
             return;
         case 'exceptions':
             yield* iteratePageSelectionRange(selection, 1, selection.pageCount);
@@ -930,7 +930,7 @@ export function* iteratePageSelectionBatches(
             batch = [];
         }
     }
-    if (batch.length > 0) yield batch;
+    if (batch.length > 0) {yield batch;}
 }
 
 export function materializePageSelection(
@@ -938,7 +938,7 @@ export function materializePageSelection(
     options: IPageSelectionBatchOptions = {},
 ) {
     const pages: number[] = [];
-    for (const batch of iteratePageSelectionBatches(selection, options)) pages.push(...batch);
+    for (const batch of iteratePageSelectionBatches(selection, options)) {pages.push(...batch);}
     return pages;
 }
 
@@ -992,8 +992,8 @@ export function togglePageSelection(selection: TPageSelection, page: number): TP
     if (selection.kind === 'exceptions') {
         const included = selection.includedPages.filter(candidate => candidate !== page);
         const excluded = selection.excludedPages.filter(candidate => candidate !== page);
-        if (isPageSelected(selection, page)) excluded.push(page);
-        else included.push(page);
+        if (isPageSelected(selection, page)) {excluded.push(page);}
+        else {included.push(page);}
         return createExceptionPageSelection(selection.base, included, excluded);
     }
     // A range or predicate stays compact when one page is toggled.  The
@@ -1217,7 +1217,7 @@ export function buildPageMoveOrder(move: IPageMoveRange) {
     const restInsertIndex = pageMoveRestInsertIndex(move);
     let restIndex = 0;
     for (let page = 1; page <= move.pageCount; page += 1) {
-        if (page >= move.startPage && page <= move.endPage) continue;
+        if (page >= move.startPage && page <= move.endPage) {continue;}
         if (restIndex === restInsertIndex) {
             for (let movedPage = move.startPage; movedPage <= move.endPage; movedPage += 1) {
                 order.push(movedPage);

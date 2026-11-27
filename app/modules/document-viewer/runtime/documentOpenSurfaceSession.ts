@@ -160,7 +160,7 @@ export async function whenDocumentOpeningPlaced(
 ) {
     const ticket = surface.viewportSession.value.lifecycle === 'opening' ? surface.navigationTicket.value : null;
     const isSettled = () => !isLive() || surface.snapshot.value.committedViewport?.viewportIntentId === ticket?.id;
-    if (!ticket || isSettled()) return;
+    if (!ticket || isSettled()) {return;}
     let stop: WatchStopHandle | undefined;
     await Promise.race([
         ticket.finished,
@@ -287,9 +287,9 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         return ticket;
     }
     function retire(ticket: IDocumentNavigationTicket | null, outcome: TDocumentNavigationOutcome) {
-        if (!ticket) return;
+        if (!ticket) {return;}
         const receipt = receipts.get(ticket.signal);
-        if (!receipt) return;
+        if (!receipt) {return;}
         receipts.delete(ticket.signal);
         receipt.finish(outcome);
         receipt.controller.abort(outcome);
@@ -369,7 +369,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                         by: 'command',
                     });
         }
-        for (const event of events) diagnostics.record(event.type, true);
+        for (const event of events) {diagnostics.record(event.type, true);}
         return true;
     }
 
@@ -433,9 +433,9 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
     function navigate(request: IDocumentNavigationRequest) {
         const state = sessionState.value.viewport;
         if (!state.identity || state.lifecycle === 'closing'
-            || state.lifecycle === 'failed' && state.visual.kind !== 'page') return null;
+            || state.lifecycle === 'failed' && state.visual.kind !== 'page') {return null;}
         const page = request.target.kind === 'named-dest' ? null : request.target.page;
-        if (page !== null && (!Number.isSafeInteger(page) || page < 1)) return null;
+        if (page !== null && (!Number.isSafeInteger(page) || page < 1)) {return null;}
         const id = createViewportIntentId('navigation');
         const ticket = makeTicket(request, state.generation, state.identity.revision, id);
         const accepted = dispatchViewport({
@@ -445,10 +445,10 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             deferSkeleton: sessionState.value.ticket === null,
         }, page !== null && shouldRetargetOwnedOpeningPageShell(page)
             ? visual => retargetDocumentOpeningShell(visual, page) : undefined, ticket);
-        if (!accepted) retire(ticket, {
+        if (!accepted) {retire(ticket, {
             kind: 'failed',
             reason: 'navigation-rejected',
-        });
+        });}
         return accepted ? sessionState.value.ticket?.signal === ticket.signal ? sessionState.value.ticket : ticket : null;
     }
 
@@ -559,17 +559,17 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         navigate,
         isNavigationCurrent,
         reportNavigation(ticket, report) {
-            if (!isNavigationCurrent(ticket)) return false;
+            if (!isNavigationCurrent(ticket)) {return false;}
             const state = sessionState.value.viewport;
             const activeTicket = sessionState.value.ticket;
-            if (!activeTicket || activeTicket.signal !== ticket.signal) return false;
-            if (report.kind === 'resolved') return dispatchViewport({
+            if (!activeTicket || activeTicket.signal !== ticket.signal) {return false;}
+            if (report.kind === 'resolved') {return dispatchViewport({
                 type: 'navigation-resolved',
                 generation: activeTicket.generation,
                 viewportIntentId: activeTicket.id,
                 pageNumber: report.page,
-            });
-            if (report.kind === 'placed') return this.commitViewport({
+            });}
+            if (report.kind === 'placed') {return this.commitViewport({
                 generation: activeTicket.generation,
                 documentRevision: activeTicket.documentRevision,
                 viewportIntentId: activeTicket.id,
@@ -578,11 +578,11 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 interactionEpoch: report.interactionEpoch,
                 left: report.left,
                 top: report.top,
-            }) && isNavigationCurrent(ticket);
+            }) && isNavigationCurrent(ticket);}
             if (report.kind === 'arrived') {
                 const placement = state.stagedViewportFence ?? state.committedViewportFence;
                 if (state.requestedPage !== report.page || placement?.viewportIntentId !== ticket.id
-                    || placement.pageNumber !== report.page) return false;
+                    || placement.pageNumber !== report.page) {return false;}
                 const openingPlacementReady = (state.lifecycle === 'opening'
                     || state.lifecycle === 'transitioning')
                     && (state.stagedRenderFence?.pageNumber === report.page
@@ -591,9 +591,9 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                     ticket.request.readiness !== 'metrics'
                     && state.lifecycle !== 'ready'
                     && !openingPlacementReady
-                ) return false;
+                ) {return false;}
             }
-            if (report.kind === 'failed') this.failPageTransition(state.requestedPage, report.reason);
+            if (report.kind === 'failed') {this.failPageTransition(state.requestedPage, report.reason);}
             if (report.kind === 'abandoned') {
                 dispatchViewport({
                     type: 'navigation-superseded-by-user',
@@ -744,9 +744,9 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         },
         acquireSource(identity, expectedGeneration) {
             const current = snapshot.value;
-            if (current.generation !== expectedGeneration) return null;
-            if (current.identity === null) return this.begin(identity);
-            if (current.identity.documentId !== identity.documentId) return null;
+            if (current.generation !== expectedGeneration) {return null;}
+            if (current.identity === null) {return this.begin(identity);}
+            if (current.identity.documentId !== identity.documentId) {return null;}
             if (current.identity.documentRevision === identity.documentRevision) {
                 if (
                     revisionSwap.value?.generation === current.generation

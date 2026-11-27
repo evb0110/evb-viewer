@@ -41,7 +41,7 @@ export const useDocumentSidebarCapabilitySession = (
     ));
 
     function select(tab: TDocumentSidebarTab) {
-        if (availableTabs.value.includes(tab)) options.preferredTab.value = tab;
+        if (availableTabs.value.includes(tab)) {options.preferredTab.value = tab;}
     }
 
     return {

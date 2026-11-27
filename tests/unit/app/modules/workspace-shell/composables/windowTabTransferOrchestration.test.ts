@@ -168,7 +168,7 @@ describe('window tab transfer orchestration helpers', () => {
                     closeAnnotationContextMenu: vi.fn(),
                     annotationTool: ref('none'),
                 }));
-                if (tabId !== activeTab) detachPeer = detach;
+                if (tabId !== activeTab) {detachPeer = detach;}
             }
             return () => null;
         }});
@@ -575,7 +575,7 @@ describe('window tab transfer orchestration helpers', () => {
             },
             activateTab: (paneId, tabId) => {
                 const targetPane = panes.value.find(candidate => candidate.paneId === paneId);
-                if (targetPane) targetPane.activeTabId = tabId;
+                if (targetPane) {targetPane.activeTabId = tabId;}
             },
             removeTabFromState: tabId => {
                 tabs.value = tabs.value.filter(tab => tab.id !== tabId);
@@ -822,7 +822,7 @@ describe('window tab transfer orchestration helpers', () => {
                     return {presentation: Promise.resolve({status: 'presented'})};
                 }).finished;
             }
-            if (beforePresentation) await incoming;
+            if (beforePresentation) {await incoming;}
             surface.value = cast({
                 generation: replacement === 'no replacement' ? 1 : 2,
                 identity: {
@@ -932,7 +932,7 @@ describe('window tab transfer orchestration helpers', () => {
         const transaction = usePdfViewerSaveTransaction({annotationApplication: shallowRef(application)});
         const original = new TextEncoder().encode('%PDF-original');
         // A clean view's working copy cannot be cloned, so only its bytes remain.
-        if (!dirty) createWorkingCopyFromPathMock.mockRejectedValueOnce(new Error('clone failed'));
+        if (!dirty) {createWorkingCopyFromPathMock.mockRejectedValueOnce(new Error('clone failed'));}
         createWorkingCopyFromDataMock.mockClear();
         const split = useWorkspaceSplitPayload(cast({
             pdfSrc: shallowRef(new Blob([original])),
@@ -1188,7 +1188,7 @@ describe('window tab transfer orchestration helpers', () => {
         const cold = controllers.get('cold')!;
         // A surviving linked view keeps the source document mounted when the
         // broker refuses ACK after the internal selection handoff.
-        if (lateRefusal) cold.addView('linked');
+        if (lateRefusal) {cold.addView('linked');}
         cold.getView('cold')!.applyViewState({
             ...cold.getView('cold')!.viewState.value,
             currentPage: 6,
@@ -1240,7 +1240,7 @@ describe('window tab transfer orchestration helpers', () => {
                 if (id === 'cold' && !cold.getView(id)!.mountedWorkspace.value) {
                     void nextTick(async () => {
                         activated.resolve(undefined);
-                        if (scenario === 'superseded') await release.promise;
+                        if (scenario === 'superseded') {await release.promise;}
                         mount('cold');
                     });
                 }
@@ -1259,7 +1259,7 @@ describe('window tab transfer orchestration helpers', () => {
             },
             handleCloseTab: async () => undefined,
             handoffActiveTabBeforeClose: async () => {
-                if (lateRefusal && pane.activeTabId === 'cold') pane.activeTabId = 'hot';
+                if (lateRefusal && pane.activeTabId === 'cold') {pane.activeTabId = 'hot';}
             },
         });
         if (lateRefusal) {
@@ -1274,13 +1274,13 @@ describe('window tab transfer orchestration helpers', () => {
                 });
             }
             transferAckMock.mockImplementationOnce(async () => {
-                if (scenario === 'late-refusal-user-selection') pane.activeTabId = 'survivor';
+                if (scenario === 'late-refusal-user-selection') {pane.activeTabId = 'survivor';}
                 return false;
             });
         }
         if (scenario === 'rejected' || scenario === 'user-selection') {
             transferMock.mockImplementationOnce(async () => {
-                if (scenario === 'user-selection') pane.activeTabId = 'survivor';
+                if (scenario === 'user-selection') {pane.activeTabId = 'survivor';}
                 throw new Error('target refused');
             });
         }
@@ -1327,7 +1327,7 @@ describe('window tab transfer orchestration helpers', () => {
                 'hot',
                 'survivor',
             ]);
-            if (scenario === 'superseded') expect(transferMock).not.toHaveBeenCalled();
+            if (scenario === 'superseded') {expect(transferMock).not.toHaveBeenCalled();}
         }
     });
 });

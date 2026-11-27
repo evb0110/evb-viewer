@@ -121,7 +121,7 @@ describe('browser document lifecycle UI', () => {
             // The browser shows no view-rotation control yet (desktop has it in its View menu).
             await page.evaluate(() => {
                 const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
-                if (!testApi?.callActiveWorkspaceSyncCommand?.('handleViewRotationCw').called) throw new Error('View rotation is unavailable');
+                if (!testApi?.callActiveWorkspaceSyncCommand?.('handleViewRotationCw').called) {throw new Error('View rotation is unavailable');}
             });
             await expect.poll(readView, {timeout: 15_000}).toMatchObject({
                 indicator: '4',
@@ -161,7 +161,7 @@ describe('browser document lifecycle UI', () => {
         const settle = () => settleActiveOpen(page);
         const openFile = (label: string) => openReadingBook(page, label, 'reading-view.pdf');
         try {
-            if (saveMode !== 'download') await page.addInitScript(installPickerHandleFixture);
+            if (saveMode !== 'download') {await page.addInitScript(installPickerHandleFixture);}
             await page.addInitScript((mode) => {
                 Reflect.set(window, '__allowRendererFileOpenForAutomation', () => true);
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
@@ -394,7 +394,7 @@ describe('B01 file command annotation isolation', () => {
         page.on('console', message => {if ([
             'error',
             'warning',
-        ].includes(message.type())) diagnostics.push(message.text());});
+        ].includes(message.type())) {diagnostics.push(message.text());}});
         page.on('pageerror', error => diagnostics.push(error.stack ?? error.message));
         const orientation = async () => {
             const rect = await page.locator('.page_container--rendered[data-page="1"]').first().boundingBox();
@@ -412,10 +412,10 @@ describe('B01 file command annotation isolation', () => {
             if (!await page.getByRole('tab', {
                 name: 'Pages',
                 exact: true,
-            }).isVisible()) await page.getByRole('button', {
+            }).isVisible()) {await page.getByRole('button', {
                 name: 'Toggle Sidebar',
                 exact: true,
-            }).click();
+            }).click();}
             await page.getByRole('tab', {
                 name: 'Pages',
                 exact: true,
@@ -436,7 +436,7 @@ describe('B01 file command annotation isolation', () => {
             await openPdfFromChooser(page, await createReadingBook('B01', 'b01.pdf'));
             await settleActiveOpen(page);
             if (item === 'A26-1') {
-                if (await page.locator('.browser-install-dismiss').isVisible()) await page.locator('.browser-install-dismiss').click();
+                if (await page.locator('.browser-install-dismiss').isVisible()) {await page.locator('.browser-install-dismiss').click();}
                 await page.getByRole('button', {
                     name: 'Toggle Sidebar',
                     exact: true,
@@ -446,7 +446,7 @@ describe('B01 file command annotation isolation', () => {
                     exact: true,
                 }).click();
                 const disclosure = page.locator('.pdf-sidebar-pages-disclosure');
-                if (await disclosure.getAttribute('aria-expanded') !== 'true') await disclosure.click();
+                if (await disclosure.getAttribute('aria-expanded') !== 'true') {await disclosure.click();}
                 await page.locator('#page-label-prefix-input').fill('B01-');
                 await page.getByRole('button', {
                     name: 'Apply numbering',
@@ -456,13 +456,13 @@ describe('B01 file command annotation isolation', () => {
                 await disclosure.click();
                 await expect.poll(() => disclosure.getAttribute('aria-expanded')).toBe('false');
             }
-            if (item === 'A26-3') await rotate();
+            if (item === 'A26-3') {await rotate();}
             await addNote(page, 'B01 accepted note', {
                 x: 120,
                 y: 180,
             });
             await expect.poll(() => markers.count()).toBe(1);
-            if (item === 'A26-1') await rotate();
+            if (item === 'A26-1') {await rotate();}
             else {
                 const download = page.waitForEvent('download');
                 await page.getByRole('button', {
@@ -566,8 +566,8 @@ it('B01 A26-2 preserves an unsaved note through OCR Undo and Redo', async () => 
                 exact: true,
             }).click();
             await settleActiveOpen(page);
-            if (direction === 'Undo') await expect.poll(text).toBe('');
-            else await expect.poll(text).toMatch(/\w{4}/u);
+            if (direction === 'Undo') {await expect.poll(text).toBe('');}
+            else {await expect.poll(text).toMatch(/\w{4}/u);}
             await expect.poll(() => markers.count()).toBe(1);
             await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '').toMatch(/unsaved/iu);
         }

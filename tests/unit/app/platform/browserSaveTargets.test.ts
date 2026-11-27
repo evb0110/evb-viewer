@@ -44,7 +44,7 @@ describe('finishBrowserPdfCandidate', () => {
     function answerQpdf(rewrite: unknown, checkExitCode = 0) {
         qpdfMock.runBrowserQpdfCommand.mockImplementation(async (command: string) => {
             if (command === 'lossless-rewrite') {
-                if (rewrite instanceof Error) throw rewrite;
+                if (rewrite instanceof Error) {throw rewrite;}
                 return rewrite;
             }
             return checkResult(checkExitCode);

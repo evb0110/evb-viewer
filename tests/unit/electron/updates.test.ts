@@ -489,10 +489,10 @@ describe('updates robustness', () => {
                 ]);
             }
             for (const entry of readdirSync(nativeTemp)) {
-                if (entry.startsWith(`${domain}.ShipIt.`)) rmSync(join(nativeTemp, entry), {
+                if (entry.startsWith(`${domain}.ShipIt.`)) {rmSync(join(nativeTemp, entry), {
                     recursive: true,
                     force: true,
-                });
+                });}
             }
             chmodSync(parent, 0o755);
             rmSync(root, {
@@ -2154,7 +2154,7 @@ describe('updates robustness', () => {
         mocks.autoUpdater.downloadUpdate.mockImplementation(async () => {
             await gate.promise;
             const e = new Error('download failed');
-            for (let i = 0; i < 3; i++) mocks.autoUpdater.emit('error', e);
+            for (let i = 0; i < 3; i++) {mocks.autoUpdater.emit('error', e);}
             throw e;
         });
         owner.downloadAvailableUpdate({senderId: 1});
@@ -2381,7 +2381,7 @@ describe('updates robustness', () => {
             await nextTick();
             expect(toasts.flat().filter(t=>t.title==='updates.errorTitle')).toHaveLength(1);
         } finally {
-            for (const scope of scopes) scope.stop();
+            for (const scope of scopes) {scope.stop();}
             vi.doUnmock('@app/components/AppFailureToastDescription.vue');
         }
     });

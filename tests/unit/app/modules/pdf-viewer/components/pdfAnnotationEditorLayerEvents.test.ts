@@ -142,14 +142,14 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         for (const type of [
             'pointerdown',
             'pointerup',
-        ]) layer.dispatchEvent(new PointerEvent(type, {
+        ]) {layer.dispatchEvent(new PointerEvent(type, {
             bubbles: true,
             cancelable: true,
             pointerId: 17,
             button: 0,
             clientX: 300,
             clientY: 400,
-        }));
+        }));}
         layer.dispatchEvent(new MouseEvent('click', {bubbles: true}));
         expect(surface.getEntitiesForPage(0)).toHaveLength(1);
         publication.resolve(undefined);

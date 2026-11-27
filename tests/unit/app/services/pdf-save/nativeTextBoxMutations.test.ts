@@ -332,7 +332,7 @@ describe('rotated text-box native projection', () => {
         expect(result?.[0]?.rect[2]).toBeCloseTo(160);
         expect(result?.[0]?.rotation).toBe(90);
         // Width remains 180pt. Clamping left to zero would silently move it.
-        if (!result?.[0]) throw new Error('Native text mutation missing');
+        if (!result?.[0]) {throw new Error('Native text mutation missing');}
         expect(result[0].rect[2] - result[0].rect[0]).toBeCloseTo(180);
     });
 });

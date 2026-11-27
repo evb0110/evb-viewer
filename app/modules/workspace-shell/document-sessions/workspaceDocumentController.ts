@@ -236,15 +236,15 @@ function createDocumentOperationLease(): IDocumentOperationLease {
     async function runExclusive<T>(kind: TDocumentOperationKind, operation: (ownership: IDocumentOperationOwnership) => Promise<T>, holder?: IDocumentOperationOwnership) {
         // The lease is not re-entrant: its holder's own work runs inside the held turn.
         holder?.assertCurrent();
-        if (holder) return operation(holder);
+        if (holder) {return operation(holder);}
         pendingCount.value += 1;
         const isRecovery = kind === 'recovery-snapshot';
-        if (isRecovery) pendingRecoveryCount.value += 1;
+        if (isRecovery) {pendingRecoveryCount.value += 1;}
         const operationPromise = queueTail
             .catch(() => undefined)
             .then(async () => {
                 const ownership: IDocumentOperationOwnership = {assertCurrent: () => {
-                    if (active.value?.ownership !== ownership) throw new Error('Document operation ownership has ended');
+                    if (active.value?.ownership !== ownership) {throw new Error('Document operation ownership has ended');}
                 }};
                 active.value = {
                     kind,
@@ -255,7 +255,7 @@ function createDocumentOperationLease(): IDocumentOperationLease {
                 } finally {
                     active.value = null;
                     pendingCount.value = Math.max(0, pendingCount.value - 1);
-                    if (isRecovery) pendingRecoveryCount.value = Math.max(0, pendingRecoveryCount.value - 1);
+                    if (isRecovery) {pendingRecoveryCount.value = Math.max(0, pendingRecoveryCount.value - 1);}
                 }
             });
 
@@ -330,7 +330,7 @@ export function createWorkspaceDocumentController(options: {
         waiter?.accepted.resolve(false);
         // Commands for this open are captured at presentation, before an
         // awaiting caller can start another open in the same workspace.
-        if (didPresent(finish)) waiter?.onPresented?.();
+        if (didPresent(finish)) {waiter?.onPresented?.();}
         waiter?.finished.resolve(finish);
     }
 
@@ -449,11 +449,11 @@ export function createWorkspaceDocumentController(options: {
         // The open ends with its document's presentation in the views, or
         // when no view has to show it, or a newer open or a close takes the tab.
         Promise.resolve(request.pageShape ? request.pageShape.answer.then(begin) : begin()).then(async (admission) => {
-            if (!isActive()) return;
-            if (!admission) return markFailed(null);
+            if (!isActive()) {return;}
+            if (!admission) {return markFailed(null);}
             waiter.accepted.resolve(true);
             const finish = await admission.presentation?.catch((): TWorkspaceOpenFinish => ({status: 'failed', failure: null}));
-            if (!isActive()) return;
+            if (!isActive()) {return;}
             if (!finish || didPresent(finish)) {
                 present(finish ?? {status: 'accepted-without-visual'});
             } else {
@@ -645,7 +645,7 @@ export function createWorkspaceDocumentController(options: {
             }
             supersedeActiveTransaction();
             resetToEmpty();
-            if (retires) mutationFrontier.value?.retire?.();
+            if (retires) {mutationFrontier.value?.retire?.();}
         };
         const frontier = mutationFrontier.value;
         if (request.ownership && frontier) {
@@ -668,7 +668,7 @@ export function createWorkspaceDocumentController(options: {
     // A user Close decides in its own lease turn, after the work requested
     // before it; a transfer closes in the turn it already holds.
     function close(request: IWorkspaceDocumentCloseRequest) {
-        if (request.ownership) return runClose(request, request.ownership, false);
+        if (request.ownership) {return runClose(request, request.ownership, false);}
         activeClose ??= operationLease.runExclusive('close', async (ownership) => {
             const decision = snapshot.value.dirty ? await request.decide?.() ?? 'discard' : 'discard';
             return decision !== 'cancel' && runClose(request, ownership, decision === 'save');
@@ -713,10 +713,10 @@ export function createWorkspaceDocumentController(options: {
         reason: string
     } {
         const current = snapshot.value;
-        if (!views.value.has(target.tabId)) return {
+        if (!views.value.has(target.tabId)) {return {
             ok: false,
             reason: 'tab-id-mismatch',
-        };
+        };}
         const expected = createCommandTarget(target.tabId, target.kind === 'transaction' ? 'active-transaction' : 'current');
         // Capture and validation share the same identity projection. Optional
         // backend/revision fields only constrain commands that supplied them.
@@ -732,10 +732,10 @@ export function createWorkspaceDocumentController(options: {
             reason,
         ] of Object.entries(fields)) {
             const actual: unknown = Reflect.get(target, field);
-            if ((field === 'documentInstanceId' ? actual ?? null : actual) !== Reflect.get(expected, field)) return {
+            if ((field === 'documentInstanceId' ? actual ?? null : actual) !== Reflect.get(expected, field)) {return {
                 ok: false,
                 reason,
-            };
+            };}
         }
         const matches = target.kind === 'transaction'
             ? current.activeTransaction?.id === target.transactionId

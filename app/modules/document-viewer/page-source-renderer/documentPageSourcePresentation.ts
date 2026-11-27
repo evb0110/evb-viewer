@@ -95,7 +95,7 @@ function waitForDocumentPageImagePaint(image: HTMLImageElement, signal: AbortSig
         };
         const handleAbort = () => finish(false);
         const handleVisibilityChange = () => {
-            if (document.visibilityState !== 'visible') finish(true);
+            if (document.visibilityState !== 'visible') {finish(true);}
         };
         signal.addEventListener('abort', handleAbort, {once: true});
         document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -169,7 +169,7 @@ export function createDocumentPageSourcePresentation(options: {
             return;
         }
         const image = getMountedImage(pageNumber, invalidated);
-        if (image?.dataset.pageSourceCandidate) image.remove();
+        if (image?.dataset.pageSourceCandidate) {image.remove();}
         invalidated.unsubscribeInvalidation?.();
         invalidated.unsubscribeInvalidation = null;
         invalidated.lease = null;
@@ -375,9 +375,9 @@ export function createDocumentPageSourcePresentation(options: {
     // even before the open got here (or hand over to a newer one).
     function settleUncommittedVisual(job: TDocumentPageSourceOpenJob, ticket = options.chassisAuthority?.openSurface.navigationTicket.value) {
         const openSurface = options.chassisAuthority?.openSurface;
-        if (!options.readIsActive()) return job.settleVisual(false);
+        if (!options.readIsActive()) {return job.settleVisual(false);}
         void ticket?.finished.then((outcome) => {
-            if (outcome.kind === 'arrived' || job.abort.signal.aborted) return;
+            if (outcome.kind === 'arrived' || job.abort.signal.aborted) {return;}
             return openSurface?.navigationTicket.value ? settleUncommittedVisual(job) : job.settleVisual(false);
         });
     }
@@ -570,12 +570,12 @@ export function createDocumentPageSourcePresentation(options: {
                 current.priority = priority;
                 current.widthPx = widthPx;
                 current.unsubscribeInvalidation = subscribeInvalidation(pageNumber, current, lease);
-                if (candidate) markReady(pageNumber, current);
+                if (candidate) {markReady(pageNumber, current);}
                 await nextTick();
                 previousUnsubscribeInvalidation?.();
                 previousLease?.release();
                 const renderedImage = getConnectedImage(pageNumber, current);
-                if (renderedImage && renderedImage !== candidate) candidate?.remove();
+                if (renderedImage && renderedImage !== candidate) {candidate?.remove();}
             } catch (error) {
                 candidate?.remove();
                 lease.release();
@@ -600,8 +600,8 @@ export function createDocumentPageSourcePresentation(options: {
                     }
                     options.scheduleRender();
                 } else {
-                    if (current) current.retryCount += 1;
-                    if (!preserveExistingVisual) commitTerminalError(pageNumber, error);
+                    if (current) {current.retryCount += 1;}
+                    if (!preserveExistingVisual) {commitTerminalError(pageNumber, error);}
                     if (pageNumber === options.readCurrentPage()) {
                         options.emit('loadError', preserveExistingVisual
                             ? error
@@ -701,7 +701,7 @@ export function createDocumentPageSourcePresentation(options: {
         const image = state && getConnectedImage(pageNumber, state);
         state?.unsubscribeInvalidation?.();
         state?.lease?.release();
-        if (image?.dataset.pageSourceCandidate) image.remove();
+        if (image?.dataset.pageSourceCandidate) {image.remove();}
         pageStates.delete(pageNumber);
         loadedSurfaceImages.delete(pageNumber);
         options.renderSession?.releasePage(pageNumber);
@@ -791,7 +791,7 @@ export function createDocumentPageSourcePresentation(options: {
         renderPage,
         retryPage(pageNumber: number) {
             const state = pageStates.get(pageNumber);
-            if (!state?.error) return;
+            if (!state?.error) {return;}
             state.error = null;
             state.failurePresentation = null;
             state.retryCount = 0;

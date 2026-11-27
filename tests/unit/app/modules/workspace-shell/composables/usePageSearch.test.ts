@@ -51,7 +51,7 @@ function createPageSearch(tabs?: readonly TDocumentSidebarTab[]) {
         setResultIndex: vi.fn(),
         clearSearch,
     }));
-    if (!pageSearch) throw new Error('usePageSearch test harness failed to initialize');
+    if (!pageSearch) {throw new Error('usePageSearch test harness failed to initialize');}
     return {
         ...state,
         clearSearch,

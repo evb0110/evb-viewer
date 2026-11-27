@@ -567,7 +567,7 @@ async function holdDraftSavePublication(page: Page) {
             );
             try {
                 const path = await handle.jsonValue();
-                if (!path) throw new Error('Save did not stage a PDF');
+                if (!path) {throw new Error('Save did not stage a PDF');}
                 return path;
             } finally {
                 await handle.dispose();
@@ -763,7 +763,7 @@ async function waitForViewerDropPoint(page: Page, selector: string): Promise<IPo
     const handle = await page.waitForFunction((viewerSelector: string) => {
         const viewport = document.querySelector(viewerSelector);
         const track = viewport?.querySelector('[data-pdf-page-track]');
-        if (!viewport || !track) return false;
+        if (!viewport || !track) {return false;}
         const box = viewport.getBoundingClientRect();
         const trackBox = track.getBoundingClientRect();
         const {paddingLeft, paddingRight} = getComputedStyle(track);
@@ -787,7 +787,7 @@ async function waitForViewerDropPoint(page: Page, selector: string): Promise<IPo
     });
     try {
         const point = await handle.jsonValue();
-        if (!point) throw new Error('No exposed drop point in the ready viewer');
+        if (!point) {throw new Error('No exposed drop point in the ready viewer');}
         return point;
     } finally {
         await handle.dispose();
@@ -1037,7 +1037,7 @@ describe('shared PDF split', () => {
             await page.mouse.move(sash.x + sash.width / 2, sash.y + sash.height / 2);
             await page.mouse.down();
             await page.mouse.move(sash.x + sash.width / 2 + delta, sash.y + sash.height / 2, {steps: delta === 35 ? 5 : 12});
-            if (delta === 35) await quiet();
+            if (delta === 35) {await quiet();}
             await page.mouse.up();
             await quiet();
         }
@@ -1103,7 +1103,7 @@ describe('shared PDF split', () => {
             await new Promise(requestAnimationFrame);
             const item = Array.from(document.querySelectorAll<HTMLElement>('.tab-context-menu [role="menuitem"]'))
                 .find(element => element.textContent?.trim() === 'Split Right');
-            if (!item) throw new Error('Split Right disappeared before selection');
+            if (!item) {throw new Error('Split Right disappeared before selection');}
             const rect = item.getBoundingClientRect();
             const x = rect.left + rect.width / 2;
             const y = rect.top + rect.height / 2;

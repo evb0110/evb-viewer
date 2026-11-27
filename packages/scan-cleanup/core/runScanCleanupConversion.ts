@@ -491,7 +491,7 @@ async function requirePublishedRasterFile(path: string | undefined, pageNumber: 
     const stats = await stat(path).catch((error: NodeJS.ErrnoException) => {
         throw new ScanCleanupMissingOutputError(pageNumber, path, role, error.message);
     });
-    if (!stats.isFile()) throw new ScanCleanupMissingOutputError(pageNumber, path, role, 'path is not a file');
+    if (!stats.isFile()) {throw new ScanCleanupMissingOutputError(pageNumber, path, role, 'path is not a file');}
     await access(path, fsConstants.R_OK).catch((error: NodeJS.ErrnoException) => {
         throw new ScanCleanupMissingOutputError(pageNumber, path, role, error.message);
     });
@@ -507,7 +507,7 @@ async function requireProducedRasterFile(
     try {
         return await requirePublishedRaster(path, pageNumber, role);
     } catch (error) {
-        if (error instanceof ScanCleanupMissingOutputError) throw error;
+        if (error instanceof ScanCleanupMissingOutputError) {throw error;}
         throw new ScanCleanupMissingOutputError(pageNumber, path, role, getErrorMessage(error));
     }
 }
@@ -538,7 +538,7 @@ async function validateStagedPdf(
             log,
         });
     } catch (error) {
-        if (signal.aborted) throw error;
+        if (signal.aborted) {throw error;}
         throw new ScanCleanupPdfValidationError(stagedPdfPath, getErrorMessage(error));
     }
     signal.throwIfAborted();
@@ -705,7 +705,7 @@ async function readChildJson<T>(path: string): Promise<T | null> {
     try {
         return JSON.parse(await readFile(path, 'utf8')) as T;
     } catch (error) {
-        if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return null;
+        if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') {return null;}
         throw error;
     }
 }
@@ -759,7 +759,7 @@ async function estimateStreamingBatchScratchBytes(
     for (const batch of iterateScanCleanupPageBatches(pageNumbers.length, SCAN_CLEANUP_STREAMING_BATCH_PAGES)) {
         signal.throwIfAborted();
         const batchPageNumbers = collectScanCleanupPageScopeBatch(pageNumbers, batch);
-        if (batchPageNumbers.length === 0) continue;
+        if (batchPageNumbers.length === 0) {continue;}
         const plans: IScanCleanupRasterHandoffPlan[] = [];
         for (const pageNumber of batchPageNumbers) {
             const page = await pageSizeStore.getPage(pageNumber);
@@ -801,7 +801,7 @@ async function estimateStreamingBatchScratchBytes(
                 additionalScratchBytes: estimateNativeOutputScratchBytes(guardrail, renderDpi),
             });
         }
-        if (largestBatchBytes === null) continue;
+        if (largestBatchBytes === null) {continue;}
         const batchBytes = plans.length === batchPageNumbers.length
             ? estimateRawRasterBytes(plans, plans.length)
             : null;
@@ -829,13 +829,13 @@ function createStreamingBatchProgressTracker(
                     completedPages !== undefined
                     && (childStage === 'rendering' || childStage === 'classifying' || childStage === 'collecting')
                 ) {
-                    for (const pageNumber of completedPages) completedPageNumbers.add(pageNumber);
+                    for (const pageNumber of completedPages) {completedPageNumbers.add(pageNumber);}
                 }
                 const childRasterized = childStage === 'rasterizing'
                     ? childCompletedUnits
                     : progressOptions?.rasterizedUnits;
-                if (childRasterized !== undefined) advanceRasterized(batchStartOffset + childRasterized);
-                if (completedPageNumbers.size > 0) advanceRasterized(completedPageNumbers.size);
+                if (childRasterized !== undefined) {advanceRasterized(batchStartOffset + childRasterized);}
+                if (completedPageNumbers.size > 0) {advanceRasterized(completedPageNumbers.size);}
                 emitProgress('rendering', completedPageNumbers.size, pageCount, completedPageNumbers, {
                     ...(lastRasterizedUnits === undefined ? {} : {rasterizedUnits: lastRasterizedUnits}),
                     ...(progressOptions?.activePageNumbers === undefined ? {} : {activePageNumbers: progressOptions.activePageNumbers}),
@@ -844,7 +844,7 @@ function createStreamingBatchProgressTracker(
             };
         },
         completeBatch(batchPageNumbers: readonly number[], endOffsetExclusive: number) {
-            for (const pageNumber of batchPageNumbers) completedPageNumbers.add(pageNumber);
+            for (const pageNumber of batchPageNumbers) {completedPageNumbers.add(pageNumber);}
             lastRasterizedUnits = Math.max(lastRasterizedUnits ?? 0, Math.min(pageCount, endOffsetExclusive));
             emitProgress('rendering', endOffsetExclusive, pageCount, completedPageNumbers, {
                 rasterizedUnits: lastRasterizedUnits,
@@ -948,7 +948,7 @@ async function runStreamingScanCleanupConversion({
         )) {
             signal.throwIfAborted();
             const batchPageNumbers = collectScanCleanupPageScopeBatch(pageNumbers, batch);
-            if (batchPageNumbers.length === 0) continue;
+            if (batchPageNumbers.length === 0) {continue;}
             const batchDetectionResults = await readDetectionResultsForPageNumbers(detectionResultStore, batchPageNumbers, signal);
             const batchOutputPath = join(scratch, `scan-cleanup-batch-${String(batch.batchIndex)}.pdf`);
             const boundedDetectionFields = buildBoundedDetectionRequestFields(
@@ -1211,7 +1211,7 @@ async function runStreamingScanCleanupConversion({
             stat(preparedPdfPath),
             stat(stagedPdfPath),
         ]);
-        if (outputFile.size <= 0) throw new ScanCleanupContractError('PDF assembler produced an empty file');
+        if (outputFile.size <= 0) {throw new ScanCleanupContractError('PDF assembler produced an empty file');}
         const fullDocumentRun = request.sourcePageNumbers === undefined
             && request.sourcePageRange === undefined;
         if (
@@ -1301,7 +1301,7 @@ export async function runScanCleanupConversion(
     let checkpoint: IScanCleanupConversionCheckpoint | null = null;
     let geometrySidecarPath: string | null = null;
     const cleanupScratch = () => {
-        if (!ownsScratch) return Promise.resolve();
+        if (!ownsScratch) {return Promise.resolve();}
         scratchCleanupPromise ??= (pendingSidecarRecovery ?? Promise.resolve(true))
             .then(proven => (proven ? rm(scratch, {
                 recursive: true,
@@ -1402,7 +1402,7 @@ export async function runScanCleanupConversion(
                         );
                     }
                 } catch (error) {
-                    if (opSignal.aborted) throw error;
+                    if (opSignal.aborted) {throw error;}
                     throw new Error(
                         `Scan cleanup cannot safely rasterize without trusted page geometry (${getErrorMessage(error)})`,
                         {cause: error},
@@ -1669,7 +1669,7 @@ export async function runScanCleanupConversion(
                 await validateStagedPdf(paths.qpdfBinary, stagedPdfPath, opSignal, log, dependencies.runCommand);
                 emitProgress('handoff', 0, pageCount, []);
                 await copyFile(stagedPdfPath, publishTempPath);
-                if (opSignal.aborted) throw opSignal.reason;
+                if (opSignal.aborted) {throw opSignal.reason;}
                 await rename(publishTempPath, inputRequest.outputPdfPath);
                 if (checkpoint !== null) {
                     if (paths.deferCheckpointCleanup === true) {
@@ -1769,10 +1769,10 @@ async function collectExistingPageCheckpointArtifacts(
     for (const output of page.outputs) {
         candidatePaths.add(output.metadataPath);
         candidatePaths.add(output.outputPath);
-        if (typeof output.bilevelOutputPath === 'string') candidatePaths.add(output.bilevelOutputPath);
-        if (typeof output.backgroundOutputPath === 'string') candidatePaths.add(output.backgroundOutputPath);
-        if (typeof output.foregroundMaskOutputPath === 'string') candidatePaths.add(output.foregroundMaskOutputPath);
-        if (typeof output.foregroundAlphaOutputPath === 'string') candidatePaths.add(output.foregroundAlphaOutputPath);
+        if (typeof output.bilevelOutputPath === 'string') {candidatePaths.add(output.bilevelOutputPath);}
+        if (typeof output.backgroundOutputPath === 'string') {candidatePaths.add(output.backgroundOutputPath);}
+        if (typeof output.foregroundMaskOutputPath === 'string') {candidatePaths.add(output.foregroundMaskOutputPath);}
+        if (typeof output.foregroundAlphaOutputPath === 'string') {candidatePaths.add(output.foregroundAlphaOutputPath);}
     }
     const artifacts: IScanCleanupPageArtifactInput[] = [];
     for (const candidatePath of candidatePaths) {
@@ -1854,13 +1854,13 @@ async function collectRenderedCleanupOutputs(
             try {
                 metadataJson = await readFile(output.metadataPath, 'utf8');
             } catch (error) {
-                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {throw error;}
                 // Native resolves only the first output_count destinations
                 // for this page. The remaining plan entries are not produced
                 // outputs; when native also reports blank outputs, retain
                 // their explicit empty mapping below.
                 if (outputIndex >= pageMetadata.outputCount) {
-                    if (pageMetadata.blankOutputsSkipped > 0) intentionallyBlankOutputCount += 1;
+                    if (pageMetadata.blankOutputsSkipped > 0) {intentionallyBlankOutputCount += 1;}
                     continue;
                 }
                 throw new ScanCleanupMissingOutputError(
@@ -1915,7 +1915,7 @@ async function collectRenderedCleanupOutputs(
                             'non-MRC composite fallback after invalid mixed layers',
                         );
                     } catch (error) {
-                        if (!(error instanceof ScanCleanupMissingOutputError)) throw error;
+                        if (!(error instanceof ScanCleanupMissingOutputError)) {throw error;}
                         validationFallbackSource = pageMetadata.layoutClassification === 'single-uncut-page'
                             && pageMetadata.outputCount === 1
                             && metadata.half === 'full'
@@ -1972,8 +1972,8 @@ async function collectRenderedCleanupOutputs(
                 ...renderedOutput,
                 ...(preservedSource === undefined ? {} : {preservedSource}),
             });
-            if (!metadata.skewApplied) pageDeskewSkipped += 1;
-            if (request.options.crop && metadata.contentBox == null) pageCropSkipped += 1;
+            if (!metadata.skewApplied) {pageDeskewSkipped += 1;}
+            if (request.options.crop && metadata.contentBox == null) {pageCropSkipped += 1;}
         }
         const pageEmptyOutputMappings: IScanCleanupOutputMapping[] = [];
         outputPages.push(...collectScanCleanupPageOutputs({
@@ -2034,7 +2034,7 @@ async function executeScanCleanupBatch({
                 ...(streamingChild ? {streamingChildSourceText: sourceText} : {}),
             }, summary,
         );
-        if (streamingChild && summary.outputPages === 0) return summary;
+        if (streamingChild && summary.outputPages === 0) {return summary;}
         if ((await stat(stagedPdfPath)).size <= 0) {
             throw new ScanCleanupContractError('Lossless PDF assembler produced an empty file');
         }
@@ -2167,7 +2167,7 @@ async function executeScanCleanupBatch({
                 }
             } catch (error) {
                 signal.throwIfAborted();
-                if (isAbortError(error)) throw error;
+                if (isAbortError(error)) {throw error;}
                 warn(
                     'Compact source layers could not be read in a batch; '
                     + `using raster reconstruction (${getErrorMessage(error)})`,
@@ -2203,10 +2203,10 @@ async function executeScanCleanupBatch({
                             log,
                             signal,
                         });
-                        if (layers !== null) acceptSourceMrcLayer(plan.pageNumber, layers);
+                        if (layers !== null) {acceptSourceMrcLayer(plan.pageNumber, layers);}
                     } catch (error) {
                         signal.throwIfAborted();
-                        if (isAbortError(error)) throw error;
+                        if (isAbortError(error)) {throw error;}
                         warn(
                             `Page ${String(plan.pageNumber)} could not reuse its compact MRC foreground; `
                             + `using raster reconstruction (${getErrorMessage(error)})`,
@@ -2465,8 +2465,8 @@ async function executeScanCleanupBatch({
                             unreclaimedBytes += sizes.inputBytes;
                         }
                     } else {
-                        if (failed.inputFailed) unreclaimedBytes += sizes.inputBytes;
-                        if (failed.analysisFailed) unreclaimedBytes += sizes.analysisBytes;
+                        if (failed.inputFailed) {unreclaimedBytes += sizes.inputBytes;}
+                        if (failed.analysisFailed) {unreclaimedBytes += sizes.analysisBytes;}
                     }
                 }
             }
@@ -2878,7 +2878,7 @@ async function executeScanCleanupBatch({
         stat(preparedPdfPath),
         stat(stagedPdfPath),
     ]);
-    if (outputFile.size <= 0) throw new ScanCleanupContractError('PDF assembler produced an empty file');
+    if (outputFile.size <= 0) {throw new ScanCleanupContractError('PDF assembler produced an empty file');}
     const compactSourceBudget = resolveScanCleanupCompactSourceBudget({
         documentPageCount,
         options: request.options,

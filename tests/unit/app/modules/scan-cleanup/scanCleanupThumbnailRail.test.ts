@@ -481,7 +481,7 @@ function pageRow(host: HTMLElement, page: number) {
 
 afterEach(() => {
     realLocale = null;
-    for (const unmount of mountedApps) unmount();
+    for (const unmount of mountedApps) {unmount();}
     document.body.innerHTML = '';
 });
 

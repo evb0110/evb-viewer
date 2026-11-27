@@ -299,16 +299,16 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         const capturePromise = (async (): Promise<IPreparedTransferItem | null> => {
             ownership.assertCurrent();
             const view = session?.getView(tabId);
-            if (!view) return null;
+            if (!view) {return null;}
             if (!view.mountedWorkspace.value) {
                 const pane = options.getPaneByTabId(tabId);
-                if (!pane) return null;
+                if (!pane) {return null;}
                 options.activatePane(pane.paneId);
                 options.activateTab(pane.paneId, tabId);
             }
             const workspace = await view.whenMounted();
             ownership.assertCurrent();
-            if (getDocumentSession(tabId) !== session) return null;
+            if (getDocumentSession(tabId) !== session) {return null;}
             if (!workspace) {
                 return null;
             }
@@ -468,14 +468,14 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             const ownsSelection = options.activePaneId.value === paneId
                 && options.getPaneById(paneId)?.activeTabId === tabId;
             options.handoffActiveTabBeforeClose(paneId, tabId);
-            if (ownsSelection) onSelectionHandoff();
-            if (!ownsSource()) return 'failed';
+            if (ownsSelection) {onSelectionHandoff();}
+            if (!ownsSource()) {return 'failed';}
             if (session && tabHoldsDocument(tabId) && session.views.value.size <= 1) {
                 try {
                     if (!await session.close({
                         ownership,
-                        assertCurrent: () => { if (!ownsSource()) throw new Error(t('tabs.transferErrors.sourceChanged')); },
-                    })) return 'failed';
+                        assertCurrent: () => { if (!ownsSource()) {throw new Error(t('tabs.transferErrors.sourceChanged'));} },
+                    })) {return 'failed';}
                 } catch (error) {
                     BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
                         tabId,
@@ -504,24 +504,24 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
         let transferId: string | null = null;
         let result: TSourceTransferOutcome = 'failed';
         try {
-            if (!session || !sourcePane || !isCommandTargetCurrent(session, commandTarget)) return result;
+            if (!session || !sourcePane || !isCommandTargetCurrent(session, commandTarget)) {return result;}
             const transfer = await getWindowTabsCapability().transfer({
                 target,
                 tab: describeTabDocument(session.snapshot.value),
                 payload,
                 ...(item.session === null ? {} : {session: item.session}),
             });
-            if (!transfer.success) throw new Error(transfer.error ?? t('tabs.transferErrors.restoreFailed'));
+            if (!transfer.success) {throw new Error(transfer.error ?? t('tabs.transferErrors.restoreFailed'));}
             transferId = transfer.transferId;
             if (!isCommandTargetCurrent(session, commandTarget) || session.readMutationFrontier() !== mutationFrontier) {
                 throw new Error(t('tabs.transferErrors.sourceChanged'));
             }
             sourcePane = options.getPaneByTabId(tabId);
-            if (!sourcePane) throw new Error(t('tabs.transferErrors.sourceChanged'));
+            if (!sourcePane) {throw new Error(t('tabs.transferErrors.sourceChanged'));}
             result = await finalizeTransferredSourceTab(sourcePane.paneId, tabId, ownership, () => (
                 isCommandTargetCurrent(session, commandTarget) && session.readMutationFrontier() === mutationFrontier
             ), onSelectionHandoff);
-            if (result !== 'success') throw new Error(t('tabs.transferErrors.sourceChanged'));
+            if (result !== 'success') {throw new Error(t('tabs.transferErrors.sourceChanged'));}
             if (!await acknowledgeTransfer(transferId, true)) {
                 throw new Error(t('tabs.transferErrors.restoreFailed'));
             }
@@ -536,7 +536,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 target,
                 error,
             });
-            if (transferId) await acknowledgeTransfer(transferId, false, getErrorMessage(error));
+            if (transferId) {await acknowledgeTransfer(transferId, false, getErrorMessage(error));}
             // A rejected decision can arrive after the owned close. The source
             // tab still exists, and the broker gives its snapshot back to it.
             if (session && getDocumentSession(tabId) === session && sourcePane && !tabHoldsDocument(tabId) && payload.kind !== 'empty') {
@@ -576,7 +576,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
     async function transferTabToTarget(tabId: string, target: TWindowTabTransferTarget): Promise<TSourceTransferOutcome> {
         const session = getDocumentSession(tabId);
-        if (!session) return 'failed';
+        if (!session) {return 'failed';}
         return session.operationLease.runExclusive('tab-transfer', async (ownership) => {
             const pane = options.getPaneByTabId(tabId);
             const previousPaneId = options.activePaneId.value;
@@ -645,7 +645,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 kind: 'window',
                 windowId: targetWindowId,
             });
-            if (result !== 'success') return;
+            if (result !== 'success') {return;}
         }
     }
 
@@ -675,7 +675,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 }
                 return accepted;
             });
-            if (!committed) return;
+            if (!committed) {return;}
             transferCommitted = true;
             activateIncomingTransferTab(target.pane.paneId, target.tab.tabId);
         } catch (error) {
@@ -702,7 +702,7 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
 
     async function handleIncomingTabTransfer(transfer: IWindowTabIncomingTransfer) {
         const target = await prepareIncomingTransferTarget(transfer);
-        if (!target) return;
+        if (!target) {return;}
         return processIncomingTabTransfer(transfer, target);
     }
 

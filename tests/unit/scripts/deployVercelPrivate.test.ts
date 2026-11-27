@@ -257,7 +257,7 @@ function createVercelAlias(initial: IProductionRecord) {
             }
             if (args[0] === 'promote' || args[0] === 'rollback') {
                 const target = deployments.get(args[1] ?? '');
-                if (target) alias.production = target;
+                if (target) {alias.production = target;}
                 return {
                     stderr: '',
                     stdout: '',
@@ -269,7 +269,7 @@ function createVercelAlias(initial: IProductionRecord) {
                 url: `${deploymentName}.vercel.app`,
             };
             deployments.set(staged.id, staged);
-            if (!args.includes('--skip-domain')) alias.production = staged;
+            if (!args.includes('--skip-domain')) {alias.production = staged;}
             return {
                 stderr: '',
                 stdout: printUrl ? `https://${staged.url}\n` : 'Production deploy completed\n',
@@ -845,8 +845,8 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
                 projectId: 'project',
             })).rejects.toThrow('requires python3 with fcntl');
         } finally {
-            if (savedPath === undefined) Reflect.deleteProperty(process.env, 'PATH');
-            else process.env.PATH = savedPath;
+            if (savedPath === undefined) {Reflect.deleteProperty(process.env, 'PATH');}
+            else {process.env.PATH = savedPath;}
         }
     });
 
@@ -1280,8 +1280,8 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
                     }
                     : spawnVercel(command, args),
             });
-            if (succeeds) await expect(deploy).resolves.toBe(0);
-            else await expect(deploy).rejects.toThrow(`responded with HTTP ${status}`);
+            if (succeeds) {await expect(deploy).resolves.toBe(0);}
+            else {await expect(deploy).rejects.toThrow(`responded with HTTP ${status}`);}
             expect(vercel.alias.production.id).toBe(succeeds ? 'dpl_protected' : 'dpl_previous');
         } finally {
             unauthenticatedFetch.mockRestore();
@@ -1680,14 +1680,14 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
         const finished = new Promise<string>(resolveFinished => {
             owner.stdout.on('data', chunk => {
                 const result = chunk.toString().match(/cli-finished:(\S+)/u)?.[1];
-                if (result) resolveFinished(result);
+                if (result) {resolveFinished(result);}
             });
         });
         try {
             const cliPid = await new Promise<number>((resolveReady, rejectReady) => {
                 owner.stdout.on('data', chunk => {
                     const pid = chunk.toString().match(/cli-held:(\d+)/u)?.[1];
-                    if (pid) resolveReady(Number(pid));
+                    if (pid) {resolveReady(Number(pid));}
                 });
                 owner.once('exit', code => rejectReady(new Error(`owner exited before CLI started: ${code}`)));
             });
@@ -1719,7 +1719,7 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
             fixture = await startInheritedCli(phase);
         });
         afterAll(async () => {
-            if (!fixture) return;
+            if (!fixture) {return;}
             const {
                 owner, cliPid, closed, projectRoot,
             } = fixture;
@@ -1779,10 +1779,10 @@ describe.skipIf(process.platform === 'win32')('private Vercel deployment source'
                 command: 'controlled-cli',
                 spawnSyncImpl: (command: string, args: string[]) => {
                     const result = cli(command, args);
-                    if (args[0] === 'deploy') vercel.alias.production = {
+                    if (args[0] === 'deploy') {vercel.alias.production = {
                         id: 'dpl_other',
                         url: 'other.vercel.app',
-                    };
+                    };}
                     return result;
                 },
             })).rejects.toThrow(/another publisher.*dpl_other/iu);

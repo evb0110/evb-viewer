@@ -1064,7 +1064,7 @@ watch(
 );
 const liveStageStatus = computed(() => {
     const currentActivity = activity;
-    if (!currentActivity) return null;
+    if (!currentActivity) {return null;}
     if (!currentActivity.run && (currentActivity.activeSubPageStage === undefined || canvasNotice.value !== '')) {
         return null;
     }
@@ -1325,8 +1325,8 @@ function navigateFromKeyboard(direction: 'previous' | 'next') {
     if (disabled) {
         return;
     }
-    if (direction === 'previous' && pageNumber > 1) emit('previous');
-    if (direction === 'next' && pageNumber < totalPages) emit('next');
+    if (direction === 'previous' && pageNumber > 1) {emit('previous');}
+    if (direction === 'next' && pageNumber < totalPages) {emit('next');}
 }
 function handlePaneKeydown(event: KeyboardEvent) {
     if (event.target !== event.currentTarget) {
@@ -1537,10 +1537,10 @@ function resizedContentRect(
     let top = rect.yPx;
     let right = rect.xPx + rect.widthPx;
     let bottom = rect.yPx + rect.heightPx;
-    if (handle.includes('w')) left = Math.min(right - minimum, point.x);
-    if (handle.includes('e')) right = Math.max(left + minimum, point.x);
-    if (handle.includes('n')) top = Math.min(bottom - minimum, point.y);
-    if (handle.includes('s')) bottom = Math.max(top + minimum, point.y);
+    if (handle.includes('w')) {left = Math.min(right - minimum, point.x);}
+    if (handle.includes('e')) {right = Math.max(left + minimum, point.x);}
+    if (handle.includes('n')) {top = Math.min(bottom - minimum, point.y);}
+    if (handle.includes('s')) {bottom = Math.max(top + minimum, point.y);}
     left = Math.max(0, left);
     top = Math.max(0, top);
     right = Math.min(metadata.sourceRegion.widthPx, right);
@@ -1569,10 +1569,10 @@ function nudgeContentBox(
         x: handle.includes('w') ? output.contentRect.xPx : output.contentRect.xPx + output.contentRect.widthPx,
         y: handle.includes('n') ? output.contentRect.yPx : output.contentRect.yPx + output.contentRect.heightPx,
     };
-    if (event.key === 'ArrowLeft') point.x -= step;
-    if (event.key === 'ArrowRight') point.x += step;
-    if (event.key === 'ArrowUp') point.y -= step;
-    if (event.key === 'ArrowDown') point.y += step;
+    if (event.key === 'ArrowLeft') {point.x -= step;}
+    if (event.key === 'ArrowRight') {point.x += step;}
+    if (event.key === 'ArrowUp') {point.y -= step;}
+    if (event.key === 'ArrowDown') {point.y += step;}
     emit('update:manualContentBox', output.metadata.half, normalizePreviewContentBox(
         output.metadata,
         resizedContentRect(output.contentRect, handle, point, output.metadata),
@@ -1761,10 +1761,10 @@ function nudgePlacement(event: KeyboardEvent, output: IRenderedScanCleanupOutput
     ] as const;
     let x = axes.indexOf(horizontal as typeof axes[number]);
     let y = verticalAxes.indexOf(vertical as typeof verticalAxes[number]);
-    if (event.key === 'ArrowLeft') x = Math.max(0, x - 1);
-    if (event.key === 'ArrowRight') x = Math.min(2, x + 1);
-    if (event.key === 'ArrowUp') y = Math.max(0, y - 1);
-    if (event.key === 'ArrowDown') y = Math.min(2, y + 1);
+    if (event.key === 'ArrowLeft') {x = Math.max(0, x - 1);}
+    if (event.key === 'ArrowRight') {x = Math.min(2, x + 1);}
+    if (event.key === 'ArrowUp') {y = Math.max(0, y - 1);}
+    if (event.key === 'ArrowDown') {y = Math.min(2, y + 1);}
     const nextVertical = verticalAxes[y] ?? 'center';
     const nextHorizontal = axes[x] ?? 'center';
     const next = x === 1 && y === 1 ? 'center' : `${nextVertical}-${nextHorizontal}`;
@@ -1796,7 +1796,7 @@ const detailRequest = useTimeoutFn(() => {
     const viewports: NonNullable<IScanCleanupPreviewRequest['detail']>['viewports'] = {};
     for (const output of renderedOutputs.value) {
         const canvasRect = outputCanvasRects[output.metadata.half];
-        if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) continue;
+        if (!canvasRect || canvasRect.width <= 0 || canvasRect.height <= 0) {continue;}
         const imageRect = {
             x: canvasRect.x
                 + output.placement.left / output.placement.canvasWidthPx * canvasRect.width,
@@ -1817,7 +1817,7 @@ const detailRequest = useTimeoutFn(() => {
             1,
             (surfaceRect.bottom - imageRect.y) / imageRect.height,
         ));
-        if (right <= left || bottom <= top) continue;
+        if (right <= left || bottom <= top) {continue;}
         const xNormalized = quantizeDown(left);
         const yNormalized = quantizeDown(top);
         viewports[output.metadata.half] = {
@@ -1828,7 +1828,7 @@ const detailRequest = useTimeoutFn(() => {
             rotationDegrees: presentationResult.value?.pageMetadata.rotationDegrees ?? 0,
         };
     }
-    if (Object.keys(viewports).length > 0) emit('requestDetail', viewports);
+    if (Object.keys(viewports).length > 0) {emit('requestDetail', viewports);}
 }, SCAN_CLEANUP_DETAIL_REQUEST_DEBOUNCE_MS, {immediate: false});
 
 function scheduleDetailRequest() {

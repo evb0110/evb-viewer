@@ -133,7 +133,7 @@ export async function waitForViewerSettled(
 
     while (!options.signal?.aborted) {
         const remainingMs = deadline - Date.now();
-        if (remainingMs <= 0) break;
+        if (remainingMs <= 0) {break;}
 
         await waitForVisualFrames({
             timeoutMs: Math.min(64, remainingMs),

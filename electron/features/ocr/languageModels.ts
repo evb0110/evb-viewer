@@ -989,7 +989,7 @@ async function ensureLanguageModel(
     if (pending) {
         pending.waiters.set(waiterId, options.onProgress);
         try {
-            if (pending.progress) notifyDownloadProgress(options.onProgress, pending.progress);
+            if (pending.progress) {notifyDownloadProgress(options.onProgress, pending.progress);}
             await waitForPromiseOrAbort(pending.promise, options.signal);
         } finally {
             releaseDownloadWaiter(languageCode, waiterId, pending);
@@ -1007,7 +1007,7 @@ async function ensureLanguageModel(
     };
     const onProgress = (progress: IOcrModelDownloadProgress) => {
         task.progress = progress;
-        for (const listener of task.waiters.values()) notifyDownloadProgress(listener, progress);
+        for (const listener of task.waiters.values()) {notifyDownloadProgress(listener, progress);}
     };
     task.promise = (async () => {
         let releaseSlot: (() => void) | null = null;

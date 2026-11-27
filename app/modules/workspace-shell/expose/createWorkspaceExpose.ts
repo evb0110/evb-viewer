@@ -230,8 +230,8 @@ export function createWorkspaceExpose(
         handleSaveAs: () => document.isMoving.value ? Promise.resolve(false) : owners.handleSaveAs(),
         handlePrint: print.handlePrint,
         handlePrintCurrentPage: () => { void print.handlePrintCurrentPage(); },
-        handleUndo: () => { if (!document.isMoving.value) void history.handleUndo(); },
-        handleRedo: () => { if (!document.isMoving.value) void history.handleRedo(); },
+        handleUndo: () => { if (!document.isMoving.value) {void history.handleUndo();} },
+        handleRedo: () => { if (!document.isMoving.value) {void history.handleRedo();} },
         handleOpenFileFromUi: fileOps.handleOpenFileFromUi,
         handleCombineImages: fileOps.handleCombineImages,
         handleOpenFileDirectWithPersist: fileOps.handleOpenFileDirectWithPersist,
@@ -246,9 +246,9 @@ export function createWorkspaceExpose(
         handleOpenSearch: () => { search.openSearch(); },
         handleEnableDragMode: () => { void viewContext.annotationToolState.handleAnnotationToolChange('none', {dragMode: true}); },
         handleDisableDragMode: () => { void viewContext.annotationToolState.handleAnnotationToolChange('none'); },
-        handleQuickNote: () => { if (!document.isMoving.value) void viewContext.annotationActions.handleQuickNoteAction(); },
-        handleInsertImageFromFile: async () => { if (!document.isMoving.value) await owners.handleInsertImageFromFile(); },
-        handlePasteImageFromClipboard: async () => { if (!document.isMoving.value) await owners.handlePasteImageFromClipboard(); },
+        handleQuickNote: () => { if (!document.isMoving.value) {void viewContext.annotationActions.handleQuickNoteAction();} },
+        handleInsertImageFromFile: async () => { if (!document.isMoving.value) {await owners.handleInsertImageFromFile();} },
+        handlePasteImageFromClipboard: async () => { if (!document.isMoving.value) {await owners.handlePasteImageFromClipboard();} },
         handlePageDelete: (pages) => {
             void runPageOperation(() => pageOps.pageOpsDelete(pages, view.totalPages.value));
         },
@@ -263,7 +263,7 @@ export function createWorkspaceExpose(
         closeAllDropdowns: view.closeAllDropdowns,
         waitForDocumentOpenSettled: owners.waitForDocumentOpenSettled,
         runAgentAction: async (...args) => {
-            if (document.isMoving.value) throw new Error(t('tabs.moving'));
+            if (document.isMoving.value) {throw new Error(t('tabs.moving'));}
             return owners.runAgentAction(...args);
         },
         readAgentResource: owners.readAgentResource,

@@ -124,7 +124,7 @@ export const usePdfViewerPublicApiController = (
         const navigation = viewportSession.singlePageScroll.scrollToPage(pageNumber);
         // Within its document the request keeps its page even when a newer
         // navigation took the viewport; a reload or replacement ends it here.
-        if (typeof navigation === 'object') await navigation.finished;
+        if (typeof navigation === 'object') {await navigation.finished;}
         if (!isCurrent() || (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value)) {
             return {
                 ready: false,
@@ -309,7 +309,7 @@ export const usePdfViewerPublicApiController = (
             return true;
         },
         editAnnotationTextBox: async (comment) => {
-            if (!comment.appAnnotationId || !await focusAnnotationComment(comment)) return;
+            if (!comment.appAnnotationId || !await focusAnnotationComment(comment)) {return;}
             await annotationRuntime.annotationEditorSurface.beginTextEditing(asAnnotationId(comment.appAnnotationId));
         },
         selectedAnnotations: annotationRuntime.annotationEditorSurface.selectedAnnotations,

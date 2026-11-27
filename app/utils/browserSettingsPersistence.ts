@@ -250,7 +250,7 @@ export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
         return DEFAULT_SETTINGS.performanceMode;
     }
     const stored = parseStoredBrowserSettingsSnapshot(storageSnapshot);
-    if (stored) return stored.performanceMode;
+    if (stored) {return stored.performanceMode;}
     if (legacyCookie !== null && isValidLegacyBrowserSettingsPayload(legacyCookie)) {
         return parseBrowserSettingsPayload(legacyCookie, cookieSnapshot?.fallbackSettings).performanceMode;
     }

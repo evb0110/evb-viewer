@@ -98,7 +98,7 @@ export function createPdfAnnotationStampImageResolver(documentSession: Pick<TPdf
             let lease: Awaited<ReturnType<TPdfDocumentView['leasePage']>> | null = null;
             const controller = new AbortController();
             const stopWatchingDocument = watch(documentSession.pdfDocument, current => {
-                if (current !== pdfDocument) controller.abort();
+                if (current !== pdfDocument) {controller.abort();}
             }, {flush: 'sync'});
             try {
                 lease = await documentSession.leasePage(

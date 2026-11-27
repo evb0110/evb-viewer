@@ -154,7 +154,7 @@ export function createScanCleanupRasterBatchRenderer(
                         ? {}
                         : {onTerminationProof: directProofSink}),
                 onStderr: createPdftoppmPageProgress(pageNumber => {
-                    if (pageNumber < firstPage || pageNumber > lastPage) return;
+                    if (pageNumber < firstPage || pageNumber > lastPage) {return;}
                     // Progress is a side channel: its failure must neither
                     // stop Poppler nor fail the pages this batch rendered.
                     try {
@@ -170,7 +170,7 @@ export function createScanCleanupRasterBatchRenderer(
             const generatedByPage = new Map<number, string>();
             for (const entry of await fileSystem.readdir(scratch, {withFileTypes: true})) {
                 const match = /^page-(\d+)\.ppm$/u.exec(entry.name);
-                if (!entry.isFile() || match === null) continue;
+                if (!entry.isFile() || match === null) {continue;}
                 generatedByPage.set(Number.parseInt(match[1]!, 10), join(scratch, entry.name));
             }
             const results: IScanCleanupRasterBatchResult[] = [];

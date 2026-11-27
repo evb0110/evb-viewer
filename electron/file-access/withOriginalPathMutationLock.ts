@@ -11,7 +11,7 @@ export async function withOriginalPathMutationLock<T>(
     const previous = originalPathQueues.get(key) ?? Promise.resolve();
     const result = previous.then(operation);
     const tail = result.then(() => undefined, () => undefined).finally(() => {
-        if (originalPathQueues.get(key) === tail) originalPathQueues.delete(key);
+        if (originalPathQueues.get(key) === tail) {originalPathQueues.delete(key);}
     });
     originalPathQueues.set(key, tail);
     return result;

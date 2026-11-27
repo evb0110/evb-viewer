@@ -178,7 +178,7 @@ const textBoxSchema = v.pipe(
     v.check(({
         rect, rotation,
     }) => {
-        if (rotation % 180 === 0) return isPdfNativeNormalizedRectInsidePageBounds(rect);
+        if (rotation % 180 === 0) {return isPdfNativeNormalizedRectInsidePageBounds(rect);}
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
         const availableArea = 4 * Math.min(centerX, 1 - centerX) * Math.min(centerY, 1 - centerY);

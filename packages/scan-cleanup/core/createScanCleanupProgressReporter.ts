@@ -86,7 +86,7 @@ export function createScanCleanupActivePageTracker() {
         finish(pageNumber: number) {
             const removed = activePages.delete(pageNumber);
             stageByPage.delete(pageNumber);
-            if (removed) refreshLatestStage();
+            if (removed) {refreshLatestStage();}
             return removed;
         },
         clear() {

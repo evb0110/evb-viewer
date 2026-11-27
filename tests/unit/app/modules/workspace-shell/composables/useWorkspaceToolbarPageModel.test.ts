@@ -22,7 +22,7 @@ describe('useWorkspaceToolbarPageModel', () => {
             navigationTicket: session.navigationTicket,
             goToPage: vi.fn(),
         }));
-        if (!model) throw new Error('Failed to create workspace toolbar page model');
+        if (!model) {throw new Error('Failed to create workspace toolbar page model');}
 
         session.navigate(createPageNavigationRequest(8, 'toolbar'));
         expect(model.currentPage.value).toBe(1);
@@ -42,7 +42,7 @@ describe('useWorkspaceToolbarPageModel', () => {
             navigationTicket: ref(null),
             goToPage,
         }));
-        if (!model) throw new Error('Failed to create workspace toolbar page model');
+        if (!model) {throw new Error('Failed to create workspace toolbar page model');}
 
         model.handleGoToPage(9);
         expect(goToPage).toHaveBeenCalledWith(9);
@@ -61,7 +61,7 @@ describe('useWorkspaceToolbarPageModel', () => {
             navigationTicket: ref(null),
             goToPage: vi.fn(),
         }));
-        if (!model) throw new Error('Failed to create workspace toolbar page model');
+        if (!model) {throw new Error('Failed to create workspace toolbar page model');}
 
         expect(model.currentPage.value).toBe(6);
         sourcePage.value = 9;

@@ -170,7 +170,7 @@ describe('complete PDF opening geometry', () => {
                 : revision;
             const opening = await handlePdfOpeningGeometry({senderId: 7}, input);
             expect(opening?.width).toBe(changed ? 700 : 612);
-            if (!changed) expect(entry.openingPageGeometry?.pages[0]?.widthPoints).toBe(612);
+            if (!changed) {expect(entry.openingPageGeometry?.pages[0]?.widthPoints).toBe(612);}
             const options = {
                 mode: 'exact' as const,
                 expectedDocumentRevisionToken: current.token,
@@ -427,7 +427,7 @@ describe('native text-box appearance scratch ownership', () => {
         const workingPath = (await openDocumentFromFile(original, {ownerWebContentsId: 7})).ref;
         let input = '';
         const failure = new Error('Native appearance failed');
-        if (unproven) markUnprovenNativeTermination(failure, 'writer remains unconfirmed');
+        if (unproven) {markUnprovenNativeTermination(failure, 'writer remains unconfirmed');}
         mocks.runNativeToolCommand.mockImplementationOnce(async (_binary: string, args: string[]) => {
             input = args[args.indexOf('--input') + 1]!;
             throw failure;

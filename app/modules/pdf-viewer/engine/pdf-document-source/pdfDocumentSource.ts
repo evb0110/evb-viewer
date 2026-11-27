@@ -650,7 +650,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             task.promise,
             cancelled.then(() => null),
         ]);
-        if (!document) return null;
+        if (!document) {return null;}
         if (loadingTask === task) {
             loadingTask = null;
         }
@@ -769,7 +769,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
             cancelled.then(() => null),
         ]);
         rangeFailure.complete();
-        if (!document) return null;
+        if (!document) {return null;}
         logPdfRenderTrace('pdf-document-get-document-resolve', {
             version,
             sourceKind: 'path',

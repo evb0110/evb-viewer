@@ -149,10 +149,10 @@ describe('scan-cleanup detection cache', () => {
             // outer owner. It must still be readable once that owner settles.
             await expect(readFile(failure!.stagedPdfPath, 'utf8')).resolves.toBe('%PDF-invalid-xref-diagnostic');
         } finally {
-            if (failure !== undefined) await rm(dirname(dirname(failure.stagedPdfPath)), {
+            if (failure !== undefined) {await rm(dirname(dirname(failure.stagedPdfPath)), {
                 recursive: true,
                 force: true,
-            });
+            });}
         }
     });
 
@@ -363,7 +363,7 @@ describe('scan-cleanup detection cache', () => {
             pageCount: records.length,
         });
         try {
-            for (const record of records) await store.append(record);
+            for (const record of records) {await store.append(record);}
             const placementAnchorSummary = await buildScanCleanupPlacementAnchorSummary({
                 options: inkOptions,
                 resultStore: store,
@@ -433,7 +433,7 @@ describe('scan-cleanup detection cache', () => {
             pageCount: records.length,
         });
         try {
-            for (const record of records) await store.append(record);
+            for (const record of records) {await store.append(record);}
             const placementAnchorSummary = await buildScanCleanupPlacementAnchorSummary({
                 options: inkOptions,
                 resultStore: store,

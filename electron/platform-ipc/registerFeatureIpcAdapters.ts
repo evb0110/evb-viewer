@@ -98,7 +98,7 @@ function registerLazyValidatedFeature(
             throwLastLoadError();
         }
         loading ??= load({handle: (channel, handler) => {
-            if (handlers.has(channel)) throw new Error(`Duplicate lazy IPC handler: ${channel}`);
+            if (handlers.has(channel)) {throw new Error(`Duplicate lazy IPC handler: ${channel}`);}
             handlers.set(channel, handler);
         }}).then(() => {
             lastLoadError = undefined;
@@ -126,7 +126,7 @@ function registerLazyValidatedFeature(
             throw new Error('Lazy IPC dispatch lost its channel identity');
         }
         const handler = handlers.get(channel);
-        if (!handler) throw new Error(`Lazy IPC feature did not register channel: ${channel}`);
+        if (!handler) {throw new Error(`Lazy IPC feature did not register channel: ${channel}`);}
         return handler(event, ...args as never[]);
     };
     try {

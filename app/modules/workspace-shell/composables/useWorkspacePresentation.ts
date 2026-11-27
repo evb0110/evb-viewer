@@ -180,12 +180,12 @@ export const useWorkspacePresentation = (
     /** Tells automation that an open this view ran finished with its document. */
     function reportDocumentOpened() {
         const path = file.originalPath.value ?? file.workingCopyPath.value;
-        if (path) emitAutomationEvent('document-opened', {
+        if (path) {emitAutomationEvent('document-opened', {
             currentPage: view.currentPage.value,
             path,
             tabId,
             totalPages: view.totalPages.value,
-        });
+        });}
     }
     whenever(hasOpenError, () => {
         dispatchStartupOpenVisualReady('document-error', true);

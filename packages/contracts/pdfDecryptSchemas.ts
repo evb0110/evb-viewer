@@ -25,8 +25,8 @@ export const PDF_DECRYPT_RESULT_SCHEMA = v.pipe(
     v.check(({
         outcome, wasEncrypted, revision,
     }) => {
-        if (outcome === 'opened') return !wasEncrypted && revision === null;
-        if (outcome === 'rewritten') return wasEncrypted && revision !== null;
+        if (outcome === 'opened') {return !wasEncrypted && revision === null;}
+        if (outcome === 'rewritten') {return wasEncrypted && revision !== null;}
         return wasEncrypted && revision === null;
     }),
 );

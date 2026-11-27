@@ -52,8 +52,8 @@ function createSurfaceHarness(options: {
     const onCreationCompleted = vi.fn();
     const draftTexts = new Map<string, string>();
     const onTextBoxDraftChanged = (id: string, text: string | null) => {
-        if (text === null) draftTexts.delete(id);
-        else draftTexts.set(id, text);
+        if (text === null) {draftTexts.delete(id);}
+        else {draftTexts.set(id, text);}
     };
     const scope = effectScope();
     activeScopes.add(scope);
@@ -177,7 +177,7 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
         expect(surface.updateSelectedAnnotationProperties({rotationDelta: -90})).toBe(true);
         const updated = annotationApplication.value.store.get(box.identity.id);
         expect(updated?.kind).toBe('text-box');
-        if (updated?.kind !== 'text-box') throw new Error('Text box missing');
+        if (updated?.kind !== 'text-box') {throw new Error('Text box missing');}
         expect(updated.rotation).toBe(270);
         expect(updated.rect.width).toBe(box.rect.width);
         expect(updated.rect.height).toBe(box.rect.height);
@@ -187,8 +187,8 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
         expect(bounds.top).toBeGreaterThanOrEqual(-1e-12);
         expect(bounds.left + bounds.width).toBeLessThanOrEqual(1 + 1e-12);
         expect(bounds.top + bounds.height).toBeLessThanOrEqual(1 + 1e-12);
-        if (pageRotation === 0) expect(updated.rect.top).toBeCloseTo(0.015, 12);
-        else expect(updated.rect.top).toBeCloseTo(0.175);
+        if (pageRotation === 0) {expect(updated.rect.top).toBeCloseTo(0.015, 12);}
+        else {expect(updated.rect.top).toBeCloseTo(0.175);}
     });
 
     it('checks pending text read-only and commits before rotation', async () => {
@@ -211,7 +211,7 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
         let refuseCompletion = true;
         const commitDraft = async () => {
             await completion.promise;
-            if (refuseCompletion) throw new DOMException('Draft protection was refused', 'AbortError');
+            if (refuseCompletion) {throw new DOMException('Draft protection was refused', 'AbortError');}
             surface.commitGesture(box.identity.id, {
                 text: 'Pending text',
                 rect: draftRect.value,
@@ -281,7 +281,7 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
                 height: 0.15,
             },
         });
-        if (updated?.kind !== 'text-box') throw new Error('Text box missing');
+        if (updated?.kind !== 'text-box') {throw new Error('Text box missing');}
         expect(updated.rect.top).toBeCloseTo(0.015, 12);
         expect(surface.editingId.value).toBeNull();
         expect(await surface.undo()).toBe(true);
@@ -333,7 +333,7 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
                 height: 0.15,
             },
         });
-        if (updated?.kind !== 'text-box') throw new Error('Text box missing');
+        if (updated?.kind !== 'text-box') {throw new Error('Text box missing');}
         expect(updated.rect.top).toBeCloseTo(0.015, 12);
     });
 
@@ -398,7 +398,7 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
         expect(surface.canRotateSelectedAnnotations(90)).toBe(true);
         expect(surface.updateSelectedAnnotationProperties({rotationDelta: 90})).toBe(true);
         const updated = annotationApplication.value.store.get(image.identity.id);
-        if (updated?.kind !== 'placed-image') throw new Error('Image missing');
+        if (updated?.kind !== 'placed-image') {throw new Error('Image missing');}
         expect(updated.rotation).toBe(100);
         expect(updated.rect.left).toBe(image.rect.left);
         expect(updated.rect.top).toBeLessThan(image.rect.top);
@@ -478,7 +478,7 @@ describe('usePdfAnnotationEditorSurface rotation', () => {
     });
 
     afterEach(() => {
-        for (const scope of activeScopes) scope.stop();
+        for (const scope of activeScopes) {scope.stop();}
         activeScopes.clear();
     });
 });
@@ -520,7 +520,7 @@ describe('usePdfAnnotationEditorSurface note icon', () => {
         const gesture = scope.run(() => useAnnotationPointerGesture({surface: harness.surface, pageIndex: 0}))!;
         const notePosition = (id: string) => {
             const entity = harness.surface.entitiesByPage.value.get(0)?.find(candidate => candidate.identity.id === id);
-            if (entity?.kind !== 'note') throw new Error('note missing');
+            if (entity?.kind !== 'note') {throw new Error('note missing');}
             return entity.position;
         };
         const setGeometryKnown = (known: boolean) => {
@@ -647,7 +647,7 @@ describe('usePdfAnnotationEditorSurface note icon', () => {
     });
 
     afterEach(() => {
-        for (const scope of activeScopes) scope.stop();
+        for (const scope of activeScopes) {scope.stop();}
         activeScopes.clear();
     });
 });

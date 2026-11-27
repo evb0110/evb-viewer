@@ -262,7 +262,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             annotationLayerDiv.innerHTML = '';
         }
         annotationLayerDiv.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach(element => {
-            if (hiddenIds.has(normalizePdfJsAnnotationId(element.dataset.annotationId) ?? '')) element.style.pointerEvents = 'none';
+            if (hiddenIds.has(normalizePdfJsAnnotationId(element.dataset.annotationId) ?? '')) {element.style.pointerEvents = 'none';}
         });
         replacePageLinkAnnotations(
             pageNumber,

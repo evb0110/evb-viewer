@@ -170,7 +170,7 @@ export function widenDocumentThumbnailFrames(width: number) {
 
 /** Unmounts every rail this harness mounted and undoes the installed globals. */
 export function restoreDocumentThumbnailListEnvironment() {
-    for (const unmount of [...mounted]) unmount();
+    for (const unmount of [...mounted]) {unmount();}
     vi.useRealTimers();
     globalThis.ResizeObserver = originalResizeObserver;
     globalThis.requestAnimationFrame = originalRequestAnimationFrame;
@@ -383,7 +383,7 @@ export async function settleDocumentThumbnailList() {
             return;
         }
         lastActivity = sourceActivity;
-        if (pendingTimers > 0) await vi.advanceTimersToNextTimerAsync();
+        if (pendingTimers > 0) {await vi.advanceTimersToNextTimerAsync();}
     }
     throw new Error(
         `the thumbnail rail was still scheduling work after ${String(MAX_SETTLE_ROUNDS)} settle rounds`,

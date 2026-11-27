@@ -373,7 +373,7 @@ export async function* readPdfPageSizeChunks(
         failure = error;
         throw error;
     } finally {
-        if (getUnprovenNativeTerminationDetail(failure) === undefined) await rm(outputPath, {force: true}).catch(() => undefined);
+        if (getUnprovenNativeTerminationDetail(failure) === undefined) {await rm(outputPath, {force: true}).catch(() => undefined);}
     }
 }
 

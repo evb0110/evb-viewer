@@ -89,7 +89,7 @@ describe('result worker task on a real worker thread', () => {
             createCancelMessage: () => ({type: 'cancel'}),
             cooperativeCancelDelayMs: 30_000,
             onProgressMessage: (payload) => {
-                if ((payload as {type?: unknown} | null)?.type !== 'ready') return false;
+                if ((payload as {type?: unknown} | null)?.type !== 'ready') {return false;}
                 ready.resolve();
                 return true;
             },
@@ -133,7 +133,7 @@ describe('result worker task on a real worker thread', () => {
             createCancelMessage: () => ({type: 'cancel'}),
             cooperativeCancelDelayMs: 30_000,
             onProgressMessage: (payload) => {
-                if ((payload as {type?: unknown} | null)?.type !== 'ready') return false;
+                if ((payload as {type?: unknown} | null)?.type !== 'ready') {return false;}
                 ready.resolve();
                 return true;
             },
@@ -176,7 +176,7 @@ describe('result worker task on a real worker thread', () => {
                 return capturedExitError;
             },
             onProgressMessage: (payload) => {
-                if ((payload as {type?: unknown} | null)?.type !== 'ready') return false;
+                if ((payload as {type?: unknown} | null)?.type !== 'ready') {return false;}
                 ready.resolve();
                 return true;
             },
@@ -221,7 +221,7 @@ describe('result worker task on a real worker thread', () => {
             createCancelMessage: () => ({type: 'cancel'}),
             cooperativeCancelDelayMs: 30_000,
             onProgressMessage: (payload) => {
-                if ((payload as {type?: unknown} | null)?.type !== 'ready') return false;
+                if ((payload as {type?: unknown} | null)?.type !== 'ready') {return false;}
                 ready.resolve();
                 return true;
             },
@@ -270,7 +270,7 @@ describe('result worker task on a real worker thread', () => {
             createCancelMessage: () => ({type: 'cancel'}),
             cooperativeCancelDelayMs: 30_000,
             onProgressMessage: (payload) => {
-                if ((payload as {type?: unknown} | null)?.type !== 'ready') return false;
+                if ((payload as {type?: unknown} | null)?.type !== 'ready') {return false;}
                 ready.resolve();
                 return true;
             },
@@ -320,7 +320,7 @@ describe('result worker task on a real worker thread', () => {
                 return capturedProxy;
             },
             onProgressMessage: (payload) => {
-                if ((payload as {type?: unknown} | null)?.type !== 'ready') return false;
+                if ((payload as {type?: unknown} | null)?.type !== 'ready') {return false;}
                 ready.resolve();
                 return true;
             },

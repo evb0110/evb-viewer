@@ -106,6 +106,59 @@ tester.run('no-raw-red-presentation', rules['no-raw-red-presentation']!, {
     }],
 });
 
+const USELESS_TAIL_AWAIT_NON_PROMISE_MESSAGE = 'Useless tail await on a non-promise value: remove await (keep async if a Promise is required).';
+const USELESS_TAIL_AWAIT_PRESERVE_BOUNDARY_MESSAGE = 'Useless tail await: remove await, and drop async only when parameter evaluation and the expression cannot throw synchronously and always return a Promise (otherwise keep async to preserve the rejection boundary).';
+
+tester.run('no-useless-async', rules['no-useless-async']!, {
+    valid: [
+        'async function handled() { try { return await fetchItem(); } catch (error) { return fallback(error); } }',
+        'async function finalized() { try { return await fetchItem(); } finally { cleanup(); } }',
+        'async function multiStatement() { const id = getId(); return await fetchItem(id); }',
+        'const nestedAwaitArrow = async () => await fetchItem(await getId());',
+        'async function nestedAwaitBlock() { return await fetchItem(await getId()); }',
+        'const voidWrapper = async () => { await fetchItem(); };',
+        'const syncValueAsync = async () => 42;',
+        'const syncThrowPreserved = async () => { return mayThrowSync(); };',
+        'async function* asyncGen() { yield await fetchItem(); }',
+        'const castAwaitedValue = async () => (await fetchItem()) as string;',
+        'const plainPromiseReturn = () => fetchItem();',
+    ].map(code => ({
+        code,
+        filename: 'app/fixture.ts',
+    })),
+    invalid: [
+        ...[
+            'const primitiveValue = async () => await 42;',
+            'async function objectValue() { return await {ok: true}; }',
+        ].map(code => ({
+            code,
+            filename: 'app/fixture.ts',
+            errors: [{message: USELESS_TAIL_AWAIT_NON_PROMISE_MESSAGE}],
+        })),
+        ...[
+            'const directPromise = async () => await new Promise((resolve) => resolve(1));',
+            'async function directPromiseBlock() { return await new Promise(function (resolve) { resolve(1); }); }',
+            'const shadowedPromise = async (Promise: PromiseConstructor) => await new Promise((resolve) => resolve(1));',
+            'const concise = async () => await fetchItem();',
+            'const parenthesized = async () => (await fetchItem());',
+            'const blockArrow = async () => { return await fetchItem(); };',
+            'async function decl() { return await fetchItem(); }',
+            'const fnExpr = async function() { return await fetchItem(); };',
+            'const obj = { async method() { return await fetchItem(); } };',
+            'class Service { async method() { return await fetchItem(); } }',
+            'const syncThrowingCall = async () => await (() => { throw new Error("boom"); })();',
+            'const dynamicPromiseExecutor = async () => await new Promise(getExecutor());',
+            'const throwingDefaultParam = async (value = readValue()) => await new Promise((resolve) => resolve(value));',
+            'const destructuredParam = async ({value}: {value: number}) => await new Promise((resolve) => resolve(value));',
+            'const outerUselessDespiteInnerAwait = async () => await run(async () => { const id = await getId(); return id; });',
+        ].map(code => ({
+            code,
+            filename: 'app/fixture.ts',
+            errors: [{message: USELESS_TAIL_AWAIT_PRESERVE_BOUNDARY_MESSAGE}],
+        })),
+    ],
+});
+
 tester.run('e2e-click-as-user', rules['e2e-click-as-user']!, {
     valid: [
         'await clickAsUser(page, handle);',

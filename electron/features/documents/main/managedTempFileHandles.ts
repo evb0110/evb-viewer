@@ -234,7 +234,7 @@ async function statRegularArtifact(path: string) {
  * refused; an open document's original is followed as its admission check does, and that check guards its identity.
  */
 async function statManagedBinary(path: string, originalBacked: boolean) {
-    if (!originalBacked) return statRegularArtifact(path);
+    if (!originalBacked) {return statRegularArtifact(path);}
     const fileStat = await stat(path, {bigint: true});
     if (!fileStat.isFile()) {
         throw new Error('Managed binary path no longer identifies a regular file');
@@ -249,7 +249,7 @@ function isSameArtifactFile(left: BigIntStats, right: BigIntStats) {
 
 function invalidateStagedArtifactLease(leaseId: TLeaseId) {
     const lease = leases.get(leaseId);
-    if (lease) endLease(leaseId, lease);
+    if (lease) {endLease(leaseId, lease);}
     sweepExpiredLeases();
 }
 
@@ -295,7 +295,7 @@ function sweepExpiredLeases() {
         leaseId,
         lease,
     ] of leases) {
-        if (lease.expiresAt <= now) endLease(leaseId, lease);
+        if (lease.expiresAt <= now) {endLease(leaseId, lease);}
     }
     clearLeaseSweepIfIdle();
 }
@@ -623,7 +623,7 @@ export function revokeManagedTempFileHandlesForSender(senderId: number) {
         leaseId,
         lease,
     ] of leases) {
-        if (lease.ownerId === senderId) endLease(leaseId, lease);
+        if (lease.ownerId === senderId) {endLease(leaseId, lease);}
     }
     sweepExpiredLeases();
 }

@@ -532,8 +532,8 @@ export function createPageMutationWriterSave(deps: {
             workingPath: capturedWorkingCopyPath,
             ...getNativeSaveTransactionOptions(saveDeps),
         });
-        if (transaction.verifiedUnchangedWorkingCopy) return isCapturedTargetCurrent();
-        if (transaction.nativeRequiredFailure) throw new NativePdfSaveRequiredError(transaction.nativeRequiredFailure);
+        if (transaction.verifiedUnchangedWorkingCopy) {return isCapturedTargetCurrent();}
+        if (transaction.nativeRequiredFailure) {throw new NativePdfSaveRequiredError(transaction.nativeRequiredFailure);}
         const projection = transaction.nativeMutationProjection;
         if (!projection || !isCapturedTargetCurrent()) {
             return false;

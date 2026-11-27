@@ -63,12 +63,12 @@ function toDownloadFileName(name: string) {
 function waitForDownload(downloads: IChromeDownloadsApi, id: number) {
     return new Promise<boolean>((resolve, reject) => {
         const finish = (state: string | undefined) => {
-            if (state !== COMPLETE && state !== INTERRUPTED) return;
+            if (state !== COMPLETE && state !== INTERRUPTED) {return;}
             downloads.onChanged.removeListener(onChanged);
             resolve(state === COMPLETE);
         };
         const onChanged = (delta: IChromeDownloadDelta) => {
-            if (delta.id === id) finish(delta.state?.current);
+            if (delta.id === id) {finish(delta.state?.current);}
         };
         downloads.onChanged.addListener(onChanged);
         // The download may have finished before the listener was added.

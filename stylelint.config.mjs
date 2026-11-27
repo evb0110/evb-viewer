@@ -278,5 +278,12 @@ export default {
                 [IMPORTANT_POLICY_RULE]: null,
             },
         },
+        {
+            files: ['**/*.css'],
+            rules: {
+                'media-query-no-invalid': true,
+                'declaration-property-value-no-unknown': true,
+            },
+        },
     ],
 };

@@ -158,7 +158,7 @@ function createFeaturePackHost(
 }
 
 afterEach(() => {
-    for (const unmount of mountedApps) unmount();
+    for (const unmount of mountedApps) {unmount();}
     document.body.innerHTML = '';
     vi.restoreAllMocks();
 });
@@ -258,7 +258,7 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
             documentRevision: 'open-intent:unpresented',
             provisional: true,
         }, null, 1);
-        if (isActive) surface.navigate(createPageNavigationRequest(2, 'restore'));
+        if (isActive) {surface.navigate(createPageNavigationRequest(2, 'restore'));}
 
         let visual: boolean | 'pending' = 'pending';
         const {createDocumentPageSourceOpenJob} = pageSourceState;
@@ -382,8 +382,8 @@ describe('DocumentPageSourceFeaturePack concurrent open surfaces', () => {
             });
             const scrollTop = root.firstElementChild!.scrollTop;
             setDpr(2);
-            if (trigger === 'resize') window.dispatchEvent(new Event('resize'));
-            else resolutionChange.dispatchEvent(new Event('change'));
+            if (trigger === 'resize') {window.dispatchEvent(new Event('resize'));}
+            else {resolutionChange.dispatchEvent(new Event('change'));}
             await vi.waitFor(() => expect(source.renderPage).toHaveBeenLastCalledWith(expect.objectContaining({
                 pageNumber: 1,
                 widthPx: 1_720,

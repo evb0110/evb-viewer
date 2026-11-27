@@ -190,7 +190,7 @@ function parsePageList(value: string) {
     const pages: number[] = [];
     for (const token of value.split(',')) {
         const range = token.trim();
-        if (!range) continue;
+        if (!range) {continue;}
         const separator = range.indexOf('-');
         if (separator < 0) {
             const page = Number.parseInt(range, 10);
@@ -210,9 +210,9 @@ function parsePageList(value: string) {
         ) {
             throw new Error(`Invalid page range: ${range}`);
         }
-        for (let page = first; page <= last; page += 1) pages.push(page);
+        for (let page = first; page <= last; page += 1) {pages.push(page);}
     }
-    if (pages.length === 0) throw new Error('The --pages selector is empty');
+    if (pages.length === 0) {throw new Error('The --pages selector is empty');}
     const orderedPages = pages.sort((left, right) => left - right);
     for (let index = 1; index < orderedPages.length; index += 1) {
         if (orderedPages[index] === orderedPages[index - 1]) {
@@ -270,7 +270,7 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
     };
     for (let index = 0; index < argv.length; index += 1) {
         const argument = argv[index]!;
-        if (argument === '--') continue;
+        if (argument === '--') {continue;}
         switch (argument) {
             case '--source':
                 sourcePdfPath = resolve(valueFor(index, argument));
@@ -341,7 +341,7 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
                 break;
             case '--reading-order': {
                 const value = valueFor(index, argument);
-                if (value !== 'ltr' && value !== 'rtl') throw new Error(`Invalid reading order: ${value}`);
+                if (value !== 'ltr' && value !== 'rtl') {throw new Error(`Invalid reading order: ${value}`);}
                 options.readingOrder = value;
                 index += 1;
                 break;
@@ -397,7 +397,7 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
                 detectionCachePath = value === undefined || value.startsWith('--')
                     ? resolve(DEFAULT_SCAN_CLEANUP_DETECTION_CACHE_PATH)
                     : resolve(value);
-                if (value !== undefined && !value.startsWith('--')) index += 1;
+                if (value !== undefined && !value.startsWith('--')) {index += 1;}
                 break;
             }
             case '--refresh-detection':
@@ -424,7 +424,7 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
         printUsage();
         throw new Error('--source and --out are required');
     }
-    if (sourcePdfPath === outputPdfPath) throw new Error('--source and --out must differ');
+    if (sourcePdfPath === outputPdfPath) {throw new Error('--source and --out must differ');}
     if ((diagnosticEvidenceDirectory === undefined) !== (diagnosticMaskPages === undefined)) {
         throw new Error('--diagnostic-evidence-dir and --diagnostic-mask-pages must be used together');
     }
@@ -444,7 +444,7 @@ function parseArguments(argv: readonly string[]): IScanCleanupCliArguments {
 function resolveTool(binaryName: string, crateName: string, envName?: string) {
     const envOverride = envName === undefined ? undefined : process.env[envName];
     const resolved = resolveCliNativeToolPath(binaryName, crateName, process.cwd(), envOverride);
-    if (resolved === null) throw new Error(`Native tool is unavailable: ${crateName}/${binaryName}`);
+    if (resolved === null) {throw new Error(`Native tool is unavailable: ${crateName}/${binaryName}`);}
     if (isScanCleanupCliFallbackSentinel(resolved)) {
         throw new Error(`Native tool path collides with the CLI fallback sentinel namespace: ${resolved}`);
     }
@@ -728,7 +728,7 @@ export function buildScanCleanupCliDetectionRequestFields(
     for (const result of detection.results) {
         const key = String(result.pageNumber);
         layoutByPage[key] = result.classification;
-        if (result.pagePlanEvidence !== undefined) pagePlanEvidenceByPage[key] = result.pagePlanEvidence;
+        if (result.pagePlanEvidence !== undefined) {pagePlanEvidenceByPage[key] = result.pagePlanEvidence;}
         if (result.recommendedOutputMode !== undefined) {
             outputModeRecommendations[key] = result.recommendedOutputMode;
         }
@@ -738,7 +738,7 @@ export function buildScanCleanupCliDetectionRequestFields(
         if (result.sourcePageMetadata !== undefined) {
             sourcePageMetadataByPage[key] = result.sourcePageMetadata;
         }
-        if (result.documentPrior !== null) documentPriorByPage[key] = result.documentPrior;
+        if (result.documentPrior !== null) {documentPriorByPage[key] = result.documentPrior;}
     }
     return {
         documentPriorByPage,
@@ -827,7 +827,7 @@ export async function main() {
             log,
         });
         const pageCount = Number.parseInt(result.stdout.trim(), 10);
-        if (!Number.isSafeInteger(pageCount) || pageCount < 1) throw new Error('Failed to read PDF page count');
+        if (!Number.isSafeInteger(pageCount) || pageCount < 1) {throw new Error('Failed to read PDF page count');}
         return pageCount;
     };
     const detectSourceDpi = async (
@@ -961,7 +961,7 @@ export async function main() {
                     rootDir: temporaryRoot,
                     pageCount: documentPageCount,
                 });
-                for (const result of detection.results) await detectionResultStore.append(result);
+                for (const result of detection.results) {await detectionResultStore.append(result);}
             }
             placementAnchorSummary = await buildScanCleanupPlacementAnchorSummary({
                 options: argumentsValue.options,

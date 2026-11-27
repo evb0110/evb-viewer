@@ -26,8 +26,8 @@ export function resolveScanCleanupSelection(
 ): IScanCleanupSelectionState {
     if (intent === 'toggle') {
         const selectedPages = new Set(state.selectedPages);
-        if (selectedPages.has(page)) selectedPages.delete(page);
-        else selectedPages.add(page);
+        if (selectedPages.has(page)) {selectedPages.delete(page);}
+        else {selectedPages.add(page);}
         return {
             anchor: page,
             leader: page,
@@ -94,8 +94,8 @@ export function createScanCleanupSparsePageOrder(
         while (low < high) {
             const middle = low + Math.floor((high - low) / 2);
             const unknownCount = middle - unknownCountBefore(middle + 1);
-            if (unknownCount < unknownPosition) low = middle + 1;
-            else high = middle;
+            if (unknownCount < unknownPosition) {low = middle + 1;}
+            else {high = middle;}
         }
         return low;
     };
@@ -130,8 +130,8 @@ function upperBound(values: readonly number[], target: number) {
             high = middle;
             continue;
         }
-        if (value <= target) low = middle + 1;
-        else high = middle;
+        if (value <= target) {low = middle + 1;}
+        else {high = middle;}
     }
     return low;
 }

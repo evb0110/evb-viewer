@@ -150,7 +150,7 @@ describe('concurrent canonical edits during workspace save', () => {
         const application = new AnnotationApplication('concurrent-save');
         const note = savedNote();
         application.store.replaceFromDocument([note], []);
-        if (capturedEdit) application.store.updateNote(note.identity.id, {contents: 'captured text'});
+        if (capturedEdit) {application.store.updateNote(note.identity.id, {contents: 'captured text'});}
         const enteredPersistence = createDeferred<undefined>();
         const finishPersistence = createDeferred<undefined>();
         const originalPath = ref(requireDocumentRef('/tmp/source.pdf'));
@@ -176,7 +176,7 @@ describe('concurrent canonical edits during workspace save', () => {
             await finishPersistence.promise;
             // As the native writer does, check the save is still current before exposing its bytes, after the edit.
             await assertBeforeExpose?.();
-            if (mode === 'save-as') originalPath.value = requireDocumentRef('/tmp/new.pdf');
+            if (mode === 'save-as') {originalPath.value = requireDocumentRef('/tmp/new.pdf');}
             revision.value = requireDocumentRevisionToken('rev-2');
             return {
                 success: true,
@@ -215,7 +215,7 @@ describe('concurrent canonical edits during workspace save', () => {
         expect(application.store.get(note.identity.id)).toMatchObject({contents: 'saved text'});
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(capturedEdit);
         expect(application.store.redo()).toBe(true);
-        if (capturedEdit) expect(application.store.redo()).toBe(true);
+        if (capturedEdit) {expect(application.store.redo()).toBe(true);}
         expect(application.store.get(note.identity.id)).toMatchObject({contents: 'newer unsaved text'});
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
     });
@@ -282,7 +282,7 @@ function parsedAdditive(kind: 'highlight' | 'shape' | 'text-box' | 'stamp'): TPd
         width: 0.3,
         height: 0.1,
     };
-    if (kind === 'highlight') return {
+    if (kind === 'highlight') {return {
         ...base,
         kind,
         subtype: 'Highlight',
@@ -290,8 +290,8 @@ function parsedAdditive(kind: 'highlight' | 'shape' | 'text-box' | 'stamp'): TPd
         color: '#ffff00',
         opacity: 0.5,
         contents: '',
-    };
-    if (kind === 'text-box') return {
+    };}
+    if (kind === 'text-box') {return {
         ...base,
         kind,
         text: 'Fresh text',
@@ -299,8 +299,8 @@ function parsedAdditive(kind: 'highlight' | 'shape' | 'text-box' | 'stamp'): TPd
         rotation: 0,
         fontSize: 12,
         color: '#123456',
-    };
-    if (kind === 'stamp') return {
+    };}
+    if (kind === 'stamp') {return {
         ...base,
         kind,
         rect,
@@ -311,7 +311,7 @@ function parsedAdditive(kind: 'highlight' | 'shape' | 'text-box' | 'stamp'): TPd
             byteLength: 20,
             sha256: 'a'.repeat(64),
         },
-    };
+    };}
     return {
         ...base,
         kind,
@@ -347,7 +347,7 @@ describe('scoped annotation save readback through transaction and workspace serv
             'text-box',
             'stamp',
         ] as const) {
-            if (existing && kind === 'stamp') continue;
+            if (existing && kind === 'stamp') {continue;}
             it.each([
                 'recognized',
                 'missing',
@@ -366,13 +366,13 @@ describe('scoped annotation save readback through transaction and workspace serv
                     identity: {id: mapped.identity.id},
                     persistedRevision: -1,
                 };
-                if (fresh.kind === 'shape') application.store.createShape({
+                if (fresh.kind === 'shape') {application.store.createShape({
                     ...fresh,
                     materialized: false,
-                });
-                else if (fresh.kind === 'text-box') application.store.createTextBox(fresh);
-                else if (fresh.kind === 'text-markup') application.store.createTextMarkup(fresh);
-                else if (fresh.kind === 'placed-image') application.store.createPlacedImage({
+                });}
+                else if (fresh.kind === 'text-box') {application.store.createTextBox(fresh);}
+                else if (fresh.kind === 'text-markup') {application.store.createTextMarkup(fresh);}
+                else if (fresh.kind === 'placed-image') {application.store.createPlacedImage({
                     ...fresh,
                     image: {
                         kind: 'raster',
@@ -383,16 +383,16 @@ describe('scoped annotation save readback through transaction and workspace serv
                         width: 1,
                         height: 1,
                     },
-                });
+                });}
                 if (existing) {
                     application.store.replaceFromDocument([
                         outside,
                         mapped,
                     ], []);
-                    if (mapped.kind === 'shape') application.store.updateShape(mapped.identity.id, {strokeWidth: 3});
-                    if (mapped.kind === 'text-markup') application.store.updateTextMarkup(mapped.identity.id, {color: '#22c55e'});
-                    if (mapped.kind === 'text-box') application.store.updateTextBox(mapped.identity.id, {text: 'edited'});
-                    if (mapped.kind === 'placed-image') application.store.updatePlacedImage(mapped.identity.id, {rotation: 30});
+                    if (mapped.kind === 'shape') {application.store.updateShape(mapped.identity.id, {strokeWidth: 3});}
+                    if (mapped.kind === 'text-markup') {application.store.updateTextMarkup(mapped.identity.id, {color: '#22c55e'});}
+                    if (mapped.kind === 'text-box') {application.store.updateTextBox(mapped.identity.id, {text: 'edited'});}
+                    if (mapped.kind === 'placed-image') {application.store.updatePlacedImage(mapped.identity.id, {rotation: 30});}
                 }
                 const revision = ref(requireDocumentRevisionToken('rev-1'));
                 const {deps} = createDeps({
@@ -477,7 +477,7 @@ describe('scoped annotation save readback through transaction and workspace serv
                     kind: mapped.kind,
                     identity: {pdfRef: '50 0 R'},
                 });
-                if (readback === 'recognized') expect(application.store.get(outside.identity.id)).toEqual(outside);
+                if (readback === 'recognized') {expect(application.store.get(outside.identity.id)).toEqual(outside);}
                 expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
             });
         }
@@ -663,7 +663,7 @@ describe('bookmark-only save readback', () => {
     ])('reads no annotations back, whether or not the store holds the whole document (read whole: %s)', async (readWhole) => {
         // The viewer reads the saved revision of a partial store once the save lets go.
         const application = new AnnotationApplication('bookmark-save');
-        if (readWhole) application.store.replaceFromDocument([savedNote()], []);
+        if (readWhole) {application.store.replaceFromDocument([savedNote()], []);}
         const revision = ref(requireDocumentRevisionToken('rev-1'));
         const {deps} = createDeps({
             originalPath: ref(requireDocumentRef('/tmp/source.pdf')),
@@ -796,7 +796,7 @@ describe('native deletion readback', () => {
                 0,
                 1,
             ]]);
-            if (mode !== 'no-proof') expect(application.store.get(outside.identity.id)).toEqual(outside);
+            if (mode !== 'no-proof') {expect(application.store.get(outside.identity.id)).toEqual(outside);}
             expect(application.store.get(deleted.identity.id)?.deleted ?? true).toBe(true);
             expect(application.store.undo()).toBe(true);
             expect(application.store.get(deleted.identity.id)?.deleted).toBe(false);

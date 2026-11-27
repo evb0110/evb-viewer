@@ -42,7 +42,7 @@ async function startQuitSession(name: string, initialOpenPaths: string[]) {
 
 function readElectronPid(session: IElectronE2ESession) {
     const electronPid = getSessionInfo(session.name)?.electronPid;
-    if (typeof electronPid !== 'number') throw new Error('The Electron pid was missing');
+    if (typeof electronPid !== 'number') {throw new Error('The Electron pid was missing');}
     return electronPid;
 }
 
@@ -55,7 +55,7 @@ async function quitAsUser(session: IElectronE2ESession) {
             String(readElectronPid(session)),
         ], { encoding: 'utf8' })
             .trim().split('\n')[0];
-        if (!windowId || !/^\d+$/u.test(windowId)) throw new Error('The visible Electron window id was missing');
+        if (!windowId || !/^\d+$/u.test(windowId)) {throw new Error('The visible Electron window id was missing');}
         execFileSync('xdotool', [
             'windowfocus',
             '--sync',
@@ -80,10 +80,10 @@ describe('unsaved work on app Quit', () => {
     afterEach(async () => {
         await session?.stop();
         session = null;
-        if (outputDirectory) rmSync(outputDirectory, {
+        if (outputDirectory) {rmSync(outputDirectory, {
             recursive: true,
             force: true,
-        });
+        });}
         outputDirectory = null;
     });
 
@@ -131,7 +131,7 @@ describe('unsaved work on app Quit', () => {
         ]);
         expect.soft(quitOutcome).toBe('prompt');
         expect.soft(readFileSync(documentPath)).toEqual(originalBytes);
-        if (quitOutcome !== 'prompt') return;
+        if (quitOutcome !== 'prompt') {return;}
         const dialogText = await session.page.$eval('[role="dialog"]', element => element.textContent ?? '');
         expect(dialogText).toContain('Save changes');
         expect(dialogText).toContain('Discard changes');
@@ -147,7 +147,7 @@ describe('unsaved work on app Quit', () => {
             } : null;
         });
         expect(cancel).not.toBeNull();
-        if (!cancel) throw new Error('Quit decision did not offer Cancel');
+        if (!cancel) {throw new Error('Quit decision did not offer Cancel');}
         await session.page.mouse.click(cancel.x, cancel.y);
 
         await session.page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
@@ -171,7 +171,7 @@ describe('unsaved work on app Quit', () => {
             } : null;
         });
         expect(discard).not.toBeNull();
-        if (!discard) throw new Error('Window close decision did not offer Discard changes');
+        if (!discard) {throw new Error('Window close decision did not offer Discard changes');}
         await session.page.mouse.click(discard.x, discard.y);
         await windowClosed;
     }, 150_000);
@@ -224,10 +224,10 @@ describe.runIf(process.platform === 'linux' || process.platform === 'darwin')('C
     afterEach(async () => {
         await session?.stop();
         session = null;
-        if (outputDirectory) rmSync(outputDirectory, {
+        if (outputDirectory) {rmSync(outputDirectory, {
             recursive: true,
             force: true,
-        });
+        });}
         outputDirectory = null;
     });
 
@@ -269,7 +269,7 @@ describe.runIf(process.platform === 'linux' || process.platform === 'darwin')('C
                 String(electronPid),
             ], { encoding: 'utf8' })
                 .trim().split('\n')[0];
-            if (!windowId) throw new Error('The visible Electron window id was missing');
+            if (!windowId) {throw new Error('The visible Electron window id was missing');}
             execFileSync('xdotool', [
                 'windowfocus',
                 '--sync',

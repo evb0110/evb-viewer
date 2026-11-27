@@ -28,7 +28,7 @@ declare const self: DedicatedWorkerGlobalScope;
 /** A binary PPM's size and pixels, as `createPpmRaster` and Poppler write it. */
 function readPpm(ppm: Uint8Array) {
     const match = /^P6\s+(\d+)\s+(\d+)\s+255\s/u.exec(new TextDecoder().decode(ppm.subarray(0, 64)));
-    if (!match) throw new Error('Scan cleanup page raster is not a binary PPM');
+    if (!match) {throw new Error('Scan cleanup page raster is not a binary PPM');}
     const width = Number(match[1]);
     const height = Number(match[2]);
     const offset = match[0].length;
@@ -83,17 +83,17 @@ async function handle(request: TBrowserScanCleanupWorkerRequest): Promise<IBrows
 /** Every buffer a result owns, so the reply moves them instead of copying. */
 function transferablesOf(value: unknown, found = new Set<ArrayBuffer>()): Set<ArrayBuffer> {
     if (value instanceof Uint8Array) {
-        if (value.buffer instanceof ArrayBuffer) found.add(value.buffer);
+        if (value.buffer instanceof ArrayBuffer) {found.add(value.buffer);}
     } else if (Array.isArray(value)) {
-        for (const entry of value) transferablesOf(entry, found);
+        for (const entry of value) {transferablesOf(entry, found);}
     } else if (typeof value === 'object' && value !== null) {
-        for (const entry of Object.values(value)) transferablesOf(entry, found);
+        for (const entry of Object.values(value)) {transferablesOf(entry, found);}
     }
     return found;
 }
 
 self.addEventListener('message', (event: MessageEvent<unknown>) => {
-    if (handlePrecompiledWasmModuleMessage(event.data)) return;
+    if (handlePrecompiledWasmModuleMessage(event.data)) {return;}
     const request = parseBrowserScanCleanupWorkerRequest(event.data);
     if (request === null) {
         const id = getBrowserScanCleanupWorkerRequestId(event.data);

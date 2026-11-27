@@ -45,7 +45,7 @@ async function readPageGeometry(page: Page) {
         ].includes(getComputedStyle(scroller).overflowY)) {
             scroller = scroller.parentElement;
         }
-        if (!first || !second || !scroller) return null;
+        if (!first || !second || !scroller) {return null;}
         const scrollerRect = scroller.getBoundingClientRect();
         const firstRect = first.getBoundingClientRect();
         const secondRect = second.getBoundingClientRect();
@@ -251,7 +251,7 @@ describe('Electron E2E - DjVu visible page indicator', () => {
         };
         for (let attempt = 0; attempt < 200; attempt += 1) {
             const current = await readPageGeometry(page);
-            if (!current || Math.abs(current.scrollTop - desiredScrollTop) < 40) break;
+            if (!current || Math.abs(current.scrollTop - desiredScrollTop) < 40) {break;}
             await page.mouse.move(viewerPoint.x, viewerPoint.y);
             await page.mouse.wheel({deltaY: Math.sign(desiredScrollTop - current.scrollTop) * Math.min(400, Math.abs(desiredScrollTop - current.scrollTop))});
             await waitForViewportQuiet(page, 300);
@@ -308,7 +308,7 @@ describe('Electron E2E - DjVu visible page indicator', () => {
             while (![
                 'auto',
                 'scroll',
-            ].includes(getComputedStyle(container).overflowY)) container = container.parentElement!;
+            ].includes(getComputedStyle(container).overflowY)) {container = container.parentElement!;}
             const view = container.getBoundingClientRect();
             const intersection = (element: HTMLElement) => {
                 const rect = element.getBoundingClientRect();

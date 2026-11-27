@@ -267,20 +267,20 @@ export function resolvePageIndicatorFromScroll(
     while (low < high) {
         const middle = low + Math.floor((high - low) / 2);
         const row = geometry.rows[middle]!;
-        if (row.rect.top + row.rect.height < top) low = middle + 1;
-        else high = middle;
+        if (row.rect.top + row.rect.height < top) {low = middle + 1;}
+        else {high = middle;}
     }
     let page = previousPage;
     let fraction = -1;
     for (let rowIndex = low; rowIndex < geometry.rows.length; rowIndex += 1) {
         const row = geometry.rows[rowIndex]!;
-        if (row.rect.top > bottom) break;
+        if (row.rect.top > bottom) {break;}
         for (let candidate = row.startPage; candidate <= row.endPage; candidate += 1) {
             const rect = geometry.pageRects[candidate - 1]!;
             const width = Math.max(0, Math.min(right, rect.left + rect.width) - Math.max(left, rect.left));
             const height = Math.max(0, Math.min(bottom, rect.top + rect.height) - Math.max(top, rect.top));
             if (width <= 0 || rect.height <= 0
-                || height < Math.min(rect.height, geometry.viewportHeight) / 4) continue;
+                || height < Math.min(rect.height, geometry.viewportHeight) / 4) {continue;}
             const visibleFraction = width * height / (rect.width * rect.height);
             if (visibleFraction > fraction) {
                 page = candidate;

@@ -28,7 +28,7 @@ export async function collectDocuments(store: IDocumentStore, hold: (id: string)
     const { port } = store;
     for (const name of await port.list(WORKSPACES_DIR)) {
         // A temporary file another window still has open refuses removal; it is that window's to finish.
-        if (checkpointWindowId(name) === null) await port.remove(`${WORKSPACES_DIR}/${name}`).catch(() => undefined);
+        if (checkpointWindowId(name) === null) {await port.remove(`${WORKSPACES_DIR}/${name}`).catch(() => undefined);}
     }
     const unreadable: IUnreadableEntry[] = [];
     const checkpoints = [...(await readWorkspaceCheckpoints(port, unreadable)).values()];
@@ -38,7 +38,7 @@ export async function collectDocuments(store: IDocumentStore, hold: (id: string)
     const unsaved: string[] = [];
     const held: string[] = [];
     for (const id of await port.list(DOCUMENTS_DIR)) {
-        if (!STORE_ID_PATTERN.test(id)) continue;
+        if (!STORE_ID_PATTERN.test(id)) {continue;}
         const release = await hold(id);
         if (!release) {
             held.push(id);
@@ -53,7 +53,7 @@ export async function collectDocuments(store: IDocumentStore, hold: (id: string)
                     return null;
                 })
                 : undefined;
-            if (manifest === null) continue;
+            if (manifest === null) {continue;}
             const unnamed = referencesKnown && !referenced.has(id);
             if (manifest && isDirty(manifest) && !(unnamed && isOpenOnlyManifest(manifest))) {
                 unsaved.push(id);

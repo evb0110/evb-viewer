@@ -188,7 +188,7 @@ async function openDiskDjvuDocument(djvuPath: string): Promise<IOpenDiskDjvuDoc>
     }
     while (openDocs.size >= MAX_CACHED_DOCS) {
         const oldestKey = openDocs.keys().next().value;
-        if (oldestKey === undefined) break;
+        if (oldestKey === undefined) {break;}
         const oldest = openDocs.get(oldestKey);
         openDocs.delete(oldestKey);
         oldest?.close();
@@ -321,9 +321,9 @@ async function openDiskDjvuDocument(djvuPath: string): Promise<IOpenDiskDjvuDoc>
         // Also index by file.id and file.name so DjVuDocument URLs match either form.
         for (let index = docInfo.files.length - 1; index >= 0; index -= 1) {
             const file = docInfo.files[index];
-            if (!file) continue;
-            if (file.id) componentIndexByName.set(file.id, index);
-            if (file.name && !componentIndexByName.has(file.name)) componentIndexByName.set(file.name, index);
+            if (!file) {continue;}
+            if (file.id) {componentIndexByName.set(file.id, index);}
+            if (file.name && !componentIndexByName.has(file.name)) {componentIndexByName.set(file.name, index);}
         }
 
         const entry: IOpenDiskDjvuDoc = {

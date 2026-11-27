@@ -64,7 +64,7 @@ describe('usePageShortcuts', () => {
     ])('routes $name', async ({key, code = `Key${key.toUpperCase()}`, command, renderer = true, hasPdf = true, enabled = true, capture = false, argument}) => {
         mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(renderer);
         const deps = createDeps();
-        if (!hasPdf) deps.pdfSrc.value = null;
+        if (!hasPdf) {deps.pdfSrc.value = null;}
         deps.canPrint.value = enabled;
         deps.canSave.value = enabled;
         await mountShortcuts(deps);
@@ -75,9 +75,9 @@ describe('usePageShortcuts', () => {
         }, capture ? getCapturedKeyDown() : getCapturedOnEventFired());
 
         expect(preventDefault.mock.calls.length > 0).toBe(renderer);
-        if (capture) expect(stopPropagation).toHaveBeenCalledTimes(Number(renderer));
+        if (capture) {expect(stopPropagation).toHaveBeenCalledTimes(Number(renderer));}
         expect(deps[command]).toHaveBeenCalledTimes(Number(renderer && enabled));
-        if (argument) expect(deps[command]).toHaveBeenCalledWith(argument);
+        if (argument) {expect(deps[command]).toHaveBeenCalledWith(argument);}
     });
 
     it('routes web Cmd/Ctrl+S to save while focus is inside editable annotation UI', async () => {

@@ -36,11 +36,11 @@ export interface IAssistantManifestModel {
  */
 export function describeManifestModel(driver: TAssistantDriver, ids: readonly string[]): IAssistantManifestModel | null {
     const provider = (manifest.providers as Record<string, IManifestProvider | undefined>)[PROVIDER_BY_DRIVER[driver]];
-    if (!provider) return null;
+    if (!provider) {return null;}
     const wanted = new Set(ids.map(id => id.trim().toLowerCase().replace(/\[[^\]]*\]$/u, '').replace(/-\d{8}$/u, '')).filter(Boolean));
     const model = provider.models.find(entry => wanted.has(entry.slug.toLowerCase()))
         ?? provider.models.find(entry => entry.aliases?.some(alias => wanted.has(alias.toLowerCase())));
-    if (!model) return null;
+    if (!model) {return null;}
     const effort = model.profile
         ? provider.profiles?.[model.profile]?.capabilities?.optionDescriptors?.find(descriptor => descriptor.id === 'effort')
         : undefined;

@@ -516,7 +516,7 @@ describe('pre-file-key chat upgrade compatibility', () => {
         for (const original of [
             placeholder,
             ...old,
-        ]) expect(preserved(persistence, original.bytes)).toBe(true);
+        ]) {expect(preserved(persistence, original.bytes)).toBe(true);}
         expect(readdirSync(persistence.sessionsDir)).toEqual([basename(persistence.sessionPath(currentKey))]);
         const restarted = createPersistence(persistence.rootDir, {maxArchives: 0});
         expect((await restarted.recoverSession(currentKey))?.session.messages).toEqual(loaded.messages);
@@ -548,7 +548,7 @@ describe('pre-file-key chat upgrade compatibility', () => {
         const recovered = await persistence.recoverSession(currentKey);
         expect(recovered?.session.messages.map(message => message.text)).toEqual(['newer']);
         expect(recovered?.session.providerThreadId).toBe('thread-newer');
-        for (const original of old) expect(preserved(persistence, original.bytes)).toBe(true);
+        for (const original of old) {expect(preserved(persistence, original.bytes)).toBe(true);}
     });
 
     it.each([
@@ -558,8 +558,8 @@ describe('pre-file-key chat upgrade compatibility', () => {
     ] as const)('does not revive history behind a canonical %s reset/corruption barrier', async (barrier) => {
         const persistence = createPersistence();
         const canonical = seed(persistence, currentKey, null, 99);
-        if (barrier === 'live') writeFileSync(canonical.path, '');
-        if (barrier === 'corrupt') writeFileSync(canonical.path, 'not a chat record\n');
+        if (barrier === 'live') {writeFileSync(canonical.path, '');}
+        if (barrier === 'corrupt') {writeFileSync(canonical.path, 'not a chat record\n');}
         if (barrier === 'archive') {
             renameSync(canonical.path, join(persistence.archiveDir, `${basename(canonical.path, '.jsonl')}.reset.1.abcd.jsonl`));
         }
@@ -656,7 +656,7 @@ describe('pre-file-key chat upgrade compatibility', () => {
                 parseRecord: value => JSON.parse(value) as typeof record,
             });
             await storage.writeBoundedSnapshot(original.path, record, original.key);
-        } else writeFileSync(original.path, `${JSON.stringify(record)}\n`);
+        } else {writeFileSync(original.path, `${JSON.stringify(record)}\n`);}
         const originalBytes = readFileSync(original.path, 'utf8');
         const loaded = (await persistence.recoverSession(currentKey))!.session;
         expect(loaded.messages).toEqual(original.session.messages);
@@ -718,7 +718,7 @@ describe('pre-file-key chat upgrade compatibility', () => {
             staleCanonical,
             alias,
             staleAlias,
-        ]) expect(preserved(persistence, original.bytes)).toBe(true);
+        ]) {expect(preserved(persistence, original.bytes)).toBe(true);}
         expect(readdirSync(persistence.sessionsDir)).toEqual([basename(canonical.path)]);
         expect((await createPersistence(persistence.rootDir).recoverSession(currentKey))?.session.providerThreadId).toBe('thread-canonical live');
     });

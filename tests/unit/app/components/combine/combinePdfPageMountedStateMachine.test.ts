@@ -98,7 +98,7 @@ const translate: TTranslateFn = (key, ...args) => {
             return EN_MESSAGES.errors.browser.documentTooLarge.replace('{limitMiB}', String(params.limitMiB));
         }
     }
-    if (key === 'errors.browser.notEnoughMemory') return EN_MESSAGES.errors.browser.notEnoughMemory;
+    if (key === 'errors.browser.notEnoughMemory') {return EN_MESSAGES.errors.browser.notEnoughMemory;}
     return key;
 };
 

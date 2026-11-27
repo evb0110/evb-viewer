@@ -363,8 +363,8 @@ describe('serialized PDF persistence', () => {
                     validatorRunning = false;
                     resolve(refused);
                 };
-                if (signal?.aborted) abort();
-                else signal?.addEventListener('abort', abort, {once: true});
+                if (signal?.aborted) {abort();}
+                else {signal?.addEventListener('abort', abort, {once: true});}
                 started();
             });
         });

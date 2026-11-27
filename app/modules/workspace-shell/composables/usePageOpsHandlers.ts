@@ -175,7 +175,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         reloadWorkingCopyIntoHistory: async (options) => {
             const job = await reloadWorkingCopyIntoHistory(options);
             const outcome = await job?.finished;
-            if (outcome?.status === 'failed') throw outcome.error;
+            if (outcome?.status === 'failed') {throw outcome.error;}
             return job !== null;
         },
         clearOcrCache,

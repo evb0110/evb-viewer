@@ -1,5 +1,5 @@
 function toBridgeSafeValue(value: unknown, depth: number): unknown {
-    if (depth > 32) throw new Error('scan-cleanup payload exceeds supported depth');
+    if (depth > 32) {throw new Error('scan-cleanup payload exceeds supported depth');}
     const raw: unknown = toRaw(value);
     if (raw === null || typeof raw !== 'object') {
         return raw;

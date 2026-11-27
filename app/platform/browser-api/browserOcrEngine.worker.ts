@@ -74,6 +74,6 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             error: getErrorMessage(error),
         });
     } finally {
-        if (!(request.payload.image instanceof Uint8Array)) request.payload.image.tiles.forEach(tile => tile.close());
+        if (!(request.payload.image instanceof Uint8Array)) {request.payload.image.tiles.forEach(tile => tile.close());}
     }
 });

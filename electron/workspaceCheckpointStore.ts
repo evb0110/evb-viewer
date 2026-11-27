@@ -85,34 +85,34 @@ function watchOwner(ownerId: string, owner: WebContents, record: ICheckpointOwne
     const stop = onSenderLifetimeEnd(owner, (end) => {
         const interrupted = record.restoreInFlight;
         record.restoreInFlight = undefined;
-        if (record.phase !== 'discarded') record.phase = 'live';
+        if (record.phase !== 'discarded') {record.phase = 'live';}
         if (end === 'render-process-gone' && interrupted) {
             void serialize(() => closeRestoreDocuments(ownerId, interrupted)).catch((error: unknown) => {
                 log.warn(`Could not close the documents of a restore that ended the renderer: ${getErrorMessage(error)}`);
             });
         }
-        if (end !== 'destroyed') return;
+        if (end !== 'destroyed') {return;}
         stop();
         record.webContents = undefined;
         const token = record.discardToken;
-        if (record.phase !== 'discarded') owners.delete(ownerId);
-        else void serialize(async () => {
-            if (owners.get(ownerId) === record && record.discardToken === token) owners.delete(ownerId);
-        });
+        if (record.phase !== 'discarded') {owners.delete(ownerId);}
+        else {void serialize(async () => {
+            if (owners.get(ownerId) === record && record.discardToken === token) {owners.delete(ownerId);}
+        });}
     }, {navigation: true});
 }
 
 function getOwner(senderId: number, owner?: WebContents, includeDestroyed = false) {
     // A closed window retires under the UUID its checkpoint was written with; never-registered destroyed windows have none.
     const ownerId = owner ? (ownerIdsByWebContents.get(owner) ?? (owner.isDestroyed() ? undefined : randomUUID())) : `webcontents-${senderId}`;
-    if (!ownerId) return {ownerId: undefined, record: undefined};
+    if (!ownerId) {return {ownerId: undefined, record: undefined};}
     let record = owners.get(ownerId);
     if (!record && (includeDestroyed || !owner || !owner.isDestroyed())) {
         const live = owner !== undefined && !owner.isDestroyed();
-        if (live) ownerIdsByWebContents.set(owner, ownerId);
+        if (live) {ownerIdsByWebContents.set(owner, ownerId);}
         record = {phase: 'live', ...(live ? {webContents: owner} : {})};
         owners.set(ownerId, record);
-        if (live) watchOwner(ownerId, owner, record);
+        if (live) {watchOwner(ownerId, owner, record);}
     }
     return {ownerId, record};
 }
@@ -147,12 +147,12 @@ async function writeOwnerCheckpoint(ownerId: string, senderId: number | undefine
     }
     await writeWorkspaceCheckpoint(port(), ownerId, {...stored, tabs});
     const record = owners.get(ownerId);
-    if (record) record.namedDirectories = named;
+    if (record) {record.namedDirectories = named;}
 }
 
 async function removeOwnerCheckpoint(ownerId: string) {
     const record = owners.get(ownerId);
-    if (record) record.namedDirectories = undefined;
+    if (record) {record.namedDirectories = undefined;}
     await removeWorkspaceCheckpoint(port(), ownerId);
 }
 
@@ -160,11 +160,11 @@ async function removeOwnerCheckpoint(ownerId: string) {
 function nameEditedDirectory(entry: IOpenDocument) {
     editedDocuments.add(entry.doc);
     const {ownerWebContentsId: senderId} = entry;
-    if (senderId === undefined) return Promise.resolve();
+    if (senderId === undefined) {return Promise.resolve();}
     const {ownerId, record} = getOwner(senderId, webContents.fromId(senderId) ?? undefined);
-    if (!ownerId || record?.namedDirectories?.has(entry.doc.id)) return Promise.resolve();
+    if (!ownerId || record?.namedDirectories?.has(entry.doc.id)) {return Promise.resolve();}
     return serialize(async () => {
-        if (owners.get(ownerId)?.phase === 'discarded') return;
+        if (owners.get(ownerId)?.phase === 'discarded') {return;}
         const own = (await readRawCheckpoints()).get(ownerId);
         await writeOwnerCheckpoint(ownerId, senderId, own ?? {tabs: {}, layout: null});
     });
@@ -175,7 +175,7 @@ setDocumentDirectoryNaming(nameEditedDirectory);
 async function holdsUnsavedWork(directory: string, expectedSourceRef?: string | null) {
     try {
         const manifest = decodeManifest(await port().read(`${DOCUMENTS_DIR}/${directory}/${MANIFEST_NAME}`));
-        if (isDirty(manifest)) return true;
+        if (isDirty(manifest)) {return true;}
         return expectedSourceRef != null && manifest.destination !== undefined && manifest.destination !== expectedSourceRef;
     } catch (error) {
         return !(isErrnoException(error) && error.code === 'ENOENT');
@@ -185,7 +185,7 @@ async function holdsUnsavedWork(directory: string, expectedSourceRef?: string | 
 async function unsavedTabIds(stored: IStoredCheckpoint) {
     const unsaved = new Set<string>();
     for (const [tabId, {directory}] of Object.entries(stored.tabs)) {
-        if (await holdsUnsavedWork(directory)) unsaved.add(tabId);
+        if (await holdsUnsavedWork(directory)) {unsaved.add(tabId);}
     }
     return unsaved;
 }
@@ -202,24 +202,24 @@ function isAdmittedOpenPath(sourceRef: TDocumentRef, owner: number | WebContents
 /** Stores this window's tabs, panes and views and the directory each tab shows; resolves once durable. */
 export function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, senderId: number, owner?: WebContents) {
     const {ownerId} = getOwner(senderId, owner);
-    if (!ownerId) return Promise.resolve(false);
+    if (!ownerId) {return Promise.resolve(false);}
     const admissionOwner = owner ?? senderId;
     // Capture source admission synchronously at IPC entry before a reload navigation clears open-path grants.
     const admittedOpenPath = new Map<TDocumentRef, boolean>();
     const admittedAtEntry = checkpoint.tabs.map((tab) => {
-        if (!tab.sourceRef) return false;
-        if (tab.sourceRef === ownedDocument(tab.workingCopyRef, senderId)?.originalPath) return true;
-        if (!admittedOpenPath.has(tab.sourceRef)) admittedOpenPath.set(tab.sourceRef, isAdmittedOpenPath(tab.sourceRef, admissionOwner));
+        if (!tab.sourceRef) {return false;}
+        if (tab.sourceRef === ownedDocument(tab.workingCopyRef, senderId)?.originalPath) {return true;}
+        if (!admittedOpenPath.has(tab.sourceRef)) {admittedOpenPath.set(tab.sourceRef, isAdmittedOpenPath(tab.sourceRef, admissionOwner));}
         return admittedOpenPath.get(tab.sourceRef)!;
     });
     return serialize(async () => {
-        if (owners.get(ownerId)?.phase === 'discarded') return false;
+        if (owners.get(ownerId)?.phase === 'discarded') {return false;}
         const directories = new Map<string, string>();
         const tabs: IWorkspaceCheckpointTab[] = [];
         for (const [index, tab] of checkpoint.tabs.entries()) {
             const entry = ownedDocument(tab.workingCopyRef, senderId);
-            if (tab.workingCopyRef && !entry) throw new Error('Workspace checkpoint contains an unowned working copy');
-            if (entry) directories.set(tab.tabId, entry.doc.id);
+            if (tab.workingCopyRef && !entry) {throw new Error('Workspace checkpoint contains an unowned working copy');}
+            if (entry) {directories.set(tab.tabId, entry.doc.id);}
             const sourceRef = tab.sourceRef && (
                 admittedAtEntry[index] || tab.sourceRef === entry?.originalPath || isAdmittedOpenPath(tab.sourceRef, admissionOwner)
             ) ? tab.sourceRef : null;
@@ -228,7 +228,7 @@ export function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, sender
                 ? blankTab(tab.tabId, tab.paneId)
                 : {...tab, sourceRef});
             // A generated output a tab shows must outlive the scratch sweep until the tab is gone.
-            if (sourceRef) void touchScanCleanupGeneratedOutput(sourceRef).catch(() => undefined);
+            if (sourceRef) {void touchScanCleanupGeneratedOutput(sourceRef).catch(() => undefined);}
         }
         await writeOwnerCheckpoint(ownerId, senderId, encodeStored({...checkpoint, tabs}, directories));
         return true;
@@ -238,18 +238,18 @@ export function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, sender
 /** Commits a document's drafts for their revision, or clears them without a payload; false for an outdated revision. */
 export async function setWorkspaceDocumentDrafts(drafts: IWorkspaceCheckpointAnnotationRecovery, senderId: number) {
     const entry = ownedDocument(drafts.workingCopyRef, senderId);
-    if (!entry) throw new Error('Drafts of an unowned working copy');
+    if (!entry) {throw new Error('Drafts of an unowned working copy');}
     // A damaged document's directory waits for a start that reads it.
-    if (entry.doc.damaged) return true;
+    if (entry.doc.damaged) {return true;}
     const storedDrafts = entry.doc.state().drafts;
     // Unrecognized persisted drafts stay on disk untouched: refuse clears and overwrites so commitDrafts blocks destructive edits.
     if (storedDrafts !== undefined && !decodeWorkspaceAnnotationRecovery(isRecord(storedDrafts) ? storedDrafts.annotationRecovery : undefined).success) {
         return false;
     }
-    if (drafts.payload === undefined && storedDrafts === undefined) return true;
-    if (drafts.payload !== undefined) await nameEditedDirectory(entry);
+    if (drafts.payload === undefined && storedDrafts === undefined) {return true;}
+    if (drafts.payload !== undefined) {await nameEditedDirectory(entry);}
     const status = await setOpenDocumentDrafts(entry, drafts.workingByteRevision, drafts.payload === undefined ? undefined : {annotationRecovery: drafts});
-    if (status === 'conflict') throw new Error('Drafts were not stored');
+    if (status === 'conflict') {throw new Error('Drafts were not stored');}
     return status === 'stored';
 }
 
@@ -258,8 +258,8 @@ export const flushPendingWorkspaceCheckpointSave = () => serialize(() => Promise
 
 function isClaimable(ownerId: string, claimantId: string, allowSelfClaim?: boolean) {
     const record = owners.get(ownerId);
-    if (record?.phase === 'discarded') return false;
-    if (ownerId === claimantId) return allowSelfClaim ?? (record?.phase !== 'claimed' && record?.phase !== 'restoring');
+    if (record?.phase === 'discarded') {return false;}
+    if (ownerId === claimantId) {return allowSelfClaim ?? (record?.phase !== 'claimed' && record?.phase !== 'restoring');}
     return !record?.webContents || record.webContents.isDestroyed();
 }
 
@@ -268,7 +268,7 @@ async function unshownUnsavedDirectories(checkpoints: ReadonlyMap<string, IStore
     for (const stored of checkpoints.values()) {
         for (const tab of decodeStored(stored)?.tabs ?? []) {
             const directory = stored?.tabs[tab.tabId]?.directory;
-            if (directory) shown.add(directory);
+            if (directory) {shown.add(directory);}
         }
     }
     return (await unheldUnsavedDocuments()).filter(directory => !shown.has(directory));
@@ -277,11 +277,11 @@ async function unshownUnsavedDirectories(checkpoints: ReadonlyMap<string, IStore
 async function unshownTab(directory: string, paneId: IWorkspaceCheckpointTab['paneId']): Promise<IWorkspaceCheckpointTab | null> {
     const path = `${DOCUMENTS_DIR}/${directory}/${MANIFEST_NAME}`;
     const manifest = await port().read(path).then(decodeManifest).catch((error: unknown) => {
-        if (isErrnoException(error) && error.code === 'ENOENT') return null;
+        if (isErrnoException(error) && error.code === 'ENOENT') {return null;}
         log.warn(`Unsaved work no workspace shows cannot be read: ${path}: ${getErrorMessage(error)}`);
         return undefined;
     });
-    if (manifest === null || (manifest && manifest.ext !== 'pdf')) return null;
+    if (manifest === null || (manifest && manifest.ext !== 'pdf')) {return null;}
     const destination = manifest?.destination;
     return {
         ...blankTab(createTabId(), paneId),
@@ -295,7 +295,7 @@ async function unshownTab(directory: string, paneId: IWorkspaceCheckpointTab['pa
 export function hasRecoverableWorkspaceCheckpoints(senderId: number, owner?: WebContents) {
     const {ownerId: claimantId, record: claimant} = getOwner(senderId, owner);
     return serialize(async () => {
-        if (!claimantId || !isActiveOwner(claimantId, claimant)) return false;
+        if (!claimantId || !isActiveOwner(claimantId, claimant)) {return false;}
         const checkpoints = await readRawCheckpoints();
         return [...checkpoints].some(([ownerId, stored]) => decodeStored(stored) !== null && isClaimable(ownerId, claimantId))
             || (await unshownUnsavedDirectories(checkpoints)).length > 0;
@@ -304,7 +304,7 @@ export function hasRecoverableWorkspaceCheckpoints(senderId: number, owner?: Web
 
 async function releaseDocument(ref: string) {
     const entry = openDocuments.get(ref);
-    if (!entry) return;
+    if (!entry) {return;}
     openDocuments.delete(ref);
     await entry.doc.close();
 }
@@ -316,10 +316,10 @@ async function releaseDocument(ref: string) {
 export function claimWorkspaceCheckpoint(senderId: number, owner?: WebContents) {
     const {ownerId: claimantId, record: claimant} = getOwner(senderId, owner);
     return serialize(async () => {
-        if (!claimantId || !isActiveOwner(claimantId, claimant)) return null;
+        if (!claimantId || !isActiveOwner(claimantId, claimant)) {return null;}
         const previousPhase = claimant.phase;
         const canSelfClaim = previousPhase === 'live';
-        if (canSelfClaim) claimant.phase = 'restoring';
+        if (canSelfClaim) {claimant.phase = 'restoring';}
         let settled = false;
         let wroteClaimant = false;
         let newest: {ownerId: string; stored: IStoredCheckpoint; checkpoint: IWorkspaceCheckpoint} | null = null;
@@ -328,18 +328,18 @@ export function claimWorkspaceCheckpoint(senderId: number, owner?: WebContents) 
         const touchedRefs = new Set<string>();
         const removedOwners: Array<readonly [string, IStoredCheckpoint]> = [];
         const abort = async () => {
-            for (const [id, candidate] of removedOwners) await writeWorkspaceCheckpoint(port(), id, candidate).catch(() => undefined);
+            for (const [id, candidate] of removedOwners) {await writeWorkspaceCheckpoint(port(), id, candidate).catch(() => undefined);}
             if (wroteClaimant && newest?.ownerId !== claimantId) {
                 claimant.namedDirectories = undefined;
                 await (priorClaimant ? writeWorkspaceCheckpoint(port(), claimantId, priorClaimant) : removeOwnerCheckpoint(claimantId)).catch(() => undefined);
             }
             for (const ref of touchedRefs) {
                 const entry = openDocuments.get(ref);
-                if (!entry) continue;
+                if (!entry) {continue;}
                 const prior = priorOwners.get(ref);
-                if (!priorOwners.has(ref)) await releaseDocument(ref);
-                else if (prior === undefined) delete entry.ownerWebContentsId;
-                else entry.ownerWebContentsId = prior;
+                if (!priorOwners.has(ref)) {await releaseDocument(ref);}
+                else if (prior === undefined) {delete entry.ownerWebContentsId;}
+                else {entry.ownerWebContentsId = prior;}
             }
             return null;
         };
@@ -348,10 +348,10 @@ export function claimWorkspaceCheckpoint(senderId: number, owner?: WebContents) 
             priorClaimant = checkpoints.get(claimantId) ?? null;
             for (const [ownerId, stored] of checkpoints) {
                 const checkpoint = decodeStored(stored);
-                if (stored && checkpoint && isClaimable(ownerId, claimantId, canSelfClaim) && (!newest || checkpoint.capturedAt > newest.checkpoint.capturedAt)) newest = {ownerId, stored, checkpoint};
+                if (stored && checkpoint && isClaimable(ownerId, claimantId, canSelfClaim) && (!newest || checkpoint.capturedAt > newest.checkpoint.capturedAt)) {newest = {ownerId, stored, checkpoint};}
             }
             const unshown = await unshownUnsavedDirectories(checkpoints);
-            if ((!newest && unshown.length === 0) || !isActiveOwner(claimantId, claimant)) return null;
+            if ((!newest && unshown.length === 0) || !isActiveOwner(claimantId, claimant)) {return null;}
             const paneId = createPaneId();
             const workspace: IWorkspaceCheckpoint = newest?.checkpoint ?? {
                 version: 1, capturedAt: createEpochMs(), activePaneId: paneId, activeTabId: null,
@@ -362,34 +362,34 @@ export function claimWorkspaceCheckpoint(senderId: number, owner?: WebContents) 
             const offered: IWorkspaceCheckpointTab[] = [];
             for (const directory of unshown) {
                 const tab = await unshownTab(directory, target);
-                if (tab) offered.push(tab);
+                if (tab) {offered.push(tab);}
                 stored.tabs[tab?.tabId ?? directory] = {directory, view: null};
             }
-            if (!isActiveOwner(claimantId, claimant)) return null;
+            if (!isActiveOwner(claimantId, claimant)) {return null;}
             const results = await Promise.allSettled([...workspace.tabs, ...offered].map(tab => claimTab(tab, stored, senderId, touchedRefs)));
             const reopened: IWorkspaceCheckpointTab[] = [];
             for (const result of results) {
-                if (result.status === 'rejected') throw result.reason;
+                if (result.status === 'rejected') {throw result.reason;}
                 reopened.push(result.value);
             }
-            if (!isActiveOwner(claimantId, claimant)) return abort();
+            if (!isActiveOwner(claimantId, claimant)) {return abort();}
             const added = reopened.slice(workspace.tabs.length).filter(tab => tab.workingCopyRef !== null || tab.workingCopyLost);
             const tabs = [...reopened.slice(0, workspace.tabs.length), ...added];
             for (const {workingCopyRef} of tabs) {
                 const entry = ownedDocument(workingCopyRef, senderId);
-                if (entry) editedDocuments.add(entry.doc);
+                if (entry) {editedDocuments.add(entry.doc);}
             }
             await writeOwnerCheckpoint(claimantId, senderId, stored);
             wroteClaimant = true;
             for (const [ownerId, candidate] of checkpoints) {
-                if (!isActiveOwner(claimantId, claimant)) return abort();
+                if (!isActiveOwner(claimantId, claimant)) {return abort();}
                 const taken = ownerId === newest?.ownerId || (candidate !== null && decodeStored(candidate) === null);
                 if (taken && ownerId !== claimantId && isClaimable(ownerId, claimantId)) {
                     await removeOwnerCheckpoint(ownerId);
-                    if (candidate) removedOwners.push([ownerId, candidate]);
+                    if (candidate) {removedOwners.push([ownerId, candidate]);}
                 }
             }
-            if (!isActiveOwner(claimantId, claimant)) return abort();
+            if (!isActiveOwner(claimantId, claimant)) {return abort();}
             const firstAdded = added[0]?.tabId ?? null;
             const claimed: IWorkspaceCheckpoint = {
                 ...workspace,
@@ -409,7 +409,7 @@ export function claimWorkspaceCheckpoint(senderId: number, owner?: WebContents) 
             await abort();
             throw error;
         } finally {
-            if (!settled && canSelfClaim && claimant.phase === 'restoring') claimant.phase = 'live';
+            if (!settled && canSelfClaim && claimant.phase === 'restoring') {claimant.phase = 'live';}
         }
     });
 }
@@ -422,7 +422,7 @@ async function claimTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint,
 
 async function reopenTab(tab: IWorkspaceCheckpointTab, stored: IStoredCheckpoint, senderId: number, touchedRefs: Set<string>): Promise<IWorkspaceCheckpointTab> {
     const directory = stored.tabs[tab.tabId]?.directory;
-    if (!directory || !await holdsUnsavedWork(directory, tab.sourceRef)) return tab;
+    if (!directory || !await holdsUnsavedWork(directory, tab.sourceRef)) {return tab;}
     const {annotationRecovery: _stale, annotationRecoveryInvalid: _staleInvalid, ...rest} = tab;
     try {
         const entry = await reopenStoredDocument(directory, {ownerWebContentsId: senderId, ...(tab.sourceRef ? {originalPath: tab.sourceRef} : {})});
@@ -474,21 +474,21 @@ function getRestoreOpenedDocuments(checkpoint: IWorkspaceCheckpoint) {
 }
 
 async function closeRestoreDocuments(ownerId: string, documents: IRestoreInFlight) {
-    if (owners.get(ownerId)?.phase === 'discarded') return;
+    if (owners.get(ownerId)?.phase === 'discarded') {return;}
     const own = await readOwnerCheckpoint(ownerId);
-    if (!own) return;
+    if (!own) {return;}
     const unsaved = await unsavedTabIds(own.stored);
     const notReopened = [...own.checkpoint.notReopened ?? []];
     let closedTabCount = 0;
     const tabs = own.checkpoint.tabs.map((tab) => {
-        if (unsaved.has(tab.tabId) || !(documents.tabIds.has(tab.tabId) || (tab.sourceRef !== null && documents.sourceRefs.has(tab.sourceRef)))) return tab;
+        if (unsaved.has(tab.tabId) || !(documents.tabIds.has(tab.tabId) || (tab.sourceRef !== null && documents.sourceRefs.has(tab.sourceRef)))) {return tab;}
         closedTabCount += 1;
         if (!notReopened.some(doc => doc.sourceRef === tab.sourceRef && doc.fileName === tab.fileName)) {
             notReopened.push({fileName: tab.fileName, sourceRef: tab.sourceRef});
         }
         return blankTab(tab.tabId, tab.paneId);
     });
-    if (closedTabCount === 0) return;
+    if (closedTabCount === 0) {return;}
     log.warn(`Renderer ended while restoring; ${String(closedTabCount)} document tab(s) will not reopen`);
     const directories = new Map(Object.entries(own.stored.tabs)
         .filter(([tabId]) => tabs.some(tab => tab.tabId === tabId && tab.workingCopyRef !== null))
@@ -500,11 +500,11 @@ async function closeRestoreDocuments(ownerId: string, documents: IRestoreInFligh
 export function acknowledgeWorkspaceCheckpoint(senderId: number, owner?: WebContents) {
     const {ownerId, record} = getOwner(senderId, owner);
     return serialize(async () => {
-        if (!ownerId || !record || (record.phase !== 'restoring' && record.phase !== 'claimed')) throw new Error('Workspace checkpoint acknowledgement is not owned by this renderer');
+        if (!ownerId || !record || (record.phase !== 'restoring' && record.phase !== 'claimed')) {throw new Error('Workspace checkpoint acknowledgement is not owned by this renderer');}
         record.phase = 'claimed';
         record.restoreInFlight = undefined;
         const own = await readOwnerCheckpoint(ownerId);
-        if (own && (await unsavedTabIds(own.stored)).size === 0) await removeOwnerCheckpoint(ownerId);
+        if (own && (await unsavedTabIds(own.stored)).size === 0) {await removeOwnerCheckpoint(ownerId);}
         return own !== null;
     });
 }
@@ -512,12 +512,12 @@ export function acknowledgeWorkspaceCheckpoint(senderId: number, owner?: WebCont
 /** Clears checkpoints on normal quit. */
 export function clearWorkspaceCheckpoint() {
     return serialize(async () => {
-        for (const ownerId of (await readRawCheckpoints()).keys()) await removeOwnerCheckpoint(ownerId);
+        for (const ownerId of (await readRawCheckpoints()).keys()) {await removeOwnerCheckpoint(ownerId);}
         for (const [ownerId, record] of [...owners]) {
             record.restoreInFlight = undefined;
             record.namedDirectories = undefined;
-            if (record.phase !== 'discarded') record.phase = 'live';
-            if (record.webContents?.isDestroyed()) owners.delete(ownerId);
+            if (record.phase !== 'discarded') {record.phase = 'live';}
+            if (record.webContents?.isDestroyed()) {owners.delete(ownerId);}
         }
     });
 }
@@ -526,7 +526,7 @@ export function clearWorkspaceCheckpoint() {
 export async function discardWorkspaceCheckpoint(senderId: number, owner?: WebContents) {
     const token = String(nextDiscardToken++);
     const {ownerId, record} = getOwner(senderId, owner, true);
-    if (!ownerId || !record) return token;
+    if (!ownerId || !record) {return token;}
     const previousPhase = record.phase === 'restoring' ? (record.restoreInFlight ? 'claimed' : 'live') : record.phase;
     const previousToken = record.discardToken;
     record.phase = 'discarded';
@@ -542,14 +542,14 @@ export async function discardWorkspaceCheckpoint(senderId: number, owner?: WebCo
         throw error;
     } finally {
         if (owner !== undefined && (!record.webContents || record.webContents.isDestroyed())
-            && owners.get(ownerId) === record && (record.discardToken === token || record.phase !== 'discarded')) owners.delete(ownerId);
+            && owners.get(ownerId) === record && (record.discardToken === token || record.phase !== 'discarded')) {owners.delete(ownerId);}
     }
     return token;
 }
 
 export function resumeWorkspaceCheckpoint(senderId: number, discardToken: string, owner?: WebContents) {
     const {record} = getOwner(senderId, owner);
-    if (!record || record.phase !== 'discarded' || record.discardToken !== discardToken) throw new Error('Workspace checkpoint discard token is stale or invalid');
+    if (!record || record.phase !== 'discarded' || record.discardToken !== discardToken) {throw new Error('Workspace checkpoint discard token is stale or invalid');}
     record.phase = 'live';
     record.discardToken = undefined;
 }

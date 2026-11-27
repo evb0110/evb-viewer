@@ -257,8 +257,8 @@ it.each(['reject', 'false'])('#1608 reports a failed status-bar show-in-folder a
         messages.push([notice.title, notice.description].filter(Boolean).join(' '));
     }}));
     vi.stubGlobal('useTypedI18n', () => ({locale: ref('en'), t: (key: string) => key}));
-    if (outcome === 'false') showItemInFolderMock.mockResolvedValueOnce(false);
-    else showItemInFolderMock.mockRejectedValueOnce(new Error('File manager unavailable'));
+    if (outcome === 'false') {showItemInFolderMock.mockResolvedValueOnce(false);}
+    else {showItemInFolderMock.mockRejectedValueOnce(new Error('File manager unavailable'));}
     try {
         await usePageStatusBar(createDeps({originalPath: documentPathRef('/docs/a.pdf')})).handleStatusShowInFolderClick();
         expect(messages.join(' ')).toMatch(/folder|reveal/i);

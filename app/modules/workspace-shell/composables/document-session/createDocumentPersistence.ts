@@ -131,7 +131,7 @@ export function createDocumentPersistence(
         // instead, so a 2+ GiB working copy never crosses into renderer memory.
         const hasNativePathSource = hasNativePathBackedSource(state, path);
         let adoption: IPdfPersistResult['adoption'];
-        if (!hasNativePathSource && !await deps.refreshDocumentRevisionToken(path, () => state.isActiveWorkingCopy(path))) return false;
+        if (!hasNativePathSource && !await deps.refreshDocumentRevisionToken(path, () => state.isActiveWorkingCopy(path))) {return false;}
         if (hasNativePathSource && !opts?.preserveLoadedSource) {
             const job = await adoptStablePathBackedPersistedState({
                 state,
@@ -312,7 +312,7 @@ export function createDocumentPersistence(
             mustSaveCopy = await deps.shouldForceSaveAsForWorkingCopy(saveMode, workingPath);
         } catch (error) {
             const reason = readOriginalFailureReason(error);
-            if (!reason) throw error;
+            if (!reason) {throw error;}
             return createFailedPersistResult(saveMode, false, refusedPersistFailure('persist', 'save-restrictions', reason, {
                 message: getErrorMessage(error),
                 cause: error,
@@ -949,7 +949,7 @@ export function createDocumentPersistence(
                             await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(savedPath);
                         try {
                             data ??= (await deps.readPdfStateFromPath(nextWorkingPath)).pdfData ?? undefined;
-                            if (!state.isActiveWorkingCopy(previousWorkingPath)) return createStalePersistResult(requestedSaveMode, true);
+                            if (!state.isActiveWorkingCopy(previousWorkingPath)) {return createStalePersistResult(requestedSaveMode, true);}
                             state.workingCopyPath.value = nextWorkingPath;
                         } finally {
                             if (!state.isActiveWorkingCopy(nextWorkingPath)) {

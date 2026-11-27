@@ -653,7 +653,7 @@ describe('registerDjvuIpcAdapter', () => {
             ]) {
                 viewing.adoptDjvuViewingPath(context as never, sibling, null);
                 viewing.adoptDjvuViewingPath(context as never, requested, null);
-                if (removed) rmSync(requested);
+                if (removed) {rmSync(requested);}
                 await getHandler('djvu:releaseViewingPath')(event, requested);
                 expect(viewing.isAllowedDjvuViewingPath(requested, 102)).toBe(false);
                 expect(viewing.isAllowedDjvuViewingPath(sibling, 102)).toBe(true);

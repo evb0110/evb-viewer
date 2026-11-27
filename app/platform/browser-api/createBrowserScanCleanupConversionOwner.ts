@@ -69,7 +69,7 @@ export function createBrowserScanCleanupConversionOwner(
 ) {
     const listeners = new Set<TJobListener>();
     const announce: TJobListener = event => {
-        for (const listener of [...listeners]) listener(event);
+        for (const listener of [...listeners]) {listener(event);}
     };
     const sourceByJob = new Map<string, {
         ref: string;
@@ -181,7 +181,7 @@ export function createBrowserScanCleanupConversionOwner(
                 onProgress: progress => publish('running', progress),
             }).catch((error: unknown) => {
                 // A retry inspects the source again under the engine now loaded.
-                if (error instanceof BrowserScanCleanupEngineChangedError) borrow.retire();
+                if (error instanceof BrowserScanCleanupEngineChangedError) {borrow.retire();}
                 throw error;
             });
             signal.throwIfAborted();
@@ -276,7 +276,7 @@ export function createBrowserScanCleanupConversionOwner(
         },
         cancel(jobId: string, owner: IScanCleanupOwnerContext) {
             const state = owned(jobId, owner);
-            if (state === null || !isLiveStatus(state.status)) return Promise.resolve(false);
+            if (state === null || !isLiveStatus(state.status)) {return Promise.resolve(false);}
             return Promise.resolve(jobs.cancel(jobId, owner, 'Scan cleanup canceled') === 'canceled');
         },
         getJobState(jobId: string, owner: IScanCleanupOwnerContext) {
@@ -288,7 +288,7 @@ export function createBrowserScanCleanupConversionOwner(
                 jobId,
                 job,
             ] of sourceByJob) {
-                if (job.ref === ref) jobs.cancel(jobId, job.owner, 'Scan cleanup source closed');
+                if (job.ref === ref) {jobs.cancel(jobId, job.owner, 'Scan cleanup source closed');}
             }
         },
     };

@@ -95,11 +95,11 @@ function parseVisibilitySessionArgs(args: readonly string[]): {
     for (let i = 1; i + 1 < args.length; i += 1) {
         if (args[i] === '--session-id') {
             const parsed = Number(args[i + 1]);
-            if (Number.isSafeInteger(parsed) && parsed > 0) visibilitySessionId = parsed;
+            if (Number.isSafeInteger(parsed) && parsed > 0) {visibilitySessionId = parsed;}
             i += 1;
         } else if (args[i] === '--close-session') {
             const parsed = Number(args[i + 1]);
-            if (Number.isSafeInteger(parsed) && parsed > 0) closeVisibilitySessionId = parsed;
+            if (Number.isSafeInteger(parsed) && parsed > 0) {closeVisibilitySessionId = parsed;}
             i += 1;
         }
     }
@@ -212,7 +212,7 @@ function createPageOpsWorkerPool() {
     let nextRequestId = 0;
 
     function trackPendingGroupProof(cancelGroup: string | undefined, proof: Promise<boolean>) {
-        if (!cancelGroup) return;
+        if (!cancelGroup) {return;}
         let proofs = pendingGroupProofs.get(cancelGroup);
         if (!proofs) {
             proofs = new Set();
@@ -221,7 +221,7 @@ function createPageOpsWorkerPool() {
         proofs.add(proof);
         void proof.finally(() => {
             const current = pendingGroupProofs.get(cancelGroup);
-            if (!current) return;
+            if (!current) {return;}
             current.delete(proof);
             if (current.size === 0) {
                 pendingGroupProofs.delete(cancelGroup);
@@ -230,7 +230,7 @@ function createPageOpsWorkerPool() {
     }
 
     function registerCancel(cancelGroup: string | undefined, handler: () => Promise<boolean>) {
-        if (!cancelGroup) return;
+        if (!cancelGroup) {return;}
         let handlers = activeCancelHandlers.get(cancelGroup);
         if (!handlers) {
             handlers = new Set();
@@ -240,9 +240,9 @@ function createPageOpsWorkerPool() {
     }
 
     function unregisterCancel(cancelGroup: string | undefined, handler: () => Promise<boolean>) {
-        if (!cancelGroup) return;
+        if (!cancelGroup) {return;}
         const handlers = activeCancelHandlers.get(cancelGroup);
-        if (!handlers) return;
+        if (!handlers) {return;}
         handlers.delete(handler);
         if (handlers.size === 0) {
             activeCancelHandlers.delete(cancelGroup);
@@ -486,7 +486,7 @@ function createPageOpsWorkerPool() {
         };
 
         const finishSuccess = (data: IProcessResult) => {
-            if (settled) return;
+            if (settled) {return;}
             settled = true;
             cleanup();
             if (task.closeVisibilitySessionId !== undefined) {

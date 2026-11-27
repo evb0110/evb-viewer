@@ -193,7 +193,7 @@ export const usePdfOutlineDragDrop = (
     function canDropBookmarks(draggedRootIds: string[], targetId: string) {
         const dragged = new Set(draggedRootIds);
         for (let cursor: string | null = targetId; cursor; cursor = parentBookmarkIdMap.value.get(cursor) ?? null) {
-            if (dragged.has(cursor)) return false;
+            if (dragged.has(cursor)) {return false;}
         }
         return true;
     }

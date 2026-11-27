@@ -246,7 +246,7 @@ describe('DjVu conversion scratch', () => {
             for (const name of names) {
                 const inputRoot = join(suiteRoot, indirect ? 'components' : 'bundled');
                 mkdirSync(inputRoot, {recursive: true});
-                if (indirect) cpSync(resolve('tests/fixtures/djvu/sources/indirect'), inputRoot, {recursive: true});
+                if (indirect) {cpSync(resolve('tests/fixtures/djvu/sources/indirect'), inputRoot, {recursive: true});}
                 const inputPath = join(inputRoot, `${name}.djvu`);
                 copyFileSync(indirect ? join(inputRoot, 'index.djvu') : resolve('tests/fixtures/djvu/sources/searchable-mixed-dpi.djvu'), inputPath);
                 const hashBefore = createHash('sha256').update(readFileSync(inputPath)).digest('hex');

@@ -200,7 +200,7 @@ const selectedImage: IPlacedImageEntity = {
 
 function changeNumber(host: HTMLElement, label: string, value: string) {
     const input = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
-    if (!input) throw new Error(`Missing selected property ${label}`);
+    if (!input) {throw new Error(`Missing selected property ${label}`);}
     input.value = value;
     input.dispatchEvent(new Event('change', {bubbles: true}));
 }

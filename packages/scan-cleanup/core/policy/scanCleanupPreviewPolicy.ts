@@ -265,7 +265,7 @@ function resolveDetailRenderDpi(
     ] as const) {
         const viewport = viewports[half];
         const metadata = outputs[half];
-        if (!viewport || !metadata) continue;
+        if (!viewport || !metadata) {continue;}
         const visiblePixelsAtPreviewDpi = Math.max(
             1,
             metadata.outputWidthPx
@@ -327,11 +327,11 @@ function resolveDetailSourceCrop(
     if (mapping) {
         for (let column = 1; column < mapping.columns - 1; column += 1) {
             const x = mapping.outputWidth * column / (mapping.columns - 1);
-            if (x > baseLeft && x < baseRight) xSamples.push(x);
+            if (x > baseLeft && x < baseRight) {xSamples.push(x);}
         }
         for (let row = 1; row < mapping.rows - 1; row += 1) {
             const y = mapping.outputHeight * row / (mapping.rows - 1);
-            if (y > baseTop && y < baseBottom) ySamples.push(y);
+            if (y > baseTop && y < baseBottom) {ySamples.push(y);}
         }
     }
     const points = xSamples.flatMap(x => ySamples.map(y => mapBaseOutputToRawSource(metadata, {
@@ -456,7 +456,7 @@ export function planScanCleanupDetailPreview(input: {
     ] as const) {
         const viewport = request.detail.viewports[half];
         const baseMetadata = input.baseOutputs[half];
-        if (!viewport || !baseMetadata) continue;
+        if (!viewport || !baseMetadata) {continue;}
         if (viewport.rotationDegrees !== pageOverride.rotationDegrees) {
             throw new Error('Scan cleanup detail viewport rotation is stale');
         }

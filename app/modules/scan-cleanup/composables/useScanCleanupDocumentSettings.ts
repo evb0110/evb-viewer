@@ -138,7 +138,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         const reset = patch.resetOverrides ? overridesReset = cloneScanCleanupPreferenceValue(patch) : null;
         const write = reset ? saveScanCleanupDocumentPreferencesInStore : scheduleScanCleanupDocumentPreferencesInStore;
         void write(documentSha256, documentKey, patch).then(() => {
-            if (!reset || overridesReset !== reset || generation !== documentLoadGeneration || !lastStored) return;
+            if (!reset || overridesReset !== reset || generation !== documentLoadGeneration || !lastStored) {return;}
             lastStored.overrides = reset.overrides ?? {};
             lastStored.pageOverrideDefaults = createScanCleanupPageOverride(reset.pageOverrideDefaults ?? {});
             overridesReset = null;
@@ -271,12 +271,12 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         for (const page of editedPages) {
             const current = after.overrides[page];
             const previous = before.overrides[page];
-            if (current === undefined) overrideIntents.set(page, null);
+            if (current === undefined) {overrideIntents.set(page, null);}
             else {
                 const intent = overrideIntents.get(page) ?? {};
                 recordEditedFields(intent, current, previous ?? createScanCleanupPageOverride());
                 // A page given its own entry is an edit even at default values.
-                if (Object.keys(intent).length > 0 || previous === undefined) overrideIntents.set(page, intent);
+                if (Object.keys(intent).length > 0 || previous === undefined) {overrideIntents.set(page, intent);}
             }
         }
         if (editedPages.length > 0) {
@@ -295,11 +295,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             'marginsMm',
             'outputMode',
         ] as const) {
-            if (isEqual(after[field], before[field])) continue;
+            if (isEqual(after[field], before[field])) {continue;}
             documentIntents.add(field);
             Object.assign(patch, {[field]: after[field]});
         }
-        if (Object.keys(patch).length > 0) scheduleDocumentPersistence(patch);
+        if (Object.keys(patch).length > 0) {scheduleDocumentPersistence(patch);}
     }
 
     function updateMargin(target: TScanCleanupMarginTarget, value: number) {
@@ -403,7 +403,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             ...defaultsIntent,
         });
         // A stored `mixed` shows as the default; loading does not rewrite it.
-        if (!documentIntents.has('outputMode')) values.outputMode = lastStored.outputMode;
+        if (!documentIntents.has('outputMode')) {values.outputMode = lastStored.outputMode;}
         Object.assign(values.marginsMm, snapshot.marginsMm ?? preferences.marginsMm, marginIntent);
         attachScanCleanupPageOverrideDefaults(values.pageOverrides, values.pageOverrideDefaults, values.marginsMm);
         marginsLinked.value = scanCleanupMarginsUniform(values.marginsMm);
@@ -421,23 +421,23 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             return;
         }
         loadingDocument.value = false;
-        if (lifecycleKey !== options.documentLifecycleKey.value) return;
+        if (lifecycleKey !== options.documentLifecycleKey.value) {return;}
         applyLoadedSnapshot(snapshot);
         documentSettingsReady.value = true;
         // Edits made before the settings loaded could not be saved then.
         const patch: IScanCleanupDocumentPreferencePatch = {};
-        if (documentIntents.has('overrides') && overridesReset) patch.overrides = values.pageOverrides;
+        if (documentIntents.has('overrides') && overridesReset) {patch.overrides = values.pageOverrides;}
         else if (documentIntents.has('overrides')) {
             patch.overrideEdits = Object.fromEntries([...overrideIntents.keys()].map(page => [
                 page,
                 values.pageOverrides[page] ?? null,
             ]));
         }
-        if (documentIntents.has('pageOverrideDefaults') && values.pageOverrideDefaults) patch.pageOverrideDefaults = values.pageOverrideDefaults;
-        if (documentIntents.has('marginsMm')) patch.marginsMm = values.marginsMm;
-        if (documentIntents.has('outputMode')) patch.outputMode = values.outputMode;
-        if (overridesReset) patch.resetOverrides = true;
-        if (Object.keys(patch).length > 0) scheduleDocumentPersistence(patch, sourceSha256, legacyDocumentKey);
+        if (documentIntents.has('pageOverrideDefaults') && values.pageOverrideDefaults) {patch.pageOverrideDefaults = values.pageOverrideDefaults;}
+        if (documentIntents.has('marginsMm')) {patch.marginsMm = values.marginsMm;}
+        if (documentIntents.has('outputMode')) {patch.outputMode = values.outputMode;}
+        if (overridesReset) {patch.resetOverrides = true;}
+        if (Object.keys(patch).length > 0) {scheduleDocumentPersistence(patch, sourceSha256, legacyDocumentKey);}
     }
 
     function loadDocumentSettingsForCurrentSource(retry = false) {
@@ -531,7 +531,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     // document-wide value this view left as it last read it takes the store's;
     // one it changed keeps its own, saved or not, and is not written again.
     const rereadStoredSettings = () => {
-        if (!documentSettingsReady.value || loadingDocument.value) return;
+        if (!documentSettingsReady.value || loadingDocument.value) {return;}
         const generation = documentLoadGeneration;
         const persistenceToken = captureScanCleanupDocumentPersistenceToken(sourceSha256.value, legacyDocumentKey.value);
         void Promise.resolve(loadScanCleanupDocumentSettings(sourceSha256.value, legacyDocumentKey.value)).then(snapshot => {
@@ -542,7 +542,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
                 || !isScanCleanupDocumentPersistenceTokenCurrent(persistenceToken)
                 || overridesReset
                 || previous === null
-            ) return;
+            ) {return;}
             const stored = lastStored = readStored(snapshot);
             const takesStored = (local: unknown, last: unknown, next: unknown) => isEqual(local, last) && !isEqual(local, next);
             const overrides = cloneScanCleanupPreferenceValue(values.pageOverrides);
@@ -555,16 +555,16 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
                 'marginsMm',
                 'pageOverrideDefaults',
             ] as const).filter(field => takesStored(values[field], previous[field], stored[field]));
-            if (pages.length === 0 && fields.length === 0) return;
+            if (pages.length === 0 && fields.length === 0) {return;}
             for (const page of pages) {
                 const override = stored.overrides[page];
-                if (override === undefined) Reflect.deleteProperty(overrides, page);
-                else overrides[page] = override;
+                if (override === undefined) {Reflect.deleteProperty(overrides, page);}
+                else {overrides[page] = override;}
             }
             values.pageOverrides = overrides;
-            if (fields.includes('outputMode')) values.outputMode = stored.outputMode;
-            if (fields.includes('pageOverrideDefaults')) values.pageOverrideDefaults = stored.pageOverrideDefaults;
-            if (fields.includes('marginsMm')) marginsLinked.value = scanCleanupMarginsUniform(Object.assign(values.marginsMm, stored.marginsMm));
+            if (fields.includes('outputMode')) {values.outputMode = stored.outputMode;}
+            if (fields.includes('pageOverrideDefaults')) {values.pageOverrideDefaults = stored.pageOverrideDefaults;}
+            if (fields.includes('marginsMm')) {marginsLinked.value = scanCleanupMarginsUniform(Object.assign(values.marginsMm, stored.marginsMm));}
             attachScanCleanupPageOverrideDefaults(values.pageOverrides, values.pageOverrideDefaults, values.marginsMm);
         }).catch(() => undefined);
     };

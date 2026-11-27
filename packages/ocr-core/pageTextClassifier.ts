@@ -88,7 +88,7 @@ function hasLanguageScript(text: string, languages: readonly string[] | undefine
     const scripts = getLanguageScripts(languages);
     // An unrecognized model code must not make the classifier guess Latin and
     // reject otherwise valid OCR in a script it does not know about yet.
-    if (scripts.size === 0) return true;
+    if (scripts.size === 0) {return true;}
     return [...scripts].some(script => OCR_SCRIPT_PATTERNS[script].test(text));
 }
 

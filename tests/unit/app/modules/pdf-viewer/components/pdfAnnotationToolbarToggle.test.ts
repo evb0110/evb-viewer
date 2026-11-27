@@ -50,7 +50,7 @@ function mountToolbar() {
     onTestFinished(() => { app.unmount(); host.remove(); });
     function button(tool: TAnnotationTool) {
         const element = host.querySelector<HTMLButtonElement>(`[data-tool="${tool}"]`);
-        if (!element) throw new Error(`Missing tool button: ${tool}`);
+        if (!element) {throw new Error(`Missing tool button: ${tool}`);}
         return element;
     }
     async function click(tool: TAnnotationTool) {

@@ -74,7 +74,7 @@ function createSurfaceHarness(rotation: 0 | 90 | 180 | 270 = 0, viewRotation: 0 
 
 const activeScopes = new Set<ReturnType<typeof effectScope>>();
 describe('actual keyboard to Surface nudge integration', () => {
-    afterEach(() => { for (const scope of activeScopes) scope.stop(); activeScopes.clear(); });
+    afterEach(() => { for (const scope of activeScopes) {scope.stop();} activeScopes.clear(); });
 
     const directions = [
         {

@@ -758,7 +758,7 @@ describe('workspace save failure surfacing', () => {
         await expect(service.handleSave()).resolves.toBe(false);
         const action = toastAddMock.mock.calls[0]?.[0].actions[0];
         expect(action.label).toBe('toolbar.saveAs');
-        if (replaced) reopenSameDocument(deps);
+        if (replaced) {reopenSameDocument(deps);}
         action.onClick();
         if (replaced) {
             // Let any incorrectly queued save finish before checking its output.

@@ -24,7 +24,7 @@ export function createArrayBackedPdfPageSizeStore(
     } satisfies IPdfPageSize;
     let closed = false;
     const assertOpen = () => {
-        if (closed) throw new Error('Page-size store is closed');
+        if (closed) {throw new Error('Page-size store is closed');}
     };
     const resolvePage = (pageNumber: number) => {
         const page = pageSizes[pageNumber - 1];

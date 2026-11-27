@@ -25,9 +25,9 @@ export async function copyNewFile(source: string, target: string) {
         await fs.lstat(target).then(() => {
             throw Object.assign(new Error(`File exists: ${target}`), { code: 'EEXIST' });
         }, (error: unknown) => {
-            if (!isMissing(error)) throw error;
+            if (!isMissing(error)) {throw error;}
         });
-        if (await new Promise<boolean>(resolve => execFile('/bin/cp', ['-c', '--', source, target], error => resolve(error === null)))) return;
+        if (await new Promise<boolean>(resolve => execFile('/bin/cp', ['-c', '--', source, target], error => resolve(error === null)))) {return;}
         await fs.rm(target, { force: true });
     }
     await fs.copyFile(source, target, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
@@ -35,7 +35,7 @@ export async function copyNewFile(source: string, target: string) {
 
 /** Makes `dir`'s entries durable. Windows cannot open a directory for flushing; NTFS journals entries. */
 async function syncDirectory(dir: string) {
-    if (process.platform === 'win32') return;
+    if (process.platform === 'win32') {return;}
     const handle = await fs.open(dir, 'r');
     try {
         await handle.sync();
@@ -52,11 +52,11 @@ async function ensureDirectory(dir: string): Promise<void> {
     try {
         await fs.mkdir(dir);
     } catch (error) {
-        if (hasCode(error, 'EEXIST')) return;
-        if (!isMissing(error) || path.dirname(dir) === dir) throw error;
+        if (hasCode(error, 'EEXIST')) {return;}
+        if (!isMissing(error) || path.dirname(dir) === dir) {throw error;}
         await ensureDirectory(path.dirname(dir));
         await fs.mkdir(dir).catch((again: unknown) => {
-            if (!hasCode(again, 'EEXIST')) throw again;
+            if (!hasCode(again, 'EEXIST')) {throw again;}
         });
     }
     await syncDirectory(path.dirname(dir));
@@ -68,7 +68,7 @@ function nodeStoreFile(handle: fs.FileHandle): IStoreFile {
         let done = 0;
         while (done < length) {
             const { bytesRead } = await handle.read(bytes, done, length - done, offset + done);
-            if (bytesRead === 0) break;
+            if (bytesRead === 0) {break;}
             done += bytesRead;
         }
         return bytes.subarray(0, done);
@@ -81,7 +81,7 @@ function nodeStoreFile(handle: fs.FileHandle): IStoreFile {
             let done = 0;
             while (done < bytes.byteLength) {
                 const { bytesWritten } = await handle.write(bytes, done, bytes.byteLength - done, offset + done);
-                if (bytesWritten === 0) throw new Error(`Short write at ${offset + done}`);
+                if (bytesWritten === 0) {throw new Error(`Short write at ${offset + done}`);}
                 done += bytesWritten;
             }
         },
@@ -122,7 +122,7 @@ export function createNodeStorePort(root: string): IStorePort {
     async function copyIn(source: TExternalSource, relative: string) {
         const target = resolve(relative);
         await ensureDirectory(path.dirname(target));
-        if (typeof source === 'string') await copyNewFile(source, target);
+        if (typeof source === 'string') {await copyNewFile(source, target);}
         const file = nodeStoreFile(await fs.open(target, typeof source === 'string' ? 'r+' : 'wx'));
         try {
             if (typeof source !== 'string') {
@@ -142,7 +142,7 @@ export function createNodeStorePort(root: string): IStorePort {
     return {
         async list(dir) {
             return fs.readdir(resolve(dir)).catch((error: unknown) => {
-                if (isMissing(error)) return [];
+                if (isMissing(error)) {return [];}
                 throw error;
             });
         },
@@ -171,7 +171,7 @@ export function createNodeStorePort(root: string): IStorePort {
             try {
                 return nodeRevisionFile(target, await fs.open(target, 'r'));
             } catch (error) {
-                if (!isMissing(error)) throw error;
+                if (!isMissing(error)) {throw error;}
             }
             await ensureDirectory(path.dirname(target));
             const handle = await fs.open(target, 'wx+');

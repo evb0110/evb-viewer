@@ -36,10 +36,10 @@ let session: IElectronE2ESession | null = null;
 afterEach(async () => {
     await session?.stop({preserveArtifacts: true});
     session = null;
-    if (outputDirectory) rmSync(outputDirectory, {
+    if (outputDirectory) {rmSync(outputDirectory, {
         recursive: true,
         force: true,
-    });
+    });}
     outputDirectory = null;
 });
 
@@ -58,15 +58,15 @@ async function moveTabToNewWindow(page: Page) {
         text: await candidate.evaluate(element => element.textContent ?? ''),
     })));
     const menuItem = transfer.find(candidate => candidate.text.includes('Move Tab to New Window'))?.candidate;
-    if (!menuItem || !item) throw new Error('Move Tab to New Window menu item was not rendered');
+    if (!menuItem || !item) {throw new Error('Move Tab to New Window menu item was not rendered');}
     await clickAsUser(page, menuItem);
     let destination: Page | undefined;
     const deadline = Date.now() + 30_000;
     while (!destination && Date.now() < deadline) {
         destination = (await browser.pages()).find(candidate => !oldPages.has(candidate));
-        if (!destination) await new Promise(resolve => setTimeout(resolve, 100));
+        if (!destination) {await new Promise(resolve => setTimeout(resolve, 100));}
     }
-    if (!destination) throw new Error('Move Tab to New Window did not create a destination window');
+    if (!destination) {throw new Error('Move Tab to New Window did not create a destination window');}
     await waitForFunctionInPage(destination, () => document.querySelector('.page_container--rendered') !== null, {timeout: 30_000});
     return destination;
 }
@@ -138,7 +138,7 @@ async function dragTabToOtherPane(page: Page, sourcePaneId: string, targetPaneId
         source: sourcePaneId,
         target: targetPaneId,
     });
-    if (!points.from || !points.to) throw new Error(`Tab drag points are not visible: ${JSON.stringify(points)}`);
+    if (!points.from || !points.to) {throw new Error(`Tab drag points are not visible: ${JSON.stringify(points)}`);}
     await page.mouse.move(points.from.x, points.from.y);
     await page.mouse.down();
     const steps = 12;
@@ -278,7 +278,7 @@ describe('dirty tab transfer and annotation save', () => {
             visible: await candidate.isVisible(),
             text: await candidate.evaluate(element => element.textContent ?? ''),
         })))).find(entry => entry.visible && /Save As/u.test(entry.text))?.candidate;
-        if (!saveAsItem) throw new Error('Save As was not available in the visible save menu');
+        if (!saveAsItem) {throw new Error('Save As was not available in the visible save menu');}
         const saveAsRect = await saveAsItem.evaluate(element => {
             const rect = element.getBoundingClientRect();
             return {
@@ -355,7 +355,7 @@ describe('dirty tab transfer and annotation save', () => {
         }, {timeout: 30_000});
         const saveTarget = await saveHandle.jsonValue();
         await saveHandle.dispose();
-        if (!saveTarget) throw new Error('No enabled visible Save control after the pane move');
+        if (!saveTarget) {throw new Error('No enabled visible Save control after the pane move');}
         const saveBaseline = await getLatestAutomationEventId(page);
         await page.mouse.click(saveTarget.x, saveTarget.y);
         await waitForAutomationEvent(page, 'save-committed', {

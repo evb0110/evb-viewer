@@ -127,9 +127,9 @@ export function createPdfPageResources() {
         if (next.shown && (next.layers !== previous.layers || next.shown.container !== previous.shown?.container)) {
             next.shown.container.dataset.pageLayerReadiness = next.layers;
         }
-        if (next.text !== previous.text) markTextLayerReady(previous.text, next.text);
-        if (!next.job && !next.shown && !next.hydration) resources.delete(pageNumber);
-        else resources.set(pageNumber, next);
+        if (next.text !== previous.text) {markTextLayerReady(previous.text, next.text);}
+        if (!next.job && !next.shown && !next.hydration) {resources.delete(pageNumber);}
+        else {resources.set(pageNumber, next);}
         return next;
     }
 
@@ -150,11 +150,11 @@ export function createPdfPageResources() {
         },
         setJobState(pageNumber: TPageNumber, job: IPdfRasterJob, rasterState: TPdfPageRasterState) {
             job.rasterState = rasterState;
-            if (get(pageNumber).job === job) update(pageNumber, {job});
+            if (get(pageNumber).job === job) {update(pageNumber, {job});}
         },
         beginRaster(pageNumber: TPageNumber, job: IPdfRasterJob, container: HTMLElement) {
             const current = get(pageNumber);
-            if (current.job !== job) return false;
+            if (current.job !== job) {return false;}
             update(pageNumber, {
                 ...dropHydration(current),
                 // A remounted page shows nothing until its raster publishes;
@@ -166,7 +166,7 @@ export function createPdfPageResources() {
         },
         publish(pageNumber: TPageNumber, job: IPdfRasterJob, receipt: IPdfPublicationReceipt) {
             const current = get(pageNumber);
-            if (current.job !== job) return false;
+            if (current.job !== job) {return false;}
             job.rasterState = 'current';
             const retain = receipt.layers === 'retain' && current.layers === 'ready';
             update(pageNumber, {
@@ -198,20 +198,20 @@ export function createPdfPageResources() {
         /** Layers of the shown raster begin replacing in place, as a promotion does. */
         beginLayers(pageNumber: TPageNumber, hydration: IPdfLayerHydration) {
             const current = get(pageNumber);
-            if (current.hydration !== hydration || !current.shown) return false;
+            if (current.hydration !== hydration || !current.shown) {return false;}
             update(pageNumber, {layers: 'hydrating', text: null});
             return true;
         },
         /** The owner's text layer is mounted and complete. */
         markText(pageNumber: TPageNumber, hydration: IPdfLayerHydration, textLayer: HTMLElement) {
             const current = get(pageNumber);
-            if (current.hydration !== hydration || current.layers !== 'hydrating') return false;
+            if (current.hydration !== hydration || current.layers !== 'hydrating') {return false;}
             update(pageNumber, {text: textLayer});
             return true;
         },
         settleHydration(pageNumber: TPageNumber, hydration: IPdfLayerHydration, outcome: 'ready' | 'canvas-only' | 'failed') {
             const current = get(pageNumber);
-            if (current.hydration !== hydration) return false;
+            if (current.hydration !== hydration) {return false;}
             if (current.layers !== 'hydrating') {
                 update(pageNumber, {hydration: null});
                 return false;
@@ -222,7 +222,7 @@ export function createPdfPageResources() {
             return true;
         },
         requestTextFirst(pageNumber: TPageNumber, requested: boolean) {
-            if (get(pageNumber).textFirst !== requested && (!requested || get(pageNumber).shown)) update(pageNumber, {textFirst: requested});
+            if (get(pageNumber).textFirst !== requested && (!requested || get(pageNumber).shown)) {update(pageNumber, {textFirst: requested});}
         },
         /** A new render version: no job survives, and only `restamp` keeps shown pixels authorized. */
         reauthorize(version: number, documentToken: string, excludedPages: ReadonlySet<TPageNumber>, restamp: boolean) {
@@ -253,8 +253,8 @@ export function createPdfPageResources() {
             const output = shown?.render.annotationOutput;
             const annotation = id && input ? annotationsByNormalizedId(input.annotations).get(id) : undefined;
             if (!shown || !id || !input || !output || input.excludedIds.has(id) || !annotation
-                || input.nativeAnnotationAppearance?.annotations.some(entry => entry.id === id && entry.action !== 'retain')) return false;
-            if (!annotation.hasOwnCanvas || !output.requestedSeparateCanvas) return true;
+                || input.nativeAnnotationAppearance?.annotations.some(entry => entry.id === id && entry.action !== 'retain')) {return false;}
+            if (!annotation.hasOwnCanvas || !output.requestedSeparateCanvas) {return true;}
             const canvas = output.ownCanvases.find(([ref]) => normalizePdfJsAnnotationId(ref) === id)?.[1];
             return Boolean(canvas?.isConnected && shown.container.contains(canvas));
         },
@@ -276,8 +276,8 @@ export type TPdfPageResources = ReturnType<typeof createPdfPageResources>;
 
 // The text layer's DOM readiness mirrors the resource; nothing else writes it.
 function markTextLayerReady(previous: HTMLElement | null, next: HTMLElement | null) {
-    if (previous) delete previous.dataset.pdfTextLayerReady;
-    if (next) next.dataset.pdfTextLayerReady = 'true';
+    if (previous) {delete previous.dataset.pdfTextLayerReady;}
+    if (next) {next.dataset.pdfTextLayerReady = 'true';}
 }
 
 // A committed render's annotations by normalized PDF.js id, the first entry
@@ -287,11 +287,11 @@ const committedAnnotationIndexes = new WeakMap<readonly IPdfAnnotation[], Readon
 
 function annotationsByNormalizedId(annotations: readonly IPdfAnnotation[]) {
     const indexed = committedAnnotationIndexes.get(annotations);
-    if (indexed) return indexed;
+    if (indexed) {return indexed;}
     const index = new Map<string, IPdfAnnotation>();
     for (const entry of annotations) {
         const id = normalizePdfJsAnnotationId(entry.id);
-        if (id && !index.has(id)) index.set(id, entry);
+        if (id && !index.has(id)) {index.set(id, entry);}
     }
     committedAnnotationIndexes.set(annotations, index);
     return index;

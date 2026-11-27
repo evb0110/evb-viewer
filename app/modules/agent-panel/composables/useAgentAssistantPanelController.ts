@@ -78,13 +78,13 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     ].includes(chat.value.turn.phase)));
     const hasPayload = computed(() => Boolean(draft.value.trim() || composerImages.value.length));
     const providerDisabledReason = computed(() => {
-        if (props.isChatScopePending) return t('assistant.documentPending');
-        if (!scope.value) return t('assistant.noDocumentDescription');
-        if (!state.value.supported) return t('assistant.unsupportedTitle');
-        if (!instance.value) return t('assistant.instanceMissing');
-        if (!state.value.enabled || !instance.value.enabled || instance.value.state === 'disabled') return t('assistant.instanceDisabled');
-        if (instance.value.state === 'missing') return instance.value.message ?? t('assistant.instanceMissing');
-        if (instance.value.auth === 'unauthenticated') return instance.value.message ?? t('assistant.signInRequired');
+        if (props.isChatScopePending) {return t('assistant.documentPending');}
+        if (!scope.value) {return t('assistant.noDocumentDescription');}
+        if (!state.value.supported) {return t('assistant.unsupportedTitle');}
+        if (!instance.value) {return t('assistant.instanceMissing');}
+        if (!state.value.enabled || !instance.value.enabled || instance.value.state === 'disabled') {return t('assistant.instanceDisabled');}
+        if (instance.value.state === 'missing') {return instance.value.message ?? t('assistant.instanceMissing');}
+        if (instance.value.auth === 'unauthenticated') {return instance.value.message ?? t('assistant.signInRequired');}
         return '';
     });
     const sendDisabledReason = computed(() => providerDisabledReason.value
@@ -99,15 +99,15 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             chat: next.chat?.sessionKey === sessionKey.value ? next.chat : currentChat,
         };
         const resolved = resolveAssistantSelection(selection.value, next.instances, next.selection);
-        if (JSON.stringify(resolved) !== JSON.stringify(selection.value)) selection.value = resolved;
+        if (JSON.stringify(resolved) !== JSON.stringify(selection.value)) {selection.value = resolved;}
     }
     function handleEvent(event: IAssistantEvent) {
         if (event.type === 'instances') {
             state.value.instances = event.instances;
             const resolved = resolveAssistantSelection(selection.value, event.instances, state.value.selection);
-            if (JSON.stringify(resolved) !== JSON.stringify(selection.value)) selection.value = resolved;
+            if (JSON.stringify(resolved) !== JSON.stringify(selection.value)) {selection.value = resolved;}
         } else if (event.type === 'chat') {
-            if (event.chat.sessionKey === sessionKey.value) state.value.chat = event.chat;
+            if (event.chat.sessionKey === sessionKey.value) {state.value.chat = event.chat;}
         } else if (event.sessionKey === sessionKey.value && scope.value && selection.value) {
             const current = chat.value ?? {
                 sessionKey: event.sessionKey,
@@ -118,15 +118,15 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
                 turn: null,
             };
             state.value.chat = current;
-            if (event.type === 'turn') current.turn = event.turn;
+            if (event.type === 'turn') {current.turn = event.turn;}
             if (event.type === 'item') {
                 const index = current.items.findIndex(item => item.id === event.item.id);
-                if (index < 0) current.items.push(event.item);
-                else current.items[index] = event.item;
+                if (index < 0) {current.items.push(event.item);}
+                else {current.items[index] = event.item;}
             }
             if (event.type === 'item-delta') {
                 const item = current.items.find(item => item.id === event.itemId);
-                if (item) item.text += event.delta;
+                if (item) {item.text += event.delta;}
             }
         }
     }
@@ -139,13 +139,13 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }));
     }
     async function run(action: 'reset' | 'login' | 'cancel', callback: () => Promise<void>) {
-        if (busyAction.value) return;
+        if (busyAction.value) {return;}
         busyAction.value = action;
         const owner = sessionKey.value;
         try {
             await callback();
         } catch (error) {
-            if (mounted && owner === sessionKey.value) reportFailure(error, action);
+            if (mounted && owner === sessionKey.value) {reportFailure(error, action);}
         } finally {
             busyAction.value = null;
         }
@@ -161,16 +161,16 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
                 ...(selection.value ? { selection: { ...selection.value } } : {}),
                 probe,
             });
-            if (mounted && serial === refreshSerial && identity === requestIdentity.value) applyState(next);
+            if (mounted && serial === refreshSerial && identity === requestIdentity.value) {applyState(next);}
         } catch (error) {
-            if (mounted && serial === refreshSerial && identity === requestIdentity.value) reportFailure(error, 'refresh');
+            if (mounted && serial === refreshSerial && identity === requestIdentity.value) {reportFailure(error, 'refresh');}
         }
     }
     function applyResult(result: IAssistantOperationResult, owner: string | null) {
-        if (!mounted || owner !== sessionKey.value) return;
+        if (!mounted || owner !== sessionKey.value) {return;}
         applyState(result.state);
         if (!result.ok && result.error) {
-            if (instance.value?.message !== result.error.message) reportFailure(new Error(result.error.message), 'login');
+            if (instance.value?.message !== result.error.message) {reportFailure(new Error(result.error.message), 'login');}
         }
     }
     /**
@@ -186,7 +186,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         const text = payload ? payload.text : draft.value.trim();
         const attachments = payload ? payload.attachments : composerImages.value;
         const presetId = payload?.presetId;
-        if (providerDisabledReason.value || sending.value || imageComposer.isImageIngestionPending.value || !scope.value || !selection.value || (!text && !attachments.length)) return;
+        if (providerDisabledReason.value || sending.value || imageComposer.isImageIngestionPending.value || !scope.value || !selection.value || (!text && !attachments.length)) {return;}
         const owner = sessionKey.value;
         const existingSystemIds = new Set(chat.value?.items.filter(item => item.kind === 'system').map(item => item.id));
         const hasNewSystemItem = (next: IAssistantState['chat']) => next?.sessionKey === owner
@@ -213,22 +213,22 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
         try {
             const result = await getAgentCapability().sendAssistantMessage(request);
-            if (owner !== sessionKey.value || !mounted) return;
+            if (owner !== sessionKey.value || !mounted) {return;}
             const pushedChat = chat.value;
             const hasReturnedReply = hasNewSystemItem(result.state.chat);
             const hasPushedReply = hasNewSystemItem(pushedChat);
             const hasReply = hasReturnedReply || hasPushedReply;
             applyState(result.state);
             // A failure already pushed is newer than a snapshot that lacks it.
-            if (hasPushedReply && !hasReturnedReply) state.value.chat = pushedChat;
-            if (!result.ok && !hasReply && result.error) reportRefusal(result.error.message);
+            if (hasPushedReply && !hasReturnedReply) {state.value.chat = pushedChat;}
+            if (!result.ok && !hasReply && result.error) {reportRefusal(result.error.message);}
             if (fromComposer && !result.ok && !hasReply && !draft.value && !composerImages.value.length) {
                 draft.value = text;
                 imageComposer.replaceComposerImages(attachments);
             }
         } catch (error) {
             if (mounted && owner === sessionKey.value) {
-                if (!hasNewSystemItem(chat.value)) reportRefusal(getErrorMessage(error));
+                if (!hasNewSystemItem(chat.value)) {reportRefusal(getErrorMessage(error));}
                 if (fromComposer && !draft.value && !composerImages.value.length) {
                     draft.value = text;
                     imageComposer.replaceComposerImages(attachments);
@@ -246,13 +246,13 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         const user = turnId === null
             ? items.findLast(item => item.kind === 'user')
             : items.findLast(item => item.kind === 'user' && item.turnId === turnId);
-        if (user) await send({
+        if (user) {await send({
             text: user.text,
             attachments: user.attachments ?? [],
-        });
+        });}
     }
     async function interrupt() {
-        if (!scope.value || !selection.value || interrupting.value || chat.value?.turn?.phase === 'interrupting') return;
+        if (!scope.value || !selection.value || interrupting.value || chat.value?.turn?.phase === 'interrupting') {return;}
         interrupting.value = true;
         const owner = sessionKey.value;
         try {
@@ -260,15 +260,15 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
                 scope: cloneAssistantScope(scope.value),
                 instanceId: selection.value.instanceId,
             });
-            if (mounted && owner === sessionKey.value) applyState(next);
+            if (mounted && owner === sessionKey.value) {applyState(next);}
         } catch (error) {
-            if (mounted && owner === sessionKey.value) reportFailure(error, 'interrupt');
+            if (mounted && owner === sessionKey.value) {reportFailure(error, 'interrupt');}
         } finally {
             interrupting.value = false;
         }
     }
     function reset() {
-        if (!scope.value || !selection.value) return;
+        if (!scope.value || !selection.value) {return;}
         const request = {
             scope: cloneAssistantScope(scope.value),
             instanceId: selection.value.instanceId,
@@ -285,7 +285,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         });
     }
     function login(mode: 'chatgpt' | 'device-code') {
-        if (!selection.value) return;
+        if (!selection.value) {return;}
         const instanceId = selection.value.instanceId;
         const owner = sessionKey.value;
         void run('login', async () => {
@@ -301,7 +301,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         });
     }
     function cancelLogin() {
-        if (!selection.value) return;
+        if (!selection.value) {return;}
         const instanceId = selection.value.instanceId;
         const owner = sessionKey.value;
         void run('cancel', async () => {
@@ -345,12 +345,12 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
     });
     watch(selection, value => {
-        if (!value) return;
+        if (!value) {return;}
         const failure = persistAssistantSelection(defaultWindow?.localStorage, value);
-        if (failure) reportRuntimeError(captureAssistantFailure(failure.error, {
+        if (failure) {reportRuntimeError(captureAssistantFailure(failure.error, {
             action: 'switch-provider',
             title: t('errors.settings.save'),
-        }));
+        }));}
     }, {
         deep: true,
         immediate: true,

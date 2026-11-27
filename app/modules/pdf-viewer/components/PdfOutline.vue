@@ -497,8 +497,8 @@ function addChildBookmark(id: string) {
         return;
     }
     let depth = 0;
-    for (let parent = parentBookmarkIdMap.value.get(id); parent; parent = parentBookmarkIdMap.value.get(parent)) depth += 1;
-    if (depth + 1 < nativeBookmarkDepthLimit) editing.addChildBookmark(id);
+    for (let parent = parentBookmarkIdMap.value.get(id); parent; parent = parentBookmarkIdMap.value.get(parent)) {depth += 1;}
+    if (depth + 1 < nativeBookmarkDepthLimit) {editing.addChildBookmark(id);}
 }
 
 function toggleBookmarkBold(id: string) {
@@ -598,13 +598,13 @@ async function updateActiveItemFromCurrentPage() {
             bookmarkPageRefCache,
             controller.signal,
         );
-        if (!targets) return;
+        if (!targets) {return;}
     } catch (error) {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) {return;}
         throw error;
     }
-    if (!targets) return;
-    if (controller.signal.aborted || currentPage !== targetCurrentPage || pdfDocument !== targetPdfDocument) return;
+    if (!targets) {return;}
+    if (controller.signal.aborted || currentPage !== targetCurrentPage || pdfDocument !== targetPdfDocument) {return;}
     activeItemResolution = null;
     // The vertical anchor is saved with the page; without it an unrelated edit
     // would rewrite the bookmark to the top of its page.
@@ -612,7 +612,7 @@ async function updateActiveItemFromCurrentPage() {
         item,
         target,
     ] of targets) {
-        if (!target) continue;
+        if (!target) {continue;}
         item.pageIndex ??= requirePageIndex(target.pageIndex);
         item.pageYRatio ??= target.pageYRatio;
     }
@@ -648,7 +648,7 @@ function applyPendingBookmarkItems(
 ) {
     outlineError.value = false;
     if (areBookmarkEntriesEqual(entries, editing.mapBookmarksForPersistence(bookmarks.value))) {
-        if (options.syncBaseline) syncBookmarkBaselineFromCurrentItems();
+        if (options.syncBaseline) {syncBookmarkBaselineFromCurrentItems();}
         return;
     }
 
@@ -661,7 +661,7 @@ function applyPendingBookmarkItems(
     expandedBookmarkIds.value = new Set();
     activeItemId.value = null;
     void updateActiveItemFromCurrentPage();
-    if (options.syncBaseline) syncBookmarkBaselineFromCurrentItems();
+    if (options.syncBaseline) {syncBookmarkBaselineFromCurrentItems();}
 }
 
 function applyDocumentBookmarkItems() {

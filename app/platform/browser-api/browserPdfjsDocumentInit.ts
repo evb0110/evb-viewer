@@ -38,7 +38,7 @@ interface IBrowserPdfjsRangeSource {
 }
 
 function isStaleFileBlobError(error: unknown) {
-    if (!(error instanceof Error)) return false;
+    if (!(error instanceof Error)) {return false;}
     return error.name === 'NotReadableError'
         || Reflect.get(error, 'code') === 'NotReadableError'
         || error.message.includes('NotReadableError');
@@ -74,7 +74,7 @@ async function storedDocumentRanges(path: string): Promise<IBrowserPdfjsRangeSou
                 try {
                     bytes = new Uint8Array(await currentBlob.slice(begin, end).arrayBuffer());
                 } catch (error) {
-                    if (!isStaleFileBlobError(error)) throw error;
+                    if (!isStaleFileBlobError(error)) {throw error;}
                     await assertCurrent();
                     const refreshed = await browserDocumentStore.readableRevision(path, {token});
                     if (

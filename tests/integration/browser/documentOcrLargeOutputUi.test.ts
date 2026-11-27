@@ -13,7 +13,7 @@ import {
 describe('browser OCR output admission', () => {
     it('applies, repeats and saves OCR when the text layer crosses the former 16 MiB ceiling', async () => {
         const evidence = process.env.EVB_OCR_LARGE_OUTPUT_EVIDENCE_DIR;
-        if (evidence) await mkdir(evidence, {recursive: true});
+        if (evidence) {await mkdir(evidence, {recursive: true});}
         const page = await lifecycle.browser.newPage({
             viewport: {
                 width: 1440,
@@ -51,7 +51,7 @@ describe('browser OCR output admission', () => {
                     exact: true,
                 }).click();
                 const dialog = page.getByRole('dialog');
-                if (repeat) await dialog.getByText('Recognize scanned text again', {exact: true}).click();
+                if (repeat) {await dialog.getByText('Recognize scanned text again', {exact: true}).click();}
                 await dialog.getByRole('button', {name: /^(Download and start OCR|Start OCR)$/u}).click();
                 await page.waitForFunction(() => {
                     const dialog = document.querySelector('[role="dialog"]');

@@ -87,7 +87,7 @@ export async function renderOcrPageToPpm(
         }
         const prepared = await prepareFallback();
         signal?.throwIfAborted();
-        if (prepared.pdfPath === args[3]) throw error;
+        if (prepared.pdfPath === args[3]) {throw error;}
         const fallbackArgs: typeof args = [...args];
         fallbackArgs[3] = prepared.pdfPath;
         await renderPdfPageToPpm(...fallbackArgs);
@@ -141,7 +141,7 @@ export async function preparePdfForPoppler(
             warnings: [],
         };
     } catch (err) {
-        if (getUnprovenNativeTerminationDetail(err) !== undefined) throw err;
+        if (getUnprovenNativeTerminationDetail(err) !== undefined) {throw err;}
         if (signal?.aborted) {
             throw signal.reason instanceof Error ? signal.reason : err;
         }

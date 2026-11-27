@@ -159,8 +159,8 @@ describe('pdfSearchWorkerClient pool limits and execution deadline', () => {
         let loadCalls = 0;
         mockState.loadWasmImpl = () => {
             loadCalls += 1;
-            if (loadCalls === 1) return firstGate.promise;
-            if (loadCalls === 2) return secondGate.promise;
+            if (loadCalls === 1) {return firstGate.promise;}
+            if (loadCalls === 2) {return secondGate.promise;}
             return Promise.resolve({} as WebAssembly.Module);
         };
 

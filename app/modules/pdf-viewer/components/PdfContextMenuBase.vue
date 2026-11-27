@@ -175,7 +175,7 @@ function restoreFocus() {
             // A menu action may focus an editor or a dialog as it closes.
             // Returning focus to the opener would blur and commit that editor.
             const active = document.activeElement;
-            if (active && active !== document.body && active !== element) return;
+            if (active && active !== document.body && active !== element) {return;}
             element.focus({preventScroll: true});
         });
     }

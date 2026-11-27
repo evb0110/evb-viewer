@@ -923,7 +923,7 @@ describe('scan cleanup preview geometry', () => {
 
         prefetcher.supersede();
         prefetchResult.resolve({pageNumber: 2});
-        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
 
         // The page is already rendered and the cache key names its content, so
         // keeping it costs nothing and re-rendering it costs a whole preview.

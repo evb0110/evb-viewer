@@ -13,7 +13,7 @@ export function createDocumentPageSlotRegistry(): IDocumentPageSlotRegistry {
     const mountedByOwner = new Map<string, Set<number>>();
 
     function createOwner(ownerId: string): IDocumentPageSlotOwner {
-        if (!ownerId) throw new TypeError('Page-slot owners require an id');
+        if (!ownerId) {throw new TypeError('Page-slot owners require an id');}
         const mountedPages = mountedByOwner.get(ownerId) ?? new Set<number>();
         mountedByOwner.set(ownerId, mountedPages);
         let disposed = false;
@@ -22,10 +22,10 @@ export function createDocumentPageSlotRegistry(): IDocumentPageSlotRegistry {
             ownerId,
             isMounted: pageNumber => !disposed && mountedPages.has(pageNumber),
             markMounted(pageNumber) {
-                if (!disposed) mountedPages.add(pageNumber);
+                if (!disposed) {mountedPages.add(pageNumber);}
             },
             markUnmounted(pageNumber) {
-                if (!disposed) mountedPages.delete(pageNumber);
+                if (!disposed) {mountedPages.delete(pageNumber);}
             },
             dispose() {
                 if (disposed) {

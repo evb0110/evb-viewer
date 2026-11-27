@@ -400,7 +400,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
         const {
             completed, ...result
         } = await run();
-        if (!completed) throw new Error('The page operation did not complete.');
+        if (!completed) {throw new Error('The page operation did not complete.');}
         return result;
     }
 
@@ -461,7 +461,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             policy: {mutatesDocument: true},
             parse: getAgentOcrRunOptions,
             async run(runOptions: IAgentOcrRunOptions, _actionId, context) {
-                if (runOptions.open !== false) handleDropdownOpen('ocr', true);
+                if (runOptions.open !== false) {handleDropdownOpen('ocr', true);}
                 await nextTick();
                 context?.assertCurrentDocument();
                 return ocr.runOcrForAgent(runOptions, context && {
@@ -724,10 +724,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 context?.assertCurrentDocument();
-                if (annotationTool.value !== 'note' && await handleQuickNoteAction() === false) return {
+                if (annotationTool.value !== 'note' && await handleQuickNoteAction() === false) {return {
                     ok: false,
                     annotationTool: annotationTool.value,
-                };
+                };}
                 return {annotationTool: annotationTool.value};
             },
         },
@@ -763,10 +763,10 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             ],
             parse: parseAgentAnnotationToolInput,
             async run(tool: TAnnotationTool) {
-                if (await handleAnnotationToolChange(tool) === false) return {
+                if (await handleAnnotationToolChange(tool) === false) {return {
                     ok: false,
                     annotationTool: annotationTool.value,
-                };
+                };}
                 return {annotationTool: annotationTool.value};
             },
         },
@@ -844,7 +844,7 @@ export const createDocumentWorkspaceAgent = (options: IUseDocumentWorkspaceAgent
             parse: parseEmptyAgentActionInput,
             async run(_input, _actionId, context) {
                 context?.assertCurrentDocument();
-                if (!await handleSaveAs()) throw new Error('Save As did not complete.');
+                if (!await handleSaveAs()) {throw new Error('Save As did not complete.');}
                 return {};
             },
         },

@@ -158,7 +158,7 @@ export function makeCentralHeader(
     assertZip32Value(crc, 'CRC');
     assertZip32Value(compressedSize, 'entry size');
     assertZip32Value(size, 'entry size');
-    if (!Number.isSafeInteger(offset) || offset < 0) throw new RangeError('DOCX ZIP entry offset is invalid');
+    if (!Number.isSafeInteger(offset) || offset < 0) {throw new RangeError('DOCX ZIP entry offset is invalid');}
     const zip64 = offset >= ZIP32_MAX_VALUE;
     const extraLength = zip64 ? 12 : 0;
     const header = new Uint8Array(46 + fileName.byteLength + extraLength);
@@ -645,8 +645,8 @@ export async function* createDocxFromTextChunks(
             }
             for (const part of body.page(page)) {
                 throwIfAborted(signal);
-                if (part.kind === 'markup') yield* emitDocumentText(part.xml);
-                else yield* emitParagraph(part.text, part.rtl);
+                if (part.kind === 'markup') {yield* emitDocumentText(part.xml);}
+                else {yield* emitParagraph(part.text, part.rtl);}
             }
         }
 

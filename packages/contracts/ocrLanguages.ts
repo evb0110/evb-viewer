@@ -219,7 +219,7 @@ export function isAvailableOcrLanguageCode(value: unknown): value is TOcrLanguag
 
 /** Keep language selections and local filenames stable when their upstream model differs. */
 export function getOcrModelSourcePath(code: string) {
-    if (code === 'lat') return 'script/Latin';
+    if (code === 'lat') {return 'script/Latin';}
     return code === 'lat_dictionary' ? 'lat' : code;
 }
 

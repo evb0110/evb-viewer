@@ -66,7 +66,7 @@ function readDetectionLayout(page: Page) {
     ) => {
         const cancel = document.querySelector(cancelDetectionSelector)!.getBoundingClientRect();
         const paint = (element: Element | null) => {
-            if (!element) return null;
+            if (!element) {return null;}
             const range = document.createRange();
             range.selectNodeContents(element);
             const glyphs = [...range.getClientRects()].filter(rect => rect.width > 0);
@@ -83,7 +83,7 @@ function readDetectionLayout(page: Page) {
             };
             for (let parent = element.parentElement; parent; parent = parent.parentElement) {
                 const style = getComputedStyle(parent);
-                if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+                if (style.overflowX === 'visible' && style.overflowY === 'visible') {continue;}
                 const box = parent.getBoundingClientRect();
                 shown = {
                     left: Math.max(shown.left, box.left),
@@ -119,7 +119,7 @@ function readDetectionLayout(page: Page) {
                 const candidates = [...document.querySelectorAll<HTMLElement>('#editor-global-toolbar-host .scan-cleanup-toolbar-done')];
                 const done = candidates[0];
                 const shown = paint(done ?? null);
-                if (!done || !shown) return null;
+                if (!done || !shown) {return null;}
                 const hit = document.elementFromPoint(
                     (shown.rect.left + shown.rect.right) / 2,
                     (shown.rect.top + shown.rect.bottom) / 2,
@@ -414,7 +414,7 @@ describe('scan cleanup toolbar contract', () => {
             const icon = [...document.querySelectorAll<HTMLElement>('.overflow-menu-scan-cleanup-icon')]
                 .find(element => element.checkVisibility());
             const item = icon?.closest<HTMLElement>('[role^="menuitem"]');
-            if (!icon || !item) return null;
+            if (!icon || !item) {return null;}
             return {
                 label: (item.textContent ?? '').trim(),
                 runningDot: icon.querySelector('.overflow-menu-running-dot') !== null,
@@ -517,7 +517,7 @@ describe('scan cleanup completion Save As', () => {
         const session = await startCleanupSession(savedPath, sourcePath);
         try {
             const outputPath = (await readWorkspaceStateValues(session.page, ['originalPath'])).originalPath;
-            if (typeof outputPath !== 'string') throw new Error('The cleaned output path is missing');
+            if (typeof outputPath !== 'string') {throw new Error('The cleaned output path is missing');}
             await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
             await clickFoundAsUser(session.page, () => Array.from(
                 document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button'),
@@ -608,8 +608,8 @@ describe('scan cleanup completion Save As', () => {
                 }
                 // Observe uninterrupted Save As from the painted output. The
                 // other variant retains the toast action from a different tab.
-                if (leaveDuringSave) await activateWorkspaceTab(session, 0);
-                else await waitForPdfLoaded(session.page, 30_000);
+                if (leaveDuringSave) {await activateWorkspaceTab(session, 0);}
+                else {await waitForPdfLoaded(session.page, 30_000);}
                 const settlementErrors: string[] = [];
                 session.page.on('console', message => {
                     if (/recovery settlement failed|Recovery protection is unavailable/u.test(message.text())) {

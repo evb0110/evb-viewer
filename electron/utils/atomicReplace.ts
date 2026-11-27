@@ -142,7 +142,7 @@ export async function recoverWindowsAtomicReplace(destinationPath: string) {
     assertNoSymlinkPathSegments(journal.backupPath);
     const backupExists = await fileExists(journal.backupPath);
     if (await fileExists(destinationPath)) {
-        if (backupExists) await assertPathMatchesSaveWitnessSnapshot(journal.backupPath, journal.destinationSnapshot, {contentOnly: true});
+        if (backupExists) {await assertPathMatchesSaveWitnessSnapshot(journal.backupPath, journal.destinationSnapshot, {contentOnly: true});}
         // The destination holds the recorded new file (renamed into place) or
         // the old one, even when cleanup removed the backup but not this journal.
         await assertPathMatchesSaveWitnessSnapshot(destinationPath, journal.sourceSnapshot, {allowBackupMetadataChange: true})
@@ -150,7 +150,7 @@ export async function recoverWindowsAtomicReplace(destinationPath: string) {
             .catch(() => {
                 throw new Error(`Windows atomic replace recovery refused to overwrite destination "${destinationPath}"`);
             });
-        if (backupExists) await unlink(journal.backupPath);
+        if (backupExists) {await unlink(journal.backupPath);}
         await unlink(atomicReplaceJournalPath(destinationPath));
         return;
     }
@@ -194,14 +194,14 @@ export async function moveFileToMissingPath(sourcePath: string, destinationPath:
     try {
         await link(sourcePath, destinationPath);
     } catch (error) {
-        if (!isNoHardLinkError(error)) throw error;
+        if (!isNoHardLinkError(error)) {throw error;}
         // A no-link volume still refuses an entry already present. Node cannot
         // make this check and the following rename one no-replace operation.
         const destination = await lstat(destinationPath).catch((lookupError: unknown) => {
-            if (isErrnoException(lookupError) && lookupError.code === 'ENOENT') return null;
+            if (isErrnoException(lookupError) && lookupError.code === 'ENOENT') {return null;}
             throw lookupError;
         });
-        if (destination) throw Object.assign(new Error(`File exists: ${destinationPath}`), {code: 'EEXIST'});
+        if (destination) {throw Object.assign(new Error(`File exists: ${destinationPath}`), {code: 'EEXIST'});}
         await rename(sourcePath, destinationPath);
         return;
     }
@@ -232,7 +232,7 @@ async function prepareReplacement(srcTemp: string, dst: string, durable: boolean
     try {
         if (mode !== undefined) {
             await chmod(srcTemp, mode).catch(async (error: unknown) => {
-                if (((await stat(srcTemp)).mode & ~mode & 0o777) !== 0) throw error;
+                if (((await stat(srcTemp)).mode & ~mode & 0o777) !== 0) {throw error;}
                 logger.warn(`Could not keep the permissions of "${dst}": ${getErrorMessage(error)}`);
             });
         }
@@ -263,8 +263,8 @@ export async function atomicReplace(
     }
     const durable = options.durable !== false;
     await prepareReplacement(srcTemp, dst, durable);
-    if (options.assertDestinationCurrent) await options.assertDestinationCurrent();
-    if (options.markMutationCommitStarted !== false) markActiveWorkingCopyMutationCommitStarted();
+    if (options.assertDestinationCurrent) {await options.assertDestinationCurrent();}
+    if (options.markMutationCommitStarted !== false) {markActiveWorkingCopyMutationCommitStarted();}
     if (options.destinationBackupPath !== undefined) {
         const backupPath = options.destinationBackupPath;
         assertNoSymlinkPathSegments(backupPath);

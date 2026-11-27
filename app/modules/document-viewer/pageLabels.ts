@@ -65,7 +65,7 @@ export function materializePageLabelsForCompatibility(
         0,
         segment.endPage - segment.startPage,
     ].every(offset => pageLabelMatchesText(segment, offset, formatPageLabelForDisplay(segment, offset))));
-    if (!fitsPresentation) return null;
+    if (!fitsPresentation) {return null;}
 
     if (existingLabels && existingLabels.length === totalPages) {
         return [...existingLabels];

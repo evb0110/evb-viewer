@@ -193,6 +193,6 @@ export function splitTiffPageDescriptorsForClassicLimit<TPage extends ITiffImage
         headerBytes += ifdBytes;
         dataBytes += page.dataLength;
     }
-    if (group.length) groups.push(group);
+    if (group.length) {groups.push(group);}
     return groups;
 }

@@ -176,7 +176,7 @@ export function collectDocumentViewportSessionInvariantViolations(
 ) {
     const violations: string[] = [];
     const add = (condition: boolean, message: string) => {
-        if (!condition) violations.push(message);
+        if (!condition) {violations.push(message);}
     };
 
     add(Number.isSafeInteger(state.generation) && state.generation >= 0, 'generation must be non-negative');
@@ -220,7 +220,7 @@ export function collectDocumentViewportSessionInvariantViolations(
         state.stagedRenderFence,
         state.committedRenderFence,
     ]) {
-        if (!fence || !state.identity) continue;
+        if (!fence || !state.identity) {continue;}
         add(fence.generation === state.generation, 'render fence generation is stale');
         add(fence.revision === state.identity.revision, 'render fence revision is stale');
     }
@@ -653,7 +653,7 @@ export function reduceDocumentViewportSession(
             if (event.generation !== state.generation
                 || event.viewportIntentId !== state.viewportIntent?.id
                 || state.viewportIntent.pageNumber !== null
-                || !isPositivePage(event.pageNumber)) return reject(state);
+                || !isPositivePage(event.pageNumber)) {return reject(state);}
             const pageNumber = clampPage(event.pageNumber, state.pageCount);
             return accept({
                 ...state,
@@ -674,7 +674,7 @@ export function reduceDocumentViewportSession(
         }
         case 'resident-visual-invalidated':
             if (event.generation !== state.generation || state.lifecycle !== 'ready'
-                || state.committedPage !== event.pageNumber) return reject(state);
+                || state.committedPage !== event.pageNumber) {return reject(state);}
             return accept({
                 ...state,
                 lifecycle: 'transitioning',

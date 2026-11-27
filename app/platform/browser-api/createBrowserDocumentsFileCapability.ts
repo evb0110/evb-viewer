@@ -154,7 +154,7 @@ export function createBrowserDocumentsFileCapability(
 
     function requireDocxStream(sessionId: TSessionId) {
         const sink = docxStreams.get(sessionId);
-        if (!sink) throw new Error('Unknown DOCX stream session');
+        if (!sink) {throw new Error('Unknown DOCX stream session');}
         return sink;
     }
 
@@ -165,7 +165,7 @@ export function createBrowserDocumentsFileCapability(
     /** Ends a native edit's receipt: its append is cut unless a commit took it. */
     async function releaseNativeMutationLease(leaseId: string) {
         const lease = browserNativeMutationLeases.get(leaseId);
-        if (!lease) return false;
+        if (!lease) {return false;}
         browserNativeMutationLeases.delete(leaseId);
         await browserDocumentStore.discardAppend(lease.path, leaseId);
         return true;
@@ -191,7 +191,7 @@ export function createBrowserDocumentsFileCapability(
             suggestedName: normalizeName(suggestedName),
             pickerTypes: saveKind === 'pdf' ? buildPdfSaveTypes() : buildDocxSaveTypes(),
         });
-        if (saveResult.canceled) return null;
+        if (saveResult.canceled) {return null;}
         const name = saveResult.handle?.name ?? normalizeName(saveResult.fileName);
         return browserDocumentStore.createStoredDocument(name, new Uint8Array(), {
             mimeType: saveKind === 'pdf' ? 'application/pdf' : DOCX_MIME_TYPE,
@@ -435,7 +435,7 @@ export function createBrowserDocumentsFileCapability(
                 committed = await saveWorkingBytesToSource(path, options, requireNativeMutationLease(path, stagedOutput));
             } catch (error) {
                 // The file changed since it was opened: a save result that offers Save As.
-                if (!(error instanceof BrowserDocumentSourceChangedError)) throw error;
+                if (!(error instanceof BrowserDocumentSourceChangedError)) {throw error;}
                 return {
                     applied: false,
                     validation: null,
@@ -594,11 +594,11 @@ export function createBrowserDocumentsFileCapability(
                 path,
                 {expectedDocumentRevisionToken: revision.token},
             );
-            if (!saved) return {
+            if (!saved) {return {
                 ...validation,
                 isValid: false,
                 errors: [],
-            };
+            };}
             await clearSearchCaches();
             return validation;
         },
@@ -646,11 +646,11 @@ export function createBrowserDocumentsFileCapability(
             const workingPath = await browserDocumentStore.cloneAsWorkingCopy(sourcePath);
             const workingEntry = await browserDocumentStore.requireEntry(workingPath);
             const sourceRef = originalPath && isBrowserDocumentRef(originalPath) ? parseDocumentRef(originalPath) : null;
-            if (sourceRef) workingEntry.sourceRef = sourceRef;
+            if (sourceRef) {workingEntry.sourceRef = sourceRef;}
             try {
                 const opened = sourceEntry.kind !== 'working';
                 assertBrowserWorkingCopyDecrypted(await decryptBrowserWorkingCopy(workingPath, password, opened ? {} : undefined));
-                if (opened) browserDocumentStore.unload(sourcePath);
+                if (opened) {browserDocumentStore.unload(sourcePath);}
                 return workingPath;
             } catch (error) {
                 await discardWorkingCopy(workingPath);
@@ -699,8 +699,8 @@ export function createBrowserDocumentsFileCapability(
                 const kept: IRecentFile[] = [];
                 for (const file of recentFiles) {
                     const stored = await browserDocumentStore.isStored(file.originalPath).catch(() => true);
-                    if (stored) kept.push(file);
-                    else await browserDocumentStore.removeRecentFile(file.originalPath);
+                    if (stored) {kept.push(file);}
+                    else {await browserDocumentStore.removeRecentFile(file.originalPath);}
                 }
                 return kept;
             },

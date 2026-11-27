@@ -456,7 +456,7 @@ export async function runLosslessScanCleanup(
                     summary,
                     pageMetadataBySource,
                 });
-                if (analyzed !== null) analyzedPages.push(analyzed);
+                if (analyzed !== null) {analyzedPages.push(analyzed);}
             }
         } finally {
             await Promise.all(pages.map(page => rm(page.pageMetadataPath, {force: true})));
@@ -481,7 +481,7 @@ export async function runLosslessScanCleanup(
     pagePlanResolver.report();
     if (documentCanvas === null && request.options.matchPageSize) {
         const droppedEvent = resolveScanCleanupDroppedMatchWarningEventFromAccumulator(canvasAccumulator);
-        if (droppedEvent) warnEvent(droppedEvent);
+        if (droppedEvent) {warnEvent(droppedEvent);}
     }
     const {
         allOutputs,

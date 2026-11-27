@@ -412,7 +412,7 @@ function createSearchWorkerPool() {
         };
 
         const finishSuccess = (data: unknown) => {
-            if (settled) return;
+            if (settled) {return;}
             settled = true;
             cleanup();
             if (stagedIndexPath !== null) {
@@ -428,7 +428,7 @@ function createSearchWorkerPool() {
         };
 
         const finishError = (error: unknown, terminateWorker: boolean, alreadyExited = false) => {
-            if (settled) return;
+            if (settled) {return;}
             settled = true;
             cleanup();
             if (terminateWorker) {

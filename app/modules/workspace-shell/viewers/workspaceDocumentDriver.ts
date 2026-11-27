@@ -269,7 +269,7 @@ async function prepareDjvuPrint(
         return {status: 'completed'};
     } catch (error) {
         // A print that ends here, a late cancel included, keeps nothing it prepared.
-        if (printablePdfPath) await getDjvuCapability().cleanupTemp(printablePdfPath).catch(() => undefined);
+        if (printablePdfPath) {await getDjvuCapability().cleanupTemp(printablePdfPath).catch(() => undefined);}
         throw error;
     } finally {
         command.signal?.removeEventListener('abort', cancelPrint);

@@ -169,7 +169,7 @@ export function decodeWorkspaceTabDrafts(
     onInvalid: (issue: string) => void,
     workingCopyRef?: TDocumentRef,
 ): Pick<IWorkspaceCheckpointTab, 'annotationRecovery' | 'annotationRecoveryInvalid'> {
-    if (raw === undefined) return {};
+    if (raw === undefined) {return {};}
     const parsed = decodeWorkspaceAnnotationRecovery(raw);
     if (!parsed.success) {
         onInvalid(parsed.issue);

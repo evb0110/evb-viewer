@@ -33,7 +33,7 @@ export const useBookmarkState = (deps: {
 
     function handleBookmarksChange(payload: IPdfBookmarkChangePayload) {
         const historyMode = payload.history ?? (payload.dirty ? 'record' : 'reset');
-        if (historyMode === 'reset' && bookmarksResolved.value && deps.preservesSourceReload?.()) return;
+        if (historyMode === 'reset' && bookmarksResolved.value && deps.preservesSourceReload?.()) {return;}
         bookmarksResolved.value = true;
         bookmarkItems.value = payload.bookmarks;
         bookmarkRevision += 1;

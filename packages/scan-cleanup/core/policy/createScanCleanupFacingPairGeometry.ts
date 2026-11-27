@@ -43,14 +43,14 @@ export function createScanCleanupFacingPairGeometry(): IScanCleanupFacingPairGeo
                 width,
                 height,
             ] = displayedSize(page);
-            if (sizes.size < MAX_DISTINCT_SIZES && width > 0 && height > 0) sizes.add(sizeKey(width, height));
+            if (sizes.size < MAX_DISTINCT_SIZES && width > 0 && height > 0) {sizes.add(sizeKey(width, height));}
         },
         isFacingPair(page) {
             const [
                 width,
                 height,
             ] = displayedSize(page);
-            if (!(width > height)) return false;
+            if (!(width > height)) {return false;}
             // A neighbouring point absorbs rounding on either side of a whole point.
             const steps = [
                 -1,

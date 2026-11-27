@@ -528,7 +528,7 @@ describe('page-label duplicate analysis completeness', () => {
             code: 'duplicate_page_label',
             message: `Page label "Cover" appears on ${totalPages} pages.`,
         }));
-        if (totalPages > 200) expect(snapshot.labels).toBeNull();
+        if (totalPages > 200) {expect(snapshot.labels).toBeNull();}
     });
 
     it('does not claim a partial literal count is a complete mixed-range result', () => {

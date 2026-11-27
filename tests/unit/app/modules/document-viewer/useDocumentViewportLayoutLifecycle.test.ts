@@ -71,7 +71,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         const transaction = {};
         lifecycle.beginLayoutTransaction(transaction);
@@ -161,7 +161,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         // The mode watcher captures page 251 from the previous fit-width
         // geometry and projects it before the DOM adopts the new layout.
@@ -219,7 +219,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         void pageLayouts.value;
         mode.value = 'custom';
@@ -274,7 +274,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         const transaction = {};
         lifecycle.beginLayoutTransaction(transaction);
@@ -339,7 +339,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         const predecessor = {};
         lifecycle.beginLayoutTransaction(predecessor);
@@ -388,7 +388,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         pageLayouts.value = [
             {
@@ -454,7 +454,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         const transaction = {};
         lifecycle.beginLayoutTransaction(transaction);
@@ -534,10 +534,10 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
         try {
             const transaction = retention === 'complete' ? {} : null;
-            if (transaction) lifecycle.beginLayoutTransaction(transaction);
+            if (transaction) {lifecycle.beginLayoutTransaction(transaction);}
             lifecycle.capturePointerAnchor({
                 clientX: 100,
                 clientY: 100,
@@ -553,8 +553,8 @@ describe('useDocumentViewportLayoutLifecycle', () => {
             // The zoom still keeps the original page point under the pointer.
             expect(viewport.scrollLeft).toBe(192);
             expect(viewport.scrollTop).toBe(492);
-            if (transaction === null) lifecycle.commitReadingPoint();
-            else await lifecycle.endLayoutTransaction(transaction);
+            if (transaction === null) {lifecycle.commitReadingPoint();}
+            else {await lifecycle.endLayoutTransaction(transaction);}
             await vi.advanceTimersByTimeAsync(200);
             const centreX = viewport.scrollLeft + viewport.clientWidth / 2;
             const centreY = viewport.scrollTop + viewport.clientHeight / 2;
@@ -614,7 +614,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         const transaction = {};
         lifecycle.beginLayoutTransaction(transaction);
@@ -699,7 +699,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         const transaction = {};
         lifecycle.beginLayoutTransaction(transaction);
@@ -751,7 +751,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         const transaction = {};
         lifecycle.beginLayoutTransaction(transaction);
@@ -818,7 +818,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         lifecycle.capturePointerAnchor({
             clientX: 150,
@@ -887,7 +887,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         lifecycle.capturePointerAnchor({
             clientX: 150,
@@ -950,7 +950,7 @@ describe('useDocumentViewportLayoutLifecycle', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
 
         isResizing.value = true;
         lifecycle.cancelPendingRestore();
@@ -1037,7 +1037,7 @@ describe('useDocumentViewportLayoutLifecycle reading point', () => {
                 return true;
             },
         }));
-        if (!lifecycle) throw new Error('Failed to create viewport layout lifecycle');
+        if (!lifecycle) {throw new Error('Failed to create viewport layout lifecycle');}
         return {
             lifecycle,
             pageLayouts,
@@ -1065,7 +1065,7 @@ describe('useDocumentViewportLayoutLifecycle reading point', () => {
             },
             /** A tab switch resets the wheel session first; a tab move does not. */
             hide({tabSwitch = true} = {}) {
-                if (tabSwitch) lifecycle.cancelPendingRestore();
+                if (tabSwitch) {lifecycle.cancelPendingRestore();}
                 lifecycle.suspend();
                 setClientHeight(0);
                 viewport.scrollTop = 0;

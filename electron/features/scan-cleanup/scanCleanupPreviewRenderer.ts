@@ -111,9 +111,9 @@ export async function scanCleanupPreviewRenderer(
     rasterMaxPixels?: number,
 ): Promise<TScanCleanupPreviewWireResult> {
     const fileSystem = dependencies.fileSystem;
-    if (!fileSystem) throw new Error('Scan cleanup preview requires injected filesystem capabilities');
-    if (!isAbsolute(request.sourcePdfPath)) throw new Error('Scan cleanup preview requires an absolute source path');
-    if (signal.aborted) throw signal.reason;
+    if (!fileSystem) {throw new Error('Scan cleanup preview requires injected filesystem capabilities');}
+    if (!isAbsolute(request.sourcePdfPath)) {throw new Error('Scan cleanup preview requires an absolute source path');}
+    if (signal.aborted) {throw signal.reason;}
     if (!dependencies.readFile) {
         throw new Error('Scan cleanup preview rendering requires an injected readFile capability');
     }
@@ -196,7 +196,7 @@ export async function scanCleanupPreviewRenderer(
                 renderDpiByPageNumber,
             };
         } catch (error) {
-            if (isScanCleanupSignalAborted(signal)) throw error;
+            if (isScanCleanupSignalAborted(signal)) {throw error;}
             if (request.options.matchPageSize) {
                 const detail = getErrorMessage(error);
                 previewWarningEvents.push({
@@ -458,9 +458,9 @@ export async function scanCleanupPreviewRenderer(
                 rememberRasterClaim(request.pageNumber, renderDpi);
             }
         }
-        if (isScanCleanupSignalAborted(signal)) throw signal.reason;
+        if (isScanCleanupSignalAborted(signal)) {throw signal.reason;}
         const binary = dependencies.resolveBinary();
-        if (!binary) throw new Error('Scan cleanup native tool is unavailable');
+        if (!binary) {throw new Error('Scan cleanup native tool is unavailable');}
         // Detection classified this page on the same plane, so its retained
         // raster is reused here when it is still cached.
         const analysisDpi = resolveScanCleanupAnalysisDpi(pageSize);
@@ -476,7 +476,7 @@ export async function scanCleanupPreviewRenderer(
                 pageSize,
                 claimId,
             );
-        if (canonicalRaw !== baseRaw) rememberRasterClaim(request.pageNumber, analysisDpi);
+        if (canonicalRaw !== baseRaw) {rememberRasterClaim(request.pageNumber, analysisDpi);}
         const outputs = [
             0,
             1,
@@ -657,7 +657,7 @@ export async function scanCleanupPreviewRenderer(
                     metadata: projectScanCleanupPreviewOutputMetadata(nativeMetadata, previewWarningEvents),
                 });
             } catch (error) {
-                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {throw error;}
             }
         }
         const result: TScanCleanupPreviewWireResult = {
@@ -710,11 +710,11 @@ export async function scanCleanupPreviewRenderer(
         throw error;
     } finally {
         if (detailAnalysisKey !== null && !unprovenTermination) {
-            if (releaseBaseAnalysisPin) releaseBaseAnalysisPin(detailAnalysisKey);
+            if (releaseBaseAnalysisPin) {releaseBaseAnalysisPin(detailAnalysisKey);}
             else {
                 const pins = baseAnalysisPins.get(detailAnalysisKey) ?? 0;
-                if (pins <= 1) baseAnalysisPins.delete(detailAnalysisKey);
-                else baseAnalysisPins.set(detailAnalysisKey, pins - 1);
+                if (pins <= 1) {baseAnalysisPins.delete(detailAnalysisKey);}
+                else {baseAnalysisPins.set(detailAnalysisKey, pins - 1);}
             }
         }
         // A native reader whose stop is unproven may still hold these inputs.

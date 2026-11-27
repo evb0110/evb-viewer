@@ -133,7 +133,7 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
             await expect(aborted.next()).rejects.toThrow(/abort/iu);
 
             const stale = streamPdfPageTexts(pdfPath);
-            for (let index = 0; index < 256; index += 1) await stale.next();
+            for (let index = 0; index < 256; index += 1) {await stale.next();}
             document.getPages()[0]?.drawText('New revision', {font});
             await writeFile(pdfPath, await document.save());
             await expect(stale.next()).rejects.toThrow('PDF source changed during text extraction');
@@ -184,10 +184,10 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
                     600,
                     800,
                 ]);
-                if ('blank' in setup) continue;
-                if (!setup.uncropped) page.setCropBox(100, 100, 300, 400);
+                if ('blank' in setup) {continue;}
+                if (!setup.uncropped) {page.setCropBox(100, 100, 300, 400);}
                 page.setRotation(degrees(setup.rotation));
-                if (setup.invisible) page.pushOperators(pushGraphicsState(), setTextRenderingMode(TextRenderingMode.Invisible));
+                if (setup.invisible) {page.pushOperators(pushGraphicsState(), setTextRenderingMode(TextRenderingMode.Invisible));}
                 page.drawText(`CROP_SHOWN_${index + 1}`, {
                     font,
                     size: 14,
@@ -200,13 +200,13 @@ describe.skipIf(!hostIsPackaged)('shipped native document binary contracts', () 
                     x: 150,
                     y: 650,
                 });
-                if (setup.invisible) page.pushOperators(popGraphicsState());
+                if (setup.invisible) {page.pushOperators(popGraphicsState());}
             }
             await writeFile(pdfPath, await document.save());
 
             const readAll = async (visiblePageOnly: boolean) => {
                 const pages = [];
-                for await (const page of streamPdfPageTexts(pdfPath, {visiblePageOnly})) pages.push(page.text);
+                for await (const page of streamPdfPageTexts(pdfPath, {visiblePageOnly})) {pages.push(page.text);}
                 return pages;
             };
             const visible = await readAll(true);

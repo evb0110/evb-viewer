@@ -139,7 +139,7 @@ function mountBlob(fs: IQpdfModule['FS'], blob: Blob) {
             blocks.delete(index);
         } else {
             bytes = new Uint8Array(reader.readAsArrayBuffer(blob.slice(index * BLOB_BLOCK_BYTES, (index + 1) * BLOB_BLOCK_BYTES)));
-            if (blocks.size >= BLOB_CACHED_BLOCKS) blocks.delete(blocks.keys().next().value!);
+            if (blocks.size >= BLOB_CACHED_BLOCKS) {blocks.delete(blocks.keys().next().value!);}
         }
         blocks.set(index, bytes);
         return bytes;
@@ -175,7 +175,7 @@ function mountBlob(fs: IQpdfModule['FS'], blob: Blob) {
                 const bytes = block(Math.floor(at / BLOB_BLOCK_BYTES));
                 const from = at % BLOB_BLOCK_BYTES;
                 const count = Math.min(length - done, bytes.byteLength - from);
-                if (count <= 0) break;
+                if (count <= 0) {break;}
                 buffer.set(bytes.subarray(from, from + count), offset + done);
                 done += count;
             }
@@ -184,7 +184,7 @@ function mountBlob(fs: IQpdfModule['FS'], blob: Blob) {
         write: refuse(ERRNO_EPERM),
         llseek(stream: IQpdfFileStream, offset: number, whence: number) {
             const position = offset + (whence === 1 ? stream.position : whence === 2 ? blob.size : 0);
-            if (position < 0) throw new fs.ErrnoError(ERRNO_EINVAL);
+            if (position < 0) {throw new fs.ErrnoError(ERRNO_EINVAL);}
             return position;
         },
     };
@@ -249,7 +249,7 @@ async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array | Blob): 
     try {
         exitCode = instance.callMain(COMMAND_ARGS[command]());
     } catch (error) {
-        if (!(error instanceof OutputBudgetError)) throw error;
+        if (!(error instanceof OutputBudgetError)) {throw error;}
         // Reported as qpdf's own failure exit, so callers refuse the rewrite.
         return {
             exitCode: 2,
@@ -258,7 +258,7 @@ async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array | Blob): 
             output: null,
         };
     } finally {
-        if (input instanceof Blob) instance.FS.unmount(BLOB_MOUNT);
+        if (input instanceof Blob) {instance.FS.unmount(BLOB_MOUNT);}
     }
     const output = WRITING_COMMANDS.has(command) && isQpdfSuccessExitCode(exitCode)
         ? instance.FS.readFile(OUTPUT_PATH)
@@ -272,12 +272,12 @@ async function runQpdf(command: TBrowserQpdfCommand, input: Uint8Array | Blob): 
 }
 
 function getErrorCode(error: unknown) {
-    if (error instanceof EngineUnavailableError) return BROWSER_QPDF_ENGINE_ERROR_CODES.unavailable;
+    if (error instanceof EngineUnavailableError) {return BROWSER_QPDF_ENGINE_ERROR_CODES.unavailable;}
     return BROWSER_QPDF_ENGINE_ERROR_CODES.failed;
 }
 
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
-    if (handlePrecompiledWasmModuleMessage(event.data)) return;
+    if (handlePrecompiledWasmModuleMessage(event.data)) {return;}
     const request = parseBrowserQpdfEngineRequest(event.data);
     if (request === null) {
         const id = getBrowserPageOpsWorkerRequestId(event.data);

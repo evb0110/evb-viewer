@@ -509,8 +509,8 @@ describe('browserSearchWorkerClient', () => {
     it('rejects a failed concurrent submission without losing the other search', async () => {
         let firstWorker: FakeWorker | undefined;
         FakeWorker.responder = worker => {
-            if (!firstWorker) firstWorker = worker;
-            else throw new Error('Second search could not be posted');
+            if (!firstWorker) {firstWorker = worker;}
+            else {throw new Error('Second search could not be posted');}
         };
         const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
         const first = createBrowserSearchWorkerRequest('matchPageText', pageMatchRequest('first'));

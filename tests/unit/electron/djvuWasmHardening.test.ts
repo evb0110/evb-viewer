@@ -1011,7 +1011,7 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
             }>();
             worker.on('message', (reply: TDjvuEngineWorkerReply) => {
                 const entry = pending.get(reply.id);
-                if (!entry) return;
+                if (!entry) {return;}
                 pending.delete(reply.id);
                 if (reply.ok) {
                     entry.resolve(reply.result);
@@ -1019,7 +1019,7 @@ describe('DjVuLibre WASM hardening (memory limits, text zones, legacy formats)',
                     const err = reply.errorName === 'RangeError'
                         ? new RangeError(reply.error)
                         : new Error(reply.error);
-                    if (reply.errorName) err.name = reply.errorName;
+                    if (reply.errorName) {err.name = reply.errorName;}
                     entry.reject(err);
                 }
             });

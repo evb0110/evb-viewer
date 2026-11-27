@@ -160,7 +160,7 @@ class FakeWorker {
 
 function workerRequestId(worker: FakeWorker) {
     const id = getBrowserPageOpsWorkerRequestId(worker.postMessageCalls.at(-1)?.message);
-    if (id === null) throw new Error('Worker request has no protocol id');
+    if (id === null) {throw new Error('Worker request has no protocol id');}
     return id;
 }
 
@@ -829,7 +829,7 @@ describe('browserPageOpsWorkerClient', () => {
             controller.abort(reason);
             await rejection;
             const siblingWorker = FakeWorker.lastInstance;
-            if (!siblingWorker) throw new Error('Missing sibling worker');
+            if (!siblingWorker) {throw new Error('Missing sibling worker');}
             const siblingRequest = siblingWorker.postMessageCalls[0]?.message as {id: number};
             const geometry = {
                 mediaBox: {
@@ -893,7 +893,7 @@ describe('browserPageOpsWorkerClient', () => {
                     throw new Error('The PDF page could not be rendered for print');
                 },
             }));
-            if (!print) throw new Error('Missing print owner');
+            if (!print) {throw new Error('Missing print owner');}
             await print.handlePrintDialogSubmit({
                 pageNumbers: [1],
                 viewMode: 'single',
@@ -951,7 +951,7 @@ describe('browserPageOpsWorkerClient', () => {
                 release: async () => { released = true; },
             }),
         }));
-        if (!print) throw new Error('Missing print owner');
+        if (!print) {throw new Error('Missing print owner');}
         print.handlePrintDialogOpenChange(true);
         const preparation = print.handlePrintDialogSubmit({
             viewMode: 'single',
@@ -995,7 +995,7 @@ describe('browserPageOpsWorkerClient', () => {
             hasPendingUnsavedChanges: ref(false),
             getPrintableSourceData: async () => input,
         }));
-        if (!print) throw new Error('Missing print owner');
+        if (!print) {throw new Error('Missing print owner');}
         print.handlePrintDialogOpenChange(true);
         const preparation = print.handlePrintDialogSubmit({
             viewMode: 'facing',
@@ -1075,7 +1075,7 @@ describe('browserPageOpsWorkerClient', () => {
         let thrownError: Error = new DOMException('The requested file could not be read, typically due to permission problems.', 'NotReadableError');
         vi.stubGlobal('self', {
             addEventListener: (type: string, listener: (event: MessageEvent<unknown>) => void) => {
-                if (type === 'message') workerListeners.push(listener);
+                if (type === 'message') {workerListeners.push(listener);}
             },
             postMessage: (message: unknown) => {
                 posted.push(message);

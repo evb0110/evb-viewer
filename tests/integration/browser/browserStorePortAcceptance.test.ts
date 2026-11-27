@@ -64,12 +64,12 @@ beforeAll(async () => {
         server.listen(0, '127.0.0.1', resolveListen);
     });
     const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('The store port harness did not bind a TCP port');
+    if (!address || typeof address === 'string') {throw new Error('The store port harness did not bind a TCP port');}
     origin = `http://127.0.0.1:${address.port}`;
 });
 
 afterAll(async () => {
-    if (server) await new Promise<void>(resolveClose => server.close(() => resolveClose()));
+    if (server) {await new Promise<void>(resolveClose => server.close(() => resolveClose()));}
     await rm(temporaryDirectory, {force: true, recursive: true});
 });
 

@@ -224,7 +224,7 @@ export async function restoreWorkspaceCheckpoint(
         })().catch(() => false);
         restoredByTabId.set(tab.tabId, restored);
         // The window's shown tab ends the startup overlay once its view presents.
-        if (shown && tab.tabId === checkpoint.activeTabId) void reportStartupFirstView(restored);
+        if (shown && tab.tabId === checkpoint.activeTabId) {void reportStartupFirstView(restored);}
         return restored;
     }));
     const failedPaths = checkpoint.tabs.flatMap((tab, index): TDocumentRef[] => {

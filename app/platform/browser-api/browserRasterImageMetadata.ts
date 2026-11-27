@@ -57,7 +57,7 @@ function readPng(data: Uint8Array): IBrowserRasterImageMetadata | null {
     let compressedIccProfile: Uint8Array | undefined;
     while (offset + 12 <= data.length) {
         const length = u32be(data, offset);
-        if (offset + 12 + length > data.length) break;
+        if (offset + 12 + length > data.length) {break;}
         if (
             length === 9
             && data[offset + 4] === 0x70
@@ -109,7 +109,7 @@ function readExifOrientation(data: Uint8Array, start: number, length: number): 1
     const count = read16(data, ifd);
     for (let index = 0; index < count; index += 1) {
         const entry = ifd + 2 + (index * 12);
-        if (entry + 12 > start + length) break;
+        if (entry + 12 > start + length) {break;}
         if (read16(data, entry) === 0x0112) {
             const value = read16(data, entry + 8);
             return value === 2 || value === 3 || value === 4 || value === 5 || value === 6 || value === 7 || value === 8 ? value : 1;
@@ -133,11 +133,11 @@ function readJpeg(data: Uint8Array): IBrowserRasterImageMetadata | null {
         data: Uint8Array
     }> = [];
     while (offset + 4 <= data.length) {
-        if (data[offset] !== 0xff) break;
+        if (data[offset] !== 0xff) {break;}
         const marker = readByte(data, offset + 1);
-        if (marker === 0xda || marker === 0xd9) break;
+        if (marker === 0xda || marker === 0xd9) {break;}
         const length = u16be(data, offset + 2);
-        if (length < 2 || offset + 2 + length > data.length) break;
+        if (length < 2 || offset + 2 + length > data.length) {break;}
         const payload = offset + 4;
         if (
             marker === 0xe0
@@ -146,8 +146,8 @@ function readJpeg(data: Uint8Array): IBrowserRasterImageMetadata | null {
         ) {
             const units = readByte(data, payload + 7);
             const density = Math.max(u16be(data, payload + 8), u16be(data, payload + 10));
-            if (units === 1 && density > 0) dpi = density;
-            if (units === 2 && density > 0) dpi = Math.round(density * CM_PER_INCH);
+            if (units === 1 && density > 0) {dpi = density;}
+            if (units === 2 && density > 0) {dpi = Math.round(density * CM_PER_INCH);}
         } else if (marker === 0xe1) {
             orientation = readExifOrientation(data, payload, length - 2);
         } else if (
@@ -214,7 +214,7 @@ function readJp2(data: Uint8Array): IBrowserRasterImageMetadata | null {
         0x87,
         10,
     ];
-    if (!signature.every((value, index) => data[index] === value)) return null;
+    if (!signature.every((value, index) => data[index] === value)) {return null;}
     // Only inspect dimensions for browser resource admission. The native WASM
     // reader owns profile support and complete codestream validation.
     function readBoxes(start: number, end: number): IBrowserRasterImageMetadata | null {
@@ -222,18 +222,18 @@ function readJp2(data: Uint8Array): IBrowserRasterImageMetadata | null {
             let length = u32be(data, offset);
             let headerLength = 8;
             if (length === 1) {
-                if (offset + 16 > end) return null;
+                if (offset + 16 > end) {return null;}
                 length = u32be(data, offset + 8) * 0x1_0000_0000 + u32be(data, offset + 12);
                 headerLength = 16;
             } else if (length === 0) {
                 length = end - offset;
             }
-            if (!Number.isSafeInteger(length) || length < headerLength || length > end - offset) return null;
+            if (!Number.isSafeInteger(length) || length < headerLength || length > end - offset) {return null;}
             const type = String.fromCharCode(...data.subarray(offset + 4, offset + 8));
             const payload = offset + headerLength;
-            if (type === 'jp2h' && start === signature.length) return readBoxes(payload, offset + length);
+            if (type === 'jp2h' && start === signature.length) {return readBoxes(payload, offset + length);}
             if (type === 'ihdr' && start !== signature.length) {
-                if (length - headerLength < 14) return null;
+                if (length - headerLength < 14) {return null;}
                 return {
                     height: u32be(data, payload),
                     width: u32be(data, payload + 4),

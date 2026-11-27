@@ -157,10 +157,10 @@ describe('annotation geometry rendering', () => {
             expect(parseFloat(text.style.height)).toBeCloseTo(50);
         } else {
             const shape = harness.host.querySelector('[data-annotation-kind="shape"] [data-annotation-visual]')!;
-            if (tool === 'rectangle') expect(Number(shape.querySelector('rect')!.getAttribute('width'))).toBeCloseTo(0.5);
-            if (tool === 'circle') expect(Number(shape.querySelector('ellipse')!.getAttribute('rx'))).toBeCloseTo(0.25);
-            if (tool === 'line' || tool === 'arrow') expect(Number(shape.querySelector('line')!.getAttribute('x2'))).toBeCloseTo(0.7);
-            if (tool === 'draw') expect(shape.querySelector('polyline')!.getAttribute('points')).toContain('0.7,0.7');
+            if (tool === 'rectangle') {expect(Number(shape.querySelector('rect')!.getAttribute('width'))).toBeCloseTo(0.5);}
+            if (tool === 'circle') {expect(Number(shape.querySelector('ellipse')!.getAttribute('rx'))).toBeCloseTo(0.25);}
+            if (tool === 'line' || tool === 'arrow') {expect(Number(shape.querySelector('line')!.getAttribute('x2'))).toBeCloseTo(0.7);}
+            if (tool === 'draw') {expect(shape.querySelector('polyline')!.getAttribute('points')).toContain('0.7,0.7');}
         }
         expect(harness.surface.getEntitiesForPage(0)[0]).toMatchObject({rect: {
             width: 0.3,
@@ -180,7 +180,7 @@ describe('annotation geometry rendering', () => {
         harness.pointer(harness.layer, 'pointerup', 450, 300);
         const entity = harness.surface.getEntitiesForPage(0)[0];
         expect(entity).toMatchObject({kind: 'shape'});
-        if (entity?.kind !== 'shape') throw new Error('shape missing');
+        if (entity?.kind !== 'shape') {throw new Error('shape missing');}
         expect(entity.rect.left).toBeCloseTo(0.2);
         expect(entity.rect.top).toBeCloseTo(0.2);
         expect(entity.rect.width).toBeCloseTo(0.3);
@@ -261,7 +261,7 @@ describe('annotation geometry rendering', () => {
         expect(positions[1]).toBeCloseTo(0.9);
         harness.pointer(harness.layer, 'pointerup', 310, 190);
         harness.surface.getEntitiesForPage(0).forEach((entity, index) => {
-            if (entity.kind !== 'text-box') throw new Error('text missing');
+            if (entity.kind !== 'text-box') {throw new Error('text missing');}
             expect(entity.rect.left).toBeCloseTo(positions[index]!);
         });
     });
@@ -309,8 +309,8 @@ describe('annotation geometry rendering', () => {
         expect(host.querySelectorAll('[data-annotation-hit-target]')).toHaveLength(1);
         const visual = host.querySelector('[data-annotation-visual]')!;
         expect(visual).not.toBeNull();
-        if (subtype === 'Squiggly') expect(visual.getAttribute('d')?.split('L').length).toBeGreaterThan(3);
-        if (subtype === 'Underline' || subtype === 'StrikeOut') expect(Number(visual.getAttribute('y1'))).toBeCloseTo(subtype === 'Underline' ? 0.394 : 0.35);
+        if (subtype === 'Squiggly') {expect(visual.getAttribute('d')?.split('L').length).toBeGreaterThan(3);}
+        if (subtype === 'Underline' || subtype === 'StrikeOut') {expect(Number(visual.getAttribute('y1'))).toBeCloseTo(subtype === 'Underline' ? 0.394 : 0.35);}
     });
 
     it.each([

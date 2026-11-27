@@ -38,9 +38,9 @@ export async function moveTabToNewWindow(page: Page, {
     const deadline = Date.now() + timeoutMs;
     while (!destination && Date.now() < deadline) {
         destination = (await browser.pages()).find(candidate => !previousPages.has(candidate));
-        if (!destination) await new Promise(resolve => setTimeout(resolve, 100));
+        if (!destination) {await new Promise(resolve => setTimeout(resolve, 100));}
     }
-    if (!destination) throw new Error('Move Tab to New Window did not create a window');
+    if (!destination) {throw new Error('Move Tab to New Window did not create a window');}
     await destination.waitForSelector('.page_container--rendered', {timeout: timeoutMs});
     await page.waitForFunction((count: number) => document.querySelectorAll('.tab-list [role="tab"]').length === count - 1,
         {timeout: Math.max(1, deadline - Date.now())}, sourceTabCount);

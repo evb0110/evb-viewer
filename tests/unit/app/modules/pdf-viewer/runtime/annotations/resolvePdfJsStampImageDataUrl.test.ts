@@ -232,7 +232,7 @@ describe('resolvePdfJsStampImageDataUrl', () => {
 
 it('#1608 retains the bitmap conversion cause when an imported stamp cannot be drawn', () => {
     const retained: string[] = [];
-    setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
+    setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') {retained.push(JSON.stringify(entry));}});
     vi.stubGlobal('window', {});
     vi.stubGlobal('document', {createElement: () => ({width: 0, height: 0,
         getContext: () => ({drawImage: () => {throw new Error('Stamp bitmap detached');}}),

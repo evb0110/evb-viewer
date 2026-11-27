@@ -25,7 +25,7 @@ const tokens = computed(() => Lexer.lex(text, {
 }));
 
 function safeHref(href: string) {
-    if (/^(?:#|\/(?!\/)|\.\.?\/)/u.test(href)) return href;
+    if (/^(?:#|\/(?!\/)|\.\.?\/)/u.test(href)) {return href;}
     try {
         return [
             'http:',

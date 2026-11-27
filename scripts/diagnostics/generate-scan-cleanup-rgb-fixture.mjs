@@ -170,12 +170,12 @@ function makeRaster() {
             }
             for (let row = 0; row < glyph.length; row += 1) {
                 for (let column = 0; column < glyph[row].length; column += 1) {
-                    if (glyph[row][column] !== '1') continue;
+                    if (glyph[row][column] !== '1') {continue;}
                     for (let yy = 0; yy < scale; yy += 1) {
                         for (let xx = 0; xx < scale; xx += 1) {
                             const targetX = x + column * scale + xx;
                             const targetY = top + row * scale + yy;
-                            if (targetX < 0 || targetX >= WIDTH || targetY < 0 || targetY >= HEIGHT) continue;
+                            if (targetX < 0 || targetX >= WIDTH || targetY < 0 || targetY >= HEIGHT) {continue;}
                             const offset = (targetY * WIDTH + targetX) * 3;
                             pixels[offset] = 24;
                             pixels[offset + 1] = 25;

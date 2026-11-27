@@ -80,7 +80,7 @@ function filePublication(onPublished = () => {}): IPublicationPort {
         witness,
         source: async destination => destination,
         async publish(destination, source, expected, stage) {
-            if (expected !== null && await witness(destination) !== expected) return { status: 'conflict' };
+            if (expected !== null && await witness(destination) !== expected) {return { status: 'conflict' };}
             const bytes = await source.file.readAt(0, source.length);
             const published = await witnessOf(bytes);
             await stage(published);
@@ -115,7 +115,7 @@ function crashingPort(port: IStorePort, at: (operation: string, target: string) 
         readAt: async (offset, length) => (check('readAt', target), file.readAt(offset, length)),
         witness: async length => (check('witness', target), file.witness(length)),
         async writeAt(offset, bytes) {
-            if (!crashed && at('writeAt', target)) await file.writeAt(offset, bytes.subarray(0, bytes.byteLength >> 1));
+            if (!crashed && at('writeAt', target)) {await file.writeAt(offset, bytes.subarray(0, bytes.byteLength >> 1));}
             check('writeAt', target);
             await file.writeAt(offset, bytes);
         },
@@ -159,12 +159,12 @@ async function crashDuring(doc: DocumentDirectory, at: (operation: string, targe
 describe('Node revision files', () => {
     it.each([false, true])('retains only read access between operations (existing: %s)', async existing => {
         const target = path.join(workDir, 'r1.pdf');
-        if (existing) await writeFile(target, 'old');
+        if (existing) {await writeFile(target, 'old');}
         const realOpen = promises.open.bind(promises);
         const writers: Awaited<ReturnType<typeof promises.open>>[] = [];
         const opened = vi.spyOn(promises, 'open').mockImplementation(async (file, flags, mode) => {
             const handle = await realOpen(file, flags, mode);
-            if (file === target && flags !== 'r') writers.push(handle);
+            if (file === target && flags !== 'r') {writers.push(handle);}
             return handle;
         });
         let file: IStoreFile | undefined;
@@ -372,7 +372,7 @@ describe('revision-file error paths', () => {
         const doc = await create(store(fault.port, {
             ...publication,
             async witness(target, content) {
-                if ((await fault.port.list('documents/witness-failure')).includes('r1.pdf')) throw new Error('final witness failed');
+                if ((await fault.port.list('documents/witness-failure')).includes('r1.pdf')) {throw new Error('final witness failed');}
                 return publication.witness(target, content);
             },
         }), { ext: 'pdf', id: 'witness-failure', destination });
@@ -520,8 +520,8 @@ describe('recovery after a crash', () => {
         const flaky: IStorePort = {
             ...port,
             async writeAtomic(target, bytes) {
-                if (!target.endsWith('manifest.json')) return port.writeAtomic(target, bytes);
-                if (manifestWrite === 'lands then fails') await port.writeAtomic(target, bytes);
+                if (!target.endsWith('manifest.json')) {return port.writeAtomic(target, bytes);}
+                if (manifestWrite === 'lands then fails') {await port.writeAtomic(target, bytes);}
                 throw new Error(`manifest write ${manifestWrite}`);
             },
             read: async target => (manifestWrite === 'unreadable' && target.endsWith('manifest.json') ? Promise.reject(new Error('EIO')) : port.read(target)),
@@ -585,7 +585,7 @@ describe('recovery after a crash', () => {
         let replaced = false;
         await crashDuring(doc, (operation, target) => {
             const manifest = operation === 'writeAtomic' && target.endsWith('manifest.json');
-            if (!afterReplace || replaced) return manifest || replaced;
+            if (!afterReplace || replaced) {return manifest || replaced;}
             replaced = manifest;
             return false;
         }, async crashed => {
@@ -953,7 +953,7 @@ describe('workspace checkpoints and collection', () => {
         const failingCheckpointPort: IStorePort = {
             ...port,
             writeAtomic: async (target, bytes) => {
-                if (target.startsWith('workspaces/')) throw new Error('Injected checkpoint write failure');
+                if (target.startsWith('workspaces/')) {throw new Error('Injected checkpoint write failure');}
                 return port.writeAtomic(target, bytes);
             },
         };
@@ -1030,7 +1030,7 @@ describe('OpenDocument shared revision and append lifecycle', () => {
             return base + 7;
         }, { requireToken: true });
         expect(staged).toMatchObject({ status: 'staged' });
-        if (staged.status !== 'staged') throw new Error('Expected staged append');
+        if (staged.status !== 'staged') {throw new Error('Expected staged append');}
         expect(openDoc.hasPendingAppend()).toBe(true);
         const committed = await openDoc.commitAppend(rev1, staged.lease, { requireToken: true });
         expect(committed).toMatchObject({ status: 'committed', revision: { id: 2 }, previousToken: rev1 });
@@ -1185,7 +1185,7 @@ it('persists foreign staged/committed revision state across reopen, resolvePendi
                 }
                 if (failMode === 'crash-after-stage-adopted') {
                     const published = await baseStore.publication.publish(dest, source, expected, stage, reserve);
-                    if (published.status !== 'published') return published;
+                    if (published.status !== 'published') {return published;}
                     // Simulate crash after destination holds the published witness, before saveDocument acknowledges.
                     throw new Error('simulated crash after publish');
                 }

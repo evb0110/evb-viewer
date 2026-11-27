@@ -5,6 +5,6 @@
 export async function opfsFileHandle(path: string, create = false) {
     const segments = path.split('/');
     let dir = await navigator.storage.getDirectory();
-    for (const name of segments.slice(0, -1)) dir = await dir.getDirectoryHandle(name);
+    for (const name of segments.slice(0, -1)) {dir = await dir.getDirectoryHandle(name);}
     return dir.getFileHandle(segments.at(-1)!, {create});
 }

@@ -190,7 +190,7 @@ const rustSourceRemaps = new Map();
 function getRustSourceRemap(env, projectRoot, runCommand) {
     const key = JSON.stringify([projectRoot, env.RUSTC, getRustupHome(env, projectRoot), env.RUSTUP_TOOLCHAIN]);
     const cached = runCommand === spawnSync ? rustSourceRemaps.get(key) : undefined;
-    if (cached) return cached;
+    if (cached) {return cached;}
     const run = (/** @type {string[]} */ args) => runCommand(env.RUSTC || 'rustc', args, {
         cwd: projectRoot,
         encoding: 'utf8',
@@ -202,7 +202,7 @@ function getRustSourceRemap(env, projectRoot, runCommand) {
     const remap = sysroot?.status === 0 && sysroot.stdout.trim() && commit
         ? [`--remap-path-prefix=${path.join(sysroot.stdout.trim(), 'lib', 'rustlib', 'src', 'rust')}=/rustc/${commit}`]
         : [];
-    if (runCommand === spawnSync) rustSourceRemaps.set(key, remap);
+    if (runCommand === spawnSync) {rustSourceRemaps.set(key, remap);}
     return remap;
 }
 

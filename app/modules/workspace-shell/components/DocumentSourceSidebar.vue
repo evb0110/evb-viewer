@@ -159,7 +159,7 @@ function forwardThumbnailActivation(pageNumber: number, event: MouseEvent) {
 
 function activateBookmark(id: string) {
     const pageNumber = getBookmarkPageNumber(id);
-    if (pageNumber !== null) emit('go-to-page', pageNumber);
+    if (pageNumber !== null) {emit('go-to-page', pageNumber);}
 }
 
 </script>

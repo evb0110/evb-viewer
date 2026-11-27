@@ -432,7 +432,7 @@ describe('browserPdfValidation', () => {
             return {blob: new Blob([revisions[current] as BlobPart]), token: current};
         });
         browserDocumentStoreMock.assertDocumentRevisionCurrent.mockImplementation(async (_path, token) => {
-            if (token !== current) throw stale;
+            if (token !== current) {throw stale;}
         });
         onTestFinished(() => {
             browserDocumentStoreMock.getDocumentRevision.mockImplementation(async () => ({token: 'revision-1'}));
@@ -535,7 +535,7 @@ describe('browser qpdf engine worker', () => {
         const reads: number[] = [];
         vi.stubGlobal('FileReaderSync', class {
             public readAsArrayBuffer(blob: Blob) {
-                if (!(blob instanceof SyncReadableBlob)) throw new TypeError('The engine read a Blob it was not given');
+                if (!(blob instanceof SyncReadableBlob)) {throw new TypeError('The engine read a Blob it was not given');}
                 reads.push(blob.size);
                 return blob.content.slice().buffer;
             }

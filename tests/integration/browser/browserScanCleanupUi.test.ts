@@ -657,10 +657,10 @@ describe('browser Scan Cleanup workspace', () => {
             }).click();
             await expect.poll(() => page.locator('.uniform-canvas[data-render-dpi]').first().getAttribute('data-render-dpi')).toBe('150');
             await waitForPixels(page, 1);
-            for (let step = 0; step < 5; step += 1) await page.getByRole('button', {
+            for (let step = 0; step < 5; step += 1) {await page.getByRole('button', {
                 name: 'Zoom in',
                 exact: true,
-            }).click();
+            }).click();}
             await page.locator('.preview-detail-pixel').first().waitFor({
                 state: 'visible',
                 timeout: 30_000,
@@ -853,10 +853,10 @@ describe('browser Scan Cleanup workspace', () => {
             }).click();
             await waitForPixels(page, 1);
             // Navigate while adjacent preparation and the detail debounce can settle.
-            for (let step = 0; step < 5; step += 1) await page.getByRole('button', {
+            for (let step = 0; step < 5; step += 1) {await page.getByRole('button', {
                 name: 'Zoom in',
                 exact: true,
-            }).click();
+            }).click();}
             await page.getByRole('button', {
                 name: 'Preview next page',
                 exact: true,
@@ -920,7 +920,7 @@ describe('browser Scan Cleanup workspace', () => {
                 const suspended = new Map<number, FrameRequestCallback>();
                 let id = 0;
                 window.requestAnimationFrame = callback => { suspended.set(--id, callback); return id; };
-                window.cancelAnimationFrame = frame => { if (!suspended.delete(frame)) cancel(frame); };
+                window.cancelAnimationFrame = frame => { if (!suspended.delete(frame)) {cancel(frame);} };
                 Reflect.set(window, '__sc3bResume', () => {
                     window.requestAnimationFrame = request;
                     window.cancelAnimationFrame = cancel;
@@ -986,7 +986,7 @@ describe('browser Scan Cleanup workspace', () => {
                 };
                 page.on('worker', (worker) => {
                     const kind = worker.url().includes('nativeWasmThread.worker') ? 'threads' : worker.url().includes('browserScanCleanup.worker') ? 'engines' : null;
-                    if (kind === null) return;
+                    if (kind === null) {return;}
                     engineWorkers.add(worker.url());
                     live[kind] += 1;
                     worker.on('close', () => {
@@ -1011,7 +1011,7 @@ describe('browser Scan Cleanup workspace', () => {
                     };
                     const add = Original.prototype.addEventListener;
                     Original.prototype.addEventListener = function(this: Worker, type: string, listener: unknown, options?: unknown) {
-                        if (type !== 'message' || typeof listener !== 'function') return Reflect.apply(add, this, [type, listener, options]);
+                        if (type !== 'message' || typeof listener !== 'function') {return Reflect.apply(add, this, [type, listener, options]);}
                         const worker = this;
                         const filtered = (event: MessageEvent) => {
                             if (Reflect.get(window, '__holdPages') === true && (event.data as {type?: unknown} | null)?.type === 'render-page') {

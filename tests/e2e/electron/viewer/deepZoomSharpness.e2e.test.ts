@@ -130,9 +130,9 @@ async function readGratingRegion(page: Page): Promise<IMeasureRegion & {baseDens
     }) => {
         const surface = document.querySelector<HTMLElement>('.page_container[data-page="1"] .page_canvas');
         let viewer = surface?.parentElement ?? null;
-        while (viewer && !/(auto|scroll)/u.test(getComputedStyle(viewer).overflowY)) viewer = viewer.parentElement;
+        while (viewer && !/(auto|scroll)/u.test(getComputedStyle(viewer).overflowY)) {viewer = viewer.parentElement;}
         const canvas = surface?.querySelector<HTMLCanvasElement>('.page_canvas__render-layer > canvas');
-        if (!surface || !viewer || !canvas) throw new Error('Page 1 surface was not found');
+        if (!surface || !viewer || !canvas) {throw new Error('Page 1 surface was not found');}
         const page = surface.getBoundingClientRect();
         const viewerRect = viewer.getBoundingClientRect();
         const cssPerPt = page.width / geometry.width;
@@ -190,8 +190,8 @@ async function measureResolvedBarShare(page: Page, region: IMeasureRegion, evide
         for (let x = x0; x < x0 + width; x += 1) {
             const offset = ((y * image.width) + x) * channels;
             const luminance = ((0.2126 * image.data[offset]!) + (0.7152 * image.data[offset + 1]!) + (0.0722 * image.data[offset + 2]!)) / 255;
-            if (luminance < 0.15) dark += 1;
-            if (luminance > 0.85) light += 1;
+            if (luminance < 0.15) {dark += 1;}
+            if (luminance > 0.85) {light += 1;}
             total += 1;
         }
     }
@@ -214,11 +214,11 @@ async function measureDetailRasterBarShare(page: Page, region: IMeasureRegion) {
         const canvases = document.querySelectorAll<HTMLCanvasElement>('.page_container[data-page="1"] .page_canvas__detail-layer > canvas');
         const canvas = canvases[canvases.length - 1];
         const context = canvas?.getContext('2d');
-        if (!canvas || !context) return {
+        if (!canvas || !context) {return {
             darkShare: 0,
             lightShare: 0,
             resolution: 0,
-        };
+        };}
         const rect = canvas.getBoundingClientRect();
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
@@ -234,8 +234,8 @@ async function measureDetailRasterBarShare(page: Page, region: IMeasureRegion) {
             for (let x = 0; x < width; x += 1) {
                 const offset = ((y * width) + x) * 4;
                 const luminance = ((0.2126 * data[offset]!) + (0.7152 * data[offset + 1]!) + (0.0722 * data[offset + 2]!)) / 255;
-                if (luminance < 0.15) dark += 1;
-                if (luminance > 0.85) light += 1;
+                if (luminance < 0.15) {dark += 1;}
+                if (luminance > 0.85) {light += 1;}
                 total += 1;
             }
         }
@@ -457,7 +457,7 @@ describe('Electron E2E - deep zoom sharpness', () => {
         await waitForDetailCanvasCovering(page, await readGratingRegion(page));
         const pageCanvas = await page.evaluateHandle(() => {
             const canvas = document.querySelector<HTMLCanvasElement>('.page_container[data-page="1"] .page_canvas__render-layer > canvas');
-            if (!canvas) throw new Error('Page 1 canvas was not found');
+            if (!canvas) {throw new Error('Page 1 canvas was not found');}
             return canvas;
         });
         const before = await pageCanvas.evaluate(canvas => `${String(canvas.width)}x${String(canvas.height)}`);

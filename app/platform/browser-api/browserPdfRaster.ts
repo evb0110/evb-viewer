@@ -124,7 +124,7 @@ export async function renderBrowserPdfRaster(
                 canvas.width = tileWidth;
                 canvas.height = tileHeight;
                 const context = canvas.getContext('2d', {willReadFrequently: !transfer});
-                if (!context) throw new Error('Canvas 2D context is unavailable');
+                if (!context) {throw new Error('Canvas 2D context is unavailable');}
                 const task = page.render({
                     canvas,
                     canvasContext: context,

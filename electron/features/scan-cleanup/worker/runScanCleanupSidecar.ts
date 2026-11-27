@@ -137,7 +137,7 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
     try {
         contents = await readFile(journalPath, 'utf8');
     } catch (error) {
-        if (isNotFound(error)) return false;
+        if (isNotFound(error)) {return false;}
         throw error;
     }
     const journal = parsePublicationJournal(JSON.parse(contents) as unknown);
@@ -146,12 +146,12 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
     }
     if (journal.committed) {
         for (const entry of journal.entries) {
-            if (entry.backup === null) continue;
+            if (entry.backup === null) {continue;}
             let backupStats;
             try {
                 backupStats = await lstat(entry.backup);
             } catch (error) {
-                if (isNotFound(error)) continue;
+                if (isNotFound(error)) {continue;}
                 throw error;
             }
             if (!backupStats.isFile()) {
@@ -171,7 +171,7 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
                 }
                 await unlink(entry.original);
             } catch (error) {
-                if (!isNotFound(error)) throw error;
+                if (!isNotFound(error)) {throw error;}
             }
             continue;
         }
@@ -183,7 +183,7 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
         try {
             backupStats = await lstat(backup);
         } catch (error) {
-            if (!isNotFound(error)) throw error;
+            if (!isNotFound(error)) {throw error;}
             try {
                 const originalStats = await lstat(entry.original);
                 if (originalStats.isDirectory()) {
@@ -207,7 +207,7 @@ export async function replayScanCleanupPublicationJournal(manifestPath: string) 
             }
             await unlink(entry.original);
         } catch (error) {
-            if (!isNotFound(error)) throw error;
+            if (!isNotFound(error)) {throw error;}
         }
         await rename(backup, entry.original);
     }
@@ -269,8 +269,8 @@ function logSidecarStageTimings(
         decode: 0, analysisLevel: 0, normalization: 0, split: 0,
         deskew: 0, content: 0, render: 0, write: 0,
     };
-    for (const timings of terminalPageTimings.values()) addStageTimings(stageTotalsMs, timings);
-    if (terminalUnkeyedTimings !== null) addStageTimings(stageTotalsMs, terminalUnkeyedTimings);
+    for (const timings of terminalPageTimings.values()) {addStageTimings(stageTotalsMs, timings);}
+    if (terminalUnkeyedTimings !== null) {addStageTimings(stageTotalsMs, terminalUnkeyedTimings);}
     log('debug', [
         'evb-scan-cleanup timings ' + basename(manifestPath) + ':',
         'wall=' + formatSeconds(performance.now() - startedAt),
@@ -287,7 +287,7 @@ export async function runScanCleanupSidecar(
     onProgress: (nativeProgress: TNativeScanCleanupProgressV3) => void | Promise<void>,
     options: IRunScanCleanupSidecarOptions = {},
 ) {
-    if (signal.aborted) throw abortErrorFromSignal(signal);
+    if (signal.aborted) {throw abortErrorFromSignal(signal);}
     await streamScanCleanupSidecar(
         binaryPath,
         manifestPath,
@@ -337,7 +337,7 @@ async function streamScanCleanupSidecar(
     let deferredRecoveryOutcome: boolean | null = null;
 
     const settleDeferredRecovery = (recovered: boolean) => {
-        if (deferredRecoveryOutcome !== null) return;
+        if (deferredRecoveryOutcome !== null) {return;}
         deferredRecoveryOutcome = recovered;
         resolveDeferredRecovery?.(recovered);
     };
@@ -437,7 +437,7 @@ async function streamScanCleanupSidecar(
         processAbort.abort();
     };
     signal.addEventListener('abort', handleAbort, {once: true});
-    if (signal.aborted) handleAbort();
+    if (signal.aborted) {handleAbort();}
 
     const recordSidecarProof: TTerminationProofSink = (proof) => {
         terminationAttempted = true;
@@ -552,7 +552,7 @@ async function streamScanCleanupSidecar(
         await replayPublicationJournal();
         throw protocolError;
     }
-    if (nativeFailure !== null) await replayPublicationJournal();
+    if (nativeFailure !== null) {await replayPublicationJournal();}
     throwIfError(nativeFailure);
     if (terminalResult !== 'success') {
         await replayPublicationJournal();

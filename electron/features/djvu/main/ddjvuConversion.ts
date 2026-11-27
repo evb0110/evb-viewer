@@ -143,7 +143,7 @@ function parsePageRangeSpec(pagesSpec: string | undefined, totalPages: number): 
     const seen = new Set<number>();
     for (const part of pagesSpec.split(',')) {
         const trimmed = part.trim();
-        if (!trimmed) continue;
+        if (!trimmed) {continue;}
         const dashIndex = trimmed.indexOf('-');
         if (dashIndex >= 0) {
             const start = Number.parseInt(trimmed.slice(0, dashIndex).trim(), 10);

@@ -119,7 +119,7 @@ const textSearchProgressSchema = v.pipe(textSearchProgressInputSchema, v.transfo
             results: progress.results,
             truncated: Boolean(progress.truncated),
         }, {abortEarly: true});
-        if (!parsed.success) throw new Error(error);
+        if (!parsed.success) {throw new Error(error);}
         results = parsed.output.results;
     }
     return {

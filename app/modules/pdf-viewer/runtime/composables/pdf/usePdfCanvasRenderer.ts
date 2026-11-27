@@ -279,7 +279,7 @@ export const usePdfCanvasRenderer = (deps: {
             throw new RangeError(`PDF page ${pdfPage.pageNumber} has invalid canvas scale ${canvasScale.scaleX}x${canvasScale.scaleY}`);
         }
 
-        if (!shouldContinueCanvasPreparation(options)) return null;
+        if (!shouldContinueCanvasPreparation(options)) {return null;}
         // The device transform is the canvas size over the page size, so equal
         // clamped sizes paint the same pixels at any zoom.
         const reusable = options?.reuseCanvasOf;
@@ -453,7 +453,7 @@ export const usePdfCanvasRenderer = (deps: {
         canvas: HTMLCanvasElement,
         previousCanvas?: HTMLCanvasElement | null,
     ) {
-        if (previousCanvas === canvas && canvas.parentElement === canvasHost) return;
+        if (previousCanvas === canvas && canvas.parentElement === canvasHost) {return;}
         if (previousCanvas?.parentElement === canvasHost) {
             previousCanvas.replaceWith(canvas);
         } else {

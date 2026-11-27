@@ -59,22 +59,22 @@ function focusLevel() {
 }
 
 function handleKeydown(event: KeyboardEvent) {
-    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) {return;}
     if (event.key === 'ArrowLeft') {
         event.preventDefault();
         emit('back');
         return;
     }
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {return;}
     const rows = Array.from(column.value?.querySelectorAll<HTMLElement>('[data-effort-level]') ?? []);
     const index = rows.findIndex(row => row === document.activeElement);
     const next = rows[Math.min(rows.length - 1, Math.max(0, index + (event.key === 'ArrowDown' ? 1 : -1)))];
     event.preventDefault();
-    if (!next) return;
+    if (!next) {return;}
     next.focus();
     next.scrollIntoView({ block: 'nearest' });
     // A radio group selects the level the arrow moves to.
-    if (next.dataset.effortId && next.dataset.effortId !== effort) emit('pick', next.dataset.effortId);
+    if (next.dataset.effortId && next.dataset.effortId !== effort) {emit('pick', next.dataset.effortId);}
 }
 
 defineExpose({ focusLevel });

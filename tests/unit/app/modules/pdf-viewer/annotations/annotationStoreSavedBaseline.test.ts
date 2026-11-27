@@ -190,11 +190,11 @@ describe('AnnotationStore saved baseline', () => {
                 const id = `entity-${step}`;
                 const pageIndex = Math.floor(random() * 4);
                 ids.push(asAnnotationId(id));
-                if (random() < 0.5) store.createShape(inkShape(id, pageIndex));
-                else store.createNote(note(id, pageIndex));
+                if (random() < 0.5) {store.createShape(inkShape(id, pageIndex));}
+                else {store.createNote(note(id, pageIndex));}
             } else if (operation < 0.45) {
-                if (target.kind === 'shape') store.updateShape(target.identity.id, {strokeColor: random() < 0.5 ? '#d92626' : '#00ff00'});
-                else store.setNoteText(target.identity.id, random() < 0.5 ? 'document' : 'edited');
+                if (target.kind === 'shape') {store.updateShape(target.identity.id, {strokeColor: random() < 0.5 ? '#d92626' : '#00ff00'});}
+                else {store.setNoteText(target.identity.id, random() < 0.5 ? 'document' : 'edited');}
             } else if (operation < 0.55) {
                 store.delete(target.identity.id);
             } else if (operation < 0.7) {

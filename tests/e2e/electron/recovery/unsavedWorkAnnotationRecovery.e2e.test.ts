@@ -85,10 +85,10 @@ describe('checkpointed annotation recovery', () => {
     afterEach(async () => {
         await session?.stop();
         session = null;
-        if (outputDirectory) rmSync(outputDirectory, {
+        if (outputDirectory) {rmSync(outputDirectory, {
             recursive: true,
             force: true,
-        });
+        });}
         outputDirectory = null;
     });
 
@@ -133,7 +133,7 @@ describe('checkpointed annotation recovery', () => {
                 const record = readWorkspaceRecoveryRecords<INoteRecord>(session!.name)
                     .find(candidate => candidate.checkpoint.tabs.some(tab => tab.isDirty && tab.annotationRecovery));
                 const artifact = record?.checkpoint.tabs.find(tab => tab.annotationRecovery)?.annotationRecovery;
-                if (!record || !artifact) return;
+                if (!record || !artifact) {return;}
                 if (JSON.stringify(artifact.payload)?.includes(marker)) {
                     watcher.close();
                     resolveRecord(record);
@@ -180,7 +180,7 @@ describe('checkpointed annotation recovery', () => {
         session = await startElectronE2ESession(name, {clean: false});
         try {
             const noteMarker = await session.page.waitForSelector('.pdf-annotation-editor-layer [data-annotation-kind="note"]', {visible: true});
-            if (!noteMarker) throw new Error('The recovered note marker was missing');
+            if (!noteMarker) {throw new Error('The recovered note marker was missing');}
             await session.page.waitForSelector('.tab.is-dirty', {visible: true});
             await clickAsUser(session.page, noteMarker);
             await session.page.waitForFunction((text: string) => Array.from(document.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea'))
@@ -264,7 +264,7 @@ describe('checkpointed annotation recovery', () => {
 
         const signaled = session;
         const electronPid = getSessionInfo(signaled.name)?.electronPid;
-        if (typeof electronPid !== 'number') throw new Error('The Electron main pid was missing');
+        if (typeof electronPid !== 'number') {throw new Error('The Electron main pid was missing');}
         const closed = new Promise<'closed'>(resolve => signaled.page.once('close', () => resolve('closed')));
         const closeDecision = signaled.page.waitForSelector('[role="dialog"]', {
             visible: true,
@@ -332,7 +332,7 @@ describe('checkpointed annotation recovery', () => {
 
         const signaled = session;
         const electronPid = getSessionInfo(signaled.name)?.electronPid;
-        if (typeof electronPid !== 'number') throw new Error('The Electron main pid was missing');
+        if (typeof electronPid !== 'number') {throw new Error('The Electron main pid was missing');}
         process.kill(electronPid, 'SIGTERM');
         await expect.poll(() => isProcessAlive(electronPid), {timeout: 8_000}).toBe(false);
         expect(readFileSync(sourcePath)).toEqual(sourceBytes);
@@ -375,7 +375,7 @@ describe('checkpointed annotation recovery', () => {
             .find(chip => chip.textContent?.trim() === '100%'), undefined, {description: '100% page zoom'});
         await waitForViewerInteractive(session.page, 30_000);
         const pid = getSessionInfo(session.name)?.electronPid;
-        if (typeof pid !== 'number') throw new Error('The owned Electron main pid is missing');
+        if (typeof pid !== 'number') {throw new Error('The owned Electron main pid is missing');}
         const marker = `Immediate accepted text ${cut}`;
         let acceptance: {
             completionMs: number;
@@ -384,7 +384,7 @@ describe('checkpointed annotation recovery', () => {
             paintedRectangle: number[]
         } | undefined;
         session.page.on('console', (message) => {
-            if (message.text().startsWith('TEXT_ACCEPTANCE ')) acceptance = JSON.parse(message.text().slice('TEXT_ACCEPTANCE '.length)) as typeof acceptance;
+            if (message.text().startsWith('TEXT_ACCEPTANCE ')) {acceptance = JSON.parse(message.text().slice('TEXT_ACCEPTANCE '.length)) as typeof acceptance;}
         });
         await session.page.evaluate(() => {
             document.addEventListener('keydown', event => {
@@ -401,13 +401,13 @@ describe('checkpointed annotation recovery', () => {
         await session.page.waitForFunction((text: string) => {
             const entity = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active [data-annotation-kind="text-box"]'))
                 .find(node => node.textContent?.trim() === text && !node.classList.contains('is-editing'));
-            if (!entity || !document.querySelector('.editor-pane.is-active .tab.is-active.is-dirty')) return false;
+            if (!entity || !document.querySelector('.editor-pane.is-active .tab.is-active.is-dirty')) {return false;}
             const bounds = entity.getBoundingClientRect();
             const layer = entity.closest('.pdf-annotation-editor-layer')?.getBoundingClientRect();
-            if (!layer || bounds.width <= 0 || bounds.height <= 0 || layer.width <= 0 || layer.height <= 0) return false;
+            if (!layer || bounds.width <= 0 || bounds.height <= 0 || layer.width <= 0 || layer.height <= 0) {return false;}
             const recovery = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.();
             const canonical = recovery?.entities.find(candidate => candidate.kind === 'text-box' && candidate.text === text);
-            if (canonical?.kind !== 'text-box') throw new Error('The completed text has no canonical geometry');
+            if (canonical?.kind !== 'text-box') {throw new Error('The completed text has no canonical geometry');}
             const projectedStyle = document.createElement('div').style;
             projectedStyle.left = `${canonical.rect.left * 100}%`;
             projectedStyle.top = `${canonical.rect.top * 100}%`;
@@ -535,7 +535,7 @@ describe('checkpointed annotation recovery', () => {
         session = await startElectronE2ESession(`e2e-accepted-view-${Date.now()}`, {clean: true, initialOpenPaths: [sourcePath]});
         await waitForPdfLoaded(session.page, 60_000);
         await waitForViewerInteractive(session.page, 60_000);
-        if (scenario === 'close-view') await splitActiveTabFromTabMenu(session.page, 'right');
+        if (scenario === 'close-view') {await splitActiveTabFromTabMenu(session.page, 'right');}
         await waitForViewerInteractive(session.page, 30_000);
         const marker = `Accepted text survives ${scenario}`;
         const id = await createCanonicalTextBoxWithPointer(session.page, marker, {x: 0.3, y: 0.4});
@@ -577,7 +577,7 @@ describe('checkpointed annotation recovery', () => {
         const id = await createCanonicalTextBoxWithPointer(session.page, marker, {x: 0.3, y: 0.4});
         await session.page.waitForSelector('.editor-pane.is-active [contenteditable="true"]', {hidden: true});
         writeFileSync(`${gate}.arm`, '');
-        if (fault === 'ENOSPC') writeFileSync(`${gate}.reject`, '');
+        if (fault === 'ENOSPC') {writeFileSync(`${gate}.reject`, '');}
         await clickAsUser(session.page, `.editor-pane.is-active [data-annotation-id="${id}"]`, {count: 2});
         await session.page.waitForSelector('.editor-pane.is-active [contenteditable="true"]', {visible: true});
         await session.page.keyboard.type(' newest');
@@ -586,7 +586,7 @@ describe('checkpointed annotation recovery', () => {
         await openDocumentSidebarTab(session.page, 'annotations');
         const row = `.editor-pane[data-editor-pane-id="${targetPane}"] .note-item[data-annotation-id="${id}"] .note-item-content`;
         await clickAsUser(session.page, row, {count: action === 'double-click' ? 2 : 1});
-        if (action === 'Enter') await session.page.keyboard.press('Enter');
+        if (action === 'Enter') {await session.page.keyboard.press('Enter');}
         await session.page.waitForFunction((text: string) => {
             const editors = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane [contenteditable="true"]'))
                 .filter(editor => editor.getClientRects().length > 0);
@@ -604,10 +604,10 @@ describe('checkpointed annotation recovery', () => {
         rmSync(`${gate}.arm`);
         const geometry = await session.page.evaluate((id: string) => {
             const recovery = (window as IE2EWindow).__evbTestApi!.getActiveWorkspaceHandle()!.captureCanonicalAnnotationRecovery!();
-            if (!recovery) throw new Error('Linked text has no recovery state');
+            if (!recovery) {throw new Error('Linked text has no recovery state');}
             const entity = recovery.entities.find(candidate => candidate.identity.id === id);
             const draft = recovery.drafts.find(candidate => candidate.annotationId === id);
-            if (entity?.kind !== 'text-box') throw new Error('Linked text has no canonical entity');
+            if (entity?.kind !== 'text-box') {throw new Error('Linked text has no canonical entity');}
             return draft?.geometry ?? entity.rect;
         }, id);
         await saveViaVisibleToolbarWithDeadline(session.page, 30_000, sourcePath);
@@ -669,7 +669,7 @@ if (process.type === 'browser') {
 
         const crashed = session;
         const electronPid = getSessionInfo(crashed.name)?.electronPid;
-        if (typeof electronPid !== 'number') throw new Error('The Electron main pid was missing');
+        if (typeof electronPid !== 'number') {throw new Error('The Electron main pid was missing');}
         process.kill(electronPid, 'SIGKILL');
         await crashed.browser.disconnect().catch(() => undefined);
         await stopSingleSession(crashed.name, {
@@ -683,7 +683,7 @@ if (process.type === 'browser') {
         const folder = outputDirectory;
         expect(readdirSync(folder).filter(name => /^\.[0-9a-f]{16}\.tmp$/u.test(name))
             .map(name => readFileSync(join(folder, name)))).toEqual([sourceBytes]);
-        if (cut === 'published') appendFileSync(sourcePath, '\n% external change after crash\n');
+        if (cut === 'published') {appendFileSync(sourcePath, '\n% external change after crash\n');}
         const onDiskBeforeRestart = readFileSync(sourcePath);
 
         session = await startElectronE2ESession(sessionName, {clean: false});
@@ -758,7 +758,7 @@ if(process.type==='browser'){
         const rectangle = await session.page.evaluate((text: string) => {
             const recovery = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle()?.captureCanonicalAnnotationRecovery?.();
             const entity = recovery?.entities.find(candidate => candidate.kind === 'text-box' && candidate.text === text);
-            if (entity?.kind !== 'text-box') throw new Error('Accepted text has no canonical rectangle');
+            if (entity?.kind !== 'text-box') {throw new Error('Accepted text has no canonical rectangle');}
             return entity.rect;
         }, marker);
 
@@ -813,13 +813,13 @@ if(process.type==='browser'){
                 y: 0.31,
             });
             await expect.poll(() => {
-                if (!hasWorkspaceCrashCheckpoint(session!.name)) return null;
+                if (!hasWorkspaceCrashCheckpoint(session!.name)) {return null;}
                 const entry = readWorkspaceRecoveryRecords(session!.name)[0] as {checkpoint?: {tabs?: Array<{
                     isDirty?: boolean;
                     annotationRecovery?: {artifactId?: string}
                 }>}} | undefined;
                 const recovery = entry?.checkpoint?.tabs?.[0]?.annotationRecovery;
-                if (!entry?.checkpoint?.tabs?.[0]?.isDirty || !recovery?.artifactId) return null;
+                if (!entry?.checkpoint?.tabs?.[0]?.isDirty || !recovery?.artifactId) {return null;}
                 const payload = JSON.parse(readAnnotationRecoveryDraft(session!.name, recovery.artifactId) ?? '{}') as {payload?: {entities?: Array<{text?: string}>}};
                 return payload.payload?.entities ?? null;
             }, {timeout: 60_000}).toEqual(expect.arrayContaining([expect.objectContaining({text: marker})]));
@@ -981,7 +981,7 @@ if(process.type==='browser'){
             // mistake the image document's drafts for the note document's.
             const imageRecovery = imageTab?.annotationRecovery?.payload;
             const noteRecovery = noteTab?.annotationRecovery?.payload;
-            if (!imageRecovery || !noteRecovery) return null;
+            if (!imageRecovery || !noteRecovery) {return null;}
             return {
                 imageProtected: validateCanonicalAnnotationRecovery(imageRecovery).entities.some(entity => entity.kind === 'placed-image'),
                 notePresent: validateCanonicalAnnotationRecovery(noteRecovery).entities.some(entity => entity.kind === 'text-box' && entity.text === marker),

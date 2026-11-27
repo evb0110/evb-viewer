@@ -115,7 +115,7 @@ describe('scan cleanup placement drag', () => {
                         retained: !error && matches,
                     };
                 }
-                if (!matches) return false;
+                if (!matches) {return false;}
                 paintedAt ??= now;
                 await new Promise<void>(resolveFrame => requestAnimationFrame(() => resolveFrame()));
             }
@@ -149,8 +149,8 @@ describe('scan cleanup placement drag', () => {
                 const label = [...document.querySelectorAll('label')].find(candidate => candidate.textContent?.trim() === labelText);
                 return document.getElementById(label?.htmlFor ?? '')?.getAttribute('aria-checked') === 'true';
             }, text);
-            if (!checked) await clickFoundAsUser(page, (labelText: string) => [...document.querySelectorAll('label')]
-                .find(label => label.textContent?.trim() === labelText), text, {description: text});
+            if (!checked) {await clickFoundAsUser(page, (labelText: string) => [...document.querySelectorAll('label')]
+                .find(label => label.textContent?.trim() === labelText), text, {description: text});}
         }
         await page.waitForFunction(() => {
             const images = [...document.querySelectorAll<HTMLImageElement>('[data-output-half] .cleaned-image.preview-pixel:not(.is-incoming):not(.is-outgoing)')];
@@ -161,7 +161,7 @@ describe('scan cleanup placement drag', () => {
         }, {timeout: 120_000});
         const readPlacement = () => page.evaluate(async (sha: string) => {
             const api = (window as IE2EWindow).electronAPI?.scanCleanup;
-            if (!api?.getSettings) throw new Error('Scan cleanup settings API unavailable');
+            if (!api?.getSettings) {throw new Error('Scan cleanup settings API unavailable');}
             const settings = await api.getSettings({sourceSha256: sha});
             return settings.documentOverrides[sha]?.overrides?.['1']?.placementOverrides ?? null;
         }, sourceSha256);

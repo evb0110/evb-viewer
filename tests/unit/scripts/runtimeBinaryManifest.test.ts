@@ -16,7 +16,7 @@ import {assertAllowedRuntimeBinaryDownloadRedirect} from '@scripts/fetchRuntimeB
 import {validateRuntimeBinaryArchivePaths} from '@scripts/validateRuntimeBinaryArchivePaths';
 
 const firstRuntimeEntry = RUNTIME_BINARY_MANIFEST.entries[0];
-if (!firstRuntimeEntry) throw new Error('Runtime manifest test requires one binary entry.');
+if (!firstRuntimeEntry) {throw new Error('Runtime manifest test requires one binary entry.');}
 
 describe('runtime binary manifest', () => {
     it('covers every tracked runtime family on every currently packed target', () => {

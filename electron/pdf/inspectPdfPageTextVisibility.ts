@@ -244,7 +244,7 @@ async function inspectPdfPageTextVisibilityWithSession(input: {
             unreadableDocuments.delete(identity);
             unreadableDocuments.set(identity, message);
             for (const oldest of unreadableDocuments.keys()) {
-                if (unreadableDocuments.size <= UNREADABLE_DOCUMENTS_REMEMBERED) break;
+                if (unreadableDocuments.size <= UNREADABLE_DOCUMENTS_REMEMBERED) {break;}
                 unreadableDocuments.delete(oldest);
             }
         }
@@ -255,6 +255,6 @@ async function inspectPdfPageTextVisibilityWithSession(input: {
             visibility: new Map(),
         };
     } finally {
-        if (getUnprovenNativeTerminationDetail(failure) === undefined) await rm(pagesPath, {force: true}).catch(() => undefined);
+        if (getUnprovenNativeTerminationDetail(failure) === undefined) {await rm(pagesPath, {force: true}).catch(() => undefined);}
     }
 }

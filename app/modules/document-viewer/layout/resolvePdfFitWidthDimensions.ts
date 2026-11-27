@@ -74,13 +74,13 @@ export function resolvePdfFitWidthRowWidths(options: {
 
     const visited = new Set<number>();
     for (const candidate of candidates) {
-        if (candidate < 1 || candidate > options.totalPages) continue;
+        if (candidate < 1 || candidate > options.totalPages) {continue;}
         const row = getPageRowBoundsForViewMode({
             pageNumber: requirePageNumber(candidate),
             viewMode: options.viewMode,
             totalPages: options.totalPages,
         });
-        if (visited.has(row.start)) continue;
+        if (visited.has(row.start)) {continue;}
         visited.add(row.start);
         const columns = row.end - row.start + 1;
         const width = resolveCurrentSpreadBaseWidth(
@@ -89,7 +89,7 @@ export function resolvePdfFitWidthRowWidths(options: {
             options.totalPages,
             row.start,
         );
-        if (width) widthRows.set(columns, Math.max(widthRows.get(columns) ?? 0, width));
+        if (width) {widthRows.set(columns, Math.max(widthRows.get(columns) ?? 0, width));}
     }
     return widthRows;
 }
@@ -120,7 +120,7 @@ export function resolvePdfFitWidthDimensions(
         width,
     ] of widthRows) {
         const availableSize = options.rawSize - DOCUMENT_PAGE_GUTTER_PX * (columns + 1);
-        if (availableSize <= 0) continue;
+        if (availableSize <= 0) {continue;}
         if (
             result.availableSize <= 0
             || availableSize / width < result.availableSize / result.baseDimension

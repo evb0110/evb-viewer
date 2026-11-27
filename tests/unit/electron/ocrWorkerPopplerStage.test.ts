@@ -115,7 +115,7 @@ describe('preparePdfForPoppler', () => {
         const log = vi.fn();
         mocks.runQpdfWasm.mockImplementationOnce(async (args: string[]) => {
             await fs.writeFile(args[1]!, 'partially normalized PDF');
-            if (aborted) controller.abort(new Error('different abort reason'));
+            if (aborted) {controller.abort(new Error('different abort reason'));}
             throw failure;
         });
         try {

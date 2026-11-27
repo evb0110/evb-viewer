@@ -121,7 +121,7 @@ async function fetchBytesWithStallTimeout(url: URL, timeoutMs: number): Promise<
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | null = null;
     const arm = () => {
-        if (timer !== null) clearTimeout(timer);
+        if (timer !== null) {clearTimeout(timer);}
         timer = setTimeout(() => {
             const error = new Error(`DjVuLibre WASM download stalled: no data arrived for ${timeoutMs}ms`);
             error.name = 'TimeoutError';
@@ -157,7 +157,7 @@ async function fetchBytesWithStallTimeout(url: URL, timeoutMs: number): Promise<
             ? controller.signal.reason
             : error;
     } finally {
-        if (timer !== null) clearTimeout(timer);
+        if (timer !== null) {clearTimeout(timer);}
     }
 }
 
@@ -230,7 +230,7 @@ function attachComponentPort(port: MessagePort) {
     }>) => {
         const payload = event.data;
         const pending = pendingComponents.get(payload.id);
-        if (!pending) return;
+        if (!pending) {return;}
         pendingComponents.delete(payload.id);
         if (payload.ok && payload.buffer instanceof ArrayBuffer) {
             pending.resolve(new Uint8Array(payload.buffer));

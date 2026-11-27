@@ -202,7 +202,7 @@ export function attachNativeWindowCloseHandshake(
 
     function handleWebContentsDestroyed() {
         const event = approvedClose?.event;
-        if (disposed || !event || event.defaultPrevented === true || !approvedClose) return;
+        if (disposed || !event || event.defaultPrevented === true || !approvedClose) {return;}
         // Registered before renderer startup can create a recovery owner:
         // fence claims before that owner's destroyed listener makes it orphaned.
         approvedClose.retirement = discardWorkspaceCheckpoint(ownerWebContentsId, webContents);
@@ -215,7 +215,7 @@ export function attachNativeWindowCloseHandshake(
             && approvedEvent !== undefined && approvedEvent.defaultPrevented !== true;
         const retirement = approvedClose?.retirement;
         cleanup();
-        if (!retireOwner) return;
+        if (!retireOwner) {return;}
 
         // The fallback covers a window adapter without a destroyed event.
         void (retirement ?? discardWorkspaceCheckpoint(ownerWebContentsId, webContents)).then(async () => {

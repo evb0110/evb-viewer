@@ -14,12 +14,12 @@ const rendererApis = new WeakMap<TRawElectronBridgeHandle, IElectronAPI>();
 function adaptIpcMethod(invoke: (...args: unknown[]) => unknown) {
     return async (...args: unknown[]) => {
         const options = args.find(value => isRecord(value) && value.signal instanceof AbortSignal);
-        if (!isRecord(options) || !(options.signal instanceof AbortSignal)) return invoke(...args);
+        if (!isRecord(options) || !(options.signal instanceof AbortSignal)) {return invoke(...args);}
         const {signal} = options;
-        if (signal.aborted) throw new DOMException('IPC invoke aborted', 'AbortError');
+        if (signal.aborted) {throw new DOMException('IPC invoke aborted', 'AbortError');}
         const subscribe: TPlatformIpcAbortSubscription = onAbort => {
             signal.addEventListener('abort', onAbort, {once: true});
-            if (signal.aborted) onAbort();
+            if (signal.aborted) {onAbort();}
             return () => signal.removeEventListener('abort', onAbort);
         };
         try {
@@ -29,7 +29,7 @@ function adaptIpcMethod(invoke: (...args: unknown[]) => unknown) {
             } : value));
         } catch (error) {
             // contextBridge does not preserve the preload error's custom name.
-            if (signal.aborted) throw new DOMException('IPC invoke aborted', 'AbortError');
+            if (signal.aborted) {throw new DOMException('IPC invoke aborted', 'AbortError');}
             throw error;
         }
     };
@@ -42,7 +42,7 @@ function adaptElectronPlatformApi(api: TRawElectronBridgeHandle): IElectronAPI {
             let capability: Record<string, unknown> = adapted;
             for (const segment of feature.path) {
                 const child = capability[segment];
-                if (!isRecord(child)) break;
+                if (!isRecord(child)) {break;}
                 const copy = {...child};
                 capability[segment] = copy;
                 capability = copy;

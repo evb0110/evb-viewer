@@ -122,12 +122,12 @@ async function materializeNativeBinarySidecars(
         originalAppearanceSource: _originalSource, placedImages, ...mutations
     }: IPdfNativeMutationSet,
 ) {
-    if (placedImages === undefined) return mutations;
+    if (placedImages === undefined) {return mutations;}
     return {
         ...mutations,
         placedImages: await Promise.all(placedImages.map(async (image) => {
-            if (image.bytesBase64 !== undefined) return image;
-            if (!image.source) throw new Error('Placed image source is missing');
+            if (image.bytesBase64 !== undefined) {return image;}
+            if (!image.source) {throw new Error('Placed image source is missing');}
             const source = await resolveManagedTempFileHandle(context, image.source);
             const {
                 source: _source, ...metadata
@@ -310,8 +310,8 @@ async function prepareNativeNoteMutation(options: {
                         ),
                     );
                     identityBindings.push(...report.identityBindings);
-                    if (report.annotationDeleteEffects) deleteEffects.push(report.annotationDeleteEffects);
-                    else completeDeleteEffects = false;
+                    if (report.annotationDeleteEffects) {deleteEffects.push(report.annotationDeleteEffects);}
+                    else {completeDeleteEffects = false;}
                 }
             }
         }));

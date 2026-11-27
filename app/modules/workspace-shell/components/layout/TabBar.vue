@@ -440,7 +440,7 @@ const {
     (from, to) => emit('reorder', from, to),
     (index) => {
         const tab = tabs[index];
-        if (tab) emit('activate', tab.id);
+        if (tab) {emit('activate', tab.id);}
     },
     (index, direction, targetIndex) => {
         if (!isDirectionEnabled('move', direction)) {

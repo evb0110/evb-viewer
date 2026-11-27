@@ -209,8 +209,8 @@ describe('atomicReplace real filesystem policy', () => {
         await chmod(destinationPath, mode);
         await writeFile(sourcePath, 'new bytes');
         await chmod(sourcePath, 0o644);
-        if (linked) await link(sourcePath, stagingPath);
-        else await writeFile(stagingPath, 'new bytes', {mode: 0o644});
+        if (linked) {await link(sourcePath, stagingPath);}
+        else {await writeFile(stagingPath, 'new bytes', {mode: 0o644});}
 
         await atomicReplace(stagingPath, destinationPath);
 

@@ -201,12 +201,12 @@ describe('runLosslessScanCleanup', () => {
             renderPagePpm: renderRaster,
             runSidecar: async (_binary, manifestPath) => {
                 const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
-                for (const page of manifest.pages) await writeFile(page.pageMetadataPath, JSON.stringify(analysisMetadata()));
+                for (const page of manifest.pages) {await writeFile(page.pageMetadataPath, JSON.stringify(analysisMetadata()));}
             },
             runCommand: async (_command, args) => {
                 const outputIndex = args.indexOf('--output');
-                if (outputIndex >= 0) await writeFile(args[outputIndex + 1]!, '%PDF-1.7\n%%EOF\n');
-                if (args[0] === '--empty') await writeFile(args.at(-1)!, '%PDF-1.7\n%%EOF\n');
+                if (outputIndex >= 0) {await writeFile(args[outputIndex + 1]!, '%PDF-1.7\n%%EOF\n');}
+                if (args[0] === '--empty') {await writeFile(args.at(-1)!, '%PDF-1.7\n%%EOF\n');}
                 return {
                     exitCode: 0,
                     stdout: args[0] === 'split-pages' ? JSON.stringify({accessibilityTagsRemoved: true}) : '',
@@ -269,9 +269,9 @@ describe('runLosslessScanCleanup', () => {
                 pageNumber,
             })),
             recordPageRaster: (pageNumber, raster) => {
-                if (observedPages.has(pageNumber)) return;
+                if (observedPages.has(pageNumber)) {return;}
                 observedPages.add(pageNumber);
-                if (isScanCleanupCompactLayeredRaster(raster)) compactLayeredPages.add(pageNumber);
+                if (isScanCleanupCompactLayeredRaster(raster)) {compactLayeredPages.add(pageNumber);}
                 compactLayeredPageCountComplete = observedPages.size === documentPageCount;
                 sourceDpi.compactLayeredPageCount = compactLayeredPages.size;
             },
@@ -653,8 +653,8 @@ describe('runLosslessScanCleanup', () => {
             },
             runCommand: async (_command, args) => {
                 const outputIndex = args.indexOf('--output');
-                if (outputIndex >= 0) await writeFile(args[outputIndex + 1]!, '%PDF-1.7\n%%EOF\n');
-                if (args[0] === '--empty') await writeFile(args.at(-1)!, '%PDF-1.7\n%%EOF\n');
+                if (outputIndex >= 0) {await writeFile(args[outputIndex + 1]!, '%PDF-1.7\n%%EOF\n');}
+                if (args[0] === '--empty') {await writeFile(args.at(-1)!, '%PDF-1.7\n%%EOF\n');}
                 return {
                     exitCode: 0,
                     stdout: '',

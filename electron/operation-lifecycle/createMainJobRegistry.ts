@@ -245,8 +245,8 @@ export function createMainJobRegistry<
             },
         },
     }) : null;
-    function notify(record: IRecord) { for (const subscription of record.subscribers) subscription.listener(record.snapshot); }
-    function closeSubscriptions(record: IRecord, closure: TMainJobSubscriptionClosure) { for (const subscription of [...record.subscribers]) subscription.close(closure); }
+    function notify(record: IRecord) { for (const subscription of record.subscribers) {subscription.listener(record.snapshot);} }
+    function closeSubscriptions(record: IRecord, closure: TMainJobSubscriptionClosure) { for (const subscription of [...record.subscribers]) {subscription.close(closure);} }
     function emit(record: IRecord, terminal = false, flushKey?: string) {
         if (!pump || options.progress?.getEventKey(record.snapshot.progress) === null) {
             return;
@@ -259,7 +259,7 @@ export function createMainJobRegistry<
                 : record.actor.sender.send(channel, progress),
         };
         publishingTerminal = terminal;
-        if (flushKey) pump.flush(flushKey);
+        if (flushKey) {pump.flush(flushKey);}
         pump.enqueue(record.snapshot.progress, deliveryTarget);
         publishingTerminal = false; deliveryTarget = null;
     }
@@ -271,15 +271,15 @@ export function createMainJobRegistry<
     }
     function remove(record: IRecord) { if (records.get(record.snapshot.jobId) !== record) {
         return;
-    } if (record.retentionTimer) clearTimeout(record.retentionTimer); records.delete(record.snapshot.jobId); closeSubscriptions(record, 'retired'); unbind(record);
-    if (record.terminalAtMs !== null) options.onEvict?.(record.snapshot as TTerminal); }
+    } if (record.retentionTimer) {clearTimeout(record.retentionTimer);} records.delete(record.snapshot.jobId); closeSubscriptions(record, 'retired'); unbind(record);
+    if (record.terminalAtMs !== null) {options.onEvict?.(record.snapshot as TTerminal);} }
     function prune() {
         const cap = options.retention.maxTerminalRecords;
         if (cap === undefined) {
             return;
         }
         const terminal = [...records.values()].filter(record => record.terminalAtMs !== null && record.settled).sort((left, right) => (left.terminalAtMs ?? 0) - (right.terminalAtMs ?? 0));
-        for (const record of terminal.slice(0, Math.max(0, terminal.length - cap))) remove(record);
+        for (const record of terminal.slice(0, Math.max(0, terminal.length - cap))) {remove(record);}
     }
     function update(record: IRecord, patch: object) { record.snapshot = {
         ...record.snapshot,
@@ -310,7 +310,7 @@ export function createMainJobRegistry<
                 progress: terminalProgress,
             });
         emit(record, true); record.resolveTerminal(record.snapshot as TTerminal);
-        record.retentionTimer = setTimeout(() => { if (record.settled) remove(record); }, Math.max(0, options.retention.terminalRecordTtlMs));
+        record.retentionTimer = setTimeout(() => { if (record.settled) {remove(record);} }, Math.max(0, options.retention.terminalRecordTtlMs));
         record.retentionTimer.unref(); prune();
         return true;
     }
@@ -329,26 +329,26 @@ export function createMainJobRegistry<
         if (action === 'cancel') {
             requestCancel(record, reason);
             unbind(record);
-        } else if (action === 'detach') unbind(record);
+        } else if (action === 'detach') {unbind(record);}
     }
     function bind(record: IRecord) {
         let binding = bindings.get(record.owner.webContentsId);
         if (!binding) {
             const sender = record.actor.sender;
-            const dispatch = (field: keyof IMainJobOwnerLifecyclePolicy, reason: string) => { for (const owned of [...(bindings.get(sender.id)?.records ?? [])]) ownerEnd(owned, owned.lifecycle[field], reason); };
+            const dispatch = (field: keyof IMainJobOwnerLifecyclePolicy, reason: string) => { for (const owned of [...(bindings.get(sender.id)?.records ?? [])]) {ownerEnd(owned, owned.lifecycle[field], reason);} };
             binding = {
                 sender,
                 records: new Set(),
                 stop: onSenderLifetimeEnd(sender, (end) => {
-                    if (end === 'destroyed') dispatch('destroyed', RENDERER_DESTROYED_CANCELLATION_REASON);
-                    else if (end === 'render-process-gone') dispatch('renderProcessGone', RENDER_PROCESS_GONE_CANCELLATION_REASON);
-                    else dispatch('mainFrameNavigation', 'Renderer main frame navigated');
+                    if (end === 'destroyed') {dispatch('destroyed', RENDERER_DESTROYED_CANCELLATION_REASON);}
+                    else if (end === 'render-process-gone') {dispatch('renderProcessGone', RENDER_PROCESS_GONE_CANCELLATION_REASON);}
+                    else {dispatch('mainFrameNavigation', 'Renderer main frame navigated');}
                 }, {navigation: true}),
             };
             bindings.set(sender.id, binding);
         }
         binding.records.add(record);
-        if (record.actor.sender.isDestroyed()) ownerEnd(record, record.lifecycle.destroyed, RENDERER_DESTROYED_CANCELLATION_REASON);
+        if (record.actor.sender.isDestroyed()) {ownerEnd(record, record.lifecycle.destroyed, RENDERER_DESTROYED_CANCELLATION_REASON);}
     }
     function start(startOptions: IMainJobStartOptions<TProgress, TResult, TError, TSender>): THandle {
         const jobId = startOptions.jobId ?? randomUUID();
@@ -410,7 +410,7 @@ export function createMainJobRegistry<
             ...(startOptions.signals ?? []),
         ]) {
             const abort = () => requestCancel(record, source.reason instanceof Error ? getErrorMessage(source.reason) : 'Operation canceled');
-            if (source.aborted) abort();
+            if (source.aborted) {abort();}
             else {
                 source.addEventListener('abort', abort, {once: true}); record.cleanupSignals.push(() => source.removeEventListener('abort', abort));
             }
@@ -437,11 +437,11 @@ export function createMainJobRegistry<
                 }); emit(record, false, flushKey);
             } },
             handoff: (result, progress) => {
-                if (record.terminalAtMs === null && record.snapshot.status !== 'canceling') update(record, {
+                if (record.terminalAtMs === null && record.snapshot.status !== 'canceling') {update(record, {
                     status: 'handoff',
                     handoffResult: result,
                     ...(progress === undefined ? {} : {progress}),
-                });
+                });}
             },
             markCommitStarted: progress => {
                 if (record.terminalAtMs === null && record.snapshot.operationKind === 'critical-write') { operation.markCommitStarted(); update(record, {
@@ -468,7 +468,7 @@ export function createMainJobRegistry<
             .finally(async () => {
                 try {
                     await record.cancelPromise;
-                    for (const cleanup of record.cleanupSignals.splice(0)) cleanup();
+                    for (const cleanup of record.cleanupSignals.splice(0)) {cleanup();}
                 } finally {
                     try {
                         operation.complete();
@@ -481,7 +481,7 @@ export function createMainJobRegistry<
                         // instance no longer needs renderer listeners at settle.
                         unbind(record);
                     }
-                    if (record.terminalAtMs !== null && now() - record.terminalAtMs >= options.retention.terminalRecordTtlMs) remove(record);
+                    if (record.terminalAtMs !== null && now() - record.terminalAtMs >= options.retention.terminalRecordTtlMs) {remove(record);}
                     prune();
                 }
             })
@@ -529,13 +529,13 @@ export function createMainJobRegistry<
         cancelWhere: (predicate, reason) => [...records.values()]
             .filter(record => predicate(record.snapshot) && requestCancel(record, reason)).length,
         await: async (jobId, actor) => {
-            const record = authorized(jobId, actor); if (!record) throw throwable(options.toError(new Error('Job not found or unauthorized'), 'not-found-or-unauthorized'));
+            const record = authorized(jobId, actor); if (!record) {throw throwable(options.toError(new Error('Job not found or unauthorized'), 'not-found-or-unauthorized'));}
             return record.handle.terminal;
         },
         dispose: async () => {
-            for (const record of records.values()) requestCancel(record, 'Registry reset');
+            for (const record of records.values()) {requestCancel(record, 'Registry reset');}
             await Promise.allSettled([...records.values()].map(record => record.handle.settled));
-            for (const record of [...records.values()]) remove(record); pump?.dispose();
+            for (const record of [...records.values()]) {remove(record);} pump?.dispose();
         },
     };
 }

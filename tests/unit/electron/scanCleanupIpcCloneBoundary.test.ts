@@ -237,7 +237,7 @@ describe('scan-cleanup IPC structured-clone contract', () => {
         const encodedByChannel = new Map<string, unknown[]>();
         const ipcRenderer = {
             invoke: vi.fn(async (channel: string, ...args: unknown[]) => {
-                if (!(channel in responses)) throw new Error(`Unexpected scan-cleanup IPC channel: ${channel}`);
+                if (!(channel in responses)) {throw new Error(`Unexpected scan-cleanup IPC channel: ${channel}`);}
                 const boundaryPayload = structuredClone(args);
                 encodedByChannel.set(channel, boundaryPayload);
                 return structuredClone(responses[channel as TScanCleanupChannel]);

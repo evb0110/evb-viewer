@@ -64,8 +64,8 @@ function findNearestPageIndex(layouts: readonly IDocumentZoomPageLayout[], y: nu
     let high = layouts.length;
     while (low < high) {
         const middle = (low + high) >>> 1;
-        if (layouts[middle]!.top > y) high = middle;
-        else low = middle + 1;
+        if (layouts[middle]!.top > y) {high = middle;}
+        else {low = middle + 1;}
     }
     let nearest = Math.min(low, layouts.length - 1);
     let nearestDistance = distanceToPage(layouts[nearest]!, y);
@@ -77,7 +77,7 @@ function findNearestPageIndex(layouts: readonly IDocumentZoomPageLayout[], y: nu
         if (layout.top !== rowTop) {
             rowTop = layout.top;
             rowsLeft -= 1;
-            if (rowsLeft < 0) break;
+            if (rowsLeft < 0) {break;}
         }
         const distance = distanceToPage(layout, y);
         if (distance <= nearestDistance) {

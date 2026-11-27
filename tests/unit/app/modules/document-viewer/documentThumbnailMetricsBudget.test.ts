@@ -34,7 +34,7 @@ async function scrollAwayAndBack(host: HTMLElement, target: number) {
         40_000,
         60_000,
         80_000,
-    ]) await scrollDocumentThumbnailRail(host, offset);
+    ]) {await scrollDocumentThumbnailRail(host, offset);}
     await scrollDocumentThumbnailRail(host, target);
 }
 

@@ -316,7 +316,7 @@ describe('JobBroker', () => {
     }
 
     async function flushMicrotasks() {
-        for (let step = 0; step < 10; step += 1) await Promise.resolve();
+        for (let step = 0; step < 10; step += 1) {await Promise.resolve();}
     }
 
     // Sol's probe: each leaf's child is never proven gone, so each stays charged.
@@ -599,8 +599,8 @@ describe('JobBroker', () => {
         await flushMicrotasks();
         expect(behindGranted).toBe(false);
 
-        if (leave === 'abort') headAbort.abort();
-        else broker.cancelOwner('head');
+        if (leave === 'abort') {headAbort.abort();}
+        else {broker.cancelOwner('head');}
         await flushMicrotasks();
 
         // Granted as the head leaves, without waiting for another broker event.
@@ -647,7 +647,7 @@ describe('JobBroker', () => {
         const admit = (request: Promise<IJobBrokerLease>) => {
             void request.then(lease => running.push(lease));
         };
-        for (let index = 0; index < 4; index += 1) admit(broker.acquire(interactiveRequest()));
+        for (let index = 0; index < 4; index += 1) {admit(broker.acquire(interactiveRequest()));}
         await flushMicrotasks();
         expect(running).toHaveLength(4);
         let saveLease: IJobBrokerLease | undefined;
@@ -1400,7 +1400,7 @@ describe('JobBroker', () => {
             queued: 1,
             used: CAPACITY,
         });
-        if (outcome === 'success') work.resolve(42); else work.reject(error);
+        if (outcome === 'success') {work.resolve(42);} else {work.reject(error);}
         expect(await observed).toBe(outcome === 'success' ? 42 : error);
         const lease = await competitor;
         expect(broker.getSnapshot()).toMatchObject({

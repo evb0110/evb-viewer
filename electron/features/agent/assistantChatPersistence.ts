@@ -646,11 +646,11 @@ function legacyDocumentScopeKey(entry: IRecoveredAssistantChatSessionFile) {
     } = entry.session;
     if (!scope.key.startsWith('document-session:')
         || scope.key === 'document-session:'
-        || entry.key !== `${provider}:${scope.key}`) return null;
+        || entry.key !== `${provider}:${scope.key}`) {return null;}
     const documentRef = parseDocumentRef(scope.documentRef);
-    if (documentRef === null) return null;
+    if (documentRef === null) {return null;}
     const backend = inferDocumentRefBackend(documentRef);
-    if (scope.documentBackend !== undefined && scope.documentBackend !== backend) return null;
+    if (scope.documentBackend !== undefined && scope.documentBackend !== backend) {return null;}
     return `document:${backend}:${documentRef}`;
 }
 
@@ -729,7 +729,7 @@ export class AssistantChatPersistence {
                 migrationFailure = this.toPersistenceError('scope-migration', error);
             }
         });
-        if (migrationFailure) throw migrationFailure;
+        if (migrationFailure) {throw migrationFailure;}
         const recovered = entries.map(entry => ({
             ...entry,
             session: interruptRecoveredSession(entry.session),
@@ -749,17 +749,17 @@ export class AssistantChatPersistence {
                     await this.adoptLegacyDocumentScopes(await this.readSessionEntries());
                 }
                 const {entry} = await this.readSessionForRecovery(key);
-                if (entry) recovered = {
+                if (entry) {recovered = {
                     ...entry,
                     session: interruptRecoveredSession(entry.session),
-                };
+                };}
             } catch (error) {
                 recovered = this.toPersistenceError(key, error);
                 this.onError(`Failed to recover assistant chat session "${key}" during lookup`, recovered);
             }
         }, true);
         // Report failure after the queued callback settles, so a retry is usable.
-        if (recovered instanceof AssistantChatPersistenceError) throw recovered;
+        if (recovered instanceof AssistantChatPersistenceError) {throw recovered;}
         return recovered;
     }
 
@@ -770,7 +770,7 @@ export class AssistantChatPersistence {
     }> {
         const legacyName = `${Buffer.from(key).toString('base64url')}.jsonl`;
         const paths = [this.sessionPath(key)];
-        if (Buffer.byteLength(legacyName) <= 255) paths.push(join(this.sessionsDir, legacyName));
+        if (Buffer.byteLength(legacyName) <= 255) {paths.push(join(this.sessionsDir, legacyName));}
         const archives = await this.readSessionArchives(key);
         const isBarrier = (reason: string) => reason === 'reset' || reason === 'corrupt' || reason === 'scope-migrated';
         const retiredLegacyKey = /^(codex|claude):document-session:/u.test(key)
@@ -782,22 +782,22 @@ export class AssistantChatPersistence {
             })),
             ...archives,
         ]) {
-            if (isBarrier(candidate.reason) || candidate.reason !== 'live' && retiredLegacyKey) return {
+            if (isBarrier(candidate.reason) || candidate.reason !== 'live' && retiredLegacyKey) {return {
                 entry: null,
                 blocksImport: true,
-            };
+            };}
             let contents: string;
             try {
                 contents = await this.readSessionContents(candidate.filePath, key);
             } catch (error) {
-                if (isErrnoException(error) && error.code === 'ENOENT') continue;
+                if (isErrnoException(error) && error.code === 'ENOENT') {continue;}
                 throw error;
             }
             let file;
             try {
                 file = this.recoverSessionContents(candidate.filePath, key, contents);
             } catch (error) {
-                if (error instanceof AssistantChatPersistenceError) throw error;
+                if (error instanceof AssistantChatPersistenceError) {throw error;}
                 await this.quarantineCorruptSession(candidate.filePath);
                 this.onError(`Failed to recover assistant chat session "${key}" during lookup`, error);
                 return {
@@ -826,7 +826,7 @@ export class AssistantChatPersistence {
 
     /** Runs inside the existing write queue, before any recovered grants escape. */
     private async adoptLegacyDocumentScopes(entries: IAssistantChatSessionEntry[]) {
-        if (this.legacyScopesMigrated) return entries;
+        if (this.legacyScopesMigrated) {return entries;}
         // A transiently unreadable live transcript keeps the pass retryable.
         const completeRead = (await this.listSessionFiles()).length === entries.length;
         const candidates: IRecoveredAssistantChatSessionFile[] = [...entries];
@@ -839,7 +839,7 @@ export class AssistantChatPersistence {
         }>();
         for (const file of await readdir(this.archiveDir, {withFileTypes: true})) {
             const match = /^(.*)\.(evicted|expired|reset|corrupt|scope-migrated)\.(\d+)\.[a-f0-9]+\.jsonl$/u.exec(file.name);
-            if (!file.isFile() || !match) continue;
+            if (!file.isFile() || !match) {continue;}
             const candidate = {
                 filePath: join(this.archiveDir, file.name),
                 reason: match[2]!,
@@ -851,15 +851,15 @@ export class AssistantChatPersistence {
                 || candidate.time === previous.time && (
                     Number(terminal(candidate.reason)) > Number(terminal(previous.reason))
                     || terminal(candidate.reason) === terminal(previous.reason) && candidate.filePath > previous.filePath
-                )) newest.set(match[1]!, candidate);
+                )) {newest.set(match[1]!, candidate);}
         }
         for (const archive of newest.values()) {
-            if (archive.reason !== 'evicted' && archive.reason !== 'expired') continue;
+            if (archive.reason !== 'evicted' && archive.reason !== 'expired') {continue;}
             try {
                 const entry = await this.recoverSessionFileAsync(archive.filePath);
-                if (entry) candidates.push(entry);
+                if (entry) {candidates.push(entry);}
             } catch (error) {
-                if (error instanceof AssistantChatPersistenceError) throw error;
+                if (error instanceof AssistantChatPersistenceError) {throw error;}
                 await this.quarantineCorruptSession(archive.filePath);
                 this.onError('Failed to inspect archived assistant chat scope', error);
             }
@@ -867,7 +867,7 @@ export class AssistantChatPersistence {
         const groups = new Map<string, Set<string>>();
         for (const entry of candidates) {
             const scopeKey = legacyDocumentScopeKey(entry);
-            if (scopeKey === null) continue;
+            if (scopeKey === null) {continue;}
             const key = `${entry.session.provider}:${scopeKey}`;
             const group = groups.get(key) ?? new Set<string>();
             group.add(entry.key);
@@ -884,13 +884,13 @@ export class AssistantChatPersistence {
                 const source = await this.readSessionForRecovery(oldKey);
                 if (source.entry) {
                     const scopeKey = legacyDocumentScopeKey(source.entry);
-                    if (scopeKey !== null && `${source.entry.session.provider}:${scopeKey}` === key) legacy.push(source.entry);
+                    if (scopeKey !== null && `${source.entry.session.provider}:${scopeKey}` === key) {legacy.push(source.entry);}
                 }
             }
             const hasConversation = (entry: IAssistantChatSessionEntry) => entry.session.messages.length > 0 || entry.session.providerThreadId !== null;
             legacy.sort((a, b) => Number(hasConversation(b)) - Number(hasConversation(a))
                 || b.lastAccessedAtMs - a.lastAccessedAtMs || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-            if (legacy.length === 0) continue;
+            if (legacy.length === 0) {continue;}
             let canonical = current.entry;
             if (!current.blocksImport && (!canonical || !hasConversation(canonical))) {
                 const winner = legacy[0]!;
@@ -900,7 +900,7 @@ export class AssistantChatPersistence {
                     key: key.slice(`${session.provider}:`.length),
                 };
                 // Retain any existing empty transcript before replacing it.
-                if (canonical) await this.archiveSessionFile(canonical.filePath, 'scope-backup');
+                if (canonical) {await this.archiveSessionFile(canonical.filePath, 'scope-backup');}
                 await this.snapshotStorage.writeBoundedSnapshot(this.sessionPath(key), createSnapshotRecord(key, session), key);
                 canonical = {
                     key,
@@ -913,7 +913,7 @@ export class AssistantChatPersistence {
             }
             // A reset/corrupt canonical entry forbids adoption, but old histories
             // still retire to protected backups instead of being re-imported.
-            if (!canonical && !current.blocksImport) continue;
+            if (!canonical && !current.blocksImport) {continue;}
             if (canonical && canonical.filePath !== this.sessionPath(key)) {
                 const session = clonePersistedSession(interruptRecoveredSession(canonical.session));
                 await this.snapshotStorage.writeBoundedSnapshot(this.sessionPath(key), createSnapshotRecord(key, session), key);
@@ -931,9 +931,9 @@ export class AssistantChatPersistence {
                     source.filePath,
                     this.sessionPath(source.key),
                 ]);
-                if (Buffer.byteLength(oldName) <= 255) paths.add(join(this.sessionsDir, oldName));
+                if (Buffer.byteLength(oldName) <= 255) {paths.add(join(this.sessionsDir, oldName));}
                 for (const filePath of paths) {
-                    if (await this.pathExists(filePath)) await this.archiveSessionFile(filePath, 'scope-migrated');
+                    if (await this.pathExists(filePath)) {await this.archiveSessionFile(filePath, 'scope-migrated');}
                 }
                 changed = true;
             }
@@ -1274,7 +1274,7 @@ export class AssistantChatPersistence {
         try {
             return await readFile(filePath, 'utf8');
         } catch (error) {
-            if (isErrnoException(error) && error.code === 'ENOENT') throw error;
+            if (isErrnoException(error) && error.code === 'ENOENT') {throw error;}
             throw this.toPersistenceError(key, error);
         }
     }
@@ -1403,10 +1403,10 @@ export class AssistantChatPersistence {
 
     private async pruneSnapshotBlobs() {
         const blobs = await readdir(this.blobsDir, {withFileTypes: true}).catch((error: unknown) => {
-            if (isErrnoException(error) && error.code === 'ENOENT') return [];
+            if (isErrnoException(error) && error.code === 'ENOENT') {return [];}
             throw error;
         });
-        if (!blobs.some(entry => entry.isFile() && entry.name.endsWith('.json'))) return;
+        if (!blobs.some(entry => entry.isFile() && entry.name.endsWith('.json'))) {return;}
         await pruneAssistantChatSnapshotBlobs(
             [
                 this.sessionsDir,
@@ -1486,7 +1486,7 @@ export class AssistantChatPersistence {
         const entries: IAssistantChatSessionEntry[] = [];
         for (const file of await this.listSessionFiles()) {
             const entry = await this.readSessionEntry(file);
-            if (entry) entries.push(entry);
+            if (entry) {entries.push(entry);}
         }
         return entries;
     }
@@ -1501,7 +1501,7 @@ export class AssistantChatPersistence {
         const files = await this.listSessionFiles();
         const listed = new Set(files.map(file => file.filePath));
         for (const filePath of this.indexedSessionFiles.keys()) {
-            if (!listed.has(filePath)) this.indexedSessionFiles.delete(filePath);
+            if (!listed.has(filePath)) {this.indexedSessionFiles.delete(filePath);}
         }
         const entries: TAssistantChatSessionIndexEntry[] = [];
         for (const file of files) {
@@ -1510,7 +1510,7 @@ export class AssistantChatPersistence {
             const entry = fileStat && indexed?.identity === sessionFileIdentity(fileStat)
                 ? indexed
                 : await this.readSessionEntry(file);
-            if (entry) entries.push(entry);
+            if (entry) {entries.push(entry);}
         }
         return entries;
     }

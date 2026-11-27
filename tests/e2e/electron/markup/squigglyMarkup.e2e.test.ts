@@ -609,7 +609,7 @@ describe('Electron E2E - EVB text markup', () => {
             let selectedLayer: Element | null = null;
             const postMessage = Worker.prototype.postMessage;
             const pageElement = document.querySelector('.page_container[data-page="1"]');
-            if (!pageElement) throw new Error('The selectable page is missing');
+            if (!pageElement) {throw new Error('The selectable page is missing');}
             const observer = new MutationObserver(() => {
                 if (pendingGeometry && pageElement.querySelector('.text-layer') !== selectedLayer) {
                     const resume = pendingGeometry;

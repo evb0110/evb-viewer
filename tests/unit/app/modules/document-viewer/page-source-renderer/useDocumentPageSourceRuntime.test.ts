@@ -378,7 +378,7 @@ describe('page-source logical and physical scroll coordinates', () => {
             expect(physicalTop).toBeLessThan(segment.height);
             expect(segment.height).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT + 8020);
             expect(origin + physicalTop).toBe(pageTop);
-            if (page > 1) expect(physicalTop - (pageTops[page - 2]! - origin)).toBe(8020);
+            if (page > 1) {expect(physicalTop - (pageTops[page - 2]! - origin)).toBe(8020);}
         }
         // The same logical point survives rebasing in both directions.
         for (const top of [

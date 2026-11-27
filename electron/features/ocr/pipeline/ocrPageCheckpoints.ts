@@ -154,7 +154,7 @@ async function readCheckpoint(checkpointDir: string, pageNumber: number) {
     const paths = checkpointPaths(checkpointDir, pageNumber);
     try {
         const parsed = v.safeParse(checkpointSchema, JSON.parse(await readFile(paths.json, 'utf8')), {abortEarly: true});
-        if (!parsed.success || parsed.output.page.pageNumber !== pageNumber) return null;
+        if (!parsed.success || parsed.output.page.pageNumber !== pageNumber) {return null;}
         return {
             pdfPath: paths.pdf,
             pdfSha256: parsed.output.pdfSha256,
@@ -193,7 +193,7 @@ export async function* iterateOcrPageCheckpoints(
         for (const request of batch) {
             signal.throwIfAborted();
             const checkpoint = await readCheckpoint(checkpointDir, request.pageNumber);
-            if (checkpoint) yield checkpoint;
+            if (checkpoint) {yield checkpoint;}
         }
     }
 }

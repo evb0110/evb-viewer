@@ -79,7 +79,7 @@ export class BrowserDurableDjvuJobs {
 
     awaitOpen(jobId: TJobId) {
         const job = this.#openJobs.get(jobId);
-        if (!job) throw new Error(`Unknown browser DjVu open job: ${jobId}`);
+        if (!job) {throw new Error(`Unknown browser DjVu open job: ${jobId}`);}
         return job;
     }
 
@@ -124,7 +124,7 @@ export class BrowserDurableDjvuJobs {
 
     awaitConvert(jobId: TJobId) {
         const job = this.#convertJobs.get(jobId);
-        if (!job) throw new Error(`Unknown browser DjVu conversion job: ${jobId}`);
+        if (!job) {throw new Error(`Unknown browser DjVu conversion job: ${jobId}`);}
         return job;
     }
 

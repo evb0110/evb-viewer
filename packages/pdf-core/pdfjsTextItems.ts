@@ -234,10 +234,10 @@ export function pdfjsTextItemIntersectsBox(
     style?: IPdfjsTextRunStyle,
 ) {
     // TextLayer may leave a single glyph unscaled, so its advance is not a bound.
-    if (item.str.length === 1) return true;
+    if (item.str.length === 1) {return true;}
     const transform = item.transform;
     // Missing metrics do not prove that a run is outside the visible page.
-    if (transform.length !== 6 || !transform.every(Number.isFinite) || typeof style?.vertical !== 'boolean') return true;
+    if (transform.length !== 6 || !transform.every(Number.isFinite) || typeof style?.vertical !== 'boolean') {return true;}
     const [
         a,
         b,
@@ -249,7 +249,7 @@ export function pdfjsTextItemIntersectsBox(
     const baselineScale = Math.hypot(a, b);
     const fontHeight = Math.hypot(c, d);
     const advance = style.vertical ? item.height : item.width;
-    if (baselineScale === 0 || fontHeight === 0 || !Number.isFinite(advance) || advance <= 0) return true;
+    if (baselineScale === 0 || fontHeight === 0 || !Number.isFinite(advance) || advance <= 0) {return true;}
     // TextLayer uses atan2(b, a), adds a quarter turn for vertical fonts,
     // and uses height (not width) as the vertical run's already-scaled advance.
     const ux = (style.vertical ? b : a) / baselineScale;
@@ -260,7 +260,7 @@ export function pdfjsTextItemIntersectsBox(
         style.ascent ?? 0,
         1 + (style.descent ?? 0),
     ];
-    if (!metrics.every(Number.isFinite)) return true;
+    if (!metrics.every(Number.isFinite)) {return true;}
     const crossExtent = fontHeight * Math.max(1, ...metrics.flatMap(value => [
         Math.abs(value),
         Math.abs(value - 1),
@@ -274,7 +274,7 @@ export function pdfjsTextItemIntersectsBox(
         endY,
         xRadius,
         yRadius,
-    ].every(Number.isFinite)) return true;
+    ].every(Number.isFinite)) {return true;}
     return Math.max(x, endX) + xRadius >= box.xMin
         && Math.min(x, endX) - xRadius <= box.xMax
         && Math.max(y, endY) + yRadius >= box.yMin

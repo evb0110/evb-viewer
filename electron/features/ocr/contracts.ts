@@ -351,9 +351,9 @@ function requireSingleOcrLanguage(selection: TOcrSearchablePdfPages) {
         }
     };
     if (Array.isArray(selection)) {
-        for (const page of selection) addLanguages(page.languages);
+        for (const page of selection) {addLanguages(page.languages);}
     } else if (selection.kind === 'pages') {
-        for (const page of selection.pages) addLanguages(page.languages);
+        for (const page of selection.pages) {addLanguages(page.languages);}
     } else {
         addLanguages(selection.languages);
     }

@@ -153,7 +153,7 @@ function addRange(target: Set<number>, range: IDocumentThumbnailVirtualRange, pa
         let page = Math.max(1, range.startPage);
         page <= Math.min(pageCount, range.endPage);
         page += 1
-    ) target.add(page);
+    ) {target.add(page);}
 }
 
 export const useDocumentThumbnailController = (options: IUseDocumentThumbnailControllerOptions) => {
@@ -292,7 +292,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     }
 
     function resolvePlacementTop(target: TDocumentThumbnailPlacementTarget, root: HTMLElement, reason: string) {
-        if ('segmentIndex' in target) return target.top;
+        if ('segmentIndex' in target) {return target.top;}
         const page = resolvePlacementPage(target);
         if ('revealPage' in target) {
             return resolveDocumentThumbnailRevealScrollTop(
@@ -322,14 +322,14 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
      */
     async function place(target: TDocumentThumbnailPlacementTarget, reason: string) {
         const intent = viewportWritePort.beginIntent(reason);
-        if ('anchor' in target) lastKnownAnchor = target.anchor;
+        if ('anchor' in target) {lastKnownAnchor = target.anchor;}
         setActiveScrollSegment('segmentIndex' in target
             ? target.segmentIndex
             : layout.getScrollSegmentIndexForPage(resolvePlacementPage(target)));
         viewportRevision.value += 1;
         await nextTick();
         const root = options.scrollRoot.value;
-        if (!root?.isConnected || root.clientHeight <= 0) return null;
+        if (!root?.isConnected || root.clientHeight <= 0) {return null;}
         const top = resolvePlacementTop(target, root, reason);
         if (top === null || Math.abs(root.scrollTop - top) < 1) {
             return {
@@ -342,10 +342,10 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             intent,
             reason,
             top,
-        })) return null;
+        })) {return null;}
         lastObservedScrollTop = root.scrollTop;
         // The former relocation restore restarted cooldown through its scroll event.
-        if (reason === 'thumbnail-relocation') markManualInteraction();
+        if (reason === 'thumbnail-relocation') {markManualInteraction();}
         // Mount the placed rows in the next patch, not after the scroll event.
         viewportRevision.value += 1;
         return {
@@ -371,7 +371,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     /** Failures only live as long as the page they belong to stays in demand. */
     function pruneRenderFailures(retainedPages: ReadonlySet<number>) {
         for (const pageNumber of [...renderFailures.keys()]) {
-            if (!retainedPages.has(pageNumber)) clearRenderFailure(pageNumber);
+            if (!retainedPages.has(pageNumber)) {clearRenderFailure(pageNumber);}
         }
     }
 
@@ -399,13 +399,13 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             if (state) {
                 states.set(pageNumber, state);
                 clearRenderFailure(pageNumber);
-            } else states.delete(pageNumber);
+            } else {states.delete(pageNumber);}
         },
         prepareSurface,
         async render(request) {
             const source = options.source.value;
             const provider = source?.thumbnailProvider;
-            if (!source || !provider) throw new Error('Thumbnail provider is unavailable');
+            if (!source || !provider) {throw new Error('Thumbnail provider is unavailable');}
             return provider.renderThumbnail(request);
         },
     });
@@ -467,7 +467,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             renderWidth: nextWidth,
         });
         layoutRevision.value += 1;
-        if (keepAnchor && anchor) void place({anchor}, 'thumbnail-geometry');
+        if (keepAnchor && anchor) {void place({anchor}, 'thumbnail-geometry');}
     }
 
     function measureViewport() {
@@ -527,7 +527,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         pruneRenderFailures(retainedPages);
         const demand: IDocumentThumbnailDemand[] = [];
         for (const pageNumber of retainedPages) {
-            if (renderErrors.has(pageNumber)) continue;
+            if (renderErrors.has(pageNumber)) {continue;}
             const visible = visiblePages.has(pageNumber);
             demand.push({
                 distance: Math.abs(pageNumber - centerPage),
@@ -623,19 +623,19 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         viewportWritePort.fenceCommandAgainstLiveGesture();
         const root = options.scrollRoot.value;
         const intent = viewportWritePort.beginIntent('thumbnail-press');
-        if (root) viewportWritePort.apply(root, {
+        if (root) {viewportWritePort.apply(root, {
             intent,
             reason: 'thumbnail-press',
             top: root.scrollTop,
-        });
+        });}
     }
 
     function handleWheel(event: WheelEvent) {
         const root = options.scrollRoot.value;
-        if (!root) return;
+        if (!root) {return;}
         const interaction = resolveDocumentWheelInteraction(event, root);
         const owner = observeDocumentViewportWheelInteraction(viewportWritePort, interaction, root);
-        if (owner === 'command-residue') return;
+        if (owner === 'command-residue') {return;}
         markManualInteraction();
     }
 
@@ -661,7 +661,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     /** Drag auto-scroll: the drag owner decides the offset, the rail's port writes it. */
     function scrollToRequestedOffset(top: number) {
         const root = options.scrollRoot.value;
-        if (!root) return;
+        if (!root) {return;}
         markManualInteraction();
         viewportWritePort.apply(root, {
             intent: viewportWritePort.beginIntent('thumbnail-drag-scroll'),
@@ -678,11 +678,11 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     function measureSlotShape(source: IDocumentPageSource | null) {
         slotShapeRequest?.abort();
         slotShapeRequest = null;
-        if (!source) return;
+        if (!source) {return;}
         const request = new AbortController();
         slotShapeRequest = request;
         void measureSlotAspectRatio(source, request.signal).then((aspectRatio) => {
-            if (request.signal.aborted || aspectRatio === layout.slotAspectRatio) return;
+            if (request.signal.aborted || aspectRatio === layout.slotAspectRatio) {return;}
             const root = options.scrollRoot.value;
             const page = Math.min(source.pageCount, Math.max(1, options.currentPage.value));
             const viewport = root ? getActiveScrollViewport(root) : null;
@@ -692,7 +692,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
                 && bounds.bottom > viewport.scrollTop
                 && bounds.top < viewport.scrollTop + viewport.clientHeight;
             updateLayoutGeometry(cssWidth.value, itemChromeHeight.value, aspectRatio, !followPage);
-            if (followPage) void revealPage(page, {force: true});
+            if (followPage) {void revealPage(page, {force: true});}
         });
     }
 
@@ -710,7 +710,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
             let page = Math.max(getActiveScrollSegment().startPage, currentPage - CURRENT_NEIGHBOR_COUNT);
             page <= Math.min(getActiveScrollSegment().endPage, currentPage + CURRENT_NEIGHBOR_COUNT);
             page += 1
-        ) pages.add(page);
+        ) {pages.add(page);}
         return [...pages].sort((left, right) => left - right).map(pageNumber => ({
             aspectRatio: String(1 / layout.slotAspectRatio),
             height: layout.getPageHeight(pageNumber),
@@ -843,10 +843,10 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         void place({anchor: lastKnownAnchor}, 'thumbnail-resize').then(scheduleRefresh);
     });
     watch(options.scrollRoot, (root, previous) => {
-        if (previous) railAnchorPlacements.delete(previous);
-        if (root) railAnchorPlacements.set(root, () => (lastKnownAnchor
+        if (previous) {railAnchorPlacements.delete(previous);}
+        if (root) {railAnchorPlacements.set(root, () => (lastKnownAnchor
             ? place({anchor: lastKnownAnchor}, 'thumbnail-relocation')
-            : Promise.resolve(null)));
+            : Promise.resolve(null)));}
     }, {immediate: true});
 
     useEventListener(window, 'resize', scheduleRefresh);
@@ -856,7 +856,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     useResizeObserver(options.scrollRoot, () => {
         const wasVisible = isVisible.value;
         measureViewport();
-        if (!wasVisible && isVisible.value && options.isActive.value) void revealPage(options.currentPage.value, {force: true});
+        if (!wasVisible && isVisible.value && options.isActive.value) {void revealPage(options.currentPage.value, {force: true});}
         scheduleRefresh();
     });
     onMounted(() => {
@@ -870,7 +870,7 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         viewportWritePort.retire();
         slotShapeRequest?.abort();
         unsubscribeWheelScrollSequence();
-        if (scheduledFrame !== null) cancelAnimationFrame(scheduledFrame);
+        if (scheduledFrame !== null) {cancelAnimationFrame(scheduledFrame);}
         scheduler.dispose();
         states.clear();
         clearRenderFailures();

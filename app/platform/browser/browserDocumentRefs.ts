@@ -27,7 +27,7 @@ export function createBrowserDocumentRef(fileName: string, id = createBrowserSaf
 /** The id a browser ref names: its store directory, or the key of its file handle. */
 export function browserDocumentRefId(ref: string) {
     const id = ref.startsWith(BROWSER_REF_PREFIX) ? ref.slice(BROWSER_REF_PREFIX.length).split('/')[0] : undefined;
-    if (!id || !/^[A-Za-z0-9_-]{1,128}$/u.test(id)) throw new TypeError(`Not a browser document ref: ${ref}`);
+    if (!id || !/^[A-Za-z0-9_-]{1,128}$/u.test(id)) {throw new TypeError(`Not a browser document ref: ${ref}`);}
     return id;
 }
 

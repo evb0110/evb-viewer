@@ -53,7 +53,7 @@ describe('OCR platform feature', () => {
 
     it('keeps optional catalog arguments in their declared slots', () => {
         const revision = parseDocumentRevisionToken('drt1:ocr-fixture');
-        if (revision === null) throw new Error('fixture revision must be valid');
+        if (revision === null) {throw new Error('fixture revision must be valid');}
         const catalogArgs = OCR_PLATFORM_FEATURE.ipcCodecs[channels.resolveDocumentTextCatalog];
         const windowArgs = OCR_PLATFORM_FEATURE.ipcCodecs[channels.resolveDocumentTextCatalogWindow];
 

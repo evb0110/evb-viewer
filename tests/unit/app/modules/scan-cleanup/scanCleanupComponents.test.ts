@@ -1025,7 +1025,7 @@ function mountPreviewZoomHarness(options: {
         ...(options.onUpdateManualZones ? {'onUpdate:manualZones': options.onUpdateManualZones} : {}),
         ...(options.onRequestDetail ? {onRequestDetail: options.onRequestDetail} : {}),
         'onUpdate:manualSplit': (value: IScanCleanupNormalizedSplit | null) => {
-            if (value) splitUpdates.push(value);
+            if (value) {splitUpdates.push(value);}
         },
     })}));
     const {surface, stage} = mockPreviewLayout(harness.host, previewResult, options.canvasRect);
@@ -1128,7 +1128,7 @@ function installResizeObserverHarness() {
             for (const {
                 callback,
                 observer,
-            } of observers) callback([], observer);
+            } of observers) {callback([], observer);}
         },
     };
 }
@@ -1350,11 +1350,11 @@ async function mountRealWorkspace(documentKey: string, ledger?: ReturnType<typeo
     const sourcePath = requireDocumentRef(`/docs/${documentKey}.pdf`);
     realWorkspaceSession.create = useScanCleanupWorkspaceSession;
     const harness = mount(defineComponent({setup() {
-        if (ledger) provide(workspaceCommandSinkKey, {
+        if (ledger) {provide(workspaceCommandSinkKey, {
             register: ledger.registerCommand,
             reset: ledger.resetSource,
             forget: ledger.forgetSourceEntries,
-        });
+        });}
         return () => h(ScanCleanupWorkspace, {
             sourcePath,
             documentKey,
@@ -1372,7 +1372,7 @@ async function mountRealWorkspace(documentKey: string, ledger?: ReturnType<typeo
 
 afterEach(() => {
     toastAdd.mockClear();
-    for (const unmount of activeUnmounts) unmount();
+    for (const unmount of activeUnmounts) {unmount();}
     toastRemove.mockClear();
     document.body.innerHTML = '';
     localStorage.clear();
@@ -1693,10 +1693,10 @@ describe('Scan cleanup components', () => {
     ] as const)('shows mixed deskew for automatic followed by manual in %s scope', async (scope) => {
         const harness = await mountRealWorkspace(`mixed-deskew-${scope}`);
         harness.session.settings.values.pageOverrides['2'] = createScanCleanupPageOverride({manualSkewDegrees: 3});
-        if (scope === 'selected') harness.session.selection.selectPage(2, 'toggle', [
+        if (scope === 'selected') {harness.session.selection.selectPage(2, 'toggle', [
             1,
             2,
-        ]);
+        ]);}
         harness.session.selection.setSettingsScope(scope);
         await nextTick();
         const row = Array.from(harness.host.querySelectorAll('.scan-cleanup-auto-value-row'))
@@ -5154,7 +5154,7 @@ describe('Scan cleanup components', () => {
         const result = spreadPreviewResult();
         result.pageMetadata.rotationDegrees = rotationDegrees;
         result.pageMetadata.cutterXPx = 200;
-        for (const output of result.outputs) output.metadata.rotationDegrees = rotationDegrees;
+        for (const output of result.outputs) {output.metadata.rotationDegrees = rotationDegrees;}
         const harness = mountPreviewZoomHarness({
             viewMode: 'original',
             result,
@@ -7482,7 +7482,7 @@ describe('Scan cleanup components', () => {
             pageOverrides: {},
         });
         const updateSetting = vi.fn((key: string, value: unknown) => {
-            if (key === 'autoDewarpDepth') settings.autoDewarpDepth = value as number;
+            if (key === 'autoDewarpDepth') {settings.autoDewarpDepth = value as number;}
         });
         const harness = mount(defineComponent({setup: () => () => h(
             ScanCleanupSettingsPanel,

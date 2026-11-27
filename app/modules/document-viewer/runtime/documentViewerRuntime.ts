@@ -216,7 +216,7 @@ export function createDocumentViewerRuntime(
             }
             source.value = nextSource;
             pageCount.value = nextSource?.pageCount ?? 0;
-            if (pageCount.value > 0) openSurface.metadataReady(pageCount.value);
+            if (pageCount.value > 0) {openSurface.metadataReady(pageCount.value);}
         },
         bindOpeningPageElement(element) {
             openingPageElement.value = element;

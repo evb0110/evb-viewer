@@ -109,7 +109,7 @@ const inlineEdit = useTextBoxInlineEdit({
     caretPoint: computed(() => caretPoint ?? null),
     onCommit: (text, options) => {
         const rect = draftRect.value ?? recoveredDraftRect ?? (text !== entity.text ? draftRectForContent() : undefined);
-        if (!commitDraft) throw new Error('Missing text draft completion owner');
+        if (!commitDraft) {throw new Error('Missing text draft completion owner');}
         return commitDraft({
             text,
             restoreFocus: options?.restoreFocus ?? false,
@@ -139,7 +139,7 @@ watch(() => entity.fontSize, async () => {
 });
 
 watch(() => entity.rect, async (rect, previous) => {
-    if (annotationRectsEqual(rect, previous)) return;
+    if (annotationRectsEqual(rect, previous)) {return;}
     draftRect.value = editing.value ? rect : null;
     if (editing.value) { await nextTick(); draftRectForContent(); }
 });
@@ -254,7 +254,7 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
 }
 
 function handleInputEvent(event: Event) {
-    if (event instanceof InputEvent && event.isComposing) return;
+    if (event instanceof InputEvent && event.isComposing) {return;}
     handleInput(event);
     draftRectForContent();
 }

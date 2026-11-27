@@ -150,7 +150,7 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         }
         const claimed = claim === null || session.snapshot.value.activeTransaction?.id === claim;
         if (!workspace || session.getView(tabId) !== view || !claimed || signal?.aborted) {
-            if (claim && claimed) session.markFailed(null);
+            if (claim && claimed) {session.markFailed(null);}
             return false;
         }
         const preOpenInstanceId = session.snapshot.value.identity.documentInstanceId;
@@ -170,17 +170,17 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
         try {
             return await new Promise<boolean>((resolve, reject) => {
                 const finish = (opened: boolean) => {
-                    if (settled) return;
+                    if (settled) {return;}
                     settled = true;
                     resolve(opened);
                 };
                 const fail = (error: unknown) => {
-                    if (settled) return;
+                    if (settled) {return;}
                     settled = true;
                     reject(error);
                 };
                 const handleAbort = () => {
-                    if (settled) return;
+                    if (settled) {return;}
                     const currentSession = documentSessions.getSession(tabId);
                     const snap = currentSession?.snapshot.value;
                     const presentedThisOpen = currentSession === session

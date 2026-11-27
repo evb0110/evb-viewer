@@ -140,7 +140,7 @@ function readJpegDpi(data: Uint8Array) {
     let offset = 2;
 
     while (offset + 4 < data.length) {
-        if (data[offset] !== 0xFF) break;
+        if (data[offset] !== 0xFF) {break;}
         const marker = data[offset + 1]!;
 
         const dpi = readJpegSegmentDpi(data, offset, marker);
@@ -148,7 +148,7 @@ function readJpegDpi(data: Uint8Array) {
             return dpi;
         }
 
-        if (marker === JPEG_START_OF_SCAN_MARKER) break;
+        if (marker === JPEG_START_OF_SCAN_MARKER) {break;}
 
         const segLength = readUint16BE(data, offset + 2);
         offset += 2 + segLength;
@@ -189,7 +189,7 @@ function readExifOrientationSegment(data: Uint8Array, payloadOffset: number, pay
     const entryCount = readUint16(data, ifdOffset, littleEndian);
     for (let index = 0; index < entryCount; index += 1) {
         const entryOffset = ifdOffset + 2 + (index * 12);
-        if (entryOffset + 12 > payloadOffset + payloadLength) break;
+        if (entryOffset + 12 > payloadOffset + payloadLength) {break;}
         if (readUint16(data, entryOffset, littleEndian) === 0x0112) {
             const orientation = readUint16(data, entryOffset + 8, littleEndian);
             return orientation >= 2 && orientation <= 8 ? orientation as 2 | 3 | 4 | 5 | 6 | 7 | 8 : 1;
@@ -205,9 +205,9 @@ export function readJpegExifOrientation(data: Uint8Array): 1 | 2 | 3 | 4 | 5 | 6
     let offset = 2;
     while (offset + 4 < data.length && data[offset] === 0xff) {
         const marker = data[offset + 1]!;
-        if (marker === JPEG_START_OF_SCAN_MARKER) break;
+        if (marker === JPEG_START_OF_SCAN_MARKER) {break;}
         const segmentLength = readUint16BE(data, offset + 2);
-        if (segmentLength < 2 || offset + 2 + segmentLength > data.length) break;
+        if (segmentLength < 2 || offset + 2 + segmentLength > data.length) {break;}
         if (marker === JPEG_APP1_MARKER) {
             return readExifOrientationSegment(data, offset + 4, segmentLength - 2);
         }

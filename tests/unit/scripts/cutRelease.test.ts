@@ -88,9 +88,9 @@ describe('tag release cutter', () => {
         const result = selectReleaseCandidate({
             runCommand: (_command, args) => {
                 commands.push(args);
-                if (args[0] === 'tag') return 'v1.2.3';
-                if (args[0] === 'rev-parse') return args[1] === 'origin/main' ? 'main' : 'tag-sha';
-                if (args[0] === 'merge-base') return '';
+                if (args[0] === 'tag') {return 'v1.2.3';}
+                if (args[0] === 'rev-parse') {return args[1] === 'origin/main' ? 'main' : 'tag-sha';}
+                if (args[0] === 'merge-base') {return '';}
                 return '';
             },
             findRun: () => null,
@@ -127,8 +127,8 @@ describe('tag release cutter', () => {
 
     it('releases the tip of main from its exact-SHA run while the run list still lags', () => {
         const runCommand = (_command: string, args: string[]) => {
-            if (args[0] === 'tag') return 'v1.2.3';
-            if (args[0] === 'rev-parse') return args[1] === 'origin/main' ? 'tip' : 'tag-sha';
+            if (args[0] === 'tag') {return 'v1.2.3';}
+            if (args[0] === 'rev-parse') {return args[1] === 'origin/main' ? 'tip' : 'tag-sha';}
             return '';
         };
         const olderRun = {
@@ -164,9 +164,9 @@ describe('tag release cutter', () => {
         const result = planRelease('patch', {
             runCommand: (_command, args) => {
                 commands.push(args);
-                if (args[0] === 'tag') return 'v1.2.3';
-                if (args[0] === 'rev-parse') return args[1] === 'origin/main' ? 'main' : 'tag-sha';
-                if (args[0] === 'merge-base') return '';
+                if (args[0] === 'tag') {return 'v1.2.3';}
+                if (args[0] === 'rev-parse') {return args[1] === 'origin/main' ? 'main' : 'tag-sha';}
+                if (args[0] === 'merge-base') {return '';}
                 return '';
             },
             findRun: () => null,
@@ -189,7 +189,7 @@ describe('tag release cutter', () => {
     it('requires an existing stable tag as the version baseline', () => {
         expect(() => planRelease('patch', {
             runCommand: (_command, args) => {
-                if (args[0] === 'rev-parse') return 'main';
+                if (args[0] === 'rev-parse') {return 'main';}
                 return '';
             },
             findRun: () => null,

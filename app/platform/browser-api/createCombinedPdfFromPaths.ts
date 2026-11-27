@@ -318,7 +318,7 @@ async function createCombinedPdfFromPreparedPaths(
             index += 1;
         } else {
             let end = index;
-            while (end < paths.length && !isPdf(paths[end]!)) end += 1;
+            while (end < paths.length && !isPdf(paths[end]!)) {end += 1;}
             sources.push(new Blob([await combineImages(paths.slice(index, end), signal) as Uint8Array<ArrayBuffer>]));
             index = end;
         }

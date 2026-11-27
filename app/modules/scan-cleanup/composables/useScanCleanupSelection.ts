@@ -95,7 +95,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     const leader = computed({
         get: () => leaderPage.value,
         set: (page: number) => {
-            if (page === leaderPage.value) return;
+            if (page === leaderPage.value) {return;}
             leaderPage.value = page;
             options.saveLeader?.();
         },
@@ -167,11 +167,11 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
             before: before[index],
             after: after[index],
         }]);
-        if (changed.length === 0) return;
+        if (changed.length === 0) {return;}
         const commandToken = Symbol('scan-cleanup-override-edit');
         const previousOwners = new Map<string, symbol | undefined>();
         for (const entry of changed) {
-            if (!sharedFields.has(entry.key)) continue;
+            if (!sharedFields.has(entry.key)) {continue;}
             previousOwners.set(entry.key, sharedFieldOwner.get(entry.key));
             sharedFieldOwner.set(entry.key, commandToken);
         }
@@ -194,11 +194,11 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
                             continue;
                         }
                         const nextOwner = side === 'before' ? previousOwners.get(entry.key) : commandToken;
-                        if (nextOwner === undefined) sharedFieldOwner.delete(entry.key);
-                        else sharedFieldOwner.set(entry.key, nextOwner);
+                        if (nextOwner === undefined) {sharedFieldOwner.delete(entry.key);}
+                        else {sharedFieldOwner.set(entry.key, nextOwner);}
                     }
-                    if (entry[side] === undefined) Reflect.deleteProperty(owner, entry.key);
-                    else Reflect.set(owner, entry.key, cloneScanCleanupPreferenceValue(entry[side]));
+                    if (entry[side] === undefined) {Reflect.deleteProperty(owner, entry.key);}
+                    else {Reflect.set(owner, entry.key, cloneScanCleanupPreferenceValue(entry[side]));}
                 }
             });
             if (marginsLinkedChanged) {
@@ -222,7 +222,7 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
     ) {
         const selected = [...new Set(pages)];
         recordOverrideEdit(selected, () => {
-            if (defaults) setPageOverrideDefaults(defaults);
+            if (defaults) {setPageOverrideDefaults(defaults);}
             updateScanCleanupPageOverrides(settings.pageOverrides, selected, update, settings.marginsMm);
         });
     }
@@ -458,8 +458,8 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
         value: IScanCleanupNormalizedRect | null,
     ) {
         const manualContentBoxes = {...currentPageOverride.value.manualContentBoxes};
-        if (value) manualContentBoxes[half] = value;
-        else Reflect.deleteProperty(manualContentBoxes, half);
+        if (value) {manualContentBoxes[half] = value;}
+        else {Reflect.deleteProperty(manualContentBoxes, half);}
         updatePageOverride(leader.value, {
             ...currentPageOverride.value,
             manualContentBoxes,
@@ -475,8 +475,8 @@ export const useScanCleanupSelection = (options: IUseScanCleanupSelectionOptions
 
     function updateCurrentPlacement(half: TScanCleanupOutputHalf, value: TScanCleanupPageAlignment | null) {
         const placementOverrides = {...currentPageOverride.value.placementOverrides};
-        if (value) placementOverrides[half] = value;
-        else Reflect.deleteProperty(placementOverrides, half);
+        if (value) {placementOverrides[half] = value;}
+        else {Reflect.deleteProperty(placementOverrides, half);}
         updatePageOverride(leader.value, {
             ...currentPageOverride.value,
             placementOverrides,

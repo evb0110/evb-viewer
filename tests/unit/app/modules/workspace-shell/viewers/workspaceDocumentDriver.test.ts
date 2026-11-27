@@ -395,7 +395,7 @@ describe('WorkspaceDocumentDriver', () => {
             nativeJobId = admittedJobId;
             admitted.resolve(undefined);
             await preparation.promise;
-            if (!canceled) dialog();
+            if (!canceled) {dialog();}
             return {
                 success: !canceled,
                 canceled,

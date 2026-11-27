@@ -160,10 +160,10 @@ export const useTabDragReorder = (
         }
 
         for (let i = 0; i < tabElements.length; i++) {
-            if (i === dragIndex.value) continue;
+            if (i === dragIndex.value) {continue;}
 
             const el = tabElements[i];
-            if (!el) continue;
+            if (!el) {continue;}
             if (isBetween(i, dragIndex.value, targetIndex)) {
                 const direction = targetIndex > dragIndex.value ? -1 : 1;
                 el.style.transform = `translateX(${direction * dragSlot.width}px)`;

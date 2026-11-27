@@ -34,7 +34,7 @@ async function readCatalogJson(
     // The reader reports, one JSON line each, what it read but could not keep,
     // such as an outline action it leaves without a target.
     for (const line of stderr.split(/\r?\n/u)) {
-        if (line.trim()) log.warn(line);
+        if (line.trim()) {log.warn(line);}
     }
     return JSON.parse(stdout);
 }

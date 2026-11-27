@@ -352,7 +352,7 @@ function createRecovery(options: {
     unread?: boolean;
 } = {}) {
     const store = new AnnotationStore();
-    if (!options.unread) store.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('1'));
+    if (!options.unread) {store.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('1'));}
     const viewer = cast<IPdfViewerExpose>({
         captureCanonicalAnnotationRecovery: () => {
             const text = options.noteText?.() ?? null;
@@ -455,7 +455,7 @@ describe('createWorkspaceDocumentRecovery', () => {
         await recovery.commitDrafts();
         setDocumentDrafts.mockClear();
         setDocumentDrafts.mockImplementation(async (drafts) => {
-            if (drafts.workingByteRevision !== '1') return true;
+            if (drafts.workingByteRevision !== '1') {return true;}
             snapshot.value = {...snapshot.value, identity: {...snapshot.value.identity, revisionInfo: {token: '2'}}};
             return false;
         });
@@ -502,7 +502,7 @@ describe('createWorkspaceDocumentRecovery', () => {
         const duringOlderRead = captureCanonicalAnnotationRecovery(captured);
         // The recovered bytes are revision 1; their read commits when joined.
         const readOf = (landed: boolean) => (store: AnnotationStore) => {
-            if (landed) store.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('1'));
+            if (landed) {store.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('1'));}
             return Promise.resolve(landed);
         };
         const restore = async (joinRead: NonNullable<Parameters<typeof createRecovery>[0]>['joinRead'], payload: unknown = duringOlderRead) => {
@@ -542,11 +542,11 @@ describe('createWorkspaceDocumentRecovery', () => {
         const captured = new AnnotationStore();
         captured.replaceFromDocument([highlight], [], undefined, [], [], false, requireDocumentRevisionToken('1'));
         captured.delete(highlight.identity.id);
-        if (withEdit) captured.createNote(cast<INoteEntity>({
+        if (withEdit) {captured.createNote(cast<INoteEntity>({
             kind: 'note', identity: {id: asAnnotationId('typed-note')}, pageIndex: requirePageIndex(0), revision: 0, persistedRevision: -1,
             deleted: false, createdAt: null, modifiedAt: null, author: null, contents: 'Typed', position: {left: 0.1, top: 0.1, width: 0.02, height: 0.02},
             color: '#ffff00', open: false,
-        }));
+        }));}
         const payload = JSON.parse(JSON.stringify(captureCanonicalAnnotationRecovery(captured)));
         const read = Promise.withResolvers<boolean>();
         const {store, recovery, viewer} = createRecovery({
@@ -621,7 +621,7 @@ describe('createWorkspaceDocumentRecovery', () => {
         const {store, recovery, viewer} = createRecovery({
             commentsStatus,
             joinRead: (target) => {
-                if (!viewHasDocument) return null;
+                if (!viewHasDocument) {return null;}
                 target.replaceFromDocument([rotated], [], undefined, [], [], true, requireDocumentRevisionToken('1'));
                 return Promise.resolve(true);
             },
@@ -652,7 +652,7 @@ describe('createWorkspaceDocumentRecovery', () => {
             createdAt: null, modifiedAt: null, author: null, contents: id, position: {left: 0.1, top: 0.1, width: 0.02, height: 0.02},
             color: '#ffff00', open: false,
         }), identity: {id: asAnnotationId(id)}});
-        for (let index = 0; index < 10; index += 1) note(`burst-${String(index)}`);
+        for (let index = 0; index < 10; index += 1) {note(`burst-${String(index)}`);}
         await recovery.commitDrafts();
         expect(setDocumentDrafts).toHaveBeenCalledTimes(1);
         expect(setDocumentDrafts.mock.calls[0]?.[0].payload).toBeDefined();

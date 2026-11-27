@@ -642,7 +642,7 @@ export async function startHostVisibleElectronE2ESession(
  */
 function suppressDefaultViewerPrompt(userDataPath: string) {
     const settingsPath = join(userDataPath, 'settings.json');
-    if (existsSync(settingsPath)) return;
+    if (existsSync(settingsPath)) {return;}
     mkdirSync(userDataPath, {recursive: true});
     writeFileSync(settingsPath, JSON.stringify({
         ...DEFAULT_SETTINGS,

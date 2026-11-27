@@ -30,7 +30,7 @@ export function createMemoryScanCleanupDetectionResultStore(
     let layoutByPage: TScanCleanupLayoutByPage = {};
     let closed = false;
     const assertOpen = () => {
-        if (closed) throw new Error('Scan cleanup result store is closed');
+        if (closed) {throw new Error('Scan cleanup result store is closed');}
     };
     const write = (pageNumber: number, result: IScanCleanupDetectionResult, requireExisting: boolean) => {
         assertOpen();
@@ -54,7 +54,7 @@ export function createMemoryScanCleanupDetectionResultStore(
         const results: IScanCleanupDetectionResult[] = [];
         for (let pageNumber = firstPageNumber; pageNumber < lastPageNumberExclusive; pageNumber += 1) {
             const result = read(pageNumber);
-            if (result !== undefined) results.push(result);
+            if (result !== undefined) {results.push(result);}
         }
         return results;
     };
@@ -88,7 +88,7 @@ export function createMemoryScanCleanupDetectionResultStore(
             // A callback may close the store; the next chunk must not read as empty.
             for (let firstPageNumber = 1; ; firstPageNumber += maxReadPages) {
                 assertOpen();
-                if (firstPageNumber > pageCount) return;
+                if (firstPageNumber > pageCount) {return;}
                 await onChunk(
                     readRange(firstPageNumber, Math.min(pageCount + 1, firstPageNumber + maxReadPages)),
                     firstPageNumber,

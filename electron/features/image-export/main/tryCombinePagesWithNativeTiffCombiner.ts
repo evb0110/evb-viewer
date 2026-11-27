@@ -75,7 +75,7 @@ export async function tryCombinePagesWithNativeTiffCombiner(
     };
 
     try {
-        if (signal?.aborted) throw abortErrorFromSignal(signal);
+        if (signal?.aborted) {throw abortErrorFromSignal(signal);}
         await writeFile(inputsPath, createNativeInputsFileContents(pagePaths), 'utf8');
         // The proof also reaches the caller's lease, which the combine runs under.
         const recordLocalProof: TTerminationProofSink = (proof) => {
@@ -108,7 +108,7 @@ export async function tryCombinePagesWithNativeTiffCombiner(
             return false;
         }
 
-        if (signal?.aborted) throw abortErrorFromSignal(signal);
+        if (signal?.aborted) {throw abortErrorFromSignal(signal);}
         await atomicReplace(tempOutputPath, outputPath);
         replacedOutput = true;
         return true;
@@ -180,8 +180,8 @@ async function runNativeTiffCombine(
     } catch (error) {
         // A child not proven gone may still hold the pages and the output, so
         // no fallback starts beside it and the owner of the pages has to know.
-        if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
-        if (signal?.aborted) throw abortErrorFromSignal(signal);
+        if (getUnprovenNativeTerminationDetail(error) !== undefined) {throw error;}
+        if (signal?.aborted) {throw abortErrorFromSignal(signal);}
         const testFailure = createNativeFallbackTestError(
             runtimeConfig.test.nativeTiffCombineEnabled,
             'Native TIFF combine',

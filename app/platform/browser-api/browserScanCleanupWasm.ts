@@ -58,9 +58,9 @@ const engineThreads = readScanCleanupEngineWorkerThreads(typeof workerName === '
 let activeProgressListener: ((progress: IScanCleanupWasmSubPageProgress) => void) | null = null;
 const handleWasmProgress = (stageCode: number, completed: number, total: number) => {
     const listener = activeProgressListener;
-    if (listener === null) return;
+    if (listener === null) {return;}
     const stage = decodeScanCleanupWasmSubPageStage(stageCode >>> 0);
-    if (stage === null) return;
+    if (stage === null) {return;}
     listener({
         stage,
         completed: completed >>> 0,
@@ -116,12 +116,12 @@ async function run<TResult>(
         called = await engine.call(encode());
     } catch (error) {
         // The worker hands the request back so the page can run it on today's engine.
-        if (error instanceof NativeWasmThreadStartError) throw error;
+        if (error instanceof NativeWasmThreadStartError) {throw error;}
         return failed('invalid-request', getErrorMessage(error));
     } finally {
         activeProgressListener = previousListener;
     }
-    if (called.status === 'failed') return called;
+    if (called.status === 'failed') {return called;}
     try {
         return {
             status: 'succeeded',
@@ -209,7 +209,7 @@ export async function preprocessBrowserOcrPage(
         },
         planeEncoding,
     });
-    if (rendered.status === 'failed') return rendered;
+    if (rendered.status === 'failed') {return rendered;}
     const [
         output,
         ...extra

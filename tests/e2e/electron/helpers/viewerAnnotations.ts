@@ -124,7 +124,7 @@ export async function setAnnotationKeepActiveWithPointer(page: Page, enabled: bo
     });
     const read = () => page.$eval(selector, checkbox => checkbox instanceof HTMLInputElement
         ? checkbox.checked : checkbox.getAttribute('aria-checked') === 'true');
-    if (await read() !== enabled) await clickVisibleAnnotationControl(page, selector);
+    if (await read() !== enabled) {await clickVisibleAnnotationControl(page, selector);}
     await page.waitForFunction((input: {
         selector: string;
         enabled: boolean
@@ -537,7 +537,7 @@ export async function clickLatestVisibleNoteWindowClose(page: Page) {
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
         const hit = document.elementFromPoint(x, y);
-        if (!hit || !closeButton.contains(hit)) throw new Error('The note close button is obstructed');
+        if (!hit || !closeButton.contains(hit)) {throw new Error('The note close button is obstructed');}
         return {
             x,
             y,

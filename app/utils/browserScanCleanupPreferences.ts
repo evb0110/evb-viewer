@@ -171,11 +171,11 @@ export function copyScanCleanupDocumentPreferences(
 ) {
     return runSerializedScanCleanupPreferencesMutation(() => {
         const entries = loadDocumentEntries(storage);
-        if (Object.hasOwn(entries, savedKey)) return;
+        if (Object.hasOwn(entries, savedKey)) {return;}
         const sourceKey = sourceKeys.find(key => Object.hasOwn(entries, key));
-        if (sourceKey === undefined) return;
+        if (sourceKey === undefined) {return;}
         const entry = scanCleanupPreferenceRecord(entries[sourceKey]);
-        if (!entry) return;
+        if (!entry) {return;}
         // Both documents were just in use: fresh times keep the size bound from
         // dropping either the copy or the source it came from.
         const updatedAt = Date.now();
@@ -244,7 +244,7 @@ export function loadScanCleanupDocumentOverrides(
     const entries = loadDocumentEntries(storage);
     const entry = scanCleanupPreferenceRecord(entries[documentKey]);
     const migration = migrateScanCleanupDocumentOverridesV1(entry);
-    if (migration.migratedLegacyGeometry) warnScanCleanupOverrideMigrationV1();
+    if (migration.migratedLegacyGeometry) {warnScanCleanupOverrideMigrationV1();}
     return migration.overrides;
 }
 
@@ -275,7 +275,7 @@ export function loadScanCleanupDocumentPageOverrideDefaults(
         return null;
     }
     const migration = migrateScanCleanupPageOverrideV1(entry.pageOverrideDefaults);
-    if (migration.migratedLegacyGeometry) warnScanCleanupOverrideMigrationV1();
+    if (migration.migratedLegacyGeometry) {warnScanCleanupOverrideMigrationV1();}
     try {
         return decodeScanCleanupPageOverride(migration.value);
     } catch {

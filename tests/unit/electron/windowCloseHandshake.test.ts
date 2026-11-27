@@ -29,7 +29,7 @@ vi.mock('@electron/workspaceCheckpointStore', () => ({discardWorkspaceCheckpoint
 vi.mock('@electron/file-access/documentStore', () => ({
     openDocuments: resources.copies,
     cleanupWorkingCopy: async (path: string, owner: number) => {
-        if (resources.copies.get(path)?.ownerWebContentsId === owner) resources.copies.delete(path);
+        if (resources.copies.get(path)?.ownerWebContentsId === owner) {resources.copies.delete(path);}
     },
 }));
 

@@ -240,9 +240,9 @@ function registerDocumentsSenderCleanup(event: Pick<IpcMainInvokeEvent, 'sender'
     };
     const stop = onSenderLifetimeEnd(event.sender, (end) => {
         stop();
-        if (end === 'destroyed') cleanup('destroyed', 'Renderer destroyed');
-        else if (end === 'render-process-gone') cleanup('renderProcessGone', 'Renderer process gone');
-        else cleanup('mainFrameNavigation', 'Renderer main frame navigated');
+        if (end === 'destroyed') {cleanup('destroyed', 'Renderer destroyed');}
+        else if (end === 'render-process-gone') {cleanup('renderProcessGone', 'Renderer process gone');}
+        else {cleanup('mainFrameNavigation', 'Renderer main frame navigated');}
     }, {navigation: true});
 }
 
@@ -322,7 +322,7 @@ function decodeRendererFileOpenRequest(value: unknown): IRendererFileOpenRequest
 
 function decodeStagedSerializedPdfArgs(args: readonly unknown[]): [TSessionId, ITypedStagedArtifact] {
     const stagedOutput = v.safeParse(TYPED_STAGED_ARTIFACT_SCHEMA, args[1], {abortEarly: true});
-    if (!stagedOutput.success) throw new Error('stagedOutput must be a typed staged artifact');
+    if (!stagedOutput.success) {throw new Error('stagedOutput must be a typed staged artifact');}
     return [
         requireSessionId(decodeStringArg(args, 0, 'sessionId')),
         stagedOutput.output,
@@ -608,11 +608,11 @@ export const documentsMainBindings = {
         handleShowItemInFolder({owner: context.sender}, filePath),
     setMenuDocumentState: (context, state) => {
         const window = BrowserWindow.fromWebContents(context.sender);
-        if (window) setMenuDocumentState(window.id, state);
+        if (window) {setMenuDocumentState(window.id, state);}
     },
     setMenuTabCount: (context, tabCount) => {
         const window = BrowserWindow.fromWebContents(context.sender);
-        if (window) setMenuTabCount(window.id, tabCount);
+        if (window) {setMenuTabCount(window.id, tabCount);}
     },
 } satisfies
     TFeatureMainBindings<typeof DOCUMENT_PICKER_PLATFORM_FEATURE, IpcMainInvokeEvent>

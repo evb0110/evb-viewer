@@ -122,11 +122,11 @@ export async function snapshotCliDiagnosticMasks(
         pageSpec,
     ] of pageSpecs.entries()) {
         const outputOrdinal = index + 1;
-        if (!selected.has(outputOrdinal)) continue;
+        if (!selected.has(outputOrdinal)) {continue;}
         const maskPath = compactScanCleanupBilevelMaskPath(pageSpec);
-        if (maskPath === undefined) continue;
+        if (maskPath === undefined) {continue;}
         const payload = await readFile(maskPath);
-        if (payload[0] !== 0x50 || payload[1] !== 0x34) continue;
+        if (payload[0] !== 0x50 || payload[1] !== 0x34) {continue;}
         // The evidence manifest is portable JSON, so its relative paths use
         // forward slashes on every platform.
         const relativePath = posix.join(
@@ -355,7 +355,7 @@ function buildCliWasmPageRequest(page: ICliPdfCombineWasmPage, inputs: ICliPdfCo
                 0,
                 0,
             ];
-        for (const channel of color) offset = writeCliWasmU32(view, offset, channel);
+        for (const channel of color) {offset = writeCliWasmU32(view, offset, channel);}
     }
     return request;
 }
@@ -491,10 +491,10 @@ export async function writeCliWasmPdfPage(
     };
     const paths = cliWasmInputPaths(normalizedPage);
     const dataByPath = new Map<string, Uint8Array>();
-    for (const path of paths) dataByPath.set(path, await readFile(path));
+    for (const path of paths) {dataByPath.set(path, await readFile(path));}
     const request = buildCliWasmPageRequest(normalizedPage, cliWasmPageInputs(normalizedPage, dataByPath));
     const pointer = exports.evb_pdf_image_combine_alloc(request.byteLength);
-    if (pointer === 0) throw new Error('CLI PDF image combine WASM allocation failed');
+    if (pointer === 0) {throw new Error('CLI PDF image combine WASM allocation failed');}
     try {
         const requestMemory = getCheckedWasmMemoryView(
             exports.memory,
@@ -513,7 +513,7 @@ export async function writeCliWasmPdfPage(
             throw new Error(`CLI PDF image combine WASM failed: ${error}`);
         }
         const outputLength = exports.evb_pdf_image_combine_output_len();
-        if (outputLength === 0) throw new Error('CLI PDF image combine WASM returned an empty PDF');
+        if (outputLength === 0) {throw new Error('CLI PDF image combine WASM returned an empty PDF');}
         await writeFile(outputPath, readCliWasmBytes(
             exports,
             exports.evb_pdf_image_combine_output_ptr(),
@@ -532,16 +532,16 @@ function terminateCliChild(child: ChildProcess) {
         return;
     }
     try {
-        if (process.platform === 'win32') child.kill('SIGTERM');
-        else process.kill(-pid, 'SIGTERM');
+        if (process.platform === 'win32') {child.kill('SIGTERM');}
+        else {process.kill(-pid, 'SIGTERM');}
     } catch {
         child.kill('SIGTERM');
     }
     setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) {
             try {
-                if (process.platform === 'win32') child.kill('SIGKILL');
-                else process.kill(-pid, 'SIGKILL');
+                if (process.platform === 'win32') {child.kill('SIGKILL');}
+                else {process.kill(-pid, 'SIGKILL');}
             } catch {
                 child.kill('SIGKILL');
             }
@@ -556,7 +556,7 @@ export async function runCliNativeToolCommand(
     args: string[],
     options: IScanCleanupRunCommandOptions = {},
 ): Promise<IScanCleanupProcessResult> {
-    if (options.signal?.aborted) throw options.signal.reason;
+    if (options.signal?.aborted) {throw options.signal.reason;}
     if (isPdfPageOpsWasmPath(command)) {
         let runnerPromise = cliPageOpsRunners.get(command);
         if (!runnerPromise) {
@@ -564,9 +564,9 @@ export async function runCliNativeToolCommand(
             cliPageOpsRunners.set(command, runnerPromise);
         }
         const runner = await runnerPromise;
-        if (options.signal?.aborted) throw options.signal.reason;
+        if (options.signal?.aborted) {throw options.signal.reason;}
         const result = executeDesktopPageOpsCommand(runner, args);
-        if (options.signal?.aborted) throw options.signal.reason;
+        if (options.signal?.aborted) {throw options.signal.reason;}
         if (result.stdout.length > 0) {
             options.onStdout?.(result.stdout);
         }
@@ -594,7 +594,7 @@ export async function runCliNativeToolCommand(
             return next.length > limit ? next.slice(-limit) : next;
         };
         const cleanup = () => {
-            if (timer !== undefined) clearTimeout(timer);
+            if (timer !== undefined) {clearTimeout(timer);}
             options.signal?.removeEventListener('abort', onAbort);
         };
         const finish = (error: Error | null, result?: IScanCleanupProcessResult) => {
@@ -603,8 +603,8 @@ export async function runCliNativeToolCommand(
             }
             settled = true;
             cleanup();
-            if (error === null && result !== undefined) resolve(result);
-            else reject(error ?? new Error('Native command failed without a result'));
+            if (error === null && result !== undefined) {resolve(result);}
+            else {reject(error ?? new Error('Native command failed without a result'));}
         };
         const onAbort = () => {
             terminateCliChild(child);
@@ -698,7 +698,7 @@ export async function runCliScanCleanupSidecar(
         allowedPathRoot?: string;
     } = {},
 ) {
-    if (signal.aborted) throw signal.reason;
+    if (signal.aborted) {throw signal.reason;}
     const child = spawn(binaryPath, [
         '--manifest',
         manifestPath,
@@ -750,7 +750,7 @@ export async function runCliScanCleanupSidecar(
                     continue;
                 }
                 terminalStatus = envelope.result.status;
-                if (envelope.result.status === 'failure') nativeFailure.value = envelope.result;
+                if (envelope.result.status === 'failure') {nativeFailure.value = envelope.result;}
             } catch (error) {
                 protocol.failProtocol(error, line);
             }
@@ -781,7 +781,7 @@ export async function runCliScanCleanupSidecar(
         }
         await consumeProgress;
         throwCliProtocolError(protocolError);
-        if (aborting) throw signal.reason;
+        if (aborting) {throw signal.reason;}
         const failure = nativeFailure.value;
         if (failure !== null) {
             throw new Error(`${failure.code}: ${failure.message}`);
@@ -804,11 +804,11 @@ export async function runCliScanCleanupSidecar(
 }
 
 export async function requireCliPublishedRaster(path: string | undefined, pageNumber: number, role: string) {
-    if (path === undefined) throw new Error(`Page ${pageNumber} declared a ${role} without an output destination`);
+    if (path === undefined) {throw new Error(`Page ${pageNumber} declared a ${role} without an output destination`);}
     const stats = await stat(path).catch((error: NodeJS.ErrnoException) => {
         throw new Error(`Page ${pageNumber} ${role} is unavailable: ${error.message}`);
     });
-    if (!stats.isFile()) throw new Error(`Page ${pageNumber} ${role} is not a file: ${path}`);
+    if (!stats.isFile()) {throw new Error(`Page ${pageNumber} ${role} is not a file: ${path}`);}
     await access(path, fsConstants.R_OK).catch((error: NodeJS.ErrnoException) => {
         throw new Error(`Page ${pageNumber} ${role} is unreadable: ${error.message}`);
     });

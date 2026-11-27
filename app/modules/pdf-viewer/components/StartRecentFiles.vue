@@ -335,11 +335,11 @@ const relativeTimeClock = useIntervalFn(refreshNow, RELATIVE_TIME_REFRESH_MS, {
     immediateCallback: true,
 });
 watch(isClockRunning, (running) => {
-    if (running) relativeTimeClock.resume();
-    else relativeTimeClock.pause();
+    if (running) {relativeTimeClock.resume();}
+    else {relativeTimeClock.pause();}
 }, {immediate: true});
 useEventListener('focus', () => {
-    if (isClockRunning.value) refreshNow();
+    if (isClockRunning.value) {refreshNow();}
 });
 
 function formatRelativeTimeLocalized(timestamp: number, at: number) {

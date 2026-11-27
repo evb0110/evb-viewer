@@ -78,7 +78,7 @@ describe('workspace surface budget controller', () => {
                 100,
             ])),
         });
-        for (const category of categories) controller.releaseScope(`surface:${category}`);
+        for (const category of categories) {controller.releaseScope(`surface:${category}`);}
         expect(controller.getSnapshot()).toMatchObject({
             reservedBytes: 0,
             leaseCount: 0,

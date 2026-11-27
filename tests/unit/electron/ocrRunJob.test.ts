@@ -257,7 +257,7 @@ describe('runOcrJob', () => {
         const result = await runOcrJob(createJob());
 
         expect(result.success).toBe(true);
-        if (!result.success) throw new Error('expected partial success');
+        if (!result.success) {throw new Error('expected partial success');}
         expect(mergedPageNumbers).toEqual([2]);
         expect(result.sourceDocumentRevisionToken).toBe(REVISION_TOKEN);
         expect(result.requiresCleanupAck).toBe(true);
@@ -323,7 +323,7 @@ describe('runOcrJob', () => {
         }));
 
         expect(result.success).toBe(true);
-        if (!result.success) throw new Error('expected success');
+        if (!result.success) {throw new Error('expected success');}
         expect(mocks.selectOcrPagesForSupersession).toHaveBeenCalledTimes(2);
         expect(mocks.preparePdfForPoppler).toHaveBeenCalledOnce();
         expect(renderedPdfPaths).toEqual([repairedPdfPath, repairedPdfPath]);

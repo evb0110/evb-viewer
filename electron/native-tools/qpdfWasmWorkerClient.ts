@@ -168,7 +168,7 @@ function createQpdfWorkerPool() {
     }
 
     function trackPendingGroupProof(cancelGroup: string | undefined, proof: Promise<boolean>) {
-        if (!cancelGroup) return;
+        if (!cancelGroup) {return;}
         let proofs = pendingGroupProofs.get(cancelGroup);
         if (!proofs) {
             proofs = new Set();
@@ -177,7 +177,7 @@ function createQpdfWorkerPool() {
         proofs.add(proof);
         void proof.finally(() => {
             const current = pendingGroupProofs.get(cancelGroup);
-            if (!current) return;
+            if (!current) {return;}
             current.delete(proof);
             if (current.size === 0) {
                 pendingGroupProofs.delete(cancelGroup);
@@ -186,7 +186,7 @@ function createQpdfWorkerPool() {
     }
 
     function registerCancel(cancelGroup: string | undefined, handler: () => Promise<boolean>) {
-        if (!cancelGroup) return;
+        if (!cancelGroup) {return;}
         let handlers = activeCancelHandlers.get(cancelGroup);
         if (!handlers) {
             handlers = new Set();
@@ -196,9 +196,9 @@ function createQpdfWorkerPool() {
     }
 
     function unregisterCancel(cancelGroup: string | undefined, handler: () => Promise<boolean>) {
-        if (!cancelGroup) return;
+        if (!cancelGroup) {return;}
         const handlers = activeCancelHandlers.get(cancelGroup);
-        if (!handlers) return;
+        if (!handlers) {return;}
         handlers.delete(handler);
         if (handlers.size === 0) {
             activeCancelHandlers.delete(cancelGroup);

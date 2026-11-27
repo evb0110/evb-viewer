@@ -454,7 +454,7 @@ function createRoutingToNewTab() {
                 ...tabs.value,
                 tab,
             ];
-            if (activate) activeTabId.value = tab.id;
+            if (activate) {activeTabId.value = tab.id;}
             return tab;
         },
         getTabById: tabId => tabs.value.find(tab => tab.id === tabId) ?? null,
@@ -552,7 +552,7 @@ describe('routing a document while the tab it picked is still mounting', () => {
         const first = routing.openPathInAppropriateTab(requireDocumentRef('/docs/alpha.pdf'));
         const second = routing.openPathInAppropriateTab(requireDocumentRef('/docs/beta.pdf'));
         // The workspace chunk arrives for every tab waiting on it.
-        for (const tab of tabs.value.slice(1)) mountWorkspace(tab.id);
+        for (const tab of tabs.value.slice(1)) {mountWorkspace(tab.id);}
 
         await expect(Promise.all([
             first,

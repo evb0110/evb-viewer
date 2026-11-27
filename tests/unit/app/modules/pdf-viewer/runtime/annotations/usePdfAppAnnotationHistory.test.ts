@@ -269,7 +269,7 @@ describe('usePdfAppAnnotationHistory', () => {
         history.registerCommand({
             undo: vi.fn(),
             cmd: () => {
-                if (rejectRedo) throw new Error('identity conflict');
+                if (rejectRedo) {throw new Error('identity conflict');}
             },
         });
         history.undo();
@@ -336,10 +336,10 @@ describe('usePdfAppAnnotationHistory', () => {
             });
             history.registerCommand({
                 cmd: (registerFailureRollback) => {
-                    if (failureTiming === 'before') throw beforeFailure;
+                    if (failureTiming === 'before') {throw beforeFailure;}
                     state.push('second');
                     registerFailureRollback?.(() => state.pop());
-                    if (failureTiming === 'after') throw afterFailure;
+                    if (failureTiming === 'after') {throw afterFailure;}
                 },
                 undo: () => state.pop(),
             });
@@ -392,12 +392,12 @@ describe('usePdfAppAnnotationHistory', () => {
             history.registerCommand({
                 cmd: () => state.push('first'),
                 undo: (registerFailureRollback) => {
-                    if (failureTiming === 'before') throw beforeFailure;
+                    if (failureTiming === 'before') {throw beforeFailure;}
                     const removed = state.pop();
                     registerFailureRollback?.(() => {
-                        if (removed) state.push(removed);
+                        if (removed) {state.push(removed);}
                     });
-                    if (failureTiming === 'after') throw afterFailure;
+                    if (failureTiming === 'after') {throw afterFailure;}
                 },
             });
             history.registerCommand({
@@ -450,11 +450,11 @@ describe('usePdfAppAnnotationHistory', () => {
         let failCompensation = false;
         const firstUndo = vi.fn(() => {
             state.pop();
-            if (failCompensation) throw priorRollbackFailure;
+            if (failCompensation) {throw priorRollbackFailure;}
         });
         const secondRollback = vi.fn(() => {
             state.pop();
-            if (failCompensation) throw activeRollbackFailure;
+            if (failCompensation) {throw activeRollbackFailure;}
         });
         const history = usePdfAppAnnotationHistory({
             emitAnnotationState: () => {},
@@ -469,7 +469,7 @@ describe('usePdfAppAnnotationHistory', () => {
                 cmd: (registerFailureRollback) => {
                     state.push('second');
                     registerFailureRollback?.(secondRollback);
-                    if (failRedo) throw replayFailure;
+                    if (failRedo) {throw replayFailure;}
                 },
                 undo: () => state.pop(),
             });

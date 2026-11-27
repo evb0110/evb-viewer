@@ -96,7 +96,7 @@ const pageIdentityRangeSchema = v.variant('kind', [
     }),
 ]);
 const identityDeltaLimits = v.check(value => {
-    if (!isRecord(value)) return true;
+    if (!isRecord(value)) {return true;}
     return (!Array.isArray(value.pages) || value.pages.length <= MAX_COLLECTION_ITEMS)
         && (!Array.isArray(value.ranges) || value.ranges.length <= MAX_COLLECTION_ITEMS)
         && (!Array.isArray(value.ranges) || value.ranges.every(range => (

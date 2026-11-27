@@ -335,7 +335,7 @@ export function createPdfPageRasterScheduler(
         settleWork(work, 'cancelled');
         if (work.stage !== 'rendering' && work.stage !== 'committing') {
             releaseReservation(work);
-            if (work.prepared !== null) discardPrepared(work);
+            if (work.prepared !== null) {discardPrepared(work);}
             releaseTarget(work, reason);
         }
     }
@@ -365,7 +365,7 @@ export function createPdfPageRasterScheduler(
     function takeNextWork() {
         let next: IRasterWork | null = null;
         for (const work of queued.values()) {
-            if (inFlight.has(work.key)) continue;
+            if (inFlight.has(work.key)) {continue;}
             if (next === null || compareWork(work, next) < 0) {
                 next = work;
             }
@@ -395,7 +395,7 @@ export function createPdfPageRasterScheduler(
         // A settled attempt is never reused: renewed demand queues a fresh one.
         work.controller.abort();
         settleWork(work, outcome);
-        if (!current) return;
+        if (!current) {return;}
         try {
             work.target.onRenderUncommitted?.(outcome);
         } catch (error) {
@@ -410,8 +410,8 @@ export function createPdfPageRasterScheduler(
         let committed = false;
         let requeue = false;
         const commitRaster = () => {
-            if (committed) return true;
-            if (!isDemandCurrent(work) || !work.reservation) return false;
+            if (committed) {return true;}
+            if (!isDemandCurrent(work) || !work.reservation) {return false;}
             const reservation = work.reservation;
             work.prepared = null;
             work.reservation = null;
@@ -481,7 +481,7 @@ export function createPdfPageRasterScheduler(
             }
             work.stage = 'preparing';
             const reserveAdditionalBytes = (bytes: number) => {
-                if (!isDemandCurrent(work)) throw new DOMException('The raster resource demand changed', 'AbortError');
+                if (!isDemandCurrent(work)) {throw new DOMException('The raster resource demand changed', 'AbortError');}
                 if (!work.reservation?.resize(reservationRequest.bytes + bytes)) {
                     throw new RangeError(`PDF appearance resources exceed the workspace budget for page ${String(work.demand.pageNumber)}`);
                 }
@@ -505,7 +505,7 @@ export function createPdfPageRasterScheduler(
                 return;
             }
             const additionalBytes = work.target.additionalResourceBytes?.(work.prepared) ?? 0;
-            if (additionalBytes > 0) reserveAdditionalBytes(additionalBytes);
+            if (additionalBytes > 0) {reserveAdditionalBytes(additionalBytes);}
             work.stage = 'rendering';
             await runCoordinatedPdfPageRender({
                 owner: work.target.id,
@@ -569,7 +569,7 @@ export function createPdfPageRasterScheduler(
                 settleUncommitted(work, {status: 'failed', demand: work.demand, error});
             }
         } finally {
-            if (work.coordinatedOperationSettlements.size > 0) await Promise.allSettled(work.coordinatedOperationSettlements);
+            if (work.coordinatedOperationSettlements.size > 0) {await Promise.allSettled(work.coordinatedOperationSettlements);}
             work.pageLease?.release();
             work.pageLease = null;
             if (inFlight.get(work.key) === work) {

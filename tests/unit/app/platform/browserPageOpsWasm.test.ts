@@ -238,7 +238,7 @@ async function renameFirstBookmarkAndSave(data: Uint8Array) {
         }},
         modifiedAt: 'D:20261012000000Z',
     });
-    if ('status' in saved) throw new Error(`Expected the bookmarks to save: ${saved.error.message}`);
+    if ('status' in saved) {throw new Error(`Expected the bookmarks to save: ${saved.error.message}`);}
     return saved.data;
 }
 
@@ -331,7 +331,7 @@ async function runPageStructureInMemory(
 ) {
     let output = new Uint8Array(1024);
     const slice = (bytes: Uint8Array, at: number, length: number) => {
-        if (at + length > bytes.byteLength) throw new Error('Read past the end');
+        if (at + length > bytes.byteLength) {throw new Error('Read past the end');}
         return bytes.subarray(at, at + length);
     };
     const sink = {
@@ -352,7 +352,7 @@ async function runPageStructureInMemory(
         })),
         sink,
         async copy(copies) {
-            for (const {source, from, length, at} of copies) sink.write(slice(documents[source]!, from, length), at);
+            for (const {source, from, length, at} of copies) {sink.write(slice(documents[source]!, from, length), at);}
         },
     });
     return isBrowserPageOpsWasmFailure(result) ? result : {
@@ -431,7 +431,7 @@ describe('browser page-ops WASM fast path', () => {
         const signatures = (pdf: PDFDocument) => pdf.context.enumerateIndirectObjects().flatMap(([
             , object,
         ]) => {
-            if (!(object instanceof PDFDict) || !object.has(PDFName.of('ByteRange'))) return [];
+            if (!(object instanceof PDFDict) || !object.has(PDFName.of('ByteRange'))) {return [];}
             return [[
                 String(object.get(PDFName.of('ByteRange'))),
                 String(object.get(PDFName.of('Contents'))),
@@ -439,13 +439,13 @@ describe('browser page-ops WASM fast path', () => {
         });
         expect(signatures(saved)).toEqual(signatures(original));
         expect(signatures(saved)).toHaveLength(1);
-        if (operation === 'rotate') expect(saved.getPage(0).getRotation().angle).toBe(90);
-        if (operation === 'crop') expect(saved.getPage(0).getCropBox()).toEqual({
+        if (operation === 'rotate') {expect(saved.getPage(0).getRotation().angle).toBe(90);}
+        if (operation === 'crop') {expect(saved.getPage(0).getCropBox()).toEqual({
             x: 8,
             y: 6,
             width: 102,
             height: 110,
-        });
+        });}
     });
 
     it.each([
@@ -464,10 +464,10 @@ describe('browser page-ops WASM fast path', () => {
         expect(output.getForm().getTextField('retained').getText()).toBe('VISIBLE');
         const strings: string[] = [];
         const visit = (object: unknown): void => {
-            if (object instanceof PDFString || object instanceof PDFHexString) strings.push(object.decodeText());
-            else if (object instanceof PDFDict) object.values().forEach(visit);
-            else if (object instanceof PDFArray) object.asArray().forEach(visit);
-            else if (object instanceof PDFRawStream) visit(object.dict);
+            if (object instanceof PDFString || object instanceof PDFHexString) {strings.push(object.decodeText());}
+            else if (object instanceof PDFDict) {object.values().forEach(visit);}
+            else if (object instanceof PDFArray) {object.asArray().forEach(visit);}
+            else if (object instanceof PDFRawStream) {visit(object.dict);}
         };
         output.context.enumerateIndirectObjects().forEach(([
             , object,
@@ -480,7 +480,7 @@ describe('browser page-ops WASM fast path', () => {
         const data = new Uint8Array(await readFile(join(process.cwd(), 'tests/fixtures/electron/pdf-preservation/shared-field.pdf')));
         const original = await PDFDocument.load(data);
         const [originalField] = original.getForm().getFields();
-        if (!originalField) throw new Error('Shared field fixture is empty');
+        if (!originalField) {throw new Error('Shared field fixture is empty');}
         const name = originalField.getName();
         const value = original.getForm().getTextField(name).getText();
         const wasm = await loadWasmRunner();
@@ -637,7 +637,7 @@ describe('browser page-ops WASM fast path', () => {
                 },
             }],
         });
-        if (!result || 'status' in result) throw new Error(`Expected source-free appearance: ${JSON.stringify(result)}`);
+        if (!result || 'status' in result) {throw new Error(`Expected source-free appearance: ${JSON.stringify(result)}`);}
         expect(result.textBoxes).toHaveLength(1);
         expect(result.textBoxes[0]).toMatchObject({stableKey: 'browser-appearance'});
         expect(result.textBoxes[0]!.fittedFontSize).toBeGreaterThan(0);
@@ -710,7 +710,7 @@ describe('browser page-ops WASM fast path', () => {
             mutations: normalizePdfNativeMutationSet({textBoxes: [mutation]}, 'Browser appearance edit'),
             modifiedAt: 'D:20261016000000Z',
         });
-        if ('status' in edited) throw new Error('Expected the text edit to save');
+        if ('status' in edited) {throw new Error('Expected the text edit to save');}
         const restore = normalizePdfNativeMutationSet({
             originalAppearanceSource: 'browser://documents/original-appearance',
             textBoxes: [{
@@ -725,12 +725,12 @@ describe('browser page-ops WASM fast path', () => {
             modifiedAt: 'D:20261016000001Z',
             appearanceSource: new Blob([source]),
         });
-        if ('status' in restored) throw new Error(`Expected the original appearance to restore: ${JSON.stringify(restored)}`);
+        if ('status' in restored) {throw new Error(`Expected the original appearance to restore: ${JSON.stringify(restored)}`);}
         const restoredDocument = await PDFDocument.load(restored.data);
         const restoredAnnotation = restoredDocument.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).lookup(0, PDFDict);
         const restoredAppearance = restoredDocument.context.lookup(restoredAnnotation.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N')));
         const originalAppearance = original.context.lookup(appearance);
-        if (!(restoredAppearance instanceof PDFRawStream) || !(originalAppearance instanceof PDFRawStream)) throw new Error('Expected saved appearance streams');
+        if (!(restoredAppearance instanceof PDFRawStream) || !(originalAppearance instanceof PDFRawStream)) {throw new Error('Expected saved appearance streams');}
         expect(restoredAppearance.contents).toEqual(originalAppearance.contents);
         expect(restoredAnnotation.lookup(PDFName.of('Contents'), PDFString, PDFHexString).decodeText()).toBe('Original');
         const restoredFont = restoredAppearance.dict.lookup(PDFName.of('Resources'), PDFDict).lookup(PDFName.of('Font'), PDFDict).lookup(PDFName.of('F1'), PDFDict);
@@ -765,7 +765,7 @@ describe('browser page-ops WASM fast path', () => {
             expect(result).not.toHaveProperty('data');
             return;
         }
-        if ('status' in result) throw new Error('Expected all note continuations to save');
+        if ('status' in result) {throw new Error('Expected all note continuations to save');}
         expect(result.identityBindings.map(binding => binding.annotationId).sort())
             .toEqual(mutations.freeTextNotes!.map(note => note.stableKey).sort());
         const reopened = await PDFDocument.load(result.data);
@@ -789,7 +789,7 @@ describe('browser page-ops WASM fast path', () => {
             }}, 'Browser no-op save'),
             modifiedAt: 'D:20261120000000Z',
         });
-        if ('status' in result) throw new Error(`Expected a no-op save: ${JSON.stringify(result)}`);
+        if ('status' in result) {throw new Error(`Expected a no-op save: ${JSON.stringify(result)}`);}
         expect(result.data).toEqual(input);
         expect(result.identityBindings).toEqual([]);
     });
@@ -843,7 +843,7 @@ describe('browser page-ops WASM fast path', () => {
             data,
             pages: [],
         });
-        if (inspected === null || 'status' in inspected) throw new Error('inspection failed');
+        if (inspected === null || 'status' in inspected) {throw new Error('inspection failed');}
         expect(inspected.pageCount).toBe(2);
         const pages = inspected.pages.map(page => decodePdfPageSizeRecord(page, inspected.pageCount, 'page'));
         expect(pages[0]).toMatchObject({
@@ -868,7 +868,7 @@ describe('browser page-ops WASM fast path', () => {
             data,
             pages: [2],
         });
-        if (selected === null || 'status' in selected) throw new Error('inspection failed');
+        if (selected === null || 'status' in selected) {throw new Error('inspection failed');}
         expect(selected.pages.map(page => decodePdfPageSizeRecord(page, selected.pageCount, 'page'))).toEqual([pages[1]]);
     });
 
@@ -902,7 +902,7 @@ describe('browser page-ops WASM fast path', () => {
             data,
             pages: [],
         });
-        if (inspected === null || 'status' in inspected) throw new Error('inspection failed');
+        if (inspected === null || 'status' in inspected) {throw new Error('inspection failed');}
         expect(inspected.pages.map(page => Reflect.get(page, 'rasterInventoryComplete'))).toEqual([
             false,
             true,
@@ -967,7 +967,7 @@ describe('browser page-ops WASM fast path', () => {
             },
         });
 
-        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        if (rendered === null || 'status' in rendered) {throw new Error('raster failed');}
         expect(rendered.report).toEqual({
             width: Number(header[1]),
             height: Number(header[2]),
@@ -1006,7 +1006,7 @@ describe('browser page-ops WASM fast path', () => {
             },
         });
 
-        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        if (rendered === null || 'status' in rendered) {throw new Error('raster failed');}
         expect(rendered.report).toEqual({
             width: Number(header[1]),
             height: Number(header[2]),
@@ -1038,7 +1038,7 @@ describe('browser page-ops WASM fast path', () => {
             },
         });
 
-        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        if (rendered === null || 'status' in rendered) {throw new Error('raster failed');}
         expect(rendered.report).toMatchObject({compatibility: 'near'});
     });
 
@@ -1077,7 +1077,7 @@ describe('browser page-ops WASM fast path', () => {
             status: 'failed',
             error: {code: 'too-large'},
         });
-        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        if (rendered === null || 'status' in rendered) {throw new Error('raster failed');}
         expect(rendered.report).toMatchObject({compatibility: 'exact'});
     });
 
@@ -1103,7 +1103,7 @@ describe('browser page-ops WASM fast path', () => {
             },
         });
 
-        if (rendered === null || 'status' in rendered) throw new Error('raster failed');
+        if (rendered === null || 'status' in rendered) {throw new Error('raster failed');}
         expect(rendered.report).toHaveProperty('unsupported');
         expect(rendered.data.byteLength).toBe(0);
     });
@@ -1888,7 +1888,7 @@ describe('browser page-ops WASM fast path', () => {
                     },
                 }],
             }]},
-        ]) expect(v.safeParse(SPLIT_PAGES_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+        ]) {expect(v.safeParse(SPLIT_PAGES_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);}
         const overlayPage = {
             sourcePageIndex: 0,
             outputPageIndex: 0,
@@ -1928,7 +1928,7 @@ describe('browser page-ops WASM fast path', () => {
                     matrix: overlayPage.matrix,
                 },
             }]},
-        ]) expect(v.safeParse(OVERLAY_TEXT_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+        ]) {expect(v.safeParse(OVERLAY_TEXT_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);}
         expect(v.safeParse(RECOMPRESS_IMAGES_INSTRUCTIONS_SCHEMA, {
             targetDpi: 150,
             quality: 80,
@@ -1950,7 +1950,7 @@ describe('browser page-ops WASM fast path', () => {
                     unexpected: true,
                 }],
             },
-        ]) expect(v.safeParse(REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);
+        ]) {expect(v.safeParse(REPLACE_PAGE_IMAGES_INSTRUCTIONS_SCHEMA, instructions).success).toBe(false);}
     });
 
     it('splits a scan and overlays its source text through the scan-cleanup writers', async () => {
@@ -2057,12 +2057,12 @@ describe('browser page-ops WASM fast path', () => {
         expect(info.lookup(PDFName.of('EVBScanCleanup'), PDFString).decodeText()).toBe('54455354');
         const pageText = (index: number) => {
             const contents = output.getPage(index).node.Contents();
-            if (contents === undefined) return '';
+            if (contents === undefined) {return '';}
             const streams = contents instanceof PDFArray
                 ? contents.asArray().map(ref => output.context.lookup(ref))
                 : [contents];
             return streams.map((stream) => {
-                if (!(stream instanceof PDFRawStream)) throw new Error('Expected an encoded content stream');
+                if (!(stream instanceof PDFRawStream)) {throw new Error('Expected an encoded content stream');}
                 return new TextDecoder().decode(decodePDFRawStream(stream).decode());
             }).join('\n');
         };
@@ -2111,7 +2111,7 @@ describe('browser page-ops WASM fast path', () => {
         saved.set(recompressed.data, data.byteLength);
         const reopened = await PDFDocument.load(saved);
         const stored = reopened.context.lookup(PDFRef.of(entry!.objectNumber));
-        if (!(stored instanceof PDFRawStream)) throw new Error('Expected the recompressed image stream');
+        if (!(stored instanceof PDFRawStream)) {throw new Error('Expected the recompressed image stream');}
         expect(stored.getContentsSize()).toBe(entry!.recompressedBytes);
     });
 
@@ -2474,14 +2474,14 @@ describe('browser page-ops WASM fast path', () => {
             const nativeEncode = TextEncoder.prototype.encode;
             vi.spyOn(TextEncoder.prototype, 'encode').mockImplementation(function (this: TextEncoder, value) {
                 const encoded = nativeEncode.call(this, value);
-                if (value === password) encodedJs = encoded;
+                if (value === password) {encodedJs = encoded;}
                 return encoded;
             });
             let encodedBefore: Uint8Array | undefined;
             let encodedAtRelease: Uint8Array | undefined;
             wasm.exports.evb_pdf_page_ops_run.mockImplementation((pointer: number, length: number) => {
                 encodedBefore = new Uint8Array(wasm.exports.memory.buffer, pointer + length - passwordBytes.byteLength, passwordBytes.byteLength).slice();
-                if (outcome === 'throw') throw new Error('Writer failed');
+                if (outcome === 'throw') {throw new Error('Writer failed');}
                 if (outcome === 'success') {
                     const output = new Uint8Array(13);
                     const view = new DataView(output.buffer);

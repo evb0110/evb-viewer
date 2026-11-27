@@ -1,0 +1,21 @@
+{
+  "tabWidth": 4,
+  "useTabs": false,
+  "singleQuote": true,
+  "semi": true,
+  "bracketSpacing": false,
+  "quoteProps": "as-needed",
+  "trailingComma": "all",
+  "arrowParens": "always",
+  "endOfLine": "lf",
+  "printWidth": 140,
+  "vueIndentScriptAndStyle": false,
+  "singleAttributePerLine": true,
+  "htmlWhitespaceSensitivity": "strict",
+  "overrides": [
+    {
+      "files": ["**/*.{json,jsonc}", "landing/**/*.{vue,css,scss}"],
+      "options": { "tabWidth": 2 }
+    }
+  ]
+}

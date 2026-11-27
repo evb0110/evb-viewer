@@ -352,8 +352,8 @@ describe('scan-cleanup durability', () => {
             await expect(access(registration!.entryPath)).rejects.toMatchObject({code: 'ENOENT'});
             await expect(access(scratchPath)).rejects.toMatchObject({code: 'ENOENT'});
         } finally {
-            if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-            if (endedOwner.exitCode === null && endedOwner.signalCode === null) endedOwner.kill('SIGKILL');
+            if (child.exitCode === null && child.signalCode === null) {child.kill('SIGKILL');}
+            if (endedOwner.exitCode === null && endedOwner.signalCode === null) {endedOwner.kill('SIGKILL');}
             await Promise.all([
                 childClosed,
                 ownerClosed,
@@ -784,8 +784,8 @@ describe('scan-cleanup durability', () => {
             await expect(access(registration!.entryPath)).resolves.toBeUndefined();
             await registration!.unregister();
         } finally {
-            if (previousTimeLocale === undefined) delete process.env.LC_TIME;
-            else process.env.LC_TIME = previousTimeLocale;
+            if (previousTimeLocale === undefined) {delete process.env.LC_TIME;}
+            else {process.env.LC_TIME = previousTimeLocale;}
         }
     });
 

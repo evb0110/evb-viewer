@@ -61,7 +61,7 @@ describe('viewer initial-surface behavior', () => {
     });
 
     afterEach(() => {
-        for (const unmount of activeUnmounts) unmount();
+        for (const unmount of activeUnmounts) {unmount();}
         vi.unstubAllGlobals();
         vi.useRealTimers();
     });

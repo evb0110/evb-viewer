@@ -112,8 +112,8 @@ type TPageOperationOutcome<TResult extends TPageOpsAnyResult = TPageOpsAnyResult
 export type TPageOperationCancelState = 'idle' | 'canceling' | 'finishing';
 
 function didPageOperationSucceed(outcome: TPageOperationOutcome, onCommitted?: TDocumentCommitReceipt) {
-    if (outcome.status !== 'succeeded') return false;
-    if ('documentRevision' in outcome.result) onCommitted?.(outcome.result.documentRevision.token);
+    if (outcome.status !== 'succeeded') {return false;}
+    if ('documentRevision' in outcome.result) {onCommitted?.(outcome.result.documentRevision.token);}
     return true;
 }
 
@@ -518,7 +518,7 @@ export const usePageOperations = (deps: {
                             options.shouldReload ? ensureHistoryBaselineForMutation : undefined,
                         ],
                     ] as const) {
-                    if (!prepare) continue;
+                    if (!prepare) {continue;}
                     const didPrepare = await prepare();
                     if (workingCopyPath.value !== path) {
                         return recordOutcome<TResult>({

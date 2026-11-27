@@ -33,7 +33,7 @@ function buildBackendVisualMatches(
 ): IVisualSearchMatch[] {
     return pageMatches.matches
         .flatMap((match, index): IVisualSearchMatch[] => {
-            if (compatible && !compatible.has(index)) return [];
+            if (compatible && !compatible.has(index)) {return [];}
             const mapped = mapAssembledSearchablePageTextRange(assembledLayerText, {
                 startOffset: match.start,
                 endOffset: match.end,
@@ -125,7 +125,7 @@ export function buildVisualMatches(
 ): IVisualSearchMatch[] {
     const verified = pageMatches.pageText === assembledLayerText.text
         ? assembledLayerText : assembleSearchablePageText([{text: layerText}]);
-    if (pageMatches.pageText !== verified.text) return [];
+    if (pageMatches.pageText !== verified.text) {return [];}
     return buildBackendVisualMatches(pageMatches, verified);
 }
 
@@ -136,7 +136,7 @@ export async function reconcileVisualMatches(
     assembledLayerText = assembleSearchablePageText([{text: layerText}]),
     signal = new AbortController().signal,
 ): Promise<IVisualSearchMatch[]> {
-    if (pageMatches.matches.length === 0) return [];
+    if (pageMatches.matches.length === 0) {return [];}
     const contiguous = withoutGeneratedSeparators(assembledLayerText);
     if (!pageMatches.searchQuery || pageMatches.pageText === contiguous.text || pageMatches.pageText === assembledLayerText.text) {
         // Backend text without the generated separators maps through that assembly.
@@ -179,7 +179,7 @@ export async function reconcileVisualMatches(
         };
     };
     const candidates = [await evaluate(assembledLayerText)];
-    if (assembledLayerText.text !== contiguous.text) candidates.push(await evaluate(contiguous));
+    if (assembledLayerText.text !== contiguous.text) {candidates.push(await evaluate(contiguous));}
     const coverage = (candidate: typeof candidates[number]) => ordinals.filter(ordinal => candidate.result.matches.some(match => match.pageMatchIndex === ordinal)).length;
     // Coverage alone can label the third word as ordinal 1 after missing a
     // fragmented second word. Prefer agreement with the authoritative ranges.
@@ -192,11 +192,11 @@ export async function reconcileVisualMatches(
     ]));
     const matches = buildBackendVisualMatches(pageMatches, assembled, compatible);
     pageMatches.matches.forEach((backendMatch, index) => {
-        if (compatible.has(index)) return;
+        if (compatible.has(index)) {return;}
         const pageMatchIndex = ordinals[index]!;
         const occurrence = occurrences.get(pageMatchIndex);
         const mapped = occurrence && mapAssembledSearchablePageTextRange(assembled, occurrence);
-        if (!mapped) return;
+        if (!mapped) {return;}
         matches.push({
             start: mapped.startOffset,
             end: mapped.endOffset,

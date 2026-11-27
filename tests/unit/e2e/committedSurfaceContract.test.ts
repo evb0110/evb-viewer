@@ -256,8 +256,8 @@ describe('committed surface E2E contract', () => {
             canvasFrames(1).map((entry, index) => ({...entry, skeletonCount: index === 0 ? 1 : 0})), errors: ['retained a skeleton over the committed visual']},
     ])('$name', ({mutate, errors}) => {
         const violations = findCommittedSurfaceContractViolations({frames: mutate(openingTrace())});
-        if (errors.length === 0) expect(violations).toEqual([]);
-        for (const message of errors) expect(violations.join('\n')).toContain(message);
+        if (errors.length === 0) {expect(violations).toEqual([]);}
+        for (const message of errors) {expect(violations.join('\n')).toContain(message);}
     });
 
     it('allows only an explicitly deferred cold opening before the page shell exists', () => {
@@ -592,8 +592,8 @@ describe('committed surface E2E contract', () => {
 
     it('rejects delayed readiness and regressing open-surface authority', () => {
         const frames = causalTrace(1_500, 2_700, 11).map((entry, index) => {
-            if (index === 2) return {...entry, openSurfacePhase: 'canvas-committed'};
-            if (index === 3) return {...entry, openSurfacePhase: 'geometry-committed', openSurfacePresentation: 'page-shell'};
+            if (index === 2) {return {...entry, openSurfacePhase: 'canvas-committed'};}
+            if (index === 3) {return {...entry, openSurfacePhase: 'geometry-committed', openSurfacePresentation: 'page-shell'};}
             return index >= 4 ? {...entry, elapsedMs: 4_000 + (index - 4) * 16} : entry;
         });
         const contract = causalContract;

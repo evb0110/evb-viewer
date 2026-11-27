@@ -284,7 +284,7 @@ export async function updateSettings(
     return queueSettingsMutation(async () => {
         const generation = settingsCacheGeneration;
         const storagePath = getStoragePath();
-        if (!settingsCache) await loadSettings();
+        if (!settingsCache) {await loadSettings();}
         if (!settingsCache) {
             // A grant this change carried never reached disk; a later save
             // must not write it either, so the stored choice stands.

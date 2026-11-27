@@ -458,7 +458,7 @@ describe('native PDF save route', () => {
             }],
         }));
         expect(result.route).toBe('native-append');
-        if (result.route !== 'native-append') throw new Error(`Expected native save: ${result.nativeRejection}`);
+        if (result.route !== 'native-append') {throw new Error(`Expected native save: ${result.nativeRejection}`);}
         const mutations = result.nativeMutationProjection.mutations;
         expect(mutations.textBoxes).toHaveLength(1);
         expect(mutations.textBoxes?.[0]?.stableKey).toBe('survivor');
@@ -516,7 +516,7 @@ describe('native PDF save route', () => {
                 ],
             }],
         }));
-        if (result.route !== 'native-append') throw new Error(`Expected native save: ${result.nativeRejection}`);
+        if (result.route !== 'native-append') {throw new Error(`Expected native save: ${result.nativeRejection}`);}
         const mutations = result.nativeMutationProjection.mutations;
         expect(mutations.textBoxes?.map(textBox => textBox.annotationId)).toEqual(['6R']);
         expect(mutations.geometryUpdates).toBeUndefined();
@@ -665,7 +665,7 @@ describe('native PDF save route', () => {
         ], app.store.list());
         const result = buildNativePdfMutationProjection(plan, createNativeRouteCapabilities({shapes: []}));
         expect(result.route).toBe('native-append');
-        if (result.route !== 'native-append') throw new Error('Expected native save');
+        if (result.route !== 'native-append') {throw new Error('Expected native save');}
         expect(result.nativeMutationProjection.mutations.placedImages).toBeUndefined();
         expect(result.nativeMutationProjection.mutations.freeTextNotes).toHaveLength(1);
     });
@@ -787,7 +787,7 @@ describe('native PDF save route', () => {
         const result = buildNativePdfMutationProjection(app.beginSave().plan, createNativeRouteCapabilities({shapes: []}));
 
         expect(result.route).toBe('native-append');
-        if (result.route !== 'native-append') throw new Error(`Expected native save: ${result.nativeRejection}`);
+        if (result.route !== 'native-append') {throw new Error(`Expected native save: ${result.nativeRejection}`);}
         const {mutations} = result.nativeMutationProjection;
         expect(mutations.updates).toEqual([{objectNumber: 11, generationNumber: 0, text: 'Typed during re-read'}]);
         expect(mutations.geometryUpdates).toEqual([expect.objectContaining({objectNumber: 11, markerRect: rotated})]);
@@ -844,8 +844,8 @@ describe('additive shape projection and affected-page scope', () => {
                     },
             };
             application.store.import(image);
-            if (mode === 'move') application.store.updatePlacedImage(image.identity.id, {rotation: 25});
-            if (mode === 'delete') application.store.delete(image.identity.id);
+            if (mode === 'move') {application.store.updatePlacedImage(image.identity.id, {rotation: 25});}
+            if (mode === 'delete') {application.store.delete(image.identity.id);}
             const session = application.beginSave();
             expect(session.affectedPageIndices).toEqual(mode !== 'recover' ? [0] : null);
             const route = buildNativePdfMutationProjection(session.plan, createNativeRouteCapabilities({
@@ -857,7 +857,7 @@ describe('additive shape projection and affected-page scope', () => {
                 },
             }));
             expect(route.route).toBe('native-append');
-            if (route.route !== 'native-append') throw new Error('Expected image native append');
+            if (route.route !== 'native-append') {throw new Error('Expected image native append');}
             expect(committedAffectedPageIndices([0], route.nativeMutationProjection))
                 .toEqual(mode === 'create' || mode === 'move' ? [0] : undefined);
         }
@@ -890,7 +890,7 @@ describe('additive shape projection and affected-page scope', () => {
             },
         }));
         expect(route.route).toBe('native-append');
-        if (route.route !== 'native-append') throw new Error('Expected native deletion');
+        if (route.route !== 'native-append') {throw new Error('Expected native deletion');}
         const projection = route.nativeMutationProjection;
         expect(committedAffectedPageIndices(session.affectedPageIndices, projection)).toBeUndefined();
         expect(committedAffectedPageIndices(session.affectedPageIndices, projection, {
@@ -945,7 +945,7 @@ describe('additive shape projection and affected-page scope', () => {
             toLegacyShapeAnnotation(fresh),
         ]}));
         expect(route.route).toBe('native-append');
-        if (route.route !== 'native-append') throw new Error('Expected an additive shape route');
+        if (route.route !== 'native-append') {throw new Error('Expected an additive shape route');}
         const projection = route.nativeMutationProjection;
         expect(projection.mutations.shapes).toMatchObject({
             rewriteShapeState: false,
@@ -1032,7 +1032,7 @@ describe('additive shape projection and affected-page scope', () => {
             deletedEmbeddedShapeStableKeys: ['evb-shape:deleted'],
         }));
         expect(route.route).toBe('native-append');
-        if (route.route !== 'native-append') throw new Error('Expected native shape route');
+        if (route.route !== 'native-append') {throw new Error('Expected native shape route');}
         const mutations = normalizePdfNativeMutationSet(route.nativeMutationProjection.mutations, 'changed live shapes');
         expect(mutations.shapes).toMatchObject({
             rewriteShapeState: false,
@@ -1055,7 +1055,7 @@ describe('additive shape projection and affected-page scope', () => {
             strokeWidth: 3,
         })]}));
         expect(route.route).toBe('native-append');
-        if (route.route !== 'native-append') throw new Error('Expected native shape edit');
+        if (route.route !== 'native-append') {throw new Error('Expected native shape edit');}
         expect(committedAffectedPageIndices([0], route.nativeMutationProjection)).toBeUndefined();
         expect(committedAffectedPageIndices([0], route.nativeMutationProjection, {
             affectedPageIndices: [

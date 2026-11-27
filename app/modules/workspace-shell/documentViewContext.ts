@@ -123,7 +123,7 @@ export const createDocumentViewContext = (deps: IDocumentViewContextDeps) => {
     // sidebar and the search commands read these same tabs.
     const renderedSidebar = computed<'pdf' | 'source' | null>(() => {
         const activeDriver = driver.activeDocumentDriver.value;
-        if (!activeDriver || scanCleanup.surfaceMode.value !== 'reader') return null;
+        if (!activeDriver || scanCleanup.surfaceMode.value !== 'reader') {return null;}
         return activeDriver.view.showPdfSidebar ? 'pdf' : 'source';
     });
     const sidebarTabs = useDocumentSidebarCapabilitySession({

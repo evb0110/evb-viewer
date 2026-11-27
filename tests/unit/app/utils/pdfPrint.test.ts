@@ -126,12 +126,12 @@ describe('pdfPrint', () => {
                 getContext: () => ({
                     canvas,
                     fillRect: () => {
-                        if (canvas.width * canvas.height <= maxCanvasPixels) corner = [
+                        if (canvas.width * canvas.height <= maxCanvasPixels) {corner = [
                             255,
                             0,
                             0,
                             255,
-                        ];
+                        ];}
                     },
                     getImageData: () => ({data: Uint8ClampedArray.from(corner)}),
                 }),
@@ -144,8 +144,8 @@ describe('pdfPrint', () => {
             head,
             querySelector: () => root,
             createElement: (tag: 'canvas' | 'section' | 'img' | 'style') => {
-                if (tag === 'style') return {textContent: ''};
-                if (tag === 'canvas') return createCanvas();
+                if (tag === 'style') {return {textContent: ''};}
+                if (tag === 'canvas') {return createCanvas();}
                 if (tag === 'img') {
                     const image = {
                         loaded: false,

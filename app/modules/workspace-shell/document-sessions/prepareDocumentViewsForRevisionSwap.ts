@@ -68,6 +68,6 @@ export async function prepareDocumentViewsForHistorySwap(
         } : {}),
     });
     return () => {
-        if (delta) views.mapPageIdentity(delta);
+        if (delta) {views.mapPageIdentity(delta);}
     };
 }

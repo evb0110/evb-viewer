@@ -90,7 +90,7 @@ describe('document workspace failure presentation (C4)', () => {
         }}));
         const state = new Map<string, unknown>();
         vi.stubGlobal('useState', (key: string, initial: () => unknown) => {
-            if (!state.has(key)) state.set(key, ref(initial()));
+            if (!state.has(key)) {state.set(key, ref(initial()));}
             return state.get(key);
         });
         const loggedErrors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -158,13 +158,13 @@ it.each(['reject', 'false'])('#1608 explains a failed Recent show-in-folder acti
     }}));
     vi.stubGlobal('window', Object.assign(window, {electronAPI: createElectronPlatformApiFixture({documentWindow: {
         showItemInFolder: async () => {
-            if (outcome === 'false') return false;
+            if (outcome === 'false') {return false;}
             throw new Error('Recent file manager unavailable');
         },
     }})}));
     const state = new Map<string, unknown>();
     vi.stubGlobal('useState', (key: string, initial: () => unknown) => {
-        if (!state.has(key)) state.set(key, ref(initial()));
+        if (!state.has(key)) {state.set(key, ref(initial()));}
         return state.get(key);
     });
     const {createWorkspaceDocumentController} = await import('@app/modules/workspace-shell/document-sessions/workspaceDocumentController');
@@ -189,7 +189,7 @@ it('ends a cold Start Recent open whose claim another open took while its worksp
     vi.stubGlobal('window', Object.assign(window, {electronAPI: createElectronPlatformApiFixture()}));
     const state = new Map<string, unknown>();
     vi.stubGlobal('useState', (key: string, initial: () => unknown) => {
-        if (!state.has(key)) state.set(key, ref(initial()));
+        if (!state.has(key)) {state.set(key, ref(initial()));}
         return state.get(key);
     });
     const {createWorkspaceDocumentController} = await import('@app/modules/workspace-shell/document-sessions/workspaceDocumentController');

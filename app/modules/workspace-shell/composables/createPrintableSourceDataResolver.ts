@@ -55,7 +55,7 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
         const viewer = deps.pdfViewerRef.value;
         const workingCopyPath = deps.workingCopyPath.value;
         const expectedDocumentRevisionToken = deps.documentRevisionToken.value;
-        if (!viewer || !workingCopyPath || !expectedDocumentRevisionToken) return null;
+        if (!viewer || !workingCopyPath || !expectedDocumentRevisionToken) {return null;}
         const printTransaction = await viewer.runSaveTransaction({
             mode: 'print',
             saveFlowMode: 'save',
@@ -64,7 +64,7 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
             rewriteShapeState: true,
             source: {getSourcePdfData: deps.save.getSourcePdfData},
         });
-        if (!printTransaction.verifiedUnchangedWorkingCopy && printTransaction.nativeRequiredFailure) throw new NativePdfSaveRequiredError(printTransaction.nativeRequiredFailure);
+        if (!printTransaction.verifiedUnchangedWorkingCopy && printTransaction.nativeRequiredFailure) {throw new NativePdfSaveRequiredError(printTransaction.nativeRequiredFailure);}
         if (!printTransaction.verifiedUnchangedWorkingCopy && !printTransaction.nativeMutationProjection) {
             throw new NativePdfSaveRequiredError({
                 code: 'native-save-required',
@@ -92,7 +92,7 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
                     ? {assertBeforeExpose: printTransaction.assertAnnotationSaveCurrent}
                     : {}),
             });
-        if (!snapshotRef) return null;
+        if (!snapshotRef) {return null;}
         try {
             await printTransaction.assertAnnotationSaveCurrent?.();
             return {
@@ -125,7 +125,7 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
             }
 
             const snapshot = await materializeDirtyPrintableSource();
-            if (!snapshot) return null;
+            if (!snapshot) {return null;}
             try {
                 const bytes = await readDocumentBytes(snapshot.path);
                 await snapshot.assertCurrent();
@@ -137,11 +137,11 @@ export function createPrintableSourceDataResolver(deps: ICreatePrintableSourceDa
     }
 
     async function createPrintableSourcePath(options?: {signal?: AbortSignal}): Promise<IPrintableSourcePath | null> {
-        if (options?.signal?.aborted) return null;
+        if (options?.signal?.aborted) {return null;}
         return runWithDocumentOperationLease('print-materialize', async () => {
-            if (options?.signal?.aborted) return null;
+            if (options?.signal?.aborted) {return null;}
             const workingPath = deps.workingCopyPath.value;
-            if (!workingPath) return null;
+            if (!workingPath) {return null;}
             const snapshot = deps.hasPendingUnsavedChanges.value
                 ? await materializeDirtyPrintableSource()
                 : await getDocumentWorkingCopyCapability().createWorkingCopyFromPath(workingPath, deps.originalPath.value ?? undefined)

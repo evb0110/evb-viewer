@@ -82,7 +82,7 @@ function workState(status: TAssistantItemStatus): TAssistantWorkState {
 }
 
 function workKind(item: IAssistantItem): TWorkKind {
-    if (item.kind === 'reasoning') return 'reasoning';
+    if (item.kind === 'reasoning') {return 'reasoning';}
     // Claude reports MCP tools as mcp__<server>__<tool>.
     const name = item.toolName?.split('__').at(-1) ?? '';
     return Object.hasOwn(TOOL_KINDS, name) ? TOOL_KINDS[name as keyof typeof TOOL_KINDS] : 'tool';
@@ -103,9 +103,9 @@ export function describeAssistantWorkItem(item: IAssistantItem) {
 /** The group's row: the live action while one runs, else its failure, else its most telling action. */
 export function summarizeAssistantWork(items: readonly IAssistantItem[]) {
     const running = items.findLast(item => item.status === 'streaming');
-    if (running) return present(workKind(running), 'running');
+    if (running) {return present(workKind(running), 'running');}
     const failed = items.find(item => item.status === 'failed');
-    if (failed) return present(workKind(failed), 'failed');
+    if (failed) {return present(workKind(failed), 'failed');}
     const kinds = new Set(items.map(workKind));
     const kind = SUMMARY_PRIORITY.find(candidate => kinds.has(candidate)) ?? 'tool';
     return present(kind, items.some(item => item.status === 'interrupted') ? 'interrupted' : 'completed');

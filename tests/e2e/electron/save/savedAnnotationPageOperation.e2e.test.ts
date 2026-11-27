@@ -138,7 +138,7 @@ it.each([
             ? baselinePdf.getPageCount() + (await PDFDocument.load(await readFile(insertPath))).getPageCount()
             : 1);
         expect(await readFile(inputPath)).toEqual(original);
-        if (operation === 'extract') expect(await readDocumentBytes(page, workingPath)).toEqual(baseline);
+        if (operation === 'extract') {expect(await readDocumentBytes(page, workingPath)).toEqual(baseline);}
         const imageBytes = (pdf: PDFDocument) => pdf.context.enumerateIndirectObjects()
             .map(([
                 , object,
@@ -215,8 +215,8 @@ it.each([
             || document.querySelector('.app-toast-failure'));
         expect(await page.$('.app-toast-failure')).toBeNull();
         await waitForViewerInteractive(page);
-        if (operation === 'delete') await saveViaVisibleToolbar(page);
-        else expect(await readFile(inputPath)).toEqual(Buffer.from(original));
+        if (operation === 'delete') {await saveViaVisibleToolbar(page);}
+        else {expect(await readFile(inputPath)).toEqual(Buffer.from(original));}
         const saved = await PDFDocument.load(await readFile(operation === 'delete' ? inputPath : extractedPath));
         expect(saved.getPageCount()).toBe(1);
         const savedForm = saved.catalog.lookup(PDFName.of('AcroForm'), PDFDict);
@@ -253,10 +253,10 @@ async function readAnnotations(path: string) {
         const entries = page.node.Annots();
         return entries?.asArray().flatMap(entry => {
             const annotation = pdf.context.lookupMaybe(entry, PDFDict);
-            if (!annotation) return [];
+            if (!annotation) {return [];}
             const text = annotation.get(PDFName.of('Contents'));
             const subtype = String(annotation.get(PDFName.of('Subtype')));
-            if (subtype === '/Popup') return [];
+            if (subtype === '/Popup') {return [];}
             return [{
                 page: index + 1,
                 subtype,
@@ -336,7 +336,7 @@ it('materializes edits, deletion and a moved saved note before deleting an earli
         await page.mouse.down();
         await page.mouse.move(marker.x + 40, marker.y + 30, {steps: 8});
         await page.mouse.up();
-        if (await page.$('.note-window__close')) await clickLatestVisibleNoteWindowClose(page);
+        if (await page.$('.note-window__close')) {await clickLatestVisibleNoteWindowClose(page);}
         await goToPageViaToolbar(page, 5);
         await createTextMarkupWithPointer(page, 'Highlight', 0, 5);
         await clickAnnotationTool(page, 'Select');

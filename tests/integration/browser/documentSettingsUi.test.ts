@@ -60,7 +60,7 @@ describe('browser document lifecycle UI', () => {
             body: '{}',
         }));
         const evidenceDirectory = process.env.EVB_SETTINGS_EVIDENCE_DIR;
-        if (evidenceDirectory) mkdirSync(evidenceDirectory, {recursive: true});
+        if (evidenceDirectory) {mkdirSync(evidenceDirectory, {recursive: true});}
         async function capture(phase: string) {
             const evidence = {
                 scenario,
@@ -95,7 +95,7 @@ describe('browser document lifecycle UI', () => {
                 await context.addInitScript(({
                     key, value,
                 }) => {
-                    if (localStorage.getItem(key) === null) localStorage.setItem(key, value);
+                    if (localStorage.getItem(key) === null) {localStorage.setItem(key, value);}
                 }, {
                     key: settingsKey,
                     value: scenario === 'future-storage' ? future : supported,
@@ -307,7 +307,7 @@ describe('browser document lifecycle UI', () => {
                     return id?.replace('Error ID: ', '');
                 }, previousIds);
                 const id = await receipt.jsonValue();
-                if (!id) throw new Error('The visible failure has no Error ID');
+                if (!id) {throw new Error('The visible failure has no Error ID');}
                 return id;
             }
             const grantedId = await reportInputFailure('granted-control');
@@ -376,7 +376,7 @@ describe('browser document lifecycle UI', () => {
                 exact: true,
             }).click();
             const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
-            if (!bounds) throw new Error('The first PDF page is not visible');
+            if (!bounds) {throw new Error('The first PDF page is not visible');}
             await page.mouse.click(bounds.x + 200, bounds.y + 200);
             const text = 'Accepted note survives information routes';
             await page.getByRole('textbox', {

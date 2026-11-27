@@ -74,7 +74,7 @@ export function createBrowserScanCleanupRasterCache(maxBytes = scanCleanupRaster
 
     function deleteEntry(key: string) {
         const existing = entries.get(key);
-        if (!existing) return;
+        if (!existing) {return;}
         entries.delete(key);
         totalBytes -= existing.ppm.byteLength;
     }
@@ -108,7 +108,7 @@ export function createBrowserScanCleanupRasterCache(maxBytes = scanCleanupRaster
         deleteEntry(key);
         while (totalBytes + byteLength > maxBytes && entries.size > 0) {
             const oldestKey = entries.keys().next().value;
-            if (oldestKey === undefined) break;
+            if (oldestKey === undefined) {break;}
             deleteEntry(oldestKey);
         }
         const stored: ICachedRasterEntry = {

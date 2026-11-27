@@ -130,8 +130,8 @@ it('#1608 shows feedback when Copy path is denied by the clipboard', async () =>
     } finally {
         await session.page.evaluate(() => {
             const original = Reflect.get(navigator.clipboard, '__step1608OriginalWriteText');
-            if (original) Object.defineProperty(navigator.clipboard, 'writeText', original);
-            else Reflect.deleteProperty(navigator.clipboard, 'writeText');
+            if (original) {Object.defineProperty(navigator.clipboard, 'writeText', original);}
+            else {Reflect.deleteProperty(navigator.clipboard, 'writeText');}
             Reflect.deleteProperty(navigator.clipboard, '__step1608OriginalWriteText');
         });
     }

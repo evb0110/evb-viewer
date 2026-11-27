@@ -846,7 +846,7 @@ describe('usePdfViewerVirtualization', () => {
             end: totalPages,
         };
         const layout = virtualization.pageLayout.value;
-        if (!layout) throw new Error('Expected segmented page layout');
+        if (!layout) {throw new Error('Expected segmented page layout');}
         const lastRow = layout.base.pageRowIndices[totalPages - 1]!;
         physicalScrollOrigin.value = resolveLayoutPhysicalScrollOrigin(layout, getLayoutRowTop(layout, lastRow), 1_000, null);
         isActive.value = true;
@@ -944,7 +944,7 @@ describe('usePdfViewerVirtualization', () => {
         });
 
         const layout = virtualization.pageLayout.value;
-        if (!layout) throw new Error('Expected segmented page layout');
+        if (!layout) {throw new Error('Expected segmented page layout');}
         const targetRow = layout.base.pageRowIndices[69_000]!;
         physicalScrollOrigin.value = resolveLayoutPhysicalScrollOrigin(layout, getLayoutRowTop(layout, targetRow), 1_000, null);
 
@@ -997,11 +997,11 @@ describe('usePdfViewerVirtualization', () => {
                 navigationAnchorPage,
             });
             const layout = virtualization.pageLayout.value;
-            if (!layout) throw new Error('Expected segmented page layout');
+            if (!layout) {throw new Error('Expected segmented page layout');}
             const origin = resolveLayoutPhysicalScrollOrigin(layout, PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, 1_000, null);
             physicalScrollOrigin.value = origin;
             const segment = getLayoutPhysicalScrollSegment(layout, origin);
-            if (!segment) throw new Error('Expected physical scroll segment');
+            if (!segment) {throw new Error('Expected physical scroll segment');}
 
             for (const page of [
                 segment.firstPage,

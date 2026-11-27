@@ -111,10 +111,10 @@ export const useDocumentViewportLayoutLifecycle = (
      * offset is the reader's again: a view being shown then places this point.
      */
     const commitReadingPoint = () => {
-        if (readLaidOutContainer()) suspended = false;
+        if (readLaidOutContainer()) {suspended = false;}
         // The placed point replaces a finished zoom's; a gesture still zooming keeps its own.
-        if (activeLayoutTransaction) activeLayoutTransaction.pointerAnchor = null;
-        if (pendingRestore) pendingRestore.pointerAnchor = null;
+        if (activeLayoutTransaction) {activeLayoutTransaction.pointerAnchor = null;}
+        if (pendingRestore) {pendingRestore.pointerAnchor = null;}
         recaptureReadingPoint();
     };
 
@@ -176,7 +176,7 @@ export const useDocumentViewportLayoutLifecycle = (
     ) => {
         const queued = readQueuedRestore(epoch);
         const pointerAnchor = activePointerAnchor ?? queued?.pointerAnchor ?? activeLayoutTransaction?.pointerAnchor ?? null;
-        if (!queued && pointerAnchor === null) readingPoint = anchor ?? readingPoint;
+        if (!queued && pointerAnchor === null) {readingPoint = anchor ?? readingPoint;}
         pendingRestore = {
             epoch,
             generation: restoreGeneration,
@@ -322,7 +322,7 @@ export const useDocumentViewportLayoutLifecycle = (
             return Promise.resolve();
         }
         // Queued while the transaction holds it, so a pointer anchor carries over.
-        if (restore) scheduleAnchorRestore(readingPoint, options.captureRestoreEpoch());
+        if (restore) {scheduleAnchorRestore(readingPoint, options.captureRestoreEpoch());}
         activeLayoutTransaction = null;
         return restore ? whenRestored() : Promise.resolve();
     };

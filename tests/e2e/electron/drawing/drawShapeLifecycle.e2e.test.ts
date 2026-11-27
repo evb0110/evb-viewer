@@ -180,16 +180,16 @@ async function waitForLineCountOnDisk(filePath: string, expectedCount: number, t
 /** Counts the arrays directly inside the array that follows `key` in a QDF dictionary. */
 function countTopLevelArrays(dictionary: string, key: string) {
     const start = dictionary.indexOf('[', dictionary.indexOf(key));
-    if (dictionary.indexOf(key) < 0 || start < 0) return 0;
+    if (dictionary.indexOf(key) < 0 || start < 0) {return 0;}
     let depth = 0;
     let count = 0;
     for (const character of dictionary.slice(start)) {
         if (character === '[') {
             depth += 1;
-            if (depth === 2) count += 1;
+            if (depth === 2) {count += 1;}
         } else if (character === ']') {
             depth -= 1;
-            if (depth === 0) break;
+            if (depth === 0) {break;}
         }
     }
     return count;
@@ -2542,7 +2542,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         const layout = await page.evaluate(() => {
             const overlay = document.querySelector<SVGElement>('.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer');
             const shape = overlay?.querySelector('g[data-annotation-kind="shape"]');
-            if (!overlay || !shape) return null;
+            if (!overlay || !shape) {return null;}
             const rect = overlay.getBoundingClientRect();
             return {
                 left: rect.left,
@@ -2570,7 +2570,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
             let count = 0;
             for (let y = fromY; y <= toY; y += 1) {
                 for (let x = fromX; x <= toX; x += 1) {
-                    if (isInkPixel(x, y)) count += 1;
+                    if (isInkPixel(x, y)) {count += 1;}
                 }
             }
             return count;
@@ -2640,7 +2640,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
                         && style.visibility !== 'hidden'
                         && !candidate.disabled;
                 });
-            if (!button) return null;
+            if (!button) {return null;}
             const rect = button.getBoundingClientRect();
             return {
                 x: rect.left + rect.width / 2,
@@ -2653,7 +2653,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         const saveAsPoint = await page.evaluate(() => {
             const item = Array.from(document.querySelectorAll<HTMLElement>('.save-split-item'))
                 .find(candidate => candidate.textContent?.trim().startsWith('Save As'));
-            if (!item) return null;
+            if (!item) {return null;}
             const rect = item.getBoundingClientRect();
             return rect.width > 0 && rect.height > 0
                 ? {
@@ -2681,7 +2681,7 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
                 '.editor-pane.is-active .pdf-annotation-editor-shape__arrowhead:not(.is-open)',
             );
             const matrix = head?.getScreenCTM();
-            if (!head || !matrix || head.points.numberOfItems !== 3) return null;
+            if (!head || !matrix || head.points.numberOfItems !== 3) {return null;}
             const corners = Array.from({length: 3}, (_, index) => {
                 const point = head.points.getItem(index);
                 return new DOMPoint(point.x, point.y).matrixTransform(matrix);

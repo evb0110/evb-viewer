@@ -176,7 +176,7 @@ describe('createDocumentWorkspaceAgent', () => {
 
     it('executes schema-validated query aliases and gives text precedence when both are supplied', async () => {
         const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'annotation.create_text_markup');
-        if (!template) throw new Error('annotation.create_text_markup template is missing');
+        if (!template) {throw new Error('annotation.create_text_markup template is missing');}
         const agent = createDocumentWorkspaceAgent(createAgentOptions({pdfViewerRef: ref(createAgentViewerPort({createTextMarkupFromText: async options => ({
             created: true,
             pageNumber: options.pageNumber,
@@ -193,7 +193,7 @@ describe('createDocumentWorkspaceAgent', () => {
             },
         ]) {
             const validated = validateJsonObjectAgainstSchema(template.id, input, template.inputSchema);
-            if (!isRecord(validated)) throw new Error('Expected validated text markup input to be an object');
+            if (!isRecord(validated)) {throw new Error('Expected validated text markup input to be an object');}
             await expect(agent.runAgentAction(template.id, validated)).resolves.toMatchObject({
                 ok: true,
                 created: true,
@@ -205,7 +205,7 @@ describe('createDocumentWorkspaceAgent', () => {
 
     it('executes schema-validated tool aliases and gives shape precedence when both are supplied', async () => {
         const template = AGENT_CAPABILITY_TEMPLATES.find(candidate => candidate.id === 'annotation.create_shape');
-        if (!template) throw new Error('annotation.create_shape template is missing');
+        if (!template) {throw new Error('annotation.create_shape template is missing');}
         const agent = createDocumentWorkspaceAgent(createAgentOptions({pdfViewerRef: ref(createAgentViewerPort({createShapeAnnotation: async options => ({
             created: true,
             pageNumber: options.pageNumber,
@@ -229,7 +229,7 @@ describe('createDocumentWorkspaceAgent', () => {
                 height: 0.4,
             };
             const validated = validateJsonObjectAgainstSchema(template.id, input, template.inputSchema);
-            if (!isRecord(validated)) throw new Error('Expected validated shape input to be an object');
+            if (!isRecord(validated)) {throw new Error('Expected validated shape input to be an object');}
             await expect(agent.runAgentAction(template.id, validated)).resolves.toMatchObject({
                 ok: true,
                 created: true,

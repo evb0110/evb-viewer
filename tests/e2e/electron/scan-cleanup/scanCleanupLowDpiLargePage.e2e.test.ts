@@ -83,7 +83,7 @@ describe('scan cleanup of a scan stored at one pixel per point', () => {
         await waitForPdfLoaded(session.page, 90_000);
         await waitForViewerInteractive(session.page, 90_000);
         for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
-            if (await toast.isVisible()) await clickAsUser(session.page, toast);
+            if (await toast.isVisible()) {await clickAsUser(session.page, toast);}
         }
 
         await clickAsUser(session.page, 'button[aria-label="Scan cleanup"]');

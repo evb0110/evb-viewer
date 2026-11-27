@@ -363,7 +363,7 @@ function settleGeneratedPdfHandoff(handoff: IGeneratedPdfHandoff, reason: TGener
 
 function releaseGeneratedPdfHandoff(handoff: IGeneratedPdfHandoff) {
     const index = generatedPdfHandoffs.indexOf(handoff);
-    if (index >= 0) generatedPdfHandoffs.splice(index, 1);
+    if (index >= 0) {generatedPdfHandoffs.splice(index, 1);}
     handoff.released.resolve();
 }
 
@@ -410,7 +410,7 @@ async function openGeneratedPdfWithHandoff(
         opened = await new Promise<boolean>((resolve) => {
             let settled = false;
             const settle = (value: boolean) => {
-                if (settled) return;
+                if (settled) {return;}
                 settled = true;
                 signal.removeEventListener('abort', abandon);
                 resolve(value);
@@ -425,10 +425,10 @@ async function openGeneratedPdfWithHandoff(
                 }
                 let remaining = 12;
                 const flush = () => {
-                    if (settled) return;
+                    if (settled) {return;}
                     remaining -= 1;
-                    if (remaining <= 0) settle(false);
-                    else queueMicrotask(flush);
+                    if (remaining <= 0) {settle(false);}
+                    else {queueMicrotask(flush);}
                 };
                 queueMicrotask(flush);
             };
@@ -468,10 +468,10 @@ async function openGeneratedPdfWithHandoff(
 function disposeGeneratedPdfHandoffs() {
     const handoffs = [...generatedPdfHandoffs];
     for (const handoff of handoffs) {
-        if (settleGeneratedPdfHandoff(handoff, 'disposed') === 'disposed' && handoff.jobId !== null) terminalJobs.delete(handoff.jobId);
+        if (settleGeneratedPdfHandoff(handoff, 'disposed') === 'disposed' && handoff.jobId !== null) {terminalJobs.delete(handoff.jobId);}
     }
     for (const handoff of handoffs) {
-        if (handoff.reason === 'disposed') handoff.controller.abort('disposed');
+        if (handoff.reason === 'disposed') {handoff.controller.abort('disposed');}
         releaseGeneratedPdfHandoff(handoff);
     }
 }
@@ -527,7 +527,7 @@ function releaseUnobservedScanCleanupRun(jobId: TJobId, forget = true) {
     scanCleanupRun.activeJobId = null;
     scanCleanupRun.jobState = null;
     clearRunGuard();
-    if (forget) persistActiveJob(null);
+    if (forget) {persistActiveJob(null);}
     return true;
 }
 
@@ -644,8 +644,8 @@ function persistActiveJob(jobId: TJobId | null, documentRef: string | null = sca
         if (documentRef) {
             sessionStorage.setItem(ACTIVE_JOB_DOCUMENT_KEY, documentRef);
         }
-        if (scanCleanupRun.ownerId) sessionStorage.setItem(ACTIVE_JOB_OWNER_KEY, scanCleanupRun.ownerId);
-        if (scanCleanupRun.ownerDocumentRevision) sessionStorage.setItem(ACTIVE_JOB_REVISION_KEY, scanCleanupRun.ownerDocumentRevision);
+        if (scanCleanupRun.ownerId) {sessionStorage.setItem(ACTIVE_JOB_OWNER_KEY, scanCleanupRun.ownerId);}
+        if (scanCleanupRun.ownerDocumentRevision) {sessionStorage.setItem(ACTIVE_JOB_REVISION_KEY, scanCleanupRun.ownerDocumentRevision);}
     } else {
         sessionStorage.removeItem(ACTIVE_JOB_KEY);
         sessionStorage.removeItem(ACTIVE_JOB_DOCUMENT_KEY);
@@ -749,7 +749,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                     ]) => t(`scanCleanup.summaryDetails.${fact}`, {count})),
             ];
             const omission = state.summary.sourceTextOmission;
-            if (omission && omission.count > 0) notices.push(t('scanCleanup.sourceTextOmitted', {
+            if (omission && omission.count > 0) {notices.push(t('scanCleanup.sourceTextOmitted', {
                 count: omission.count,
                 pages: omission.count > omission.pages.length
                     ? t('scanCleanup.sourceTextOmittedMorePages', {
@@ -757,9 +757,9 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                         remaining: omission.count - omission.pages.length,
                     })
                     : omission.pages.join(', '),
-            }));
-            if (state.summary.accessibilityTagsRemoved) notices.push(t('scanCleanup.accessibilityTagsRemoved'));
-            if (state.summary.sourceLayersReconstructed) notices.push(t('scanCleanup.sourceLayersReconstructed'));
+            }));}
+            if (state.summary.accessibilityTagsRemoved) {notices.push(t('scanCleanup.accessibilityTagsRemoved'));}
+            if (state.summary.sourceLayersReconstructed) {notices.push(t('scanCleanup.sourceLayersReconstructed'));}
             terminalDependencies.toast.add({
                 color: state.summary.sourceTextOmission?.count || state.summary.accessibilityTagsRemoved
                     || state.summary.sourceLayersReconstructed ? 'warning' : 'success',
@@ -836,7 +836,7 @@ async function handleTerminalState(state: TScanCleanupJobState) {
 
 function acceptScanCleanupJobState(state: TScanCleanupJobState | TScanCleanupJobClosure) {
     if (isScanCleanupJobClosure(state)) {
-        if (releaseUnobservedScanCleanupRun(state.jobId, state.status === 'retired')) reportUnobservedScanCleanupRun();
+        if (releaseUnobservedScanCleanupRun(state.jobId, state.status === 'retired')) {reportUnobservedScanCleanupRun();}
         return;
     }
     if (scanCleanupRun.activeJobId && state.jobId !== scanCleanupRun.activeJobId) {
@@ -987,7 +987,7 @@ async function surfacePendingCompletedOutputs(
  * stopped at, and its pages already marked processed.
  */
 export function beginScanCleanupAttempt() {
-    if (!scanCleanupRun.activeJobId) scanCleanupRun.jobState = null;
+    if (!scanCleanupRun.activeJobId) {scanCleanupRun.jobState = null;}
 }
 
 export function startScanCleanup(request: IScanCleanupStartRequest): Promise<TScanCleanupRendererStartResult> {
@@ -1090,7 +1090,7 @@ export function registerScanCleanupWorkspaceOwner(ownerId: string, visible: () =
     const registration = () => visible();
     workspaceOwners.set(ownerId, registration);
     return () => {
-        if (workspaceOwners.get(ownerId) === registration) workspaceOwners.delete(ownerId);
+        if (workspaceOwners.get(ownerId) === registration) {workspaceOwners.delete(ownerId);}
     };
 }
 
@@ -1115,7 +1115,7 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
         }
         installation.active = false;
         const index = installations.indexOf(installation);
-        if (index >= 0) installations.splice(index, 1);
+        if (index >= 0) {installations.splice(index, 1);}
         const latest = installations.at(-1);
         if (latest) {
             dependencies = latest.dependencies;
@@ -1167,9 +1167,9 @@ export function installScanCleanupRunCoordinator(nextDependencies: IScanCleanupC
                 if (state === undefined || unsubscribe !== subscription || scanCleanupRun.activeJobId !== storedJobId) {
                     return;
                 }
-                if (state) acceptScanCleanupJobState(state);
+                if (state) {acceptScanCleanupJobState(state);}
                 else {
-                    if (await abandonUnobservedScanCleanupRun(capability, storedJobId, owner)) reportUnobservedScanCleanupRun();
+                    if (await abandonUnobservedScanCleanupRun(capability, storedJobId, owner)) {reportUnobservedScanCleanupRun();}
                     void surfacePendingCompletedOutputs(capability);
                 }
             })();

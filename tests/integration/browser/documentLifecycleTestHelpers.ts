@@ -62,7 +62,7 @@ export async function readPersistedDocumentBytes(page: Page, ref: string, sha256
             return [];
         }
         const manifest = JSON.parse(await (await (await dir.getFileHandle('manifest.json')).getFile()).text()) as {current?: {file: string; length: number}};
-        if (!manifest.current) return [];
+        if (!manifest.current) {return [];}
         const file = await (await dir.getFileHandle(manifest.current.file)).getFile();
         const bytes = new Uint8Array(await file.slice(0, manifest.current.length).arrayBuffer());
         return Array.from(digest ? new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)) : bytes);
@@ -84,7 +84,7 @@ export async function settleActiveOpen(page: Page) {
     }, undefined, {timeout: 30_000});
     await page.evaluate(async () => {
         const testApi = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi | undefined;
-        if (!await testApi?.waitForActiveDocumentOpenSettled?.()) throw new Error('PDF viewer open did not settle');
+        if (!await testApi?.waitForActiveDocumentOpenSettled?.()) {throw new Error('PDF viewer open did not settle');}
     });
 }
 
@@ -219,7 +219,7 @@ export function noteTexts(document: PDFDocument, subtype?: '/Text') {
         const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
         return Array.from({length: annots?.size() ?? 0}, (_, index) => {
             const annotation = annots!.lookup(index, PDFDict);
-            if (subtype && annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== subtype) return undefined;
+            if (subtype && annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== subtype) {return undefined;}
             return annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText();
         }).filter((text): text is string => text !== undefined);
     }));
@@ -238,7 +238,7 @@ export async function readRecoveries(page: Page, subtype?: '/Text') {
         }
         const rows = [];
         for await (const name of workspaces.keys()) {
-            if (!/^[\w-]+\.json$/u.test(name)) continue;
+            if (!/^[\w-]+\.json$/u.test(name)) {continue;}
             const checkpoint = ((await readJson(workspaces, name)) as {layout: null | {tabs: Array<{
                 isDirty: boolean;
                 workingCopyRef: string | null;
@@ -249,7 +249,7 @@ export async function readRecoveries(page: Page, subtype?: '/Text') {
                     entities?: Array<{kind: string; contents?: string; text?: string}>;
                 }}
             }>}}).layout;
-            if (!checkpoint) continue;
+            if (!checkpoint) {continue;}
             // The checkpoint keeps references; whether a tab holds unsaved work is its document manifest's, as the store decides it.
             const content = (witness?: string) => witness?.split(' ').find(fact => fact.startsWith('content-v2:'));
             const other = (witness?: string) => witness?.split(' ').filter(fact => !fact.startsWith('content-v2:')).join(' ') ?? '';
@@ -259,20 +259,20 @@ export async function readRecoveries(page: Page, subtype?: '/Text') {
             for (const candidate of checkpoint.tabs) {
                 candidate.isDirty = false;
                 const id = candidate.workingCopyRef?.slice('browser://documents/'.length).split('/')[0];
-                if (!id) continue;
+                if (!id) {continue;}
                 try {
                     const dir = await (await root.getDirectoryHandle('documents')).getDirectoryHandle(id);
                     const manifest = await readJson(dir, 'manifest.json') as {drafts?: string; pendingPublish?: unknown; baseline?: string; current?: {witness?: string}};
                     candidate.isDirty = manifest.drafts !== undefined || manifest.pendingPublish !== undefined
                         || (manifest.current !== undefined && !same(manifest.current.witness, manifest.baseline));
-                    if (manifest.drafts) candidate.annotationRecovery = await readJson(dir, manifest.drafts) as NonNullable<typeof candidate.annotationRecovery>;
+                    if (manifest.drafts) {candidate.annotationRecovery = await readJson(dir, manifest.drafts) as NonNullable<typeof candidate.annotationRecovery>;}
                 } catch {
                     // The directory is gone: the checkpoint names a document it cannot restore.
                 }
             }
             // A window's checkpoint names every document it holds; a recovery record is one with unsaved work.
             const tab = checkpoint.tabs.find(candidate => candidate.isDirty);
-            if (!tab) continue;
+            if (!tab) {continue;}
             rows.push({ownerId: name.slice(0, -'.json'.length), checkpoint, tab});
         }
         return rows;
@@ -284,9 +284,9 @@ export async function readRecoveries(page: Page, subtype?: '/Text') {
         const notes = bytes.length > 0 ? noteTexts(await PDFDocument.load(Uint8Array.from(bytes)), subtype) : new Set<string>();
         // Unsaved notes are the drafts' text and the notes among the unsaved entities.
         const payload = record.tab?.annotationRecovery?.payload;
-        for (const draft of payload?.drafts ?? []) notes.add(draft.text);
+        for (const draft of payload?.drafts ?? []) {notes.add(draft.text);}
         for (const entity of payload?.entities ?? []) {
-            if (entity.kind === 'note' || (!subtype && typeof entity.contents === 'string')) notes.add(entity.contents ?? entity.text ?? '');
+            if (entity.kind === 'note' || (!subtype && typeof entity.contents === 'string')) {notes.add(entity.contents ?? entity.text ?? '');}
         }
         notes.delete('');
         return {...record, bytes, notes};
@@ -337,7 +337,7 @@ export async function readBrowserPayloadCounts(page: Page) {
         const entries = async (name: string) => {
             try {
                 const names: string[] = [];
-                for await (const entry of (await root.getDirectoryHandle(name)).keys()) names.push(entry);
+                for await (const entry of (await root.getDirectoryHandle(name)).keys()) {names.push(entry);}
                 return names;
             } catch {
                 return [];

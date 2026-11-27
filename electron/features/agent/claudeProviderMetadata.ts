@@ -45,14 +45,14 @@ async function pathIsExecutable(path: string | null | undefined) {
 
 // Adapted from T3 Code Drivers/ClaudeExecutable.ts (0b6f482dc5), MIT.
 export function resolveClaudeSdkExecutablePath(binaryPath: string) {
-    if (process.platform !== 'win32' || !/\.(?:cmd|bat|ps1)$/iu.test(binaryPath)) return binaryPath;
+    if (process.platform !== 'win32' || !/\.(?:cmd|bat|ps1)$/iu.test(binaryPath)) {return binaryPath;}
     if (isUnsupportedClaudeSdkWrapper(binaryPath)) {
         throw new Error('The Claude SDK cannot run this Windows wrapper directly. Select its native executable in Settings.');
     }
     const directory = dirname(binaryPath);
     for (const entry of ['bin/claude.exe', 'cli.js']) {
         const candidate = join(directory, 'node_modules', '@anthropic-ai', 'claude-code', entry);
-        if (existsSync(candidate)) return candidate;
+        if (existsSync(candidate)) {return candidate;}
     }
     throw new Error('Claude launcher cannot be run by the SDK. Select the installed Claude executable in Settings.');
 }

@@ -629,7 +629,7 @@ describe('PdfDocumentSession transitions', () => {
         const view = session.attachView({
             chassisAuthority,
             emitDocument: () => {
-                if (collecting) observed.push('replacement-source-published');
+                if (collecting) {observed.push('replacement-source-published');}
             },
         });
 
@@ -642,7 +642,7 @@ describe('PdfDocumentSession transitions', () => {
         });
 
         view.subscribe(async transition => {
-            if (transition.phase !== 'ready' || !transition.plan.isSelectiveReload) return;
+            if (transition.phase !== 'ready' || !transition.plan.isSelectiveReload) {return;}
             expect(transition.plan.pagesToInvalidate).toEqual([currentPage]);
             await session.ensurePageMetricsInRange(
                 currentPage,
@@ -806,7 +806,7 @@ describe('PdfDocumentSession transitions', () => {
         });
         const session = createPdfDocumentSession({src: computed(() => new Blob(['a'], {type: 'application/pdf'}) as never)});
         session.attachView().subscribe((transition) => {
-            if (transition.phase === 'invalidated') throw new Error('view invalidation failed');
+            if (transition.phase === 'invalidated') {throw new Error('view invalidation failed');}
         });
         await session.loadPublishedSource()?.finished;
 
@@ -826,7 +826,7 @@ describe('PdfDocumentSession transitions', () => {
         const clearStarted = Promise.withResolvers<void>();
         const releaseClear = Promise.withResolvers<void>();
         view.subscribe((transition) => {
-            if (transition.phase !== 'invalidated' || transition.reason !== 'source-cleared') return;
+            if (transition.phase !== 'invalidated' || transition.reason !== 'source-cleared') {return;}
             clearStarted.resolve();
             return releaseClear.promise;
         });
@@ -891,7 +891,7 @@ describe('PdfDocumentSession transitions', () => {
         const session = createPdfDocumentSession({src: computed(() => source as never)});
         const first = session.attachView();
         const unsubscribe = first.subscribe((transition) => {
-            if (transition.phase === 'loading') throw new Error('injected loading transition failure');
+            if (transition.phase === 'loading') {throw new Error('injected loading transition failure');}
         });
 
         try {
@@ -919,7 +919,7 @@ describe('PdfDocumentSession transitions', () => {
         const live = session.attachView();
         const liveLoading = Promise.withResolvers<void>();
         live.subscribe(async (transition) => {
-            if (transition.phase === 'loading') await liveLoading.promise;
+            if (transition.phase === 'loading') {await liveLoading.promise;}
         });
         const finished = admitSource(session, 'open', source);
         let outcome: Awaited<typeof finished> | undefined;
@@ -945,7 +945,7 @@ describe('PdfDocumentSession transitions', () => {
         const first = session.attachView();
         const firstLoading = Promise.withResolvers<void>();
         first.subscribe(async (transition) => {
-            if (transition.phase === 'loading') await firstLoading.promise;
+            if (transition.phase === 'loading') {await firstLoading.promise;}
         });
         const finished = admitSource(session, 'open', source);
         let outcome: Awaited<typeof finished> | undefined;
@@ -1316,7 +1316,7 @@ describe('PdfDocumentSession residency across views', () => {
         const readyStarted = Promise.withResolvers<void>();
         const holdReadyA = Promise.withResolvers<void>();
         first.subscribe((transition) => {
-            if (transition.phase !== 'ready') return;
+            if (transition.phase !== 'ready') {return;}
             readyStarted.resolve();
             return holdReadyA.promise;
         });
@@ -1404,9 +1404,9 @@ describe('PdfDocumentSession residency across views', () => {
         const holdSelectiveReady = Promise.withResolvers<void>();
         const selectivePhases: string[] = [];
         view.subscribe((transition) => {
-            if (!transition.plan.isSelectiveReload) return undefined;
+            if (!transition.plan.isSelectiveReload) {return undefined;}
             selectivePhases.push(transition.phase);
-            if (transition.phase !== 'ready') return undefined;
+            if (transition.phase !== 'ready') {return undefined;}
             selectiveReadyStarted.resolve();
             return holdSelectiveReady.promise;
         });
@@ -1480,12 +1480,12 @@ describe('PdfDocumentSession residency across views', () => {
         const holdSplitLoading = Promise.withResolvers<void>();
         let adoptStarted = false;
         first.subscribe((transition) => {
-            if (!adoptStarted || transition.phase !== 'ready') return undefined;
+            if (!adoptStarted || transition.phase !== 'ready') {return undefined;}
             firstReadyStarted.resolve();
             return holdFirstReady.promise;
         });
         split.subscribe((transition) => {
-            if (!adoptStarted || transition.phase !== 'loading') return undefined;
+            if (!adoptStarted || transition.phase !== 'loading') {return undefined;}
             return holdSplitLoading.promise;
         });
 
@@ -1535,7 +1535,7 @@ describe('PdfDocumentSession residency across views', () => {
         const holdReadyA = Promise.withResolvers<void>();
         let heldFirstReady = false;
         first.subscribe((transition) => {
-            if (transition.phase !== 'ready' || heldFirstReady) return;
+            if (transition.phase !== 'ready' || heldFirstReady) {return;}
             heldFirstReady = true;
             readyStarted.resolve();
             return holdReadyA.promise;

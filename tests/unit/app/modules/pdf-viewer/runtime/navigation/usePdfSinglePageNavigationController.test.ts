@@ -298,7 +298,7 @@ describe('usePdfSinglePageNavigationController', () => {
             // out at the current scale, which moves the target.
             const released: boolean[] = [];
             const stop = watch(controller.navigationAnchorPage, (page) => {
-                if (page !== null) return;
+                if (page !== null) {return;}
                 released.push(controller.isProgrammaticNavigationActive.value);
                 targetTop = 2_700;
             }, {flush: 'sync'});
@@ -1135,7 +1135,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 })));
             }
             const answered: unknown[] = [];
-            for (const receipt of receipts) void receipt.then(result => answered.push(result));
+            for (const receipt of receipts) {void receipt.then(result => answered.push(result));}
             const writesBefore = viewportWrites.writes.length;
             await nextTick();
             // Every change of the flush is answered by its one placement, in
@@ -1210,7 +1210,7 @@ describe('usePdfSinglePageNavigationController', () => {
 
             await expect(receipt).resolves.toEqual({outcome});
             expect(view.writes.slice(writesBefore).map(write => write.reason)).not.toContain('relayout');
-            if (cause === 'reader input') expect(view.viewer.scrollTop).toBe(1_200);
+            if (cause === 'reader input') {expect(view.viewer.scrollTop).toBe(1_200);}
         } finally {
             view.dispose();
         }
@@ -1415,7 +1415,7 @@ function createRelayoutView(input: {
             paddingTop: 20,
             paddingBottom: 20,
         });
-        if (!layout) throw new Error('Expected PDF layout metrics');
+        if (!layout) {throw new Error('Expected PDF layout metrics');}
         return layout;
     };
     const isLoading = ref(false);
@@ -1454,7 +1454,7 @@ function createRelayoutView(input: {
             return true;
         },
     }));
-    if (!controller) throw new Error('Expected navigation controller');
+    if (!controller) {throw new Error('Expected navigation controller');}
     return {
         scope,
         viewer,
@@ -1467,7 +1467,7 @@ function createRelayoutView(input: {
         renderedScale,
         setScale(next: number, turn = false) {
             scale.value = next;
-            if (turn) rotated = !rotated;
+            if (turn) {rotated = !rotated;}
         },
         onVisibleRangeUpdate(callback: () => void) {
             onVisibleRangeUpdate = callback;

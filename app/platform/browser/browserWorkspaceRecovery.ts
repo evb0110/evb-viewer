@@ -80,10 +80,10 @@ function recentFileIds() {
 function collectOnce() {
     collection ??= (async () => {
         const durable = await durableStore();
-        if (!durable || !await heldBrowserLockNames()) return null;
+        if (!durable || !await heldBrowserLockNames()) {return null;}
         const recent = recentFileIds();
         const {unsaved, held, unreadable} = await collectDocuments(durable, id => (recent.has(id) ? Promise.resolve(null) : holdBrowserLock(browserDocumentLockName(id))));
-        for (const {path, error} of unreadable) BrowserLogger.warn(LOG_SECTION, 'Kept recovery data that cannot be read', {path, error});
+        for (const {path, error} of unreadable) {BrowserLogger.warn(LOG_SECTION, 'Kept recovery data that cannot be read', {path, error});}
         const reported = new Set(unreadable.map(entry => entry.path));
         const named = new Set(recent);
         for (const id of await durable.port.list(DOCUMENTS_DIR)) {
@@ -91,19 +91,19 @@ function collectOnce() {
             const manifest = await durable.port.read(path).then(decodeManifest).catch((error: unknown) => {
                 // A held directory's file handles stay; one this collection could not read was reported above.
                 if (!isAbsent(error)) {
-                    if (!reported.has(path)) BrowserLogger.warn(LOG_SECTION, 'Kept file handles of a document whose manifest cannot be read', {path, error});
+                    if (!reported.has(path)) {BrowserLogger.warn(LOG_SECTION, 'Kept file handles of a document whose manifest cannot be read', {path, error});}
                     reported.add(path);
                 }
                 return null;
             });
             for (const destination of [manifest?.destination, manifest?.pendingPublish?.destination, ...manifest?.unsettled?.map(record => record.destination) ?? []]) {
                 const key = handleKeyOf(destination ?? null);
-                if (key !== null) named.add(key);
+                if (key !== null) {named.add(key);}
             }
         }
         // An unreadable manifest may name any retained handle.
         for (const key of reported.size === 0 ? await fileHandleStore.keys().catch(() => []) : []) {
-            if (!named.has(key)) await fileHandleStore.delete(key).catch(() => undefined);
+            if (!named.has(key)) {await fileHandleStore.delete(key).catch(() => undefined);}
         }
         // What Recent names stays for Recent to reopen, as before.
         return {unsaved: [...unsaved, ...unreadable.flatMap(entry => entry.directory ?? [])], held: held.filter(id => !recent.has(id))};
@@ -123,7 +123,7 @@ async function orphanTab(id: string, paneId: IWorkspaceCheckpointTab['paneId']):
     const durable = await durableStore();
     const path = `${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`;
     const manifest = durable && await durable.port.read(path).then(decodeManifest).catch((error: unknown) => {
-        if (isAbsent(error)) return null;
+        if (isAbsent(error)) {return null;}
         BrowserLogger.warn(LOG_SECTION, 'Unsaved work no workspace shows cannot be read', {path, error});
         return undefined;
     });
@@ -131,7 +131,7 @@ async function orphanTab(id: string, paneId: IWorkspaceCheckpointTab['paneId']):
     if (manifest === undefined) {
         return {...base, fileName: 'Recovered document.pdf', workingCopyLost: true};
     }
-    if (!durable || manifest?.ext !== 'pdf') return null;
+    if (!durable || manifest?.ext !== 'pdf') {return null;}
     const draftsRef = manifest.drafts === undefined ? null : await durable.port.read(`${DOCUMENTS_DIR}/${id}/${manifest.drafts}`)
         .then((bytes) => {
             const drafts = decodeWorkspaceAnnotationRecovery(decodeJson(bytes));
@@ -166,7 +166,7 @@ function directoryOf(ref: string | null) {
 async function restoreUnsavedTab({annotationRecovery: _, annotationRecoveryInvalid: _i, ...tab}: IWorkspaceCheckpointTab, ref: TDocumentRef): Promise<IWorkspaceCheckpointTab> {
     browserDocumentStore.nameSource(ref, tab.sourceRef ?? ref);
     const doc = await browserDocumentStore.documentOf(ref);
-    if (!doc) return {...tab, workingCopyLost: true};
+    if (!doc) {return {...tab, workingCopyLost: true};}
     return {...tab, isDirty: true, ...decodeWorkspaceTabDrafts(doc.state().drafts, issue => BrowserLogger.warn(LOG_SECTION, 'Ignored malformed drafts', {directory: doc.id, ref, issue}))};
 }
 
@@ -187,7 +187,7 @@ async function completeCheckpoint(checkpoint: IWorkspaceCheckpoint | null, orpha
         const tab = await orphanTab(id, paneId);
         const restored = tab?.workingCopyRef ? await restoreUnsavedTab(tab, tab.workingCopyRef) : tab;
         // One another window opened first stays there; one that cannot be read is reported.
-        if (restored && (tab?.workingCopyLost || !restored.workingCopyLost)) tabs.push(restored);
+        if (restored && (tab?.workingCopyLost || !restored.workingCopyLost)) {tabs.push(restored);}
     }
     // Recovered work takes the place of an empty New Tab that was the only tab, and shows.
     const [only, ...recovered] = tabs;
@@ -195,7 +195,7 @@ async function completeCheckpoint(checkpoint: IWorkspaceCheckpoint | null, orpha
         tabs.shift();
         checkpoint = {...checkpoint, activeTabId: null, tabs: [], panes: checkpoint.panes.map(pane => ({...pane, tabIds: [], activeTabId: null}))};
     }
-    if (tabs.length === 0) return null;
+    if (tabs.length === 0) {return null;}
     const panes = checkpoint?.panes.length ? [...checkpoint.panes] : [{paneId, tabIds: [], activeTabId: null}];
     const added = tabs.filter(tab => !checkpoint?.tabs.some(existing => existing.tabId === tab.tabId));
     const paneIndex = Math.max(0, panes.findIndex(pane => pane.paneId === paneId));
@@ -228,7 +228,7 @@ export async function claimBrowserWorkspaceCheckpoint(windowId: string, inherite
     const unsaved = new Set(collected?.unsaved);
     const uninspected = (id: string) => !collected || collected.held.includes(id);
     const durable = await durableStore();
-    if (!durable) return null;
+    if (!durable) {return null;}
     const checkpoints = [...await readWorkspaceCheckpoints(durable.port)];
     const named = new Set(checkpoints.flatMap(([, checkpoint]) => namesOf(checkpoint)));
     const unnamed = [...unsaved].filter(id => !named.has(id));
@@ -240,9 +240,9 @@ export async function claimBrowserWorkspaceCheckpoint(windowId: string, inherite
     let restored: IWorkspaceCheckpoint | null = null;
     for (const candidate of candidates) {
         const release = candidate.id === windowId ? () => undefined : await holdBrowserLock(browserWindowLockName(candidate.id));
-        if (!release) continue;
+        if (!release) {continue;}
         if (!candidate.names.some(id => unsaved.has(id))) {
-            if (candidate.id !== windowId && !candidate.names.some(uninspected)) await removeWorkspaceCheckpoint(durable.port, candidate.id).catch(() => undefined);
+            if (candidate.id !== windowId && !candidate.names.some(uninspected)) {await removeWorkspaceCheckpoint(durable.port, candidate.id).catch(() => undefined);}
             release();
             continue;
         }
@@ -251,7 +251,7 @@ export async function claimBrowserWorkspaceCheckpoint(windowId: string, inherite
         restored = await completeCheckpoint(candidate.workspace, [...candidate.names.filter(id => unsaved.has(id) && !shown.has(id)), ...unnamed], unsaved);
         break;
     }
-    if (restored === null && unnamed.length > 0) restored = await completeCheckpoint(null, unnamed, unsaved);
+    if (restored === null && unnamed.length > 0) {restored = await completeCheckpoint(null, unnamed, unsaved);}
     // What this window's checkpoint named before is restored and held now, or was clean.
     startCheckpoint = Promise.resolve(null);
     await writeWindowCheckpoint(windowId);
@@ -262,9 +262,9 @@ export async function claimBrowserWorkspaceCheckpoint(windowId: string, inherite
 export async function acknowledgeBrowserWorkspaceCheckpoint(windowId: string) {
     const taken = claimed;
     claimed = null;
-    if (!taken) return;
+    if (!taken) {return;}
     const durable = await durableStore();
-    if (durable && taken.windowId !== windowId) await removeWorkspaceCheckpoint(durable.port, taken.windowId).catch(() => undefined);
+    if (durable && taken.windowId !== windowId) {await removeWorkspaceCheckpoint(durable.port, taken.windowId).catch(() => undefined);}
     taken.release();
 }
 
@@ -288,13 +288,13 @@ let written: Promise<boolean> = Promise.resolve(false);
 function writeWindowCheckpoint(windowId: string): Promise<boolean> {
     if (persistedWindowId !== windowId) {
         persistedWindowId = windowId;
-        for (const dir of directoryNaming.keys()) directoryNaming.set(dir, null);
+        for (const dir of directoryNaming.keys()) {directoryNaming.set(dir, null);}
     }
     const run = written.catch(() => false).then(async () => {
         const durable = await durableStore();
         const included = [...directoryNaming.keys()];
         const clearPending = () => {
-            for (const dir of included) if (directoryNaming.get(dir) === run) directoryNaming.set(dir, null);
+            for (const dir of included) {if (directoryNaming.get(dir) === run) {directoryNaming.set(dir, null);}}
         };
         if (!durable) {
             clearPending();
@@ -318,7 +318,7 @@ function writeWindowCheckpoint(windowId: string): Promise<boolean> {
                 layout: layout ?? start?.layout ?? null,
             });
             if (persistedWindowId === windowId) {
-                for (const dir of included) directoryNaming.set(dir, 'persisted');
+                for (const dir of included) {directoryNaming.set(dir, 'persisted');}
             }
             return true;
         } catch (error) {
@@ -333,8 +333,8 @@ function writeWindowCheckpoint(windowId: string): Promise<boolean> {
 /** Names a directory in this window's checkpoint before its first edit; retries if a prior write failed. */
 export function nameBrowserWorkspaceDirectory(windowId: string, directory: string): Promise<boolean> {
     const state = persistedWindowId === windowId ? directoryNaming.get(directory) : undefined;
-    if (state === 'persisted') return Promise.resolve(true);
-    if (state) return state;
+    if (state === 'persisted') {return Promise.resolve(true);}
+    if (state) {return state;}
     directoryNaming.set(directory, null);
     const run = writeWindowCheckpoint(windowId);
     directoryNaming.set(directory, run);
@@ -346,7 +346,7 @@ export async function saveBrowserWorkspaceCheckpoint(windowId: string, checkpoin
     // A record that names a working copy this window has closed since was captured before the change; the
     // record after it describes the window, so this one writes nothing.
     const open = new Set(browserDocumentStore.openEntries().map(entry => entry.ref));
-    if (checkpoint.tabs.some(tab => tab.isDirty && tab.workingCopyRef && !open.has(tab.workingCopyRef))) return;
+    if (checkpoint.tabs.some(tab => tab.isDirty && tab.workingCopyRef && !open.has(tab.workingCopyRef))) {return;}
     layout = toStoredWorkspaceCheckpoint(checkpoint);
     await writeWindowCheckpoint(windowId);
 }
@@ -359,18 +359,18 @@ export async function setBrowserDocumentDrafts(drafts: IWorkspaceCheckpointAnnot
         return undefined;
     }) : null;
     // Unwritten drafts are never acknowledged.
-    if (entry === undefined || (entry === null && drafts.payload !== undefined)) return false;
-    if (!entry?.doc || entry.memoryOnly) return true;
+    if (entry === undefined || (entry === null && drafts.payload !== undefined)) {return false;}
+    if (!entry?.doc || entry.memoryOnly) {return true;}
     const doc = entry.doc;
-    if (browserDocumentStore.tokenOf(entry) !== drafts.workingByteRevision) return false;
+    if (browserDocumentStore.tokenOf(entry) !== drafts.workingByteRevision) {return false;}
     const state = doc.state();
-    if (state.current?.foreign === 'staged') return false;
+    if (state.current?.foreign === 'staged') {return false;}
     const clear = drafts.payload === undefined;
-    if (clear && state.drafts === undefined) return true;
-    if (state.drafts !== undefined && !decodeWorkspaceAnnotationRecovery(state.drafts).success) return false;
-    if (!clear) await browserDocumentStore.nameEdited(entry);
-    if (!browserDocumentStore.openEntries().includes(entry) || doc.state().current?.foreign === 'staged' || browserDocumentStore.tokenOf(entry) !== drafts.workingByteRevision) return false;
+    if (clear && state.drafts === undefined) {return true;}
+    if (state.drafts !== undefined && !decodeWorkspaceAnnotationRecovery(state.drafts).success) {return false;}
+    if (!clear) {await browserDocumentStore.nameEdited(entry);}
+    if (!browserDocumentStore.openEntries().includes(entry) || doc.state().current?.foreign === 'staged' || browserDocumentStore.tokenOf(entry) !== drafts.workingByteRevision) {return false;}
     const stored = await doc.setDrafts(state.current?.id ?? null, clear ? undefined : drafts, {byteRevision: state.byteRevision, baseline: state.baseline, foreignStaged: false});
-    if (stored.status === 'conflict') throw new Error('Drafts were not stored');
+    if (stored.status === 'conflict') {throw new Error('Drafts were not stored');}
     return stored.status === 'stored';
 }

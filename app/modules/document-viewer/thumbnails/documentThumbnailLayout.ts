@@ -133,7 +133,7 @@ export class DocumentThumbnailLayout {
             && segment.index < this.getScrollSegmentCount() - 1
             && scrollTop >= Math.max(0, segment.height - viewportHeight) - 1;
         const reachedStart = direction < 0 && segment.index > 0 && scrollTop <= 1;
-        if (!reachedEnd && !reachedStart) return null;
+        if (!reachedEnd && !reachedStart) {return null;}
         const nextIndex = segment.index + (reachedEnd ? 1 : -1);
         return {
             segmentIndex: nextIndex,

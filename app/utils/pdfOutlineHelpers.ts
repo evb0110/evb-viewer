@@ -131,7 +131,7 @@ async function resolveDestinationPageYRatio(
         if (destinationKind === 'FitR') {
             const right = getFiniteDestinationNumber(destinationArray[4]);
             const bottom = getFiniteDestinationNumber(destinationArray[3]);
-            if (right === null || bottom === null) return null;
+            if (right === null || bottom === null) {return null;}
             top = Math.min(top ?? 0, viewport.convertToViewportPoint(right, bottom)[1] ?? 0);
         }
         return typeof top === 'number' && Number.isFinite(top)
@@ -249,7 +249,7 @@ export async function resolveBookmarkPageTargets(
             : pdfDocument && item.dest
                 ? await resolveDestinationTarget(pdfDocument, item.dest, destinationCache, refIndexCache, signal)
                 : null;
-        if (signal?.aborted) return null;
+        if (signal?.aborted) {return null;}
         targets.set(item, target);
     }
     return targets;

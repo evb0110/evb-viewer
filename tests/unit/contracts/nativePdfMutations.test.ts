@@ -335,7 +335,7 @@ describe('native PDF mutation contracts', () => {
         }};
         expect(normalizePdfNativeMutationSet(mutations, 'mutations').bookmarks?.items[0]?.originalAction).toEqual(originalAction);
         let nested: unknown = null;
-        for (let depth = 0; depth < 100_000; depth += 1) nested = [nested];
+        for (let depth = 0; depth < 100_000; depth += 1) {nested = [nested];}
         for (const invalid of [
             [[
                 'S',
@@ -1512,10 +1512,10 @@ describe('native deletion reports', () => {
                 ...effects,
                 deletedReplyRefs: ['9007199254740993 0 R'],
             },
-        ]) expect(() => parseNativePdfSaveReport({
+        ]) {expect(() => parseNativePdfSaveReport({
             identityBindings: [],
             annotationDeleteEffects: invalid,
-        })).toThrow();
+        })).toThrow();}
         expect(mergeNativeAnnotationDeleteEffects([
             effects,
             {

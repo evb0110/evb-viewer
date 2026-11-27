@@ -25,7 +25,7 @@ export function buildTrustedPdfGeometrySeed(input: {
             90,
             180,
             270,
-        ].includes(page.rotation)) return null;
+        ].includes(page.rotation)) {return null;}
         const rotated = page.rotation === 90 || page.rotation === 270;
         const metric = {
             width: (rotated ? page.heightPoints : page.widthPoints) * page.userUnit,

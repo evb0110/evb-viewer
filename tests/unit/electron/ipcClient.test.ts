@@ -195,8 +195,8 @@ describe('renderer IPC abort propagation', () => {
         const assertion = settlement === 'resolve'
             ? expect(pending).resolves.toEqual({finished: true})
             : expect(pending).rejects.toThrow('Native failure');
-        if (settlement === 'resolve') reply.resolve({finished: true});
-        else reply.reject(new Error('Native failure'));
+        if (settlement === 'resolve') {reply.resolve({finished: true});}
+        else {reply.reject(new Error('Native failure'));}
         await assertion;
         controller.abort();
         expect(ipcRenderer.send).not.toHaveBeenCalled();

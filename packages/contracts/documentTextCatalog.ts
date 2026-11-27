@@ -107,7 +107,7 @@ function decodeDocumentTextPageLayout(candidate: unknown): IDocumentTextPageLayo
         }
         const columns = region.columns.map(column => [...column]);
         textLength += columns.flat().reduce((length, paragraph) => length + paragraph.length, 0);
-        if (textLength > MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH) return null;
+        if (textLength > MAX_DOCUMENT_TEXT_CATALOG_PAGE_TEXT_LENGTH) {return null;}
         regions.push({columns});
     }
     return {regions};

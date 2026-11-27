@@ -117,16 +117,16 @@ export const useTextBoxInlineEdit = (
         if (!options.editing.value) {
             return;
         }
-        if (completion) return completion;
+        if (completion) {return completion;}
         const pending = (async () => {
-            if (typeof document !== 'undefined' && document.fonts) await document.fonts.ready;
+            if (typeof document !== 'undefined' && document.fonts) {await document.fonts.ready;}
             await action();
         })();
         completion = pending;
         void pending.catch(() => {
             if (completion === pending) {
                 completion = null;
-                if (editorRef.value?.ownerDocument.activeElement !== editorRef.value) void focusEditor();
+                if (editorRef.value?.ownerDocument.activeElement !== editorRef.value) {void focusEditor();}
             }
         });
         return pending;
@@ -166,7 +166,7 @@ export const useTextBoxInlineEdit = (
     }
 
     function handleBlur(event?: Pick<FocusEvent, 'relatedTarget'>) {
-        if (!isEditingContextTarget(event?.relatedTarget)) void commit();
+        if (!isEditingContextTarget(event?.relatedTarget)) {void commit();}
     }
 
     return {

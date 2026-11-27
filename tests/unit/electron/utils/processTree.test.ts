@@ -405,7 +405,7 @@ describeWindows('Windows native tree containment with real descendants', () => {
             const realExec = processTreeRuntime.execFile;
             let spy: ReturnType<typeof vi.spyOn> | undefined;
             try {
-                if (mode === 'dead-root') await exitRoot();
+                if (mode === 'dead-root') {await exitRoot();}
                 if (mode === 'exit-before-taskkill') {
                     spy = vi.spyOn(processTreeRuntime, 'execFile').mockImplementation(async (...args) => {
                         await exitRoot();
@@ -427,9 +427,9 @@ describeWindows('Windows native tree containment with real descendants', () => {
                 }
             } finally {
                 spy?.mockRestore();
-                if (root.exitCode === null && root.signalCode === null) root.kill();
+                if (root.exitCode === null && root.signalCode === null) {root.kill();}
                 await rootExit;
-                if (alive(leafPid)) process.kill(leafPid);
+                if (alive(leafPid)) {process.kill(leafPid);}
                 await leafExit;
                 await vi.waitFor(() => expect(alive(leafPid)).toBe(false));
                 expect(alive(root.pid!)).toBe(false);

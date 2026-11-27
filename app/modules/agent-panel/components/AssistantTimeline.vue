@@ -71,7 +71,7 @@ const elapsed = computed(() => Math.max(0, Math.floor((now.value - (turn?.starte
 const {
     pause, resume,
 } = useIntervalFn(() => { now.value = Date.now(); }, 1000, { immediate: false });
-watch(() => running, isRunning => { now.value = Date.now(); if (isRunning) resume(); else pause(); }, { immediate: true });
+watch(() => running, isRunning => { now.value = Date.now(); if (isRunning) {resume();} else {pause();} }, { immediate: true });
 type TTimelineRow = {
     kind: 'work';
     id: string;
@@ -86,17 +86,17 @@ const rows = computed(() => {
     for (const item of items) {
         if (item.kind === 'tool' || item.kind === 'reasoning') {
             const previous = result.at(-1);
-            if (previous?.kind === 'work' && previous.items[0]?.turnId === item.turnId) previous.items.push(item);
-            else result.push({
+            if (previous?.kind === 'work' && previous.items[0]?.turnId === item.turnId) {previous.items.push(item);}
+            else {result.push({
                 kind: 'work',
                 id: item.id,
                 items: [item],
-            });
-        } else result.push({
+            });}
+        } else {result.push({
             kind: 'item',
             id: item.id,
             item,
-        });
+        });}
     }
     return result;
 });
@@ -124,10 +124,10 @@ const anchorId = ref<string | null>(null);
 const anchorSpace = ref(0);
 function handleScroll() {
     const element = viewport.value;
-    if (!element) return;
+    if (!element) {return;}
     const gap = element.scrollHeight - element.clientHeight - element.scrollTop;
-    if (element.scrollTop < lastScrollTop && gap > 1) follow.value = 'released';
-    else if (gap < END_BAND) follow.value = 'following';
+    if (element.scrollTop < lastScrollTop && gap > 1) {follow.value = 'released';}
+    else if (gap < END_BAND) {follow.value = 'following';}
     lastScrollTop = element.scrollTop;
 }
 function scrollToEnd() {
@@ -138,7 +138,7 @@ function scrollToEnd() {
     }
 }
 function handleDisclosure(event: MouseEvent) {
-    if (event.target instanceof Element && event.target.closest('summary')) follow.value = 'released';
+    if (event.target instanceof Element && event.target.closest('summary')) {follow.value = 'released';}
 }
 function measureAnchorSpace() {
     const element = viewport.value;
@@ -146,7 +146,7 @@ function measureAnchorSpace() {
     const anchor = anchorId.value && body
         ? [...body.querySelectorAll<HTMLElement>('[data-row-id]')].find(node => node.dataset.rowId === anchorId.value)
         : undefined;
-    if (!element || !body || !anchor) return 0;
+    if (!element || !body || !anchor) {return 0;}
     const top = anchor.getBoundingClientRect().top - body.getBoundingClientRect().top;
     const gap = Number.parseFloat(getComputedStyle(body).paddingTop) || 0;
     return Math.max(0, Math.round(element.clientHeight - (body.offsetHeight - top) - gap));
@@ -154,7 +154,7 @@ function measureAnchorSpace() {
 async function layout() {
     anchorSpace.value = measureAnchorSpace();
     await nextTick();
-    if (follow.value === 'following') scrollToEnd();
+    if (follow.value === 'following') {scrollToEnd();}
 }
 const latestUser = computed(() => items.findLast(item => item.kind === 'user') ?? null);
 watch(() => [

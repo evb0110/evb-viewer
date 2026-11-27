@@ -102,12 +102,12 @@ export function createScanCleanupPlacementAnchorCalibrations() {
         retire(storeId: string) {
             const build = builds.get(storeId);
             builds.delete(storeId);
-            if (build !== undefined && build.waiters === 0) build.controller.abort();
+            if (build !== undefined && build.waiters === 0) {build.controller.abort();}
         },
         /** Retires every build whose store is no longer kept. */
         retireUnless(isKept: (storeId: string) => boolean) {
             for (const storeId of [...builds.keys()]) {
-                if (!isKept(storeId)) this.retire(storeId);
+                if (!isKept(storeId)) {this.retire(storeId);}
             }
         },
         dispose() {

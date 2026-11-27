@@ -51,7 +51,7 @@ describe('createPageSourcePagedWheelNavigation', () => {
                 pageHeights: Array.from({length: 20}, () => 760),
                 viewMode: 'single',
             });
-            if (target !== null) targets.push(target);
+            if (target !== null) {targets.push(target);}
             expect(preventDefault).toHaveBeenCalledOnce();
         }
 
@@ -133,7 +133,7 @@ describe('createPageSourcePagedWheelNavigation', () => {
                 cancelable: true,
                 preventDefault,
             }, state);
-            if (target !== null) targets.push(target);
+            if (target !== null) {targets.push(target);}
             expect(preventDefault).toHaveBeenCalledOnce();
         }
         expect(targets).toEqual([2]);
@@ -197,7 +197,7 @@ describe('createPageSourcePagedWheelNavigation', () => {
                 timeStamp: index * 100,
                 preventDefault: vi.fn(),
             }, state, 16);
-            if (target !== null) targets.push(target);
+            if (target !== null) {targets.push(target);}
         }
         expect(targets.length).toBeGreaterThanOrEqual(5);
     });

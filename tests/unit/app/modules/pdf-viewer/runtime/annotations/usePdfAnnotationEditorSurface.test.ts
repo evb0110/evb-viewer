@@ -375,8 +375,8 @@ describe('usePdfAnnotationEditorSurface', () => {
             focus: vi.fn(),
         });
         const command = surface.updateSelectedAnnotationProperties({color: '#f59e0b'});
-        if (selection === 'select') surface.select([note.identity.id]);
-        else surface.clearSelection();
+        if (selection === 'select') {surface.select([note.identity.id]);}
+        else {surface.clearSelection();}
         expect(surface.selectedIds.value).toEqual(new Set(selection === 'select' ? [note.identity.id] : []));
         const saving = surface.commitPendingTextBoxDraftsForSave();
         const refused = expect(command).resolves.toBe(false);
@@ -586,7 +586,7 @@ describe('usePdfAnnotationEditorSurface', () => {
         for (const surface of [
             left,
             right,
-        ]) document.attachView({
+        ]) {document.attachView({
             emitAnnotationState: () => {},
             emitAnnotationModified: () => {},
             document: cast<TPdfDocumentView>({}),
@@ -595,7 +595,7 @@ describe('usePdfAnnotationEditorSurface', () => {
             getPendingTextCompletion: surface.getPendingTextCompletion,
             isEditing: annotationId => surface.editingId.value === annotationId,
             getTextBoxDraftRect: () => null,
-        });
+        });}
         const box = left.createTextBoxAt(0, rect, {text: 'Original'});
         await left.beginTextEditing(box.identity.id);
         right.select([box.identity.id]);
@@ -625,7 +625,7 @@ describe('usePdfAnnotationEditorSurface', () => {
         let savedText: string | undefined;
         const saving = document.commitPendingDraftsForSave().then(() => {
             const entity = document.application.value.store.get(box.identity.id);
-            if (entity?.kind === 'text-box') savedText = entity.text;
+            if (entity?.kind === 'text-box') {savedText = entity.text;}
         });
         await Promise.resolve();
         expect(savedText).toBeUndefined();
@@ -1198,7 +1198,7 @@ describe('usePdfAnnotationEditorSurface', () => {
         const shared = {
             getTextBoxDraftText: (id: string) => drafts.get(id) ?? null,
             textBoxDraftRects: draftRects,
-            onTextBoxDraftChanged: (id: string, text: string | null) => {if (text === null) drafts.delete(id); else drafts.set(id, text);},
+            onTextBoxDraftChanged: (id: string, text: string | null) => {if (text === null) {drafts.delete(id);} else {drafts.set(id, text);}},
         };
         const owner = createSurfaceHarness(shared);
         const peer = createSurfaceHarness({

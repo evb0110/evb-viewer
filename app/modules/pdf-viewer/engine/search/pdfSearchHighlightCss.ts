@@ -116,9 +116,9 @@ export function updateHighlightAPI(
         ] as const) {
         // The native registry owns all viewers' ranges; publication adds only ours.
         const highlight = CSS.highlights.get(name) ?? new Highlight();
-        for (const range of ranges.values()) highlight.add(range);
-        if (highlight.size === 0) CSS.highlights.delete(name);
-        else CSS.highlights.set(name, highlight);
+        for (const range of ranges.values()) {highlight.add(range);}
+        if (highlight.size === 0) {CSS.highlights.delete(name);}
+        else {CSS.highlights.set(name, highlight);}
     }
 }
 
@@ -181,7 +181,7 @@ export function clearHighlightAPIForLayer(
         const highlight = CSS.highlights.get(name);
         for (const id of rangeIds) {
             const range = ranges.get(id);
-            if (range) highlight?.delete(range);
+            if (range) {highlight?.delete(range);}
             ranges.delete(id);
         }
     }

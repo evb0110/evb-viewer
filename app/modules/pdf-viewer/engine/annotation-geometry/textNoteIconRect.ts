@@ -14,7 +14,7 @@ interface ITextNotePageGeometry {
 // native save refuses a marker whose start plus span exceeds 1.
 function fitInsidePage(start: number, span: number) {
     let fitted = clamp(start, 0, 1 - span);
-    while (fitted > 0 && fitted + span > 1) fitted = Math.max(0, fitted - Number.EPSILON);
+    while (fitted > 0 && fitted + span > 1) {fitted = Math.max(0, fitted - Number.EPSILON);}
     return fitted;
 }
 

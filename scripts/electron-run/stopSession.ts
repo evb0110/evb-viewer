@@ -355,7 +355,7 @@ async function stopAllSessions() {
         console.log('No sessions found.');
         return;
     }
-    for (const name of names) await stopSingleSession(name);
+    for (const name of names) {await stopSingleSession(name);}
     await killExistingNuxt();
     await cleanupOrphanedProjectNuxtRoots('stop all sessions');
     console.log('All sessions stopped.');

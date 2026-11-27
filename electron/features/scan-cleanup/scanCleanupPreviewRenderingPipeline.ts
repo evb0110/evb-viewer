@@ -45,8 +45,8 @@ export async function persistBaseAnalysisArtifacts(
     dependencies: IScanCleanupRenderingDependencies,
 ) {
     const fileSystem = dependencies.fileSystem;
-    if (!fileSystem) throw new Error('Scan cleanup pipeline requires injected filesystem capabilities');
-    if (!dependencies.readFile) throw new Error('Scan cleanup pipeline requires injected readFile capability');
+    if (!fileSystem) {throw new Error('Scan cleanup pipeline requires injected filesystem capabilities');}
+    if (!dependencies.readFile) {throw new Error('Scan cleanup pipeline requires injected readFile capability');}
     const analysisDirectory = join(
         dependencies.getTempDir(),
         `scan-cleanup-base-analysis-${randomUUID()}-${process.pid}`,
@@ -62,7 +62,7 @@ export async function persistBaseAnalysisArtifacts(
         ] as const) {
             const raster = canonicalRasters[half];
             const metadata = outputs[half];
-            if (!raster || !metadata) continue;
+            if (!raster || !metadata) {continue;}
             signal.throwIfAborted();
             const rasterPath = join(analysisDirectory, `base-cleaned-${half}.png`);
             const metadataPath = join(analysisDirectory, `base-metadata-${half}.json`);
@@ -130,10 +130,10 @@ export async function runDetailPreview(
     rasterMaxPixels?: number,
 ): Promise<TScanCleanupPreviewWireResult> {
     const fileSystem = dependencies.fileSystem;
-    if (!fileSystem) throw new Error('Scan cleanup pipeline requires injected filesystem capabilities');
+    if (!fileSystem) {throw new Error('Scan cleanup pipeline requires injected filesystem capabilities');}
     const getAvailableScratchBytes = dependencies.getAvailableScratchBytes;
-    if (!getAvailableScratchBytes) throw new Error('Scan cleanup pipeline requires injected scratch-budget capability');
-    if (!dependencies.readFile) throw new Error('Scan cleanup pipeline requires injected readFile capability');
+    if (!getAvailableScratchBytes) {throw new Error('Scan cleanup pipeline requires injected scratch-budget capability');}
+    if (!dependencies.readFile) {throw new Error('Scan cleanup pipeline requires injected readFile capability');}
     const plan = planScanCleanupDetailPreview({
         request,
         baseRaw,
@@ -154,7 +154,7 @@ export async function runDetailPreview(
         };
     }
     const binary = dependencies.resolveBinary();
-    if (!binary) throw new Error('Scan cleanup native tool is unavailable');
+    if (!binary) {throw new Error('Scan cleanup native tool is unavailable');}
     const effectiveOptions = request.options.matchPageSize
         ? {
             ...request.options,

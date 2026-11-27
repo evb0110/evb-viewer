@@ -242,20 +242,20 @@ function countGifFrames(bytes: Uint8Array) {
     let frameCount = 0;
     while (offset < bytes.byteLength) {
         const blockType = readByte(bytes, offset);
-        if (blockType === 0x3b) break;
+        if (blockType === 0x3b) {break;}
         if (blockType === 0x21) {
-            if (offset + 2 > bytes.byteLength) break;
+            if (offset + 2 > bytes.byteLength) {break;}
             offset = skipGifSubBlocks(bytes, offset + 2);
             continue;
         }
-        if (blockType !== 0x2c || offset + 10 > bytes.byteLength) break;
+        if (blockType !== 0x2c || offset + 10 > bytes.byteLength) {break;}
         frameCount += 1;
         const imageFlags = readByte(bytes, offset + 9);
         const localColorTableBytes = (imageFlags & 0x80) === 0
             ? 0
             : 3 * (2 ** ((imageFlags & 0x07) + 1));
         offset += 10 + localColorTableBytes;
-        if (offset >= bytes.byteLength) break;
+        if (offset >= bytes.byteLength) {break;}
         offset = skipGifSubBlocks(bytes, offset + 1);
     }
     return Math.max(1, frameCount);

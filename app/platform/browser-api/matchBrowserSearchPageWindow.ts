@@ -88,7 +88,7 @@ export async function matchBrowserSearchPageWindowInWorker(
             matchingMs,
             ...result
         } = await workerRequest.promise;
-        if (options.useRegex) regexBudget.remainingMs -= matchingMs;
+        if (options.useRegex) {regexBudget.remainingMs -= matchingMs;}
         return result;
     } catch (error) {
         throw error instanceof BrowserSearchWorkerTimeoutError ? createRegexBudgetError() : error;

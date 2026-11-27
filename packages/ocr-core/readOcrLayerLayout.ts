@@ -110,7 +110,7 @@ function paragraphsOf(blocks: readonly IBlock[]) {
  */
 export function readOcrLayerLayout(lines: readonly IPdfOcrLayerLine[]): IDocumentTextPageLayout {
     const blocks = blocksOf(lines);
-    if (blocks.length === 0) return {regions: []};
+    if (blocks.length === 0) {return {regions: []};}
     const pageWidth = Math.max(...blocks.map(block => block.right)) - Math.min(...blocks.map(block => block.left));
     const isAside = (block: IBlock) => block.right - block.left < ASIDE_MAX_WIDTH_SHARE * pageWidth;
     const body = blocks.filter(block => !isAside(block));
@@ -131,7 +131,7 @@ export function readOcrLayerLayout(lines: readonly IPdfOcrLayerLine[]): IDocumen
         let open: Map<TSide, IBlock[]> | null = null;
         const close = () => {
             const current = open;
-            if (!current) return;
+            if (!current) {return;}
             const sides = SIDES.map(side => current.get(side)).filter(side => side !== undefined);
             const overlap = sides.length === 2 && Math.min(...sides.map(side => Math.max(...side.map(block => block.top))))
                 > Math.max(...sides.map(side => Math.min(...side.map(block => block.bottom))));
@@ -159,7 +159,7 @@ export function readOcrLayerLayout(lines: readonly IPdfOcrLayerLine[]): IDocumen
         }
         close();
     }
-    if (aside.length > 0) regions.push({columns: [paragraphsOf(aside)]});
+    if (aside.length > 0) {regions.push({columns: [paragraphsOf(aside)]});}
     // Consecutive single-column regions read as one run.
     const merged: IDocumentTextRegion[] = [];
     for (const region of regions.filter(entry => entry.columns.some(column => column.length > 0))) {

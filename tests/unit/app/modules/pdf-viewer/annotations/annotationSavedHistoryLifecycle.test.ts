@@ -187,7 +187,7 @@ describe('saved markup author history', () => {
     it('keeps authored markup clean after projection, transport, acknowledge, reparse, undo and redo', () => {
         const app = new AnnotationApplication('author-history');
         const original = entity('text-markup');
-        if (original.kind !== 'text-markup') throw new Error('Expected markup');
+        if (original.kind !== 'text-markup') {throw new Error('Expected markup');}
         const created = app.store.createTextMarkup({
             ...original,
             identity: {id: original.identity.id},

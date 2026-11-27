@@ -472,14 +472,14 @@ interface IHeldPdfRead {
 async function holdNextPdfRead(page: Page) {
     await page.evaluate(async (key: string) => {
         const pdfjs = (window as Window & {pdfjsLib?: typeof Pdfjs}).pdfjsLib;
-        if (!pdfjs) throw new Error('PDF.js is not loaded in the renderer');
+        if (!pdfjs) {throw new Error('PDF.js is not loaded in the renderer');}
         pdfjs.GlobalWorkerOptions.workerSrc ||= new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
         const probe = pdfjs.getDocument({data: new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF')});
         await probe.promise;
         const prototype = Object.getPrototypeOf(probe) as object;
         await probe.destroy();
         const descriptor = Object.getOwnPropertyDescriptor(prototype, 'promise');
-        if (!descriptor?.get || !descriptor.configurable) throw new Error('PDF.js read cannot be held');
+        if (!descriptor?.get || !descriptor.configurable) {throw new Error('PDF.js read cannot be held');}
         const released = Promise.withResolvers<void>();
         let heldTask: object | null = null;
         Object.defineProperty(prototype, 'promise', {
@@ -487,7 +487,7 @@ async function holdNextPdfRead(page: Page) {
             get(this: object) {
                 const read = descriptor.get!.call(this) as Promise<unknown>;
                 heldTask ??= this;
-                if (heldTask !== this) return read;
+                if (heldTask !== this) {return read;}
                 void read.catch(() => undefined);
                 return released.promise.then(() => read);
             },
@@ -532,7 +532,7 @@ async function recordFailureNotices(page: Page) {
         new MutationObserver(() => {
             for (const toast of document.querySelectorAll('.app-toast-failure')) {
                 const text = toast.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
-                if (text && !shown.includes(text)) shown.push(text);
+                if (text && !shown.includes(text)) {shown.push(text);}
             }
         }).observe(document.body, {
             childList: true,
@@ -1172,14 +1172,14 @@ describe('Project 8 recovered close decisions', () => {
                         && rect.width > 8
                         && rect.height > 8;
                 });
-            if (!button) return null;
+            if (!button) {return null;}
             const rect = button.getBoundingClientRect();
             return {
                 x: rect.left + rect.width / 2,
                 y: rect.top + rect.height / 2,
             };
         });
-        if (!saveButtonPoint) throw new Error('The visible Save button is not enabled');
+        if (!saveButtonPoint) {throw new Error('The visible Save button is not enabled');}
         await session.page.mouse.click(saveButtonPoint.x, saveButtonPoint.y);
         await session.page.waitForSelector('[aria-label="Last save failed"]', {
             timeout: 60_000,
@@ -1285,7 +1285,7 @@ describe('Project 8 recovered close decisions', () => {
 
         const firstDocumentDirectory = dirname(firstWorkingCopyPath);
         const revision = decodeManifest(await readFile(join(firstDocumentDirectory, 'manifest.json'))).current;
-        if (!revision) throw new Error('Rotation did not create a document revision');
+        if (!revision) {throw new Error('Rotation did not create a document revision');}
         const revisionPath = join(firstDocumentDirectory, revision.file);
         const unavailableWorkingCopyPath = `${revisionPath}.project8-open-failure`;
         const crashed = session;

@@ -77,8 +77,8 @@ export function resizeTextAnnotation(
         let upper = 1;
         for (let iteration = 0; iteration < 32; iteration += 1) {
             const fraction = (lower + upper) / 2;
-            if (inside(candidate(1 + (requested - 1) * fraction))) lower = fraction;
-            else upper = fraction;
+            if (inside(candidate(1 + (requested - 1) * fraction))) {lower = fraction;}
+            else {upper = fraction;}
         }
         scale = 1 + (requested - 1) * lower;
     }

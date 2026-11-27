@@ -494,7 +494,7 @@ describe('DjVu pruning concurrent claims', () => {
         const consumer = claim === 'closed consumer';
         const admitted = await openDjvuArtifactJob(sourcePath, ranges, {consumer});
         try {
-            if (claim !== 'open job') await admitted.close();
+            if (claim !== 'open job') {await admitted.close();}
             pruneState.resume.resolve(undefined);
             // This must settle while an open job still holds its lock.
             await pruning;
@@ -503,7 +503,7 @@ describe('DjVu pruning concurrent claims', () => {
         } finally {
             pruneState.resume.resolve(undefined);
             await admitted.close();
-            if (consumer) await releaseDjvuArtifactConsumer(admitted.directory, {remove: true});
+            if (consumer) {await releaseDjvuArtifactConsumer(admitted.directory, {remove: true});}
             pruneState.root = '';
             pruneState.intercept = false;
             rmSync(root, {

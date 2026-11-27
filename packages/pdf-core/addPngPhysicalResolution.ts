@@ -48,17 +48,17 @@ export function addPngPhysicalResolution(pngBytes: Uint8Array, dpi: number) {
     }
 
     const view = new DataView(pngBytes.buffer, pngBytes.byteOffset, pngBytes.byteLength);
-    if (view.getUint32(0) !== 0x89504e47 || view.getUint32(4) !== 0x0d0a1a0a) return pngBytes;
+    if (view.getUint32(0) !== 0x89504e47 || view.getUint32(4) !== 0x0d0a1a0a) {return pngBytes;}
     const chunks: Uint8Array[] = [];
     for (let offset = 8; offset < pngBytes.length;) {
-        if (offset + 12 > pngBytes.length) return pngBytes;
+        if (offset + 12 > pngBytes.length) {return pngBytes;}
         const end = offset + view.getUint32(offset) + 12;
-        if (end > pngBytes.length) return pngBytes;
-        if (view.getUint32(offset + 4) !== 0x70485973) chunks.push(pngBytes.subarray(offset, end));
+        if (end > pngBytes.length) {return pngBytes;}
+        if (view.getUint32(offset + 4) !== 0x70485973) {chunks.push(pngBytes.subarray(offset, end));}
         offset = end;
     }
     const firstIdat = chunks.findIndex(bytes => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4) === 0x49444154);
-    if (firstIdat < 0) return pngBytes;
+    if (firstIdat < 0) {return pngBytes;}
     chunks.splice(firstIdat, 0, chunk);
     const result = new Uint8Array(8 + chunks.reduce((total, bytes) => total + bytes.length, 0));
     result.set(pngBytes.subarray(0, 8));

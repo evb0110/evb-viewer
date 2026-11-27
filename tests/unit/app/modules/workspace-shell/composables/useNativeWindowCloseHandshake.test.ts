@@ -122,7 +122,6 @@ function createDocument(options: {
         handleSave: vi.fn(() => {
             const durable = Promise.withResolvers<boolean>();
             void controller.operationLease.runExclusive('save', async () => {
-                let adoption: Promise<unknown> | undefined;
                 jobReleaser.republishForSave();
                 await slot.running()?.finished;
                 if (!loaded || options.saveFails) {
@@ -135,7 +134,7 @@ function createDocument(options: {
                 }
                 const plannedSource = loaded.source;
                 setTestDocumentDirty(controller, false);
-                adoption = publish(new Blob(['saved']), 'adopt').finished;
+                const adoption = publish(new Blob(['saved']), 'adopt').finished;
                 saves.push({
                     ok: true,
                     plannedSource,

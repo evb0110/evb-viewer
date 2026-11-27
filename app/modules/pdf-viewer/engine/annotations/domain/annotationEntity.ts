@@ -235,7 +235,7 @@ interface ITextMarkupReplacement {
 
 export function asAnnotationId(value: string): AnnotationId {
     const normalized = value.trim();
-    if (!normalized) throw new Error('AnnotationId must not be empty');
+    if (!normalized) {throw new Error('AnnotationId must not be empty');}
     return normalized as AnnotationId;
 }
 
@@ -586,14 +586,14 @@ function subtractRect(
                 continue;
             }
             intervals.splice(index, 1);
-            if (overlapRight < right) intervals.splice(index, 0, [
+            if (overlapRight < right) {intervals.splice(index, 0, [
                 overlapRight,
                 right,
-            ]);
-            if (overlapLeft > left) intervals.splice(index, 0, [
+            ]);}
+            if (overlapLeft > left) {intervals.splice(index, 0, [
                 left,
                 overlapLeft,
-            ]);
+            ]);}
         }
     });
     return intervals

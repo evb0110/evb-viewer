@@ -528,7 +528,7 @@ describe.each([
             5,
             1,
             3,
-        ]) await store.append(detectionResult(pageNumber));
+        ]) {await store.append(detectionResult(pageNumber));}
 
         expect((await store.readRange(1, 3)).map(result => result.pageNumber)).toEqual([1]);
         await expect(store.readRange(1, 4)).rejects.toThrow('bounded window');

@@ -159,25 +159,25 @@ function getOrLoadAvailabilityEntry(
 
     pruneStaleRevisionsForDocument(workingCopyPath, key);
 
-    let entry!: IAvailabilityCacheEntry;
     const pending = capability.resolveDocumentOcrAvailability(
         workingCopyPath,
         documentRevisionToken,
     ).then((availability) => {
         const indexed = availability ? indexAvailability(availability) : null;
-        if (availabilityEntries.get(key) === entry) {
-            entry.resolved = indexed;
+        const current = availabilityEntries.get(key);
+        if (current?.pending === pending) {
+            current.resolved = indexed;
         }
         return indexed;
     }).catch((error) => {
-        if (availabilityEntries.get(key) === entry) {
+        if (availabilityEntries.get(key)?.pending === pending) {
             availabilityEntries.delete(key);
         }
         BrowserLogger.warn('ocr', 'Failed to resolve OCR availability for PDF viewer', error);
         return null;
     });
 
-    entry = {
+    const entry: IAvailabilityCacheEntry = {
         key,
         workingCopyPath,
         documentRevisionToken,

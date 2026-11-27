@@ -227,7 +227,7 @@ const splitDiagnosticsArtifactSchema = v.pipe(v.unknown(), v.rawCheck(({
     dataset, addIssue,
 }) => {
     const value = dataset.value;
-    if (!isRecord(value)) return;
+    if (!isRecord(value)) {return;}
     const foldBand = value.foldBand;
     if (!isRecord(foldBand)) {
         addIssue({message: 'splitDiagnostics.foldBand must be an object'});
@@ -466,7 +466,7 @@ export function isNativeScanCleanupOpticalPlacementValid(metadata: {
     matchedCanvasIntrinsicOverflowLeftPx?: number | undefined;
     canvasWidthPx: number;
 }): boolean {
-    if (metadata.matchedCanvasOpticalPlacement !== true) return true;
+    if (metadata.matchedCanvasOpticalPlacement !== true) {return true;}
     const opticalLeft = metadata.matchedCanvasOpticalContentLeftPx;
     const opticalRight = metadata.matchedCanvasOpticalContentRightPx;
     const contentWidth = metadata.matchedCanvasContentWidthPx ?? metadata.outputWidthPx;
@@ -477,7 +477,7 @@ export function isNativeScanCleanupOpticalPlacementValid(metadata: {
         || !Number.isFinite(contentWidth) || !Number.isFinite(intrinsicWidth) || intrinsicWidth <= 0 || contentWidth <= 0
         || !Number.isFinite(metadata.placementOffsetXPx) || !Number.isFinite(metadata.canvasWidthPx)
         || !Number.isFinite(metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0)
-        || !Number.isFinite(margins.leftPx) || !Number.isFinite(margins.rightPx) || opticalLeft >= opticalRight) return false;
+        || !Number.isFinite(margins.leftPx) || !Number.isFinite(margins.rightPx) || opticalLeft >= opticalRight) {return false;}
     const offset = metadata.placementOffsetXPx - (metadata.matchedCanvasIntrinsicOverflowLeftPx ?? 0);
     const scale = contentWidth / intrinsicWidth;
     return offset + opticalLeft * scale >= margins.leftPx
@@ -490,7 +490,7 @@ function fail(artifact: TArtifact, detail: string): never {
 
 function artifactError(issues: ReadonlyArray<v.BaseIssue<unknown>>): string {
     const issue = issues[0];
-    if (issue === undefined) return 'invalid artifact';
+    if (issue === undefined) {return 'invalid artifact';}
     const path = issue.path?.map(item => String(item.key)).join('.');
     return path ? `${path} ${issue.message}` : issue.message;
 }
@@ -501,7 +501,7 @@ function parseArtifact<TOutput>(schema: v.GenericSchema<unknown, TOutput>, value
 }
 
 function parseArtifactJson(text: string, artifact: TArtifact, maximumLength: number): unknown {
-    if (text.length > maximumLength) return fail(artifact, 'JSON exceeds the artifact size limit');
+    if (text.length > maximumLength) {return fail(artifact, 'JSON exceeds the artifact size limit');}
     try {
         return JSON.parse(text) as unknown;
     } catch {

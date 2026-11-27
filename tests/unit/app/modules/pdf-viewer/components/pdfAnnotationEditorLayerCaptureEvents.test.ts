@@ -117,9 +117,9 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
                             fill: null,
                             opacity: 1,
                         }) : surface.createTextBoxAt(0, initialRect);
-            if (entity.kind === 'text-box') surface.commitGesture(entity.identity.id, {text: 'Кириллический текст'});
+            if (entity.kind === 'text-box') {surface.commitGesture(entity.identity.id, {text: 'Кириллический текст'});}
             surface.select([entity.identity.id]);
-            if (editing) surface.beginTextEditing(entity.identity.id);
+            if (editing) {surface.beginTextEditing(entity.identity.id);}
         }
         const host = document.createElement('div');
         document.body.append(host);
@@ -205,7 +205,7 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
         await nextTick();
         const preview = rect(kind === 'create' ? '.pdf-annotation-editor-text-box-preview' : undefined)!;
         expect(preview).not.toBeNull();
-        if (original) expect(preview).not.toEqual(originalRect);
+        if (original) {expect(preview).not.toEqual(originalRect);}
         async function finishAfterCaptureLoss() {
             layer.dispatchEvent(pointer('pointermove', end, {buttons: 0}));
             layer.dispatchEvent(pointer('pointerup'));
@@ -246,9 +246,9 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
     ] as const)('commits %s preview when released mouse loses capture before pointerup exactly once', async (kind) => {
         const gesture = await startCapturedGesture(kind, kind === 'grip');
         gesture.layer.dispatchEvent(gesture.pointer('lostpointercapture'));
-        if (kind === 'grip') expect(document.activeElement).toBe(gesture.layer);
-        if (kind === 'grip') await vi.waitFor(() => expect(entityRect(gesture.surface.getEntitiesForPage(0)[0])?.left).toBeCloseTo(gesture.preview.left, 12));
-        else await nextTick();
+        if (kind === 'grip') {expect(document.activeElement).toBe(gesture.layer);}
+        if (kind === 'grip') {await vi.waitFor(() => expect(entityRect(gesture.surface.getEntitiesForPage(0)[0])?.left).toBeCloseTo(gesture.preview.left, 12));}
+        else {await nextTick();}
         const completed = gesture.surface.getEntitiesForPage(0)[0]!;
         const completedRect = entityRect(completed);
         for (const key of [
@@ -260,12 +260,12 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
             expect(completedRect?.[key]).toBeCloseTo(gesture.preview[key], 12);
         }
         const revision = completed.revision;
-        if (kind !== 'create' && kind !== 'draw' && kind !== 'grip') expect(gesture.commitGesture).toHaveBeenCalledOnce();
+        if (kind !== 'create' && kind !== 'draw' && kind !== 'grip') {expect(gesture.commitGesture).toHaveBeenCalledOnce();}
         await gesture.finishAfterCaptureLoss();
         expect(gesture.surface.getEntitiesForPage(0)).toHaveLength(1);
         expect(gesture.surface.getEntitiesForPage(0)[0]?.revision).toBe(revision);
         expect(gesture.rect()).toEqual(gesture.preview);
-        if (kind !== 'create' && kind !== 'draw' && kind !== 'grip') expect(gesture.commitGesture).toHaveBeenCalledOnce();
+        if (kind !== 'create' && kind !== 'draw' && kind !== 'grip') {expect(gesture.commitGesture).toHaveBeenCalledOnce();}
         if (kind === 'grip' && completed.kind === 'text-box') {
             expect(completed.text).toBe('Текст после правки');
             await gesture.surface.undo();
@@ -321,14 +321,14 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
         'Escape',
     ] as const)('rolls back the preview on %s instead of treating it as a released mouse', async (reason) => {
         const gesture = await startCapturedGesture('grip');
-        if (reason === 'Escape') gesture.layer.dispatchEvent(new KeyboardEvent('keydown', {
+        if (reason === 'Escape') {gesture.layer.dispatchEvent(new KeyboardEvent('keydown', {
             bubbles: true,
             key: 'Escape',
-        }));
-        else gesture.layer.dispatchEvent(gesture.pointer(reason === 'pointercancel' ? reason : 'lostpointercapture', undefined, {
+        }));}
+        else {gesture.layer.dispatchEvent(gesture.pointer(reason === 'pointercancel' ? reason : 'lostpointercapture', undefined, {
             buttons: reason === 'held mouse' ? 1 : 0,
             pointerType: reason === 'pen' || reason === 'touch' ? reason : 'mouse',
-        }));
+        }));}
         await gesture.finishAfterCaptureLoss();
         expect(gesture.surface.getEntitiesForPage(0)[0]).toEqual(gesture.original);
         expect(gesture.rect()).toEqual(gesture.originalRect);
@@ -480,8 +480,8 @@ describe('PdfAnnotationEditorLayer pointer capture and draft events', () => {
             settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
             getTextBoxDraftText: id => drafts.get(id) ?? null,
             onTextBoxDraftChanged: (id, text) => {
-                if (text === null) drafts.delete(id);
-                else drafts.set(id, text);
+                if (text === null) {drafts.delete(id);}
+                else {drafts.set(id, text);}
             },
         }))!;
         const host = document.createElement('div');

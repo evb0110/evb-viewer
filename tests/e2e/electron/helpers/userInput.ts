@@ -42,7 +42,7 @@ interface IPointerStep {
 const DEFAULT_TIMEOUT_MS = 20_000;
 
 function describeTarget(target: TClickTarget) {
-    if (typeof target === 'string') return target;
+    if (typeof target === 'string') {return target;}
     return 'description' in target ? target.description : 'element handle';
 }
 
@@ -83,9 +83,9 @@ function findPointerStep(target: Element | string | null | undefined): IPointerS
     // Aim inside the part the person can see, including all ancestor clips.
     // Prefer an already clickable match over scrolling another copy of it.
     for (const candidate of candidates) {
-        if (!candidate.isConnected) continue;
+        if (!candidate.isConnected) {continue;}
         const box = visibleBox(candidate);
-        if (!box) continue;
+        if (!box) {continue;}
         const x = (box.left + box.right) / 2;
         const y = (box.top + box.bottom) / 2;
         const hit = document.elementFromPoint(x, y);
@@ -102,24 +102,24 @@ function findPointerStep(target: Element | string | null | undefined): IPointerS
         end > boxEnd ? end - boxEnd : start < boxStart ? start - boxStart : 0
     );
     for (const candidate of candidates) {
-        if (!candidate.isConnected) continue;
+        if (!candidate.isConnected) {continue;}
         const rect = candidate.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) continue;
+        if (rect.width <= 0 || rect.height <= 0) {continue;}
         let subject = candidate;
         for (let scroller = candidate.parentElement; scroller; scroller = scroller.parentElement) {
             const style = getComputedStyle(scroller);
             const scrollX = scrolls(style.overflowX) && scroller.scrollWidth > scroller.clientWidth;
             const scrollY = scrolls(style.overflowY) && scroller.scrollHeight > scroller.clientHeight;
-            if (!scrollX && !scrollY) continue;
+            if (!scrollX && !scrollY) {continue;}
             const box = visibleBox(scroller);
             const subjectRect = subject.getBoundingClientRect();
             // A wheel over an offscreen panel reaches whatever is on screen
             // instead. Reveal that panel through its outer scroller first.
             subject = scroller;
-            if (!box) continue;
+            if (!box) {continue;}
             const deltaX = scrollX ? distance(subjectRect.left, subjectRect.right, box.left, box.right) : 0;
             const deltaY = scrollY ? distance(subjectRect.top, subjectRect.bottom, box.top, box.bottom) : 0;
-            if (deltaX === 0 && deltaY === 0) continue;
+            if (deltaX === 0 && deltaY === 0) {continue;}
             const insetX = Math.min(1, (box.right - box.left) / 2);
             const insetY = Math.min(1, (box.bottom - box.top) / 2);
             const points: Array<[number, number]> = [
@@ -149,7 +149,7 @@ function findPointerStep(target: Element | string | null | undefined): IPointerS
                 y,
             ]) => {
                 const hit = document.elementFromPoint(x, y);
-                if (!hit || !scroller.contains(hit)) return false;
+                if (!hit || !scroller.contains(hit)) {return false;}
                 // A descendant panel can consume the wheel before the panel
                 // we need to move. Aim at an exposed part of that panel.
                 for (let child: Element | null = hit; child && child !== scroller; child = child.parentElement) {
@@ -161,7 +161,7 @@ function findPointerStep(target: Element | string | null | undefined): IPointerS
                 }
                 return true;
             });
-            if (!point) continue;
+            if (!point) {continue;}
             return {
                 x: point[0],
                 y: point[1],
@@ -177,9 +177,9 @@ function describeObstruction(target: Element | string | null | undefined) {
     const candidates = typeof target === 'string'
         ? Array.from(document.querySelectorAll<HTMLElement>(target))
         : target ? [target as HTMLElement] : [];
-    if (candidates.length === 0) return 'not rendered';
+    if (candidates.length === 0) {return 'not rendered';}
     const describe = (element: Element | null) => {
-        if (!element) return 'nothing';
+        if (!element) {return 'nothing';}
         const id = element.id ? `#${element.id}` : '';
         const classes = typeof element.className === 'string' && element.className
             ? `.${element.className.trim().split(/\s+/u).slice(0, 3).join('.')}`
@@ -187,9 +187,9 @@ function describeObstruction(target: Element | string | null | undefined) {
         return `<${element.tagName.toLowerCase()}${id}${classes}>`;
     };
     return candidates.map((candidate) => {
-        if (!candidate.isConnected) return 'detached';
+        if (!candidate.isConnected) {return 'detached';}
         const rect = candidate.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return 'zero size';
+        if (rect.width <= 0 || rect.height <= 0) {return 'zero size';}
         const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
         return `covered by ${describe(hit)}`;
     }).join('; ');

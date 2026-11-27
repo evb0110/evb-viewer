@@ -61,7 +61,7 @@ beforeAll(async () => {
     server.stderr?.on('data', capture);
     await once(server, 'spawn');
     await vi.waitFor(async () => {
-        if (server.exitCode !== null) throw new Error(output);
+        if (server.exitCode !== null) {throw new Error(output);}
         const status = await fetch(`${origin}/`).then(response => response.status).catch(() => 0);
         expect(status, output).toBe(200);
     }, {timeout: 90_000});
@@ -72,7 +72,7 @@ afterAll(async () => {
     try {
         await closeChromiumBrowser(browser);
     } finally {
-        if (server?.pid) await killProcessTree(server.pid);
+        if (server?.pid) {await killProcessTree(server.pid);}
     }
 });
 

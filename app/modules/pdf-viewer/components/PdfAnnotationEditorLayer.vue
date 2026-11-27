@@ -228,7 +228,7 @@ onMounted(() => {
     unregisterPageInteraction = surface.registerPageInteraction(pageIndex, {
         commitTextDraft: commitActiveTextBoxDraftForSave,
         get pendingTextCompletion() { return editingId.value === null ? null : textBoxRefs.get(editingId.value)?.pendingCompletion ?? null; },
-        cancelTextDraft: () => { if (editingId.value !== null) void commitTextBox(editingId.value).catch(error => BrowserLogger.debug('annotations', 'Text draft cancellation refused', error)); },
+        cancelTextDraft: () => { if (editingId.value !== null) {void commitTextBox(editingId.value).catch(error => BrowserLogger.debug('annotations', 'Text draft cancellation refused', error));} },
         cancelPointerGesture: cancelPointerGesture,
         focus: focusLayer,
         getTextBoxDraftRect: annotationId => textBoxRefs.get(annotationId)?.getDraftRect() ?? null,
@@ -539,10 +539,10 @@ function selectTextFromPointer(start: {
 }, event: PointerEvent) {
     const doc = layerRef.value?.ownerDocument;
     const selection = doc?.getSelection();
-    if (!doc || !selection) return;
+    if (!doc || !selection) {return;}
     const anchor = caretPositionAtPoint(doc, start.clientX, start.clientY);
     const focus = caretPositionAtPoint(doc, event.clientX, event.clientY);
-    if (anchor && focus) selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
+    if (anchor && focus) {selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);}
 }
 
 function focusLayer() {
@@ -572,7 +572,7 @@ function rectStyle(rect: {
 
 function textResizeProposal(entity: ITextBoxEntity, handle = pointerGesture.resizeHandle.value, point = pointerGesture.current.value) {
     const captured = pointerGesture.entity;
-    if (captured?.kind === 'text-box' && captured.identity.id === entity.identity.id) entity = captured;
+    if (captured?.kind === 'text-box' && captured.identity.id === entity.identity.id) {entity = captured;}
     if (!handle || !point) {
         return {
             rect: entity.rect,
@@ -632,10 +632,10 @@ const textPlacementPreviewStyle = computed(() => {
 
 function displayRectFor(entity: ITextBoxEntity | INoteEntity | IPlacedImageEntity | IShapeEntity) {
     const rect = draggedAnnotationId.value === entity.identity.id ? pointerGesture.previewRect.value : null;
-    if (rect) return entity.kind === 'text-box' && pointerGesture.mode.value === 'resize' ? textResizeProposal(entity).rect : rect;
+    if (rect) {return entity.kind === 'text-box' && pointerGesture.mode.value === 'resize' ? textResizeProposal(entity).rect : rect;}
     const delta = moveDelta.value;
-    if (delta && delta.ids.has(entity.identity.id)) return translateRect(entity.kind === 'text-box' && editingId.value === entity.identity.id
-        ? textBoxRefs.get(entity.identity.id)?.getDraftRect() ?? entity.rect : entity.kind === 'note' ? entity.position : entity.rect, delta.x, delta.y);
+    if (delta && delta.ids.has(entity.identity.id)) {return translateRect(entity.kind === 'text-box' && editingId.value === entity.identity.id
+        ? textBoxRefs.get(entity.identity.id)?.getDraftRect() ?? entity.rect : entity.kind === 'note' ? entity.position : entity.rect, delta.x, delta.y);}
     return entity.kind === 'text-box' && editingId.value === entity.identity.id ? textBoxRefs.get(entity.identity.id)?.getDraftRect() : undefined;
 }
 
@@ -701,7 +701,7 @@ function handleEntityPointerDown(entity: ITextBoxEntity | INoteEntity, event: Po
     // surface handler. A click delivered after layer pointer capture still
     // needs the child identity for the surface's selection fallback.
     capturedClickAnnotationId = entity.identity.id;
-    if (editingId.value !== entity.identity.id) focusLayer();
+    if (editingId.value !== entity.identity.id) {focusLayer();}
     const point = pointFromEvent(event);
     if (!point) {
         return;
@@ -753,7 +753,7 @@ function handleResizeStart(handle: TAnnotationResizeHandle, event: PointerEvent)
     if (!entity || (entity.kind !== 'text-box' && entity.kind !== 'shape' && entity.kind !== 'placed-image')) {
         return;
     }
-    if (editingId.value !== entity.identity.id) focusLayer();
+    if (editingId.value !== entity.identity.id) {focusLayer();}
     const point = pointFromEvent(event);
     if (!point) {
         return;
@@ -875,7 +875,7 @@ function markClickSuppressed() {
 async function handlePointerUp(event: PointerEvent) {
     const textSelection = pointerGesture.finishTextSelection(event);
     if (textSelection) {
-        if (textSelection.hasMoved) selectTextFromPointer(textSelection.start, event);
+        if (textSelection.hasMoved) {selectTextFromPointer(textSelection.start, event);}
         releasePointer(event);
         return;
     }
@@ -884,12 +884,12 @@ async function handlePointerUp(event: PointerEvent) {
     }
     const point = pointFromEvent(event);
     const resizeHandle = pointerGesture.resizeHandle.value;
-    if (point) pointerGesture.update(point, event);
+    if (point) {pointerGesture.update(point, event);}
     const selection = pointerGesture.mode.value === 'move' ? pointerGesture.movingIds.value : surface.selectedIds.value;
-    if (point && (pointerGesture.hasMoved.value || pointerGesture.mode.value === 'create')) markClickSuppressed();
+    if (point && (pointerGesture.hasMoved.value || pointerGesture.mode.value === 'create')) {markClickSuppressed();}
     const pending = point && draggedAnnotationId.value === editingId.value ? prepareTextBoxGeometryChange()
         : point && isCreating.value && editingId.value !== null ? textBoxRefs.get(editingId.value)?.pendingCompletion : undefined;
-    if (pending) focusLayer();
+    if (pending) {focusLayer();}
     const completion = point ? pointerGesture.finish(point, event) : null;
     releasePointer(event);
     surface.endPointerInteraction(pageIndex);
@@ -897,7 +897,7 @@ async function handlePointerUp(event: PointerEvent) {
     shapeDraft.value = null;
     const tool = creatingTool.value;
     creatingTool.value = null;
-    if (!completion) return cancelPointerGesture();
+    if (!completion) {return cancelPointerGesture();}
     const creationRect = tool === 'note'
         ? completion.hasMoved ? completion.rect : markerRectFromPoint(completion.start.x, completion.start.y)
         : completion.mode === 'create' ? textPlacementRect(completion.start, completion.current, completion.hasMoved) : null;
@@ -922,7 +922,7 @@ async function handlePointerUp(event: PointerEvent) {
     try {
         await surface.runAcceptedCommand(() => {
             if (completion.mode === 'create') {
-                if (!tool) return;
+                if (!tool) {return;}
                 if (isShapeTool(tool)) {
                     const completedDraft = draft && point ? creationTools.updateShape(draft, point, completion.start) : draft;
                     const created = completedDraft ? creationTools.finishShape(completedDraft) : null;
@@ -932,11 +932,11 @@ async function handlePointerUp(event: PointerEvent) {
                     }
                     return;
                 }
-                if (!creationRect) return;
+                if (!creationRect) {return;}
                 const created = creationTools.create(tool, completion.pageIndex, creationRect, undefined, creationRotation);
                 if (created?.kind === 'text-box') {
                     newTextBoxIds.add(created.identity.id);
-                    if (!completion.hasMoved) autoSizeTextBoxIds.add(created.identity.id);
+                    if (!completion.hasMoved) {autoSizeTextBoxIds.add(created.identity.id);}
                     beginTextBoxEdit(created.identity.id);
                 } else if (created) {
                     surface.openNote(created.identity.id);
@@ -944,20 +944,20 @@ async function handlePointerUp(event: PointerEvent) {
                 }
                 return;
             }
-            if (!completion.hasMoved || !gesture || !originalRect) return;
+            if (!completion.hasMoved || !gesture || !originalRect) {return;}
             if (entity?.kind === 'text-box' && 'rect' in patch && patch.rect && annotationRectsEqual(entity.rect, patch.rect)
-            && (!('fontSize' in patch) || entity.fontSize === patch.fontSize)) return;
+            && (!('fontSize' in patch) || entity.fontSize === patch.fontSize)) {return;}
             if (completion.mode === 'move' && selection.size > 1) {
                 surface.moveSelection(completion.rect.left - originalRect.left, completion.rect.top - originalRect.top, selection);
             } else {
-                if (entity?.kind === 'text-box' && completion.mode === 'resize') autoSizeTextBoxIds.delete(entity.identity.id);
+                if (entity?.kind === 'text-box' && completion.mode === 'resize') {autoSizeTextBoxIds.delete(entity.identity.id);}
                 surface.commitGesture(gesture, patch);
             }
         });
     } catch (error) {
         BrowserLogger.debug('annotations', 'Pointer command refused', error);
     } finally {
-        if (gesture) pointerGesture.cancel(gesture);
+        if (gesture) {pointerGesture.cancel(gesture);}
     }
 }
 
@@ -1060,7 +1060,7 @@ async function commitTextBox(
         restoreFocus?: boolean
     },
 ) {
-    if (editingId.value !== annotationId) return;
+    if (editingId.value !== annotationId) {return;}
     const entity = currentTextBox(annotationId);
     const created = newTextBoxIds.has(annotationId) && Boolean(draft?.text.trim());
     const finish = () => {
@@ -1077,8 +1077,8 @@ async function commitTextBox(
         if (entity && newTextBoxIds.has(annotationId) && !created) {
             surface.discardUnsavedAnnotation(annotationId);
             finish();
-        } else if (entity && surface.hasTextBoxDraftPending(annotationId)) await surface.publishTextBoxAppearance(entity, finish);
-        else finish();
+        } else if (entity && surface.hasTextBoxDraftPending(annotationId)) {await surface.publishTextBoxAppearance(entity, finish);}
+        else {finish();}
         return;
     }
     surface.setTextBoxDraftPending(annotationId, draft.text);

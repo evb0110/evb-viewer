@@ -131,7 +131,7 @@ describe('catalog recovery on an explicit send', () => {
             isLoginPending() { return false; }
             async shutdown() {}
             async probe() {
-                if (!available) throw new Error('Provider temporarily unavailable');
+                if (!available) {throw new Error('Provider temporarily unavailable');}
                 return {auth: 'authenticated', account: null, models: [{id: 'recovered', label: 'Recovered', isDefault: true}]};
             }
             async openThread(_previous: unknown, _model: string, notifications: ICodexThreadListener) {
@@ -139,7 +139,7 @@ describe('catalog recovery on an explicit send', () => {
                 return {threadId: 'fixture-thread', resumed: false};
             }
             async startTurn(input: {model: string}) {
-                if (input.model !== 'recovered') throw new Error('Model unavailable');
+                if (input.model !== 'recovered') {throw new Error('Model unavailable');}
                 setImmediate(() => {
                     listener.onNotification('item/completed', {turnId: 'fixture-turn', item: {id: 'reply', type: 'agentMessage', text: 'Recovered reply'}});
                     listener.onNotification('turn/completed', {turn: {id: 'fixture-turn', status: 'completed'}});
@@ -161,7 +161,7 @@ describe('catalog recovery on an explicit send', () => {
         } finally {
             await service.shutdownAgentAssistant();
             await service.preserveAssistantStateForShutdown();
-            for (const module of ['electron', '@electron/settings', '@electron/window/registry', '@electron/features/agent/assistantInstances', '@electron/features/agent/assistantLocalSetups', '@electron/features/agent/mcpServer', '@electron/features/agent/codexInstanceRuntime']) vi.doUnmock(module);
+            for (const module of ['electron', '@electron/settings', '@electron/window/registry', '@electron/features/agent/assistantInstances', '@electron/features/agent/assistantLocalSetups', '@electron/features/agent/mcpServer', '@electron/features/agent/codexInstanceRuntime']) {vi.doUnmock(module);}
             vi.resetModules();
             await rm(root, {recursive: true, force: true});
         }

@@ -127,7 +127,7 @@ export async function registerManagedProcess(
     const processStartTime = await readProcessStartTime(input.pid);
     // Checked after the read: if the child had been reaped before it, the read
     // may name a process that reused the pid. A child that is gone needs no entry.
-    if (input.hasExited()) return null;
+    if (input.hasExited()) {return null;}
     if (!processStartTime || processStartTime === 'denied') {
         throw new Error(`Could not prove identity for managed process pid ${String(input.pid)}`);
     }

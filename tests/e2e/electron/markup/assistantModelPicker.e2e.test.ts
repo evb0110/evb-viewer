@@ -91,7 +91,7 @@ describe('Electron E2E - assistant model discovery', () => {
         const pickerLayout = await page.evaluate(() => {
             const measure = (selector: string) => {
                 const element = document.querySelector(selector);
-                if (!element) throw new Error(`Missing ${selector}`);
+                if (!element) {throw new Error(`Missing ${selector}`);}
                 const bounds = element.getBoundingClientRect();
                 return {top: bounds.top, bottom: bounds.bottom, height: bounds.height, scrollTop: element.scrollTop};
             };
@@ -138,12 +138,12 @@ describe('Electron E2E - assistant model discovery', () => {
         expect.soft(await page.$eval(formatted + ' a', link => link.getAttribute('href')), 'Link references preserve query parameters').toBe('https://example.com/?a=1&b=2');
         const timeline = await page.$('.assistant-timeline');
         const bounds = await timeline?.boundingBox();
-        if (!bounds) throw new Error('Missing conversation viewport');
+        if (!bounds) {throw new Error('Missing conversation viewport');}
         await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height - 20);
         await page.mouse.wheel({deltaY: -12});
         await page.waitForFunction(() => {
             const viewport = document.querySelector('.assistant-timeline');
-            if (!viewport) return false;
+            if (!viewport) {return false;}
             const gap = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
             return gap > 2 && gap < 48;
         });
@@ -189,7 +189,7 @@ describe('Electron E2E - assistant model discovery', () => {
         });
         await revealForPointer(page, '.work-entries');
         const resume = await page.$('.scroll-to-end');
-        if (resume) await clickAsUser(page, resume);
+        if (resume) {await clickAsUser(page, resume);}
         await revealForPointer(page, '.work-entries');
         await page.waitForSelector('.scroll-to-end', {hidden: true});
         await page.mouse.wheel({deltaY: 80});

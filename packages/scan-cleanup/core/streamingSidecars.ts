@@ -66,7 +66,7 @@ export async function* readJsonLines<T>(path: string, signal?: AbortSignal): Asy
         signal?.throwIfAborted();
         if (pending.length > 0) {
             const line = pending.toString('utf8').trim();
-            if (line.length > 0) yield JSON.parse(line) as T;
+            if (line.length > 0) {yield JSON.parse(line) as T;}
         }
     } finally {
         stream.destroy();
@@ -226,7 +226,7 @@ export async function inspectSkippedScanCleanupSourceText(input: {
     runCommand: TScanCleanupRunCommand;
     log: TScanCleanupLog;
 }): Promise<TScanCleanupSummary['sourceTextOmission']> {
-    if (input.pages.length === 0 || input.pdfPageOpsBinary === undefined) return undefined;
+    if (input.pages.length === 0 || input.pdfPageOpsBinary === undefined) {return undefined;}
     const pagesPath = join(input.scratch, 'source-text-omission-pages.txt');
     await writeFile(pagesPath, `${input.pages.join('\n')}\n`);
     return inspectScanCleanupSourceTextOmission({

@@ -200,7 +200,7 @@ export async function readDetectionResultsForPageNumbers(
         for (const pageNumber of pageNumbers) {
             signal.throwIfAborted();
             const result = await store.getPage(pageNumber);
-            if (result !== undefined) results.push(result);
+            if (result !== undefined) {results.push(result);}
         }
         return results;
     }
@@ -234,18 +234,18 @@ export function buildBoundedDetectionRequestFields(
         const key = String(pageNumber);
         const result = resultByPage.get(requirePageNumber(pageNumber));
         const layout = result?.classification ?? baseRequest.layoutByPage?.[key];
-        if (layout !== undefined) layoutByPage[key] = layout;
+        if (layout !== undefined) {layoutByPage[key] = layout;}
         const pagePlanEvidence = result?.pagePlanEvidence ?? baseRequest.pagePlanEvidenceByPage?.[key];
-        if (pagePlanEvidence !== undefined) pagePlanEvidenceByPage[key] = pagePlanEvidence;
+        if (pagePlanEvidence !== undefined) {pagePlanEvidenceByPage[key] = pagePlanEvidence;}
         const outputMode = result?.recommendedOutputMode ?? baseRequest.outputModeRecommendations?.[key];
-        if (outputMode !== undefined) outputModeRecommendations[key] = outputMode;
+        if (outputMode !== undefined) {outputModeRecommendations[key] = outputMode;}
         const softAlpha = result?.softAlphaForegroundRecommendation
             ?? baseRequest.softAlphaForegroundRecommendations?.[key];
-        if (softAlpha !== undefined) softAlphaForegroundRecommendations[key] = softAlpha;
+        if (softAlpha !== undefined) {softAlphaForegroundRecommendations[key] = softAlpha;}
         const sourcePageMetadata = result?.sourcePageMetadata ?? baseRequest.sourcePageMetadataByPage?.[key];
-        if (sourcePageMetadata !== undefined) sourcePageMetadataByPage[key] = sourcePageMetadata;
+        if (sourcePageMetadata !== undefined) {sourcePageMetadataByPage[key] = sourcePageMetadata;}
         const documentPrior = result?.documentPrior ?? baseRequest.documentPriorByPage?.[key];
-        if (documentPrior !== undefined) documentPriorByPage[key] = documentPrior;
+        if (documentPrior !== undefined) {documentPriorByPage[key] = documentPrior;}
     }
     return {
         documentPriorByPage,
@@ -344,12 +344,12 @@ export async function planScanCleanupRunQuality({
                 const page = detectedPageMetadata?.renderBox === 'mediabox'
                     ? detectedPageMetadata
                     : toCropBoxPageSize(detectedPageMetadata ?? measuredPage);
-                if (onGeometryPage !== undefined) await onGeometryPage(page);
-                if (!request.options.matchPageSize) continue;
+                if (onGeometryPage !== undefined) {await onGeometryPage(page);}
+                if (!request.options.matchPageSize) {continue;}
                 const pageNumber = page.pageNumber;
                 const observedLayout = detectionResult?.classification
                     ?? request.layoutByPage?.[String(pageNumber)];
-                if (observedLayout === undefined) layoutEvidenceComplete = false;
+                if (observedLayout === undefined) {layoutEvidenceComplete = false;}
                 if (addScanCleanupDocumentCanvasPage(
                     documentCanvasAccumulator,
                     page,
@@ -496,7 +496,7 @@ export async function planScanCleanupRunQuality({
     };
     if (request.options.matchPageSize && !options.matchPageSize) {
         const droppedEvent = resolveScanCleanupDroppedMatchWarningEventFromAccumulator(documentCanvasAccumulator);
-        if (droppedEvent) warnEvent(droppedEvent);
+        if (droppedEvent) {warnEvent(droppedEvent);}
     }
     return {
         documentCanvas,
@@ -543,7 +543,7 @@ export async function planScanCleanupFinalPages(
     const detectedRasterByPage = new Map<number, IDetectedPageRaster>();
     for (const pageNumber of pageNumbers) {
         const raster = await rasterSource.getPageRaster(pageNumber);
-        if (raster !== undefined) detectedRasterByPage.set(pageNumber, raster);
+        if (raster !== undefined) {detectedRasterByPage.set(pageNumber, raster);}
     }
     const resolvePageSourceDpi = (pageNumber: number) => resolveSourceDpi(
         detectedRasterByPage.get(pageNumber)?.dpi,

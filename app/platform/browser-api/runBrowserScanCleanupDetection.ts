@@ -158,7 +158,7 @@ export async function runBrowserScanCleanupDetection({
                 },
                 rasterize: async (job, jobSignal) => {
                     const page = pages[job.index]!;
-                    if (job.rerun || job.view === 'alternate') batchRecorder.noteInputRequired();
+                    if (job.rerun || job.view === 'alternate') {batchRecorder.noteInputRequired();}
                     if (job.view === 'alternate') {
                         const media = page.alternate!.media;
                         try {
@@ -174,7 +174,7 @@ export async function runBrowserScanCleanupDetection({
                     const raster = await rasterize(page.view, page.dpi, jobSignal);
                     if (!job.rerun) {
                         batchRecorder.markRasterized(page.pageNumber);
-                        if (batchRecorder.awaitingFirstVerdict) recorder.markProgress();
+                        if (batchRecorder.awaitingFirstVerdict) {recorder.markProgress();}
                     }
                     return raster.ppm;
                 },

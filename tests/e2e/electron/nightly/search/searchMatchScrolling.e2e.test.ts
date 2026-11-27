@@ -282,7 +282,7 @@ describe('Electron E2E - PDF search match scrolling', () => {
             expect.soft(result.count, `${file}: ${query}`).toBe(count);
             expect.soft(result.summary, file).toContain(count ? '2 results for' : 'No results found');
             await page.screenshot({path: resolve(evidence, `${file}-results.png`)});
-            if (count === 0 || result.count !== count) continue;
+            if (count === 0 || result.count !== count) {continue;}
             for (const index of [
                 0,
                 1,
@@ -405,7 +405,7 @@ describe('Electron E2E - PDF search match scrolling', () => {
                         text: element.textContent,
                         page: element.closest('.page_container')?.getAttribute('data-page'),
                     }));
-                if (failures.length) Reflect.get(window, '__rasterstallRotationFailures').push(...failures);
+                if (failures.length) {Reflect.get(window, '__rasterstallRotationFailures').push(...failures);}
             });
             observer.observe(document.body, {
                 subtree: true,

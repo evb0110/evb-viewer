@@ -84,8 +84,8 @@ export const useCombinePdfOperation = <T extends {
             // this page removes it once the result is no longer pending.
             retainDocumentOpenWorkingCopyForRetry(result);
             phase.value = 'opening';
-            if (options.openResult && !await options.openResult(result)) throw new Error('ERR_COMBINE_RESULT_OPEN_FAILED');
-            if (!options.openResult) options.emitOpenResult(result);
+            if (options.openResult && !await options.openResult(result)) {throw new Error('ERR_COMBINE_RESULT_OPEN_FAILED');}
+            if (!options.openResult) {options.emitOpenResult(result);}
             // The opened document now owns the working copy.
             releaseDocumentOpenWorkingCopyRetention(result);
             pendingCombinedResult.value = null;
@@ -93,7 +93,7 @@ export const useCombinePdfOperation = <T extends {
         } catch (error) {
             const expected = error instanceof CombinePdfError && error.code !== 'open-failed';
             combineErrorIsExpected.value = expected;
-            if (error instanceof CombinePdfError && error.code === 'canceled') return;
+            if (error instanceof CombinePdfError && error.code === 'canceled') {return;}
             if (!expected) {
                 combineFailure.value = (error instanceof CombinePdfError ? error.failure : null)
                     ?? BrowserLogger.error('pdf-combine', 'PDF combine controller failed', error, {code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED'});
@@ -112,7 +112,7 @@ export const useCombinePdfOperation = <T extends {
             phase.value = 'idle';
             // A page closed while this ran can no longer offer Retry or Save
             // As: what is still pending is let go. An opened result is not.
-            if (disposed) releasePendingResult();
+            if (disposed) {releasePendingResult();}
         }
     }
 
@@ -131,10 +131,10 @@ export const useCombinePdfOperation = <T extends {
             const documentFiles = getDocumentFilesCapability();
             const {token} = await documentFiles.getDocumentRevision(pending.workingPath);
             const savedPath = await documentFiles.savePdfAs(pending.workingPath, undefined, {expectedDocumentRevisionToken: token});
-            if (replaced() || isCombining.value) return;
-            if (savedPath) discardPendingResult();
+            if (replaced() || isCombining.value) {return;}
+            if (savedPath) {discardPendingResult();}
         } catch (error) {
-            if (replaced()) return;
+            if (replaced()) {return;}
             combineError.value = translate('errors.file.save');
             combineErrorIsExpected.value = false;
             combineFailure.value = BrowserLogger.error(

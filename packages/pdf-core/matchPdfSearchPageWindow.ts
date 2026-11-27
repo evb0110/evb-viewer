@@ -10,7 +10,7 @@ export function matchPdfSearchPageWindow(text: string, query: string, options: I
     let truncated = false;
     for (const match of iteratePdfSearchMatches(text, query, options, onMatchingStarted)) {
         const pageMatchIndex = matchCount++;
-        if (typeof resultOffset === 'number' && pageMatchIndex < resultOffset) continue;
+        if (typeof resultOffset === 'number' && pageMatchIndex < resultOffset) {continue;}
         if (resultOffset !== 'last' && matches.length >= maxMatches) {
             truncated = true;
             break;
@@ -19,8 +19,8 @@ export function matchPdfSearchPageWindow(text: string, query: string, options: I
             ...match,
             pageMatchIndex,
         };
-        if (resultOffset === 'last') matches[pageMatchIndex % maxMatches] = entry;
-        else matches.push(entry);
+        if (resultOffset === 'last') {matches[pageMatchIndex % maxMatches] = entry;}
+        else {matches.push(entry);}
     }
     matches.sort((first, second) => first.pageMatchIndex - second.pageMatchIndex);
     return {

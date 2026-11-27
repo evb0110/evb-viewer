@@ -73,7 +73,7 @@ export const useAnnotationKeyboardCommands = (
         const handled = options.surface.redo();
         event.preventDefault();
         event.stopPropagation();
-        if (handled instanceof Promise) void handled.catch(error => BrowserLogger.warn('annotations', 'Keyboard history action failed', error));
+        if (handled instanceof Promise) {void handled.catch(error => BrowserLogger.warn('annotations', 'Keyboard history action failed', error));}
         return true;
     }
     if (modifier && !event.altKey && readShortcutKey(event) === 'z') {

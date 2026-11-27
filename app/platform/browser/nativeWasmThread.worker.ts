@@ -51,7 +51,7 @@ self.addEventListener('message', (event: MessageEvent<INativeWasmThreadLoadMessa
         self.postMessage({type: 'ready'} satisfies TNativeWasmThreadReply);
         return;
     }
-    if (message.type !== 'start' || loaded === null) return;
+    if (message.type !== 'start' || loaded === null) {return;}
     const {
         module, memory, label,
     } = loaded;
@@ -64,7 +64,7 @@ self.addEventListener('message', (event: MessageEvent<INativeWasmThreadLoadMessa
             spawnThread: () => -1,
             writeOutput: createNativeWasmLineWriter(line => console.warn(`${label}: ${line}`)),
         }));
-        if (typeof exports.wasi_thread_start !== 'function') throw new Error('The threaded module has no wasi_thread_start export');
+        if (typeof exports.wasi_thread_start !== 'function') {throw new Error('The threaded module has no wasi_thread_start export');}
         start = exports.wasi_thread_start as typeof start;
     } catch (error) {
         self.postMessage({

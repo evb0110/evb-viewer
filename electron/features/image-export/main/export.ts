@@ -307,7 +307,7 @@ async function tryConvertRenderedPpmToPngNative(
         // the fallback must not start beside it. The scratch owner keeps both.
         if (signal?.aborted || isAbortError(error)
             || (error instanceof Error && error.name === 'NativeToolBuildMismatchError')
-            || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+            || getUnprovenNativeTerminationDetail(error) !== undefined) {throw error;}
         logger.debug(`Native PPM-to-PNG conversion failed, falling back to JS encoder: ${getErrorMessage(error)}`);
         await rm(pngPath, {force: true}).catch(() => undefined);
         return false;
@@ -541,7 +541,7 @@ export async function promoteStagedFiles(
             }
             const original = file.allowOverwrite ? await readFileIdentity(targetPath) : null;
             const published = await readFileIdentity(file.stagedPath);
-            if (!published) throw new Error(`Image export staged output is missing for ${file.targetPath}`);
+            if (!published) {throw new Error(`Image export staged output is missing for ${file.targetPath}`);}
             const backupPath = original ? makeSiblingTempPath(targetPath) : null;
             batchLedger.promotedFiles.push({
                 targetPath,
@@ -572,15 +572,15 @@ export async function promoteStagedFiles(
                 });
             }
             const file = stagedFiles[index]!;
-            if (!file.allowOverwrite) await fsyncFile(file.stagedPath);
+            if (!file.allowOverwrite) {await fsyncFile(file.stagedPath);}
             for (;;) {
                 throwIfAborted(signal);
                 try {
                     await (file.allowOverwrite ? atomicReplace : moveFileToMissingPath)(file.stagedPath, promotedFile.targetPath);
-                    if (!file.allowOverwrite) await fsyncDirectory(dirname(promotedFile.targetPath));
+                    if (!file.allowOverwrite) {await fsyncDirectory(dirname(promotedFile.targetPath));}
                     break;
                 } catch (error) {
-                    if (file.allowOverwrite || !isErrnoException(error) || error.code !== 'EEXIST') throw error;
+                    if (file.allowOverwrite || !isErrnoException(error) || error.code !== 'EEXIST') {throw error;}
                     if (sharedLedger) {
                         staleReservedKeys.push(promotedFile.reservedKey);
                     }

@@ -181,7 +181,7 @@ async function commitManagedScratchRecord(scratchPath: string | null) {
     if (scratchPath) {
         await fsyncFile(join(scratchPath, MANAGED_SCRATCH_RECORD_FILE));
         await fsyncFile(join(scratchPath, MANAGED_SCRATCH_MARKER_FILE)).catch((error: unknown) => {
-            if (!isErrnoException(error) || error.code !== 'ENOENT') throw error;
+            if (!isErrnoException(error) || error.code !== 'ENOENT') {throw error;}
         });
         await fsyncDirectory(scratchPath);
         await fsyncDirectory(dirname(scratchPath));

@@ -363,12 +363,12 @@ async function *readStreamingCacheRecords(path: string): AsyncGenerator<IScanCle
                 const parsed = parseLine(pending.slice(0, newline));
                 pending = pending.slice(newline + 1);
                 pendingBytes = Buffer.byteLength(pending, 'utf8');
-                if (parsed !== undefined) yield parsed;
+                if (parsed !== undefined) {yield parsed;}
                 newline = pending.indexOf('\n');
             }
         }
         const parsed = parseLine(pending);
-        if (parsed !== undefined) yield parsed;
+        if (parsed !== undefined) {yield parsed;}
     } finally {
         stream.destroy();
     }
@@ -586,7 +586,7 @@ export async function writeScanCleanupDetectionCacheStore(
         await rename(temporaryEntryPath, entryPath);
     } finally {
         await recordsHandle?.close();
-        if (!recordsPublished) await rm(temporaryRecordsPath, {force: true});
+        if (!recordsPublished) {await rm(temporaryRecordsPath, {force: true});}
         await rm(temporaryEntryPath, {force: true});
     }
 }

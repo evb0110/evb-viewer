@@ -454,7 +454,7 @@ async function readTextBoxPaintedStyle(
     expectedColor: string,
 ) {
     const style = await readTextBoxComputedStyle(page, annotationId);
-    if (!style) return null;
+    if (!style) {return null;}
     const colorMatches = await page.evaluate((expected: {
         id: string;
         color: string;
@@ -466,21 +466,21 @@ async function readTextBoxPaintedStyle(
             '.page_canvas__render-layer canvas',
         );
         const context = canvas?.getContext('2d');
-        if (!textBox || !canvas || !context) return false;
+        if (!textBox || !canvas || !context) {return false;}
         const box = textBox.getBoundingClientRect();
         const bounds = canvas.getBoundingClientRect();
-        if (box.width <= 0 || box.height <= 0 || bounds.width <= 0 || bounds.height <= 0) return false;
+        if (box.width <= 0 || box.height <= 0 || bounds.width <= 0 || bounds.height <= 0) {return false;}
         const left = Math.max(0, Math.floor((box.left - bounds.left) * canvas.width / bounds.width));
         const top = Math.max(0, Math.floor((box.top - bounds.top) * canvas.height / bounds.height));
         const right = Math.min(canvas.width, Math.ceil((box.right - bounds.left) * canvas.width / bounds.width));
         const bottom = Math.min(canvas.height, Math.ceil((box.bottom - bounds.top) * canvas.height / bounds.height));
-        if (right <= left || bottom <= top) return false;
+        if (right <= left || bottom <= top) {return false;}
         const rgb = expected.color.match(/^rgb\((\d+), (\d+), (\d+)\)$/u)?.slice(1).map(Number);
-        if (!rgb) throw new Error(`Expected an opaque text color, received ${expected.color}`);
+        if (!rgb) {throw new Error(`Expected an opaque text color, received ${expected.color}`);}
         const pixels = context.getImageData(left, top, right - left, bottom - top).data;
         for (let index = 0; index < pixels.length; index += 4) {
             if (pixels[index] === rgb[0] && pixels[index + 1] === rgb[1]
-                && pixels[index + 2] === rgb[2] && pixels[index + 3] === 255) return true;
+                && pixels[index + 2] === rgb[2] && pixels[index + 3] === 255) {return true;}
         }
         return false;
     }, {
@@ -1006,9 +1006,10 @@ describe('Electron E2E - native save and reopen', () => {
             throw new Error('The selected text box did not expose its computed style');
         }
         await increaseSelectedTextBoxFontSize(session.page);
-        await expect.poll(async () => (
-            await readTextBoxComputedStyle(session!.page, annotationId)
-        ), {timeout: 20_000}).not.toEqual(originalStyle);
+        await expect.poll(
+            () => readTextBoxComputedStyle(session!.page, annotationId),
+            {timeout: 20_000},
+        ).not.toEqual(originalStyle);
         const resizedFontStyle = await readTextBoxComputedStyle(session.page, annotationId);
         expect(resizedFontStyle).not.toBeNull();
         if (!resizedFontStyle) {
@@ -1280,9 +1281,10 @@ describe('Electron E2E - native save and reopen', () => {
             )?.value ?? ''
         )), {timeout: 20_000}).toBe(String(initialFontSize));
         await increaseSelectedTextBoxFontSize(session.page);
-        await expect.poll(async () => (
-            await readTextBoxComputedStyle(session!.page, annotationId)
-        ), {timeout: 20_000}).toSatisfy(style => (
+        await expect.poll(
+            () => readTextBoxComputedStyle(session!.page, annotationId),
+            {timeout: 20_000},
+        ).toSatisfy(style => (
             typeof style?.fontSize === 'number'
             && style.fontSize > initialFontSize
         ));
@@ -1304,7 +1306,7 @@ describe('Electron E2E - native save and reopen', () => {
             };
         }, annotationId);
         expect(editTarget?.hit).toBe(true);
-        if (!editTarget) throw new Error('The fixture text box has no current edit target');
+        if (!editTarget) {throw new Error('The fixture text box has no current edit target');}
         await session.page.mouse.click(editTarget.x, editTarget.y, {
             count: 2,
             delay: 80,
@@ -1448,7 +1450,7 @@ describe('Electron E2E - native save and reopen', () => {
                 run: async (page: Parameters<typeof evaluateInPage>[0], path: TLegacyDocumentRef) => {
                     return evaluateInPage(page, async ({workingCopyPath}) => {
                         const api = (window as IE2EWindow).electronAPI;
-                        if (!api) throw new Error('electronAPI is unavailable');
+                        if (!api) {throw new Error('electronAPI is unavailable');}
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
                         return api.pageOps.rotate(workingCopyPath, [1], 4, 90, {expectedDocumentRevisionToken: revision?.token});
                     }, {workingCopyPath: path});
@@ -1465,7 +1467,7 @@ describe('Electron E2E - native save and reopen', () => {
                 run: async (page: Parameters<typeof evaluateInPage>[0], path: TLegacyDocumentRef) => {
                     return evaluateInPage(page, async ({workingCopyPath}) => {
                         const api = (window as IE2EWindow).electronAPI;
-                        if (!api) throw new Error('electronAPI is unavailable');
+                        if (!api) {throw new Error('electronAPI is unavailable');}
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
                         return api.pageOps.delete(workingCopyPath, [2], 4, {expectedDocumentRevisionToken: revision?.token});
                     }, {workingCopyPath: path});
@@ -1482,7 +1484,7 @@ describe('Electron E2E - native save and reopen', () => {
                 run: async (page: Parameters<typeof evaluateInPage>[0], path: TLegacyDocumentRef) => {
                     return evaluateInPage(page, async ({workingCopyPath}) => {
                         const api = (window as IE2EWindow).electronAPI;
-                        if (!api) throw new Error('electronAPI is unavailable');
+                        if (!api) {throw new Error('electronAPI is unavailable');}
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
                         return api.pageOps.reorder(workingCopyPath, [
                             4,
@@ -1504,7 +1506,7 @@ describe('Electron E2E - native save and reopen', () => {
                 run: async (page: Parameters<typeof evaluateInPage>[0], path: TLegacyDocumentRef) => {
                     return evaluateInPage(page, async ({workingCopyPath}) => {
                         const api = (window as IE2EWindow).electronAPI;
-                        if (!api) throw new Error('electronAPI is unavailable');
+                        if (!api) {throw new Error('electronAPI is unavailable');}
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
                         return api.pageOps.crop(workingCopyPath, [1], 4, {
                             top: 5,
@@ -1526,7 +1528,7 @@ describe('Electron E2E - native save and reopen', () => {
                 run: async (page: Parameters<typeof evaluateInPage>[0], path: TLegacyDocumentRef) => {
                     return evaluateInPage(page, async ({workingCopyPath}) => {
                         const api = (window as IE2EWindow).electronAPI;
-                        if (!api) throw new Error('electronAPI is unavailable');
+                        if (!api) {throw new Error('electronAPI is unavailable');}
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
                         return api.pageOps.move(workingCopyPath, 1, 1, 4, 4, {expectedDocumentRevisionToken: revision?.token});
                     }, {workingCopyPath: path});
@@ -1541,13 +1543,13 @@ describe('Electron E2E - native save and reopen', () => {
                     5,
                 ],
                 run: async (page: Parameters<typeof evaluateInPage>[0], path: TLegacyDocumentRef, sourcePath?: TLegacyDocumentRef) => {
-                    if (!sourcePath) throw new Error('Insert fixture source is unavailable');
+                    if (!sourcePath) {throw new Error('Insert fixture source is unavailable');}
                     return evaluateInPage(page, async ({
                         workingCopyPath,
                         sourcePath: source,
                     }) => {
                         const api = (window as IE2EWindow).electronAPI;
-                        if (!api) throw new Error('electronAPI is unavailable');
+                        if (!api) {throw new Error('electronAPI is unavailable');}
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
                         return api.pageOps.insertFile(workingCopyPath, 4, 2, [source], 'outline-matrix-insert' as TRequestId, {expectedDocumentRevisionToken: revision?.token});
                     }, {
@@ -1580,7 +1582,7 @@ describe('Electron E2E - native save and reopen', () => {
 
             const workingCopyPath = await evaluateInPage(session.page, async path => {
                 const api = (window as IE2EWindow).electronAPI;
-                if (!api) throw new Error('electronAPI is unavailable');
+                if (!api) {throw new Error('electronAPI is unavailable');}
                 return api.documentWorkingCopy.createWorkingCopyFromPath(
                     path as TLegacyDocumentRef,
                     path as TLegacyDocumentRef,
@@ -1590,7 +1592,7 @@ describe('Electron E2E - native save and reopen', () => {
             expect(result?.success, `${testCase.name} native page operation`).toBe(true);
             const saveResult = await evaluateInPage(session.page, async ({workingCopyPath: path}) => {
                 const api = (window as IE2EWindow).electronAPI;
-                if (!api) throw new Error('electronAPI is unavailable');
+                if (!api) {throw new Error('electronAPI is unavailable');}
                 const revision = await api.documentFiles.getDocumentRevision(path);
                 return api.documentFiles.saveFileStructured(path, {expectedDocumentRevisionToken: revision.token});
             }, {workingCopyPath});

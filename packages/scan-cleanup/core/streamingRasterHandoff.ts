@@ -100,7 +100,7 @@ export async function runBoundedRasterProducerConsumer<TItem, TStaged>(
     const wakeWaiters = (waiters: Set<() => void>) => {
         const snapshot = [...waiters];
         waiters.clear();
-        for (const wake of snapshot) wake();
+        for (const wake of snapshot) {wake();}
     };
 
     const notifyAll = () => {

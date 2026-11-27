@@ -621,7 +621,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             if (mode === 'replaced' || mode === 'nonempty') {
                 expect(Buffer.from(outcome.failed[1]!.bytesBase64, 'base64').toString()).toBe('external revision');
             }
-            if (mode === 'close-unknown') expect(outcome.failed[1]?.decodable).toBe(true);
+            if (mode === 'close-unknown') {expect(outcome.failed[1]?.decodable).toBe(true);}
             if (mode === 'encode') {
                 expect(outcome.retried.map(file => file.name)).toEqual([
                     'document-pages-001-1.jpg',
@@ -702,7 +702,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             ] as const);
             const downloads: Download[] = [];
             const allDownloads = Promise.withResolvers<undefined>();
-            page.on('download', download => {downloads.push(download); if (downloads.length === 3) allDownloads.resolve(undefined);});
+            page.on('download', download => {downloads.push(download); if (downloads.length === 3) {allDownloads.resolve(undefined);}});
             await page.locator('#tiff-parts-export').click();
             await page.waitForFunction(() => Boolean(document.querySelector('#tiff-parts-result')?.textContent));
             const outcome = JSON.parse(await page.locator('#tiff-parts-result').innerText()) as {
@@ -758,7 +758,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                     name: file.name,
                     bytes: Buffer.from(file.bytesBase64, 'base64'),
                 }));
-                if (collision) expect(Buffer.from(outcome.files.find(file => file.name === `${base}-part-001.${extension}`)!.bytesBase64, 'base64').toString()).toBe('earlier TIFF');
+                if (collision) {expect(Buffer.from(outcome.files.find(file => file.name === `${base}-part-001.${extension}`)!.bytesBase64, 'base64').toString()).toBe('earlier TIFF');}
             }
             files.sort((a, b) => a.name.localeCompare(b.name));
             expect(files.map(file => file.name)).toEqual([
@@ -784,7 +784,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                     } : PAGE_DPI);
                     UTIF.decodeImage(file.bytes, frame);
                     const rgba = UTIF.toRGBA8(frame);
-                    if (kind === 'pdf') expect(Math.abs(rgba[0]! - Math.round((pageNumber + 1) * 25.5))).toBeLessThanOrEqual(1);
+                    if (kind === 'pdf') {expect(Math.abs(rgba[0]! - Math.round((pageNumber + 1) * 25.5))).toBeLessThanOrEqual(1);}
                     pageNumber += 1;
                 }
             }
@@ -1176,7 +1176,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 Reflect.set(globalThis, '__compactPosted', 0);
                 const post = Worker.prototype.postMessage;
                 Worker.prototype.postMessage = function(message, options) {
-                    if (message.type === 'combinePdfs') Reflect.set(globalThis, '__compactPosted', Reflect.get(globalThis, '__compactPosted') + 1);
+                    if (message.type === 'combinePdfs') {Reflect.set(globalThis, '__compactPosted', Reflect.get(globalThis, '__compactPosted') + 1);}
                     return post.call(this, message, Array.isArray(options) ? {transfer: options} : options);
                 };
             });

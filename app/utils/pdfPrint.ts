@@ -156,8 +156,8 @@ function allocateBrowserPrintCanvas(targetDocument: IBrowserPrintDocument, page:
 function encodeBrowserPrintCanvas(canvas: IBrowserPrintCanvas) {
     return new Promise<Blob>((resolve, reject) => {
         canvas.toBlob((blob) => {
-            if (blob) resolve(blob);
-            else reject(new Error('Failed to encode a browser print page'));
+            if (blob) {resolve(blob);}
+            else {reject(new Error('Failed to encode a browser print page'));}
         }, 'image/png');
     });
 }

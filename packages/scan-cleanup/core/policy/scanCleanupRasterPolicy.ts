@@ -125,7 +125,7 @@ export function resolvePreviewRasterPlan(
         pageNumber,
         sourceDpi,
     ] of sourceDpiByPage) {
-        if (!Number.isFinite(sourceDpi) || sourceDpi <= 0) continue;
+        if (!Number.isFinite(sourceDpi) || sourceDpi <= 0) {continue;}
         pageDpiByNumber.set(pageNumber, Math.max(pageDpiByNumber.get(pageNumber) ?? 0, sourceDpi));
         documentDpi = Math.max(documentDpi, sourceDpi);
     }
@@ -258,7 +258,7 @@ export function describeScanCleanupAlternateView(view: IPdfPageSize, facts: ISca
     if (
         media.xPoints === view.xPoints && media.yPoints === view.yPoints
         && media.widthPoints === view.widthPoints && media.heightPoints === view.heightPoints
-    ) return undefined;
+    ) {return undefined;}
     const input: IScanCleanupAlternateViewInput = {
         primaryWidthPoints: view.widthPoints,
         primaryHeightPoints: view.heightPoints,

@@ -55,7 +55,7 @@ const pdfAppenders = new WeakMap<IStoreFile, TPdfAppender>();
  */
 export function appendPdfMutationsToStoreFile(file: IStoreFile, base: number, request: TPdfAppendRequest) {
     const append = pdfAppenders.get(file);
-    if (!append) throw new Error('This store file cannot take a PDF edit');
+    if (!append) {throw new Error('This store file cannot take a PDF edit');}
     return append(base, request);
 }
 
@@ -87,16 +87,16 @@ export function createWorkerStorePort(worker: Worker): IStorePort & {probe(): Pr
     let nextId = 1;
     postPrecompiledWasmModules(worker, [PDF_PAGE_OPS_WASM_PATH]);
     const fail = (error: Error) => {
-        for (const request of pending.values()) request.reject(error);
+        for (const request of pending.values()) {request.reject(error);}
         pending.clear();
     };
     worker.addEventListener('message', (event: MessageEvent<IResponse>) => {
-        if (handlePrecompiledWasmModuleMessage(event.data)) return;
+        if (handlePrecompiledWasmModuleMessage(event.data)) {return;}
         const request = pending.get(event.data.id);
-        if (!request) return;
+        if (!request) {return;}
         pending.delete(event.data.id);
-        if (event.data.error) request.reject(storeError(event.data.error));
-        else request.resolve(event.data.result);
+        if (event.data.error) {request.reject(storeError(event.data.error));}
+        else {request.resolve(event.data.result);}
     });
     worker.addEventListener('error', event => fail(new Error(`The document store worker failed: ${event.message}`)));
     const call = <K extends keyof TOpfsOperations>(
@@ -145,7 +145,7 @@ export function createMemoryStorePort(): IStorePort {
     const children = (dir: string) => [...files.keys()].filter(path => path.startsWith(`${dir}/`));
     const bytesOf = (path: string) => {
         const file = files.get(path);
-        if (!file) throw Object.assign(new Error(`Missing store file: ${path}`), {name: 'NotFoundError'});
+        if (!file) {throw Object.assign(new Error(`Missing store file: ${path}`), {name: 'NotFoundError'});}
         return file.buffer.subarray(0, file.length);
     };
     const put = (path: string, bytes: Uint8Array) => void files.set(path, {buffer: bytes.slice(), length: bytes.byteLength});
@@ -155,7 +155,7 @@ export function createMemoryStorePort(): IStorePort {
         read: async path => bytesOf(path).slice(),
         writeAtomic: async (path, bytes) => put(path, bytes),
         async open(path) {
-            if (!files.has(path)) put(path, new Uint8Array());
+            if (!files.has(path)) {put(path, new Uint8Array());}
             const file = files.get(path)!;
             const write = (offset: number, chunk: Uint8Array) => {
                 const end = offset + chunk.byteLength;
@@ -176,7 +176,7 @@ export function createMemoryStorePort(): IStorePort {
                 witness: length => contentWitness(length, readAt),
                 writeAt,
                 async truncate(length) {
-                    if (length > file.length) await writeAt(file.length, new Uint8Array(length - file.length));
+                    if (length > file.length) {await writeAt(file.length, new Uint8Array(length - file.length));}
                     file.buffer.fill(0, length, file.length);
                     file.length = length;
                     delete file.blob;
@@ -189,11 +189,11 @@ export function createMemoryStorePort(): IStorePort {
             };
             pdfAppenders.set(storeFile, (base, request) => appendPdfMutationsToSyncFile({
                 read(into, at) {
-                    if (at + into.byteLength > file.length) throw new Error('The document ended before its cross-reference said');
+                    if (at + into.byteLength > file.length) {throw new Error('The document ended before its cross-reference said');}
                     into.set(file.buffer.subarray(at, at + into.byteLength));
                 },
                 write(bytes, at) {
-                    if (at < base) throw new Error('An append cannot write over its document');
+                    if (at < base) {throw new Error('An append cannot write over its document');}
                     write(at, bytes);
                 },
             }, base, request));
@@ -203,7 +203,7 @@ export function createMemoryStorePort(): IStorePort {
         copy: (from, to) => copyIn(from, to),
         async remove(path) {
             files.delete(path);
-            for (const child of children(path)) files.delete(child);
+            for (const child of children(path)) {files.delete(child);}
         },
     };
     fileBlobs.set(port, async (path) => {

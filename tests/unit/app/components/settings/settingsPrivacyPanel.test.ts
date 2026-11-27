@@ -245,20 +245,20 @@ describe('SettingsContent synchronized MCP status', () => {
             'UIcon',
             'UButton',
             'NuxtLink',
-        ]) app.component(name, {render: () => h('span')});
+        ]) {app.component(name, {render: () => h('span')});}
         app.component('UFormField', FormFieldStub);
         app.component('USwitch', SwitchStub);
         app.mount(host);
         const unmount = () => { app.unmount(); host.remove(); activeUnmounts.delete(unmount); };
         activeUnmounts.add(unmount);
         await nextTick();
-        for (const listener of runtimeStatusListeners) listener({
+        for (const listener of runtimeStatusListeners) {listener({
             ...createBrowserAgentMcpStatus(),
             enabled: true,
             serverRunning: true,
             codexInstalled: true,
             codexConfigured: true,
-        });
+        });}
         await nextTick();
         expect(host.querySelector('[data-mcp-running]')?.textContent).toBe('true');
         resolve({
@@ -304,7 +304,7 @@ describe('SettingsContent synchronized MCP status', () => {
             ...createBrowserAgentMcpStatus(),
             enabled: true,
         };
-        for (const listener of runtimeStatusListeners) listener(readStatus);
+        for (const listener of runtimeStatusListeners) {listener(readStatus);}
         resolve(readStatus);
         await vi.waitFor(() => expect(host.querySelector('[data-mcp-enabled]')?.textContent).toBe('false'));
         for (const listener of runtimeStatusListeners) {
@@ -331,12 +331,12 @@ function mountSettingsRoot(retained = false) {
         toasts,
         add: (entry: TToast) => {
             const index = entries.value.findIndex(item => item.id === entry.id);
-            if (index < 0) entries.value.push(entry);
-            else entries.value[index] = entry;
+            if (index < 0) {entries.value.push(entry);}
+            else {entries.value[index] = entry;}
         },
         update: (id: string | number, update: Partial<TToast>) => {
             const entry = entries.value.find(item => item.id === id);
-            if (entry) Object.assign(entry, update);
+            if (entry) {Object.assign(entry, update);}
         },
         remove: (id: string) => { entries.value = entries.value.filter(item => item.id !== id); },
     };
@@ -385,13 +385,13 @@ function mountSettingsRoot(retained = false) {
     for (const name of [
         'DevOnly',
         'ClientOnly',
-    ]) app.component(name, passthrough);
+    ]) {app.component(name, passthrough);}
     for (const name of [
         'UIcon',
         'UButton',
         'NuxtLink',
         'UAlert',
-    ]) app.component(name, {render: () => h('span')});
+    ]) {app.component(name, {render: () => h('span')});}
     app.component('UFormField', FormFieldStub);
     app.component('USwitch', SwitchStub);
     app.mount(host);
@@ -417,7 +417,7 @@ function installSettingsQueue() {
                 first = false;
                 await new Promise<void>((_resolve, reject) => {rejectWrite = reject;});
             }
-            if (nextFailure) throw nextFailure;
+            if (nextFailure) {throw nextFailure;}
             stored = {
                 ...stored,
                 ...patch,
@@ -448,7 +448,7 @@ function installSettingsQueue() {
     };
 }
 
-async function flushUi() { for (let index = 0; index < 8; index++) await nextTick(); }
+async function flushUi() { for (let index = 0; index < 8; index++) {await nextTick();} }
 function clickToastButton(host: HTMLElement, label: string) {
     const button = [...host.querySelectorAll<HTMLButtonElement>('.app-toast-failure button')].find(entry => entry.textContent === label);
     expect(button).toBeDefined();

@@ -73,8 +73,8 @@ async function writeDocxChunksThroughSerialTransport(
         return cancelPromise ??= stream.cancelDocxFileStream(sessionId).catch(() => false);
     };
     const handleAbort = () => {
-        if (beginPromise) void beginPromise.then(() => cancelSession(), () => undefined);
-        else void cancelSession();
+        if (beginPromise) {void beginPromise.then(() => cancelSession(), () => undefined);}
+        else {void cancelSession();}
     };
     throwIfAborted(signal);
     signal?.addEventListener('abort', handleAbort, {once: true});
@@ -96,14 +96,14 @@ async function writeDocxChunksThroughSerialTransport(
             throwIfAborted(signal);
         }
         throwIfAborted(signal);
-        if (!wroteChunk) throw new Error('DOCX stream requires at least one chunk');
+        if (!wroteChunk) {throw new Error('DOCX stream requires at least one chunk');}
         if (await stream.commitDocxFileStream(sessionId) !== true) {
             throw new Error('DOCX stream commit was not accepted');
         }
         committed = true;
         return true;
     } catch (error) {
-        if (!committed) await cancelSession();
+        if (!committed) {await cancelSession();}
         throw error;
     } finally {
         signal?.removeEventListener('abort', handleAbort);

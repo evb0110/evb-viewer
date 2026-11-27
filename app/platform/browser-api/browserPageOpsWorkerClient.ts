@@ -72,10 +72,10 @@ async function buildWorkerRequestWithTransfers(
     options: IBuildWorkerRequestWithTransfersOptions = {},
 ) {
     const toTransferableRequestData = async (data: Uint8Array) => {
-        if (!options.preserveInputOwnership) return toTransferableUint8Array(data);
+        if (!options.preserveInputOwnership) {return toTransferableUint8Array(data);}
         const copy = new Uint8Array(data.byteLength);
         for (let offset = 0; offset < data.byteLength; offset += WORKER_INPUT_COPY_CHUNK_BYTES) {
-            if (options.signal?.aborted) throw abortErrorFromSignal(options.signal);
+            if (options.signal?.aborted) {throw abortErrorFromSignal(options.signal);}
             copy.set(data.subarray(offset, offset + WORKER_INPUT_COPY_CHUNK_BYTES), offset);
             await yieldToBrowser();
         }
@@ -87,10 +87,10 @@ async function buildWorkerRequestWithTransfers(
         request.type === 'textBoxAppearance'
         || request.type === 'pageStructure'
         || ('source' in request.payload && request.payload.source instanceof Blob)
-    ) return {
+    ) {return {
         request,
         transfer,
-    };
+    };}
 
     if (request.type === 'replacePageImages') {
         // The base and every attachment get their own buffer, so a caller's
@@ -98,7 +98,7 @@ async function buildWorkerRequestWithTransfers(
         const transferredBuffers = new Set<ArrayBuffer>();
         const ownBuffer = async (source: Uint8Array) => {
             let data = await toTransferableRequestData(source);
-            if (transferredBuffers.has(data.buffer)) data = data.slice();
+            if (transferredBuffers.has(data.buffer)) {data = data.slice();}
             transferredBuffers.add(data.buffer);
             transfer.push(data.buffer);
             return data;
@@ -166,12 +166,12 @@ async function buildWorkerRequestWithTransfers(
  * stops it, and stopping it ends the worker. Others get the size-scaled one.
  */
 function getEngineDeadlineMs(payload: object, signal: AbortSignal | undefined) {
-    if (signal) return undefined;
+    if (signal) {return undefined;}
     let inputBytes = 0;
     for (const value of Object.values(payload)) {
         for (const item of Array.isArray(value) ? value : [value]) {
-            if (item instanceof Uint8Array) inputBytes += item.byteLength;
-            else if (item instanceof Blob) inputBytes += item.size;
+            if (item instanceof Uint8Array) {inputBytes += item.byteLength;}
+            else if (item instanceof Blob) {inputBytes += item.size;}
         }
     }
     return DESKTOP_NATIVE_PAGE_OP_TIMEOUT_MS + Math.ceil(inputBytes / (1024 * 1024)) * ENGINE_DEADLINE_MS_PER_MIB;
@@ -306,7 +306,7 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
             return true;
         };
         const rejectRequest = (error: Error) => {
-            if (finish()) reject(error);
+            if (finish()) {reject(error);}
         };
         client.registerPendingRequest(request.id, {
             requestType: type,
@@ -343,9 +343,9 @@ async function runBrowserPageOpsWorkerRequestWithClient<K extends TBrowserPageOp
         }
 
         void buildWorkerRequestWithTransfers(request, options).then((workerRequest) => {
-            if (!settled) worker.postMessage(workerRequest.request, workerRequest.transfer);
+            if (!settled) {worker.postMessage(workerRequest.request, workerRequest.transfer);}
         }).catch((error: unknown) => {
-            if (settled) return;
+            if (settled) {return;}
             client.cancelPendingRequest(
                 request.id,
                 reportWorkerFailure(error instanceof Error ? error : new Error(String(error))),

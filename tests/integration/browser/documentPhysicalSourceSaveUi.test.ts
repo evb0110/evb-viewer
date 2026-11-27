@@ -82,7 +82,7 @@ describe('browser document lifecycle UI', () => {
                 fileName, changeBytes, position,
             }) => {
                 sessionStorage.setItem('physical-mtime', '200');
-                if (!changeBytes) return;
+                if (!changeBytes) {return;}
                 const root = await navigator.storage.getDirectory();
                 const handle = await root.getFileHandle(fileName);
                 const output = await handle.createWritable({keepExistingData: true});
@@ -112,7 +112,7 @@ describe('browser document lifecycle UI', () => {
                 });
             }, name);
             const saved = Buffer.from(savedBase64, 'base64');
-            if (changed) expect(saved[1024 * 1024]).toBe(88);
+            if (changed) {expect(saved[1024 * 1024]).toBe(88);}
             expect(noteTexts(await PDFDocument.load(Uint8Array.from(saved)))).not.toContain(note);
             expect(await save.isDisabled()).toBe(false);
             // Save As still contains the reader's independent authored work.

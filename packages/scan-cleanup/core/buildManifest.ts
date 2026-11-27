@@ -30,7 +30,7 @@ export async function buildScanCleanupStampBuildIds({
         role,
         path,
     ] of scanCleanupNativeBinaryEntries(paths)) {
-        if (path === undefined) continue;
+        if (path === undefined) {continue;}
         const reusableDigest = isScanCleanupCliFallbackSentinel(path)
             ? undefined
             : reusableNativeBinarySha256s?.[role];
@@ -58,7 +58,7 @@ export async function hashScanCleanupNativeBinarySha256s({
         role,
         path,
     ] of scanCleanupNativeBinaryEntries(paths)) {
-        if (path === undefined || isScanCleanupCliFallbackSentinel(path)) continue;
+        if (path === undefined || isScanCleanupCliFallbackSentinel(path)) {continue;}
         nativeBinarySha256s[role] = await hashNativeBinaryFile(path, role, hashNativeBinary);
     }
     return nativeBinarySha256s;

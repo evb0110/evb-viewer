@@ -190,7 +190,7 @@ function createLazyPageSizeStore(pageCount: number, chunkPages = 1_024) {
         rotation: 0,
     });
     const assertOpen = () => {
-        if (closed) throw new Error('lazy page-size store is closed');
+        if (closed) {throw new Error('lazy page-size store is closed');}
     };
     const assertPage = (pageNumber: number) => {
         if (!Number.isSafeInteger(pageNumber) || pageNumber < 1 || pageNumber > pageCount) {
@@ -324,7 +324,7 @@ function createStagedSidecar(options: {
                     readInputs.set(pageNumber, (await readFile(inputPath)).toString('base64'));
                     return;
                 } catch (error) {
-                    if (Date.now() > deadline) throw error;
+                    if (Date.now() > deadline) {throw error;}
                     await new Promise(resolve => setTimeout(resolve, 1));
                 }
             }
@@ -907,7 +907,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         }>;}> = [];
         const renderPage = vi.fn(async (_paths, _log, _pageNumber, _source, outputPath) => {
             // Keep page 2 in flight when the first-page prime starts analysis.
-            if (_pageNumber === 2) await secondRasterAllowed.promise;
+            if (_pageNumber === 2) {await secondRasterAllowed.promise;}
             await writeFile(outputPath, png);
         });
         const retention: IScanCleanupDetectionRetention<{id: string}> = {

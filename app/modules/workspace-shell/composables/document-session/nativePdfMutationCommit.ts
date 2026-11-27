@@ -38,7 +38,7 @@ function collectChangedPdfObjectRefs(mutations: IPdfNativeMutationSet): string[]
     };
     // Deleted refs are expected to resolve to qpdf's `null`; the presence gate
     // applies only to objects that must survive in the new xref.
-    for (const update of mutations.updates ?? []) add(update.objectNumber, update.generationNumber);
+    for (const update of mutations.updates ?? []) {add(update.objectNumber, update.generationNumber);}
     return [...refs];
 }
 

@@ -34,7 +34,7 @@ const state = vi.hoisted(() => ({
 vi.mock('@app/platform/browserDocumentStore', async original => ({
     ...await original<typeof TBrowserDocumentStore>(),
     get browserDocumentStore() {
-        if (!state.store) throw new Error('Missing test store');
+        if (!state.store) {throw new Error('Missing test store');}
         return state.store;
     },
 }));

@@ -101,7 +101,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     async function handleAnnotationFocusComment(comment: IAnnotationCommentSummary) {
-        if (!pdfViewerRef.value || await handleAnnotationToolChange('select', {sidebarTab: 'annotations'}) === false) return;
+        if (!pdfViewerRef.value || await handleAnnotationToolChange('select', {sidebarTab: 'annotations'}) === false) {return;}
         annotationActiveCommentStableKey.value = annotationIdForSummary(comment);
         await pdfViewerRef.value?.focusAnnotationComment(comment);
     }
@@ -239,7 +239,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 void Promise.resolve(pdfViewerRef.value.updateSelectedAnnotationProperties?.({color}))
                     .catch(error => BrowserLogger.debug('annotations', 'Failed to update shape color', error));
             }
-        } else updateTextMarkupColorWithHistory(comment, color);
+        } else {updateTextMarkupColorWithHistory(comment, color);}
         closeAnnotationContextMenu();
     }
 
@@ -249,7 +249,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         clientY: number;
     }) {
         closeAnnotationContextMenu();
-        if (await handleAnnotationToolChange('select') === false) return;
+        if (await handleAnnotationToolChange('select') === false) {return;}
         pdfViewerRef.value?.selectAnnotationById?.(payload.shapeId);
         const comment = getAnnotationCommentsSnapshot()?.find(candidate => candidate.appAnnotationId === payload.shapeId) ?? null;
         if (comment) {
@@ -382,7 +382,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     async function copyAnnotationText(text: string) {
         closeAnnotationContextMenu();
-        if (!text) return;
+        if (!text) {return;}
         try {
             await copyClipboardText(text);
         } catch (error) {
@@ -497,7 +497,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     // The markup is made with the tool asked for, not the one the viewer was last told.
     async function createContextMenuMarkup(tool: TAnnotationTool) {
-        if (pdfViewerRef.value && await handleAnnotationToolChange(tool) === false) return;
+        if (pdfViewerRef.value && await handleAnnotationToolChange(tool) === false) {return;}
         await pdfViewerRef.value?.highlightSelection(tool);
         closeAnnotationContextMenu();
     }

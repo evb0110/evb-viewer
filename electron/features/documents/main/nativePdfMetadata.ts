@@ -269,10 +269,10 @@ function readPreparedPageGeometry(
 ) {
     const entry = getWorkingCopyBackingEntry(path, senderId);
     const geometry = entry?.openingPageGeometry;
-    if (!geometry) return null;
+    if (!geometry) {return null;}
     if (normalizePathForLookup(geometry.documentRef) === normalizePathForLookup(path)
         && geometry.documentRevisionToken === revision
-        && geometry.pageCount > 0 && geometry.pages.length === geometry.pageCount) return geometry;
+        && geometry.pageCount > 0 && geometry.pages.length === geometry.pageCount) {return geometry;}
     delete entry.openingPageGeometry;
     return null;
 }
@@ -399,7 +399,7 @@ export async function handlePdfOpeningGeometry(
         : null;
     // With no reading view, the admitted copy's exact table owns the first
     // layout. Managed-copy callers still need its count to admit a restore.
-    if (readingView === null && !isWorkingCopyDocumentPath(resolvedPath)) return null;
+    if (readingView === null && !isWorkingCopyDocumentPath(resolvedPath)) {return null;}
     const readingPage = readingView?.anchor?.page ?? readingView?.currentPage ?? 1;
     const shape = await readPdfOpeningGeometry(context, resolvedPath, null, identityBefore, readingPage);
     const matched = readingView !== null && shape?.pageNumber === readingPage && shape.pageCount === readingView.pageCount;
@@ -455,7 +455,7 @@ async function readPdfOpeningGeometry(
                     signal,
                     cancelGroup,
                 })).catch((error: unknown) => {
-                    if (!isPasswordRequiredPdfInfoFailure(error)) throw error;
+                    if (!isPasswordRequiredPdfInfoFailure(error)) {throw error;}
                 });
                 throwIfAborted(signal);
                 return null;

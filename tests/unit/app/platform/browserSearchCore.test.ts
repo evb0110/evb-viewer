@@ -159,10 +159,10 @@ describe('browserSearchCore', () => {
         }> = [];
         for await (const page of streamBrowserSearchDocumentPages('/tmp/long-rtl.pdf')) {
             expect(page.text).toBe(`שלום ${page.pageNumber}`);
-            for (const match of findPdfSearchMatches(page.text, 'שלום', {})) results.push({
+            for (const match of findPdfSearchMatches(page.text, 'שלום', {})) {results.push({
                 pageNumber: page.pageNumber,
                 ...match,
-            });
+            });}
         }
         expect(results).toEqual(Array.from({length: pageCount}, (_, index) => ({
             pageNumber: index + 1,

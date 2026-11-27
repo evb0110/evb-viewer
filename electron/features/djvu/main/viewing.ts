@@ -274,9 +274,9 @@ export async function handleDjvuOpenForViewing(
     const probeOptions = signal ? {signal} : {};
     let format: ReturnType<typeof detectDocumentFormat> | null = null;
     try {
-        if (signal?.aborted) throw abortErrorFromSignal(signal);
+        if (signal?.aborted) {throw abortErrorFromSignal(signal);}
         format = await readDjvuInputFormat(djvuPath);
-        if (signal?.aborted) throw abortErrorFromSignal(signal);
+        if (signal?.aborted) {throw abortErrorFromSignal(signal);}
         if (format !== 'djvu' && format !== 'invalid-djvu') {
             return failDjvuOpen(new Error(`This file is not a DjVu document (${format})`), 'not-djvu', format);
         }
@@ -330,7 +330,7 @@ export async function handleDjvuOpenForViewing(
                 },
             };
         }
-        if (isErrnoException(error) && error.code === 'ENOENT') return failDjvuOpen(error, 'not-found');
+        if (isErrnoException(error) && error.code === 'ENOENT') {return failDjvuOpen(error, 'not-found');}
         return failDjvuOpen(error, format === 'invalid-djvu' ? 'invalid-djvu' : null);
     }
 }

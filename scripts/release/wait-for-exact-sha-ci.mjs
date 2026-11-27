@@ -241,7 +241,7 @@ export async function waitForExactShaCiGates(targetSha, {
                 knownRun = latestRun;
             }
         } catch (error) {
-            if (failOnLookupError) throw error;
+            if (failOnLookupError) {throw error;}
             // Transient API failures must not abort the wait; the deadlines
             // below keep the loop bounded and fail-closed.
             stderr.write(`Transient CI lookup failure for ${targetSha}; retrying: ${
@@ -269,7 +269,7 @@ export async function waitForExactShaCiGates(targetSha, {
             try {
                 gatesConclusion = readGatesOkConclusion(knownRun.id, runCommand);
             } catch (error) {
-                if (failOnLookupError) throw error;
+                if (failOnLookupError) {throw error;}
                 gatesLookupError = error instanceof Error
                     ? getCliErrorMessage(error).split('\n')[0]
                     : String(error);

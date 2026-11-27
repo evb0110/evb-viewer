@@ -366,7 +366,7 @@ const canExportDocx = computed(() => (
 const handleCropAction = () => runPdfEditAction(context.crop.handleCrop);
 // A toolbar action closes the open menus and logs its failure.
 function runToolbarAction(action: () => unknown) {
-    if (documentContext.isMoving.value) return;
+    if (documentContext.isMoving.value) {return;}
     closeAllDropdowns();
     void runDetached(() => Promise.resolve(action()), {
         category: 'user-visible-operation',

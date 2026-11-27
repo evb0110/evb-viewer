@@ -275,9 +275,9 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
 
     async function runTabPathAction(tabId: string, action: 'reveal-in-folder' | 'copy-path') {
         const path = getTabFilePath(tabId);
-        if (path === null) return;
+        if (path === null) {return;}
         try {
-            if (action === 'copy-path') await globalThis.navigator.clipboard.writeText(path);
+            if (action === 'copy-path') {await globalThis.navigator.clipboard.writeText(path);}
             else if (!await getDocumentWindowCapability().showItemInFolder(path)) {
                 throw new Error('File manager did not reveal the file');
             }

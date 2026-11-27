@@ -72,7 +72,7 @@ export const useDjvuProjectionActions = (options: IDjvuProjectionActionOptions) 
                 options.cancelExportDocx();
                 return;
             }
-            if (await ensureProjection('ocr')) await options.exportDocx(selectedLanguages);
+            if (await ensureProjection('ocr')) {await options.exportDocx(selectedLanguages);}
         },
         handleDropdownOpen(
             dropdown: 'zoom' | 'page' | 'ocr',

@@ -320,12 +320,12 @@ function schedulePersistenceRetry() {
             }
             if (!isScanCleanupDocumentPersistenceTokenCurrent(pending.token)) {
                 const key = documentUpdateKey(pending.request);
-                if (key !== null) pendingDocumentUpdates.delete(key);
+                if (key !== null) {pendingDocumentUpdates.delete(key);}
                 continue;
             }
             void queueRemoteUpdate(pending.request, pending.token, pending.version).catch(() => undefined);
         }
-        if (pendingPreferences) void flushScanCleanupPreferencesStore().catch(() => undefined);
+        if (pendingPreferences) {void flushScanCleanupPreferencesStore().catch(() => undefined);}
     }, delayMs);
 }
 
@@ -396,7 +396,7 @@ function queueRemoteUpdate(
         }
         const result = await updateSettings(request);
         remoteSettingsFile = result;
-        if (isGlobalPreferencesWrite) acknowledgeGlobalPreferences(result.settings, request.requestId);
+        if (isGlobalPreferencesWrite) {acknowledgeGlobalPreferences(result.settings, request.requestId);}
         committed = true;
     });
     remoteWriteQueue = queuedWrite.then(() => undefined, () => undefined);
@@ -433,7 +433,7 @@ function queueRemoteUpdate(
             persistenceRetryAttempt = 0;
         }
         if (isGlobalPreferencesWrite) {
-            if (pendingRemoteGlobalWrite?.promise === observedWrite) pendingRemoteGlobalWrite = null;
+            if (pendingRemoteGlobalWrite?.promise === observedWrite) {pendingRemoteGlobalWrite = null;}
             return;
         }
         if (documentKey !== null) {
@@ -478,7 +478,7 @@ async function hydratePreferences() {
         });
         preferencesHydrated = true;
         pendingPreferences = pendingGlobalFields.size === 0 ? null : cloneScanCleanupPreferenceValue(preferences);
-        if (pendingGlobalFields.size > 0) void flushScanCleanupPreferencesStore().catch(() => undefined);
+        if (pendingGlobalFields.size > 0) {void flushScanCleanupPreferencesStore().catch(() => undefined);}
     } catch (error) {
         BrowserLogger.error('scan-cleanup', 'Failed to load file-backed settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
         throw error;
@@ -503,7 +503,7 @@ function scheduleScanCleanupPreferencesPersistence(value: IScanCleanupGlobalPref
     if (!preferencesHydrated) {
         return;
     }
-    if (persistenceTimer !== null) clearTimeout(persistenceTimer);
+    if (persistenceTimer !== null) {clearTimeout(persistenceTimer);}
     persistenceTimer = setTimeout(() => {
         void flushScanCleanupPreferencesStore().catch(() => undefined);
     }, SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS);
@@ -531,9 +531,9 @@ export async function flushScanCleanupPreferencesStore(): Promise<void> {
                 key,
                 intent,
             ] of pendingGlobalFields) {
-                if (isEqual(intent, settingsPatch[key]) || isEqual(intent, committed[key])) pendingGlobalFields.delete(key);
+                if (isEqual(intent, settingsPatch[key]) || isEqual(intent, committed[key])) {pendingGlobalFields.delete(key);}
             }
-            if (pendingPreferences === pending) pendingPreferences = null;
+            if (pendingPreferences === pending) {pendingPreferences = null;}
             persistenceRetryAttempt = 0;
         } catch (error) {
             BrowserLogger.error('scan-cleanup', 'Failed to persist browser settings', error, {code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED'});
@@ -771,7 +771,7 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
             patch: mergeScanCleanupDocumentPreferencePatches(usablePrevious?.patch, cloneScanCleanupPreferenceValue(patch)),
             token,
         });
-        if (documentPersistenceTimer !== null) clearTimeout(documentPersistenceTimer);
+        if (documentPersistenceTimer !== null) {clearTimeout(documentPersistenceTimer);}
         // The flush keeps a patch whose write fails and retries it.
         documentPersistenceTimer = setTimeout(() => {
             documentPersistenceTimer = null;
@@ -808,11 +808,11 @@ export function scheduleScanCleanupDocumentPreferencesInStore(
         version,
         queued: false,
     });
-    if (documentPersistenceTimer !== null) clearTimeout(documentPersistenceTimer);
+    if (documentPersistenceTimer !== null) {clearTimeout(documentPersistenceTimer);}
     documentPersistenceTimer = setTimeout(() => {
         documentPersistenceTimer = null;
         for (const pending of pendingDocumentUpdates.values()) {
-            if (!pending.queued) void queueRemoteUpdate(pending.request, pending.token, pending.version).catch(() => undefined);
+            if (!pending.queued) {void queueRemoteUpdate(pending.request, pending.token, pending.version).catch(() => undefined);}
         }
     }, SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS);
     return Promise.resolve();
@@ -878,7 +878,7 @@ export function dismissScanCleanupFirstRunGuidanceInStore() {
 /** Re-loads the singleton on its next access. Primarily useful for isolated tests. */
 export function resetScanCleanupPreferencesStore() {
     pendingPreferences = null;
-    if (persistenceTimer !== null) clearTimeout(persistenceTimer);
+    if (persistenceTimer !== null) {clearTimeout(persistenceTimer);}
     persistenceTimer = null;
     persistenceScope?.stop();
     persistenceScope = null;

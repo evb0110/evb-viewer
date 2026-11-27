@@ -69,17 +69,17 @@ const reference = shallowRef(createReference());
 const isUseful = ref(usefulness === 'always' || usefulness === 'auto' || usefulness === 'no-text');
 const tooltipProps = computed(() => {
     const props: Record<string, unknown> = {disabled: disabled || !isUseful.value};
-    if (text !== undefined) props.text = text;
-    if (content !== undefined) props.content = content;
-    if (arrow !== undefined) props.arrow = arrow;
+    if (text !== undefined) {props.text = text;}
+    if (content !== undefined) {props.content = content;}
+    if (arrow !== undefined) {props.arrow = arrow;}
     props.portal = portal;
-    if (tooltipClass !== undefined) props.class = tooltipClass;
-    if (defaultOpen !== undefined) props.defaultOpen = defaultOpen;
-    if (open !== undefined) props.open = open;
-    if (delayDuration !== undefined) props.delayDuration = delayDuration;
-    if (disableHoverableContent !== undefined) props.disableHoverableContent = disableHoverableContent;
-    if (disableClosingTrigger !== undefined) props.disableClosingTrigger = disableClosingTrigger;
-    if (ignoreNonKeyboardFocus !== undefined) props.ignoreNonKeyboardFocus = ignoreNonKeyboardFocus;
+    if (tooltipClass !== undefined) {props.class = tooltipClass;}
+    if (defaultOpen !== undefined) {props.defaultOpen = defaultOpen;}
+    if (open !== undefined) {props.open = open;}
+    if (delayDuration !== undefined) {props.delayDuration = delayDuration;}
+    if (disableHoverableContent !== undefined) {props.disableHoverableContent = disableHoverableContent;}
+    if (disableClosingTrigger !== undefined) {props.disableClosingTrigger = disableClosingTrigger;}
+    if (ignoreNonKeyboardFocus !== undefined) {props.ignoreNonKeyboardFocus = ignoreNonKeyboardFocus;}
     props.reference = reference.value;
     props.ui = {
         content: 'app-tooltip-content',

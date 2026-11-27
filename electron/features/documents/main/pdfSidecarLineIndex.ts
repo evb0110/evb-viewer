@@ -512,8 +512,8 @@ function findPdfSidecarLineIndex(lines: readonly IPdfSidecarLine[], offset: numb
         if (line.offset === offset) {
             return middle;
         }
-        if (line.offset < offset) low = middle + 1;
-        else high = middle - 1;
+        if (line.offset < offset) {low = middle + 1;}
+        else {high = middle - 1;}
     }
     return -1;
 }
@@ -632,11 +632,11 @@ export async function sweepStalePdfSidecarArtifacts({
         .filter(name => name.startsWith(directoryPrefix))
         .slice(0, maxEntries)) {
         const directoryPath = join(tempDir, entry);
-        if (activeDirectories.has(directoryPath)) continue;
+        if (activeDirectories.has(directoryPath)) {continue;}
         try {
             const directoryStat = await lstat(directoryPath);
-            if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) continue;
-            if (now - Math.floor(Math.max(directoryStat.mtimeMs, directoryStat.ctimeMs)) < maxAgeMs) continue;
+            if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {continue;}
+            if (now - Math.floor(Math.max(directoryStat.mtimeMs, directoryStat.ctimeMs)) < maxAgeMs) {continue;}
             await rm(directoryPath, {
                 force: true,
                 recursive: true,

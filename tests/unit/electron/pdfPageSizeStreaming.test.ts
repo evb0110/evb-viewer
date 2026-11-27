@@ -106,10 +106,10 @@ describe('page-size sidecar reader', () => {
         let commandCalls = 0;
         const runCommand = async (_command: string, args: string[]) => {
             const outputPath = args[args.indexOf('--output') + 1];
-            if (outputPath === undefined) throw new Error('native output path is missing');
+            if (outputPath === undefined) {throw new Error('native output path is missing');}
             outputPaths.push(outputPath);
             commandCalls += 1;
-            if (commandCalls === 2) release.resolve(undefined);
+            if (commandCalls === 2) {release.resolve(undefined);}
             await release.promise;
             await writeFile(outputPath, `${JSON.stringify({
                 format: PDF_PAGE_SIZE_SIDECAR_FORMAT,
@@ -399,7 +399,7 @@ describe('page-size sidecar reader', () => {
                 rm,
                 open: async (path, flags) => {
                     const handle = await open(path, flags);
-                    if (!path.endsWith('index.bin')) return handle;
+                    if (!path.endsWith('index.bin')) {return handle;}
                     return new Proxy(handle, {get(target, property) {
                         if (property === 'read') {
                             return async (

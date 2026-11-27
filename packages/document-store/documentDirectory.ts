@@ -185,14 +185,14 @@ export class DocumentDirectory {
 
     static async create(store: IDocumentStore, init: TDocumentInit) {
         const ext = 'name' in init ? extensionOf(init.name) : init.ext;
-        if (!EXT_PATTERN.test(ext)) throw new Error(`Unsupported document extension: ${ext}`);
+        if (!EXT_PATTERN.test(ext)) {throw new Error(`Unsupported document extension: ${ext}`);}
         const id = init.id ?? crypto.randomUUID();
-        if (!STORE_ID_PATTERN.test(id)) throw new Error(`Invalid document directory id: ${id}`);
+        if (!STORE_ID_PATTERN.test(id)) {throw new Error(`Invalid document directory id: ${id}`);}
         const manifest: IManifest = { version: 1, ext, ...('name' in init ? { name: init.name } : {}), next: 2, history: [] };
         const doc = new DocumentDirectory(id, store, manifest, null, undefined);
         if ('destination' in init) {
             const baseline = await store.publication.witness(init.destination);
-            if (baseline === null) throw new Error('The destination has no readable content');
+            if (baseline === null) {throw new Error('The destination has no readable content');}
             await doc.commitFirst({ ...manifest, destination: init.destination, baseline }, null, undefined);
         } else {
             const name = `r1.${ext}`;
@@ -214,7 +214,7 @@ export class DocumentDirectory {
      * destination, baseline and drafts, and no history. The caller holds the source's lock.
      */
     static async fork(store: IDocumentStore, sourceId: string, id: string = crypto.randomUUID()) {
-        if (![sourceId, id].every(value => STORE_ID_PATTERN.test(value))) throw new Error(`Invalid document directory id: ${sourceId} or ${id}`);
+        if (![sourceId, id].every(value => STORE_ID_PATTERN.test(value))) {throw new Error(`Invalid document directory id: ${sourceId} or ${id}`);}
         const { port } = store;
         const from = (name: string) => `${DOCUMENTS_DIR}/${sourceId}/${name}`;
         const manifest = decodeManifest(await port.read(from(MANIFEST_NAME)));
@@ -228,13 +228,13 @@ export class DocumentDirectory {
         }
         let file: IStoreFile | null = null;
         try {
-            if (current) await port.copy(from(current.file), doc.path(current.file));
+            if (current) {await port.copy(from(current.file), doc.path(current.file));}
             file = current ? await port.open(doc.path(current.file)) : null;
             // Native tools read the copy to its end: what lies past `current.length` (a redo, an uncommitted append) goes.
-            if (current && file && await file.size() > current.length) await file.truncate(current.length);
+            if (current && file && await file.size() > current.length) {await file.truncate(current.length);}
         } catch (error) {
             await file?.close().catch(() => undefined);
-            if (current) await port.remove(doc.path(current.file)).catch(() => undefined);
+            if (current) {await port.remove(doc.path(current.file)).catch(() => undefined);}
             throw error;
         }
         await doc.commitFirst({ ...manifest, history: [] }, file, value);
@@ -243,7 +243,7 @@ export class DocumentDirectory {
 
     /** Opens a directory after a crash or a clean close alike: the three recovery steps of the model. */
     static async open(store: IDocumentStore, id: string) {
-        if (!STORE_ID_PATTERN.test(id)) throw new Error(`Invalid document directory id: ${id}`);
+        if (!STORE_ID_PATTERN.test(id)) {throw new Error(`Invalid document directory id: ${id}`);}
         const { port } = store;
         const dir = `${DOCUMENTS_DIR}/${id}`;
         const names = await port.list(dir);
@@ -278,7 +278,7 @@ export class DocumentDirectory {
         // 2. Delete what the manifest does not name, including drafts and temporary files of unfinished commits.
         const keep = new Set([MANIFEST_NAME, ...namedFiles(manifest)]);
         for (const name of names) {
-            if (!keep.has(name)) await port.remove(`${dir}/${name}`);
+            if (!keep.has(name)) {await port.remove(`${dir}/${name}`);}
         }
         const drafts = manifest.drafts === undefined ? undefined : decodeJson(await port.read(`${dir}/${manifest.drafts}`));
         const doc = new DocumentDirectory(id, store, manifest, file, drafts);
@@ -305,7 +305,7 @@ export class DocumentDirectory {
     /** Reads the current revision. It does not wait for queued calls: the bytes a revision names never change. */
     read(offset: number, length: number) {
         const current = this.manifest.current;
-        if (!current) throw new Error('The document has no bytes of its own yet: read its destination');
+        if (!current) {throw new Error('The document has no bytes of its own yet: read its destination');}
         return this.currentFile().readAt(offset, Math.max(0, Math.min(length, current.length - offset)));
     }
 
@@ -323,14 +323,14 @@ export class DocumentDirectory {
 
     async applyRestore(expected: number | null, revisionId: number): Promise<TRestoreResult> {
         const stale = this.staleRevision(expected);
-        if (stale) return stale;
+        if (stale) {return stale;}
         const { manifest } = this;
         const { current } = manifest;
-        if ((current?.id ?? 1) === revisionId) return { status: 'committed', revision: current ?? null };
+        if ((current?.id ?? 1) === revisionId) {return { status: 'committed', revision: current ?? null };}
         const target = manifest.history.find(revision => revision.id === revisionId);
-        if (!target) return { status: 'stale-revision', current: current ?? null };
+        if (!target) {return { status: 'stale-revision', current: current ?? null };}
         if (!hasFile(target) && !(sameWitness(target.witness, manifest.baseline) && manifest.destination !== undefined
-            && sameWitness(await this.store.publication.witness(manifest.destination), target.witness))) return { status: 'conflict' };
+            && sameWitness(await this.store.publication.witness(manifest.destination), target.witness))) {return { status: 'conflict' };}
         let file = hasFile(target) ? this.file : null;
         if (hasFile(target)) {
             // `open` creates a missing file: the revision must be there, whole, before the manifest names it.
@@ -339,9 +339,9 @@ export class DocumentDirectory {
                 file = (await port.list(`${DOCUMENTS_DIR}/${this.id}`)).includes(target.file) ? await port.open(this.path(target.file)) : null;
             }
             try {
-                if (!file || await file.size() < target.length) throw new DamagedDocumentError(`Revision ${target.id} of document ${this.id} is missing or cut short`);
+                if (!file || await file.size() < target.length) {throw new DamagedDocumentError(`Revision ${target.id} of document ${this.id} is missing or cut short`);}
             } catch (error) {
-                if (file !== this.file) await file?.close().catch(() => undefined);
+                if (file !== this.file) {await file?.close().catch(() => undefined);}
                 throw error;
             }
         }
@@ -359,7 +359,7 @@ export class DocumentDirectory {
         return this.run(async () => {
             this.retained = new Set(revisionIds);
             const history = this.manifest.history.filter(revision => this.retained.has(revision.id));
-            if (history.length < this.manifest.history.length) await this.commit({ ...this.manifest, history });
+            if (history.length < this.manifest.history.length) {await this.commit({ ...this.manifest, history });}
         });
     }
 
@@ -376,7 +376,7 @@ export class DocumentDirectory {
         const capturedForeignStaged = guard?.foreignStaged ?? (this.manifest.current?.foreign === 'staged');
         return this.run(async (): Promise<TDraftResult> => {
             const stale = this.staleDraftRevision(expected, capturedByteRevision, capturedBaseline, capturedForeignStaged);
-            if (stale) return stale;
+            if (stale) {return stale;}
             const after = await this.writeDrafts({ replace: drafts });
             await this.commit({ ...this.manifest, drafts: after.name }, this.file, after.value);
             return { status: 'stored', revision: this.manifest.current ?? null };
@@ -405,10 +405,10 @@ export class DocumentDirectory {
 
     async applyOwnCurrentFile() {
         const { current } = this.manifest;
-        if (!current) return null;
+        if (!current) {return null;}
         const longer = this.longerThanCurrent();
-        if (longer.length > 0) await this.moveToCopy(longer);
-        if (await this.currentFile().size() > current.length) await this.currentFile().truncate(current.length);
+        if (longer.length > 0) {await this.moveToCopy(longer);}
+        if (await this.currentFile().size() > current.length) {await this.currentFile().truncate(current.length);}
         return current;
     }
 
@@ -419,7 +419,7 @@ export class DocumentDirectory {
     abandonCurrentFile() {
         return this.run(async () => {
             const { current, history } = this.manifest;
-            if (current) await this.moveToCopy([current, ...history.filter(hasFile).filter(other => other.file === current.file)]);
+            if (current) {await this.moveToCopy([current, ...history.filter(hasFile).filter(other => other.file === current.file)]);}
         });
     }
 
@@ -446,9 +446,9 @@ export class DocumentDirectory {
 
     /** Runs `task` after every earlier call on this directory has settled; a damaged or refusing directory runs nothing. */
     run<T>(task: () => Promise<T>): Promise<T> {
-        if (this.damaged) return Promise.reject(new DamagedDocumentError(`The unsaved changes of document ${this.id} are in a revision file that is missing or cut short`));
+        if (this.damaged) {return Promise.reject(new DamagedDocumentError(`The unsaved changes of document ${this.id} are in a revision file that is missing or cut short`));}
         const result = this.tail.then(() => {
-            if (this.refusal) throw this.refusal;
+            if (this.refusal) {throw this.refusal;}
             return task();
         });
         this.tail = result.catch(() => undefined);
@@ -464,7 +464,7 @@ export class DocumentDirectory {
     }
 
     currentFile() {
-        if (!this.file) throw new Error(`Document ${this.id} has no open revision file`);
+        if (!this.file) {throw new Error(`Document ${this.id} has no open revision file`);}
         return this.file;
     }
 
@@ -481,9 +481,9 @@ export class DocumentDirectory {
     ): TStaleRevision | null {
         const { current, baseline, destination } = this.manifest;
         const stale: TStaleRevision = { status: 'stale-revision', current: current ?? null };
-        if (capturedForeignStaged || current?.foreign === 'staged' || this.byteRevision !== capturedByteRevision) return stale;
+        if (capturedForeignStaged || current?.foreign === 'staged' || this.byteRevision !== capturedByteRevision) {return stale;}
         if ((current?.id ?? null) === expected) {
-            if (expected === null && !sameWitness(baseline, capturedBaseline)) return stale;
+            if (expected === null && !sameWitness(baseline, capturedBaseline)) {return stale;}
             return null;
         }
         if (
@@ -506,9 +506,9 @@ export class DocumentDirectory {
      */
     async applyMutation(expected: number | null, mutation: TMutation): Promise<TMutationResult> {
         const stale = this.staleRevision(expected);
-        if (stale) return stale;
+        if (stale) {return stale;}
         const base = mutation.kind === 'append' ? await this.ensureCurrent() : this.manifest.current;
-        if (base === null) return { status: 'conflict' };
+        if (base === null) {return { status: 'conflict' };}
         // Drafts first: a failure leaves no open revision file, only a drafts file recovery deletes.
         const drafts = await this.writeDrafts(mutation.drafts);
         const manifest = this.manifest;
@@ -517,7 +517,7 @@ export class DocumentDirectory {
         let file = this.file;
         const extended = base && this.longerThanCurrent().length === 0 ? base : null;
         if ((mutation.kind === 'append' || mutation.kind === 'extend') && extended) {
-            if (mutation.kind === 'append') await this.currentFile().writeAt(extended.length, mutation.bytes);
+            if (mutation.kind === 'append') {await this.currentFile().writeAt(extended.length, mutation.bytes);}
             await this.currentFile().flush();
             const length = mutation.kind === 'append' ? extended.length + mutation.bytes.byteLength : await this.currentFile().size();
             revision = { id, file: extended.file, length };
@@ -557,7 +557,7 @@ export class DocumentDirectory {
         try {
             await port.copy(this.path(moved[0]!.file), this.path(name));
             file = await port.open(this.path(name));
-            if (await file.size() > length) await file.truncate(length);
+            if (await file.size() > length) {await file.truncate(length);}
         } catch (error) {
             await file?.close().catch(() => undefined);
             await port.remove(this.path(name)).catch(() => undefined);
@@ -565,7 +565,7 @@ export class DocumentDirectory {
         }
         const rename = <T extends THistoryRevision>(revision: T): T => (moved.includes(revision as IRevision) ? { ...revision, file: name } as T : revision);
         const current = manifest.current && rename(manifest.current);
-        if (current === manifest.current) await file.close();
+        if (current === manifest.current) {await file.close();}
         await this.commit({ ...manifest, next: manifest.next + 1, current, history: manifest.history.map(rename) }, current === manifest.current ? this.file : file);
     }
 
@@ -593,10 +593,10 @@ export class DocumentDirectory {
         const { manifest } = this;
         const { destination } = manifest;
         const kept = manifest.history.find(revision => !hasFile(revision));
-        if (!kept || destination === undefined || !sameWitness(kept.witness, manifest.baseline)) return;
+        if (!kept || destination === undefined || !sameWitness(kept.witness, manifest.baseline)) {return;}
         const name = `r1.${manifest.ext}`;
         const created = await this.createFromDestination(name).catch(() => null);
-        if (!created) return;
+        if (!created) {return;}
         await created.file.close();
         const revision: IRevision = { id: 1, file: name, length: created.length, witness: kept.witness };
         await this.commit({ ...manifest, history: manifest.history.map(other => (other === kept ? revision : other)) });
@@ -609,11 +609,11 @@ export class DocumentDirectory {
      */
     async ensureCurrent(asItIs = false): Promise<IRevision | null> {
         const { manifest } = this;
-        if (manifest.current) return manifest.current;
-        if (manifest.destination === undefined) throw new Error(`Document ${this.id} has neither bytes nor a destination`);
+        if (manifest.current) {return manifest.current;}
+        if (manifest.destination === undefined) {throw new Error(`Document ${this.id} has neither bytes nor a destination`);}
         const name = `r1.${manifest.ext}`;
         const created = await this.createFromDestination(name, asItIs);
-        if (!created) return null;
+        if (!created) {return null;}
         const current: IRevision = {
             id: 1,
             file: name,
@@ -634,7 +634,7 @@ export class DocumentDirectory {
         const { publication } = this.store;
         const { destination, baseline } = this.manifest;
         const before = await publication.witness(destination!);
-        if (!asItIs && !sameWitness(before, baseline)) return null;
+        if (!asItIs && !sameWitness(before, baseline)) {return null;}
         const created = await this.createRevisionFile(name, await publication.source(destination!));
         const discard = async () => {
             await created.file.close().catch(() => undefined);
@@ -645,7 +645,7 @@ export class DocumentDirectory {
             throw error;
         });
         const unchanged = sameWitness(after, baseline);
-        if (sameWitness(before, after) && (unchanged || asItIs)) return { ...created, witness: unchanged ? baseline : undefined };
+        if (sameWitness(before, after) && (unchanged || asItIs)) {return { ...created, witness: unchanged ? baseline : undefined };}
         await discard();
         return null;
     }
@@ -658,7 +658,7 @@ export class DocumentDirectory {
     async resolvePending() {
         const { manifest } = this;
         const { pendingPublish: pending, unsettled = [] } = manifest;
-        if (!pending && unsettled.length === 0) return;
+        if (!pending && unsettled.length === 0) {return;}
         const { publication } = this.store;
         // A witness without content names the published file by its metadata, which is enough to compare.
         const settle = (record: IPendingPublish, baseline: string | undefined) => (publication.settle
@@ -666,7 +666,7 @@ export class DocumentDirectory {
             : publication.witness(record.destination, contentOf(record.witness) !== undefined)).catch(() => undefined);
         const left: IPendingPublish[] = [];
         for (const record of unsettled) {
-            if (await settle(record, record.baseline) === undefined) left.push(record);
+            if (await settle(record, record.baseline) === undefined) {left.push(record);}
         }
         const witness = pending && await settle(pending, manifest.baseline);
         const adopted = pending && witness && sameWitness(witness, pending.witness)
@@ -679,7 +679,7 @@ export class DocumentDirectory {
             }
             : {};
         const next = { ...manifest, ...adopted, pendingPublish: witness === undefined ? pending : undefined, unsettled: left.length > 0 ? left : undefined };
-        if (JSON.stringify(next) !== JSON.stringify(manifest)) await this.commit(next);
+        if (JSON.stringify(next) !== JSON.stringify(manifest)) {await this.commit(next);}
     }
 
     /**
@@ -702,22 +702,22 @@ export class DocumentDirectory {
             failure = error;
             const onDisk = await port.read(this.path(MANIFEST_NAME)).then(bytes => new TextDecoder().decode(bytes), () => null);
             if (onDisk !== text) {
-                if (file !== this.file) await file?.close().catch(() => undefined);
-                if (onDisk !== JSON.stringify(before)) this.refusal = new Error(`Document ${this.id} lost track of its manifest; open it again`, { cause: error });
+                if (file !== this.file) {await file?.close().catch(() => undefined);}
+                if (onDisk !== JSON.stringify(before)) {this.refusal = new Error(`Document ${this.id} lost track of its manifest; open it again`, { cause: error });}
                 throw error;
             }
         }
         this.manifest = next;
         this.drafts = next.drafts === undefined ? undefined : drafts;
-        if (!initial) this.recordRevisionChange(before, next);
+        if (!initial) {this.recordRevisionChange(before, next);}
         if (file !== this.file) {
             await this.file?.close().catch(() => undefined);
             this.file = file;
         }
-        if (failure !== undefined) throw failure;
+        if (failure !== undefined) {throw failure;}
         const named = namedFiles(next);
         for (const name of namedFiles(before)) {
-            if (!named.has(name)) await port.remove(this.path(name)).catch(() => undefined);
+            if (!named.has(name)) {await port.remove(this.path(name)).catch(() => undefined);}
         }
     }
 
@@ -749,7 +749,7 @@ export class DocumentDirectory {
             && next.current.witness !== undefined
             && sameWitness(next.current.witness, before.baseline)
             && sameWitness(next.baseline, before.baseline);
-        if (unchangedMaterialization) return;
+        if (unchangedMaterialization) {return;}
         const currentChanged = before.current?.id !== next.current?.id
             || before.current?.foreign !== next.current?.foreign;
         const unmaterializedBaselineChanged = before.current === undefined
@@ -763,8 +763,8 @@ export class DocumentDirectory {
 
     /** Writes the drafts a change leaves as a new file, for the change's manifest to name. */
     private async writeDrafts(after: TDraftsAfter): Promise<{ name: string | undefined; value: unknown }> {
-        if (after === 'keep') return { name: this.manifest.drafts, value: this.drafts };
-        if (after === 'clear' || after.replace === undefined) return { name: undefined, value: undefined };
+        if (after === 'keep') {return { name: this.manifest.drafts, value: this.drafts };}
+        if (after === 'clear' || after.replace === undefined) {return { name: undefined, value: undefined };}
         const name = `drafts-${crypto.randomUUID()}.json`;
         await this.store.port.writeAtomic(this.path(name), encodeJson(after.replace));
         return { name, value: after.replace };
@@ -776,7 +776,7 @@ export class DocumentDirectory {
         const path = this.path(name);
         try {
             if (typeof source === 'object' && 'move' in source) {
-                if (!port.move) throw new Error('This store cannot take files in');
+                if (!port.move) {throw new Error('This store cannot take files in');}
                 await port.move(source.move, path);
             } else if (typeof source !== 'function') {
                 await port.copyIn(source, path);

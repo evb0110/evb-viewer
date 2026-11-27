@@ -29,7 +29,7 @@ export function run(command, args) {
 /** @param {string} tag @returns {number[]} */
 export function releaseVersionParts(tag) {
     const match = /^v(\d+)\.(\d+)\.(\d+)$/u.exec(tag);
-    if (!match) throw new Error(`Invalid stable release tag: ${tag}`);
+    if (!match) {throw new Error(`Invalid stable release tag: ${tag}`);}
     return [
         Number(match[1]),
         Number(match[2]),
@@ -91,7 +91,7 @@ export function selectReleaseCandidate({
         : listRuns(runCommand);
     for (const runInfo of candidateRuns) {
         const sha = runInfo.head_sha;
-        if (!sha || gates(runInfo.id, runCommand) !== 'success') continue;
+        if (!sha || gates(runInfo.id, runCommand) !== 'success') {continue;}
         try {
             runCommand('git', [
                 'merge-base',
@@ -99,16 +99,16 @@ export function selectReleaseCandidate({
                 sha,
                 main,
             ]);
-            if (lastTagSha) runCommand('git', [
+            if (lastTagSha) {runCommand('git', [
                 'merge-base',
                 '--is-ancestor',
                 lastTagSha,
                 sha,
-            ]);
+            ]);}
         } catch {
             continue;
         }
-        if (lastTagSha && sha === lastTagSha) continue;
+        if (lastTagSha && sha === lastTagSha) {continue;}
         return {
             sha,
             run: runInfo,
@@ -122,7 +122,7 @@ export function selectReleaseCandidate({
 export function planRelease(level, {
     runCommand = run, ...candidateOptions
 } = {}) {
-    if (!LEVELS.has(level)) throw new Error('Expected release level: patch, minor, or major');
+    if (!LEVELS.has(level)) {throw new Error('Expected release level: patch, minor, or major');}
     runCommand('git', [
         'fetch',
         '--tags',
@@ -135,7 +135,7 @@ export function planRelease(level, {
         runCommand,
         ...candidateOptions,
     });
-    if (!lastTag) throw new Error('No stable release tag exists to derive the next version from.');
+    if (!lastTag) {throw new Error('No stable release tag exists to derive the next version from.');}
     const current = releaseVersionParts(lastTag);
     return {
         candidateCiRunId: ciRun.id,

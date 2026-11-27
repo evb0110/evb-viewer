@@ -297,7 +297,7 @@ function previewBackend() {
             const retained = new Set(request.retainPages ?? []);
             const doomed = pending.filter(entry => !retained.has(entry.pageNumber));
             pending = pending.filter(entry => retained.has(entry.pageNumber));
-            for (const entry of doomed) entry.reject();
+            for (const entry of doomed) {entry.reject();}
             return doomed.length > 0;
         }),
         detectAll: vi.fn(),
@@ -333,7 +333,7 @@ function previewBackend() {
         retire(pageNumber: number) {
             const doomed = pending.filter(entry => entry.pageNumber === pageNumber);
             pending = pending.filter(entry => entry.pageNumber !== pageNumber);
-            for (const entry of doomed) entry.reject();
+            for (const entry of doomed) {entry.reject();}
             return doomed.length;
         },
         // Advances the virtual clock, settling every preview whose modelled cost
@@ -346,12 +346,12 @@ function previewBackend() {
                     .sort((left, right) => left.readyAtMs - right.readyAtMs)[0];
                 const target = Math.min(next?.readyAtMs ?? until, Date.now() + 25, until);
                 vi.advanceTimersByTime(Math.max(0, target - Date.now()));
-                for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+                for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
                 const due = pending.filter(entry => entry.readyAtMs <= Date.now());
                 pending = pending.filter(entry => entry.readyAtMs > Date.now());
                 for (const entry of due) {
                     entry.resolve();
-                    for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+                    for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
                 }
             }
         },
@@ -578,11 +578,11 @@ async function runScenario(scenario: IScenario) {
         await nextTick();
         counters.navigations += 1;
         const hit = !mounted.session.loading.value && mounted.session.result.value?.pageNumber === pageNumber;
-        if (hit) counters.visibleHits += 1;
-        else counters.visibleMisses += 1;
+        if (hit) {counters.visibleHits += 1;}
+        else {counters.visibleMisses += 1;}
         if (settledFrom >= 0 && index > settledFrom) {
             counters.settledNavigations += 1;
-            if (hit) counters.settledHits += 1;
+            if (hit) {counters.settledHits += 1;}
         }
         await backend.advanceBy(scenario.intervalsMs?.[index] ?? scenario.intervalMs);
     }
@@ -643,7 +643,7 @@ describe('scan cleanup preview navigation', () => {
 
     it('keeps navigation from destroying the preview work it just caused', async () => {
         const rows = [];
-        for (const scenario of SCENARIOS) rows.push(await runScenario(scenario));
+        for (const scenario of SCENARIOS) {rows.push(await runScenario(scenario));}
         // Opt-in so the same run that gates the thresholds also produces the
         // comparable table; unset, the suite writes nothing.
         if (process.env.SCAN_CLEANUP_NAVIGATION_REPORT) {
@@ -694,7 +694,7 @@ describe('scan cleanup preview navigation', () => {
         const lifecycleKey = ref('reference.pdf:0');
         const mounted = mountPreviewSession(ref(100), reactive(new Map()), undefined, lifecycleKey);
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
         expect(preview).toHaveBeenCalledOnce();
         cancelPreview.mockClear();
 
@@ -708,12 +708,12 @@ describe('scan cleanup preview navigation', () => {
             invalidateRawCache: true,
         }));
         const retiredResult = previewResult(100);
-        if (retiredResult.canceled === true) throw new Error('fixture unexpectedly canceled');
+        if (retiredResult.canceled === true) {throw new Error('fixture unexpectedly canceled');}
         retiredPreview.resolve({
             ...retiredResult,
             rawImageData: new Uint8Array(new ArrayBuffer(PAGE_BYTES)),
         });
-        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
 
         expect(mounted.session.metadataByPage.size).toBe(0);
         expect(cacheProbe.instances[0]?.size).toBe(0);
@@ -735,7 +735,7 @@ describe('scan cleanup preview navigation', () => {
         lifecycleKey.value = 'reference.pdf:1';
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
         await backend.advanceBy(PREVIEW_MS + 500);
 
         expect(backend.previewCalls.mock.calls.filter(([request]) => request.pageNumber === 100)).toHaveLength(callsBefore + 1);
@@ -824,7 +824,7 @@ describe('scan cleanup preview navigation', () => {
             summary: placementAnchorSummary('detection-current'),
             placementAnchors: {full: {yNormalized: 0.2}},
         });
-        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
 
         expect(backend.previewCalls).not.toHaveBeenCalled();
         mounted.unmount();
@@ -963,7 +963,7 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 101;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 4; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 4; turn += 1) {await Promise.resolve();}
         expect(mounted.session.result.value?.pageNumber).toBe(100);
         expect(mounted.session.rawResult.value?.pageNumber).toBe(101);
         await backend.advanceBy(500);
@@ -996,7 +996,7 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 200;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
 
         // C1: the switch costs one preview invocation, not a raw leg and then a
         // cleaned one. C2: and the page's raster crosses once for it.
@@ -1040,7 +1040,7 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 400;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
         expect(mounted.session.loading.value).toBe(true);
         const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
             .filter(([request]) => request.pageNumber === pageNumber).length;
@@ -1082,7 +1082,7 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 300;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
         const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
             .filter(([request]) => request.pageNumber === pageNumber).length;
         expect(requestsFor(300)).toBe(1);
@@ -1138,7 +1138,7 @@ describe('scan cleanup preview navigation', () => {
         const previewPage = ref(100);
         const mounted = mountPreviewSession(previewPage, reactive(new Map()));
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
         expect(mounted.session.rawResult.value?.pageNumber).toBe(100);
         const [request] = backend.previewCalls.mock.calls.at(-1)!;
 
@@ -1175,7 +1175,7 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 300;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
 
         previewPage.value = 200;
         await nextTick();
@@ -1201,7 +1201,7 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 300;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
         const requestsFor = (pageNumber: number) => backend.previewCalls.mock.calls
             .filter(([request]) => request.pageNumber === pageNumber).length;
         expect(backend.retire(300)).toBe(1);
@@ -1236,7 +1236,7 @@ describe('scan cleanup preview navigation', () => {
         previewPage.value = 150;
         await nextTick();
         vi.advanceTimersByTime(1);
-        for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 8; turn += 1) {await Promise.resolve();}
 
         expect(backend.previewCalls.mock.calls.length).toBeGreaterThan(callsBefore);
         mounted.unmount();

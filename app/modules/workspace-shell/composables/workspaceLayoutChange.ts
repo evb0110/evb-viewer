@@ -38,7 +38,7 @@ export function createWorkspaceLayoutChange(options: {
     return async (change) => {
         let fenced = false;
         const fence = async () => {
-            if (fenced) return;
+            if (fenced) {return;}
             fenced = true;
             fences += 1;
             options.setWorkspaceLayoutResizing(true);

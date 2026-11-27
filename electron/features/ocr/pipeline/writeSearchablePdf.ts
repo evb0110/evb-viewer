@@ -38,7 +38,7 @@ export async function writeSearchablePdf(input: {
         try {
             let buffered = '{"pages":[';
             const flush = async () => {
-                if (buffered.length === 0) return;
+                if (buffered.length === 0) {return;}
                 const chunk = Buffer.from(buffered, 'utf8');
                 buffered = '';
                 let offset = 0;

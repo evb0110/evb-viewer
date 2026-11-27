@@ -1484,11 +1484,11 @@ describe('createBrowserSearchCapability', () => {
             expect(response.results).toHaveLength(length);
             expect(response.results[0]?.matchIndex).toBe(firstOrdinal);
             expect(response.truncated).toBe(truncated);
-            if (resultOffset !== 0) expect(response.results.at(-1)).toMatchObject({
+            if (resultOffset !== 0) {expect(response.results.at(-1)).toMatchObject({
                 matchIndex: 560,
                 pageNumber: 2,
                 pageMatchIndex: 0,
-            });
+            });}
         }
     });
 

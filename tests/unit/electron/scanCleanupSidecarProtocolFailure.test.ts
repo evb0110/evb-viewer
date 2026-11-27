@@ -43,7 +43,7 @@ class MockLineReader extends EventEmitter {
     readonly close = vi.fn(() => this.emit('close'));
 
     async *[Symbol.asyncIterator]() {
-        for await (const [line] of on(this, 'line', {close: ['close']})) yield String(line);
+        for await (const [line] of on(this, 'line', {close: ['close']})) {yield String(line);}
     }
 }
 
@@ -139,7 +139,7 @@ describe('scan cleanup sidecar protocol failures', () => {
             new AbortController().signal,
             vi.fn(),
             () => {
-                if (progressError !== undefined) throw progressError;
+                if (progressError !== undefined) {throw progressError;}
             },
         );
         const rejection = run.catch(error => error);

@@ -146,7 +146,7 @@ describe('scan-cleanup page batching', () => {
             scope.length,
             async batch => {
                 invocations.push(batch.batchIndex);
-                if (batch.batchIndex === 1) controller.abort();
+                if (batch.batchIndex === 1) {controller.abort();}
             },
             {signal: controller.signal},
         )).rejects.toMatchObject({name: 'AbortError'});

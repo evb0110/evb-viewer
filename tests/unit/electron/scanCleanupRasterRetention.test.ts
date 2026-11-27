@@ -1160,7 +1160,7 @@ export async function scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRe
     deps.renderPage = vi.fn(async (...args: Parameters<typeof originalRenderPage>) => {
         if (args[2] === 1) {
             coldRenders += 1;
-            if (coldRenders >= 2) bothRendering.resolve(undefined);
+            if (coldRenders >= 2) {bothRendering.resolve(undefined);}
             await bothRendering.promise;
         }
         await originalRenderPage(...args);
@@ -1186,7 +1186,7 @@ export async function scenarioKeepsARasterItsSidecarIsReadingWhenTheSamePageIsRe
         const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{inputPath: string}>};
         const detecting = manifest.pages.length > 1;
         entered += 1;
-        if (entered >= 2) bothPublished.resolve(undefined);
+        if (entered >= 2) {bothPublished.resolve(undefined);}
         await bothPublished.promise;
         readable[detecting ? 'detection' : 'preview'] = await allExist(
             manifest.pages.map(page => page.inputPath),
@@ -1499,20 +1499,20 @@ async function scenarioReleasesClaimAfterExceptionalRetainedRead(
 
     if (mode === 'bytes') {
         const sourceRead = deps.fileSystem?.readFile ?? deps.readFile;
-        if (sourceRead === undefined) throw new Error('fixture readFile is unavailable');
+        if (sourceRead === undefined) {throw new Error('fixture readFile is unavailable');}
         const readFile = sourceRead;
         async function throwingReadFile(path: string): Promise<Uint8Array>;
         async function throwingReadFile(path: string, encoding: 'utf8'): Promise<string>;
         async function throwingReadFile(path: string, encoding?: 'utf8') {
-            if (path === retained.path && encoding === undefined) throw failure;
+            if (path === retained.path && encoding === undefined) {throw failure;}
             return encoding === 'utf8' ? readFile(path, 'utf8') : readFile(path);
         }
         deps.readFile = throwingReadFile;
     } else {
         const sourceOpen = deps.open;
-        if (sourceOpen === undefined) throw new Error('fixture open is unavailable');
+        if (sourceOpen === undefined) {throw new Error('fixture open is unavailable');}
         deps.open = async (path, flags) => {
-            if (path === retained.path) throw failure;
+            if (path === retained.path) {throw failure;}
             return sourceOpen(path, flags);
         };
     }
@@ -1520,12 +1520,12 @@ async function scenarioReleasesClaimAfterExceptionalRetainedRead(
     const releaseEvents: string[] = [];
     const releaseRaster = retention.releaseRaster;
     retention.releaseRaster = async (...args: Parameters<typeof releaseRaster>) => {
-        if (args[0] === ownerOne) releaseEvents.push('raster');
+        if (args[0] === ownerOne) {releaseEvents.push('raster');}
         return releaseRaster(...args);
     };
     const releaseDocument = retention.release;
     retention.release = async (...args: Parameters<typeof releaseDocument>) => {
-        if (args[0] === ownerOne) releaseEvents.push('document');
+        if (args[0] === ownerOne) {releaseEvents.push('document');}
         return releaseDocument(...args);
     };
 

@@ -304,8 +304,8 @@ describe('tryPreprocessOcrImage', () => {
             };
         });
         mocks.readFile.mockImplementation(async (path: string) => {
-            if (path === '/tmp/page-1.ppm-clean.pnm') return cleanedPgm;
-            if (path === '/tmp/page-1.ppm-clean.pnm.json') return '{}';
+            if (path === '/tmp/page-1.ppm-clean.pnm') {return cleanedPgm;}
+            if (path === '/tmp/page-1.ppm-clean.pnm.json') {return '{}';}
             throw new Error(`Unexpected full readFile path: ${path}`);
         });
         const {prepareOcrPageRaster} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');
@@ -345,7 +345,7 @@ describe('tryPreprocessOcrImage', () => {
             };
         });
         mocks.readFile.mockImplementation(async (path: string) => {
-            if (path === '/tmp/page-2.ppm-clean.pnm.json') return '{}';
+            if (path === '/tmp/page-2.ppm-clean.pnm.json') {return '{}';}
             throw new Error(`Unexpected full readFile path: ${path}`);
         });
         const {prepareOcrPageRasterFile} = await import('@electron/features/ocr/pipeline/tryPreprocessOcrImage');

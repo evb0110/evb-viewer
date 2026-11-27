@@ -29,8 +29,8 @@ export function instanceInitials(label: string) {
         .map(word => word.replace(/^['’]+|['’]+$/gu, ''))
         // A path's "~" names no word.
         .filter(word => /^[\p{L}\p{N}]/u.test(word));
-    if (words.length === 0) return '';
-    if (words.length === 1) return Array.from(words[0] ?? '').slice(0, 2).join('').toUpperCase();
+    if (words.length === 0) {return '';}
+    if (words.length === 1) {return Array.from(words[0] ?? '').slice(0, 2).join('').toUpperCase();}
     return words.slice(0, 2).map(word => Array.from(word)[0]?.toUpperCase() ?? '').join('');
 }
 
@@ -41,7 +41,7 @@ export function instanceInitials(label: string) {
  */
 export function instanceBadge(instance: IAssistantInstanceStatus, instances: readonly IAssistantInstanceStatus[]) {
     const shared = instances.filter(candidate => candidate.driver === instance.driver && (!instance.enabled || candidate.enabled));
-    if (shared.length < 2) return '';
+    if (shared.length < 2) {return '';}
     const own = instance.label.split(' · ').slice(1).join(' ') || instance.label;
     return instanceInitials(own);
 }
@@ -57,30 +57,30 @@ function scoreSubsequence(value: string, query: string) {
     let previous = -1;
     let gaps = 0;
     for (let index = 0; index < value.length; index += 1) {
-        if (value[index] !== query[queryIndex]) continue;
-        if (first === -1) first = index;
-        if (previous !== -1) gaps += index - previous - 1;
+        if (value[index] !== query[queryIndex]) {continue;}
+        if (first === -1) {first = index;}
+        if (previous !== -1) {gaps += index - previous - 1;}
         previous = index;
         queryIndex += 1;
-        if (queryIndex === query.length) return gaps * 3 + (index - first + 1 - query.length);
+        if (queryIndex === query.length) {return gaps * 3 + (index - first + 1 - query.length);}
     }
     return null;
 }
 
 function scoreToken(field: string, token: string, base: number) {
-    if (!field || !token) return null;
-    if (field === token) return base;
-    if (field.startsWith(token)) return base + 2;
+    if (!field || !token) {return null;}
+    if (field === token) {return base;}
+    if (field.startsWith(token)) {return base + 2;}
     if ([
         ' ',
         '-',
         '_',
         '/',
-    ].some(marker => field.includes(`${marker}${token}`))) return base + 4;
-    if (field.includes(token)) return base + 6;
+    ].some(marker => field.includes(`${marker}${token}`))) {return base + 4;}
+    if (field.includes(token)) {return base + 6;}
     if (token.length >= 3) {
         const fuzzy = scoreSubsequence(field, token);
-        if (fuzzy !== null) return base + 100 + fuzzy;
+        if (fuzzy !== null) {return base + 100 + fuzzy;}
     }
     return null;
 }
@@ -88,11 +88,11 @@ function scoreToken(field: string, token: string, base: number) {
 /** Adapted from T3 Code packages/client-runtime/src/modelSearch.ts (0b6f482dc5), MIT. */
 export function scoreModelSearch(item: IModelPickerItem, query: string) {
     const tokens = normalize(query).split(/\s+/u).filter(Boolean);
-    if (tokens.length === 0) return 0;
+    if (tokens.length === 0) {return 0;}
     const joined = tokens.join(' ');
     const name = normalize(item.model.label).replace(/\s+/gu, ' ');
     const shortName = normalize(item.model.shortLabel ?? '').replace(/\s+/gu, ' ');
-    if (joined === name || joined === shortName) return -1000;
+    if (joined === name || joined === shortName) {return -1000;}
     const fields = [
         name,
         ...(shortName ? [shortName] : []),
@@ -111,7 +111,7 @@ export function scoreModelSearch(item: IModelPickerItem, query: string) {
             const value = scoreToken(field, token, index * 10);
             return value === null ? [] : [value];
         });
-        if (scores.length === 0) return null;
+        if (scores.length === 0) {return null;}
         score += Math.min(...scores);
     }
     return item.isFavorite ? score - 24 : score;
@@ -135,13 +135,13 @@ export function isApplePlatform() {
 
 /** ⌘1 through ⌘9 (Ctrl elsewhere) pick the first nine rows while the picker is open. */
 export function modelJumpLabel(index: number) {
-    if (index > 8) return '';
+    if (index > 8) {return '';}
     return isApplePlatform() ? `⌘${index + 1}` : `Ctrl+${index + 1}`;
 }
 
 export function modelJumpIndex(event: KeyboardEvent) {
     const modifier = isApplePlatform() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-    if (!modifier || event.altKey || event.shiftKey) return null;
+    if (!modifier || event.altKey || event.shiftKey) {return null;}
     const digit = /^Digit([1-9])$/u.exec(event.code)?.[1];
     return digit ? Number(digit) - 1 : null;
 }

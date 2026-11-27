@@ -112,7 +112,7 @@ function extractSavePublicationOutcome(error: unknown): {
     const seen = new Set<object>();
     let candidate: unknown = error;
     while (candidate !== null && candidate !== undefined && typeof candidate === 'object') {
-        if (seen.has(candidate)) return null;
+        if (seen.has(candidate)) {return null;}
         seen.add(candidate);
         if (candidate instanceof SavePublicationError) {
             return {externalWriteCommitted: candidate.externalWriteCommitted};
@@ -573,7 +573,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
     const optimizeRequests = new Map<AbortController, TDocumentRef | null>();
     onScopeDispose(() => optimizeRequests.forEach((_bound, controller) => controller.abort()), true);
     watch(deps.document.workingCopyPath, path => optimizeRequests.forEach((bound, controller) => {
-        if (bound !== null && bound !== path) controller.abort();
+        if (bound !== null && bound !== path) {controller.abort();}
     }));
     const acknowledgedUnencryptedSaveSessions = new Set<string>();
     const nativeSaveTransactionOptions = () => getNativeSaveTransactionOptions(deps);
@@ -720,7 +720,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         }
 
         function reportSaveError(error: unknown) {
-            if (isAbortError(error)) return false;
+            if (isAbortError(error)) {return false;}
             // The revision moved after this save captured it: a conflict,
             // told once. The user's edits stay unsaved for the next Save.
             if (isStaleRevisionError(error)) {
@@ -821,7 +821,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                         return false;
                     }
                     // A Save in another owner's turn (Close, a switch) ends at its durable result; that owner decides what follows.
-                    if (!holder && result.persisted.adoption) acceptance = deps.lifecycle.acceptAdoption?.(result.persisted.adoption);
+                    if (!holder && result.persisted.adoption) {acceptance = deps.lifecycle.acceptAdoption?.(result.persisted.adoption);}
                 } catch (error) {
                     reportSaveError(error);
                     return false;
@@ -839,12 +839,12 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                     // The PDF holds this Save, so settling its drafts never fails it; drafts it could not settle stay stale.
                     await deps.lifecycle.commitDrafts('reported')
                         .catch((error: unknown) => BrowserLogger.warn('workspace', 'Drafts stay unsettled after a published Save', {error}));
-                    if (!holdsCommit() && !durableResultHeldBeforeReadBack) return false;
+                    if (!holdsCommit() && !durableResultHeldBeforeReadBack) {return false;}
                 } else if (!durableResultHeldBeforeReadBack) {
                     return false;
                 }
-                if (result.persisted.outPath) deps.lifecycle.loadRecentFiles();
-                if (committedRevision) onCommitted?.(committedRevision);
+                if (result.persisted.outPath) {deps.lifecycle.loadRecentFiles();}
+                if (committedRevision) {onCommitted?.(committedRevision);}
                 saveSucceeded = true;
                 return true;
             } finally {

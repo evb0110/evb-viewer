@@ -307,8 +307,8 @@ function toUnicodeSearchRegex(pattern: string) {
                 ? `\\p${unicode.slice(2)}`
                 : escape === 'W' ? UNICODE_REGEX_WORD : undefined;
             if (complement !== undefined) {
-                if (classOpen < 0) output += `[^${complement}]`;
-                else classComplements.push(complement);
+                if (classOpen < 0) {output += `[^${complement}]`;}
+                else {classComplements.push(complement);}
             } else if (classOpen < 0) {
                 output += unicode;
             } else if (escape === 'b' || escape === 'B') {

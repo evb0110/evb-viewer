@@ -305,18 +305,18 @@ describe('Poppler output ownership at the native proof boundary', () => {
                 'rejected',
             ]) {
                 await actual.writeFile(output, 'partial raster bytes');
-                if (format === 'png') await actual.writeFile(join(dir, 'page.ppm'), 'partial Poppler PPM bytes');
+                if (format === 'png') {await actual.writeFile(join(dir, 'page.ppm'), 'partial Poppler PPM bytes');}
                 const proof = outcome === 'absent' ? undefined : outcome === 'false'
                     ? Promise.resolve(false) : Promise.reject(new Error('proof unavailable'));
                 mocks.runCommand.mockImplementation(async (_command: string, _args: string[], options: IRunNativeToolCommandOptions) => {
-                    if (proof) options.onTerminationProof?.(proof);
+                    if (proof) {options.onTerminationProof?.(proof);}
                     // Attach a rejection observer even on the original revision.
                     await proof?.catch(() => undefined);
                     throw failure;
                 });
                 await expect(render(paths, vi.fn(), 1, join(dir, 'source.pdf'), output, 300)).rejects.toBe(failure);
                 expect(await actual.readFile(output, 'utf8')).toBe('partial raster bytes');
-                if (format === 'png') expect(await actual.readFile(join(dir, 'page.ppm'), 'utf8')).toBe('partial Poppler PPM bytes');
+                if (format === 'png') {expect(await actual.readFile(join(dir, 'page.ppm'), 'utf8')).toBe('partial Poppler PPM bytes');}
             }
         } finally {
             await actual.rm(dir, {
@@ -339,13 +339,13 @@ describe('Poppler output ownership at the native proof boundary', () => {
         } = await import('@electron/features/ocr/pipeline/popplerStage');
         try {
             await actual.writeFile(output, 'partial raster');
-            if (format === 'png') await actual.writeFile(join(dir, 'page.ppm'), 'partial Poppler PPM bytes');
+            if (format === 'png') {await actual.writeFile(join(dir, 'page.ppm'), 'partial Poppler PPM bytes');}
             mocks.runCommand.mockRejectedValue(failure);
             await expect((format === 'png' ? renderPdfPageToPng : renderPdfPageToPpm)(
                 paths, vi.fn(), 1, join(dir, 'source.pdf'), output, 300,
             )).rejects.toBe(failure);
             await expect(actual.stat(output)).rejects.toMatchObject({code: 'ENOENT'});
-            if (format === 'png') await expect(actual.stat(join(dir, 'page.ppm'))).rejects.toMatchObject({code: 'ENOENT'});
+            if (format === 'png') {await expect(actual.stat(join(dir, 'page.ppm'))).rejects.toMatchObject({code: 'ENOENT'});}
         } finally {
             await actual.rm(dir, {
                 recursive: true,
@@ -416,7 +416,7 @@ describe('Poppler output ownership at the native proof boundary', () => {
         const ready = once(child, 'message');
         const closed = once(child, 'close');
         onTestFinished(async () => {
-            if (child.exitCode === null) child.kill('SIGKILL');
+            if (child.exitCode === null) {child.kill('SIGKILL');}
             await closed;
         });
         const proof = Promise.withResolvers<boolean>();
@@ -424,8 +424,8 @@ describe('Poppler output ownership at the native proof boundary', () => {
         const ppmRemoved = Promise.withResolvers<undefined>();
         mocks.rm.mockImplementation(async (path: string, options: Parameters<typeof actual.rm>[1]) => {
             await actual.rm(path, options);
-            if (path === output) removed.resolve(undefined);
-            if (path === ppm) ppmRemoved.resolve(undefined);
+            if (path === output) {removed.resolve(undefined);}
+            if (path === ppm) {ppmRemoved.resolve(undefined);}
         });
         const failure = markUnprovenNativeTermination(new Error('bounded proof wait ended'), 'child exit not yet proved');
         const {renderPdfPageToPng} = await import('@electron/features/ocr/pipeline/popplerStage');
@@ -468,7 +468,7 @@ describe('Poppler output ownership at the native proof boundary', () => {
             await expect(actual.stat(ppm)).rejects.toMatchObject({code: 'ENOENT'});
             expect(await actual.readFile(source)).toEqual(sourceBytes);
         } finally {
-            if (child.exitCode === null) child.kill('SIGKILL');
+            if (child.exitCode === null) {child.kill('SIGKILL');}
             await closed;
             proof.resolve(false);
             await actual.rm(dir, {

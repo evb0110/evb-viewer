@@ -53,7 +53,7 @@ const THREAD_FAULT_REPORT_MS = 500;
 const THREAD_START_DEADLINE_MS = 10_000;
 
 function call(value: WebAssembly.ExportValue | undefined, name: string, ...args: number[]): number {
-    if (typeof value !== 'function') throw new Error(`The threaded module has no ${name} export`);
+    if (typeof value !== 'function') {throw new Error(`The threaded module has no ${name} export`);}
     return (value as (...values: number[]) => number)(...args);
 }
 
@@ -66,7 +66,7 @@ function replyOf(worker: Worker, type: 'ready' | 'started') {
                 reject(new Error(`a thread could not start: ${event.data.message}`));
                 return;
             }
-            if (event.data?.type !== type) return;
+            if (event.data?.type !== type) {return;}
             settle();
             resolve();
         };
@@ -121,7 +121,7 @@ export function createNativeWasmThreadedInstances({
     function compile() {
         const current = compiled ??= compileWasmWithDeadline(resolveWasmUrl(threads.path));
         current.catch(() => {
-            if (compiled === current) compiled = null;
+            if (compiled === current) {compiled = null;}
         });
         return current;
     }
@@ -129,7 +129,7 @@ export function createNativeWasmThreadedInstances({
     async function start(module: WebAssembly.Module): Promise<INativeWasmThreadedInstance> {
         const workers: Worker[] = [];
         const dispose = () => {
-            for (const worker of workers) worker.terminate();
+            for (const worker of workers) {worker.terminate();}
         };
         let reportFault: (reason: string) => void = () => undefined;
         const fault = new Promise<string>((resolve) => {
@@ -151,7 +151,7 @@ export function createNativeWasmThreadedInstances({
                 // not also reach the page as this worker's.
                 worker.addEventListener('error', event => event.preventDefault());
                 worker.addEventListener('message', (event: MessageEvent<TNativeWasmThreadReply>) => {
-                    if (event.data?.type === 'fault') reportFault(event.data.message);
+                    if (event.data?.type === 'fault') {reportFault(event.data.message);}
                 });
                 workers.push(worker);
             }
@@ -175,7 +175,7 @@ export function createNativeWasmThreadedInstances({
                 onProgress: threads.onProgress,
                 spawnThread: (startArg) => {
                     const worker = idle.shift();
-                    if (!worker) return -1;
+                    if (!worker) {return -1;}
                     lastThreadId += 1;
                     started.push(replyOf(worker, 'started'));
                     worker.postMessage({
@@ -191,7 +191,7 @@ export function createNativeWasmThreadedInstances({
             call(exports._initialize, '_initialize');
             faultPointer = call(exports[`${prefix}_thread_fault_ptr`], 'thread fault');
             const count = call(exports[`${prefix}_start_threads`], 'thread start', threads.count);
-            if (count !== threads.count) throw new Error(`it started ${count} of ${threads.count} threads`);
+            if (count !== threads.count) {throw new Error(`it started ${count} of ${threads.count} threads`);}
             await withDeadline(Promise.all(started), deadline);
             return {
                 exports,

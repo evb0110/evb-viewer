@@ -37,14 +37,14 @@ describe('browser document lifecycle UI', () => {
             const signature = original.context.enumerateIndirectObjects().find(([
                 , object,
             ]) => object instanceof PDFDict && object.has(PDFName.of('ByteRange')))?.[1];
-            if (!(signature instanceof PDFDict)) throw new Error('Fixture signature missing');
+            if (!(signature instanceof PDFDict)) {throw new Error('Fixture signature missing');}
             const contents = signature.get(PDFName.of('Contents'));
-            if (!(contents instanceof PDFHexString)) throw new Error('Fixture CMS missing');
+            if (!(contents instanceof PDFHexString)) {throw new Error('Fixture CMS missing');}
             const der = Buffer.from(contents.asBytes());
             writeFileSync(resolve(evidence, 'signature.der'), der);
             verify = (bytes: Buffer, label: string) => {
                 const ranges = bytes.toString('latin1').match(/\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/u);
-                if (!ranges) throw new Error('Saved signature ByteRange missing');
+                if (!ranges) {throw new Error('Saved signature ByteRange missing');}
                 const [
                     a,
                     b,
@@ -112,7 +112,7 @@ describe('browser document lifecycle UI', () => {
                 const overlay = page.locator('.crop-overlay.is-active').first();
                 await overlay.waitFor();
                 const box = await overlay.boundingBox();
-                if (!box) throw new Error('Crop overlay has no painted rectangle');
+                if (!box) {throw new Error('Crop overlay has no painted rectangle');}
                 await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
                 await page.mouse.down();
                 await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.8, {steps: 8});
@@ -131,8 +131,8 @@ describe('browser document lifecycle UI', () => {
             verify(saved, operation);
             expect(saved.subarray(0, source.length)).toEqual(source);
             const reopened = await PDFDocument.load(saved);
-            if (operation === 'rotate') expect(reopened.getPage(0).getRotation().angle).toBe(90);
-            else expect(reopened.getPage(0).getCropBox().width).toBeLessThan(original.getPage(0).getCropBox().width);
+            if (operation === 'rotate') {expect(reopened.getPage(0).getRotation().angle).toBe(90);}
+            else {expect(reopened.getPage(0).getCropBox().width).toBeLessThan(original.getPage(0).getCropBox().width);}
         });
     });
 
@@ -290,7 +290,7 @@ describe('browser document lifecycle UI', () => {
                 page,
                 bytes,
             };
-            if (paddingBytes) expect(bytes.byteLength).toBeGreaterThan(24 * 1024 * 1024);
+            if (paddingBytes) {expect(bytes.byteLength).toBeGreaterThan(24 * 1024 * 1024);}
             if (evidence) {
                 mkdirSync(evidence, {recursive: true});
                 writeFileSync(resolve(evidence, 'source.pdf'), bytes);
@@ -365,7 +365,7 @@ describe('browser document lifecycle UI', () => {
         it(pendingPageLabels
             ? 'requires Save As for a signed PDF with unsaved page labels'
             : 'saves rotated unsigned signature fields in place and requires Save As for signed PDFs', async () => {
-            if (!fixture) throw new Error(`Missing signature fixture: ${kind}`);
+            if (!fixture) {throw new Error(`Missing signature fixture: ${kind}`);}
             const {
                 page, bytes,
             } = fixture;
@@ -392,9 +392,9 @@ describe('browser document lifecycle UI', () => {
             }
             if (pendingPageLabels) {
                 const installHint = page.locator('.browser-install-dismiss');
-                if (await installHint.isVisible()) await installHint.click();
+                if (await installHint.isVisible()) {await installHint.click();}
                 const disclosure = page.locator('.pdf-sidebar-pages-disclosure');
-                if (await disclosure.getAttribute('aria-expanded') !== 'true') await disclosure.click();
+                if (await disclosure.getAttribute('aria-expanded') !== 'true') {await disclosure.click();}
                 await page.locator('#page-label-prefix-input').fill('Signed-');
                 await page.getByRole('button', {name: 'Apply numbering', exact: true}).click();
                 await expect.poll(() => page.locator('[data-thumbnail-page="1"] [data-document-thumbnail-label]').innerText()).toContain('Signed-1');
@@ -478,7 +478,7 @@ describe('browser document lifecycle UI', () => {
                 const rect = element.getBoundingClientRect();
                 return rect.width > rect.height;
             })).toBe(!pendingPageLabels);
-            if (evidence) await reopened.screenshot({path: resolve(evidence, 'reopened.png')});
+            if (evidence) {await reopened.screenshot({path: resolve(evidence, 'reopened.png')});}
             await reopened.close();
         }, 90_000);
     });

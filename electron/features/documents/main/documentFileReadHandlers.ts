@@ -101,8 +101,8 @@ async function acquireRangeReadBudget(path: string, bytes: number, ownerWebConte
                 },
             };
             rangeReadBudgetWaiters.push(waiter);
-            if (owner.signal.aborted) abort();
-            else owner.signal.addEventListener('abort', abort, {once: true});
+            if (owner.signal.aborted) {abort();}
+            else {owner.signal.addEventListener('abort', abort, {once: true});}
         });
     } else {
         reserveRangeRead(path, bytes);
@@ -134,7 +134,7 @@ export async function withContentReadLease<T>(logicalRef: string, reader: () => 
         return await reader();
     } catch (error) {
         const unprovenTermination = getUnprovenNativeTerminationDetail(error);
-        if (unprovenTermination !== undefined) quarantineWorkingCopy(logicalRef, unprovenTermination);
+        if (unprovenTermination !== undefined) {quarantineWorkingCopy(logicalRef, unprovenTermination);}
         throw error;
     }
 }

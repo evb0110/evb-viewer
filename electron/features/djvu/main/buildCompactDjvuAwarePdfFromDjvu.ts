@@ -334,10 +334,10 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                     resultPageSpecs.push(...pageSpecs.slice(0, DJVU_COMPACT_RESULT_SPEC_LIMIT - resultPageSpecs.length));
                 }
                 for (const pageSpec of pageSpecs) {
-                    if (pageSpec.kind === 'layered') layeredCount += 1;
-                    if (pageSpec.kind === 'layered-color') layeredColorCount += 1;
-                    if (pageSpec.kind === 'bitonal') bitonalCount += 1;
-                    if (pageSpec.kind === 'photo') photoCount += 1;
+                    if (pageSpec.kind === 'layered') {layeredCount += 1;}
+                    if (pageSpec.kind === 'layered-color') {layeredColorCount += 1;}
+                    if (pageSpec.kind === 'bitonal') {bitonalCount += 1;}
+                    if (pageSpec.kind === 'photo') {photoCount += 1;}
                 }
                 await activeQuotaMonitor.checkNow();
             } finally {
@@ -470,7 +470,7 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
         if (structureReady) {
             await rm(structurePath, {force: true}).catch(() => undefined);
         }
-        if (!consumersReleased) await releaseCompactBatchJobs(batchDirectoriesPath, {remove: false}).catch(() => undefined);
+        if (!consumersReleased) {await releaseCompactBatchJobs(batchDirectoriesPath, {remove: false}).catch(() => undefined);}
         await rm(batchDirectoriesPath, {force: true}).catch(() => undefined);
     }
 }
@@ -484,7 +484,7 @@ async function releaseCompactBatchJobs(path: string, options: {remove: boolean})
     });
     try {
         for await (const line of lines) {
-            if (line.trim()) await releaseDjvuArtifactConsumer(line, options);
+            if (line.trim()) {await releaseDjvuArtifactConsumer(line, options);}
         }
     } finally {
         lines.close();
@@ -624,7 +624,7 @@ async function* iterateDjvuPageStructureWindows(
                     } catch {
                         pending = null;
                     }
-                    if (!pending) continue;
+                    if (!pending) {continue;}
                     continue;
                 }
                 if (!Number.isSafeInteger(next.pageNumber)) {
@@ -1356,7 +1356,7 @@ function throwIfCanceledRenderResult(
     },
     signal: AbortSignal | undefined,
 ) {
-    if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) throw result.cause;
+    if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) {throw result.cause;}
     throwIfAborted(signal);
     if (!result.success && result.error?.includes('DjVu conversion canceled')) {
         throw createAbortError('DjVu conversion canceled');

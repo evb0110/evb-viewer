@@ -58,17 +58,17 @@ async function readPdfInkStats(filePath: string): Promise<IPdfInkStats> {
 
     for (const page of doc.getPages()) {
         const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
-        if (!annots) continue;
+        if (!annots) {continue;}
         for (let index = 0; index < annots.size(); index += 1) {
             const annot = annots.lookupMaybe(index, PDFDict);
-            if (!annot) continue;
-            if (annot.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Ink') continue;
+            if (!annot) {continue;}
+            if (annot.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Ink') {continue;}
             annotationCount += 1;
             const inkList = annot.lookupMaybe(PDFName.of('InkList'), PDFArray);
-            if (!inkList) continue;
+            if (!inkList) {continue;}
             for (let strokeIndex = 0; strokeIndex < inkList.size(); strokeIndex += 1) {
                 const stroke = inkList.lookupMaybe(strokeIndex, PDFArray);
-                if (!stroke) continue;
+                if (!stroke) {continue;}
                 const pointsInStroke = Math.floor(stroke.size() / 2);
                 strokeCount += 1;
                 strokePointCounts.push(pointsInStroke);
@@ -113,14 +113,14 @@ async function drawFreehandStroke(
     }) => {
         const overlay = document.querySelector<SVGElement>('.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer');
         const pageContainer = overlay?.closest<HTMLElement>('.page_container');
-        if (!overlay || !pageContainer || ratios.length < 2) return null;
+        if (!overlay || !pageContainer || ratios.length < 2) {return null;}
         pageContainer.scrollIntoView({
             block: 'center',
             inline: 'center',
         });
         await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         const rect = overlay.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return null;
+        if (rect.width <= 0 || rect.height <= 0) {return null;}
         return ratios.map(point => ({
             clientX: rect.left + rect.width * point.x,
             clientY: rect.top + rect.height * point.y,
@@ -183,7 +183,7 @@ it('saves and reopens heavy freehand ink drawings past the 100,000-point mutatio
             const handle = (window as IE2EWindow).__evbTestApi?.getActiveWorkspaceHandle();
             const plan = handle?.captureCanonicalAnnotationRecovery?.();
             const template = plan?.entities.find(entity => entity.kind === 'shape');
-            if (!handle?.restoreCanonicalAnnotationRecovery || !plan || !template) return null;
+            if (!handle?.restoreCanonicalAnnotationRecovery || !plan || !template) {return null;}
             const {
                 metadata: _metadata,
                 ...annotations
@@ -261,7 +261,7 @@ it('saves and reopens heavy freehand ink drawings past the 100,000-point mutatio
         await clickAsUser(session.page, 'button.save-split-primary');
         await expect.poll(async () => {
             const failures = await readFailures();
-            if (failures.length > 0) return 'failed';
+            if (failures.length > 0) {return 'failed';}
             const state = await readWorkspaceStateValues<{dirtyState?: {
                 fileDirty?: boolean;
                 hasPendingUnsavedChanges?: boolean;

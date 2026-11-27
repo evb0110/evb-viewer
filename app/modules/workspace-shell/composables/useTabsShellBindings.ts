@@ -103,7 +103,7 @@ function findLoadedFileTabId(path: TDocumentRef, sessionsByTabId: Readonly<Recor
  * Without such a tab the open runs in the selection's own call.
  */
 export function routeRecentFile(path: TDocumentRef, open: () => Promise<boolean>, route: IRecentFileRoute) {
-    if (!findLoadedFileTabId(path, route.sessionsByTabId())) return open();
+    if (!findLoadedFileTabId(path, route.sessionsByTabId())) {return open();}
     return Promise.all([
         route.forgetRecentFileIfMissing(path),
         route.statSource(path).then(() => true, () => false),
@@ -111,9 +111,9 @@ export function routeRecentFile(path: TDocumentRef, open: () => Promise<boolean>
         gone,
         exists,
     ]) => {
-        if (gone) return false;
+        if (gone) {return false;}
         const tabId = exists ? findLoadedFileTabId(path, route.sessionsByTabId()) : undefined;
-        if (!tabId) return open();
+        if (!tabId) {return open();}
         route.activateTab(tabId);
         return true;
     });
@@ -666,7 +666,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             // Opening a claimed file can wait on the reader, for a password for
             // instance; that is not startup, so the window reports ready first.
             const startupOpen = (async () => {
-                if (startupExternalPaths.length === 0) return;
+                if (startupExternalPaths.length === 0) {return;}
                 traceRendererStartup('tabs shell claimed startup external paths', {pathCount: startupExternalPaths.length});
                 const targets = getWorkspaceViewerChunkTargetsForPaths(startupExternalPaths);
                 const matchingWarmupTraceData = {

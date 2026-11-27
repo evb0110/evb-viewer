@@ -135,14 +135,14 @@ describe('public release mirror verification', () => {
         const attempts: Array<[string, RequestInit | undefined]> = [];
         const fetchFn: typeof fetch = async (url, init) => {
             const requestUrl = String(url);
-            if (requestUrl.endsWith('stable.json')) return response({release: {tag: 'v1.2.3'}});
-            if (requestUrl.endsWith('manifest.json')) return response({
+            if (requestUrl.endsWith('stable.json')) {return response({release: {tag: 'v1.2.3'}});}
+            if (requestUrl.endsWith('manifest.json')) {return response({
                 release: {tag: 'v1.2.3'},
                 assets: [
                     {name: 'first.deb'},
                     {name: 'second.exe'},
                 ],
-            });
+            });}
             attempts.push([
                 requestUrl,
                 init,
@@ -153,8 +153,8 @@ describe('public release mirror verification', () => {
             tag: 'v1.2.3',
             fetchFn,
         });
-        if (secondStatus === 200) await expect(verification).resolves.toMatchObject({publicRoute: true});
-        else await expect(verification).rejects.toThrow('Mirror release asset second.exe returned HTTP 404');
+        if (secondStatus === 200) {await expect(verification).resolves.toMatchObject({publicRoute: true});}
+        else {await expect(verification).rejects.toThrow('Mirror release asset second.exe returned HTTP 404');}
         expect(attempts.map(([
             url,
             init,
@@ -188,15 +188,15 @@ describe('public release mirror verification', () => {
                 client: {send: async (command: {input: {Key: string}}) => {
                     const key = command.input.Key;
                     keys.push(key);
-                    if (key.endsWith('/stable.json')) return {Body: {transformToString: async () => JSON.stringify({release: {tag: 'v0.0.0-drill.7'}})}};
-                    if (key.endsWith('/manifest.json')) return {Body: {transformToString: async () => JSON.stringify({
+                    if (key.endsWith('/stable.json')) {return {Body: {transformToString: async () => JSON.stringify({release: {tag: 'v0.0.0-drill.7'}})}};}
+                    if (key.endsWith('/manifest.json')) {return {Body: {transformToString: async () => JSON.stringify({
                         release: {tag: 'v0.0.0-drill.7'},
                         assets: [
                             {name: 'first.deb'},
                             {name: 'second.exe'},
                         ],
-                    })}};
-                    if (key.endsWith('/second.exe')) throw new Error('NoSuchKey: second.exe');
+                    })}};}
+                    if (key.endsWith('/second.exe')) {throw new Error('NoSuchKey: second.exe');}
                     return {};
                 }},
             }) as never,

@@ -61,10 +61,10 @@ async function stopOwnedProcessGroup(pid: number) {
             // The group can turn into unreaped zombies between the check and
             // the signal; macOS then reports EPERM, as isProcessGroupAlive allows.
             const code = (error as NodeJS.ErrnoException).code;
-            if (code !== 'ESRCH' && code !== 'EPERM') throw error;
+            if (code !== 'ESRCH' && code !== 'EPERM') {throw error;}
         }
         const deadline = Date.now() + 1_500;
-        while (Date.now() < deadline && isProcessGroupAlive(pid)) await delay(50);
+        while (Date.now() < deadline && isProcessGroupAlive(pid)) {await delay(50);}
     }
     if (isProcessGroupAlive(pid)) {
         throw new Error(`Owned packaged automation process group ${pid} remained alive; preserving its bundle.`);
@@ -88,17 +88,17 @@ async function stopOwnedProcesses(child: ChildProcess, force: boolean): Promise<
     let treeStopped = false;
     let treeStopError: Error | undefined;
     try {
-        if (pid && rootRunning()) treeStopped = await killProcessTree(pid, 1_500, {force});
+        if (pid && rootRunning()) {treeStopped = await killProcessTree(pid, 1_500, {force});}
     } catch (error) {
         treeStopError = error instanceof Error ? error : new Error(String(error));
         console.error('Process-tree shutdown failed; continuing owned-group cleanup.', error);
     }
-    if (pid && process.platform !== 'win32') await stopOwnedProcessGroup(pid);
-    if (treeStopError && process.platform === 'win32') throw treeStopError;
+    if (pid && process.platform !== 'win32') {await stopOwnedProcessGroup(pid);}
+    if (treeStopError && process.platform === 'win32') {throw treeStopError;}
     if (pid && rootRunning() && isProcessAlive(pid)) {
         throw new Error('Packaged automation remained alive after cleanup; preserving its bundle.');
     }
-    if (process.platform !== 'win32') return 'process-group';
+    if (process.platform !== 'win32') {return 'process-group';}
     return treeStopped ? 'live-root-tree' : 'root-exited-helpers-unverified';
 }
 
@@ -137,7 +137,7 @@ async function claimWorkDirectory(workDirectory: string, executablePath: string)
             break;
         } catch {
             const parent = dirname(existingAncestor);
-            if (parent === existingAncestor) throw new Error(`Cannot resolve packaged automation work directory: ${workDirectory}`);
+            if (parent === existingAncestor) {throw new Error(`Cannot resolve packaged automation work directory: ${workDirectory}`);}
             existingAncestor = parent;
         }
     }
@@ -156,7 +156,7 @@ async function claimWorkDirectory(workDirectory: string, executablePath: string)
             throw new Error(`Packaged automation work directory must be empty and unused: ${workDirectory}`);
         }
     } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {throw error;}
         await mkdir(workDirectory);
     }
     const ownerPath = join(workDirectory, '.packaged-automation-owner');
@@ -304,7 +304,7 @@ async function run() {
                 console.warn('The packaged main process exited before cleanup; on Windows its reparented helpers cannot be verified.');
             }
         });
-        if (stopRequested) process.exitCode = 0;
+        if (stopRequested) {process.exitCode = 0;}
     } finally {
         process.off('SIGINT', stop);
         process.off('SIGTERM', stop);

@@ -34,15 +34,15 @@ function resolveContinuousVisiblePages(options: IDocumentPageSourceRenderDemandO
         const middle = Math.floor((low + high) / 2);
         const top = options.pageTops[middle] ?? Number.POSITIVE_INFINITY;
         const height = options.pageHeights[middle] ?? 0;
-        if (top + height <= options.scrollTop) low = middle + 1;
-        else high = middle;
+        if (top + height <= options.scrollTop) {low = middle + 1;}
+        else {high = middle;}
     }
     const pages: number[] = [];
     for (let index = low; index < pageCount; index += 1) {
         const top = options.pageTops[index];
-        if (top === undefined || top >= viewportBottom) break;
+        if (top === undefined || top >= viewportBottom) {break;}
         const height = options.pageHeights[index];
-        if (height !== undefined && top + height > options.scrollTop) pages.push(index + 1);
+        if (height !== undefined && top + height > options.scrollTop) {pages.push(index + 1);}
     }
     return pages;
 }

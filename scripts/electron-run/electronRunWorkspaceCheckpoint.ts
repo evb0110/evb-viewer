@@ -48,7 +48,7 @@ function withDocumentState(name: string, stored: IStoredRecord) {
         tabs: (checkpoint.tabs ?? []).map((tab) => {
             const directory = tab.tabId === undefined ? undefined : stored.tabs?.[tab.tabId]?.directory;
             try {
-                if (directory === undefined) return {...tab, isDirty: false};
+                if (directory === undefined) {return {...tab, isDirty: false};}
                 const manifest = decodeManifest(readFileSync(join(documents, directory, 'manifest.json')));
                 const drafts = manifest.drafts === undefined
                     ? undefined
@@ -110,7 +110,7 @@ export function readAnnotationRecoveryDraft(name: string, artifactId: string) {
         for (const entry of entries.filter(file => file.startsWith('drafts-') && file.endsWith('.json'))) {
             try {
                 const drafts = JSON.parse(readFileSync(join(documents, directory, entry), 'utf8')) as {annotationRecovery?: {artifactId?: string}};
-                if (drafts.annotationRecovery?.artifactId === artifactId) return JSON.stringify(drafts.annotationRecovery);
+                if (drafts.annotationRecovery?.artifactId === artifactId) {return JSON.stringify(drafts.annotationRecovery);}
             } catch {
                 // A drafts file being replaced; the next look finds its successor.
             }

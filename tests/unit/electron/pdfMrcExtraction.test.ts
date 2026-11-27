@@ -291,7 +291,7 @@ describe('batched PDF MRC extraction', () => {
                 };
             }
             if (args.includes('-all')) {
-                if (firstPage === 30) throw new Error('chunk 30 failed');
+                if (firstPage === 30) {throw new Error('chunk 30 failed');}
                 const prefix = args.at(-1)!;
                 await Promise.all([
                     writeFile(`${prefix}-000.jp2`, 'BACKGROUND-1'),

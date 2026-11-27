@@ -114,9 +114,9 @@ function getParsedAnnotationIndex(parsed: IPdfAnnotationParseResult | null) {
             byPage: new Map(),
         };
         for (const entry of parsed.entities) {
-            if (!index.byName.has(entry.name)) index.byName.set(entry.name, entry);
+            if (!index.byName.has(entry.name)) {index.byName.set(entry.name, entry);}
             const ref = normalizePdfJsAnnotationId(`${entry.objectNumber} ${entry.generationNumber} R`);
-            if (ref !== null && !index.byRef.has(ref)) index.byRef.set(ref, entry);
+            if (ref !== null && !index.byRef.has(ref)) {index.byRef.set(ref, entry);}
             const pageEntries = index.byPage.get(entry.pageIndex);
             if (pageEntries) {
                 pageEntries.push(entry);
@@ -155,7 +155,7 @@ function matchesParsed(entity: AnnotationEntity, parsed: TPdfAnnotationParseEnti
 
 function appearanceInput(entity: ITextBoxEntity, page: IPdfPage, parsed: IPdfAnnotationParseResult | null, preserveSavedAppearance: boolean, original?: IPdfAnnotationParseResult | null) {
     const textBox = toNativeTextBox(entity, page.view, normalizePageRotation(page.rotate));
-    if (!textBox) throw new Error('Text appearance page geometry is unavailable');
+    if (!textBox) {throw new Error('Text appearance page geometry is unavailable');}
     const entry = parsedAnnotationForEntity(entity, parsed) ?? parsedAnnotationForEntity(entity, original ?? null);
     const source = entry?.kind === 'text-box' ? entry.source : undefined;
     if (preserveSavedAppearance && entry?.kind === 'text-box' && entry.recoveryData && matchesParsed(entity, entry)) {
@@ -168,7 +168,7 @@ function appearanceInput(entity: ITextBoxEntity, page: IPdfPage, parsed: IPdfAnn
 }
 
 function appearancePage(page: IPdfPage): IPdfNativeTextBoxAppearanceRequest['page'] {
-    if (page.view.length !== 4) throw new Error('Text appearance page bounds are unavailable');
+    if (page.view.length !== 4) {throw new Error('Text appearance page bounds are unavailable');}
     return {
         view: [
             page.view[0]!,
@@ -239,7 +239,7 @@ export async function fitNativeTextBox(
  * frame it omits, and the page's editor. A page without entities has none.
  */
 export function nativeAnnotationPaintIdentity(entities: readonly AnnotationEntity[], editingId: string | null, revision: string | null, editingDraft: boolean) {
-    if (!entities.length) return '';
+    if (!entities.length) {return '';}
     return JSON.stringify([
         revision,
         entities.map(entity => [
@@ -287,7 +287,7 @@ export async function prepareNativeTextBoxPagePaint(options: {
     const loadedIds = new Set(annotations.flatMap(annotation => normalizePdfJsAnnotationId(annotation.id) ?? []));
     const originalEntries = getParsedAnnotationIndex(original)?.byPage.get(page.pageNumber - 1) ?? [];
     originalEntries.forEach(entry => {
-        if (entry.kind !== 'text-box' || !entry.readOnly) excludedIds.add(normalizePdfJsAnnotationId(`${entry.objectNumber} ${entry.generationNumber} R`)!);
+        if (entry.kind !== 'text-box' || !entry.readOnly) {excludedIds.add(normalizePdfJsAnnotationId(`${entry.objectNumber} ${entry.generationNumber} R`)!);}
     });
     const originalById = new Map(originalEntries.flatMap(entry => entry.name ? [[
         entry.name,
@@ -308,7 +308,7 @@ export async function prepareNativeTextBoxPagePaint(options: {
         && matchesParsed(entity, entryFor(entity)));
     const retainedSet = new Set(retained);
     // Flatten unchanged source siblings with text boxes so PDF order/blending stays in one canvas.
-    if (entities.some(entity => entity.kind === 'text-box')) retained.forEach(entity => excludedIds.delete(sourceId(entity)!));
+    if (entities.some(entity => entity.kind === 'text-box')) {retained.forEach(entity => excludedIds.delete(sourceId(entity)!));}
     const derived = entities.filter((entity): entity is ITextBoxEntity => entity.kind === 'text-box' && !entity.readOnly
         && !retainedSet.has(entity) && entity.identity.id !== options.editingId);
     const pageInput = appearancePage(page);
@@ -347,7 +347,7 @@ export async function prepareNativeTextBoxPagePaint(options: {
         pdfIndexByBytes.set(pdf, index);
     });
     let outputBytes = pdfs.reduce((sum, pdf) => sum + pdf.byteLength, 0);
-    if (outputBytes) options.reserveAppearanceBytes?.(outputBytes);
+    if (outputBytes) {options.reserveAppearanceBytes?.(outputBytes);}
     interface IIndexedAppearanceRequest {
         request: (typeof requests)[number];
         requestIndex: number;
@@ -379,7 +379,7 @@ export async function prepareNativeTextBoxPagePaint(options: {
         textBytes += text;
         requestBytes += bytes;
     }
-    if (batch.length) batches.push(batch);
+    if (batch.length) {batches.push(batch);}
     for (const chunk of batches) {
         signal?.throwIfAborted();
         const result = await getPageOpsCapability().renderTextBoxAppearance(options.workingCopyPath, {
@@ -428,7 +428,7 @@ export async function prepareNativeTextBoxPagePaint(options: {
     if (actions.length) {
         const hash = async (bytes: Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes.slice())), byte => byte.toString(16).padStart(2, '0')).join('');
         const pdfDigests: string[] = [];
-        for (const pdf of pdfs) pdfDigests.push(await hash(pdf));
+        for (const pdf of pdfs) {pdfDigests.push(await hash(pdf));}
         const digest = await hash(new TextEncoder().encode(JSON.stringify([
             original?.documentRevisionToken ?? null,
             page.pageNumber,
@@ -499,7 +499,7 @@ export async function collectNativeTextBoxMutationsForSave(
             return null;
         }
         const entry = parsedAnnotationForEntity(entity, original ?? null);
-        if (!entity.identity.pdfRef && entry?.kind === 'text-box' && entry.source) mutation.source = entry.source;
+        if (!entity.identity.pdfRef && entry?.kind === 'text-box' && entry.source) {mutation.source = entry.source;}
         if (entry?.kind === 'text-box' && matchesParsed(entity, entry)) {
             mutation.originalAppearance = entry.recoveryData
                 ? {recoveryData: entry.recoveryData}

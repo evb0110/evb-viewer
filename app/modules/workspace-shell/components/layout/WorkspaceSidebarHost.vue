@@ -200,7 +200,7 @@ const RESIZE_KEY_DELTAS: Readonly<Record<string, number>> = {
 };
 function handleResizeKeyDown(event: KeyboardEvent) {
     const delta = RESIZE_KEY_DELTAS[event.key];
-    if (delta === undefined || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (delta === undefined || event.altKey || event.ctrlKey || event.metaKey) {return;}
     event.preventDefault();
     emit('resize-by', delta);
 }

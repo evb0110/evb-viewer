@@ -98,10 +98,10 @@ describe('sidebar open layout stability', () => {
             'Home',
             'End',
             'a',
-        ]) sash.dispatchEvent(new KeyboardEvent('keydown', {
+        ]) {sash.dispatchEvent(new KeyboardEvent('keydown', {
             key,
             bubbles: true,
-        }));
+        }));}
 
         expect(view.resizeSteps).toEqual([
             SIDEBAR.KEYBOARD_STEP,

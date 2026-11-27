@@ -397,7 +397,7 @@ describe('viewer invariant checker against real Chromium layout', () => {
                 recordVideo: {dir: evidenceDirectory},
             });
             const errors: string[] = [];
-            page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+            page.on('console', message => { if (message.type() === 'error') {errors.push(message.text());} });
             page.on('pageerror', error => errors.push(error.message));
             await page.route('http://long-djvu.test/', route => route.fulfill({
                 contentType: 'text/html',

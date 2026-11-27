@@ -130,23 +130,23 @@ function findUnsupportedReason() {
 }
 
 function emitProgress(progress: IOcrProgress) {
-    for (const listener of progressListeners) listener(progress);
+    for (const listener of progressListeners) {listener(progress);}
 }
 
 function emitComplete(result: IOcrCompleteResult) {
-    for (const listener of completeListeners) listener(result);
+    for (const listener of completeListeners) {listener(result);}
 }
 
 function expandPages(selection: TOcrSearchablePdfPages) {
     const pages: IOcrSearchablePdfPage[] = [];
-    for (const batch of iterateOcrPageRequestBatches(selection)) pages.push(...batch);
+    for (const batch of iterateOcrPageRequestBatches(selection)) {pages.push(...batch);}
     return pages;
 }
 
 function findLanguageProblem(pages: readonly IOcrSearchablePdfPage[]) {
     const languages = new Set(pages.flatMap(page => page.languages));
-    if (pages.some(page => page.languages.length === 0)) return 'Choose a language to recognize.';
-    if (languages.size > 1) return 'OCR recognition accepts one language per request';
+    if (pages.some(page => page.languages.length === 0)) {return 'Choose a language to recognize.';}
+    if (languages.size > 1) {return 'OCR recognition accepts one language per request';}
     const unsupported = [...languages].find(code => !isAvailableOcrLanguageCode(code));
     return unsupported === undefined ? null : `Unsupported OCR language: ${unsupported}`;
 }
@@ -154,7 +154,7 @@ function findLanguageProblem(pages: readonly IOcrSearchablePdfPage[]) {
 /** Ends a result that will not be applied: its layer is cut unless a commit took it. */
 async function discardStagedResult(ref: TDocumentRef) {
     const staged = stagedResults.get(ref);
-    if (!staged) return;
+    if (!staged) {return;}
     stagedResults.delete(ref);
     await browserDocumentStore.discardAppend(ref, staged.lease);
 }
@@ -293,7 +293,7 @@ export const browserOcrCapability: IOcrCapability = {
         return Promise.resolve({canceled: true});
     },
     async getLanguages() {
-        if (findUnsupportedReason() !== null) return [];
+        if (findUnsupportedReason() !== null) {return [];}
         return Promise.all(AVAILABLE_OCR_LANGUAGES
             .map(async (language): Promise<IOcrLanguage> => ({
                 code: language.code,
@@ -352,7 +352,7 @@ export const browserOcrCapability: IOcrCapability = {
         }
         let pages: IOcrSearchablePdfPage[];
         try {
-            if (getOcrPageSelectionCount(selection) === 0) throw new Error('Choose at least one page to recognize');
+            if (getOcrPageSelectionCount(selection) === 0) {throw new Error('Choose at least one page to recognize');}
             pages = expandPages(selection);
         } catch (error) {
             return Promise.resolve(refusedStart('OCR_INVALID_PAYLOAD', getErrorMessage(error)));

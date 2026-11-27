@@ -150,7 +150,7 @@ describe('AnnotationStore external identity history', () => {
         store.createNote(entity);
         store.subscribe(() => {
             const failure = failures.shift();
-            if (failure) throw failure;
+            if (failure) {throw failure;}
         });
         failures.push(replayFailure, rollbackFailure);
 

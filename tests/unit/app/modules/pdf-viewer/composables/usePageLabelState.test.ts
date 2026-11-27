@@ -46,7 +46,7 @@ function createPdfDocumentRef(
 describe('usePageLabelState', () => {
     it.each(['PDF.js', 'compact catalog'])('#1608 retains the cause of failed %s label enrichment', async reader => {
         const retained: string[] = [];
-        setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
+        setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') {retained.push(JSON.stringify(entry));}});
         const failure = new Error('Corrupt PageLabels number tree');
         const pdfDocument = createPdfDocumentRef(2, async () => {throw failure;});
         const state = usePageLabelState({

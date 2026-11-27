@@ -17,14 +17,14 @@ function getNoticesPath() {
 }
 
 function warnNoticesFailure(message: string, originalPath: string, error: unknown) {
-    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) return;
+    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) {return;}
     log.warn(message, {path: getNoticesPath(), originalPath, error: getErrorMessage(error)});
 }
 
 // Only a missing file holds no notices. Any other failure rejects, so an update never writes over notices it could not read.
 async function readNotices() {
     const value = safeJsonParse(await readFile(getNoticesPath(), 'utf8').catch((error: unknown) => {
-        if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) return '{}';
+        if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) {return '{}';}
         throw error;
     }));
     return new Map(isRecord(value)

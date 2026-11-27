@@ -123,7 +123,7 @@ export const useListDragReorder = (
         }
 
         for (let i = 0; i < rowElements.length; i++) {
-            if (i === dragIndex.value) continue;
+            if (i === dragIndex.value) {continue;}
 
             const el = rowElements[i];
             if (!el) {

@@ -1541,13 +1541,13 @@ describe('workerTask', () => {
         const observed = task.catch((error: unknown) => error);
         await Promise.resolve();
         const worker = mocks.workerRecords[0]!;
-        if (mode === 'invalid-payload') worker.emit('message', {type: 'unexpected'});
-        else if (mode === 'invalid-result') worker.emit('message', {
+        if (mode === 'invalid-payload') {worker.emit('message', {type: 'unexpected'});}
+        else if (mode === 'invalid-result') {worker.emit('message', {
             type: 'result',
             ok: true,
             data: 42,
-        });
-        else worker.emit(mode === 'runtime-error' ? 'error' : 'exit', mode === 'runtime-error' ? new Error('runtime crash') : 0);
+        });}
+        else {worker.emit(mode === 'runtime-error' ? 'error' : 'exit', mode === 'runtime-error' ? new Error('runtime crash') : 0);}
         expect(await observed).toBe(marked);
         expect(getUnprovenNativeTerminationDetail(await observed)).toBe('native descendants unknown');
     });

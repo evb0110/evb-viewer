@@ -28,6 +28,17 @@
   "rules": {
     "array-callback-return": "error",
     "constructor-super": "error",
+    "curly": [
+      "error",
+      "all"
+    ],
+    "eqeqeq": [
+      "error",
+      "always",
+      {
+        "null": "ignore"
+      }
+    ],
     "for-direction": "error",
     "getter-return": "error",
     "no-async-promise-executor": "error",
@@ -51,6 +62,7 @@
     "no-empty-static-block": "error",
     "no-eval": "error",
     "no-ex-assign": "error",
+    "no-fallthrough": "error",
     "no-func-assign": "error",
     "no-global-assign": "error",
     "no-implied-eval": "error",
@@ -89,7 +101,10 @@
       }
     ],
     "no-useless-backreference": "error",
+    "no-useless-catch": "error",
+    "no-var": "error",
     "no-with": "error",
+    "prefer-const": "error",
     "require-yield": "error",
     "use-isnan": "error",
     "valid-typeof": "error",
@@ -116,6 +131,7 @@
     "typescript/no-duplicate-enum-values": "error",
     "typescript/no-misused-new": "error",
     "typescript/no-non-null-asserted-optional-chain": "error",
+    "typescript/no-unnecessary-type-constraint": "error",
     "typescript/no-unsafe-declaration-merging": "error",
     "typescript/no-wrapper-object-types": "error",
     "unicorn/no-accessor-recursion": "error",
@@ -163,6 +179,7 @@
     "invariants/component-directory-source": "error",
     "invariants/top-level-pdf-composable": "error",
     "invariants/no-raw-red-presentation": "error",
+    "invariants/no-useless-async": "error",
     "invariants/no-core-correctness-timers": "error",
     "no-restricted-imports": [
       "error",

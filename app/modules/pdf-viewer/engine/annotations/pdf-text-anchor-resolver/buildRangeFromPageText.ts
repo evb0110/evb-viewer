@@ -32,27 +32,27 @@ export function buildRangeFromPageText(
     let haystack = '';
     const append = (value: string, source: ISourceCharacter) => {
         haystack += value;
-        for (let unit = 0; unit < value.length; unit += 1) positions.push(source);
+        for (let unit = 0; unit < value.length; unit += 1) {positions.push(source);}
     };
     const separate = (node: Text, offset: number) => {
-        if (haystack && !haystack.endsWith(' ')) append(' ', {
+        if (haystack && !haystack.endsWith(' ')) {append(' ', {
             node,
             start: offset,
             end: offset,
-        });
+        });}
     };
     for (const span of spans) {
         const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
         for (let node = walker.nextNode() as Text | null, first = true; node; node = walker.nextNode() as Text | null, first = false) {
-            if (first) separate(node, 0);
+            if (first) {separate(node, 0);}
             let offset = 0;
             for (const character of node.data) {
-                if (/\s/u.test(character)) separate(node, offset);
-                else append(fold(character, caseSensitive), {
+                if (/\s/u.test(character)) {separate(node, offset);}
+                else {append(fold(character, caseSensitive), {
                     node,
                     start: offset,
                     end: offset + character.length,
-                });
+                });}
                 offset += character.length;
             }
         }
@@ -88,7 +88,7 @@ export function buildRangeFromPageText(
                     index,
                     source,
                 ] of positions.slice(startOffset, endOffset).entries()) {
-                    if (source === positions[startOffset + index - 1] && index > 0) continue;
+                    if (source === positions[startOffset + index - 1] && index > 0) {continue;}
                     matchedText += source.start === source.end ? ' ' : source.node.data.slice(source.start, source.end);
                 }
                 return {

@@ -96,18 +96,18 @@ export const useWorkspaceFailureSurface = () => {
                 ? t('errors.file.originalSavedOtherKept', {path: persistence.keptFilePath})
                 : t('errors.save.originalChanged');
         }
-        if (persistence?.reason === 'source-unavailable') return t('errors.save.openedVersionUnavailable');
+        if (persistence?.reason === 'source-unavailable') {return t('errors.save.openedVersionUnavailable');}
         const message = persistence?.message ?? '';
         if (HELD_OR_DENIED_MESSAGE.test(message)) {
             return t(/EBUSY/iu.test(message) ? 'errors.save.fileBusy' : /The PDF is read-only or locked/u.test(message) ? 'errors.save.fileReadOnly' : 'errors.save.permissionDenied');
         }
-        if (/The original file cannot be read:/u.test(message)) return t('errors.save.originalUnreadable');
+        if (/The original file cannot be read:/u.test(message)) {return t('errors.save.originalUnreadable');}
         if (/ENOSPC|EDQUOT|no space left|not enough space|disk (?:is )?full|os error (?:28|112)/iu.test(message)) {
             return t('errors.save.diskFull');
         }
         const identityLimit = persistence?.channel === 'native'
             ? /(?:\.(?:stableKey|annotationId|id)|\.deleted(?:AnnotationIds|StableKeys)\[\d+\]) must (?:contain at most|be a string with at most) (\d+) UTF-8 bytes/u.exec(message)?.[1] : undefined;
-        if (identityLimit) return t('errors.save.annotationIdentityTooLong', {limit: identityLimit});
+        if (identityLimit) {return t('errors.save.annotationIdentityTooLong', {limit: identityLimit});}
         const nativeError = findSerializableErrorEnvelope(persistence?.cause, NATIVE_ERROR_ENVELOPE_SCHEMA);
         if (nativeError?.code === 'corrupt-xref' || nativeError?.code === 'invalid-request') {
             return t('errors.save.validation');

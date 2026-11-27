@@ -529,7 +529,7 @@ export function extractPdfjsWordBoxesFromOperatorList(
             case ops.paintFormXObjectBegin: {
                 // A Form draws inside its own saved state, under its matrix.
                 const formMatrix = op === ops.paintFormXObjectBegin ? matrixFromArgs(args[0]) : null;
-                if (op === ops.paintFormXObjectBegin) activeWord = flushActiveWord(words, activeWord);
+                if (op === ops.paintFormXObjectBegin) {activeWord = flushActiveWord(words, activeWord);}
                 graphicsStack.push({
                     ctm: cloneMatrix(ctm),
                     fontSize: state.fontSize,
@@ -539,7 +539,7 @@ export function extractPdfjsWordBoxesFromOperatorList(
                     leading: state.leading,
                     textRise: state.textRise,
                 });
-                if (formMatrix) ctm = multiplyMatrices(ctm, formMatrix);
+                if (formMatrix) {ctm = multiplyMatrices(ctm, formMatrix);}
                 break;
             }
             case ops.restore:

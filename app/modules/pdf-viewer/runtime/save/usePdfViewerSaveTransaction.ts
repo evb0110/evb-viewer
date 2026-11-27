@@ -344,7 +344,7 @@ export const usePdfViewerSaveTransaction = (
         if (nativeTextBoxes?.some(textBox => textBox.originalAppearance && 'sourceAnnotationId' in textBox.originalAppearance)) {
             const originalSource = capturedTarget.pdfDocument && await readPdfDocumentOriginalAnnotationSource(capturedTarget.pdfDocument);
             assertSaveTargetCurrent();
-            if (!originalSource) throw new Error('The original text appearance source is unavailable');
+            if (!originalSource) {throw new Error('The original text appearance source is unavailable');}
             nativeMutationProjection.mutations.originalAppearanceSource = originalSource;
         }
         if (decision.replayableAnnotationMutationsAllowed && decision.annotationRoute.route !== 'loaded-source') {

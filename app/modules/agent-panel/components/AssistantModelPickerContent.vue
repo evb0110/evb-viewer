@@ -162,16 +162,16 @@ function isLegacyExpanded(instanceId: string) {
 const isSearching = computed(() => query.value.trim().length > 0);
 
 const rows = computed((): TRow[] => {
-    if (isSearching.value) return rankModelSearch(items.value, query.value).map(item => ({
+    if (isSearching.value) {return rankModelSearch(items.value, query.value).map(item => ({
         kind: 'model',
         key: item.key,
         item,
-    }));
-    if (tab.value === 'favorites') return items.value.filter(item => item.isFavorite).map(item => ({
+    }));}
+    if (tab.value === 'favorites') {return items.value.filter(item => item.isFavorite).map(item => ({
         kind: 'model',
         key: item.key,
         item,
-    }));
+    }));}
     const own = items.value.filter(item => item.instance.id === tab.value);
     const current = [
         ...own.filter(item => item.isFavorite),
@@ -246,7 +246,7 @@ const highlighted = ref<string | null>(null);
 const activeDescendantId = computed(() => (highlighted.value ? optionId(highlighted.value) : undefined));
 // A changed list highlights the selected model when it shows, else the first row.
 watch(rows, value => {
-    if (value.some(row => row.key === highlighted.value)) return;
+    if (value.some(row => row.key === highlighted.value)) {return;}
     highlighted.value = value.find(row => row.key === activeKey.value)?.key ?? value[0]?.key ?? null;
 }, { immediate: true });
 
@@ -266,7 +266,7 @@ function optionId(key: string) {
 }
 
 function describeInstance(instance: IAssistantInstanceStatus) {
-    if (isPickableInstance(instance)) return instance.label;
+    if (isPickableInstance(instance)) {return instance.label;}
     return `${instance.label}: ${t(stateKeys[instance.state])}${instance.message ? `. ${instance.message}` : ''}`;
 }
 
@@ -281,8 +281,8 @@ function selectTab(next: TModelPickerTab) {
 
 function toggleLegacy() {
     const next = new Set(toggledLegacy.value);
-    if (next.has(tab.value)) next.delete(tab.value);
-    else next.add(tab.value);
+    if (next.has(tab.value)) {next.delete(tab.value);}
+    else {next.add(tab.value);}
     toggledLegacy.value = next;
 }
 
@@ -297,13 +297,13 @@ function scrollHighlightedIntoView() {
 function moveHighlight(step: 1 | -1) {
     const index = rows.value.findIndex(row => row.key === highlighted.value);
     const next = rows.value[Math.min(rows.value.length - 1, Math.max(0, index + step))];
-    if (!next) return;
+    if (!next) {return;}
     highlighted.value = next.key;
     scrollHighlightedIntoView();
 }
 
 function handleSearchKeydown(event: KeyboardEvent) {
-    if (event.isComposing) return;
+    if (event.isComposing) {return;}
     const plain = !event.altKey && !event.ctrlKey && !event.metaKey;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault();
@@ -313,8 +313,8 @@ function handleSearchKeydown(event: KeyboardEvent) {
     if (event.key === 'Enter') {
         event.preventDefault();
         const row = rows.value.find(candidate => candidate.key === highlighted.value);
-        if (row?.kind === 'model') pick(row.item);
-        else if (row) toggleLegacy();
+        if (row?.kind === 'model') {pick(row.item);}
+        else if (row) {toggleLegacy();}
         return;
     }
     if (event.key === 'Escape') {
@@ -335,19 +335,19 @@ function handleSearchKeydown(event: KeyboardEvent) {
     if (plain && !event.shiftKey && event.key === 'ArrowRight' && search.value?.selectionStart === query.value.length) {
         event.preventDefault();
         const row = rows.value.find(candidate => candidate.key === highlighted.value);
-        if (row?.kind === 'model' && row.key !== activeKey.value) pick(row.item);
-        else emit('focusEffort');
+        if (row?.kind === 'model' && row.key !== activeKey.value) {pick(row.item);}
+        else {emit('focusEffort');}
     }
 }
 
 function handleRailKeydown(event: KeyboardEvent) {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {return;}
     if (event.key === 'ArrowRight') {
         event.preventDefault();
         focusSearch();
         return;
     }
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {return;}
     const buttons = Array.from(rail.value?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
     const index = buttons.findIndex(button => button === document.activeElement);
     const next = buttons[Math.min(buttons.length - 1, Math.max(0, index + (event.key === 'ArrowDown' ? 1 : -1)))];
@@ -357,13 +357,13 @@ function handleRailKeydown(event: KeyboardEvent) {
 
 // Capture gives the picker's ⌘1–⌘9 priority over the app's own shortcuts while it is open.
 useEventListener(window, 'keydown', (event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.repeat || event.isComposing) return;
+    if (event.defaultPrevented || event.repeat || event.isComposing) {return;}
     const index = modelJumpIndex(event);
-    if (index === null) return;
+    if (index === null) {return;}
     event.preventDefault();
     event.stopPropagation();
     const row = modelRows.value[index];
-    if (row) pick(row.item);
+    if (row) {pick(row.item);}
 }, { capture: true });
 
 defineExpose({ focusSearch });

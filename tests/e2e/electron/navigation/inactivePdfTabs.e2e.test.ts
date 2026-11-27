@@ -357,7 +357,7 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
             3,
             4,
         ].entries()) {
-            if (index > 0) await createNewTab(session);
+            if (index > 0) {await createNewTab(session);}
             await openPdfInApp(session.page, await createMultiPageTextFixturePdf(`cold-tab-views-${index}-${Date.now()}.pdf`, pageCount));
             await waitForPdfLoaded(session.page);
         }
@@ -752,7 +752,7 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         const settingsPath = resolve('.devkit/sessions', session.name, 'electron-user-data/settings.json');
         const settings = await session.page.evaluate(async () => {
             const api = (window as IE2EWindow).electronAPI;
-            if (!api) throw new Error('Electron settings bridge unavailable');
+            if (!api) {throw new Error('Electron settings bridge unavailable');}
             return api.settings.get();
         });
         await writeFile(settingsPath, JSON.stringify({
@@ -762,7 +762,7 @@ describe('Electron E2E - Inactive PDF Tabs', () => {
         const reservation = createServer();
         await new Promise<void>(resolve => reservation.listen(0, '127.0.0.1', resolve));
         const address = reservation.address();
-        if (!address || typeof address === 'string') throw new Error('No task MCP port');
+        if (!address || typeof address === 'string') {throw new Error('No task MCP port');}
         const port = address.port;
         await new Promise<void>((resolve, reject) => reservation.close(error => error ? reject(error) : resolve()));
         const token = randomBytes(32).toString('hex');

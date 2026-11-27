@@ -166,13 +166,13 @@ export function createScanCleanupPageRasterSource({
         // mark counts each page once without a document-sized Set or Map. Any
         // other order is refused rather than turning the budget into an
         // unverified partial count.
-        if (pageNumber < nextExpectedPageNumber) return raster;
+        if (pageNumber < nextExpectedPageNumber) {return raster;}
         if (pageNumber !== nextExpectedPageNumber) {
             rasterProbeFailed = true;
             return raster;
         }
         nextExpectedPageNumber += 1;
-        if (isScanCleanupCompactLayeredRaster(raster)) compactLayeredPageCount += 1;
+        if (isScanCleanupCompactLayeredRaster(raster)) {compactLayeredPageCount += 1;}
         return raster;
     };
     // A miss probes the window of pages that follows it in one process:
@@ -206,7 +206,7 @@ export function createScanCleanupPageRasterSource({
                     rasters.set(pageNumber, await result.getPageRaster(pageNumber));
                 }
             }
-            for (const pageNumber of pageNumbers) recordPageRaster(pageNumber, rasters.get(pageNumber));
+            for (const pageNumber of pageNumbers) {recordPageRaster(pageNumber, rasters.get(pageNumber));}
             return rasters;
         })();
         // Re-inserting moves the window to the recent end, so the bound evicts
@@ -224,7 +224,7 @@ export function createScanCleanupPageRasterSource({
         }
     };
     const getPageRaster = (pageNumber: number) => {
-        if (!cache.has(pageNumber)) probeFrom(pageNumber);
+        if (!cache.has(pageNumber)) {probeFrom(pageNumber);}
         return cache.get(pageNumber)!;
     };
     return {
@@ -265,7 +265,7 @@ export async function detectSourceDpiDetails(
     if (signal?.aborted) {
         throw signal.reason instanceof Error ? signal.reason : new Error('PDF DPI detection aborted');
     }
-    if (runCommand === undefined) throw new Error('PDF DPI detection requires a command runner');
+    if (runCommand === undefined) {throw new Error('PDF DPI detection requires a command runner');}
 
     const combinedResult: IPageRasterDetectionResult = {
         documentDpi: null,

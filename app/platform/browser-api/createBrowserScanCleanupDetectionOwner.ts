@@ -79,7 +79,7 @@ export function createBrowserScanCleanupDetectionOwner() {
             deliveredByJob.delete(state.jobId);
             delivered = projectScanCleanupDetectionStateForRenderer(state);
         }
-        for (const listener of [...listeners]) listener(delivered);
+        for (const listener of [...listeners]) {listener(delivered);}
     };
     const jobs = createBrowserScanCleanupJobRegistry<TScanCleanupDetectionJobState, IScanCleanupDetectionJobResult>({
         terminal: {
@@ -99,7 +99,7 @@ export function createBrowserScanCleanupDetectionOwner() {
         },
         onState: deliver,
         onRetired: closure => {
-            for (const listener of [...listeners]) listener(closure);
+            for (const listener of [...listeners]) {listener(closure);}
         },
     });
     const active = new Map<string, IActiveDetection>();
@@ -110,11 +110,11 @@ export function createBrowserScanCleanupDetectionOwner() {
     const unkeptStoreByJob = new Map<string, string>();
     const ownerStore = new Map<string, string>();
     const closeIfIdle = (entry: IStoreEntry) => {
-        if (entry.retired && entry.leases === 0) void entry.store.close().catch(() => undefined);
+        if (entry.retired && entry.leases === 0) {void entry.store.close().catch(() => undefined);}
     };
     const retireStore = (storeId: string) => {
         const entry = stores.get(storeId);
-        if (entry === undefined) return;
+        if (entry === undefined) {return;}
         stores.delete(storeId);
         entry.retired = true;
         calibrations.retire(storeId);
@@ -122,7 +122,7 @@ export function createBrowserScanCleanupDetectionOwner() {
     };
     const leaseStore = (storeId: string | undefined, identity?: IStoreIdentity, pageNumber?: IScanCleanupPreviewRequest['pageNumber']) => {
         const entry = storeId === undefined ? undefined : stores.get(storeId);
-        if (entry === undefined || entry.retired) return null;
+        if (entry === undefined || entry.retired) {return null;}
         if (identity !== undefined && (
             entry.identity.ownerId !== identity.ownerId
             || entry.identity.sourceRef !== identity.sourceRef
@@ -138,13 +138,13 @@ export function createBrowserScanCleanupDetectionOwner() {
                     pageNumber,
                     options: identity.options,
                 }).options)
-        )) return null;
+        )) {return null;}
         entry.leases += 1;
         let released = false;
         return {
             store: entry.store,
             release() {
-                if (released) return;
+                if (released) {return;}
                 released = true;
                 entry.leases -= 1;
                 closeIfIdle(entry);
@@ -154,7 +154,7 @@ export function createBrowserScanCleanupDetectionOwner() {
     const retireOwnerStore = (ownerId: string) => {
         const storeId = ownerStore.get(ownerId);
         ownerStore.delete(ownerId);
-        if (storeId !== undefined) retireStore(storeId);
+        if (storeId !== undefined) {retireStore(storeId);}
     };
 
     const runDetection = async (
@@ -253,9 +253,9 @@ export function createBrowserScanCleanupDetectionOwner() {
             void settled.finally(() => {
                 const unkept = unkeptStoreByJob.get(jobId);
                 unkeptStoreByJob.delete(jobId);
-                if (unkept !== undefined) retireStore(unkept);
+                if (unkept !== undefined) {retireStore(unkept);}
                 deliveredByJob.delete(jobId);
-                if (active.get(request.ownerId)?.jobId === jobId) active.delete(request.ownerId);
+                if (active.get(request.ownerId)?.jobId === jobId) {active.delete(request.ownerId);}
             });
             return Promise.resolve({
                 started: true,
@@ -264,9 +264,9 @@ export function createBrowserScanCleanupDetectionOwner() {
         },
         cancelDetection(jobId: string, owner: IScanCleanupOwnerContext) {
             const state = jobs.get(jobId, owner);
-            if (state === null || !isLiveStatus(state.status)) return Promise.resolve(false);
+            if (state === null || !isLiveStatus(state.status)) {return Promise.resolve(false);}
             const canceled = jobs.cancel(jobId, owner, 'Scan cleanup detection canceled') === 'canceled';
-            if (canceled && active.get(owner.ownerId)?.jobId === jobId) active.delete(owner.ownerId);
+            if (canceled && active.get(owner.ownerId)?.jobId === jobId) {active.delete(owner.ownerId);}
             return Promise.resolve(canceled);
         },
         getDetectionJobState(jobId: string, owner: IScanCleanupOwnerContext) {
@@ -275,7 +275,7 @@ export function createBrowserScanCleanupDetectionOwner() {
         },
         subscribeDetectionJob(jobId: string, owner: IScanCleanupOwnerContext) {
             const state = jobs.get(jobId, owner);
-            if (state === null) return Promise.resolve(null);
+            if (state === null) {return Promise.resolve(null);}
             deliveredByJob.delete(jobId);
             return Promise.resolve(projectScanCleanupDetectionStateForRenderer(state));
         },
@@ -311,20 +311,20 @@ export function createBrowserScanCleanupDetectionOwner() {
             };
             const live = running === undefined ? null : leaseStore(liveStoreByJob.get(running.jobId), identity, request.pageNumber);
             const lease = live ?? leaseStore(ownerStore.get(request.ownerId), identity, request.pageNumber);
-            if (lease === null) return request;
+            if (lease === null) {return request;}
             try {
                 const {
                     page: result, layoutByPage,
                 } = await lease.store.readPreviewSnapshot(
                     request.pageNumber, request.options.matchPageSize,
                 );
-                if (result === undefined) return {
+                if (result === undefined) {return {
                     ...request,
                     layoutByPage: {
                         ...request.layoutByPage,
                         ...layoutByPage,
                     },
-                };
+                };}
                 const {
                     pagePlanEvidence: _plan, sourcePageMetadata: _source, documentPrior: _prior,
                     outputModeRecommendation: _output, softAlphaForegroundRecommendation: _alpha, ...rest
@@ -364,7 +364,7 @@ export function createBrowserScanCleanupDetectionOwner() {
                 ownerId,
                 detection,
             ] of active) {
-                if (detection.request.sourcePdfPath !== ref) continue;
+                if (detection.request.sourcePdfPath !== ref) {continue;}
                 jobs.cancel(detection.jobId, detection.request, 'Scan cleanup source closed');
                 active.delete(ownerId);
             }
@@ -372,7 +372,7 @@ export function createBrowserScanCleanupDetectionOwner() {
                 ownerId,
                 storeId,
             ] of ownerStore) {
-                if (stores.get(storeId)?.identity.sourceRef === ref) retireOwnerStore(ownerId);
+                if (stores.get(storeId)?.identity.sourceRef === ref) {retireOwnerStore(ownerId);}
             }
         },
     };

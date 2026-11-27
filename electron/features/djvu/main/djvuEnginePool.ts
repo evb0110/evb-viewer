@@ -90,7 +90,7 @@ class DjvuEnginePool {
     }
 
     private endWorker(entry: IDjvuPoolWorker) {
-        if (entry.ending) return;
+        if (entry.ending) {return;}
         entry.ending = true;
         entry.busy = true;
         clearTimeout(entry.idleTimer);
@@ -150,7 +150,7 @@ class DjvuEnginePool {
                 const wake = () => {
                     signal?.removeEventListener('abort', wake);
                     const idx = this.waiters.indexOf(wake);
-                    if (idx >= 0) this.waiters.splice(idx, 1);
+                    if (idx >= 0) {this.waiters.splice(idx, 1);}
                     resolveWaiter();
                 };
                 this.waiters.push(wake);
@@ -184,14 +184,14 @@ class DjvuEnginePool {
                 worker.off('exit', onExit);
             };
             const finish = (error: Error | null, result?: TDjvuEngineResultMap[TType]) => {
-                if (settled) return;
+                if (settled) {return;}
                 settled = true;
                 cleanup();
-                if (error) rejectPromise(error);
-                else resolvePromise(result as TDjvuEngineResultMap[TType]);
+                if (error) {rejectPromise(error);}
+                else {resolvePromise(result as TDjvuEngineResultMap[TType]);}
             };
             const onMessage = (reply: TDjvuEngineWorkerReply) => {
-                if (!reply || reply.id !== id) return;
+                if (!reply || reply.id !== id) {return;}
                 entry.heapBytes = reply.heapBytes;
                 this.parkWorker(entry);
                 if (reply.ok) {

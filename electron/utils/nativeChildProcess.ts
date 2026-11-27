@@ -180,7 +180,7 @@ export function spawnNativeChildProcess(
         } = Promise.withResolvers<boolean>();
         let proofSettled = false;
         const settleProof = (proven: boolean) => {
-            if (proofSettled) return;
+            if (proofSettled) {return;}
             proofSettled = true;
             resolveProof(proven);
         };
@@ -271,14 +271,14 @@ export function spawnNativeChildProcess(
         return proc as ChildProcessByStdio<Writable | null, Readable, Readable>;
     }
 
-    if (!launcher) throw new Error('Windows Job Object launcher is missing; rebuild native tools');
+    if (!launcher) {throw new Error('Windows Job Object launcher is missing; rebuild native tools');}
     const pipe = `\\\\.\\pipe\\evb-native-job-${randomUUID()}`;
     const {
         promise: proof, resolve: resolveProof,
     } = Promise.withResolvers<boolean>();
     let proofSettled = false;
     const settleProof = (proven: boolean) => {
-        if (proofSettled) return;
+        if (proofSettled) {return;}
         proofSettled = true;
         resolveProof(proven);
     };
@@ -359,7 +359,7 @@ export async function terminateDetachedChildProcess(
     platform: NodeJS.Platform = process.platform,
 ) {
     const job = supervisedJobs.get(proc);
-    if (job) return job.terminate(graceMs);
+    if (job) {return job.terminate(graceMs);}
     const pid = proc.pid;
     if (typeof pid === 'number' && Number.isFinite(pid) && pid > 0) {
         return terminateProcessTree(pid, {

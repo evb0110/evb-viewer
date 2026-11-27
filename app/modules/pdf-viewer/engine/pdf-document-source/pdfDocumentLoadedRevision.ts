@@ -19,10 +19,10 @@ const loadedRevisions = new WeakMap<IPdfDocument, {
 export function recordPdfDocumentLoadedRevision(document: IPdfDocument, revision: string | null) {
     const raw = toRaw(document);
     // A later view cannot establish different bytes, including when the first load's revision was unknown.
-    if (!loadedRevisions.has(raw)) loadedRevisions.set(raw, {
+    if (!loadedRevisions.has(raw)) {loadedRevisions.set(raw, {
         revision,
         annotations: null,
-    });
+    });}
 }
 
 /** The working-copy revision a PDF.js document holds, or null when unknown. */
@@ -52,7 +52,7 @@ export async function recordPdfDocumentOriginalAnnotations(
             const originalSource = preserveOriginalSource();
             loaded.originalSource = originalSource;
             void originalSource.catch(() => {
-                if (loaded.originalSource === originalSource) delete loaded.originalSource;
+                if (loaded.originalSource === originalSource) {delete loaded.originalSource;}
             });
         }
     }

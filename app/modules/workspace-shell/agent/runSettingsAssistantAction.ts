@@ -10,16 +10,16 @@ export async function runSettingsAssistantAction(options: {
     run: () => Promise<void>;
     isActive?: () => boolean;
 }) {
-    if (options.activeAction.value || options.isActive?.() === false) return false;
+    if (options.activeAction.value || options.isActive?.() === false) {return false;}
     options.activeAction.value = options.action;
     options.error.value = '';
     try {
         await options.run();
         return true;
     } catch (error) {
-        if (options.isActive?.() !== false) options.error.value = getErrorMessage(error);
+        if (options.isActive?.() !== false) {options.error.value = getErrorMessage(error);}
         return false;
     } finally {
-        if (options.isActive?.() !== false) options.activeAction.value = null;
+        if (options.isActive?.() !== false) {options.activeAction.value = null;}
     }
 }

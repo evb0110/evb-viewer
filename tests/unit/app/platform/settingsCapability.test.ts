@@ -556,7 +556,7 @@ describe('browserSettingsCapability', () => {
         vi.stubGlobal('window', {localStorage: {
             getItem: storage.getItem.bind(storage),
             setItem: (key: string, value: string) => {
-                if (failure) throw failure;
+                if (failure) {throw failure;}
                 storage.setItem(key, value);
             },
         }});

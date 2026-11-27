@@ -268,7 +268,7 @@ function rendering(pageNumber: number, base: IBrowserScanCleanupPreviewBase | nu
 const retainedBase = cast<IBrowserScanCleanupPreviewBase>({pageSize: {pageNumber: 1}});
 
 async function settleTurns() {
-    for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+    for (let turn = 0; turn < 10; turn += 1) {await Promise.resolve();}
 }
 
 describe('browser scan cleanup preview admission', () => {
@@ -285,7 +285,7 @@ describe('browser scan cleanup preview admission', () => {
             '@app/platform/browserDocumentStore',
             '@app/platform/browser-api/browserPageOpsWorkerClient',
             '@app/platform/browser-api/loadBrowserPdfjsDocument',
-        ]) vi.doUnmock(path);
+        ]) {vi.doUnmock(path);}
     });
 
     async function loadCapability() {
@@ -525,7 +525,7 @@ describe('browser scan cleanup preview plan', () => {
             '@app/platform/browser-api/createIndexedDbScanCleanupDetectionResultStore',
             '@app/platform/browser-api/browserScanCleanupSources',
             '@app/platform/browser-api/runBrowserScanCleanupDetection',
-        ]) vi.doUnmock(path);
+        ]) {vi.doUnmock(path);}
     });
 
     it.each([
@@ -774,7 +774,7 @@ describe('browser scan cleanup preview plan', () => {
             awaitScanCleanupSource: (promise: Promise<unknown>) => promise,
         }));
         vi.doMock('@app/platform/browser-api/runBrowserScanCleanupDetection', () => ({runBrowserScanCleanupDetection: async ({resultStore}: {resultStore: ReturnType<typeof createMemoryScanCleanupDetectionResultStore>}) => {
-            for (let page = 1; page <= pageCount; page += 1) await resultStore.append(spread(page));
+            for (let page = 1; page <= pageCount; page += 1) {await resultStore.append(spread(page));}
             return {
                 resultStore,
                 results: [],
@@ -803,14 +803,14 @@ describe('browser scan cleanup preview plan', () => {
 
         expect(Object.keys(planned.layoutByPage ?? {})).toHaveLength(pageCount);
         const accumulator = createScanCleanupDocumentCanvasAccumulator();
-        for (let page = 1; page <= pageCount; page += 1) addScanCleanupDocumentCanvasPage(accumulator, {
+        for (let page = 1; page <= pageCount; page += 1) {addScanCleanupDocumentCanvasPage(accumulator, {
             pageNumber: page,
             xPoints: 0,
             yPoints: 0,
             widthPoints: 1224,
             heightPoints: 792,
             rotation: 0,
-        }, planned.options, planned.layoutByPage?.[String(page)]);
+        }, planned.options, planned.layoutByPage?.[String(page)]);}
         expect(resolveScanCleanupProvisionalDocumentCanvasFromAccumulator(accumulator, 150, planned.options, true)?.widthPoints).toBe(612);
         owner.closeSource(requireDocumentRef('/docs/scan.pdf'));
     });
@@ -1078,7 +1078,7 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
             },
             async read(path: string) {
                 const bytes = files.get(path);
-                if (!bytes) throw new DOMException(`Missing ${path}`, 'NotFoundError');
+                if (!bytes) {throw new DOMException(`Missing ${path}`, 'NotFoundError');}
                 return bytes.slice();
             },
             async writeAtomic(path: string, bytes: Uint8Array) {
@@ -1088,7 +1088,7 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
                 files.delete(path);
                 const prefix = `${path}/`;
                 for (const key of [...files.keys()]) {
-                    if (key.startsWith(prefix)) files.delete(key);
+                    if (key.startsWith(prefix)) {files.delete(key);}
                 }
             },
         };
@@ -1161,7 +1161,7 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
         port.writeAtomic = async (path, bytes) => {
             writes += 1;
             // Write 1 = meta.json, write 2 = page-1.pdf, write 3 = page-1.json; page 2 hits quota.
-            if (writes > 3) throw new DOMException('Quota exceeded', 'QuotaExceededError');
+            if (writes > 3) {throw new DOMException('Quota exceeded', 'QuotaExceededError');}
             port.files.set(path, bytes.slice());
         };
         const store = await createBrowserOcrCheckpointStore(port, 'job-quota');
@@ -1360,7 +1360,7 @@ describe('browser OCR OPFS checkpoints and streaming finalization', () => {
                 '@app/platform/browser-api/loadBrowserPdfjsDocument',
                 '@app/platform/browserDocumentStore',
                 '@app/platform/browser/browserStorePort',
-            ]) vi.doUnmock(path);
+            ]) {vi.doUnmock(path);}
         }
     });
 });

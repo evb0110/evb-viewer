@@ -646,7 +646,7 @@ describe('ViewportAuthority', () => {
             },
         });
         const stop = watch(authority.activeIntent, (active) => {
-            if (!active) events.push('settled');
+            if (!active) {events.push('settled');}
         }, {flush: 'sync'});
 
         const result = await authority.submit(ticketedIntent('page-top', 3));

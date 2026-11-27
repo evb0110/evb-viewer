@@ -87,7 +87,7 @@ beforeEach(() => {
 afterEach(() => {
     // A failed assertion leaves its app mounted; tear it down before the clock
     // and visibility are restored.
-    for (const app of mountedApps) app.unmount();
+    for (const app of mountedApps) {app.unmount();}
     mountedApps.clear();
     vi.useRealTimers();
     setDocumentVisibility('visible');

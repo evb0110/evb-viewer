@@ -133,7 +133,7 @@ function buildExifRotationPreprocessing(inputs: IBrowserPdfCombineInput[]): IBro
     }
     const pageSizes = inputs.map(input => {
         const metadata = readBrowserRasterImageMetadata(input.data, getBrowserFileExtension(input.fileName));
-        if (!metadata) throw new Error(`ERR_BROWSER_PDF_COMBINE_UNREADABLE_IMAGE_HEADER:${input.fileName}`);
+        if (!metadata) {throw new Error(`ERR_BROWSER_PDF_COMBINE_UNREADABLE_IMAGE_HEADER:${input.fileName}`);}
         const dpi = metadata.dpi > 0 ? metadata.dpi : 72;
         return {
             widthPoints: metadata.width * 72 / dpi,
@@ -259,7 +259,7 @@ async function postResponse(message: TBrowserPdfCombineWorkerResponse, transfer:
 }
 
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
-    if (handlePrecompiledWasmModuleMessage(event.data)) return;
+    if (handlePrecompiledWasmModuleMessage(event.data)) {return;}
     const request = parseBrowserPdfCombineWorkerRequest(event.data);
     if (request === null) {
         const id = getBrowserPdfCombineWorkerRequestId(event.data);

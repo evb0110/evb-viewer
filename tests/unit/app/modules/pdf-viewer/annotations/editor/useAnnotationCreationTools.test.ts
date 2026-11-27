@@ -88,7 +88,7 @@ function drawThrough(
     >,
 ) {
     let draft = tools.beginShape(0, tool, origin!)!;
-    for (const point of points) draft = tools.updateShape(draft, point, origin!);
+    for (const point of points) {draft = tools.updateShape(draft, point, origin!);}
     return draft;
 }
 
@@ -107,10 +107,10 @@ describe('useAnnotationCreationTools', () => {
             0.6,
             0.4,
             0.4,
-        ]) draft = tools.updateShape(draft, {
+        ]) {draft = tools.updateShape(draft, {
             x: value,
             y: value,
-        }, origin);
+        }, origin);}
         const created = tools.finishShape(draft);
         expect(created?.rect).toEqual({
             left: 0.4,

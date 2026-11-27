@@ -303,11 +303,11 @@ export const usePdfAnnotationEditorSurface = (
         const selection = selectedIds.value;
         const commitDraft = () => editingPageIndex.value === null ? undefined : pageInteractions.get(editingPageIndex.value)?.commitTextDraft();
         const pending = accepted ?? (pendingAnnotationCommand ? pendingAnnotationCommand.then(commitDraft) : commitDraft());
-        if (!after) return pending ? pending.then(() => {}) : undefined;
-        if (pending) return pending.then(() => {
-            if (options.annotationApplication.value !== application || pointerPageIndex !== null || selectedIds.value.size !== selection.size || [...selection].some(id => !selectedIds.value.has(id))) throw new DOMException('The annotation command was superseded', 'AbortError');
+        if (!after) {return pending ? pending.then(() => {}) : undefined;}
+        if (pending) {return pending.then(() => {
+            if (options.annotationApplication.value !== application || pointerPageIndex !== null || selectedIds.value.size !== selection.size || [...selection].some(id => !selectedIds.value.has(id))) {throw new DOMException('The annotation command was superseded', 'AbortError');}
             return after();
-        });
+        });}
         return after();
     }
 
@@ -315,11 +315,11 @@ export const usePdfAnnotationEditorSurface = (
         const application = options.annotationApplication.value;
         const pending = command instanceof Promise ? undefined : options.getPendingTextCompletion?.() ?? getPendingTextCompletion();
         const result = command instanceof Promise ? command : pending ? pending.then(() => {
-            if (options.annotationApplication.value !== application) throw new DOMException('The annotation document was replaced', 'AbortError');
+            if (options.annotationApplication.value !== application) {throw new DOMException('The annotation document was replaced', 'AbortError');}
             return command();
         }) : command();
-        if (!(result instanceof Promise)) return result;
-        const accepted = result.finally(() => {if (pendingAnnotationCommand === accepted) pendingAnnotationCommand = null;});
+        if (!(result instanceof Promise)) {return result;}
+        const accepted = result.finally(() => {if (pendingAnnotationCommand === accepted) {pendingAnnotationCommand = null;}});
         pendingAnnotationCommand = accepted;
         return accepted;
     }
@@ -341,8 +341,8 @@ export const usePdfAnnotationEditorSurface = (
             if (pageInteractions.get(pageIndex) !== interaction) {
                 return;
             }
-            if (editingPageIndex.value === pageIndex) void commitTextSession()?.catch(error => BrowserLogger.debug('annotations', 'Unmounted text draft retained after completion failed', error));
-            if (pointerPageIndex === pageIndex) cancelPointerSession();
+            if (editingPageIndex.value === pageIndex) {void commitTextSession()?.catch(error => BrowserLogger.debug('annotations', 'Unmounted text draft retained after completion failed', error));}
+            if (pointerPageIndex === pageIndex) {cancelPointerSession();}
             pageInteractions.delete(pageIndex);
         };
     }
@@ -355,15 +355,15 @@ export const usePdfAnnotationEditorSurface = (
         }
         if (editingId.value !== id) {
             const pending = commitTextSession();
-            if (pending) await pending;
+            if (pending) {await pending;}
             const other = options.beforeTextBoxEdit?.(id);
-            if (other) await other;
+            if (other) {await other;}
         }
         const entity = editable(id);
-        if (options.annotationApplication.value !== application || selectedIds.value !== selection || entity?.kind !== 'text-box') throw new DOMException('The text editor handoff was superseded', 'AbortError');
+        if (options.annotationApplication.value !== application || selectedIds.value !== selection || entity?.kind !== 'text-box') {throw new DOMException('The text editor handoff was superseded', 'AbortError');}
         cancelPointerSession();
         setSelection([id]);
-        if (getTextBoxDraftText(id) !== null) pendingTextBoxDraftIds.add(id);
+        if (getTextBoxDraftText(id) !== null) {pendingTextBoxDraftIds.add(id);}
         textEditPoint.value = point ?? null;
         editingId.value = id;
     }
@@ -379,14 +379,14 @@ export const usePdfAnnotationEditorSurface = (
         editingId.value = null;
         textEditPoint.value = null;
         clearTextBoxDraftPending(id);
-        if (endOptions.created && !endOptions.cancelled && !preparingToolChange) completeCreation('text');
+        if (endOptions.created && !endOptions.cancelled && !preparingToolChange) {completeCreation('text');}
         if (endOptions.restoreFocus !== false && !preparingToolChange) {
             void nextTick(() => focusSelectedAnnotation(id));
         }
     }
 
     function beginPointerInteraction(pageIndex: number) {
-        if (pointerPageIndex !== null && pointerPageIndex !== pageIndex) cancelPointerSession();
+        if (pointerPageIndex !== null && pointerPageIndex !== pageIndex) {cancelPointerSession();}
         pointerPageIndex = pageIndex;
     }
 
@@ -412,16 +412,16 @@ export const usePdfAnnotationEditorSurface = (
         let pending: void | Promise<void> = undefined;
         try {
             pending = commitTextSession();
-            if (pending) return pending.then(() => {cancelPointerSession();}).finally(() => {preparingToolChange = false;});
+            if (pending) {return pending.then(() => {cancelPointerSession();}).finally(() => {preparingToolChange = false;});}
             cancelPointerSession();
         } finally {
-            if (!pending) preparingToolChange = false;
+            if (!pending) {preparingToolChange = false;}
         }
     }
 
     function prepareToolChange(): void | Promise<void> {
         const pending = suspendInteraction();
-        if (pending) return pending.then(() => {setSelection([]);});
+        if (pending) {return pending.then(() => {setSelection([]);});}
         setSelection([]);
     }
 
@@ -509,7 +509,7 @@ export const usePdfAnnotationEditorSurface = (
         }
         const entities = getSelectedAnnotations();
         if (hasRotation && entities.some(entity => {
-            if (entity.kind !== 'text-box') return entity.kind !== 'placed-image';
+            if (entity.kind !== 'text-box') {return entity.kind !== 'placed-image';}
             const text = getTextBoxDraftText(entity.identity.id);
             const rect = getTextBoxDraftRect(entity.identity.id);
             return (text !== null && text !== entity.text)
@@ -529,11 +529,11 @@ export const usePdfAnnotationEditorSurface = (
             let imageRotation: number | undefined;
             if (includeTextDraft && entity.kind === 'text-box' && entity.identity.id === editingId.value) {
                 const draftRect = pageInteractions.get(entity.pageIndex)?.getTextBoxDraftRect?.(entity.identity.id);
-                if (draftRect) patch.rect = {...draftRect};
+                if (draftRect) {patch.rect = {...draftRect};}
             }
             if (updates.color !== undefined) {
-                if (entity.kind === 'shape') patch.strokeColor = updates.color;
-                else if (entity.kind !== 'placed-image') patch.color = updates.color;
+                if (entity.kind === 'shape') {patch.strokeColor = updates.color;}
+                else if (entity.kind !== 'placed-image') {patch.color = updates.color;}
             }
             if (updates.fontSize !== undefined && entity.kind === 'text-box') {
                 const fittedRect = pageInteractions.get(entity.pageIndex)?.fitTextBox?.({
@@ -542,13 +542,13 @@ export const usePdfAnnotationEditorSurface = (
                 });
                 if (fittedRect !== null || entity.identity.id !== editingId.value) {
                     patch.fontSize = updates.fontSize;
-                    if (fittedRect && !annotationRectsEqual(entity.rect, fittedRect)) patch.rect = fittedRect;
+                    if (fittedRect && !annotationRectsEqual(entity.rect, fittedRect)) {patch.rect = fittedRect;}
                 }
             }
-            if (updates.opacity !== undefined && (entity.kind === 'shape' || entity.kind === 'text-markup')) patch.opacity = updates.opacity;
+            if (updates.opacity !== undefined && (entity.kind === 'shape' || entity.kind === 'text-markup')) {patch.opacity = updates.opacity;}
             if (entity.kind === 'shape') {
-                if (updates.strokeWidth !== undefined) patch.strokeWidth = updates.strokeWidth;
-                if (updates.fill !== undefined) patch.fill = updates.fill;
+                if (updates.strokeWidth !== undefined) {patch.strokeWidth = updates.strokeWidth;}
+                if (updates.fill !== undefined) {patch.fill = updates.fill;}
             }
             if (hasRotation && (entity.kind === 'text-box' || entity.kind === 'placed-image')) {
                 const rawRotation = updates.rotation ?? entity.rotation + (updates.rotationDelta ?? 0);
@@ -557,7 +557,7 @@ export const usePdfAnnotationEditorSurface = (
                 if (!fittedRect) {
                     return null;
                 }
-                if (!annotationRectsEqual(entity.rect, fittedRect)) patch.rect = fittedRect;
+                if (!annotationRectsEqual(entity.rect, fittedRect)) {patch.rect = fittedRect;}
                 if (entity.kind === 'text-box') {
                     if (rotation !== 0 && rotation !== 90 && rotation !== 180 && rotation !== 270) {
                         return null;
@@ -594,7 +594,7 @@ export const usePdfAnnotationEditorSurface = (
     function updateSelectedAnnotationProperties(updates: IAnnotationPropertyUpdate) {
         const pending = options.getPendingTextCompletion?.() ?? getPendingTextCompletion();
         const result = pending ? commitTextSession(() => applySelectedAnnotationProperties(updates), pending) : applySelectedAnnotationProperties(updates);
-        if (!(result instanceof Promise)) return result;
+        if (!(result instanceof Promise)) {return result;}
         return Promise.resolve(runAcceptedCommand(result)).catch(error => {
             BrowserLogger.debug('annotations', 'Annotation style command refused', error);
             return false;
@@ -612,7 +612,7 @@ export const usePdfAnnotationEditorSurface = (
                 for (const {
                     id, patch, imageRotation,
                 } of planned) {
-                    if (imageRotation === undefined) commitGesture(id, patch);
+                    if (imageRotation === undefined) {commitGesture(id, patch);}
                     else {
                         store().updatePlacedImage(id, {
                             ...patch,
@@ -627,7 +627,7 @@ export const usePdfAnnotationEditorSurface = (
         const assertions = planned.map(entry => captureTextBoxInput(entry.id));
         const fitting = options.fitTextBox ? planned.flatMap(entry => {
             const entity = store().get(entry.id);
-            if (entity?.kind !== 'text-box' || entry.id === editingId.value || !('fontSize' in entry.patch || 'rect' in entry.patch || 'rotation' in entry.patch)) return [];
+            if (entity?.kind !== 'text-box' || entry.id === editingId.value || !('fontSize' in entry.patch || 'rect' in entry.patch || 'rotation' in entry.patch)) {return [];}
             return [Promise.resolve(fitTextBox(entity, {
                 ...entity,
                 ...entry.patch,
@@ -639,7 +639,7 @@ export const usePdfAnnotationEditorSurface = (
                 });
             })];
         }) : [];
-        if (!fitting.length) return commit();
+        if (!fitting.length) {return commit();}
         return commitTextSession(() => {
             assertions.forEach(assertCurrent => assertCurrent());
             return commit();
@@ -698,10 +698,10 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function fitTextBox(entity: ITextBoxEntity, proposal: ITextBoxEntity) {
-        if (!options.fitTextBox) return {
+        if (!options.fitTextBox) {return {
             rect: proposal.rect,
             fontSize: proposal.fontSize,
-        };
+        };}
         const assertCurrent = captureTextBoxInput(entity.identity.id);
         return options.fitTextBox(entity, proposal).then((fitted) => {
             assertCurrent();
@@ -710,7 +710,7 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function publishTextBoxAppearance(entity: ITextBoxEntity, handoff: () => void, appearance?: INativeTextBoxAppearance) {
-        if (!options.publishTextBoxAppearance) return handoff();
+        if (!options.publishTextBoxAppearance) {return handoff();}
         const assertCurrent = captureTextBoxInput(entity.identity.id);
         return options.publishTextBoxAppearance(entity, handoff, () => assertCurrent(false), appearance);
     }
@@ -721,7 +721,7 @@ export const usePdfAnnotationEditorSurface = (
             return;
         }
         const rect = pageInteractions.get(entity.pageIndex)?.getTextBoxDraftRect?.(annotationId);
-        if (rect) restoredTextBoxDraftRects.set(annotationId, rect);
+        if (rect) {restoredTextBoxDraftRects.set(annotationId, rect);}
         if (text !== undefined) {
             options.onTextBoxDraftChanged?.(annotationId, text);
         }
@@ -785,7 +785,7 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function select(ids: readonly AnnotationId[], selectionOptions: { additive?: boolean } = {}) {
-        if (editingId.value !== null && !ids.includes(editingId.value)) void commitTextSession()?.catch(error => BrowserLogger.debug('annotations', 'Selection handoff refused', error));
+        if (editingId.value !== null && !ids.includes(editingId.value)) {void commitTextSession()?.catch(error => BrowserLogger.debug('annotations', 'Selection handoff refused', error));}
         setSelection(selectionOptions.additive ? [
             ...selectedIds.value,
             ...ids,
@@ -820,7 +820,7 @@ export const usePdfAnnotationEditorSurface = (
         const pending = commitTextSession(() => (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => {
             [...selectedIds.value].forEach(id => deleteAnnotation(id));
         }));
-        if (pending) void pending.catch(error => BrowserLogger.warn('annotations', 'Annotation deletion refused', error));
+        if (pending) {void pending.catch(error => BrowserLogger.warn('annotations', 'Annotation deletion refused', error));}
     }
 
     function translateEntity(entity: AnnotationEntity, deltaX: number, deltaY: number) {
@@ -844,7 +844,7 @@ export const usePdfAnnotationEditorSurface = (
         (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => {
             for (const id of ids) {
                 const entity = editable(id);
-                if (entity) translateEntity(entity, deltaX, deltaY);
+                if (entity) {translateEntity(entity, deltaX, deltaY);}
             }
         });
     }
@@ -885,10 +885,10 @@ export const usePdfAnnotationEditorSurface = (
             bounds,
         } of entries) {
             for (const rect of bounds) {
-                if (delta.x > 0) fraction = Math.min(fraction, (1 - rect.left - rect.width) / delta.x);
-                if (delta.x < 0) fraction = Math.min(fraction, -rect.left / delta.x);
-                if (delta.y > 0) fraction = Math.min(fraction, (1 - rect.top - rect.height) / delta.y);
-                if (delta.y < 0) fraction = Math.min(fraction, -rect.top / delta.y);
+                if (delta.x > 0) {fraction = Math.min(fraction, (1 - rect.left - rect.width) / delta.x);}
+                if (delta.x < 0) {fraction = Math.min(fraction, -rect.left / delta.x);}
+                if (delta.y > 0) {fraction = Math.min(fraction, (1 - rect.top - rect.height) / delta.y);}
+                if (delta.y < 0) {fraction = Math.min(fraction, -rect.top / delta.y);}
             }
         }
         fraction = Math.max(0, fraction);
@@ -1100,7 +1100,7 @@ export const usePdfAnnotationEditorSurface = (
         settings: options.settings,
         getEntitiesForPage: pageIndex => (options.paintsPage?.(pageIndex) === false ? [] : entitiesByPage.value.get(pageIndex) ?? []),
         getPaintInput(entity) {
-            if (entity.kind === 'text-box' && editingId.value === entity.identity.id) return entity;
+            if (entity.kind === 'text-box' && editingId.value === entity.identity.id) {return entity;}
             const preview = pageInteractions.get(entity.pageIndex)?.getPaintInput?.(entity) ?? entity;
             return preview.kind === 'text-box' ? {
                 ...preview,

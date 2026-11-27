@@ -108,7 +108,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     };
 
     const releaseMemory = (entry: IEngineWorker) => {
-        for (const lease of entry.memoryLeases.splice(0)) lease.release();
+        for (const lease of entry.memoryLeases.splice(0)) {lease.release();}
     };
 
     const exited = (entry: IEngineWorker) => {
@@ -127,7 +127,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     // still queued for it leaves the broker now rather than when the thread
     // exits, which a worker wedged in its engine may never do.
     const end = (entry: IEngineWorker) => {
-        if (entry.ending) return;
+        if (entry.ending) {return;}
         entry.ending = true;
         clearTimeout(entry.idleTimer);
         workers.delete(entry);
@@ -142,8 +142,8 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
 
     const park = (entry: IEngineWorker) => {
         if (entry.ending || !entry.worker) {
-            if (!entry.ending) end(entry);
-            else wakeWaiter();
+            if (!entry.ending) {end(entry);}
+            else {wakeWaiter();}
             return;
         }
         entry.busy = false;
@@ -173,7 +173,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     const acquire = async (signal: AbortSignal): Promise<IEngineWorker> => {
         for (;;) {
             signal.throwIfAborted();
-            if (closed) throw new Error('The OCR engine pool was shut down');
+            if (closed) {throw new Error('The OCR engine pool was shut down');}
             const idle = [...workers].find(entry => !entry.busy);
             if (idle) {
                 clearTimeout(idle.idleTimer);
@@ -198,7 +198,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                 const wake = () => {
                     signal.removeEventListener('abort', wake);
                     const index = waiters.indexOf(wake);
-                    if (index >= 0) waiters.splice(index, 1);
+                    if (index >= 0) {waiters.splice(index, 1);}
                     resolve();
                 };
                 waiters.push(wake);
@@ -216,7 +216,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
     ) => {
         let otherCachedBytes = 0;
         for (const [code, bytes] of entry.cachedModels) {
-            if (!modelSizes.has(code)) otherCachedBytes += bytes;
+            if (!modelSizes.has(code)) {otherCachedBytes += bytes;}
         }
         return Math.min(broker.getSnapshot().capacity.estimatedResidentBytes, workingBytes + otherCachedBytes);
     };
@@ -255,7 +255,7 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
             try {
                 passLease = await broker.acquire(request);
             } catch (error) {
-                if (admission.signal.aborted && !signal.aborted) continue;
+                if (admission.signal.aborted && !signal.aborted) {continue;}
                 park(entry);
                 // Its pass left the queue while it was not idle; work that has
                 // waited for memory since may now end it.
@@ -319,8 +319,8 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
             // core goes back. It is idle before its charge changes, so work
             // already short of memory may end it at once.
             const keepWorker = () => {
-                for (const [code, bytes] of modelSizes) entry.cachedModels.set(code, bytes);
-                if (growth > 0) entry.memoryLeases.push(passLease);
+                for (const [code, bytes] of modelSizes) {entry.cachedModels.set(code, bytes);}
+                if (growth > 0) {entry.memoryLeases.push(passLease);}
                 park(entry);
                 if (growth > 0) {
                     passLease.shrink({
@@ -335,8 +335,8 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
             };
             const discardWorker = () => {
                 entry.memoryLeases.push(passLease);
-                if (entry.exited) releaseMemory(entry);
-                else end(entry);
+                if (entry.exited) {releaseMemory(entry);}
+                else {end(entry);}
             };
             const id = nextId++;
             const worker = entry.worker!;
@@ -347,14 +347,14 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
                     worker.off('message', onMessage);
                     worker.off('error', onError);
                     worker.off('exit', onExit);
-                    if (error) reject(error);
-                    else resolve(result!);
+                    if (error) {reject(error);}
+                    else {resolve(result!);}
                 };
                 const onMessage = (message: IOcrEngineLaneReply) => {
-                    if (message.id !== id) return;
+                    if (message.id !== id) {return;}
                     keepWorker();
-                    if (message.ok) settle(null, message.result);
-                    else settle(new Error(message.error));
+                    if (message.ok) {settle(null, message.result);}
+                    else {settle(new Error(message.error));}
                 };
                 const onError = (error: Error) => {
                     discardWorker();
@@ -392,8 +392,8 @@ export function createOcrEnginePool(options: IOcrEnginePoolOptions) {
         terminate() {
             closed = true;
             unregisterReclaimer();
-            for (const entry of Array.from(workers)) end(entry);
-            for (const wake of waiters.splice(0)) wake();
+            for (const entry of Array.from(workers)) {end(entry);}
+            for (const wake of waiters.splice(0)) {wake();}
         },
     };
 }

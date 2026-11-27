@@ -339,16 +339,16 @@ function removeEnvironmentEntry(instance: IEditableAssistantInstanceConfig, uiId
     }
 }
 function applyInstances(result: IAssistantInstancesResult) {
-    if (disposed) return;
+    if (disposed) {return;}
     notices.value = result.notices;
     instanceError.value = result.error ?? '';
-    if (result.ok) instances.value = result.instances.map(instance => ({
+    if (result.ok) {instances.value = result.instances.map(instance => ({
         ...instance,
         environment: instance.environment?.map(entry => ({
             ...entry,
             uiId: createEnvironmentEntryUiId(),
         })) ?? [],
-    }));
+    }));}
 }
 function serializeInstanceForSave(instance: IEditableAssistantInstanceConfig): IAssistantInstanceConfig {
     return {
@@ -360,9 +360,9 @@ function serializeInstanceForSave(instance: IEditableAssistantInstanceConfig): I
     };
 }
 function applyOperation(result: IAssistantOperationResult) {
-    if (disposed) return;
+    if (disposed) {return;}
     liveState.value = result.state;
-    if (!result.ok) instanceError.value = result.error?.message ?? '';
+    if (!result.ok) {instanceError.value = result.error?.message ?? '';}
 }
 function run(action: NonNullable<typeof activeAction.value>, callback: () => Promise<void>) {
     return runSettingsAssistantAction({
@@ -384,15 +384,15 @@ async function loadInstances() {
             getAgentCapability().getAssistantInstances(),
             getAgentCapability().getAssistantState(),
         ]);
-        if (disposed) return;
-        if (config.status === 'fulfilled') applyInstances(config.value);
+        if (disposed) {return;}
+        if (config.status === 'fulfilled') {applyInstances(config.value);}
         if (state.status === 'fulfilled') {
             liveState.value = state.value;
-            if (pendingInstances) liveState.value.instances = pendingInstances;
+            if (pendingInstances) {liveState.value.instances = pendingInstances;}
         }
         pendingInstances = null;
-        if (config.status === 'rejected') throw config.reason;
-        if (state.status === 'rejected') throw state.reason;
+        if (config.status === 'rejected') {throw config.reason;}
+        if (state.status === 'rejected') {throw state.reason;}
     });
 }
 function addInstance() {
@@ -418,7 +418,7 @@ function saveInstances() {
             instances.value.map(serializeInstanceForSave),
         ));
         const state = await getAgentCapability().getAssistantState();
-        if (!disposed) liveState.value = state;
+        if (!disposed) {liveState.value = state;}
     });
 }
 function refreshInstance(instanceId: string) {
@@ -432,7 +432,7 @@ function refreshInstance(instanceId: string) {
             },
             probe: true,
         });
-        if (!disposed) liveState.value = state;
+        if (!disposed) {liveState.value = state;}
     });
 }
 function loginInstance(instanceId: string, mode: 'chatgpt' | 'device-code') {
@@ -442,7 +442,7 @@ function loginInstance(instanceId: string, mode: 'chatgpt' | 'device-code') {
             mode,
         });
         applyOperation(result);
-        if (disposed) return;
+        if (disposed) {return;}
         loginCodes.value[instanceId] = result.userCode ?? '';
         loginUrls.value[instanceId] = result.verificationUrl ?? result.authUrl ?? '';
     });
@@ -450,7 +450,7 @@ function loginInstance(instanceId: string, mode: 'chatgpt' | 'device-code') {
 function cancelInstanceLogin(instanceId: string) {
     void run('cancel', async () => {
         const state = await getAgentCapability().cancelAssistantLogin({ instanceId });
-        if (disposed) return;
+        if (disposed) {return;}
         liveState.value = state;
         loginCodes.value[instanceId] = '';
         loginUrls.value[instanceId] = '';
@@ -460,13 +460,13 @@ let unsubscribe: (() => void) | undefined;
 let pendingInstances: IAssistantInstanceStatus[] | null = null;
 onMounted(() => {
     unsubscribe = getAgentCapability().onAssistantEvent(event => {
-        if (disposed) return;
+        if (disposed) {return;}
         // Status that arrives before the first snapshot is newer than it.
         if (!liveState.value) {
-            if (event.type === 'instances') pendingInstances = event.instances;
+            if (event.type === 'instances') {pendingInstances = event.instances;}
             return;
         }
-        if (event.type === 'instances') liveState.value.instances = event.instances;
+        if (event.type === 'instances') {liveState.value.instances = event.instances;}
     });
     void loadInstances();
 });

@@ -42,7 +42,7 @@ export class ExternalIdentityIndex {
             }
             for (const key of Object.keys(this.#indexes) as TBindingKey[]) {
                 const value = after[key]?.trim();
-                if (!value) continue;
+                if (!value) {continue;}
                 const owner = ownerOf(key, value);
                 if (owner && owner !== after.id) {
                     throw new ExternalIdentityConflictError(`${key} ${value} is already bound to ${owner}`);
@@ -52,8 +52,8 @@ export class ExternalIdentityIndex {
         });
         (Object.keys(this.#indexes) as TBindingKey[]).forEach((key) => {
             staged[key].forEach((id, value) => {
-                if (id) this.#indexes[key].set(value, id);
-                else this.#indexes[key].delete(value);
+                if (id) {this.#indexes[key].set(value, id);}
+                else {this.#indexes[key].delete(value);}
             });
         });
     }
@@ -62,9 +62,9 @@ export class ExternalIdentityIndex {
         const matches = new Set<AnnotationId>();
         for (const key of Object.keys(this.#indexes) as TBindingKey[]) {
             const value = bindings[key]?.trim();
-            if (!value) continue;
+            if (!value) {continue;}
             const match = this.#indexes[key].get(value);
-            if (match) matches.add(match);
+            if (match) {matches.add(match);}
         }
         if (matches.size > 1) {
             throw new ExternalIdentityConflictError('External bindings resolve to different annotations');

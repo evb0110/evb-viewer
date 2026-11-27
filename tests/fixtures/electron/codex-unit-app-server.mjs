@@ -5,15 +5,15 @@ import {
 } from 'node:fs';
 
 // Real subprocess protocol fixture. All credentials and accounts are synthetic.
-if (process.env.CODEX_UNIT_PIDS) appendFileSync(process.env.CODEX_UNIT_PIDS, `${process.pid}\n`);
-if (process.env.CODEX_UNIT_ARGV) writeFileSync(process.env.CODEX_UNIT_ARGV, JSON.stringify(process.argv.slice(2)));
+if (process.env.CODEX_UNIT_PIDS) {appendFileSync(process.env.CODEX_UNIT_PIDS, `${process.pid}\n`);}
+if (process.env.CODEX_UNIT_ARGV) {writeFileSync(process.env.CODEX_UNIT_ARGV, JSON.stringify(process.argv.slice(2)));}
 const mode = process.env.CODEX_UNIT_MODE ?? 'responsive';
-if (mode === 'hang') process.stderr.write('\u001b[31mfixture login refresh is blocked\u001b[0m\n');
+if (mode === 'hang') {process.stderr.write('\u001b[31mfixture login refresh is blocked\u001b[0m\n');}
 const input = createInterface({input: process.stdin});
 input.on('line', line => {
     const request = JSON.parse(line);
-    if (request.id === undefined) return;
-    if (mode === 'hang') return;
+    if (request.id === undefined) {return;}
+    if (mode === 'hang') {return;}
     const result = {
         initialize: {userAgent: 'codex-unit'},
         'account/read': {account: {

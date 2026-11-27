@@ -384,8 +384,8 @@ export function reduceScanCleanupLosslessPage(input: {
         summary.excludedPages += 1;
         return null;
     }
-    if (metadata.layoutClassification === 'two-page-spread') summary.spreadsSplit += 1;
-    if (metadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
+    if (metadata.layoutClassification === 'two-page-spread') {summary.spreadsSplit += 1;}
+    if (metadata.layoutClassification === 'page-with-offcut') {summary.offcutsDiscarded += 1;}
     const outputs = (metadata.outputs ?? []).map(output => {
         if (output.pdfPlacement === undefined) {
             throw new ScanCleanupContractError(
@@ -493,7 +493,7 @@ export function finalizeScanCleanupLosslessOutputs(input: {
     });
     const coveredPages = new Set(outputMappings.map(mapping => mapping.sourcePage));
     for (const pageNumber of pageNumbers) {
-        if (coveredPages.has(pageNumber)) continue;
+        if (coveredPages.has(pageNumber)) {continue;}
         const metadata = pageMetadataBySource.get(pageNumber);
         outputMappings.push({
             sourcePage: pageNumber,
@@ -615,6 +615,6 @@ export function commitScanCleanupRenderedPageSummary<TPath>(input: {
     for (const output of pageOutputs) {
         reportScanCleanupNativeWarnings(summary, output.metadata, pageNumber, fittedMarginBoxPages, warn);
     }
-    if (pageMetadata.layoutClassification === 'two-page-spread') summary.spreadsSplit += 1;
-    if (pageMetadata.layoutClassification === 'page-with-offcut') summary.offcutsDiscarded += 1;
+    if (pageMetadata.layoutClassification === 'two-page-spread') {summary.spreadsSplit += 1;}
+    if (pageMetadata.layoutClassification === 'page-with-offcut') {summary.offcutsDiscarded += 1;}
 }

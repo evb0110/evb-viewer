@@ -108,14 +108,14 @@ export function parseTsvOcrData(tsvContent: string, limits: {
             }
             continue;
         }
-        if (level !== 5 || !row.text.trim()) continue;
+        if (level !== 5 || !row.text.trim()) {continue;}
 
         const left = parseNonNegativeTsvInt(row.parts[6]);
         const top = parseNonNegativeTsvInt(row.parts[7]);
         const width = parsePositiveTsvInt(row.parts[8]);
         const height = parsePositiveTsvInt(row.parts[9]);
         const confidence = parseNonNegativeTsvInt(row.parts[10]);
-        if (left === null || top === null || width === null || height === null || confidence === null) continue;
+        if (left === null || top === null || width === null || height === null || confidence === null) {continue;}
         appendTsvTextRow(textState, row, maxTextCharacters);
         if (acceptedWordRows.length >= maxWords) {
             throw new Error(`Tesseract TSV output exceeds the ${maxWords}-word limit`);
@@ -232,14 +232,14 @@ function* iterateTsvRows(tsvContent: string, maxRows: number): Generator<{
         const lineEnd = nextLineEnd < 0 ? trimmed.length : nextLineEnd;
         const line = trimmed.slice(cursor, lineEnd).replace(/\r$/u, '');
         cursor = nextLineEnd < 0 ? trimmed.length + 1 : nextLineEnd + 1;
-        if (!line.trim()) continue;
+        if (!line.trim()) {continue;}
         rowCount += 1;
         if (rowCount > maxRows) {
             throw new Error(`Tesseract TSV output exceeds the ${maxRows}-row limit`);
         }
 
         const parts = line.split('\t');
-        if (parts.length < 12) continue;
+        if (parts.length < 12) {continue;}
 
         const text = (parts[11] ?? '').trim();
         yield {
@@ -253,7 +253,7 @@ function* iterateTsvRows(tsvContent: string, maxRows: number): Generator<{
 export function readTesseractWords(tsvContent: string): ITesseractWord[] {
     const words: ITesseractWord[] = [];
     for (const row of iterateTsvRows(tsvContent, OCR_TSV_MAX_ROWS)) {
-        if (row.wordOrdinal === undefined) continue;
+        if (row.wordOrdinal === undefined) {continue;}
         words.push({
             ordinal: row.wordOrdinal,
             lineKey: getTsvLineKey(row.parts),

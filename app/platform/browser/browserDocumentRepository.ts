@@ -154,7 +154,7 @@ export class BrowserDocumentSourceChangedError extends Error {
 }
 
 function bytesBlob(data: Uint8Array | ArrayBuffer | Blob) {
-    if (data instanceof Blob) return data;
+    if (data instanceof Blob) {return data;}
     return new Blob([data instanceof Uint8Array ? data as Uint8Array<ArrayBuffer> : new Uint8Array(data)]);
 }
 
@@ -167,8 +167,8 @@ async function assertReadPermission(handle: FileSystemFileHandle, prompt: boolea
         queryPermission?: (descriptor: {mode: 'read'}) => Promise<PermissionState>;
         requestPermission?: (descriptor: {mode: 'read'}) => Promise<PermissionState>;
     };
-    if (!permissions.queryPermission || await permissions.queryPermission({mode: 'read'}) === 'granted') return;
-    if (prompt && await permissions.requestPermission?.({mode: 'read'}) === 'granted') return;
+    if (!permissions.queryPermission || await permissions.queryPermission({mode: 'read'}) === 'granted') {return;}
+    if (prompt && await permissions.requestPermission?.({mode: 'read'}) === 'granted') {return;}
     throw new DOMException('Open the file again to restore read permission.', 'NotAllowedError');
 }
 
@@ -206,7 +206,7 @@ export class BrowserDocumentStore {
     /** A ref for a file before it is registered; the file is read in place until something needs it stored. */
     public getRefForFile(file: File): TDocumentRef {
         const known = this.fileRefs.get(file);
-        if (known && this.entries.has(known)) return known;
+        if (known && this.entries.has(known)) {return known;}
         const ref = createBrowserDocumentRef(file.name);
         this.attach(this.fileEntry(ref, file, {retention: 'transient'}));
         this.fileRefs.set(file, ref);
@@ -230,7 +230,7 @@ export class BrowserDocumentStore {
         // A file registered again is the same document, unless it now needs a handle or stored bytes it lacks.
         const needsMore = (options.saveHandle && !knownEntry?.saveHandle)
             || (retention === 'durable' && !knownEntry?.doc && !knownEntry?.saveHandle);
-        if (known && knownEntry && !needsMore) return {ref: known, created: false};
+        if (known && knownEntry && !needsMore) {return {ref: known, created: false};}
         const ref = options.ref ?? known ?? createBrowserDocumentRef(file.name);
         const meta = {
             kind,
@@ -309,7 +309,7 @@ export class BrowserDocumentStore {
                 entry = await this.hold(forked);
             } catch (error) {
                 release();
-                if (!isQuotaError(error)) throw error;
+                if (!isQuotaError(error)) {throw error;}
                 // No room: copy into memory.
                 await store.port.remove(`documents/${id}`).catch(() => undefined);
                 entry = await this.createEntry(workingRef, {source: await this.externalSource(source.ref), imported: true}, meta);
@@ -318,13 +318,13 @@ export class BrowserDocumentStore {
         } else {
             entry = await this.createEntry(workingRef, {source: await this.fileOf(source), imported: true}, meta);
         }
-        if (data) await this.mutate(entry, this.tokenOf(entry), {kind: 'rewrite', source: bytesBlob(data), drafts: 'clear'}, 'write');
+        if (data) {await this.mutate(entry, this.tokenOf(entry), {kind: 'rewrite', source: bytesBlob(data), drafts: 'clear'}, 'write');}
         return workingRef;
     }
 
     public async ensureEntry(ref: string): Promise<IBrowserDocumentEntry | null> {
         const known = this.entries.get(ref);
-        if (known) return known;
+        if (known) {return known;}
         let hydration = this.hydrating.get(ref);
         if (!hydration) {
             hydration = this.hydrate(ref).finally(() => this.hydrating.delete(ref));
@@ -335,7 +335,7 @@ export class BrowserDocumentStore {
 
     public async requireEntry(ref: string): Promise<IBrowserDocumentEntry> {
         const entry = await this.ensureEntry(ref);
-        if (!entry) throw new DocumentOpenRefusalError('not-found', `Browser document not found: ${ref}`, {fileName: getBrowserDocumentFileName(ref)});
+        if (!entry) {throw new DocumentOpenRefusalError('not-found', `Browser document not found: ${ref}`, {fileName: getBrowserDocumentFileName(ref)});}
         return entry;
     }
 
@@ -407,8 +407,8 @@ export class BrowserDocumentStore {
             return;
         }
         if (!expected) {
-            if (entry.kind === 'working') throw createMissingRevisionError({documentRef: entry.ref});
-            if (options.strict) this.throwStale(entry, expected);
+            if (entry.kind === 'working') {throw createMissingRevisionError({documentRef: entry.ref});}
+            if (options.strict) {this.throwStale(entry, expected);}
             return;
         }
         if (!this.isActiveEntry(entry, entry.doc, options.expectedInstance) || expected !== this.tokenOf(entry)) {
@@ -469,7 +469,7 @@ export class BrowserDocumentStore {
     ) {
         const entry = await this.requireEntry(ref);
         const session = this.requireSession(entry);
-        if (!imported) await this.nameEdited(entry);
+        if (!imported) {await this.nameEdited(entry);}
         const pre = this.unwrapRevisionCheck(entry, token, session.checkRevision(token, {requireToken: entry.kind === 'working'}));
         const previous = requireDocumentRevisionToken(pre.currentToken);
         const capturedByteRevision = session.byteRevision();
@@ -479,7 +479,7 @@ export class BrowserDocumentStore {
         }
         if (!isOpfsStorePort(entry.store!.port)) {
             const bytes = await write(source, null);
-            if (!bytes) throw new Error('The rewrite returned no bytes');
+            if (!bytes) {throw new Error('The rewrite returned no bytes');}
             return this.mutate(
                 entry,
                 token,
@@ -506,7 +506,7 @@ export class BrowserDocumentStore {
     public async readableBlob(ref: string): Promise<Blob> {
         const entry = await this.requireEntry(ref);
         const current = entry.doc?.state().current;
-        if (!entry.doc || !current) return this.fileOf(entry);
+        if (!entry.doc || !current) {return this.fileOf(entry);}
         return (await storeFileBlob(entry.store!.port, entry.doc.path(current.file))).slice(0, current.length);
     }
 
@@ -523,7 +523,7 @@ export class BrowserDocumentStore {
             if (entry.session) {
                 this.unwrapRevisionCheck(entry, expected.token, entry.session.checkRevision(expected.token, {requireToken: entry.kind === 'working'}));
             } else if (!expected.token) {
-                if (entry.kind === 'working') throw createMissingRevisionError({documentRef: entry.ref});
+                if (entry.kind === 'working') {throw createMissingRevisionError({documentRef: entry.ref});}
             } else if (expected.token !== this.tokenOf(entry)) {
                 this.throwStale(entry, expected.token);
             }
@@ -532,7 +532,7 @@ export class BrowserDocumentStore {
         // Revision ids come back on undo; the directory's epoch moves on every change of its bytes.
         const epoch = entry.doc?.state().byteRevision;
         const blob = await this.readableBlob(ref);
-        if (!this.isActiveEntry(entry, entry.doc, instance) || this.tokenOf(entry) !== token || entry.doc?.state().byteRevision !== epoch) this.throwStale(entry, token);
+        if (!this.isActiveEntry(entry, entry.doc, instance) || this.tokenOf(entry) !== token || entry.doc?.state().byteRevision !== epoch) {this.throwStale(entry, token);}
         return {blob, token, byteRevision: epoch, instance};
     }
 
@@ -546,11 +546,11 @@ export class BrowserDocumentStore {
     public async writeStream(ref: string) {
         const entry = await this.requireEntry(ref);
         // Calls that start together each wait for the stream before theirs to end, so none is left holding the document.
-        while (entry.endStream) await entry.endStream(canceledWrite());
+        while (entry.endStream) {await entry.endStream(canceledWrite());}
         const stream = pushRevisionStream(source => this.mutate(entry, this.tokenOf(entry), {kind: 'rewrite', source, drafts: 'clear', imported: true}, 'write'));
         entry.endStream = stream.abort;
         const ended = () => {
-            if (entry.endStream === stream.abort) delete entry.endStream;
+            if (entry.endStream === stream.abort) {delete entry.endStream;}
         };
         void stream.written.then(ended, ended);
         return stream;
@@ -560,11 +560,11 @@ export class BrowserDocumentStore {
     public async replaceWithHandleBackedDocument(ref: string, options: {fileSize: number; saveHandle?: FileSystemFileHandle | null; saveName?: string}) {
         const entry = await this.requireEntry(ref);
         const handle = options.saveHandle ?? entry.saveHandle;
-        if (!handle) throw new Error(`No file to back browser document ${ref}`);
+        if (!handle) {throw new Error(`No file to back browser document ${ref}`);}
         const previous = this.tokenOf(entry);
         await this.closeEntry(entry, true);
         Object.assign(entry, {doc: null, session: null, store: null, file: await handle.getFile(), saveHandle: handle, updatedAt: Date.now(), closed: false, instance: Symbol('browser-document-entry')});
-        if (options.saveName) entry.saveName = entry.fileName = options.saveName;
+        if (options.saveName) {entry.saveName = entry.fileName = options.saveName;}
         await this.persistHandle(entry);
         this.attach(entry);
         this.emitRevision(entry, previous, 'replace-working-copy');
@@ -610,7 +610,7 @@ export class BrowserDocumentStore {
                 ...(options.commit !== undefined ? {commitLease: options.commit} : {}),
                 ...(options.saveAs !== undefined ? {saveAs: options.saveAs} : {}),
             }));
-            if (checked.result.status === 'stale-revision') this.throwStale(entry, token);
+            if (checked.result.status === 'stale-revision') {this.throwStale(entry, token);}
             return checked.result;
         } finally {
             if (this.tokenOf(entry) !== previous) {
@@ -659,9 +659,9 @@ export class BrowserDocumentStore {
             allowForeignBase,
             requireToken: entry.kind === 'working',
         });
-        if (outcome.status === 'missing-revision') throw createMissingRevisionError({documentRef: entry.ref});
-        if (outcome.status === 'stale-revision') this.throwStale(entry, token);
-        if (outcome.status === 'conflict') throw new BrowserDocumentSourceChangedError(entry.ref);
+        if (outcome.status === 'missing-revision') {throw createMissingRevisionError({documentRef: entry.ref});}
+        if (outcome.status === 'stale-revision') {this.throwStale(entry, token);}
+        if (outcome.status === 'conflict') {throw new BrowserDocumentSourceChangedError(entry.ref);}
         return outcome.status === 'staged' ? outcome.lease : null;
     }
 
@@ -689,7 +689,7 @@ export class BrowserDocumentStore {
     /** Lets go of a document this window keeps no view of; its bytes stay in the store. */
     public unload(ref: string) {
         const entry = this.entries.get(ref);
-        if (!entry?.doc || entry.memoryOnly) return;
+        if (!entry?.doc || entry.memoryOnly) {return;}
         this.entries.delete(ref);
         void this.closeEntry(entry);
     }
@@ -701,14 +701,14 @@ export class BrowserDocumentStore {
             this.entries.delete(ref);
             await this.closeEntry(entry, true);
         }
-        for (const listener of this.removalListeners) listener(ref);
+        for (const listener of this.removalListeners) {listener(ref);}
         await this.removeRecentFile(ref);
     }
 
     /** Removes a closed document unless Recent Files keeps it. */
     public async cleanupDetachedDocument(ref: string) {
         const entry = this.entries.get(ref);
-        if (!entry) return false;
+        if (!entry) {return false;}
         if (entry.retention === 'durable' && entry.kind !== 'working') {
             this.unload(ref);
             return false;
@@ -720,7 +720,7 @@ export class BrowserDocumentStore {
     /** Hands a document to another window: closes it here and releases its lock, keeping its bytes. */
     public async release(ref: string) {
         const entry = this.entries.get(ref);
-        if (!entry) return;
+        if (!entry) {return;}
         this.entries.delete(ref);
         await this.closeEntry(entry);
     }
@@ -728,8 +728,8 @@ export class BrowserDocumentStore {
     /** Names the source of a working copy this window opens later: a moved tab's or a recovered one's. */
     public nameSource(ref: string, sourceRef: TDocumentRef) {
         const entry = this.entries.get(ref);
-        if (!entry) this.namedSources.set(ref, sourceRef);
-        else if (sourceRef !== ref) entry.sourceRef ??= sourceRef;
+        if (!entry) {this.namedSources.set(ref, sourceRef);}
+        else if (sourceRef !== ref) {entry.sourceRef ??= sourceRef;}
     }
 
     /** The store document behind `ref`, for the window's recovery writer. */
@@ -755,7 +755,7 @@ export class BrowserDocumentStore {
     /** Whether `ref` still has its file handle or its stored copy, without opening it. */
     public async isStored(ref: string) {
         const id = browserDocumentRefId(ref);
-        if (this.entries.has(ref) || await fileHandleStore.get(id)) return true;
+        if (this.entries.has(ref) || await fileHandleStore.get(id)) {return true;}
         const {durable} = await this.stores();
         return durable !== null && (await durable.port.list('documents')).includes(id);
     }
@@ -775,7 +775,7 @@ export class BrowserDocumentStore {
     /** Remembers the view with the Recent entry of the source `workingCopy` was opened from. */
     public async rememberRecentReadingView(workingCopy: string, view: IRecentReadingView) {
         const source = await this.admittedSource(workingCopy);
-        if (source) await this.recentFiles.rememberReadingView(source.sourceRef, source.witness, view);
+        if (source) {await this.recentFiles.rememberReadingView(source.sourceRef, source.witness, view);}
     }
 
     /** The view a reader left the source of `workingCopy` at, if that source still has the bytes it was left on. */
@@ -787,7 +787,7 @@ export class BrowserDocumentStore {
     /** The source a reading view belongs to, with the witness of the file it was opened on. */
     private async admittedSource(ref: string) {
         const entry = await this.ensureEntry(ref).catch(() => null);
-        if (!entry) return null;
+        if (!entry) {return null;}
         const sourceRef = entry.kind === 'working' ? entry.sourceRef : entry.ref;
         if (entry.doc) {
             const baseline = entry.doc.state().baseline;
@@ -805,13 +805,13 @@ export class BrowserDocumentStore {
 
     /** Has this window name `entry`'s directory for recovery: before a change that is not part of opening it, as desktop does. */
     public async nameEdited(entry: IBrowserDocumentEntry): Promise<boolean> {
-        if (!entry.doc || entry.memoryOnly) return false;
+        if (!entry.doc || entry.memoryOnly) {return false;}
         return (await this.onDirectoryEdited(entry.doc.id)) !== false;
     }
 
     /** A directory this window takes with unsaved work in it (recovered, handed over, made from unsaved bytes) is named at once. */
     private async hold(entry: IBrowserDocumentEntry) {
-        if (entry.doc?.state().dirty) await this.nameEdited(entry);
+        if (entry.doc?.state().dirty) {await this.nameEdited(entry);}
         return this.attach(entry);
     }
 
@@ -867,15 +867,15 @@ export class BrowserDocumentStore {
 
     /** Recent Files and documents saved to the file reopen it after a reload through the stored handle. */
     private async persistHandle(entry: IBrowserDocumentEntry) {
-        if (!entry.saveHandle) return;
+        if (!entry.saveHandle) {return;}
         const key = browserDocumentRefId(entry.ref);
-        if (entry.retention === 'durable') await storeFileHandle(key, entry.saveHandle);
-        else rememberFileHandle(key, entry.saveHandle);
+        if (entry.retention === 'durable') {await storeFileHandle(key, entry.saveHandle);}
+        else {rememberFileHandle(key, entry.saveHandle);}
     }
 
     private async lock(id: string, waitMs: number) {
         const release = await holdBrowserLock(browserDocumentLockName(id), waitMs);
-        if (!release) throw new Error('The document is open in another window');
+        if (!release) {throw new Error('The document is open in another window');}
         return release;
     }
 
@@ -898,8 +898,8 @@ export class BrowserDocumentStore {
             try {
                 doc = await createDocument(store, documentInit);
             } catch (error) {
-                if (!durable || !isQuotaError(error)) throw error;
-                if (!existedInStore) await store.port.remove(`documents/${id}`).catch(() => undefined);
+                if (!durable || !isQuotaError(error)) {throw error;}
+                if (!existedInStore) {await store.port.remove(`documents/${id}`).catch(() => undefined);}
                 store = memory;
                 existedInStore = (await store.port.list('documents').catch((): string[] => [])).includes(id);
                 doc = await createDocument(store, documentInit);
@@ -912,7 +912,7 @@ export class BrowserDocumentStore {
             return await this.hold(entry);
         } catch (error) {
             await doc?.close().catch(() => undefined);
-            if (!existedInStore) await store.port.remove(`documents/${id}`).catch(() => undefined);
+            if (!existedInStore) {await store.port.remove(`documents/${id}`).catch(() => undefined);}
             release();
             throw error;
         }
@@ -921,7 +921,7 @@ export class BrowserDocumentStore {
     /** A ref this window did not open: a stored handle, or a store directory another window let go of. */
     private async hydrate(ref: string): Promise<IBrowserDocumentEntry | null> {
         const parsed = parseDocumentRef(ref);
-        if (!parsed) return null;
+        if (!parsed) {return null;}
         let id: string;
         try {
             id = browserDocumentRefId(parsed);
@@ -934,7 +934,7 @@ export class BrowserDocumentStore {
             return this.attachHandleSource(parsed, stored.handle, null, {saveKind: /\.pdf$/iu.test(stored.name) ? 'pdf' : 'generic'});
         }
         const {durable} = await this.stores();
-        if (!durable || !(await durable.port.list('documents')).includes(id)) return null;
+        if (!durable || !(await durable.port.list('documents')).includes(id)) {return null;}
         const release = await this.lock(id, DOCUMENT_LOCK_WAIT_MS);
         try {
             const store = durable;
@@ -964,7 +964,7 @@ export class BrowserDocumentStore {
         try {
             await entry.endStream?.(canceledWrite());
             await entry.doc?.close();
-            if (removeBytes && entry.doc && entry.store) await entry.store.port.remove(`documents/${entry.doc.id}`);
+            if (removeBytes && entry.doc && entry.store) {await entry.store.port.remove(`documents/${entry.doc.id}`);}
             if (removeBytes && entry.saveHandle && !entry.doc && entry.kind !== 'working') {
                 await fileHandleStore.delete(browserDocumentRefId(entry.ref)).catch(() => undefined);
             }
@@ -975,7 +975,7 @@ export class BrowserDocumentStore {
     }
 
     private requireSession(entry: IBrowserDocumentEntry) {
-        if (!entry.session) throw new Error(`Browser document has no stored bytes: ${entry.ref}`);
+        if (!entry.session) {throw new Error(`Browser document has no stored bytes: ${entry.ref}`);}
         return entry.session;
     }
 
@@ -994,16 +994,16 @@ export class BrowserDocumentStore {
     }
 
     private async fileOf(entry: IBrowserDocumentEntry) {
-        if (entry.file) return entry.file;
+        if (entry.file) {return entry.file;}
         const key = handleKeyOf(entry.doc?.state().destination ?? null);
         const handle = (!entry.doc && entry.saveHandle) || (key === null ? null : await resolveFileHandle(key));
-        if (!handle) throw new Error(`Browser document has no readable bytes: ${entry.ref}`);
+        if (!handle) {throw new Error(`Browser document has no readable bytes: ${entry.ref}`);}
         return (entry.file = await handle.getFile());
     }
 
     /** A picked file read in place is looked at again; a store document never changes behind its manifest. */
     private async refreshPickedFile(entry: IBrowserDocumentEntry) {
-        if (entry.doc || !entry.saveHandle) return;
+        if (entry.doc || !entry.saveHandle) {return;}
         const previous = this.tokenOf(entry);
         entry.file = await entry.saveHandle.getFile();
         entry.fileSize = entry.file.size;
@@ -1015,19 +1015,19 @@ export class BrowserDocumentStore {
 
     private async sizeOf(entry: IBrowserDocumentEntry) {
         const current = entry.doc?.state().current;
-        if (current) return current.length;
+        if (current) {return current.length;}
         return (await this.fileOf(entry)).size;
     }
 
     private async readEntryRange(entry: IBrowserDocumentEntry, offset: number, length: number) {
-        if (entry.doc?.state().current) return entry.doc.read(offset, length);
+        if (entry.doc?.state().current) {return entry.doc.read(offset, length);}
         const file = await this.fileOf(entry);
         return new Uint8Array(await file.slice(offset, offset + length).arrayBuffer());
     }
 
     /** A store document's revision is its directory and the revision its manifest names; 1 is its destination's bytes. */
     public tokenOf(entry: IBrowserDocumentEntry) {
-        if (entry.session) return requireDocumentRevisionToken(entry.session.token());
+        if (entry.session) {return requireDocumentRevisionToken(entry.session.token());}
         return requireDocumentRevisionToken(`drt1:browser:${browserDocumentRefId(entry.ref)}:f${entry.file?.lastModified ?? 0}-${entry.file?.size ?? 0}`);
     }
 
@@ -1062,8 +1062,8 @@ export class BrowserDocumentStore {
         expected: TDocumentRevisionToken | null | undefined,
         result: T,
     ): Exclude<T, {status: 'missing-revision' | 'stale-revision'}> {
-        if (result.status === 'missing-revision') throw createMissingRevisionError({documentRef: entry.ref});
-        if (result.status === 'stale-revision') this.throwStale(entry, expected);
+        if (result.status === 'missing-revision') {throw createMissingRevisionError({documentRef: entry.ref});}
+        if (result.status === 'stale-revision') {this.throwStale(entry, expected);}
         return result as Exclude<T, {status: 'missing-revision' | 'stale-revision'}>;
     }
 
@@ -1096,17 +1096,17 @@ export class BrowserDocumentStore {
         announce = true,
     ) {
         const checked = this.unwrapRevisionCheck(entry, token, outcome);
-        if (checked.status === 'conflict') throw new BrowserDocumentSourceChangedError(entry.ref);
+        if (checked.status === 'conflict') {throw new BrowserDocumentSourceChangedError(entry.ref);}
         entry.file = null;
         entry.fileSize = checked.revision.length;
         entry.updatedAt = Date.now();
-        if (announce) this.emitRevision(entry, requireDocumentRevisionToken(checked.previousToken), reason);
+        if (announce) {this.emitRevision(entry, requireDocumentRevisionToken(checked.previousToken), reason);}
         return this.revisionInfo(entry);
     }
 
     private emitRevision(entry: IBrowserDocumentEntry, previousToken: TDocumentRevisionToken | undefined, reason: TDocumentRevisionChangeReason) {
         const event = {...this.revisionInfo(entry), ...(previousToken ? {previousToken} : {}), reason};
-        for (const listener of this.revisionListeners) listener(event);
+        for (const listener of this.revisionListeners) {listener(event);}
     }
 }
 

@@ -189,7 +189,7 @@ export async function createDjvuDiskQuotaMonitor(options: {
     let stopped = false;
 
     const performCheck = async () => {
-        if (failure) throw failure;
+        if (failure) {throw failure;}
         const [
             sizes,
             availableBytes,
@@ -222,7 +222,7 @@ export async function createDjvuDiskQuotaMonitor(options: {
                 failure = error instanceof DjvuDiskQuotaError
                     ? error
                     : new DjvuDiskQuotaError(getErrorMessage(error));
-                if (!controller.signal.aborted) controller.abort(failure);
+                if (!controller.signal.aborted) {controller.abort(failure);}
                 throw failure;
             })
             .finally(() => {
@@ -451,7 +451,7 @@ export async function openDjvuArtifactJob(
     const directory = join(jobRoot, fingerprint);
     const manifestPath = join(directory, 'manifest.json');
     const outputExtension = options.outputExtension ?? '.pdf';
-    if (options.consumer) artifactDirectoryConsumers.set(directory, (artifactDirectoryConsumers.get(directory) ?? 0) + 1);
+    if (options.consumer) {artifactDirectoryConsumers.set(directory, (artifactDirectoryConsumers.get(directory) ?? 0) + 1);}
     try {
         await mkdir(directory, {recursive: true});
         const fileSystem = await statfs(directory).catch(() => null);
@@ -544,7 +544,7 @@ export async function openDjvuArtifactJob(
             async updateRange(index, update, verification) {
                 const operation = writeChain.catch(() => undefined).then(async () => {
                     const range = manifest.ranges[index];
-                    if (!range) throw new Error(`Unknown DjVu artifact range ${index}`);
+                    if (!range) {throw new Error(`Unknown DjVu artifact range ${index}`);}
                     if (update.status === 'verified') {
                         const additionalArtifacts = verification?.additionalArtifacts ?? [];
                         const allPaths = [
@@ -635,8 +635,8 @@ export async function openDjvuArtifactJob(
     } catch (error) {
         if (options.consumer) {
             const remaining = (artifactDirectoryConsumers.get(directory) ?? 1) - 1;
-            if (remaining > 0) artifactDirectoryConsumers.set(directory, remaining);
-            else artifactDirectoryConsumers.delete(directory);
+            if (remaining > 0) {artifactDirectoryConsumers.set(directory, remaining);}
+            else {artifactDirectoryConsumers.delete(directory);}
         }
         releaseFingerprintLock();
         throw error;
@@ -655,13 +655,13 @@ export async function pruneStaleDjvuArtifactJobs(now = Date.now()) {
     const removeIfUnchanged = async (entry: typeof retained[number]) => {
         const fingerprint = basename(entry.directory);
         // Claim the free lock synchronously; never queue behind an active job.
-        if (artifactDirectoryConsumers.has(entry.directory) || activeFingerprintTails.has(fingerprint)) return;
+        if (artifactDirectoryConsumers.has(entry.directory) || activeFingerprintTails.has(fingerprint)) {return;}
         const release = await acquireFingerprintLock(fingerprint);
         try {
-            if (artifactDirectoryConsumers.has(entry.directory)) return;
+            if (artifactDirectoryConsumers.has(entry.directory)) {return;}
             const current = await stat(join(entry.directory, 'manifest.json')).catch(() => null);
             if (current?.ino !== entry.info?.ino || current?.size !== entry.info?.size
-                || current?.mtimeMs !== entry.info?.mtimeMs || current?.ctimeMs !== entry.info?.ctimeMs) return;
+                || current?.mtimeMs !== entry.info?.mtimeMs || current?.ctimeMs !== entry.info?.ctimeMs) {return;}
             await rm(entry.directory, {
                 force: true,
                 recursive: true,
@@ -672,7 +672,7 @@ export async function pruneStaleDjvuArtifactJobs(now = Date.now()) {
     };
     await Promise.all(jobDirectories.map(async (entry) => {
         const directory = join(jobRoot, entry.name);
-        if (artifactDirectoryConsumers.has(directory) || activeFingerprintTails.has(entry.name)) return;
+        if (artifactDirectoryConsumers.has(directory) || activeFingerprintTails.has(entry.name)) {return;}
         const info = await stat(join(directory, 'manifest.json')).catch(() => null);
         if (!info || now - info.mtimeMs > STALE_JOB_MS) {
             await removeIfUnchanged({

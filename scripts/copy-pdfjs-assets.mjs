@@ -161,7 +161,7 @@ export async function copyPdfjsAssets({
             recursive: true,
             withFileTypes: true,
         })) {
-            if (!entry.isFile()) continue;
+            if (!entry.isFile()) {continue;}
             const source = join(entry.parentPath, entry.name);
             // Upstream licenses and SVGs include trailing spaces. Normalize the
             // retained text before hashing so it is suitable for tracked source.
@@ -190,7 +190,7 @@ export async function copyPdfjsAssets({
             throw new Error(`Invalid retained PDF.js identities in ${manifestPath}`);
         }
     } catch (error) {
-        if (error?.code !== 'ENOENT') throw error;
+        if (error?.code !== 'ENOENT') {throw error;}
     }
     // Retain the current build plus 3 previous identities. A tab open across
     // more than 3 PDF.js upgrades falls back to existing version-mismatch handling.

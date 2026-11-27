@@ -37,22 +37,22 @@ function decodePbm(bytes: Uint8Array) {
     let offset = 0;
     const tokens: string[] = [];
     while (tokens.length < 3) {
-        while (offset < bytes.length && /\s/u.test(String.fromCharCode(bytes[offset]!))) offset += 1;
+        while (offset < bytes.length && /\s/u.test(String.fromCharCode(bytes[offset]!))) {offset += 1;}
         if (bytes[offset] === 0x23) {
-            while (offset < bytes.length && bytes[offset] !== 0x0a) offset += 1;
+            while (offset < bytes.length && bytes[offset] !== 0x0a) {offset += 1;}
             continue;
         }
         const start = offset;
-        while (offset < bytes.length && !/\s/u.test(String.fromCharCode(bytes[offset]!))) offset += 1;
+        while (offset < bytes.length && !/\s/u.test(String.fromCharCode(bytes[offset]!))) {offset += 1;}
         tokens.push(new TextDecoder().decode(bytes.subarray(start, offset)));
     }
-    while (offset < bytes.length && /\s/u.test(String.fromCharCode(bytes[offset]!))) offset += 1;
+    while (offset < bytes.length && /\s/u.test(String.fromCharCode(bytes[offset]!))) {offset += 1;}
     const [
         magic,
         widthText,
         heightText,
     ] = tokens;
-    if (magic !== 'P4') throw new Error('Expected a binary PBM fixture');
+    if (magic !== 'P4') {throw new Error('Expected a binary PBM fixture');}
     const width = Number(widthText);
     const height = Number(heightText);
     const stride = Math.ceil(width / 8);
@@ -110,7 +110,7 @@ describe('pdf.js JBIG2 consumer compatibility', () => {
             },
         }]});
         expect(combined.status).toBe('success');
-        if (combined.status !== 'success') throw new Error(`Combiner failed: ${combined.status}`);
+        if (combined.status !== 'success') {throw new Error(`Combiner failed: ${combined.status}`);}
         expect(new TextDecoder('latin1').decode(combined.data)).toContain('/JBIG2Decode');
 
         const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
@@ -149,9 +149,9 @@ describe('pdf.js JBIG2 consumer compatibility', () => {
             for (let pixel = 0; pixel < source.pixels.length; pixel += 1) {
                 const sourceIsInk = source.pixels[pixel] === 1;
                 const renderedIsInk = rendered[pixel * 4]! < 128;
-                if (sourceIsInk) sourceInk += 1;
-                if (renderedIsInk) renderedInk += 1;
-                if (sourceIsInk !== renderedIsInk) mismatches += 1;
+                if (sourceIsInk) {sourceInk += 1;}
+                if (renderedIsInk) {renderedInk += 1;}
+                if (sourceIsInk !== renderedIsInk) {mismatches += 1;}
             }
             expect(canvas.width).toBe(source.width);
             expect(canvas.height).toBe(source.height);

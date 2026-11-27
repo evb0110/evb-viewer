@@ -57,7 +57,7 @@ function parsePdfImagesRows(output: string) {
     const rows: IPdfImagesRow[] = [];
     for (const line of output.split(/\r?\n/u)) {
         const parts = line.trim().split(/\s+/u);
-        if (parts.length < 14) continue;
+        if (parts.length < 14) {continue;}
         const pageNumber = Number.parseInt(parts[0] ?? '', 10);
         const imageNumber = Number.parseInt(parts[1] ?? '', 10);
         const width = Number.parseInt(parts[3] ?? '', 10);

@@ -166,7 +166,7 @@ async function handleMatchPageTextRequest(
 // comes from the renderer's own PDF.js or DjVu.js document, so terminating this
 // worker on cancel never touches a document.
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
-    if (handlePrecompiledWasmModuleMessage(event.data)) return;
+    if (handlePrecompiledWasmModuleMessage(event.data)) {return;}
     const request = parseBrowserSearchWorkerRequest(event.data);
     if (request === null) {
         const id = getBrowserSearchWorkerRequestId(event.data);

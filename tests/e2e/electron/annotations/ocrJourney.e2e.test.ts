@@ -444,8 +444,8 @@ describe('Electron E2E - OCR journey', () => {
                 offset += 262_144;
                 // The first run is cancelled by the user; the next loses its
                 // connection and must expose the existing automatic retry.
-                if (currentAttempt === 2 && offset >= 2_097_152) response.destroy();
-                else if (offset >= modelBytes.length) response.end();
+                if (currentAttempt === 2 && offset >= 2_097_152) {response.destroy();}
+                else if (offset >= modelBytes.length) {response.end();}
             }, 250);
             response.once('close', () => {
                 clearInterval(stream);
@@ -461,7 +461,7 @@ describe('Electron E2E - OCR journey', () => {
             await rename(modelPath, backupPath);
             await new Promise<void>(resolve => transport.listen(0, '127.0.0.1', resolve));
             const address = transport.address();
-            if (!address || typeof address === 'string') throw new Error('Model transport has no TCP address');
+            if (!address || typeof address === 'string') {throw new Error('Model transport has no TCP address');}
             const hookPath = join(scratch, 'model-transport.cjs');
             await writeFile(hookPath, `
 if (process.versions.electron && process.type === 'browser') {
@@ -526,7 +526,7 @@ if (process.versions.electron && process.type === 'browser') {
                     completed = true;
                     break;
                 }
-                if (text.includes('Copy logs')) break;
+                if (text.includes('Copy logs')) {break;}
                 await delay(500);
             }
             await page.screenshot({path: join(evidence, 'complete.png')});
@@ -553,7 +553,7 @@ if (process.versions.electron && process.type === 'browser') {
                     const previous = changes[index - 1]!;
                     const current = changes[index]!;
                     if (samples.some(item => item.at > previous.at && item.at < current.at
-                        && item.text.includes('Retrying German') && !item.text.includes('Downloading German:'))) continue;
+                        && item.text.includes('Retrying German') && !item.text.includes('Downloading German:'))) {continue;}
                     expect(current.at - previous.at, 'progress increases at least once a second').toBeLessThanOrEqual(1_000);
                 }
             }
@@ -565,7 +565,7 @@ if (process.versions.electron && process.type === 'browser') {
                 await sessionFixture.stop({preserveArtifacts: true});
             } finally {
                 transport.closeAllConnections();
-                if (transport.listening) await new Promise<void>(resolve => transport.close(() => resolve()));
+                if (transport.listening) {await new Promise<void>(resolve => transport.close(() => resolve()));}
                 if (existsSync(backupPath)) {
                     await rm(modelPath, {force: true});
                     await rename(backupPath, modelPath);
@@ -619,7 +619,7 @@ if (process.versions.electron && process.type === 'browser') {
             const checkpoint = readWorkspaceRecoveryRecords(session.name)
                 .map(record => decodeWorkspaceCheckpoint(record.checkpoint)).find(Boolean);
             const recovery = checkpoint?.tabs.find(tab => tab.workingCopyRef === workingPath)?.annotationRecovery;
-            if (!recovery) return false;
+            if (!recovery) {return false;}
             const payload = JSON.parse(readAnnotationRecoveryDraft(session.name, recovery.artifactId) ?? '{}') as {payload?: {entities?: Array<{contents?: string}>}};
             const notePresent = payload.payload?.entities?.some(entity => entity.contents === marker) ?? false;
             if (notePresent) {
@@ -662,7 +662,7 @@ if (process.versions.electron && process.type === 'browser') {
         expect(records).toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
         const pages = await extractTextWithPdfjs(sourcePath);
         expect(pages).toHaveLength(6);
-        for (const page of pages) expect(page.text.toLocaleLowerCase()).toContain(SEARCHED_WORD);
+        for (const page of pages) {expect(page.text.toLocaleLowerCase()).toContain(SEARCHED_WORD);}
         await sessionFixture.resetForE2E();
     }, 420_000);
 
@@ -725,7 +725,7 @@ if (process.versions.electron && process.type === 'browser') {
             ), {timeout: OCR_TIMEOUT_MS});
             expect(await page.$eval('[role="dialog"]', dialog => dialog.textContent))
                 .toContain('OCR complete - PDF is now searchable');
-            if (delayedProbe) expect(await readFile(delayedProbe.receiptPath, 'utf8')).toBe('0');
+            if (delayedProbe) {expect(await readFile(delayedProbe.receiptPath, 'utf8')).toBe('0');}
             await clickVisibleButton(page, '[role="dialog"]', 'Close');
             await page.waitForSelector('[role="dialog"]', {hidden: true});
             await waitForTextLayerWord(page);
@@ -902,8 +902,8 @@ if (process.versions.electron && process.type === 'browser') {
             ref: pdf.context.register(node),
         };});
         nodes.forEach(({node}, index) => {
-            if (index > 0) node.set(PDFName.of('Prev'), nodes[index - 1]!.ref);
-            if (index + 1 < nodes.length) node.set(PDFName.of('Next'), nodes[index + 1]!.ref);
+            if (index > 0) {node.set(PDFName.of('Prev'), nodes[index - 1]!.ref);}
+            if (index + 1 < nodes.length) {node.set(PDFName.of('Next'), nodes[index + 1]!.ref);}
         });
         outlines.set(PDFName.of('First'), nodes[0]!.ref);
         outlines.set(PDFName.of('Last'), nodes.at(-1)!.ref);
@@ -923,7 +923,7 @@ if (process.versions.electron && process.type === 'browser') {
                     action: node.get(PDFName.of('A'))?.toString(),
                     dest: node.get(PDFName.of('Dest'))?.toString(),
                 };
-                if (index < 2) node = node.lookup(PDFName.of('Next'), PDFDict);
+                if (index < 2) {node = node.lookup(PDFName.of('Next'), PDFDict);}
                 return intent;
             });
         };
@@ -935,7 +935,7 @@ if (process.versions.electron && process.type === 'browser') {
             'Remote',
             'Launch',
             'Named',
-        ]) await waitForBookmarkRow(page, title);
+        ]) {await waitForBookmarkRow(page, title);}
         await clickVisibleButton(page, '.editor-global-toolbar-shell', 'More tools');
         const item = await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.trim() === 'OCR' && item.checkVisibility()));
         await clickAsUser(page, item.asElement() as ElementHandle<HTMLElement>);
@@ -962,7 +962,7 @@ if (process.versions.electron && process.type === 'browser') {
             'Remote',
             'Launch',
             'Named',
-        ]) await waitForBookmarkRow(page, title);
+        ]) {await waitForBookmarkRow(page, title);}
         const evidence = join(process.cwd(), '.devkit/core3-r3/media/ocr-source-intent');
         await mkdir(evidence, {recursive: true});
         await copyFile(sourcePath, join(evidence, 'saved.pdf'));
@@ -1839,7 +1839,7 @@ if (process.versions.electron && process.type === 'browser') {
             const stream = setInterval(() => {
                 response.write(modelBytes.subarray(offset, offset + 65_536));
                 offset += 65_536;
-                if (offset >= modelBytes.length) response.end();
+                if (offset >= modelBytes.length) {response.end();}
             }, 320);
             response.once('close', () => clearInterval(stream));
         });
@@ -1848,7 +1848,7 @@ if (process.versions.electron && process.type === 'browser') {
             await rename(modelPath, backupPath);
             await new Promise<void>(resolve => transport.listen(0, '127.0.0.1', resolve));
             const address = transport.address();
-            if (!address || typeof address === 'string') throw new Error('Model transport has no TCP address');
+            if (!address || typeof address === 'string') {throw new Error('Model transport has no TCP address');}
             const transportUrl = `http://127.0.0.1:${address.port}/deu.traineddata`;
             const sourceUrl = 'https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/deu.traineddata';
             const hookPath = join(scratch, 'model-transport.cjs');

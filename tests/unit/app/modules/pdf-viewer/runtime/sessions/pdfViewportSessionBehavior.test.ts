@@ -304,7 +304,7 @@ function createViewportFixture(input: {
     container.scrollTop = 0;
     const viewerContainer = ref<HTMLElement | null>(container);
     const documentSession = createDocumentFixture(input.pageCount);
-    if (input.pageMetricsGate) documentSession.ensurePageMetricsInRange.mockReturnValue(input.pageMetricsGate);
+    if (input.pageMetricsGate) {documentSession.ensurePageMetricsInRange.mockReturnValue(input.pageMetricsGate);}
     const zoom = input.zoom ?? ref(1);
     const outputScale = ref(1);
     const zoomMode = ref(input.zoomMode ?? 'fit-width');
@@ -355,7 +355,7 @@ function createViewportFixture(input: {
                     zoomMode: computed(() => zoomMode.value),
                 },
                 emitZoomState: state => {
-                    if (state.kind === 'custom') zoom.value = state.scale;
+                    if (state.kind === 'custom') {zoom.value = state.scale;}
                 },
                 summarizeViewerStateForLog: vi.fn(),
             });
@@ -475,7 +475,7 @@ function createDiscardingRasterScheduler() {
 function recordMandatoryRasterRequests(viewport: ReturnType<typeof createPdfViewportSession>) {
     const ids = new Set<number>();
     const stop = watch(viewport.demand, (demand) => {
-        if (demand.mandatoryRaster) ids.add(demand.mandatoryRaster.id);
+        if (demand.mandatoryRaster) {ids.add(demand.mandatoryRaster.id);}
     }, {
         flush: 'sync',
         immediate: true,
@@ -653,10 +653,10 @@ describe('PdfViewportSession behavior', () => {
                 },
             }),
             render: () => {
-                if (!hold) return {
+                if (!hold) {return {
                     promise: Promise.resolve(),
                     cancel() {},
-                };
+                };}
                 started.resolve(undefined);
                 return {
                     promise: held.promise,
@@ -698,7 +698,7 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(true);
             expect(fixture.container.querySelector('canvas')).toBeNull();
             const description = toasts[0]!.description;
-            if (typeof description !== 'function') throw new Error('Expected a failure description');
+            if (typeof description !== 'function') {throw new Error('Expected a failure description');}
             expect(await renderToString(description())).toContain('Unable to render this page');
             const retry = toasts[0]!.actions?.find(action => action.label === 'Retry');
             expect(retry).toBeDefined();
@@ -723,7 +723,7 @@ describe('PdfViewportSession behavior', () => {
             expect(fixture.rendering!.isPageRenderFailed(requirePageNumber(1))).toBe(false);
             expect(fixture.container.querySelector('canvas')!.width).toBeGreaterThan(0);
         } finally {
-            if (relayout) held.reject(cancelled);
+            if (relayout) {held.reject(cancelled);}
             await fixture.dispose();
             await scheduler.dispose();
             fixture.container.remove();
@@ -799,7 +799,7 @@ describe('PdfViewportSession behavior', () => {
             await new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
             expect(toasts).toHaveLength(1);
             const description = toasts[0]!.description;
-            if (typeof description !== 'function') throw new Error('Expected a failure description');
+            if (typeof description !== 'function') {throw new Error('Expected a failure description');}
             expect(await renderToString(description())).toContain('Unable to render this page');
             expect(toasts[0]!.actions?.filter(action => action.label === 'Retry')).toHaveLength(1);
             expect(fixture.container.querySelector('[data-page="2"] canvas')).toBeNull();
@@ -894,7 +894,7 @@ describe('PdfViewportSession behavior', () => {
                 end: 1,
             });
             await preparationStarted.promise;
-            for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+            for (let turn = 0; turn < 20; turn += 1) {await Promise.resolve();}
             expect(fixture.container.querySelector('canvas')).toBeNull();
             ownership.resolve(undefined);
             await raster;
@@ -1175,7 +1175,7 @@ describe('PdfViewportSession behavior', () => {
             await wait;
             expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(true);
             expect(fixture.container.querySelector('canvas')).toBe(oldCanvas);
-            if (oldCanvas) expect(oldCanvas.width * oldCanvas.height).toBeGreaterThan(0);
+            if (oldCanvas) {expect(oldCanvas.width * oldCanvas.height).toBeGreaterThan(0);}
             failRender = false;
             if (publication) {
                 await expect(rendering.publishAnnotationPaint(requirePageNumber(1), {
@@ -1191,10 +1191,10 @@ describe('PdfViewportSession behavior', () => {
                     isCurrent: () => true,
                     commit: () => undefined,
                 })).resolves.toBe(true);
-            } else await rendering.renderVisiblePages({
+            } else {await rendering.renderVisiblePages({
                 start: 1,
                 end: 1,
-            }, {forceRerender: true});
+            }, {forceRerender: true});}
             expect(rendering.isPageVisualReady(requirePageNumber(1))).toBe(true);
             expect(rendering.isPageRenderFailed(requirePageNumber(1))).toBe(false);
             expect(fixture.container.querySelector('canvas')).not.toBe(oldCanvas);
@@ -3591,7 +3591,7 @@ describe('PdfViewportSession behavior', () => {
                 const {viewport} = view.fixture;
 
                 const ticket = viewport.singlePageScroll.scrollToPage(requirePageNumber(6));
-                if (!ticket || ticket === true) throw new Error('Expected a navigation ticket');
+                if (!ticket || ticket === true) {throw new Error('Expected a navigation ticket');}
                 await vi.waitFor(() => {
                     expect(viewport.singlePageScroll.viewportAuthority.phase.value).toBe('awaiting-visual');
                     expect(viewport.currentPage.value).toBe(6);

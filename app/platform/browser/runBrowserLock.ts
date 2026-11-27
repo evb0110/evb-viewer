@@ -28,7 +28,7 @@ export function runBrowserLock<T>(name: string, operation: () => Promise<T>, sig
  */
 export function holdBrowserLock(name: string, waitMs = 0): Promise<(() => void) | null> {
     const locks = lockManager();
-    if (!locks) return Promise.resolve(() => undefined);
+    if (!locks) {return Promise.resolve(() => undefined);}
     return new Promise((resolve, reject) => {
         let release = () => undefined as void;
         const held = new Promise<void>(resolveHeld => {
@@ -39,8 +39,8 @@ export function holdBrowserLock(name: string, waitMs = 0): Promise<(() => void) 
             resolve(lock ? release : null);
             return lock ? held : undefined;
         }).catch((error: unknown) => {
-            if (isAbortError(error) || isTimeoutError(error)) resolve(null);
-            else reject(error);
+            if (isAbortError(error) || isTimeoutError(error)) {resolve(null);}
+            else {reject(error);}
         });
     });
 }
@@ -48,7 +48,7 @@ export function holdBrowserLock(name: string, waitMs = 0): Promise<(() => void) 
 /** The names of the locks any context of this origin holds; `null` without Web Locks, when nothing is known. */
 export async function heldBrowserLockNames() {
     const locks = lockManager();
-    if (!locks) return null;
+    if (!locks) {return null;}
     const {held = []} = await locks.query();
     return new Set(held.flatMap(lock => lock.name ? [lock.name] : []));
 }

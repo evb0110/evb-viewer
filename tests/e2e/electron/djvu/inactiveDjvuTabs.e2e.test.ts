@@ -1015,7 +1015,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             await waitForActiveDjvuCommittedPage(session, 7);
             const viewport = await session.page.$('.editor-pane.is-active [data-document-viewer-chassis-viewport]');
             const box = await viewport?.boundingBox();
-            if (!box) throw new Error('DjVu viewport was not found for pointer zoom');
+            if (!box) {throw new Error('DjVu viewport was not found for pointer zoom');}
             const beforeWheel = await readActiveDjvuPagePresentationGeometry(session, 7);
             await session.page.mouse.move(box.x + 100, box.y + 100);
             const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -1086,7 +1086,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
                 .find(candidate => candidate.checkVisibility())?.getBoundingClientRect();
             return box ? {x: box.left + box.width * 0.6, y: box.top + box.height * 0.6} : null;
         });
-        if (!point) throw new Error('DjVu viewport was not found');
+        if (!point) {throw new Error('DjVu viewport was not found');}
         await session.page.mouse.move(point.x, point.y);
         await session.page.mouse.wheel({deltaY: 240});
         await waitForViewportQuiet(session.page);
@@ -1160,7 +1160,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
             await waitForViewportQuiet(session.page);
             const viewport = await session.page.$('.editor-pane.is-active [data-document-viewer-chassis-viewport]');
             const box = await viewport?.boundingBox();
-            if (!box) throw new Error('DjVu viewport was not found');
+            if (!box) {throw new Error('DjVu viewport was not found');}
             await session.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
             await session.page.mouse.wheel({
                 deltaX: 200,
@@ -1220,7 +1220,7 @@ runOrSkip('Electron E2E - Inactive DjVu Tabs', () => {
         const page = frames.flatMap(frame => frame.page ? [frame.page] : []).at(-1);
         const axis = scenario === 'narrowed-window' ? 'top' : 'left';
         expect(shells.length, JSON.stringify(frames)).toBeGreaterThan(0);
-        if (!page) throw new Error(JSON.stringify(frames));
+        if (!page) {throw new Error(JSON.stringify(frames));}
         for (const shell of shells) {
             expect(Math.abs(shell[axis] - page[axis]), JSON.stringify(shell)).toBeLessThanOrEqual(1);
         }

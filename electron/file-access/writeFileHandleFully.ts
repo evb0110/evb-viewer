@@ -15,7 +15,7 @@ export async function writeFileHandleFully(
 ) {
     let written = 0;
     while (written < bytes.byteLength) {
-        if (signal?.aborted) throw abortErrorFromSignal(signal);
+        if (signal?.aborted) {throw abortErrorFromSignal(signal);}
         const remaining = bytes.byteLength - written;
         const {bytesWritten} = await handle.write(bytes, written, remaining, position === null ? null : position + written);
         if (!Number.isInteger(bytesWritten) || bytesWritten < 1 || bytesWritten > remaining) {

@@ -353,7 +353,7 @@ export function createDocumentOpenFlow(
                 duration: Number.POSITIVE_INFINITY,
                 progress: false,
                 onDismiss: () => void getDocumentOpenCapability().forgetKeptOriginal?.(originalPath).catch((error: unknown) => {
-                    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) return;
+                    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) {return;}
                     BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Could not dismiss a kept-original notice', {
                         originalPath,
                         error: getErrorMessage(error),
@@ -665,11 +665,11 @@ export function createDocumentOpenFlow(
             return null;
         }
 
-        if (!options?.preserveHistory) deps.resetCommandSink();
+        if (!options?.preserveHistory) {deps.resetCommandSink();}
 
         const commitRevisionSwap = await options?.beforeSourceCommit?.(state.documentRevisionToken.value);
-        if (options?.isCurrent?.() === false) return null;
-        if (commitRevisionSwap) commitRevisionSwap();
+        if (options?.isCurrent?.() === false) {return null;}
+        if (commitRevisionSwap) {commitRevisionSwap();}
 
         // A replacement can paint while history and old-copy cleanup still wait. Publish its identity with its
         // source, before either can yield; only the open's own commit, current as just checked, starts a new document.
@@ -681,10 +681,10 @@ export function createDocumentOpenFlow(
         if (!options?.preserveHistory) {
             state.openedWorkingCopyPath.value = path;
         }
-        if (!options?.preserveHistory && state.pdfSrc.value) deps.resetDocumentPresentation();
+        if (!options?.preserveHistory && state.pdfSrc.value) {deps.resetDocumentPresentation();}
         state.pdfData.value = nextState.pdfData;
         const job = state.publishPdfSource(nextState.pdfSrc, options?.preserveHistory ? 'reload' : 'open');
-        if (!options?.preserveHistory) state.recoveryDirtyBaseline.value = options?.recoveryDirtyBaseline === true;
+        if (!options?.preserveHistory) {state.recoveryDirtyBaseline.value = options?.recoveryDirtyBaseline === true;}
         deps.clearPdfConformanceProfile();
 
         if (!options?.preserveHistory) {
@@ -726,14 +726,14 @@ export function createDocumentOpenFlow(
         }
 
         const revision = await getDocumentFilesCapability().getDocumentRevision(path).catch((error: unknown) => {
-            if (isCurrent?.() === false) return null;
+            if (isCurrent?.() === false) {return null;}
             BrowserLogger.warn('pdf-file', 'Failed to resolve document revision', {
                 path,
                 error,
             });
             return null;
         });
-        if (isCurrent?.() === false) return false;
+        if (isCurrent?.() === false) {return false;}
         state.documentRevisionInfo.value = revision;
         return true;
     }

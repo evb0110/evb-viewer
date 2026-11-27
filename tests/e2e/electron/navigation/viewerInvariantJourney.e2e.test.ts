@@ -132,7 +132,7 @@ describe('viewer invariant journey', () => {
         // below use trusted input and read rendered drafts and real layout.
         await evaluateInPage(page, async () => {
             const workspace = window.__evbTestApi?.getActiveWorkspaceHandle();
-            if (!workspace) throw new Error('The document workspace is unavailable');
+            if (!workspace) {throw new Error('The document workspace is unavailable');}
             for (const comment of workspace.getAutomationStateSnapshot().annotationComments) {
                 await workspace.runAgentAction('annotation.update_note', {
                     stableKey: comment.stableKey,
@@ -147,7 +147,7 @@ describe('viewer invariant journey', () => {
         const drafts = await readDrafts();
         const wheelPoint = await evaluateInPage(page, () => {
             const viewport = document.querySelector('#pdf-viewer');
-            if (!viewport) throw new Error('The PDF viewport is unavailable');
+            if (!viewport) {throw new Error('The PDF viewport is unavailable');}
             const rect = viewport.getBoundingClientRect();
             const x = rect.right - 30;
             const y = rect.top + rect.height / 2;
@@ -180,7 +180,7 @@ describe('viewer invariant journey', () => {
                     onClick = event => {
                         const button = event.target instanceof Element ? event.target.closest('button') : null;
                         const name = button?.getAttribute('aria-label')?.trim();
-                        if (!event.isTrusted || (name !== expectedLabel && !name?.startsWith(`${expectedLabel} (`))) return;
+                        if (!event.isTrusted || (name !== expectedLabel && !name?.startsWith(`${expectedLabel} (`))) {return;}
                         document.removeEventListener('click', onClick, true);
                         const observeChangedZoom = () => {
                             const zoom = document.querySelector('.zoom-controls-display-value')?.textContent?.trim();

@@ -75,7 +75,7 @@ function mountNotes(viewer: Record<string, unknown> = {}) {
         annotationNotePositions: ref({}),
         minimizeAnnotationNote: (id: string) => {
             const note = notes.find(item => item.annotationId === id);
-            if (note) note.isMinimized = true;
+            if (note) {note.isMinimized = true;}
         },
         updateAnnotationNoteText: vi.fn(),
         updateAnnotationNotePosition: vi.fn(),

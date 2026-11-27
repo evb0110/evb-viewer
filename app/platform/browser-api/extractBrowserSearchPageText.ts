@@ -62,7 +62,7 @@ async function extractTextContentPageText(
     for (let index = 0; index < content.items.length; index += 128) {
         const chunk = content.items.slice(index, index + 128);
         for (const item of chunk) {
-            if (!('str' in item)) continue;
+            if (!('str' in item)) {continue;}
             if (!visibleBox || pdfjsTextItemIntersectsBox(visibleBox, item, content.styles[item.fontName ?? ''])) {
                 textItems.push({
                     ...item,

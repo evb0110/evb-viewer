@@ -165,7 +165,7 @@ describe('browser annotation save acceptance in Chromium', () => {
                     bytes, mutation,
                 }) => {
                     const save = Reflect.get(globalThis, '__evbSaveAnnotationFidelity');
-                    if (typeof save !== 'function') throw new Error('Missing browser fidelity entry');
+                    if (typeof save !== 'function') {throw new Error('Missing browser fidelity entry');}
                     return save(bytes, mutation);
                 }, {
                     bytes: Array.from(source),
@@ -275,7 +275,7 @@ describe('browser annotation save acceptance in Chromium', () => {
             });
             await page.evaluate(async (bytes) => {
                 const prepare = Reflect.get(globalThis, '__evbPreparePrintResponsivenessAcceptance');
-                if (typeof prepare !== 'function') throw new Error('Missing print acceptance entry');
+                if (typeof prepare !== 'function') {throw new Error('Missing print acceptance entry');}
                 await prepare(new Uint8Array(bytes));
             }, Array.from(input));
             const cdp = await page.context().newCDPSession(page);

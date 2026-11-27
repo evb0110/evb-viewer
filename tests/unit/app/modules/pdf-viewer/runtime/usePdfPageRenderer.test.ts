@@ -333,9 +333,9 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         try {
             harness.renderer.presentPageRenderFailure(pageNumber, new Error('buffer preparation failed'), retry, () => visible.value);
             expect(toastAdd).not.toHaveBeenCalled();
-            if (superseded) harness.pageResources.release(pageNumber);
+            if (superseded) {harness.pageResources.release(pageNumber);}
             // Scrolling into view asks for the page at a higher priority; its failure stays.
-            if (change === 'reprioritized') harness.pageResources.want(pageNumber, {...createJob(), rasterState: 'failed'});
+            if (change === 'reprioritized') {harness.pageResources.want(pageNumber, {...createJob(), rasterState: 'failed'});}
             // A new attempt ends this failure; if it fails too, it tells its own.
             if (change === 'retried') {
                 const attempt = createJob();
@@ -361,7 +361,7 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
                 expect(toastAdd).toHaveBeenCalledOnce();
             }
         } finally {
-            for (const [dispose] of vi.mocked(harness.document.registerDisposable).mock.calls) await dispose();
+            for (const [dispose] of vi.mocked(harness.document.registerDisposable).mock.calls) {await dispose();}
             harness.root.remove();
         }
     });
@@ -428,7 +428,7 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
                 renderResult: replacementRender,
                 renderOptions: {},
             }, (layers) => {
-                if (!harness.pageResources.publish(page1, replacement, publication(harness, layers, replacementRender))) return false;
+                if (!harness.pageResources.publish(page1, replacement, publication(harness, layers, replacementRender))) {return false;}
                 harness.canvas.replaceWith(replacementCanvas);
                 return true;
             });
@@ -586,7 +586,7 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             cancellation.abort();
             annotation.resolve();
             await hydration;
-            for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+            for (let turn = 0; turn < 20; turn += 1) {await Promise.resolve();}
             expect(readable?.textContent).toBe('Readable selectable text');
             expect(harness.pageContainer.querySelector('.text-layer span')).toBe(readable);
         } finally {

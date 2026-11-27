@@ -43,7 +43,7 @@ export async function waitForBoundedOperation<T, TTimeout>(
                 reject(options.timeoutError());
             }
         }, options.timeoutMs);
-        if (options.unref) timer.unref();
+        if (options.unref) {timer.unref();}
     });
     try {
         return await Promise.race([

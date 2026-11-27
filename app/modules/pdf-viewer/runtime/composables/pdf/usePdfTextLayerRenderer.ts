@@ -524,7 +524,7 @@ export const usePdfTextLayerRenderer = (deps: {
             previousSignature === signature
             && (!hasGeometryHighlights || hasRenderedSearchGeometry(container, currentMatchValue, pageIndex))
         ) {
-            if (!hasGeometryHighlights) highlightPage(textLayerDiv, pageMatchData, currentMatchValue);
+            if (!hasGeometryHighlights) {highlightPage(textLayerDiv, pageMatchData, currentMatchValue);}
             return;
         }
 
@@ -946,7 +946,7 @@ export const usePdfTextLayerRenderer = (deps: {
         try {
             await buildTextLayer(record, textLayerDiv, signal, renderOptions);
         } catch (error) {
-            if (renderedTextLayers.get(textLayerDiv) === record) cleanupTextLayerDom(textLayerDiv);
+            if (renderedTextLayers.get(textLayerDiv) === record) {cleanupTextLayerDom(textLayerDiv);}
             throw error;
         }
     }
@@ -954,9 +954,9 @@ export const usePdfTextLayerRenderer = (deps: {
     async function resolveTextContentSource(record: IRenderedTextLayer, signal?: AbortSignal): Promise<TTextLayerTextContentSource> {
         const {pdfPage, viewport, workingCopyPath, documentRevisionToken} = record;
         const pageNumber = requirePageNumber(pdfPage.pageNumber);
-        if (!workingCopyPath || !documentRevisionToken) return getPdfjsTextContentSource(pdfPage);
+        if (!workingCopyPath || !documentRevisionToken) {return getPdfjsTextContentSource(pdfPage);}
         const cachedPageOcrAvailability = peekPageOcrData(workingCopyPath, documentRevisionToken, pageNumber);
-        if (cachedPageOcrAvailability === false) return getPdfjsTextContentSource(pdfPage);
+        if (cachedPageOcrAvailability === false) {return getPdfjsTextContentSource(pdfPage);}
         let hasOcrFallbackForPage = cachedPageOcrAvailability === true;
         if (cachedPageOcrAvailability === null) {
             try {
@@ -969,15 +969,15 @@ export const usePdfTextLayerRenderer = (deps: {
                 BrowserLogger.warn('pdf-text-layer', 'OCR availability check failed', ocrAvailabilityError);
             }
         }
-        if (!hasOcrFallbackForPage) return getPdfjsTextContentSource(pdfPage);
+        if (!hasOcrFallbackForPage) {return getPdfjsTextContentSource(pdfPage);}
         // Native PDF text wins; OCR text stands in only for a page without any.
         const pdfjsTextContent = await getPdfjsTextContent(pdfPage);
         throwIfAborted(signal);
-        if (hasUsablePdfTextContent(pdfjsTextContent)) return pdfjsTextContent;
+        if (hasUsablePdfTextContent(pdfjsTextContent)) {return pdfjsTextContent;}
         try {
             const ocrTextContent = await getOcrTextContent(workingCopyPath, documentRevisionToken, pageNumber, viewport);
             throwIfAborted(signal);
-            if (ocrTextContent) return ocrTextContent;
+            if (ocrTextContent) {return ocrTextContent;}
         } catch (ocrError) {
             if (signal?.aborted) {
                 throw ocrError;

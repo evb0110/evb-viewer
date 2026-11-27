@@ -193,11 +193,11 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
     }
 
     private assertOpen() {
-        if (this.closed) throw new Error('Scan cleanup result store is closed');
+        if (this.closed) {throw new Error('Scan cleanup result store is closed');}
     }
 
     private assertWritable() {
-        if (!this.writable) throw new Error('Scan cleanup result store is read-only');
+        if (!this.writable) {throw new Error('Scan cleanup result store is read-only');}
     }
 
     private async readOffset(pageNumber: number) {
@@ -237,7 +237,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
                 chunk.byteLength,
                 position,
             );
-            if (bytesRead === 0) break;
+            if (bytesRead === 0) {break;}
             // `recordsFile.read` reuses `chunk` on the next iteration. Copy the
             // bytes before retaining them so a record that spans reads cannot
             // have its earlier chunks overwritten by the final read.
@@ -281,7 +281,7 @@ class FileBackedScanCleanupResultStore<TRecord> implements IScanCleanupResultSto
         await writeFully(this.recordsFile, serialized.line, offset);
         this.nextOffset = Number(nextOffset);
         await this.writeOffset(pageNumber, offset);
-        if (existingOffset === undefined) this._resultCount += 1;
+        if (existingOffset === undefined) {this._resultCount += 1;}
     }
 
     public append(record: TRecord) {

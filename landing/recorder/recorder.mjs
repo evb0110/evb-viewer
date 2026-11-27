@@ -42,7 +42,7 @@ function clean(svg) {
         .replace(/\s(?:data-[a-z-]+|aria-owns|aria-hidden|role|class)="[^"]*"/g, '')
         .replace(/\sid="([^"]+)"/g, (all, id) => (used.has(id) ? all : ''))
         .replace(/<text\b[^>]*?\/>|<text\b[^>]*>\s*<\/text>/g, '');
-    for (let pass = 0; pass < 4; pass++) out = out.replace(/(?:<g>\s*<\/g>|<g\/>)+/g, '');
+    for (let pass = 0; pass < 4; pass++) {out = out.replace(/(?:<g>\s*<\/g>|<g\/>)+/g, '');}
     return out;
 }
 
@@ -51,21 +51,21 @@ export function pruneSharedAssets(film) {
     const root = path.join(CAPTURE, 'films', film);
     const used = new Set();
     for (const variant of readdirSync(root, { withFileTypes: true })) {
-        if (!variant.isDirectory() || variant.name === 'images' || variant.name === 'fonts') continue;
+        if (!variant.isDirectory() || variant.name === 'images' || variant.name === 'fonts') {continue;}
         for (const file of readdirSync(path.join(root, variant.name)).filter((name) => name.endsWith('.svg'))) {
-            for (const match of readFileSync(path.join(root, variant.name, file), 'utf8').matchAll(/\/images\/(img-[0-9a-f]+\.\w+)/g)) used.add(`images/${match[1]}`);
+            for (const match of readFileSync(path.join(root, variant.name, file), 'utf8').matchAll(/\/images\/(img-[0-9a-f]+\.\w+)/g)) {used.add(`images/${match[1]}`);}
         }
     }
     for (const manifest of readdirSync(path.join(CAPTURE, 'manifests')).filter((name) => name.startsWith(`${film}.`))) {
-        for (const font of JSON.parse(readFileSync(path.join(CAPTURE, 'manifests', manifest), 'utf8')).fonts) used.add(font.url.replace('../', ''));
+        for (const font of JSON.parse(readFileSync(path.join(CAPTURE, 'manifests', manifest), 'utf8')).fonts) {used.add(font.url.replace('../', ''));}
     }
     for (const folder of [
         'images',
         'fonts',
     ]) {
-        if (!existsSync(path.join(root, folder))) continue;
+        if (!existsSync(path.join(root, folder))) {continue;}
         for (const file of readdirSync(path.join(root, folder))) {
-            if (!used.has(`${folder}/${file}`)) rmSync(path.join(root, folder, file));
+            if (!used.has(`${folder}/${file}`)) {rmSync(path.join(root, folder, file));}
         }
     }
 }
@@ -109,11 +109,11 @@ export class FilmRecorder {
         const imageDir = path.join(this.dir, '..', 'images');
         mkdirSync(imageDir, { recursive: true });
         return svg.replace(/(href|xlink:href)="data:image\/(png|jpeg|webp);base64,([^"]+)"/g, (all, attr, type, b64) => {
-            if (b64.length < 16000) return all;
+            if (b64.length < 16000) {return all;}
             const hash = createHash('sha1').update(b64).digest('hex').slice(0, 12);
             const file = `img-${hash}.${type === 'jpeg' ? 'jpg' : type}`;
             const target = path.join(imageDir, file);
-            if (!existsSync(target)) writeFileSync(target, Buffer.from(b64, 'base64'));
+            if (!existsSync(target)) {writeFileSync(target, Buffer.from(b64, 'base64'));}
             return `${attr}="/films/${this.film}/images/${file}"`;
         });
     }
@@ -166,7 +166,7 @@ export class FilmRecorder {
             prefix: `${this.film}-${index}-`,
             fullPage: false,
         });
-        if (result.canvasInfo.some((info) => info.startsWith('video without'))) console.warn(`  #${index}`, result.canvasInfo.join(' '));
+        if (result.canvasInfo.some((info) => info.startsWith('video without'))) {console.warn(`  #${index}`, result.canvasInfo.join(' '));}
         const body = this.externalise(clean(result.svg));
         // Reuse an identical earlier state (ids are namespaced per state, so compare without prefixes).
         const key = body.replaceAll(`${this.film}-${index}-`, '');
@@ -177,7 +177,7 @@ export class FilmRecorder {
             this.seen.set(key, name);
             writeFileSync(path.join(this.dir, name), body);
         }
-        for (const f of result.families) this.families.add(f);
+        for (const f of result.families) {this.families.add(f);}
         // clean() drops font-style="normal", so an italic attribute is the only style marker left.
         this.italic ||= body.includes('font-style="italic"');
         this.background ??= result.background;
@@ -207,9 +207,9 @@ export class FilmRecorder {
                         const unicodeRange = rule.style.getPropertyValue('unicode-range') || undefined;
                         // Latin and Latin Extended cover every string the films show. Chrome serialises
                         // ranges in short form (U+0-FF), so leading zeros are optional.
-                        if (!names.includes(family) || (unicodeRange && !/U\+0+-0*FF\b|U\+0*100-/i.test(unicodeRange))) continue;
+                        if (!names.includes(family) || (unicodeRange && !/U\+0+-0*FF\b|U\+0*100-/i.test(unicodeRange))) {continue;}
                         const match = rule.style.getPropertyValue('src').match(/url\(["']?([^"')]+)["']?\)/);
-                        if (!match) continue;
+                        if (!match) {continue;}
                         out.push({
                             family,
                             url: new URL(match[1], base).href,
@@ -232,7 +232,7 @@ export class FilmRecorder {
             for (const face of out) {
                 const bytes = new Uint8Array(await (await fetch(face.url)).arrayBuffer());
                 let binary = '';
-                for (const byte of bytes) binary += String.fromCharCode(byte);
+                for (const byte of bytes) {binary += String.fromCharCode(byte);}
                 face.base64 = btoa(binary);
             }
             return out;
@@ -246,7 +246,7 @@ export class FilmRecorder {
             const bytes = Buffer.from(base64, 'base64');
             const file = `${createHash('sha1').update(bytes).digest('hex').slice(0, 12)}${path.extname(new URL(url).pathname) || '.woff2'}`;
             const target = path.join(fontDir, file);
-            if (!existsSync(target)) writeFileSync(target, bytes);
+            if (!existsSync(target)) {writeFileSync(target, bytes);}
             return {
                 ...face,
                 url: `../fonts/${file}`,

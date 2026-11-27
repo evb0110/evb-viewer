@@ -542,8 +542,8 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
                 endOffset: matches[index]!.end,
             });
             select(0);
-            if (mode === 'dom') await expect.poll(() => spans[0]!.querySelector('.pdf-search-highlight--current')?.textContent).toBe('ﬃ');
-            else await expect.poll(() => highlight.getCurrentMatchRanges(layer).length).toBeGreaterThan(0);
+            if (mode === 'dom') {await expect.poll(() => spans[0]!.querySelector('.pdf-search-highlight--current')?.textContent).toBe('ﬃ');}
+            else {await expect.poll(() => highlight.getCurrentMatchRanges(layer).length).toBeGreaterThan(0);}
             const selection = document.createRange(); selection.selectNodeContents(layer);
             for (const index of [
                 0,
@@ -556,7 +556,7 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
             ]) {
                 select(index);
                 const span = spans[index < 2 ? 0 : 2]!;
-                if (mode === 'dom') await expect.poll(() => span.querySelector('.pdf-search-highlight--current')?.textContent).toBe('ﬃ');
+                if (mode === 'dom') {await expect.poll(() => span.querySelector('.pdf-search-highlight--current')?.textContent).toBe('ﬃ');}
                 else {
                     const ranges = highlight.getCurrentMatchRanges(layer);
                     expect(ranges.length).toBeGreaterThan(0);
@@ -568,7 +568,7 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
                 }
                 expect(selection.toString()).toBe('ﬃ ﬃ');
                 expect(layer.textContent).toBe('ﬃ ﬃ');
-                if (mode === 'dom') expect(spans[index < 2 ? 2 : 0]!.querySelector('.pdf-search-highlight--current')).toBeNull();
+                if (mode === 'dom') {expect(spans[index < 2 ? 2 : 0]!.querySelector('.pdf-search-highlight--current')).toBeNull();}
             }
         } finally {
             highlight.clearHighlights(layer); window.localStorage.removeItem(STORAGE_KEYS.HIGHLIGHT_MODE); vi.unstubAllGlobals();
@@ -1620,7 +1620,7 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
 
 it('#1608 retains the cause of a failed search highlight pass', async () => {
     const retained: string[] = [];
-    setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
+    setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') {retained.push(JSON.stringify(entry));}});
     const reconcile = vi.spyOn(visualMatchEngine, 'reconcileVisualMatches').mockRejectedValue(new Error('Search text worker unavailable'));
     const layer = document.createElement('div');
     layer.innerHTML = '<span>unrelated rendered text</span>';

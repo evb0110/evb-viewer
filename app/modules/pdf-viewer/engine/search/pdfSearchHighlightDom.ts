@@ -369,7 +369,7 @@ export function createTextLayerRangeForSearchOccurrence(
     },
 ): Range | null {
     const index = getCachedTextLayerIndex(textLayerDiv);
-    if (options.searchOptions?.useRegex) return null;
+    if (options.searchOptions?.useRegex) {return null;}
     const query = options.searchQuery ?? options.text;
     const assembled = assembleTextLayerSearchText(index, query, options.searchOptions, options.expectedPageMatchCount);
     if (!query) {
@@ -573,7 +573,7 @@ export function highlightTextRunInPdfjsStyle(
         const matchEndInSpan = boundaries[index]!;
         const match = prioritized.find(candidate => candidate.start <= run.startOffset + matchStartInSpan
             && candidate.end >= run.startOffset + matchEndInSpan);
-        if (!match) continue;
+        if (!match) {continue;}
 
         appendPlainText(matchStartInSpan);
 

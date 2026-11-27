@@ -357,7 +357,7 @@ export const browserSettingsCapability: ISettingsCapability = {
                         recordRecovery: true,
                     });
                 } catch (error) {
-                    if (!(error instanceof UnsupportedSettingsSchemaError)) throw error;
+                    if (!(error instanceof UnsupportedSettingsSchemaError)) {throw error;}
                     // A newer version's settings stay as they are, and saves are
                     // refused; desktop instead quarantines its file and writes defaults.
                     recordSettingsRecovery('unsupported');

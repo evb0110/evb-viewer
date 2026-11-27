@@ -57,14 +57,14 @@ function hostTarget(): TNativeResourcePlatformArch {
 
 function archiveUrlForTransport(url: string, env: NodeJS.ProcessEnv) {
     const baseUrl = env.EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL;
-    if (!baseUrl) return url;
+    if (!baseUrl) {return url;}
 
     const base = new URL(baseUrl);
     if (base.protocol !== 'file:' && base.protocol !== 'http:' && base.protocol !== 'https:') {
         throw new Error('EVB_RUNTIME_BINARY_ARCHIVE_BASE_URL must use file, HTTP, or HTTPS.');
     }
     const fileName = new URL(url).pathname.split('/').at(-1);
-    if (!fileName) throw new Error(`Runtime archive URL has no file name: ${url}`);
+    if (!fileName) {throw new Error(`Runtime archive URL has no file name: ${url}`);}
     return new URL(fileName, base.href.endsWith('/') ? base.href : `${base.href}/`).href;
 }
 
@@ -78,7 +78,7 @@ async function runtimeArchiveTransport(url: string, env: NodeJS.ProcessEnv) {
 }
 
 async function cancelResponseBody(response: Response | null) {
-    if (response?.body === null || response?.body === undefined) return;
+    if (response?.body === null || response?.body === undefined) {return;}
     await response.body.cancel().catch(() => undefined);
 }
 
@@ -115,7 +115,7 @@ export async function* fetchRuntimeBinaryArchiveResponseBody(url: string) {
                 redirect: 'manual',
                 signal: abortController.signal,
             });
-            if (response.status < 300 || response.status >= 400) break;
+            if (response.status < 300 || response.status >= 400) {break;}
             const location = response.headers.get('location');
             if (!location || redirectCount === MAX_RUNTIME_BINARY_DOWNLOAD_REDIRECTS) {
                 await cancelResponseBody(response);
@@ -141,7 +141,7 @@ export async function* fetchRuntimeBinaryArchiveResponseBody(url: string) {
             yield value;
         }
     } finally {
-        if (reader && !readerCompleted) await reader.cancel().catch(() => undefined);
+        if (reader && !readerCompleted) {await reader.cancel().catch(() => undefined);}
         reader?.releaseLock();
         clearTimeout(timeout);
     }
@@ -219,7 +219,7 @@ export async function fetchRuntimeBinaries({
     validateRuntimeBinaryManifest(RUNTIME_BINARY_MANIFEST);
     const target = parseNativeResourcePlatformArch(targetTag);
     const requestedFamilies = familyIds ? new Set(familyIds) : null;
-    if (requestedFamilies?.size === 0) throw new Error('At least one runtime family is required.');
+    if (requestedFamilies?.size === 0) {throw new Error('At least one runtime family is required.');}
     const entries = dataOnly ? [] : RUNTIME_BINARY_MANIFEST.entries.filter(entry => (
         entry.target.platformArch === target.platformArch
         && (!requestedFamilies || requestedFamilies.has(entry.familyId))
@@ -299,12 +299,12 @@ function parseArguments(argv: readonly string[]) {
         const argument = argv[index];
         if (argument === '--target' || argument === '--cache' || argument === '--family') {
             const value = argv[index + 1];
-            if (!value) throw new Error(usage());
-            if (argument === '--target') targetTag = value;
-            else if (argument === '--cache') cacheDirectory = value;
+            if (!value) {throw new Error(usage());}
+            if (argument === '--target') {targetTag = value;}
+            else if (argument === '--cache') {cacheDirectory = value;}
             else {
                 const familyId = RUNTIME_FAMILIES.find(candidate => candidate === value);
-                if (!familyId) throw new Error(usage());
+                if (!familyId) {throw new Error(usage());}
                 familyIds.push(familyId);
             }
             index += 1;
@@ -319,7 +319,7 @@ function parseArguments(argv: readonly string[]) {
             throw new Error(usage());
         }
     }
-    if (dataOnly && familyIds.length > 0) throw new Error(usage());
+    if (dataOnly && familyIds.length > 0) {throw new Error(usage());}
     return {
         cacheDirectory,
         dataOnly,
@@ -343,7 +343,7 @@ if (isDirectCliRun) {
                 skipUnpublished: options.ifPublished,
                 ...(options.targetTag === undefined ? {} : {targetTag: options.targetTag}),
             });
-            if (!result && !options.ifPublished) process.exitCode = 1;
+            if (!result && !options.ifPublished) {process.exitCode = 1;}
         }
     } catch (error) {
         console.error(`Runtime binary fetch failed: ${getErrorMessage(error)}`);

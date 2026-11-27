@@ -27,7 +27,7 @@ export type TImageExportFormat = keyof typeof IMAGE_EXPORT_FORMATS;
 export function resolveImageExportFormat(fileName: string, fallback: TImageExportFormat = 'png'): TImageExportFormat {
     const extension = fileName.trim().match(/\.[^.]+$/u)?.[0].toLowerCase();
     for (const format of Object.keys(IMAGE_EXPORT_FORMATS) as TImageExportFormat[]) {
-        if (IMAGE_EXPORT_FORMATS[format].extensions.some(candidate => candidate === extension)) return format;
+        if (IMAGE_EXPORT_FORMATS[format].extensions.some(candidate => candidate === extension)) {return format;}
     }
     return fallback;
 }
@@ -35,20 +35,20 @@ export function resolveImageExportFormat(fileName: string, fallback: TImageExpor
 /** Apply to a suggestion or a path we own, never to an already-selected handle. */
 export function normalizeImageExportFileName(fileName: string, format: TImageExportFormat) {
     const name = fileName.trim();
-    if (IMAGE_EXPORT_FORMATS[format].extensions.some(extension => name.toLowerCase().endsWith(extension))) return name;
+    if (IMAGE_EXPORT_FORMATS[format].extensions.some(extension => name.toLowerCase().endsWith(extension))) {return name;}
     return `${name.replace(/\.(?:jpe?g|png|tiff?)$/iu, '').replace(/\.+$/u, '')}${IMAGE_EXPORT_FORMATS[format].extension}`;
 }
 
 export const MAX_PATH_COMPONENT_BYTES = 255;
 
 export function truncateUtf8PathComponent(value: string, maxBytes = MAX_PATH_COMPONENT_BYTES) {
-    if (maxBytes < 0) throw new Error('Path component byte budget must not be negative');
+    if (maxBytes < 0) {throw new Error('Path component byte budget must not be negative');}
     const encoder = new TextEncoder();
     let byteLength = 0;
     let result = '';
     for (const character of value) {
         const characterBytes = encoder.encode(character).byteLength;
-        if (byteLength + characterBytes > maxBytes) break;
+        if (byteLength + characterBytes > maxBytes) {break;}
         byteLength += characterBytes;
         result += character;
     }

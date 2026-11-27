@@ -49,7 +49,7 @@ import {BROWSER_RECENT_FILES_STORAGE_KEY} from '@app/utils/browserRuntimePersist
 import {copyScanCleanupDocumentPreferences} from '@app/utils/browserScanCleanupPreferences';
 
 function warnRecentWriteFailure(documentRef: TDocumentRef, error: unknown) {
-    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) return;
+    if (isRecord(error) && (error.code === 'ENOENT' || error.name === 'NotFoundError')) {return;}
     BrowserLogger.warn('browser-save', 'Could not write Recent Files after saving', {
         key: BROWSER_RECENT_FILES_STORAGE_KEY,
         documentRef,
@@ -82,7 +82,7 @@ async function saveWorkingBytesToSourceWithOutcome(
         await ensureFileHandleWritePermission(handle);
     } else if (destination === null || !entry.doc?.state().baseline) {
         const target = await pickSaveTarget({suggestedName: ensurePdfExtension(entry.saveName), pickerTypes: buildPdfSaveTypes()});
-        if (target.canceled) return {canceled: true};
+        if (target.canceled) {return {canceled: true};}
         picked = target.handle;
         if (picked) {
             await ensureFileHandleWritePermission(picked);
@@ -97,9 +97,9 @@ async function saveWorkingBytesToSourceWithOutcome(
         ...(commitLease === undefined ? {} : {commit: commitLease}),
         ...(saveAs ? {saveAs} : {}),
     });
-    if (result.status === 'conflict') throw new BrowserDocumentSourceChangedError(sourceRef ?? workingCopyPath);
-    if (result.status === 'needs-save-as') throw new Error('The document has no file to save to; use Save As.');
-    if (result.status !== 'saved') throw new Error('The document changed while it was being saved');
+    if (result.status === 'conflict') {throw new BrowserDocumentSourceChangedError(sourceRef ?? workingCopyPath);}
+    if (result.status === 'needs-save-as') {throw new Error('The document has no file to save to; use Save As.');}
+    if (result.status !== 'saved') {throw new Error('The document changed while it was being saved');}
 
     let refreshError: unknown = result.acknowledgmentError;
     const recordRefreshFailure = (step: string, error: unknown) => {
@@ -128,8 +128,8 @@ async function saveWorkingBytesToSourceWithOutcome(
         await browserDocumentStore.replaceContent(source.ref, workingCopyPath)
             .catch((error: unknown) => recordRefreshFailure('recent copy refresh', error));
     }
-    if (sourceRef) await browserDocumentStore.touchRecentFile(sourceRef).catch((error: unknown) => warnRecentWriteFailure(sourceRef, error));
-    if (source?.doc) browserDocumentStore.unload(source.ref);
+    if (sourceRef) {await browserDocumentStore.touchRecentFile(sourceRef).catch((error: unknown) => warnRecentWriteFailure(sourceRef, error));}
+    if (source?.doc) {browserDocumentStore.unload(source.ref);}
     let documentRevision: IDocumentRevisionInfo | undefined;
     try {
         documentRevision = await browserDocumentStore.getDocumentRevision(workingCopyPath);
@@ -156,7 +156,7 @@ export async function saveWorkingBytesToSource(
     commitLease?: string,
 ) {
     const outcome = await saveWorkingBytesToSourceWithOutcome(workingCopyPath, revisionOptions, commitLease);
-    if (outcome.canceled) return false;
+    if (outcome.canceled) {return false;}
     if (!outcome.documentRevision) {
         throw new SavePublicationError(outcome.refreshError ?? new Error('Document revision unavailable after save'), {
             externalWriteCommitted: true,
@@ -236,7 +236,7 @@ export async function finishBrowserPdfCandidate(
         return shouldKeepPdfOptimizationCandidate(input.byteLength, candidate.byteLength, validation) ? candidate : null;
     } catch (error) {
         signal?.throwIfAborted();
-        if (isAbortError(error)) throw error;
+        if (isAbortError(error)) {throw error;}
         return null;
     }
 }
@@ -246,7 +246,7 @@ async function isEligibleForSaveAsOptimization(source: Uint8Array) {
     try {
         return getPdfLosslessOptimizationSkipReason(await analyzeBrowserPdfConformanceData(source)) === null;
     } catch (error) {
-        if (isAbortError(error)) throw error;
+        if (isAbortError(error)) {throw error;}
         return false;
     }
 }
@@ -340,7 +340,7 @@ export async function savePdfAsFromWorkingCopy(
             published = repaired;
             validation = await validateBrowserPdfData(repaired, {fileName: saveTarget.saveName});
         }
-        if (validation && !validation.isValid) throw new Error('Working copy is not a valid PDF');
+        if (validation && !validation.isValid) {throw new Error('Working copy is not a valid PDF');}
         const candidate = source
             && (saveOptions?.optimizeLossless === true || size >= PDF_LOSSLESS_OPTIMIZE_MIN_BYTES)
             && await isEligibleForSaveAsOptimization(source)

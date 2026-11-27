@@ -203,7 +203,7 @@ function sendScanCleanupState(sender: WebContents, state: TScanCleanupJobState |
     if (sender.isDestroyed()) {
         return;
     }
-    if (state.status === 'completed') grantScanCleanupOutputAccess(state.outputPdfPath, [sender]);
+    if (state.status === 'completed') {grantScanCleanupOutputAccess(state.outputPdfPath, [sender]);}
     sender.send(SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onJobState, state);
 }
 
@@ -366,7 +366,7 @@ async function admitScanCleanupDetectionStore(
     };
     if (selectedPages !== null) {
         if (Array.isArray(selectedPages)) {
-            for (const pageNumber of selectedPages) await validate(pageNumber);
+            for (const pageNumber of selectedPages) {await validate(pageNumber);}
         } else {
             for (let pageNumber = selectedPages.startPageNumber; pageNumber <= selectedPages.endPageNumber; pageNumber += 1) {
                 await validate(pageNumber);
@@ -1030,7 +1030,7 @@ export function createScanCleanupService(
             }, closure => {
                 forgetProgressSubscription(sender.id, jobId, subscription);
                 // A replacement subscription closes its predecessor silently.
-                if (closure) sendScanCleanupState(sender, {jobId: requireJobId(jobId), status: closure});
+                if (closure) {sendScanCleanupState(sender, {jobId: requireJobId(jobId), status: closure});}
             });
             subscription.unsubscribe = unsubscribe;
             const state = publicState(jobs.get(jobId, actor));
@@ -1061,7 +1061,7 @@ export function createScanCleanupService(
         // completes while it is listening.
         async getPendingCompletedOutputs(sender) {
             const outputPaths = await getPendingScanCleanupCompletedOutputs();
-            for (const outputPath of outputPaths) grantScanCleanupOutputAccess(outputPath, [sender]);
+            for (const outputPath of outputPaths) {grantScanCleanupOutputAccess(outputPath, [sender]);}
             return outputPaths;
         },
         acknowledgeCompletedOutputs(outputPaths) {

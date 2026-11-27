@@ -33,7 +33,7 @@ describe('browser document lifecycle UI', () => {
                 window.sessionStorage.setItem('evb-viewer:browser:open-picker-mode', 'input');
                 window.print = () => {
                     const image = document.querySelector<HTMLImageElement>('.browser-print-page img');
-                    if (!image) throw new Error('No printed page');
+                    if (!image) {throw new Error('No printed page');}
                     const canvas = document.createElement('canvas');
                     canvas.width = image.naturalWidth;
                     canvas.height = image.naturalHeight;
@@ -46,8 +46,8 @@ describe('browser document lifecycle UI', () => {
                             (index / 4) % canvas.width / canvas.width,
                             Math.floor(index / 4 / canvas.width) / canvas.height,
                         ];
-                        if (pixels[index]! > 150 && pixels[index + 1]! < 100 && pixels[index + 2]! < 100) red.push(point);
-                        if (pixels[index]! < 100 && pixels[index + 1]! > 150 && pixels[index + 2]! > 150) cyan.push(point);
+                        if (pixels[index]! > 150 && pixels[index + 1]! < 100 && pixels[index + 2]! < 100) {red.push(point);}
+                        if (pixels[index]! < 100 && pixels[index + 1]! > 150 && pixels[index + 2]! > 150) {cyan.push(point);}
                     }
                     Reflect.set(window.top!, '__freeTextPrint', {
                         red,
@@ -242,7 +242,7 @@ describe('browser document lifecycle UI', () => {
                     // Each source page carries a black bar whose height on the page encodes its number.
                     const printed = Array.from(document.querySelectorAll<HTMLElement>('.browser-print-page'), (section) => {
                         const image = section.querySelector('img');
-                        if (!image?.complete || image.naturalWidth === 0) return null;
+                        if (!image?.complete || image.naturalWidth === 0) {return null;}
                         const sample = document.createElement('canvas');
                         sample.width = 50;
                         sample.height = 400;
@@ -251,7 +251,7 @@ describe('browser document lifecycle UI', () => {
                         const pixels = context.getImageData(0, 0, sample.width, sample.height).data;
                         const darkRows: number[] = [];
                         for (let row = 0; row < sample.height; row += 1) {
-                            if (pixels[(row * sample.width + 25) * 4]! < 80) darkRows.push(row);
+                            if (pixels[(row * sample.width + 25) * 4]! < 80) {darkRows.push(row);}
                         }
                         return {
                             width: image.naturalWidth,
@@ -368,7 +368,7 @@ describe('browser document lifecycle UI', () => {
             await page.addInitScript(() => {
                 window.print = () => {
                     const sheets = Array.from(document.querySelectorAll<HTMLImageElement>('.browser-print-page img'), image => {
-                        if (!image.complete || image.naturalWidth === 0) throw new Error('An unloaded sheet reached window.print');
+                        if (!image.complete || image.naturalWidth === 0) {throw new Error('An unloaded sheet reached window.print');}
                         const canvas = document.createElement('canvas');
                         canvas.width = image.naturalWidth;
                         canvas.height = image.naturalHeight;
@@ -378,8 +378,8 @@ describe('browser document lifecycle UI', () => {
                         let inkPixels = 0;
                         let yellowPixels = 0;
                         for (let index = 0; index < pixels.length; index += 4) {
-                            if (pixels[index + 3]! > 8 && Math.min(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!) < 245) inkPixels += 1;
-                            if (pixels[index]! > 150 && pixels[index + 1]! > 100 && pixels[index + 2]! < 100) yellowPixels += 1;
+                            if (pixels[index + 3]! > 8 && Math.min(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!) < 245) {inkPixels += 1;}
+                            if (pixels[index]! > 150 && pixels[index + 1]! > 100 && pixels[index + 2]! < 100) {yellowPixels += 1;}
                         }
                         return {
                             inkPixels,

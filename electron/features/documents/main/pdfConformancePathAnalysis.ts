@@ -80,7 +80,7 @@ function capabilityError(
     message: string,
     cause?: unknown,
 ): PdfConformanceCapabilityError {
-    if (getUnprovenNativeTerminationDetail(cause) !== undefined) throw cause;
+    if (getUnprovenNativeTerminationDetail(cause) !== undefined) {throw cause;}
     return new PdfConformanceCapabilityError(code, message, {
         ...(cause === undefined ? {} : {cause}),
         operation: 'pdf-conformance-path-analysis',

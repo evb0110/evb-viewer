@@ -139,14 +139,14 @@ async function openSpreadExportInScanCleanup(fontWidths: boolean, closingPage = 
     await session.page.exposeFunction(recorderName, (state: TScanCleanupDetectionJobState) => observed.push(state));
     await session.page.evaluate((name: string) => {
         const record: unknown = Reflect.get(window, name);
-        if (typeof record !== 'function') throw new Error(`Detection recorder ${name} is not exposed`);
+        if (typeof record !== 'function') {throw new Error(`Detection recorder ${name} is not exposed`);}
         window.electronAPI?.scanCleanup?.onDetectionJobState(state => {void record(state);});
     }, recorderName);
     await openPdfInApp(session.page, sourcePath, 90_000);
     await waitForPdfLoaded(session.page, 90_000);
     await waitForViewerInteractive(session.page, 90_000);
     for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
-        if (await toast.isVisible()) await clickAsUser(session.page, toast);
+        if (await toast.isVisible()) {await clickAsUser(session.page, toast);}
     }
 
     await clickAsUser(session.page, 'button[aria-label="Scan cleanup"]');

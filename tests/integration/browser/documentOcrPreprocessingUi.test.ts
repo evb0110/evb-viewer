@@ -53,7 +53,7 @@ async function drawScan(kind: TScanKind) {
             context.fillRect(0, 0, width, height);
             context.fillStyle = '#000';
             context.font = `${fontPx}px serif`;
-            if (kind === 'faded') context.filter = 'blur(1px)';
+            if (kind === 'faded') {context.filter = 'blur(1px)';}
             const angle = skewDegrees * Math.PI / 180;
             const centre = [
                 width / 2,
@@ -100,8 +100,8 @@ async function drawScan(kind: TScanKind) {
                 if (kind === 'negative') {
                     value = (255 - image.data[offset]! - 40) / 150 * 255 + grain() * 70;
                     const speckle = random();
-                    if (speckle < 0.06) value = 0;
-                    else if (speckle < 0.12) value = 255;
+                    if (speckle < 0.06) {value = 0;}
+                    else if (speckle < 0.12) {value = 255;}
                 } else {
                     value = (255 * 0.32 + image.data[offset]! * 0.68) * (1 - 0.25 * (offset / 4 % width) / width) + grain() * 4;
                 }
@@ -116,7 +116,7 @@ async function drawScan(kind: TScanKind) {
                     quality: 0.5,
                 })).arrayBuffer());
             let binary = '';
-            for (let index = 0; index < encoded.length; index += 0x8000) binary += String.fromCharCode(...encoded.subarray(index, index + 0x8000));
+            for (let index = 0; index < encoded.length; index += 0x8000) {binary += String.fromCharCode(...encoded.subarray(index, index + 0x8000));}
             return {
                 image: btoa(binary),
                 words,
@@ -137,7 +137,7 @@ async function drawScan(kind: TScanKind) {
 describe('browser OCR preprocessing', () => {
     it('preprocesses tilted scans as desktop does, placing every word over its glyphs', async () => {
         const evidence = process.env.EVB_OCR_PREPROCESSING_EVIDENCE_DIR;
-        if (evidence) await mkdir(evidence, {recursive: true});
+        if (evidence) {await mkdir(evidence, {recursive: true});}
         // Off still normalizes polarity, as on desktop. Clean scan also
         // straightens the page, so the writer must map each word back through
         // the inverse transform onto the page as scanned.
@@ -201,7 +201,7 @@ describe('browser OCR preprocessing', () => {
                         || element?.textContent?.includes('OCR complete - PDF is now searchable');
                 }, undefined, {timeout: 150_000});
                 const terminal = await dialog.innerText();
-                if (evidence) await page.screenshot({path: join(evidence, `${kind}-complete.png`)});
+                if (evidence) {await page.screenshot({path: join(evidence, `${kind}-complete.png`)});}
                 expect(terminal).toContain('OCR complete - PDF is now searchable');
                 await dialog.getByRole('button', {
                     name: 'Close',
@@ -220,7 +220,7 @@ describe('browser OCR preprocessing', () => {
                     const range = document.createRange();
                     return [...container.querySelectorAll<HTMLElement>('.textLayer span')].flatMap((span) => {
                         const node = span.firstChild;
-                        if (node?.nodeType !== Node.TEXT_NODE) return [];
+                        if (node?.nodeType !== Node.TEXT_NODE) {return [];}
                         return [...(node.textContent ?? '').matchAll(/\S+/gu)].map((match) => {
                             range.setStart(node, match.index);
                             range.setEnd(node, match.index + match[0].length);
@@ -244,7 +244,7 @@ describe('browser OCR preprocessing', () => {
                 const unread = [...recognized];
                 const read = drawn.words.filter((word) => {
                     const index = unread.indexOf(word.text);
-                    if (index >= 0) unread.splice(index, 1);
+                    if (index >= 0) {unread.splice(index, 1);}
                     return index >= 0;
                 });
                 expect(read.length, `recognized: ${recognized.join(' ')}`).toBeGreaterThanOrEqual(drawn.words.length * 0.95);
@@ -268,7 +268,7 @@ describe('browser OCR preprocessing', () => {
                 // Each line keeps the page's tilt; an unmapped deskewed layer lies flat.
                 for (const line of new Set(placed.map(({word}) => word.line))) {
                     const words = placed.filter(({word}) => word.line === line);
-                    if (words.length < 3) continue;
+                    if (words.length < 3) {continue;}
                     const meanX = words.reduce((sum, {x}) => sum + x, 0) / words.length;
                     const meanY = words.reduce((sum, {y}) => sum + y, 0) / words.length;
                     const slope = words.reduce((sum, {

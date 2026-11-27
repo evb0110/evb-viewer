@@ -57,7 +57,7 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
             state.value = 'ready';
             return;
         }
-        if (state.value === 'ready') state.value = 'unavailable';
+        if (state.value === 'ready') {state.value = 'unavailable';}
         if (!options.enabled.value) {
             return;
         }

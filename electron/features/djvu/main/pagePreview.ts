@@ -449,7 +449,7 @@ export async function renderDjvuPagePreview(
                 ...(lifecycleOptions.onTerminationProof ? { onTerminationProof: lifecycleOptions.onTerminationProof } : {}),
             },
         );
-        if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) throw result.cause;
+        if (getUnprovenNativeTerminationDetail(result.cause) !== undefined) {throw result.cause;}
         throwIfAborted(lifecycleOptions.signal);
         if (!result.success) {
             throw new Error(result.error ?? `Failed to render DjVu page ${pageNumber}`);

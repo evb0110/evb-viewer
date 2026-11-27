@@ -196,13 +196,13 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
     const workingCopies = {
         cleanupFile: async () => undefined,
         restoreDocumentRevision: async (path: TDocumentRef, token: TDocumentRevisionToken) => {
-            if (!revisions.has(token)) throw new Error(`Revision ${token} was not retained`);
+            if (!revisions.has(token)) {throw new Error(`Revision ${token} was not retained`);}
             current = token;
             return revision(path);
         },
         retainDocumentRevisions: async (_path: TDocumentRef, kept: TDocumentRevisionToken[]) => {
             for (const token of revisions.keys()) {
-                if (token !== current && !kept.includes(token)) revisions.delete(token);
+                if (token !== current && !kept.includes(token)) {revisions.delete(token);}
             }
         },
     };
@@ -647,7 +647,7 @@ describe('createDocumentHistory', () => {
         expect(history.canRedo.value).toBe(false);
         expect(retained()).toEqual(['revision-1', 'revision-2', 'revision-4']);
 
-        for (let step = 0; step < 20; step += 1) await mutate();
+        for (let step = 0; step < 20; step += 1) {await mutate();}
         expect(retained()).toHaveLength(20);
         expect(retained()).not.toContain('revision-1');
 
@@ -792,7 +792,7 @@ describe.each([
         const mutate = async (label: string, pageIdentityDelta?: IPageIdentityDelta) => {
             await h.files.writeFile(h.state.workingCopyPath.value!, h.encode([label]));
             h.state.documentRevisionToken.value = (await h.files.getDocumentRevision(h.state.workingCopyPath.value!)).token;
-            if (label === 'OCR text') owner.adoptCurrentRevision();
+            if (label === 'OCR text') {owner.adoptCurrentRevision();}
             return h.history.reloadWorkingCopyIntoHistory({...(pageIdentityDelta ? {pageIdentityDelta} : {})});
         };
         return {

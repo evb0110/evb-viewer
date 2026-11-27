@@ -166,8 +166,8 @@ function buildStandardFrame(options: {
  */
 export function evictCachedBrowserPageOpsDocument(keyPrefix?: string) {
     const slot = cachedDocument;
-    if (!slot) return;
-    if (keyPrefix !== undefined && !slot.key.startsWith(keyPrefix)) return;
+    if (!slot) {return;}
+    if (keyPrefix !== undefined && !slot.key.startsWith(keyPrefix)) {return;}
     cachedDocument = null;
     if (exceedsWasmMemoryHighWater(slot.tool.memory)) {
         releasePdfPageOpsWasmAboveHighWater(slot.tool);
@@ -192,7 +192,7 @@ export function evictCachedBrowserPageOpsDocument(keyPrefix?: string) {
  * the caller has copied its output out of WASM memory.
  */
 function evictIfAboveHighWater(tool: IPdfPageOpsWasmExports) {
-    if (!exceedsWasmMemoryHighWater(tool.memory)) return;
+    if (!exceedsWasmMemoryHighWater(tool.memory)) {return;}
     if (cachedDocument?.tool === tool) {
         cachedDocument = null;
     }
@@ -430,11 +430,11 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
     const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
     const kind = view.getUint32(MUTATION_HEADER.kind, true);
     if (type === 'textBoxAppearance') {
-        if (kind !== RESPONSE_TEXT_BOX_APPEARANCE || output.byteLength < TEXT_BOX_APPEARANCE_HEADER.bytes) return null;
+        if (kind !== RESPONSE_TEXT_BOX_APPEARANCE || output.byteLength < TEXT_BOX_APPEARANCE_HEADER.bytes) {return null;}
         const dataLength = view.getUint32(TEXT_BOX_APPEARANCE_HEADER.dataLength, true);
         const metadataLength = view.getUint32(TEXT_BOX_APPEARANCE_HEADER.metadataLength, true);
         const offset = TEXT_BOX_APPEARANCE_HEADER.bytes;
-        if (offset + dataLength + metadataLength !== output.byteLength) return null;
+        if (offset + dataLength + metadataLength !== output.byteLength) {return null;}
         try {
             const parsed = v.safeParse(BROWSER_PAGE_OPS_WORKER_RESULT_SCHEMAS.textBoxAppearance, {
                 ...JSON.parse(new TextDecoder().decode(output.subarray(offset + dataLength))),

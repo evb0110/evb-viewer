@@ -75,9 +75,9 @@ const IMAGE_EXPORT_FAILURE_REASONS: Partial<Record<string, TImageExportFailureRe
 function* walkErrors(error: unknown): Generator {
     yield error;
     if (error instanceof AggregateError) {
-        for (const inner of error.errors) yield* walkErrors(inner);
+        for (const inner of error.errors) {yield* walkErrors(inner);}
     }
-    if (error instanceof Error && error.cause !== undefined) yield* walkErrors(error.cause);
+    if (error instanceof Error && error.cause !== undefined) {yield* walkErrors(error.cause);}
 }
 
 // What a person reads (C4): why the export failed, in their language, and what
@@ -165,10 +165,10 @@ function validateDjvuSourcePath(path: unknown, senderWebContentsId: number) {
         throw new Error('Invalid DjVu working copy path');
     }
     const normalizedPath = path.trim();
-    if (!/\.djvu?$/iu.test(normalizedPath)) throw new Error('Working file must be a DjVu document');
-    if (getWorkingCopyBackingEntry(normalizedPath, senderWebContentsId)) return normalizedPath;
+    if (!/\.djvu?$/iu.test(normalizedPath)) {throw new Error('Working file must be a DjVu document');}
+    if (getWorkingCopyBackingEntry(normalizedPath, senderWebContentsId)) {return normalizedPath;}
     const openPath = requireOpenPath(normalizedPath, senderWebContentsId);
-    if (!isAllowedDjvuViewingPath(openPath, senderWebContentsId)) throw new Error('DjVu viewing path is not active');
+    if (!isAllowedDjvuViewingPath(openPath, senderWebContentsId)) {throw new Error('DjVu viewing path is not active');}
     return openPath;
 }
 
@@ -176,19 +176,19 @@ function normalizeRequestedPageNumbers(pageNumbers: unknown): number[] | undefin
     if (pageNumbers === null || pageNumbers === undefined) {
         return undefined;
     }
-    if (!Array.isArray(pageNumbers)) throw new Error('pageNumbers must be an array when provided');
+    if (!Array.isArray(pageNumbers)) {throw new Error('pageNumbers must be an array when provided');}
     const normalized: number[] = [];
     const seen = new Set<number>();
     for (const [
         index,
         page,
     ] of pageNumbers.entries()) {
-        if (typeof page !== 'number' || !Number.isInteger(page) || page < 1) throw new Error(`Invalid page number at index ${index}`);
-        if (seen.has(page)) throw new Error(`Duplicate page number: ${page}`);
+        if (typeof page !== 'number' || !Number.isInteger(page) || page < 1) {throw new Error(`Invalid page number at index ${index}`);}
+        if (seen.has(page)) {throw new Error(`Duplicate page number: ${page}`);}
         seen.add(page);
         normalized.push(page);
     }
-    if (normalized.length === 0) throw new Error('At least one page number must be provided for scoped export');
+    if (normalized.length === 0) {throw new Error('At least one page number must be provided for scoped export');}
     return normalized.sort((left, right) => left - right);
 }
 
@@ -205,7 +205,7 @@ async function validateRequestedPageNumbersWithinPdf(
     }
     const pageCount = await getPdfPageCount(pdfPath, operationOptions);
     const outOfRangePage = pageNumbers.find(pageNumber => pageNumber > pageCount);
-    if (outOfRangePage !== undefined) throw new Error(`Page number ${outOfRangePage} exceeds PDF page count (${pageCount})`);
+    if (outOfRangePage !== undefined) {throw new Error(`Page number ${outOfRangePage} exceeds PDF page count (${pageCount})`);}
 }
 
 async function prepareImageExportSource(
@@ -531,7 +531,7 @@ function createImageExportOperationContext(context: {
 export const imageExportMainBindings = {
     captureCurrentView: async ({sender}, region) => {
         const window = BrowserWindow.fromWebContents(sender);
-        if (!window || sender.isDestroyed()) throw new Error('Capture view is unavailable');
+        if (!window || sender.isDestroyed()) {throw new Error('Capture view is unavailable');}
         const zoom = sender.getZoomFactor();
         const [
             width,
@@ -539,7 +539,7 @@ export const imageExportMainBindings = {
         ] = window.getContentSize();
         const scale = screen.getDisplayMatching(window.getBounds()).scaleFactor * zoom;
         if (zoom !== 1 || width !== region.viewportWidth || height !== region.viewportHeight
-            || Math.abs(scale - region.pixelRatio) > 0.01) throw new Error('Capture viewport changed');
+            || Math.abs(scale - region.pixelRatio) > 0.01) {throw new Error('Capture viewport changed');}
         assertCaptureImageBudget(Math.ceil(region.width * scale), Math.ceil(region.height * scale));
         const image = await sender.capturePage({
             x: region.x,
@@ -548,11 +548,11 @@ export const imageExportMainBindings = {
             height: region.height,
         }, {stayHidden: true});
         if (image.isEmpty() || sender.isDestroyed() || sender.getZoomFactor() !== zoom
-            || window.getContentSize()[0] !== width || window.getContentSize()[1] !== height) throw new Error('Capture view changed');
+            || window.getContentSize()[0] !== width || window.getContentSize()[1] !== height) {throw new Error('Capture view changed');}
         assertCaptureImageBudget(image.getSize().width, image.getSize().height);
         const bytes = new Uint8Array(image.toPNG());
         const size = readCapturePngSize(bytes);
-        if (Math.abs(size.width - region.width * scale) > 1 || Math.abs(size.height - region.height * scale) > 1) throw new Error('Capture density changed');
+        if (Math.abs(size.width - region.width * scale) > 1 || Math.abs(size.height - region.height * scale) > 1) {throw new Error('Capture density changed');}
         return bytes;
     },
     exportImages: (context, ...args) =>

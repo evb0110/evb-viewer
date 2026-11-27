@@ -64,7 +64,7 @@ for (const [source, allowed] of [
     ['packages/chrome-extension', ['chrome-extension', 'contracts']],
     ['packages/document-store', ['document-store']],
     ['packages/node-runtime', ['node-runtime', 'contracts']],
-]) addZone(source, 'packages', allowed.map(name => `./${name}`));
+]) {addZone(source, 'packages', allowed.map(name => `./${name}`));}
 addZone(belowExcept('packages', ['contracts', 'pdf-core', 'djvu-core', 'ocr-core', 'agent-core', 'release-selection', 'scan-cleanup', 'chrome-extension', 'node-runtime']), 'packages/contracts');
 
 for (const [prefix, allowed] of [
@@ -76,7 +76,7 @@ for (const [prefix, allowed] of [
         .map(entry => entry.name);
     for (const sourceOwner of owners) {
         for (const targetOwner of owners) {
-            if (sourceOwner === targetOwner) continue;
+            if (sourceOwner === targetOwner) {continue;}
             addZone(`${prefix}/${sourceOwner}`, `${prefix}/${targetOwner}`, allowed);
         }
     }
@@ -85,7 +85,7 @@ addZone(['app/modules/pdf-viewer', 'app/modules/document-viewer'], 'app/modules/
 addZone('app/modules', 'app/platform/browser');
 for (const owner of readdirSync('electron/features', {withFileTypes: true}).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
     for (const importer of readdirSync('electron/features', {withFileTypes: true}).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
-        if (owner !== importer) addZone(`electron/features/${importer}`, `electron/features/${owner}/main`);
+        if (owner !== importer) {addZone(`electron/features/${importer}`, `electron/features/${owner}/main`);}
     }
 }
 
@@ -139,10 +139,10 @@ for (const [target, from] of [
     ['app/modules/pdf-viewer/tools', 'app/modules/pdf-viewer/runtime/annotations'],
     ['app/modules/pdf-viewer/runtime/save', 'app/modules/pdf-viewer/runtime/annotations'],
     ['app/modules/pdf-viewer/runtime/save', 'app/modules/pdf-viewer/tools'],
-]) addZone(target, from);
+]) {addZone(target, from);}
 // A glob extglob cannot span "/", so the rest of the app is a regex.
 addZone(/^app\/(?!modules\/pdf-viewer\/)/u, 'app/modules/pdf-viewer/runtime/save');
-for (const target of ['electron', 'packages', 'scripts', 'server', 'landing']) addZone(target, 'app/modules/pdf-viewer/runtime/save');
+for (const target of ['electron', 'packages', 'scripts', 'server', 'landing']) {addZone(target, 'app/modules/pdf-viewer/runtime/save');}
 addZone('app/modules/pdf-viewer/engine', 'app/modules/pdf-viewer', ['./engine', './dom']);
 addZone(['app', 'packages'], 'packages/contracts/platformApi.ts');
 // These three aggregate composition roots formerly carried inline exemptions.
@@ -154,9 +154,9 @@ const ocrNativeToolPaths = [
     'electron/features/ocr/pipeline/dpiDetection.ts',
 ];
 for (const entry of readdirSync('electron/features', {withFileTypes: true}).filter(entry => entry.isDirectory()).map(entry => entry.name)) {
-    if (entry !== 'ocr') addZone(`electron/features/${entry}`, ocrNativeToolPaths);
+    if (entry !== 'ocr') {addZone(`electron/features/${entry}`, ocrNativeToolPaths);}
 }
-for (const entry of ['pdf', 'djvu', 'native-tools']) addZone(`electron/${entry}`, ocrNativeToolPaths);
+for (const entry of ['pdf', 'djvu', 'native-tools']) {addZone(`electron/${entry}`, ocrNativeToolPaths);}
 addZone('electron/native-tools', ocrNativeToolPaths);
 
 // PDF.js is a renderer dependency; portable wire contracts cannot load Node.

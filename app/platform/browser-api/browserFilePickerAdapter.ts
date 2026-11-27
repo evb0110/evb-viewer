@@ -138,7 +138,7 @@ async function writeBrowserFileChunks(
 // A permission prompt waits for the person, however long they take. Only
 // cancelling the operation ends the wait early.
 function waitForPermissionAnswer<T>(answer: Promise<T>, signal?: AbortSignal) {
-    if (!signal) return answer;
+    if (!signal) {return answer;}
     return new Promise<T>((resolve, reject) => {
         const onAbort = () => reject(signal.reason);
         if (signal.aborted) {
@@ -466,13 +466,13 @@ export async function openBrowserOutputSink(
     return {
         write: chunk => output.write(chunk),
         close: () => closing ??= output.close().catch(async (error: unknown) => {
-            if (signal.aborted) await output.abort();
+            if (signal.aborted) {await output.abort();}
             throw error;
         }),
         async abort() {
             controller.abort();
             // A close whose outcome is unknown may still publish, so it is not a discard.
-            if (closing) return closing.then(() => false, error => !(error instanceof BrowserFileWriteOutcomeError));
+            if (closing) {return closing.then(() => false, error => !(error instanceof BrowserFileWriteOutcomeError));}
             await output.abort();
             return true;
         },
@@ -672,8 +672,8 @@ async function writeBytesAfterPermission(
     const writable = await handle.createWritable();
     try {
         // A Blob, such as a stored file, streams from where it is.
-        if (data instanceof Blob) await writable.write(data);
-        else await writeBrowserFileChunks(writable, data, signal);
+        if (data instanceof Blob) {await writable.write(data);}
+        else {await writeBrowserFileChunks(writable, data, signal);}
     } catch (error) {
         await abortAfterBrowserFileWriteError(writable, error);
     }

@@ -33,7 +33,7 @@ interface IUseBrowserWorkspaceRecoveryOptions {
  */
 export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecoveryOptions) => {
     const recovery = getWindowTabsCapability().browserRecovery;
-    if (!recovery) return;
+    if (!recovery) {return;}
     let inFlight: Promise<void> | null = null;
     let changedSinceRecord = false;
     let disposed = false;
@@ -45,7 +45,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     // One record at a time, so an older capture never lands after a newer one.
     function record() {
         cancelScheduledRecord();
-        if (disposed || !options.enabled.value) return;
+        if (disposed || !options.enabled.value) {return;}
         if (inFlight) {
             changedSinceRecord = true;
             return;
@@ -55,7 +55,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             .catch((error: unknown) => BrowserLogger.warn('workspace-recovery', 'Failed to record browser recovery state', error))
             .finally(() => {
                 inFlight = null;
-                if (changedSinceRecord) record();
+                if (changedSinceRecord) {record();}
             });
     }
 
@@ -70,7 +70,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
 
     useEventListener(typeof window === 'undefined' ? undefined : window, 'pagehide', record);
     useEventListener(typeof document === 'undefined' ? undefined : document, 'visibilitychange', () => {
-        if (document.visibilityState === 'hidden') record();
+        if (document.visibilityState === 'hidden') {record();}
     });
 
     onBeforeUnmount(() => {

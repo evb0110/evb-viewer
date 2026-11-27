@@ -313,10 +313,10 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
         const current = pending ??= instantiate();
         // Registered before any caller awaits the load, so the instance is known as this thread's before its first call.
         current.then(tool => {
-            if (pending === current) loaded = tool;
-            else tool.dispose?.();
+            if (pending === current) {loaded = tool;}
+            else {tool.dispose?.();}
         }, () => {
-            if (pending === current) pending = null;
+            if (pending === current) {pending = null;}
         });
         return current;
     }
@@ -327,7 +327,7 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
      * finishing late leaves its replacement untouched.
      */
     function discard(target?: INativeWasmTool) {
-        if (target !== undefined && loaded !== target) return;
+        if (target !== undefined && loaded !== target) {return;}
         const tool = loaded;
         pending = null;
         loaded = null;
@@ -392,7 +392,7 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
             tool = await load();
         } catch (error) {
             // The page decides what runs instead of a threaded build that cannot start.
-            if (error instanceof NativeWasmThreadStartError) throw error;
+            if (error instanceof NativeWasmThreadStartError) {throw error;}
             return failure(
                 error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'io',
                 `The ${descriptor.label} could not be loaded: ${getErrorMessage(error)}`,
@@ -401,7 +401,7 @@ export function createNativeWasmToolLoader(descriptor: INativeWasmToolDescriptor
         let result = callLoaded(tool, request, options);
         if (result.status === 'failed' && result.error.code === 'panic' && tool.readFault) {
             const reason = await tool.readFault();
-            if (reason !== null) result = failure('panic', `${result.error.message}: ${reason}`);
+            if (reason !== null) {result = failure('panic', `${result.error.message}: ${reason}`);}
         }
         return result;
     }

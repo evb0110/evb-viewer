@@ -68,7 +68,7 @@ function mountSnip() {
         const controller = inject(pdfRegionSnipKeyboardKey)!;
         return () => controller.state.value === 'idle' ? null : h('div', {
             ref: element => {
-                if (element instanceof Element) element.getBoundingClientRect = () => new DOMRect(10, 10, 30, 30);
+                if (element instanceof Element) {element.getBoundingClientRect = () => new DOMRect(10, 10, 30, 30);}
                 controller.setCropTarget(element instanceof Element ? element : null);
             },
             role: 'status',

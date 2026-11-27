@@ -64,21 +64,21 @@ async function peekDocumentHeader(body: ReadableStream<Uint8Array>) {
     const header = new Uint8Array(Math.min(length, DOCUMENT_HEADER_BYTES));
     let offset = 0;
     for (const chunk of chunks) {
-        if (offset === header.byteLength) break;
+        if (offset === header.byteLength) {break;}
         const part = chunk.subarray(0, header.byteLength - offset);
         header.set(part, offset);
         offset += part.byteLength;
     }
     const stream = new ReadableStream<Uint8Array>({
         start(controller) {
-            for (const chunk of chunks) controller.enqueue(chunk);
+            for (const chunk of chunks) {controller.enqueue(chunk);}
             chunks.length = 0;
-            if (ended) controller.close();
+            if (ended) {controller.close();}
         },
         async pull(controller) {
             const next = await reader.read();
-            if (next.done) controller.close();
-            else controller.enqueue(next.value);
+            if (next.done) {controller.close();}
+            else {controller.enqueue(next.value);}
         },
         cancel: reason => reader.cancel(reason),
     });
@@ -89,7 +89,7 @@ async function peekDocumentHeader(body: ReadableStream<Uint8Array>) {
 function detectDocumentKind(header: Uint8Array, size: number): TLaunchDocumentKind | null {
     const format = detectDocumentFormat(header, size);
     // A truncated DjVu still goes to the DjVu decoder, which can show the pages it holds.
-    if (format === 'invalid-djvu') return 'djvu';
+    if (format === 'invalid-djvu') {return 'djvu';}
     return format === 'pdf' || format === 'djvu' ? format : null;
 }
 
@@ -103,9 +103,9 @@ function decodeFileName(value: string) {
 
 /** The name a server gave the file, preferring the RFC 6266 extended form. */
 function readDispositionFileName(contentDisposition: string | null) {
-    if (!contentDisposition) return null;
+    if (!contentDisposition) {return null;}
     const extended = /filename\*\s*=\s*[^']*'[^']*'([^;]+)/iu.exec(contentDisposition)?.[1];
-    if (extended) return decodeFileName(extended.trim());
+    if (extended) {return decodeFileName(extended.trim());}
     return /filename\s*=\s*(?:"([^"]+)"|([^;]+))/iu.exec(contentDisposition)?.slice(1).find(Boolean)?.trim() ?? null;
 }
 

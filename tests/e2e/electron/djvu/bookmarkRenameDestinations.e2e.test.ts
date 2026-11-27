@@ -69,11 +69,11 @@ describe('Electron E2E - bookmark destination round trip', () => {
         });
         if (size === 'large') {
             const oversized = resolveNativeLargePdfFixtureAvailability(4);
-            if (!oversized.path) throw new Error(oversized.reason);
+            if (!oversized.path) {throw new Error(oversized.reason);}
             const targetBytes = (await stat(oversized.path)).size;
             const source = await readFile(fixture);
             const startXref = [...source.toString('latin1').matchAll(/startxref\s+(\d+)\s+%%EOF/gu)].at(-1)?.[1];
-            if (startXref === undefined) throw new Error('Catalog fixture has no cross-reference trailer');
+            if (startXref === undefined) {throw new Error('Catalog fixture has no cross-reference trailer');}
             const trailer = Buffer.from(`\nstartxref\n${startXref}\n%%EOF\n`, 'ascii');
             if (process.platform === 'win32') {
                 execFileSync('fsutil.exe', [
@@ -113,7 +113,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
             entry.msg === 'IPC handler rejected' && (entry.data?.channel === 'pdf:pageLabels:read' || entry.data?.channel === 'page-ops:read-outline')))
             .toEqual([]);
         const nativePath = resolveNativePageOpsPath();
-        if (!nativePath) throw new Error('Native catalog reader is unavailable');
+        if (!nativePath) {throw new Error('Native catalog reader is unavailable');}
         const readPart = (part: 'bookmarks' | 'pageLabels') => readNativePdfCatalogPart(nativePath, fixture, part, {commandLabel: 'E2E catalog read'});
         expect(await readPart('pageLabels')).toMatchObject([
             {
@@ -364,7 +364,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
                 const list = document.querySelector('.document-bookmark-tree__list');
                 const row = Array.from(document.querySelectorAll('.document-bookmark-item__row'))
                     .find(item => item.textContent?.trim() === 'Section 119');
-                if (!row || !list) return null;
+                if (!row || !list) {return null;}
                 const rect = row.getBoundingClientRect();
                 const bounds = list.getBoundingClientRect();
                 return {
@@ -694,19 +694,19 @@ describe('Electron E2E - bookmark destination round trip', () => {
 
     it('crpart3ne saves a depth-64 bookmark with its kept nested action', async () => {
         let nested = fixtureBookmark('Leaf', 0);
-        for (let depth = 1; depth < 64; depth += 1) nested = {
+        for (let depth = 1; depth < 64; depth += 1) {nested = {
             ...fixtureBookmark(`Parent ${depth}`, 0),
             items: [nested],
-        };
+        };}
         const fixture = await createBookmarkTreeFixturePdf(`crpart3ne-deep-action-${Date.now()}.pdf`, [
             nested,
             fixtureBookmark('Editable', 0),
         ]);
         const pdf = await PDFDocument.load(await readFile(fixture));
         let leaf = pdf.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
-        for (let depth = 1; depth < 64; depth += 1) leaf = leaf.lookup(PDFName.of('First'), PDFDict);
+        for (let depth = 1; depth < 64; depth += 1) {leaf = leaf.lookup(PDFName.of('First'), PDFDict);}
         let payload = pdf.context.obj({Payload: PDFString.of('Kept action sentinel')});
-        for (let depth = 1; depth < 15; depth += 1) payload = pdf.context.obj({K: payload});
+        for (let depth = 1; depth < 15; depth += 1) {payload = pdf.context.obj({K: payload});}
         leaf.delete(PDFName.of('Dest'));
         const action = pdf.context.obj({
             S: PDFName.of('URI'),
@@ -724,7 +724,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await saveViaVisibleToolbar(page, 60_000, fixture);
         const saved = await PDFDocument.load(await readFile(fixture));
         let savedLeaf = saved.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
-        for (let depth = 1; depth < 64; depth += 1) savedLeaf = savedLeaf.lookup(PDFName.of('First'), PDFDict);
+        for (let depth = 1; depth < 64; depth += 1) {savedLeaf = savedLeaf.lookup(PDFName.of('First'), PDFDict);}
         expect(savedLeaf.lookup(PDFName.of('A'), PDFDict).toString()).toBe(before);
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
@@ -749,7 +749,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
         if (scenario === 'large object dump') {
             // Public generated input: 70 MB of valid unused dictionaries.
             const payload = PDFString.of('X'.repeat(14_000));
-            for (let i = 0; i < 5_000; i += 1) pdf.context.register(pdf.context.obj({Noise: payload}));
+            for (let i = 0; i < 5_000; i += 1) {pdf.context.register(pdf.context.obj({Noise: payload}));}
         }
         await writeFile(fixture, await pdf.save({useObjectStreams: false}));
         const {page} = sessions.getSession();
@@ -786,7 +786,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
                 PDFName.of('Fit'),
             ]));
             child.set(PDFName.of('Dest'), name);
-            if (index < 4_999) child = child.lookup(PDFName.of('Next'), PDFDict);
+            if (index < 4_999) {child = child.lookup(PDFName.of('Next'), PDFDict);}
         }
         pdf.catalog.set(PDFName.of('Names'), pdf.context.obj({Dests: {Names: names}}));
         await writeFile(fixture, await pdf.save({useObjectStreams: false}));
@@ -806,7 +806,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
         const saved = await PDFDocument.load(await readFile(fixture));
         const parent = saved.catalog.lookup(PDFName.of('Outlines'), PDFDict).lookup(PDFName.of('First'), PDFDict);
         const nativePath = resolveNativePageOpsPath();
-        if (!nativePath) throw new Error('Native catalog reader is unavailable');
+        if (!nativePath) {throw new Error('Native catalog reader is unavailable');}
         const catalog = decodeMetadataSnapshot({
             bookmarks: await readNativePdfCatalogPart(nativePath, fixture, 'bookmarks', {commandLabel: 'E2E saved named subtree'}),
             untitledBookmarkLabel: 'Untitled',
@@ -850,7 +850,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
         await openDocumentSidebarTab(page, 'Bookmarks');
         const row = await findBookmarkRow(page, 'Parent');
         const toggle = (await row.$('.document-bookmark-item__toggle'))!;
-        if (await toggle.evaluate(button => button.getAttribute('aria-expanded')) !== 'true') await clickAsUser(page, toggle);
+        if (await toggle.evaluate(button => button.getAttribute('aria-expanded')) !== 'true') {await clickAsUser(page, toggle);}
         await goToPageViaToolbar(page, 3);
         await activateBookmark(page, 'Child 0');
         await waitForToolbarCurrentPage(page, 1);
@@ -1034,7 +1034,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
             'Remote',
             'Launch',
             'Site',
-        ]) await findBookmarkRow(page, title);
+        ]) {await findBookmarkRow(page, title);}
         await activateBookmark(page, 'Chapter renamed');
         await waitForToolbarCurrentPage(page, 2);
         await activateBookmark(page, 'Named');
@@ -1275,8 +1275,8 @@ describe('Electron E2E - bookmark destination round trip', () => {
             };
         });
         entries.forEach(({entry}, index) => {
-            if (index > 0) entry.set(PDFName.of('Prev'), entries[index - 1]!.ref);
-            if (index + 1 < entries.length) entry.set(PDFName.of('Next'), entries[index + 1]!.ref);
+            if (index > 0) {entry.set(PDFName.of('Prev'), entries[index - 1]!.ref);}
+            if (index + 1 < entries.length) {entry.set(PDFName.of('Next'), entries[index + 1]!.ref);}
         });
         outlines.set(PDFName.of('First'), entries[0]!.ref);
         outlines.set(PDFName.of('Last'), entries.at(-1)!.ref);
@@ -1635,7 +1635,7 @@ describe('Electron E2E - bookmark destination round trip', () => {
             await activateBookmark(page, title);
             await waitForViewportQuiet(page);
             const indicator = await readToolbarPageIndicator(page);
-            if (indicator.renderedPage === null) throw new Error('Page number was not rendered after bookmark activation');
+            if (indicator.renderedPage === null) {throw new Error('Page number was not rendered after bookmark activation');}
             navigatedPages.push(indicator.renderedPage);
             const visibleText = await page.$eval(`.page_container[data-page="${indicator.renderedPage}"]`, node => node.textContent ?? '');
             renderedText.push(visibleText.includes(`Metadata matrix page ${pageNumber}`));
@@ -1711,12 +1711,12 @@ async function readOriginalDestinationSamples(path: string) {
             pageIndex: pdf.getPages().findIndex(page => page.ref.toString() === destination[0]!.toString()),
             kind: destination[1]!.toString(),
             coordinates: destination.slice(2).map(value => {
-                if (value === PDFNull) return null;
-                if (!(value instanceof PDFNumber)) throw new Error('Saved bookmark coordinate must be numeric or null');
+                if (value === PDFNull) {return null;}
+                if (!(value instanceof PDFNumber)) {throw new Error('Saved bookmark coordinate must be numeric or null');}
                 return value.asNumber();
             }),
         });
-        if (index < 7) entry = entry.lookup(PDFName.of('Next'), PDFDict);
+        if (index < 7) {entry = entry.lookup(PDFName.of('Next'), PDFDict);}
     }
     return samples;
 }
@@ -1805,7 +1805,7 @@ async function expectBookmarkFocus(page: Page, title: string) {
     await expect.poll(() => page.evaluate(() => {
         const row = document.activeElement;
         const list = document.querySelector('.document-bookmark-tree__list');
-        if (!row?.matches('.document-bookmark-item__row') || !list) return {tag: row?.tagName};
+        if (!row?.matches('.document-bookmark-item__row') || !list) {return {tag: row?.tagName};}
         const rect = row.getBoundingClientRect();
         const bounds = list.getBoundingClientRect();
         return {

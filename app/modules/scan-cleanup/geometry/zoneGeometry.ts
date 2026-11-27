@@ -154,10 +154,10 @@ export function resizeScanCleanupZonePolygon(
     const x = clampNormalized(target.xNormalized);
     const y = clampNormalized(target.yNormalized);
 
-    if (corner.includes('w')) left = Math.min(right - minimumSize, x);
-    if (corner.includes('e')) right = Math.max(left + minimumSize, x);
-    if (corner.includes('n')) top = Math.min(bottom - minimumSize, y);
-    if (corner.includes('s')) bottom = Math.max(top + minimumSize, y);
+    if (corner.includes('w')) {left = Math.min(right - minimumSize, x);}
+    if (corner.includes('e')) {right = Math.max(left + minimumSize, x);}
+    if (corner.includes('n')) {top = Math.min(bottom - minimumSize, y);}
+    if (corner.includes('s')) {bottom = Math.max(top + minimumSize, y);}
     left = clampNormalized(left);
     right = clampNormalized(right);
     top = clampNormalized(top);

@@ -734,7 +734,7 @@ describe('verified model download publication', () => {
             if (url !== `https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/e12c65a915945e4c28e237a9b52bc4a8f39a0cec/${source}.traineddata`) {
                 return new Response(null, {status: 404});
             }
-            if (init.method === 'HEAD') return new Response(null, {status: 200});
+            if (init.method === 'HEAD') {return new Response(null, {status: 200});}
             if (transientFailurePending) {
                 transientFailurePending = false;
                 return new Response(null, {status: 503});
@@ -770,7 +770,7 @@ describe('verified model download publication', () => {
         const started = Promise.withResolvers<undefined>();
         let deliverBody = () => {};
         vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
-            if (init.method === 'HEAD') return new Response(null, {status: 200});
+            if (init.method === 'HEAD') {return new Response(null, {status: 200});}
             return new Response(new ReadableStream<Uint8Array>({start(controller) {
                 deliverBody = () => {
                     controller.enqueue(modelBytes);
@@ -813,7 +813,7 @@ describe('verified model download publication', () => {
         const started = Promise.withResolvers<undefined>();
         let deliverBody = () => {};
         vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
-            if (init.method === 'HEAD') return new Response(null, {status: 200});
+            if (init.method === 'HEAD') {return new Response(null, {status: 200});}
             return new Response(new ReadableStream<Uint8Array>({start(controller) {
                 deliverBody = () => {
                     controller.enqueue(modelBytes);
@@ -827,7 +827,7 @@ describe('verified model download publication', () => {
         const first = ensureTessdataLanguages(['eng'], {onProgress: update => healthyProgress.push(update)});
         await started.promise;
         const second = ensureTessdataLanguages(['eng'], {onProgress: update => {
-            if (throwOnReplay || update.receivedBytes > 0) throw new Error('Listener failed');
+            if (throwOnReplay || update.receivedBytes > 0) {throw new Error('Listener failed');}
         }});
         const laterProgress: IOcrModelDownloadProgress[] = [];
         const third = ensureTessdataLanguages(['eng'], {onProgress: update => laterProgress.push(update)});

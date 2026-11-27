@@ -252,7 +252,7 @@ export const defaultDependencies: IScanCleanupPreviewDependencies = {
         // A source gone from its path is the reader's file, not a missing
         // tool: name it before the broad ENOENT fallback can.
         const sourceStat = await stat(sourcePdfPath, {bigint: true}).catch((cause: unknown) => {
-            if (!isErrnoException(cause) || cause.code !== 'ENOENT') throw cause;
+            if (!isErrnoException(cause) || cause.code !== 'ENOENT') {throw cause;}
             throw Object.assign(new Error('Scan cleanup source PDF is missing', {cause}), {code: 'source-missing'});
         });
         return `${sourceStat.size}:${sourceStat.mtimeNs}`;
@@ -334,13 +334,13 @@ export function scanCleanupPreviewLifecycle(
         && (error.message === RENDERER_DESTROYED_CANCELLATION_REASON
             || error.message === RENDER_PROCESS_GONE_CANCELLATION_REASON);
     const watchSender = (sender: IScanCleanupDetectionSubscriber) => {
-        if (disposed) return;
+        if (disposed) {return;}
         const previous = watchedSenders.get(sender.id);
-        if (previous?.sender === sender) return;
+        if (previous?.sender === sender) {return;}
         previous?.stop();
         const handleGone = () => {
             const watched = watchedSenders.get(sender.id);
-            if (watched?.handleGone !== handleGone) return;
+            if (watched?.handleGone !== handleGone) {return;}
             watchedSenders.delete(sender.id);
             watched.stop();
             rendering.invalidateSender?.(sender.id);
@@ -351,7 +351,7 @@ export function scanCleanupPreviewLifecycle(
             handleGone,
             stop: onSenderLifetimeEnd(sender, handleGone),
         });
-        if (sender.isDestroyed()) handleGone();
+        if (sender.isDestroyed()) {handleGone();}
     };
     const watchSenderAfterPreviewsSettle = (
         sender: IScanCleanupDetectionSubscriber,
@@ -362,11 +362,11 @@ export function scanCleanupPreviewLifecycle(
         pendingPreviews.set(sender.id, previews);
         const settle = (watch: boolean) => {
             const current = pendingPreviews.get(sender.id);
-            if (current === undefined) return;
+            if (current === undefined) {return;}
             current.delete(preview);
-            if (current.size > 0) return;
+            if (current.size > 0) {return;}
             pendingPreviews.delete(sender.id);
-            if (watch) watchSender(sender);
+            if (watch) {watchSender(sender);}
         };
         void preview.then(
             () => settle(true),

@@ -21,9 +21,9 @@ export function sanitizeAssistantProviderText(value: string, limit = 4096): stri
         .replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/gu, '[redacted host]')
         .replace(/(?:\blocalhost|\[[a-f0-9:]+\])(?::\d+)?/giu, '[redacted host]')
         .trim();
-    if (safe.length <= limit) return safe;
+    if (safe.length <= limit) {return safe;}
     let end = limit - 1;
-    if (/[\ud800-\udbff]/u.test(safe[end - 1] ?? '')) end -= 1;
+    if (/[\ud800-\udbff]/u.test(safe[end - 1] ?? '')) {end -= 1;}
     return `${safe.slice(0, end)}…`;
 }
 
@@ -49,13 +49,13 @@ function providerFailure(value: unknown) {
             }
             break;
         }
-        if (!isRecord(value) && !(value instanceof Error)) break;
+        if (!isRecord(value) && !(value instanceof Error)) {break;}
         const record = value as Record<string, unknown>;
-        if (typeof record.message === 'string') message = record.message;
-        if (typeof record.code === 'string' || typeof record.code === 'number') code = String(record.code);
-        else if (typeof record.type === 'string' && record.type !== 'error') code = record.type;
-        if (typeof record.status === 'number') status = record.status;
-        if (typeof record.retryable === 'boolean') retryable = record.retryable;
+        if (typeof record.message === 'string') {message = record.message;}
+        if (typeof record.code === 'string' || typeof record.code === 'number') {code = String(record.code);}
+        else if (typeof record.type === 'string' && record.type !== 'error') {code = record.type;}
+        if (typeof record.status === 'number') {status = record.status;}
+        if (typeof record.retryable === 'boolean') {retryable = record.retryable;}
         switch (record.class) {
             case 'usage_limit': case 'provider_error': case 'transport_error':
             case 'permission_error': case 'validation_error': case 'unknown':
@@ -93,7 +93,7 @@ export function createAssistantErrorEnvelope(value: unknown): IAgentAssistantErr
         failureClass = 'provider_error';
     }
     // Permanent selection/auth/configuration failures cannot be repaired by resending.
-    if (code !== 'MODEL_UNAVAILABLE' && code !== 'AUTH_REQUIRED' && code !== 'INSTALL_MISSING') retryable = native.retryable ?? retryable;
+    if (code !== 'MODEL_UNAVAILABLE' && code !== 'AUTH_REQUIRED' && code !== 'INSTALL_MISSING') {retryable = native.retryable ?? retryable;}
     const message = !native.parsedJson && value instanceof Error && value.cause instanceof Error
         ? value.message : native.message;
     return {
@@ -108,7 +108,7 @@ export function createAssistantErrorEnvelope(value: unknown): IAgentAssistantErr
 
 export function withAssistantErrorEnvelope<T extends object>(value: T): T {
     const candidate = value as {error?: unknown; errorEnvelope?: unknown};
-    if (typeof candidate.error !== 'string' || !candidate.error || candidate.errorEnvelope) return value;
+    if (typeof candidate.error !== 'string' || !candidate.error || candidate.errorEnvelope) {return value;}
     const errorEnvelope = createAssistantErrorEnvelope(candidate.error);
     return {...value, error: errorEnvelope.message, errorEnvelope};
 }

@@ -561,7 +561,7 @@ describe('pdfPageLayout', () => {
                 paddingTop: 12,
                 paddingBottom: 16,
             });
-            if (!layout) throw new Error('Failed to create sparse facing layout');
+            if (!layout) {throw new Error('Failed to create sparse facing layout');}
 
             const expectedTops = new Map<number, number>();
             const queryPages = new Set([
@@ -578,7 +578,7 @@ describe('pdfPageLayout', () => {
                 for (let page = start; page < end; page += 1) {
                     // Direct nearest-page distances, independent of layout run boundaries.
                     height = Math.max(height, page <= Math.abs(page - nextKnownIndex) ? 1_000 : 500);
-                    if (queryPages.has(page)) expectedTops.set(page, top);
+                    if (queryPages.has(page)) {expectedTops.set(page, top);}
                 }
                 top += height * 1.25 + 20;
                 start = end;

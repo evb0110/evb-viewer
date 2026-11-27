@@ -109,11 +109,11 @@ describe('release status', () => {
                 ...options,
                 fetchFn: async (url) => {
                     const requestUrl = String(url);
-                    if (requestUrl.endsWith('/stable.json')) return Response.json({release: {tag: 'v1.2.3'}});
-                    if (requestUrl.endsWith('/manifest.json')) return Response.json({
+                    if (requestUrl.endsWith('/stable.json')) {return Response.json({release: {tag: 'v1.2.3'}});}
+                    if (requestUrl.endsWith('/manifest.json')) {return Response.json({
                         release: {tag: 'v1.2.3'},
                         assets: assets.map(name => ({name})),
-                    });
+                    });}
                     return new Response(null, {status: requestUrl.endsWith(`/${assets[0]}`) ? 200 : 404});
                 },
             })}),

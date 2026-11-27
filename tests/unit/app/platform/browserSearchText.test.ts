@@ -476,10 +476,10 @@ describe('word boxes from real PDF operators', () => {
         expect(data.text).toBe(desktop);
         const expected = findPdfSearchMatches(desktop, query);
         expect(expected).toHaveLength(1);
-        if (page === 1) expect(expected).toEqual([{
+        if (page === 1) {expect(expected).toEqual([{
             startOffset: 0,
             endOffset: 6,
-        }]);
+        }]);}
         expect(findPdfSearchMatches(data.text, query)).toEqual(expected);
         expect(data.words).toBeUndefined();
     });
@@ -527,7 +527,7 @@ describe('word boxes from real PDF operators', () => {
         });
         const xref = text.length;
         text += `xref\n0 ${String(objects.length + 1)}\n0000000000 65535 f \n`;
-        for (const offset of offsets) text += `${String(offset).padStart(10, '0')} 00000 n \n`;
+        for (const offset of offsets) {text += `${String(offset).padStart(10, '0')} 00000 n \n`;}
         text += `trailer\n<< /Size ${String(objects.length + 1)} /Root 1 0 R >>\nstartxref\n${String(xref)}\n%%EOF\n`;
         return new TextEncoder().encode(text);
     }

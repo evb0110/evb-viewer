@@ -36,7 +36,7 @@ async function saveAnnotationFidelity(input: number[], mutations: IPdfNativeMuta
     let workingPath: TLegacyDocumentRef | undefined;
     try {
         const opened = await capability.openDocumentDirect(sourcePath);
-        if (!opened || opened.kind !== 'pdf') throw new Error('Fidelity fixture failed to open');
+        if (!opened || opened.kind !== 'pdf') {throw new Error('Fidelity fixture failed to open');}
         workingPath = opened.workingPath;
         const revision = await browserDocumentStore.getDocumentRevision(workingPath);
         const applied = await capability.applyPdfNativeMutationsToWorkingCopy!(
@@ -50,12 +50,12 @@ async function saveAnnotationFidelity(input: number[], mutations: IPdfNativeMuta
             expectedDocumentRevisionToken: revision.token,
             ...(applied.identityBindings ? {identityBindings: [...applied.identityBindings]} : {}),
         });
-        if (!committed.applied || !committed.nativeMutationPostconditionsVerified) throw new Error('Fidelity save failed');
+        if (!committed.applied || !committed.nativeMutationPostconditionsVerified) {throw new Error('Fidelity save failed');}
         browserDocumentStore.unload(sourcePath);
         const reopened = await browserDocumentStore.getDocumentRevision(sourcePath);
         return await capability.parsePdfAnnotations(sourcePath, {expectedDocumentRevisionToken: reopened.token});
     } finally {
-        if (workingPath) await browserDocumentStore.remove(workingPath);
+        if (workingPath) {await browserDocumentStore.remove(workingPath);}
         await browserDocumentStore.remove(sourcePath);
         Reflect.set(window, 'showSaveFilePicker', previousPicker);
     }

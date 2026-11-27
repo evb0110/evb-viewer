@@ -115,7 +115,7 @@ async function validateQpdfInput(
     readFallbackInput = readInput,
     signal?: AbortSignal,
 ): Promise<IPdfValidationResult> {
-    if (size === 0) return validationResult(false, ['PDF validation failed: empty document data']);
+    if (size === 0) {return validationResult(false, ['PDF validation failed: empty document data']);}
     const fullCheck = purpose === undefined;
     const timeoutMs = fullCheck ? resolveQpdfValidationTimeoutMs(size) : QPDF_STRUCTURAL_VALIDATE_TIMEOUT_MS;
     const label = fullCheck ? 'qpdf(validate-pdf)' : purpose === 'opening' ? 'qpdf(validate-pdf-opening)' : 'qpdf(validate-pdf-structure)';
@@ -139,7 +139,7 @@ async function validateQpdfInput(
             ...extractQpdfWarnings(display(result.stderr)),
         ]);
     } catch (error) {
-        if (isAbortError(error) || isBrowserQpdfEngineUnavailableError(error) || isBrowserFullReadTooLargeError(error)) throw error;
+        if (isAbortError(error) || isBrowserQpdfEngineUnavailableError(error) || isBrowserFullReadTooLargeError(error)) {throw error;}
         const message = error instanceof BrowserQpdfEngineTimeoutError
             ? `${label} timed out after ${error.timeoutMs}ms`
             : display(getErrorMessage(error));
@@ -148,7 +148,7 @@ async function validateQpdfInput(
                 await readPdfStructuralFacts(new Blob([await readFallbackInput() as BlobPart]), signal);
                 return validationResult(true, [], [`qpdf validation timed out after ${timeoutMs}ms; fallback PDF structure validation succeeded.`]);
             } catch (fallbackError) {
-                if (isAbortError(fallbackError)) throw fallbackError;
+                if (isAbortError(fallbackError)) {throw fallbackError;}
                 return validationResult(false, [`${message}; fallback PDF structure validation failed: ${display(getErrorMessage(fallbackError))}`]);
             }
         }
@@ -189,7 +189,7 @@ export async function validateBrowserPdfLoadability(source: Blob): Promise<IPdfV
             warnings: [COMPATIBILITY_WARNING],
         };
     } catch (error) {
-        if (isAbortError(error)) throw error;
+        if (isAbortError(error)) {throw error;}
         return {
             isValid: false,
             tool: 'browser',

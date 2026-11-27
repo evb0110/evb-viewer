@@ -6,13 +6,13 @@ const [
     rustc,
     ...args
 ] = process.argv.slice(2);
-if (!rustc) throw new Error('Cargo did not supply a compiler');
+if (!rustc) {throw new Error('Cargo did not supply a compiler');}
 const flags = JSON.parse(process.env.EVB_CARGO_RUSTFLAGS || '[]');
 const target = args.find(arg => arg.startsWith('--target='))?.slice(9)
     ?? (args.includes('--target') ? args[args.indexOf('--target') + 1] : undefined);
 const wasm = target?.startsWith('wasm32') === true;
-if (target === undefined || target.includes('apple-darwin')) flags.push(...JSON.parse(process.env.EVB_CARGO_APPLE_RUSTFLAGS || '[]'));
-if (wasm) flags.push(...JSON.parse(process.env.EVB_CARGO_WASM_RUSTFLAGS || '[]'));
+if (target === undefined || target.includes('apple-darwin')) {flags.push(...JSON.parse(process.env.EVB_CARGO_APPLE_RUSTFLAGS || '[]'));}
+if (wasm) {flags.push(...JSON.parse(process.env.EVB_CARGO_WASM_RUSTFLAGS || '[]'));}
 const inner = process.env.EVB_CARGO_INNER_WRAPPER;
 /** @type {Array<number | import('node:child_process').IOType>} */
 const stdio = [
@@ -24,7 +24,7 @@ const jobserver = process.env.CARGO_MAKEFLAGS?.match(/--jobserver-(?:auth|fds)=(
 for (const fd of jobserver?.slice(1).map(Number) || []) {
     try {
         fstatSync(fd);
-        while (stdio.length <= fd) stdio.push('ignore');
+        while (stdio.length <= fd) {stdio.push('ignore');}
         stdio[fd] = fd;
     } catch {
         // Cargo may have closed a jobserver descriptor before starting the wrapper.
@@ -56,6 +56,6 @@ const result = batch
         windowsVerbatimArguments: true,
     })
     : spawnSync(command, commandArgs, {stdio});
-if (result.error) console.error(result.error);
-if (result.signal) process.kill(process.pid, result.signal);
+if (result.error) {console.error(result.error);}
+if (result.signal) {process.kill(process.pid, result.signal);}
 process.exit(result.status ?? 1);

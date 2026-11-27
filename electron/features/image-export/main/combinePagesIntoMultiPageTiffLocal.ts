@@ -43,7 +43,7 @@ interface ICombinePagesIntoMultiPageTiffLocalOptions {
 }
 
 function throwIfAborted(signal?: AbortSignal) {
-    if (signal?.aborted) throw abortErrorFromSignal(signal);
+    if (signal?.aborted) {throw abortErrorFromSignal(signal);}
 }
 
 async function removeSourcePages(pagePaths: string[]) {
@@ -371,7 +371,7 @@ export async function combinePagesIntoMultiPageTiffLocal(
     const abortStream = signal
         ? () => stream.destroy(abortErrorFromSignal(signal))
         : null;
-    if (abortStream) signal?.addEventListener('abort', abortStream, {once: true});
+    if (abortStream) {signal?.addEventListener('abort', abortStream, {once: true});}
     let replacedOutput = false;
 
     try {
@@ -409,7 +409,7 @@ export async function combinePagesIntoMultiPageTiffLocal(
         await streamCompletion.catch(() => undefined);
         throw error;
     } finally {
-        if (abortStream) signal?.removeEventListener('abort', abortStream);
+        if (abortStream) {signal?.removeEventListener('abort', abortStream);}
         if (!replacedOutput) {
             await rm(tempOutputPath, { force: true }).catch(() => undefined);
         }

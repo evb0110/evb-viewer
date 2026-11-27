@@ -912,11 +912,11 @@ export function committedAffectedPageIndices(
         || shapes.shapes.some(shape => Boolean(shape.annotationId))))
         || projection.textBoxes?.some(box => Boolean(box.annotationId)) === true
         || mutations.markup?.hints.some(hint => hint.source !== 'editor' || Boolean(normalizePdfJsAnnotationId(hint.annotationId))) === true;
-    if (needsEffects && !deleteEffects) return undefined;
-    if (deleteEffects && pageIndices?.length) pageIndices = [...new Set([
+    if (needsEffects && !deleteEffects) {return undefined;}
+    if (deleteEffects && pageIndices?.length) {pageIndices = [...new Set([
         ...pageIndices,
         ...deleteEffects.affectedPageIndices,
-    ])].sort((a, b) => a - b);
+    ])].sort((a, b) => a - b);}
     const local = !projection.hasMetadataMutations
         && !projection.placedImageGeometryUpdates?.some(update => update.sourceImage)
         && !mutations.placedImages?.some(image => Boolean(image.annotationId) || !image.stableKey)

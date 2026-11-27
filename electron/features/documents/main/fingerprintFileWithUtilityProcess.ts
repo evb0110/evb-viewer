@@ -72,12 +72,12 @@ async function inspectPdf(
     try {
         const header = Buffer.alloc(5);
         await raceWithAbortSignal(handle.read(header, 0, header.length, 0), options.signal);
-        if (header.toString('ascii') !== '%PDF-') throw new Error('PDF save staging file has an invalid header');
+        if (header.toString('ascii') !== '%PDF-') {throw new Error('PDF save staging file has an invalid header');}
         if (options.tailCheck !== true) {
             const tailBytes = Math.min(fingerprint.bytes, 64 * 1024);
             const tail = Buffer.alloc(tailBytes);
             await raceWithAbortSignal(handle.read(tail, 0, tailBytes, fingerprint.bytes - tailBytes), options.signal);
-            if (!tail.includes(Buffer.from('%%EOF'))) throw new Error('PDF save staging file has no end-of-file marker');
+            if (!tail.includes(Buffer.from('%%EOF'))) {throw new Error('PDF save staging file has no end-of-file marker');}
         }
     } finally {
         if (options.signal?.aborted) {

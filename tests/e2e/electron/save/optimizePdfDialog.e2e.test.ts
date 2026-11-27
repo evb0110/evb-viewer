@@ -101,11 +101,11 @@ describe('Optimize PDF saves only smaller copies', () => {
         }
         await session?.stop();
         session = null;
-        if (scratch && context.task.result?.state !== 'fail') rmSync(scratch, {
+        if (scratch && context.task.result?.state !== 'fail') {rmSync(scratch, {
             recursive: true,
             force: true,
-        });
-        else if (scratch) console.log(`[Optimize PDF evidence] ${scratch}`);
+        });}
+        else if (scratch) {console.log(`[Optimize PDF evidence] ${scratch}`);}
         scratch = null;
     });
 
@@ -219,7 +219,7 @@ describe('Optimize PDF saves only smaller copies', () => {
             1,
             2,
             3,
-        ]) expect(text).toContain(`Synthetic searchable scan page ${number}`);
+        ]) {expect(text).toContain(`Synthetic searchable scan page ${number}`);}
         const initialStatus = await readStatusSize(page);
         expectDisplayedBytes(initialStatus, original.length);
         const initialPage = await readToolbarPageIndicator(page);
@@ -256,7 +256,7 @@ describe('Optimize PDF saves only smaller copies', () => {
             1,
             2,
             3,
-        ]) expect(optimizedText).toContain(`Synthetic searchable scan page ${number}`);
+        ]) {expect(optimizedText).toContain(`Synthetic searchable scan page ${number}`);}
         await waitForActiveDocumentSource(page, outputPath, TIMEOUT_MS);
         expect(readFileSync(inputPath)).toEqual(original);
     }, TIMEOUT_MS * 2);

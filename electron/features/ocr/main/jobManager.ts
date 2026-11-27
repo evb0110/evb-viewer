@@ -314,12 +314,12 @@ export async function handleOcrCreateSearchablePdfAsync(
             run: async (registry) => {
                 const onModelDownloadProgress = (modelDownload: IOcrModelDownloadProgress) => {
                     const latest = ocrJobs.get(requestId, toOcrActor(context))?.progress;
-                    if (latest) registry.publish({
+                    if (latest) {registry.publish({
                         ...latest,
                         phase: 'model-prep',
                         phaseProgress: undefined,
                         modelDownload,
-                    });
+                    });}
                 };
                 try {
                     await prepareLanguageModelsForJob(pages, registry.signal, onModelDownloadProgress);

@@ -999,7 +999,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             && viewportAuthority.getTerminalOutcome(previous.id) === 'settled'
             ? singlePageScroll.captureRelayoutAnchor()
             : null;
-        if (anchor) viewportAuthority.observeSettledAnchor(anchor);
+        if (anchor) {viewportAuthority.observeSettledAnchor(anchor);}
     }, { flush: 'sync' });
     function fitToViewport() {
         scale.computeFitWidthScale(options.viewerContainer.value, {page: currentPage.value});

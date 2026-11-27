@@ -72,15 +72,15 @@ function isWithinBookmarkActionCeilings(value: unknown) {
             depth,
         ] = entry;
         size += 1 + (typeof current === 'string' ? current.length : 0);
-        if (size > BOOKMARK_ACTION_MAX_SIZE || depth > BOOKMARK_ACTION_MAX_DEPTH) return false;
-        if (Array.isArray(current)) for (const item of current) pending.push([
+        if (size > BOOKMARK_ACTION_MAX_SIZE || depth > BOOKMARK_ACTION_MAX_DEPTH) {return false;}
+        if (Array.isArray(current)) {for (const item of current) {pending.push([
             item,
             depth + 1,
-        ]);
-        else if (typeof current === 'object' && current !== null) for (const item of Object.values(current)) pending.push([
+        ]);}}
+        else if (typeof current === 'object' && current !== null) {for (const item of Object.values(current)) {pending.push([
             item,
             depth,
-        ]);
+        ]);}}
     }
     return true;
 }

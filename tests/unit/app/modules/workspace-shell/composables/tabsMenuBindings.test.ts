@@ -208,8 +208,8 @@ describe('#1608 tab shell action feedback', () => {
             messages.push([notice.title, notice.description].filter(Boolean).join(' '));
         }}));
         const failure = new Error(kind === 'copy-path' ? 'Clipboard permission denied' : 'File manager unavailable');
-        if (outcome === 'false') shell.showItemInFolder.mockResolvedValue(false);
-        else shell.showItemInFolder.mockRejectedValue(failure);
+        if (outcome === 'false') {shell.showItemInFolder.mockResolvedValue(false);}
+        else {shell.showItemInFolder.mockRejectedValue(failure);}
         vi.stubGlobal('navigator', {clipboard: {writeText: async () => {throw failure;}}});
         const tabs = useAppShellDirectionalTabs(cast<Parameters<typeof useAppShellDirectionalTabs>[0]>({
             activePaneId: ref('pane-1'), panes: ref([]), tabs: ref([{id: 'tab-1'}]),

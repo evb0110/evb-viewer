@@ -126,7 +126,7 @@ async function exclusive() {
     const sameContext = await settle(first.open('acceptance-exclusive/f.bin'));
     await held.close();
     const afterRelease = await settle(second.open('acceptance-exclusive/f.bin'));
-    if (afterRelease.ok) await afterRelease.value.close();
+    if (afterRelease.ok) {await afterRelease.value.close();}
     await first.remove('acceptance-exclusive');
     return {
         otherContext: otherContext.ok ? 'opened' : otherContext.name,

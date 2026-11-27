@@ -200,7 +200,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
 
     async function replaceOcrWorkingCopy(payload: IOcrCompletePayload) {
         try {
-            if (workingCopyPath.value !== payload.sourceWorkingCopyPath) return null;
+            if (workingCopyPath.value !== payload.sourceWorkingCopyPath) {return null;}
             clearOcrCache(payload.sourceWorkingCopyPath);
             resetSearchCache();
             if (!await ensureHistoryBaselineForMutation()) {

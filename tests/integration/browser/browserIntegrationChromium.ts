@@ -23,20 +23,20 @@ function combineErrors(errors: unknown[], message: string): unknown {
 // videos into the requested directory as each context closes and surface any
 // export failure instead of dropping video evidence silently.
 function attachRemoteVideoExport(context: BrowserContext, videoDir: string): void {
-    if (wrappedVideoContexts.has(context)) return;
+    if (wrappedVideoContexts.has(context)) {return;}
     wrappedVideoContexts.add(context);
     const videos = new Set<Video>();
     const trackPage = (page: Page) => {
         const video = page.video();
-        if (video) videos.add(video);
+        if (video) {videos.add(video);}
     };
-    for (const page of context.pages()) trackPage(page);
+    for (const page of context.pages()) {trackPage(page);}
     context.on('page', trackPage);
 
     let exported = false;
     const originalClose = context.close.bind(context);
     context.close = async (options) => {
-        for (const page of context.pages()) trackPage(page);
+        for (const page of context.pages()) {trackPage(page);}
         const failures: unknown[] = [];
         try {
             await originalClose(options);
@@ -116,7 +116,7 @@ export async function connectOrLaunchChromium(): Promise<Browser> {
 }
 
 export async function closeChromiumBrowser(browser: Browser | undefined): Promise<void> {
-    if (!browser) return;
+    if (!browser) {return;}
     const failures: unknown[] = [];
     try {
         const results = await Promise.allSettled(browser.contexts().map(context => context.close()));

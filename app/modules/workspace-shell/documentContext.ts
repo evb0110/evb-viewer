@@ -92,11 +92,11 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         document: controller,
         // A saved revision reopens each view where its reader is, before its job is admitted.
         admitPdfSource: (intent) => {
-            if (intent === 'adopt' && !isOpeningDocument.value) views.forEachView((port) => {
+            if (intent === 'adopt' && !isOpeningDocument.value) {views.forEachView((port) => {
                 const identity = port.openSurface.snapshot.value.identity;
-                if (identity) beginOpenSurfaceWithPageShape(port.openSurface, {documentId: identity.documentId, documentRevision: String(file.documentRevisionToken.value ?? identity.documentRevision), provisional: true},
-                    controller.getView(port.tabId)?.captureReadingAnchor() ?? port.view.currentPage.value, null);
-            });
+                if (identity) {beginOpenSurfaceWithPageShape(port.openSurface, {documentId: identity.documentId, documentRevision: String(file.documentRevisionToken.value ?? identity.documentRevision), provisional: true},
+                    controller.getView(port.tabId)?.captureReadingAnchor() ?? port.view.currentPage.value, null);}
+            });}
             return pdfDocumentSessionSlot.admit(intent);
         },
         resetDocumentPresentation: () => resetDocumentPresentation(),
@@ -225,7 +225,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         prepare: async (assertCurrent) => {
             await pdfDocumentAnnotations.commitPendingDraftsForSave().then(assertCurrent);
             await recovery.commitDrafts().then(assertCurrent);
-            if (!await annotations.persistAllAnnotationNotes()) throw new Error(t('tabs.transferErrors.restoreFailed'));
+            if (!await annotations.persistAllAnnotationNotes()) {throw new Error(t('tabs.transferErrors.restoreFailed'));}
         },
         close: async (assertCurrent) => {
             await file.handleDjvuCancel();
@@ -240,7 +240,7 @@ export const createDocumentContext = ({controller}: {controller: IWorkspaceDocum
         retire: () => {
             sourceCapabilitiesReceipt.value = null;
             views.forEachView((port) => {
-                if (port.openSurface.snapshot.value.phase !== 'idle') port.openSurface.reset();
+                if (port.openSurface.snapshot.value.phase !== 'idle') {port.openSurface.reset();}
             });
             void discardScanCleanupDocumentState(file.documentKey.value, scanCleanupSource.sha256.value).catch((error: unknown) => {
                 BrowserLogger.warn('scan-cleanup', 'Failed to discard saved cleanup settings', error);

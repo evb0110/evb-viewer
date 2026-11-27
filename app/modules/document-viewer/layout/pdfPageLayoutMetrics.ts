@@ -273,12 +273,12 @@ export function createLayoutPhysicalScrollSession() {
         const previousOrigin = origin.value;
         const nextOrigin = place(options.layout, options.write.top ?? previousOrigin + options.container.scrollTop, options.container.clientHeight);
         const commit = () => {
-            if (!options.isCurrent() || origin.value !== nextOrigin) return false;
+            if (!options.isCurrent() || origin.value !== nextOrigin) {return false;}
             const applied = options.port.apply(options.container, {
                 ...options.write,
                 ...(options.write.top === undefined ? {} : {top: options.write.top - nextOrigin}),
             });
-            if (applied) options.onApplied?.();
+            if (applied) {options.onApplied?.();}
             return applied;
         };
         // Vue must install the new physical track before the browser can accept

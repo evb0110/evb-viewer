@@ -112,10 +112,10 @@ export const PDF_CONFORMANCE_MARKER_SCAN_CHUNK_BYTES = 4 * 1024 * 1024;
 export const PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES = 4 * 1024;
 
 export function getPdfLosslessOptimizationSkipReason(profile: IPdfConformanceProfile): string | null {
-    if (profile.isSigned) return 'signed PDF';
-    if (profile.isEncrypted) return 'encrypted PDF';
-    if (profile.pdfaLevel) return `${profile.pdfaLevel} PDF`;
-    if (profile.hasXfa) return 'XFA PDF';
+    if (profile.isSigned) {return 'signed PDF';}
+    if (profile.isEncrypted) {return 'encrypted PDF';}
+    if (profile.pdfaLevel) {return `${profile.pdfaLevel} PDF`;}
+    if (profile.hasXfa) {return 'XFA PDF';}
     return null;
 }
 
@@ -128,7 +128,7 @@ export function scanPdfMarkerEvidence(data: Uint8Array): TPdfConformanceMarkerEv
         const text = pdfBinaryDecoder.decode(data.subarray(offset, end));
         isEncrypted ||= hasPdfEncryptMarkersInPdfText(text);
         pdfaLevel ??= detectPdfaLevelFromPdfText(text);
-        if (end === data.byteLength) break;
+        if (end === data.byteLength) {break;}
         offset = Math.max(offset + 1, end - PDF_CONFORMANCE_MARKER_SCAN_OVERLAP_BYTES);
     }
     return {

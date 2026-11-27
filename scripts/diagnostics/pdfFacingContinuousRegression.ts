@@ -91,7 +91,7 @@ async function selectActivePdfViewport() {
 async function collectViewportState(): Promise<IViewportState> {
     return page.evaluate(() => {
         const viewer = document.querySelector<HTMLElement>('[data-pdf-facing-regression-target="true"]');
-        if (!viewer) throw new Error('Active PDF viewport target is unavailable');
+        if (!viewer) {throw new Error('Active PDF viewport target is unavailable');}
         const viewport = viewer.getBoundingClientRect();
         const track = viewer.querySelector<HTMLElement>('.pdf-viewer-page-track');
         const trackRect = track?.getBoundingClientRect() ?? null;
@@ -140,12 +140,12 @@ async function collectViewportState(): Promise<IViewportState> {
 
 async function command(name: Parameters<typeof callWorkspaceCommand>[1], args: unknown[] = []) {
     const result = await callWorkspaceCommand(page, name, args, {requireVisible: true});
-    if (!result.called) throw new Error(`Workspace command ${String(name)} was not called`);
+    if (!result.called) {throw new Error(`Workspace command ${String(name)} was not called`);}
 }
 
 async function setContinuous(value: boolean) {
     const state = await getWorkspaceToolbarSnapshot(page, {requireVisible: true});
-    if (state?.continuousScroll !== value) await command('handleToggleContinuousScroll');
+    if (state?.continuousScroll !== value) {await command('handleToggleContinuousScroll');}
 }
 
 async function configureFacing(pageNumber: number, zoom: number) {
@@ -155,7 +155,7 @@ async function configureFacing(pageNumber: number, zoom: number) {
     await command('handleGoToPage', [pageNumber]);
     await waitForWorkspaceToolbarSnapshot(page, {currentPage: pageNumber}, {timeoutMs: 20_000});
     await delay(1_500);
-    if (!await selectActivePdfViewport()) throw new Error('Unable to select active PDF viewport');
+    if (!await selectActivePdfViewport()) {throw new Error('Unable to select active PDF viewport');}
 }
 
 async function captureHorizontal(zoom: number) {
@@ -163,14 +163,14 @@ async function captureHorizontal(zoom: number) {
     await delay(1_500);
     await page.evaluate(() => {
         const viewer = document.querySelector<HTMLElement>('[data-pdf-facing-regression-target="true"]');
-        if (viewer) viewer.scrollLeft = 0;
+        if (viewer) {viewer.scrollLeft = 0;}
     });
     await delay(250);
     const minimum = await collectViewportState();
     await page.screenshot({path: resolve(outputDir, `horizontal-${Math.round(zoom * 100)}-min.png`)});
     await page.evaluate(() => {
         const viewer = document.querySelector<HTMLElement>('[data-pdf-facing-regression-target="true"]');
-        if (viewer) viewer.scrollLeft = viewer.scrollWidth;
+        if (viewer) {viewer.scrollLeft = viewer.scrollWidth;}
     });
     await delay(250);
     const maximum = await collectViewportState();
@@ -218,7 +218,7 @@ try {
         20_000,
     ]) {
         const remaining = skeletonStartedAt + waitMs - Date.now();
-        if (remaining > 0) await delay(remaining);
+        if (remaining > 0) {await delay(remaining);}
         skeletonSamples.push({
             elapsedMs: Date.now() - skeletonStartedAt,
             state: await collectViewportState(),

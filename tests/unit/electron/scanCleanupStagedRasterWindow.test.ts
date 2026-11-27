@@ -276,7 +276,7 @@ describe('createStagedRasterWindow', () => {
         const allLeased = Promise.withResolvers<undefined>();
         const holdUntilAllLeased = async () => {
             arrived += 1;
-            if (arrived === readerCount) allLeased.resolve(undefined);
+            if (arrived === readerCount) {allLeased.resolve(undefined);}
             await allLeased.promise;
         };
         // Recorded rather than asserted inside the readers: an assertion that
@@ -296,7 +296,7 @@ describe('createStagedRasterWindow', () => {
                 await harness.controller.acquire(pageNumber);
                 leases += 1;
                 peakLeases = Math.max(peakLeases, leases);
-                if (!harness.resident.has(pageNumber)) unreadablePages.push(pageNumber);
+                if (!harness.resident.has(pageNumber)) {unreadablePages.push(pageNumber);}
                 residentAtLease.push(harness.resident.size);
                 if (leasedBefore) {
                     await new Promise(resolve => setTimeout(resolve, 1));
@@ -376,7 +376,7 @@ describe('createStagedRasterWindow', () => {
                 resident.add(pageNumber);
             },
             async unstage(pageNumber) {
-                if (!disposing) throw new Error(`unstage refused for page ${pageNumber}`);
+                if (!disposing) {throw new Error(`unstage refused for page ${pageNumber}`);}
                 resident.delete(pageNumber);
             },
             async isStaged(pageNumber) {

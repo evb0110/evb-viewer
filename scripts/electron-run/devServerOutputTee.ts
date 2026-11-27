@@ -238,7 +238,7 @@ class DevServerOutputTee implements IDevServerOutputTee {
         const previousManifest = readLogManifest(this.logManifestFile);
         if (previousManifest?.runDir === this.runDir) {
             for (const stem of previousManifest.sourceStems) {
-                if (typeof stem === 'string') this.sourceStems.add(stem);
+                if (typeof stem === 'string') {this.sourceStems.add(stem);}
             }
         } else if (this.stableLogEnabled) {
             writeFileSync(this.sessionLogFile, '');
@@ -438,7 +438,7 @@ class DevServerOutputTee implements IDevServerOutputTee {
             const sourceStems = new Set(
                 existing?.runDir === this.runDir ? existing.sourceStems : [],
             );
-            for (const stem of this.sourceStems) sourceStems.add(stem);
+            for (const stem of this.sourceStems) {sourceStems.add(stem);}
             writeJsonFile(this.logManifestFile, {
                 schemaVersion: 1,
                 createdAt,

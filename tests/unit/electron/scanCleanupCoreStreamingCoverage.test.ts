@@ -234,7 +234,7 @@ async function rasterTextVisibilityResult(args: readonly string[]) {
             stdout: '',
         };
     }
-    if (args[0] !== 'ocr-text-visibility') return null;
+    if (args[0] !== 'ocr-text-visibility') {return null;}
     const pages = (await readFile(args[args.indexOf('--pages-file') + 1]!, 'utf8'))
         .trim().split('\n').map(Number);
     return {
@@ -440,7 +440,7 @@ async function conversionRegressionFixture(
         },
         runCommand: async (_binary, args) => {
             const visibility = await rasterTextVisibilityResult(args);
-            if (visibility) return visibility;
+            if (visibility) {return visibility;}
             if (args[0] !== '--check') {
                 const outputIndex = args.indexOf('--output');
                 const output = outputIndex >= 0 ? args[outputIndex + 1]! : args.at(-1)!;
@@ -736,7 +736,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             filesAfterBatch.push(await retainedRasters(fixture.scratch));
             const manifest = JSON.parse(await readFile(args[1], 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
             await native(...args);
-            for (const page of manifest.pages) finishedPages.add(page.sourcePageIndex + 1);
+            for (const page of manifest.pages) {finishedPages.add(page.sourcePageIndex + 1);}
         };
         const summary = await fixture.run({sourcePageNumbers: [
             1,
@@ -862,7 +862,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             const result: IScanCleanupDetectionResult[] = [];
             for (let pageNumber = firstPageNumber; pageNumber < lastPageNumberExclusive; pageNumber += 1) {
                 const record = records.get(pageNumber);
-                if (record !== undefined) result.push(record);
+                if (record !== undefined) {result.push(record);}
             }
             return result;
         });
@@ -1314,7 +1314,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         });
         const runCommand = vi.fn(async (_command: string, args: string[]) => {
             const visibility = await rasterTextVisibilityResult(args);
-            if (visibility) return visibility;
+            if (visibility) {return visibility;}
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -1622,7 +1622,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         });
         const runCommand = vi.fn(async (command: string, args: string[]) => {
             const visibility = await rasterTextVisibilityResult(args);
-            if (visibility) return visibility;
+            if (visibility) {return visibility;}
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -1887,7 +1887,7 @@ describe('scan-cleanup-core conversion coverage', () => {
         const overlayOutputPages: number[][] = [];
         const runCommand = vi.fn(async (_command: string, args: string[]) => {
             const visibility = await rasterTextVisibilityResult(args);
-            if (visibility) return visibility;
+            if (visibility) {return visibility;}
             if (args[0] === '--check') {
                 return {
                     exitCode: 0,
@@ -2146,7 +2146,7 @@ describe('scan-cleanup-core conversion coverage', () => {
             }),
             runCommand: vi.fn(async (command, args) => {
                 const visibility = await rasterTextVisibilityResult(args);
-                if (visibility) return visibility;
+                if (visibility) {return visibility;}
                 if (args[0] === '--check') {
                     return {
                         exitCode: 0,

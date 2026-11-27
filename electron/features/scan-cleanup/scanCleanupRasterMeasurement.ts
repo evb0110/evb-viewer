@@ -36,7 +36,7 @@ export function resolveScanCleanupDocumentMeasurement<TValue>(
         slot.write(pending);
         const started = pending;
         void started.catch(() => {
-            if (slot.read() === started) slot.write(null);
+            if (slot.read() === started) {slot.write(null);}
         });
     }
     const shared = pending;
@@ -75,7 +75,7 @@ export function resolveScanCleanupDocumentPageMeasurement<TValue>(
                     slots.set(pageNumber, value);
                     while (slots.size > PAGE_MEASUREMENT_CACHE_MAX_ENTRIES) {
                         const oldest = slots.keys().next().value;
-                        if (oldest === undefined) break;
+                        if (oldest === undefined) {break;}
                         slots.delete(oldest);
                     }
                 }
@@ -125,12 +125,12 @@ export function createScanCleanupRasterMeasurements(input: {
             },
             readRange: async (firstPageNumber, lastPageNumberExclusive) => {
                 const pages = await store.readRange(firstPageNumber, lastPageNumberExclusive);
-                for (const page of pages) observePageSize(document, page);
+                for (const page of pages) {observePageSize(document, page);}
                 return pages;
             },
             forEachChunk: async onChunk => {
                 await store.forEachChunk(async chunk => {
-                    for (const page of chunk.pages) observePageSize(document, page);
+                    for (const page of chunk.pages) {observePageSize(document, page);}
                     await onChunk(chunk);
                 });
             },

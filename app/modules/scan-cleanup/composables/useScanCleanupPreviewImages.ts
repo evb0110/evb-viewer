@@ -128,8 +128,8 @@ export function queuePreviewImageSwap(
     if (!state.currentUrl) {
         return createPreviewImageSwap(url);
     }
-    if (state.incomingUrl) revoke(state.incomingUrl);
-    if (state.outgoingUrl) revoke(state.outgoingUrl);
+    if (state.incomingUrl) {revoke(state.incomingUrl);}
+    if (state.outgoingUrl) {revoke(state.outgoingUrl);}
     return {
         currentUrl: state.currentUrl,
         entering: false,
@@ -158,7 +158,7 @@ export function completePreviewImageSwap(
     if (!state.entering || state.currentUrl !== url) {
         return state;
     }
-    if (state.outgoingUrl) revoke(state.outgoingUrl);
+    if (state.outgoingUrl) {revoke(state.outgoingUrl);}
     return createPreviewImageSwap(state.currentUrl);
 }
 
@@ -168,7 +168,7 @@ function disposePreviewImageSwap(state: IScanCleanupPreviewImageSwap, revoke: (u
         state.incomingUrl,
         state.outgoingUrl,
     ])) {
-        if (url) revoke(url);
+        if (url) {revoke(url);}
     }
 }
 
@@ -236,7 +236,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         clearPendingCleanedFrame();
         revokeHalfUrls(detailPixelUrls);
         for (const waiter of displayedFrameWaiters.splice(0)) {
-            if (waiter.signal && waiter.abort) waiter.signal.removeEventListener('abort', waiter.abort);
+            if (waiter.signal && waiter.abort) {waiter.signal.removeEventListener('abort', waiter.abort);}
             waiter.resolve('dropped');
         }
     }
@@ -244,12 +244,12 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     function loadRawPixelSwap(url: string) {
         rawPixelSwap.value = loadPreviewImageSwap(rawPixelSwap.value, url);
         rawPixelSwapCompletion.stop();
-        if (rawPixelSwap.value.entering && rawPixelSwap.value.currentUrl === url) rawPixelSwapCompletion.start(url);
+        if (rawPixelSwap.value.entering && rawPixelSwap.value.currentUrl === url) {rawPixelSwapCompletion.start(url);}
     }
 
     function completeRawPixelSwap(url: string) {
         // Only the transition it scheduled may clear the fallback timer.
-        if (rawPixelSwap.value.entering && rawPixelSwap.value.currentUrl === url) rawPixelSwapCompletion.stop();
+        if (rawPixelSwap.value.entering && rawPixelSwap.value.currentUrl === url) {rawPixelSwapCompletion.stop();}
         rawPixelSwap.value = completePreviewImageSwap(rawPixelSwap.value, url, revokeBlobUrl);
     }
 
@@ -262,13 +262,13 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         const completion = cleanedPixelSwapCompletions[half];
         completion.stop();
         const state = cleanedPixelSwaps[half];
-        if (state?.entering && state.currentUrl === url) completion.start(url);
+        if (state?.entering && state.currentUrl === url) {completion.start(url);}
     }
 
     function completeCleanedPixelSwap(half: TScanCleanupOutputHalf, url: string) {
         cleanedPixelSwapCompletions[half].stop();
         const state = cleanedPixelSwaps[half];
-        if (state) cleanedPixelSwaps[half] = completePreviewImageSwap(state, url, revokeBlobUrl);
+        if (state) {cleanedPixelSwaps[half] = completePreviewImageSwap(state, url, revokeBlobUrl);}
     }
 
     function failCleanedPixelSwap(half: TScanCleanupOutputHalf, url: string) {
@@ -289,7 +289,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     function revokeHalfUrls(urls: Partial<Record<TScanCleanupOutputHalf, string>>) {
         for (const half of Object.keys(urls) as TScanCleanupOutputHalf[]) {
             const url = urls[half];
-            if (url) revokeBlobUrl(url);
+            if (url) {revokeBlobUrl(url);}
             Reflect.deleteProperty(urls, half);
         }
     }
@@ -298,7 +298,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         for (const half of Object.keys(cleanedPixelSwaps) as TScanCleanupOutputHalf[]) {
             cleanedPixelSwapCompletions[half].stop();
             const state = cleanedPixelSwaps[half];
-            if (state) disposePreviewImageSwap(state, revokeBlobUrl);
+            if (state) {disposePreviewImageSwap(state, revokeBlobUrl);}
             Reflect.deleteProperty(cleanedPixelSwaps, half);
         }
     }
@@ -308,7 +308,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         revokeHalfUrls(pendingCleanedPixelUrls);
         loadedPendingCleanedUrls.clear();
         pendingCleanedFrame = null;
-        if (droppedFrame) resolveDisplayedFrameWaiters(droppedFrame.result, 'dropped');
+        if (droppedFrame) {resolveDisplayedFrameWaiters(droppedFrame.result, 'dropped');}
     }
 
     function pendingFrameLoaded() {
@@ -328,9 +328,9 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
     ) {
         for (let index = displayedFrameWaiters.length - 1; index >= 0; index -= 1) {
             const waiter = displayedFrameWaiters[index];
-            if (waiter?.result !== result) continue;
+            if (waiter?.result !== result) {continue;}
             displayedFrameWaiters.splice(index, 1);
-            if (waiter.signal && waiter.abort) waiter.signal.removeEventListener('abort', waiter.abort);
+            if (waiter.signal && waiter.abort) {waiter.signal.removeEventListener('abort', waiter.abort);}
             waiter.resolve(outcome);
         }
     }
@@ -420,7 +420,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
             pendingCleanedPixelUrls[half] = pngUrl(output.imageData);
         }
         if (nextResult.outputs.length === 0) {
-            if (pendingFrameCanCommit()) publishCleanedFrame(nextFrame);
+            if (pendingFrameCanCommit()) {publishCleanedFrame(nextFrame);}
         }
     }
 
@@ -459,9 +459,9 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
             };
             waiter.abort = () => {
                 const index = displayedFrameWaiters.indexOf(waiter);
-                if (index < 0) return;
+                if (index < 0) {return;}
                 displayedFrameWaiters.splice(index, 1);
-                if (pendingCleanedFrame?.result === latestResult) clearPendingCleanedFrame();
+                if (pendingCleanedFrame?.result === latestResult) {clearPendingCleanedFrame();}
                 resolve('dropped');
             };
             displayedFrameWaiters.push(waiter);
@@ -471,7 +471,7 @@ export const useScanCleanupPreviewImages = <TPresentation = undefined>(
         for (const output of latestResult.outputs) {
             pendingCleanedPixelUrls[output.metadata.half] = pngUrl(output.imageData);
         }
-        if (latestResult.outputs.length === 0) publishCleanedFrame(nextFrame);
+        if (latestResult.outputs.length === 0) {publishCleanedFrame(nextFrame);}
         return revealed;
     }
 

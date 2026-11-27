@@ -54,7 +54,7 @@ describe('public catalog cleanup proof', () => {
         expect(sourceText.join(' ')).toContain('Tagereise');
         await openPdfInApp(page, source);
         for (const toast of await page.$$('button[data-slot="close"]')) {
-            if (await toast.isVisible()) await clickAsUser(page, toast);
+            if (await toast.isVisible()) {await clickAsUser(page, toast);}
         }
         await clickVisibleToolbarButton(page, 'Scan cleanup');
         await page.waitForFunction(count => document.querySelectorAll('.scan-thumbnail-exclude-toggle').length === count
@@ -76,7 +76,7 @@ describe('public catalog cleanup proof', () => {
             const id = await page.$$eval('label', (labels, text) => labels.find(el => el.textContent?.trim() === text)?.getAttribute('for'), label);
             expect(id, label).toBeTruthy();
             const selector = `[id="${id}"]`;
-            if (await page.$eval(selector, el => el.getAttribute('aria-checked') === 'true')) await clickAsUser(page, selector);
+            if (await page.$eval(selector, el => el.getAttribute('aria-checked') === 'true')) {await clickAsUser(page, selector);}
             await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-checked') === 'false', {}, selector);
         }
         await page.waitForFunction(selector => {
@@ -127,7 +127,7 @@ describe('public catalog cleanup proof', () => {
         'compact-fit-split',
         'identity-lossless',
     ])
-        it(mode, async () => {
+        {it(mode, async () => {
             const {page} = fixture.getSession();
             const source = resolve(evidence, `${mode}-source.pdf`);
             writeFileSync(source, Buffer.from(readFileSync(resolve('tests/fixtures/release/scan-cleanup-final-graph.pdf.hex'), 'utf8').replace(/\s/gu, ''), 'hex'));
@@ -165,7 +165,7 @@ describe('public catalog cleanup proof', () => {
             }
             await openPdfInApp(page, source);
             for (const toast of await page.$$('button[data-slot="close"]')) {
-                if (await toast.isVisible()) await clickAsUser(page, toast);
+                if (await toast.isVisible()) {await clickAsUser(page, toast);}
             }
             await clickVisibleToolbarButton(page, 'Scan cleanup');
             await page.waitForFunction(() => document.querySelectorAll('.scan-thumbnail-exclude-toggle').length === 3
@@ -177,7 +177,7 @@ describe('public catalog cleanup proof', () => {
             const choices: Record<string, string> = {};
             async function toggle(control: string, wanted: boolean) {
                 if (await page.$eval(control, el => el.getAttribute('aria-checked') === 'true') !== wanted)
-                    await clickAsUser(page, control);
+                    {await clickAsUser(page, control);}
                 await page.waitForFunction((control, wanted) => document.querySelector(control)?.getAttribute('aria-checked') === String(wanted), {}, control, wanted);
                 choices[control] = String(wanted);
             }
@@ -213,10 +213,10 @@ describe('public catalog cleanup proof', () => {
             await checkbox('Match page size with other pages', false);
             await checkbox('Skip blank pages', false);
             // Auto Color bypasses illumination normalization; keep this fixture on that path.
-            if (mode.startsWith('compact')) await page.waitForFunction(() => {
+            if (mode.startsWith('compact')) {await page.waitForFunction(() => {
                 const included = Array.from(document.querySelectorAll('.scan-thumbnail-status:not(.is-excluded)'));
                 return included.length === 2 && included.every(el => el.textContent?.trim().endsWith('Color'));
-            });
+            });}
             await page.waitForFunction(selector => {
                 const button = document.querySelector<HTMLButtonElement>(selector);
                 return button && !button.disabled && button.textContent?.includes('Clean');
@@ -244,7 +244,7 @@ describe('public catalog cleanup proof', () => {
                     expect(savedPdf.numPages).toBe(4);
                     const links = [];
                     for (let n = 1; n <= savedPdf.numPages; n += 1)
-                        links.push(...(await (await savedPdf.getPage(n)).getAnnotations()).filter(annotation => annotation.subtype === 'Link'));
+                        {links.push(...(await (await savedPdf.getPage(n)).getAnnotations()).filter(annotation => annotation.subtype === 'Link'));}
                     expect(links.length).toBeGreaterThan(0);
                     for (const link of links) {
                         expect(link.dest[1].name).toBe('Fit');
@@ -254,7 +254,7 @@ describe('public catalog cleanup proof', () => {
                 }
                 const pages = [];
                 for (let n = 1; n <= savedPdf.numPages; n += 1)
-                    pages.push(await (await savedPdf.getPage(n)).getAnnotations());
+                    {pages.push(await (await savedPdf.getPage(n)).getAnnotations());}
                 const entries = savedDocument.getPages().flatMap(page => (page.node.Annots()?.asArray() ?? []).map(ref => ({
                     ref,
                     annotation: savedDocument.context.lookup(ref, PDFDict),
@@ -268,14 +268,14 @@ describe('public catalog cleanup proof', () => {
                 const link = pages.flat().find(annotation => annotation.subtype === 'Link');
                 expect.soft(link).toBeDefined();
                 expect.soft(await savedPdf.getPageIndex(link!.dest[0])).toBe(0);
-                if (mode !== 'compact-threads') expect.soft(pages.map(page => page.find(annotation => annotation.subtype === 'Widget')?.buttonValue)).toEqual(mode === 'identity-lossless' ? [
+                if (mode !== 'compact-threads') {expect.soft(pages.map(page => page.find(annotation => annotation.subtype === 'Widget')?.buttonValue)).toEqual(mode === 'identity-lossless' ? [
                     'Option C',
                     'Option A',
                     'Option B',
                 ] : [
                     'Option C',
                     'Option A',
-                ]);
+                ]);}
                 expect.soft(savedPdf.numPages).toBe(mode === 'identity-lossless' ? 3 : 2);
                 expect.soft(savedDocument.catalog.has(PDFName.of('StructTreeRoot'))).toBe(mode === 'identity-lossless');
                 expect.soft(savedDocument.catalog.has(PDFName.of('MarkInfo'))).toBe(mode === 'identity-lossless');
@@ -283,5 +283,5 @@ describe('public catalog cleanup proof', () => {
             finally {
                 await savedPdf.loadingTask.destroy();
             }
-        }, 240000);
+        }, 240000);}
 });

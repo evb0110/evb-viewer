@@ -604,7 +604,7 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
             aEntered = true;
             await heldYield.promise;
             aAdmittedAfterYield = isAdmitted();
-            if (!aAdmittedAfterYield) return 'stale-a';
+            if (!aAdmittedAfterYield) {return 'stale-a';}
             const worker = client.getWorker();
             client.registerPendingRequest(1, {reject: () => {}}, () => new Error('timeout'));
             worker.postMessage({id: 1, label: 'A'});
@@ -649,7 +649,7 @@ describe('BrowserWorkerRequestOwner admission by worker key', () => {
             const requestA = owner.run(1, async (client, isAdmitted) => {
                 client.getWorker();
                 await heldYield.promise;
-                if (!isAdmitted()) return 'stale-a';
+                if (!isAdmitted()) {return 'stale-a';}
                 return 'done-a';
             });
 
@@ -788,7 +788,7 @@ describe('BrowserWorkerBudget across pools', () => {
 
     /** Lets admission run: owners admit again in a microtask after a place frees. */
     const settle = async () => {
-        for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+        for (let turn = 0; turn < 10; turn += 1) {await Promise.resolve();}
     };
 
     it('starts no counted worker past the budget; a waiting request starts once a place frees, in any pool', async () => {
@@ -919,7 +919,7 @@ describe('scan cleanup engine threads', () => {
             public constructor(_url: URL, private readonly options: {name: string}) {
                 super();
                 events.push({kind: 'started', worker: options.name});
-                if (readScanCleanupEngineWorkerThreads(options.name) !== null) threadedWorkers.push(this.record);
+                if (readScanCleanupEngineWorkerThreads(options.name) !== null) {threadedWorkers.push(this.record);}
             }
 
             public postMessage(message: {id: number; type: string; payload: {label: string}}) {

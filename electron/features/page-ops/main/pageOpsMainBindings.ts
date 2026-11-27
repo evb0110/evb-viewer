@@ -209,7 +209,7 @@ function* iteratePageRangeBatches(
             }
         }
     }
-    if (batch.length > 0) yield batch;
+    if (batch.length > 0) {yield batch;}
 }
 
 function formatSelectionLabel(ranges: readonly IPageMoveRangeSegment[]) {
@@ -324,7 +324,7 @@ async function runPageMutation<T>(input: {
             return await write();
         } catch (error) {
             // The page engine could not read the document: repair its revision as its open does, then edit once more.
-            if (findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code !== 'corrupt-xref') throw error;
+            if (findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code !== 'corrupt-xref') {throw error;}
             const refused = documentRevisionToken(entry);
             const repaired = await rewriteDocument(entry, (source, target) => rewritePdfWithQpdf(source, target, nativeOptions), 'open')
                 .catch(() => {
@@ -340,7 +340,7 @@ async function runPageMutation<T>(input: {
             }
         }
     });
-    if (!committed) throw new Error('Page operation did not publish a result');
+    if (!committed) {throw new Error('Page operation did not publish a result');}
     return {
         value: committed.value,
         documentRevision,
@@ -1081,7 +1081,7 @@ export const pageOpsMainBindings = {
         });
         try {
             const binary = resolveNativePageOpsPath();
-            if (!binary) throw new Error('Native text appearance generation is unavailable');
+            if (!binary) {throw new Error('Native text appearance generation is unavailable');}
             operation.signal.throwIfAborted();
             return await usingManagedScratchScope('pdf-page-ops-', getAppTempDir(), async directory => {
                 const input = join(directory, 'request.json');

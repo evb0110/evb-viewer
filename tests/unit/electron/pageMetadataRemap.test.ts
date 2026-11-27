@@ -290,7 +290,7 @@ describe('page metadata remap', () => {
         const bookmarks = result.bookmarks;
         expect(pageLabels).toBeDefined();
         expect(bookmarks).toBeDefined();
-        if (!pageLabels || !bookmarks) throw new Error('known metadata was not remapped');
+        if (!pageLabels || !bookmarks) {throw new Error('known metadata was not remapped');}
         expect(pageLabels.ranges.map(range => range.prefix)).toEqual([
             '2',
             '2',

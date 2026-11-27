@@ -104,7 +104,7 @@ export function createEarlyPrintDictionary(words: Iterable<string>, latin: boole
     const keys = new Set<string>();
     for (const word of words) {
         const key = dictionaryKey(word);
-        if (key && !(latin && LATIN_IMPOSSIBLE_F.test(key))) keys.add(key);
+        if (key && !(latin && LATIN_IMPOSSIBLE_F.test(key))) {keys.add(key);}
     }
     return keys;
 }
@@ -133,9 +133,9 @@ function countInWordLetters(words: readonly string[], letters: readonly string[]
     ]));
     for (const text of words) {
         for (let index = 0; index < text.length - 1; index++) {
-            if (!LETTER.test(text[index + 1]!)) continue;
+            if (!LETTER.test(text[index + 1]!)) {continue;}
             const count = counts.get(text[index]!);
-            if (count !== undefined) counts.set(text[index]!, count + 1);
+            if (count !== undefined) {counts.set(text[index]!, count + 1);}
         }
     }
     return counts;
@@ -166,8 +166,8 @@ interface ISlot {
 const isLetter = (text: string) => LETTER.test(text);
 
 function substitutionCost(left: string, right: string) {
-    if (left === right) return 0;
-    if (left === ' ' || right === ' ') return 2.5;
+    if (left === right) {return 0;}
+    if (left === ' ' || right === ' ') {return 2.5;}
     return isLetter(left) === isLetter(right) ? 1 : 1.6;
 }
 
@@ -179,9 +179,9 @@ function substitutionCost(left: string, right: string) {
 function alignTo(line: readonly string[], other: readonly IHocrChar[]): IHocrChar[][] | null {
     const rows = line.length + 1;
     const width = other.length + 1;
-    if (rows > MAX_ALIGNED_LINE_LENGTH || width > MAX_ALIGNED_LINE_LENGTH) return null;
+    if (rows > MAX_ALIGNED_LINE_LENGTH || width > MAX_ALIGNED_LINE_LENGTH) {return null;}
     const distance = new Float64Array(rows * width);
-    for (let column = 0; column < width; column++) distance[column] = column;
+    for (let column = 0; column < width; column++) {distance[column] = column;}
     for (let row = 1; row < rows; row++) {
         distance[row * width] = row;
         for (let column = 1; column < width; column++) {
@@ -192,7 +192,7 @@ function alignTo(line: readonly string[], other: readonly IHocrChar[]): IHocrCha
             );
         }
     }
-    if (distance[rows * width - 1]! > 0.5 * Math.max(line.length, other.length)) return null;
+    if (distance[rows * width - 1]! > 0.5 * Math.max(line.length, other.length)) {return null;}
     const aligned: number[][] = Array.from({length: line.length}, () => []);
     let row = line.length;
     let column = other.length;
@@ -216,7 +216,7 @@ function alignTo(line: readonly string[], other: readonly IHocrChar[]): IHocrCha
 function boxOverlap(a: IHocrLine['box'], b: IHocrLine['box']) {
     const width = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
     const height = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
-    if (width <= 0 || height <= 0) return 0;
+    if (width <= 0 || height <= 0) {return 0;}
     const smaller = Math.min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]));
     return smaller > 0 ? width * height / smaller : 0;
 }
@@ -232,10 +232,10 @@ function readingOf(line: IHocrLine, characters: readonly string[], otherLines: r
             bestOverlap = overlap;
         }
     }
-    if (!best) return null;
+    if (!best) {return null;}
     const otherChars: IHocrChar[] = [];
     best.words.forEach((word, index) => {
-        if (index > 0) otherChars.push(spaceChar());
+        if (index > 0) {otherChars.push(spaceChar());}
         otherChars.push(...word.chars);
     });
     return alignTo(characters, otherChars);
@@ -252,7 +252,7 @@ function spaceChar(): IHocrChar {
 }
 
 function seesLongS(chars: readonly IHocrChar[] | undefined) {
-    if (chars?.length !== 1) return false;
+    if (chars?.length !== 1) {return false;}
     const [char] = chars;
     return char!.text === 'ſ' || ((char!.text === 'f' || char!.text === 'l') && (char!.choices.get('ſ') ?? 0) >= LONG_S_CHOICE_MIN);
 }
@@ -281,16 +281,16 @@ function mergeLine(
         ligature: readonly IHocrChar[]
     }> = [];
     line.words.forEach((word, index) => {
-        if (index > 0) flat.push({
+        if (index > 0) {flat.push({
             ...slotOf(spaceChar(), line),
             space: true,
             ligature: [],
-        });
-        for (const char of word.chars) flat.push({
+        });}
+        for (const char of word.chars) {flat.push({
             ...slotOf(char, line),
             space: false,
             ligature: [],
-        });
+        });}
     });
     const characters = flat.map(slot => slot.text);
     const longSReading = readingOf(line, characters, longS);
@@ -303,7 +303,7 @@ function mergeLine(
     // A letter changes where both other models read the same other thing.
     if (voters.length === 2) {
         flat.forEach((slot, index) => {
-            if (slot.space) return;
+            if (slot.space) {return;}
             const [
                 first,
                 second,
@@ -316,13 +316,13 @@ function mergeLine(
         // other two models share some misreadings (codem for eodem).
         let from = 0;
         for (let index = 0; index <= flat.length; index++) {
-            if (index < flat.length && !flat[index]!.space) continue;
+            if (index < flat.length && !flat[index]!.space) {continue;}
             const word = flat.slice(from, index);
             const lettersOf = (text: string) => text.replace(/[^\p{L}\s]/gu, '');
             const before = lettersOf(word.map(slot => slot.text).join(''));
             const after = lettersOf(word.map(slot => slot.vote ?? slot.text).join(''));
             if (before !== after && dictionary.has(dictionaryKey(before))) {
-                for (const slot of word) delete slot.vote;
+                for (const slot of word) {delete slot.vote;}
             }
             from = index + 1;
         }
@@ -330,14 +330,14 @@ function mergeLine(
 
     const wordLengths = flat.map(() => 0);
     for (let from = 0, index = 0; index <= flat.length; index++) {
-        if (index < flat.length && !flat[index]!.space) continue;
+        if (index < flat.length && !flat[index]!.space) {continue;}
         const length = flat.slice(from, index).filter(slot => isLetter(slot.text)).length;
         wordLengths.fill(length, from, index);
         from = index + 1;
     }
     flat.forEach((slot, index) => {
-        if (slot.space) return;
-        if (slot.vote !== undefined) slot.text = slot.vote;
+        if (slot.space) {return;}
+        if (slot.vote !== undefined) {slot.text = slot.vote;}
         if (LONG_S_READINGS.has(slot.text) && seesLongS(longSReading?.[index])) {
             slot.text = 'ſ';
             slot.settled = true;
@@ -365,7 +365,7 @@ function mergeLine(
     });
     // One æ where the modern model read two letters (RUBRICZE): drop the one the ligature model did not see.
     flat.forEach((slot, index) => {
-        if (!LIGATURE_LETTERS.has(slot.text.trim())) return;
+        if (!LIGATURE_LETTERS.has(slot.text.trim())) {return;}
         for (const neighbour of [
             flat[index - 1],
             flat[index + 1],
@@ -426,36 +426,36 @@ function slotOptions(slot: ISlot, ctFollows: boolean): IOption[] {
         text: slot.text,
         cost: 0,
     }];
-    if (slot.settled) return options;
+    if (slot.settled) {return options;}
     const add = (text: string, cost: number) => {
         const existing = options.find(option => option.text === text + tail);
-        if (existing) existing.cost = Math.min(existing.cost, cost);
-        else options.push({
+        if (existing) {existing.cost = Math.min(existing.cost, cost);}
+        else {options.push({
             text: text + tail,
             cost,
-        });
+        });}
     };
     for (const [
         choice,
         confidence,
     ] of slot.choices) {
-        if (choice === head || !isLetter(choice) || confidence < 10) continue;
+        if (choice === head || !isLetter(choice) || confidence < 10) {continue;}
         add(choice, Math.max(0.05, (slot.confidence - confidence) / 50));
     }
-    if (head === 'f') add('ſ', 0.6);
-    if (head === 'l' || head === 't') add('ſ', 1);
+    if (head === 'f') {add('ſ', 0.6);}
+    if (head === 'l' || head === 't') {add('ſ', 1);}
     if (CT_READINGS.has(head)) {
         // With no t after it, the glyph stands for the whole ct.
         add('c', 0.5);
         add('ct', ctFollows ? 0.6 : 0.4);
     }
-    if (head === 't') add('ct', 0.8);
-    if ('zx’\''.includes(head) && head !== '') add('æ', 0.5);
-    if (head === 'e') add('c', 1);
-    if (head === 'c') add('e', 1);
-    if (head === 'å' || head === 'á') add('â', 0.2);
-    if (head === 'ü') add('ù', 0.2);
-    if (head === 'é') add('è', 0.3);
+    if (head === 't') {add('ct', 0.8);}
+    if ('zx’\''.includes(head) && head !== '') {add('æ', 0.5);}
+    if (head === 'e') {add('c', 1);}
+    if (head === 'c') {add('e', 1);}
+    if (head === 'å' || head === 'á') {add('â', 0.2);}
+    if (head === 'ü') {add('ù', 0.2);}
+    if (head === 'é') {add('è', 0.3);}
     return options;
 }
 
@@ -464,7 +464,7 @@ function decode(slots: readonly ISlot[], dictionary: ReadonlySet<string>): {
     cost: number;
     texts: string[]
 } | null {
-    if (slots.length === 0 || slots.length > MAX_DECODED_LETTERS) return null;
+    if (slots.length === 0 || slots.length > MAX_DECODED_LETTERS) {return null;}
     const options = slots.map((slot, index) => slotOptions(slot, (slots[index + 1]?.text ?? '').startsWith('t')));
     const chosen = slots.map(() => '');
     let best: {
@@ -473,17 +473,17 @@ function decode(slots: readonly ISlot[], dictionary: ReadonlySet<string>): {
     } | null = null;
     let steps = 0;
     const walk = (index: number, cost: number, changes: number) => {
-        if (++steps > DECODE_STEP_BUDGET || cost > MAX_DECODE_COST || (best && cost >= best.cost)) return;
+        if (++steps > DECODE_STEP_BUDGET || cost > MAX_DECODE_COST || (best && cost >= best.cost)) {return;}
         if (index === slots.length) {
-            if (dictionary.has(dictionaryKey(chosen.join('')))) best = {
+            if (dictionary.has(dictionaryKey(chosen.join('')))) {best = {
                 cost,
                 texts: [...chosen],
-            };
+            };}
             return;
         }
         for (const option of options[index]!) {
             const change = option.cost > 0 ? 1 : 0;
-            if (changes + change > MAX_DECODE_CHANGES) continue;
+            if (changes + change > MAX_DECODE_CHANGES) {continue;}
             chosen[index] = option.text;
             walk(index + 1, cost + option.cost, changes + change);
         }
@@ -516,7 +516,7 @@ function apply(slots: readonly ISlot[], texts: readonly string[]) {
 function restoreWordSpaces(slots: readonly ISlot[], dictionary: ReadonlySet<string>) {
     const capitals: number[] = [];
     for (let index = 1; index < slots.length; index++) {
-        if (isUpper(slots[index]!.text) && isLower(slots[index - 1]!.text)) capitals.push(index);
+        if (isUpper(slots[index]!.text) && isLower(slots[index - 1]!.text)) {capitals.push(index);}
     }
     if (capitals.length > 0) {
         let from = 0;
@@ -525,22 +525,22 @@ function restoreWordSpaces(slots: readonly ISlot[], dictionary: ReadonlySet<stri
             slots.length,
         ]) {
             const part = slots.slice(from, to);
-            if (!isWord(part, dictionary)) restoreWordSpaces(part, dictionary);
-            if (from > 0) slots[from]!.text = ` ${slots[from]!.text}`;
+            if (!isWord(part, dictionary)) {restoreWordSpaces(part, dictionary);}
+            if (from > 0) {slots[from]!.text = ` ${slots[from]!.text}`;}
             from = to;
         }
         return;
     }
-    if (slots.filter(slot => isUpper(slot.text)).length >= 2) return;
+    if (slots.filter(slot => isUpper(slot.text)).length >= 2) {return;}
     const gapBefore = (index: number) => slots[index]!.left - slots[index - 1]!.right >= SPLIT_GAP_SHARE * slots[index]!.letterHeight;
     const cuts: number[] = [];
     for (let cut = 1; cut < slots.length; cut++) {
-        if (!gapBefore(cut) || !isWord(slots.slice(0, cut), dictionary)) continue;
+        if (!gapBefore(cut) || !isWord(slots.slice(0, cut), dictionary)) {continue;}
         if (isWord(slots.slice(cut), dictionary)) {
             cuts.splice(0, cuts.length, cut);
             break;
         }
-        if (cuts.length > 0) continue;
+        if (cuts.length > 0) {continue;}
         for (let second = cut + 1; second < slots.length; second++) {
             if (gapBefore(second) && isWord(slots.slice(cut, second), dictionary) && isWord(slots.slice(second), dictionary)) {
                 cuts.push(cut, second);
@@ -548,16 +548,16 @@ function restoreWordSpaces(slots: readonly ISlot[], dictionary: ReadonlySet<stri
             }
         }
     }
-    for (const cut of cuts) slots[cut]!.text = ` ${slots[cut]!.text}`;
+    for (const cut of cuts) {slots[cut]!.text = ` ${slots[cut]!.text}`;}
 }
 
 /** The letters of a word between its leading and trailing punctuation; a ct glyph ending it counts (O& for Oct). */
 function letterRange(slots: readonly ISlot[]) {
     let start = 0;
     let end = slots.length;
-    while (start < end && !isLetter(slots[start]!.text || '-')) start++;
+    while (start < end && !isLetter(slots[start]!.text || '-')) {start++;}
     while (end > start && !isLetter(slots[end - 1]!.text || '-')
-        && !(CT_READINGS.has(slots[end - 1]!.text) && end - 1 > start)) end--;
+        && !(CT_READINGS.has(slots[end - 1]!.text) && end - 1 > start)) {end--;}
     return [
         start,
         end,
@@ -585,7 +585,7 @@ export function planEarlyPrintWordEdits(
     const baseWords = readings.base.flatMap(line => line.words.map(hocrWordText));
     const longSWords = readings.longS.flatMap(line => line.words.map(hocrWordText));
     const longSCount = longSWords.join('').split('ſ').length - 1;
-    if (longSCount < CONFIRMED_MIN_LONG_S_SHARE * countInWordLetters(baseWords, ['f']).get('f')!) return [];
+    if (longSCount < CONFIRMED_MIN_LONG_S_SHARE * countInWordLetters(baseWords, ['f']).get('f')!) {return [];}
 
     const lines: IWordSlots[][] = [];
     let ordinal = 0;
@@ -595,13 +595,13 @@ export function planEarlyPrintWordEdits(
     }
 
     // Each word, split where a vote put a space, with a line-end hyphen joined to the next line's first word.
-    for (const word of lines.flat()) word.parts = splitAtSpaces(word.slots);
+    for (const word of lines.flat()) {word.parts = splitAtSpaces(word.slots);}
     const parts = lines.map(words => words.flatMap(word => word.parts));
     const units: ISlot[][][] = [];
     parts.forEach((lineParts, lineIndex) => {
         lineParts.forEach((part, index) => {
             const next = parts[lineIndex + 1]?.[0];
-            if (index === 0 && units.at(-1)?.[1] === part) return;
+            if (index === 0 && units.at(-1)?.[1] === part) {return;}
             if (index === lineParts.length - 1 && part.at(-1)?.text === '-' && next) {
                 units.push([
                     part,
@@ -620,10 +620,10 @@ export function planEarlyPrintWordEdits(
             ] = letterRange(part);
             return part.slice(start, end);
         }).filter(slot => slot.text !== '');
-        if (letters.length === 0 || dictionary.has(dictionaryKey(textOf(letters)))) continue;
+        if (letters.length === 0 || dictionary.has(dictionaryKey(textOf(letters)))) {continue;}
         const read = decode(letters, dictionary);
-        if (read) apply(letters, read.texts);
-        else if (unit.length === 1) restoreWordSpaces(letters, dictionary);
+        if (read) {apply(letters, read.texts);}
+        else if (unit.length === 1) {restoreWordSpaces(letters, dictionary);}
     }
 
     const edits: IOcrWordEdit[] = [];
@@ -633,7 +633,7 @@ export function planEarlyPrintWordEdits(
                 part.forEach((slot, index) => {
                     // Latin has no f before a consonant but l, r or f: the print has ſ.
                     const next = dictionaryKey(part[index + 1]?.text ?? '');
-                    if (slot.text === 'f' && /^[b-df-hj-km-np-qs-tv-xz]/u.test(next) && !/^[lrf]/u.test(next)) slot.text = 'ſ';
+                    if (slot.text === 'f' && /^[b-df-hj-km-np-qs-tv-xz]/u.test(next) && !/^[lrf]/u.test(next)) {slot.text = 'ſ';}
                     // Latin print marks ù and â, which modern models read as ü and å.
                     slot.text = slot.text.replace('ü', 'ù').replace('å', 'â');
                 });
@@ -657,10 +657,10 @@ function splitAtSpaces(slots: ISlot[]): ISlot[][] {
     for (const slot of slots) {
         const texts = slot.text.split(' ');
         texts.forEach((text, index) => {
-            if (index > 0) pieces.push([]);
+            if (index > 0) {pieces.push([]);}
             if (index === 0) {
                 slot.text = text;
-                if (text !== '' || texts.length === 1) pieces.at(-1)!.push(slot);
+                if (text !== '' || texts.length === 1) {pieces.at(-1)!.push(slot);}
             } else if (text !== '') {
                 pieces.at(-1)!.push({
                     ...slot,

@@ -127,7 +127,7 @@ describe('browser OCR progress', () => {
             try {
                 await expect.poll(() => searchPage.locator('.document-search-results').innerText()).toContain('1 result for “הַקְדְשָה”');
             } finally {
-                if (evidence) await searchPage.screenshot({path: join(evidence, 'saved-hebrew-search.png')});
+                if (evidence) {await searchPage.screenshot({path: join(evidence, 'saved-hebrew-search.png')});}
             }
         } finally {
             await reopened?.context().close();
@@ -279,7 +279,7 @@ describe('browser OCR progress', () => {
     it('shows completed page counts and finishes while tab animation frames are suspended', async () => {
         // I4: long work reports its step with a count that never moves backward.
         const evidence = process.env.EVB_OCR_PROGRESS_EVIDENCE_DIR;
-        if (evidence) await mkdir(evidence, {recursive: true});
+        if (evidence) {await mkdir(evidence, {recursive: true});}
         const page = await lifecycle.browser.newPage({
             ...(evidence ? {recordVideo: {
                 dir: evidence,
@@ -321,7 +321,7 @@ describe('browser OCR progress', () => {
                 Reflect.set(window, '__ocrProgressSamples', samples);
                 const observer = new MutationObserver(() => {
                     const text = document.querySelector('[role="dialog"] .progress-text')?.textContent?.trim();
-                    if (text && samples.at(-1) !== text) samples.push(text);
+                    if (text && samples.at(-1) !== text) {samples.push(text);}
                 });
                 observer.observe(document.body, {
                     subtree: true,
@@ -346,7 +346,7 @@ describe('browser OCR progress', () => {
                     return frameId;
                 };
                 window.cancelAnimationFrame = id => {
-                    if (!suspended.delete(id)) cancel(id);
+                    if (!suspended.delete(id)) {cancel(id);}
                 };
                 Reflect.set(window, '__resumeOcrAnimationFrames', () => {
                     window.requestAnimationFrame = request;
@@ -358,10 +358,10 @@ describe('browser OCR progress', () => {
                 await page.screenshot({path: join(evidence, 'processing.png')});
             }
             await dialog.getByText('OCR complete - PDF is now searchable', {exact: true}).waitFor({timeout: 90_000});
-            if (evidence) await page.screenshot({path: join(evidence, 'complete-without-animation-frames.png')});
+            if (evidence) {await page.screenshot({path: join(evidence, 'complete-without-animation-frames.png')});}
             await page.evaluate(() => Reflect.get(window, '__resumeOcrAnimationFrames')());
             const samples = await page.evaluate(() => Reflect.get(window, '__ocrProgressSamples') as string[]);
-            if (evidence) await writeFile(join(evidence, 'samples.json'), JSON.stringify(samples, null, 2));
+            if (evidence) {await writeFile(join(evidence, 'samples.json'), JSON.stringify(samples, null, 2));}
             const processing = samples.filter(text => text.startsWith('Processing page'));
             expect(processing.length).toBeGreaterThan(1);
             const counts = processing.map(text => {
@@ -389,7 +389,7 @@ describe('browser OCR progress', () => {
             // independently confirms recognition finished on all eight pages.
             await expect.poll(() => page.locator('.document-search-result:visible .document-search-result-highlight').allTextContents())
                 .toEqual(Array.from({length: 8}, () => 'lantern'));
-            if (evidence) await page.screenshot({path: join(evidence, 'searchable.png')});
+            if (evidence) {await page.screenshot({path: join(evidence, 'searchable.png')});}
         } finally {
             await page.context().close();
         }

@@ -99,7 +99,7 @@ describe('browser document lifecycle UI', () => {
                 // This activation-sensitive OPFS fixture is not a native picker.
                 Reflect.set(window, 'showSaveFilePicker', async () => {
                     Reflect.set(window, '__optimizePickerActivation', navigator.userActivation.isActive);
-                    if (!navigator.userActivation.isActive) throw new DOMException('No user activation', 'SecurityError');
+                    if (!navigator.userActivation.isActive) {throw new DOMException('No user activation', 'SecurityError');}
                     return directory.getFileHandle('optimized-scan.pdf', {create: true});
                 });
             }, Array.from(original));
@@ -385,7 +385,7 @@ describe('browser document lifecycle UI', () => {
             await page.screenshot({path: resolve(outputDirectory, 'failure.png')}).catch(() => undefined);
             throw error;
         } finally {
-            if (!page.isClosed()) await page.evaluate(() => Reflect.get(window, '__releaseOptimizeValidation')?.()).catch(() => undefined);
+            if (!page.isClosed()) {await page.evaluate(() => Reflect.get(window, '__releaseOptimizeValidation')?.()).catch(() => undefined);}
             await context.close();
             rmSync(profile, {
                 recursive: true,
@@ -427,7 +427,7 @@ describe('browser document lifecycle UI', () => {
                 name: 'PDF Save As',
                 exact: true,
             });
-            if (await optimize.getAttribute('aria-checked') !== 'true') await optimize.click();
+            if (await optimize.getAttribute('aria-checked') !== 'true') {await optimize.click();}
             await expect.poll(() => optimize.getAttribute('aria-checked')).toBe('true');
             await page.waitForFunction(() => JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? '{}').optimizePdfOnSaveAs === true);
             await openPdfFromChooser(page, {

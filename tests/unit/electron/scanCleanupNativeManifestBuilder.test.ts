@@ -176,7 +176,7 @@ describe('native scan-cleanup manifest builder', () => {
             spread,
             landscape,
             turnedSpread,
-        ]) geometry.add(page);
+        ]) {geometry.add(page);}
         const pageOptions = (page: typeof single) => resolveScanCleanupManifestPageOptions({
             options,
             analysisPurpose: 'page-plan',

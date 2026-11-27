@@ -194,7 +194,7 @@ export function createDocumentAgentPageImageCapture(options: ICreateDocumentAgen
 
         const assertCurrent = () => {
             assertRequestCurrent();
-            if (pdfViewerRef.value !== viewer || viewer.getViewerContainer() !== viewerContainer || !viewerContainer.isConnected) throw new DOMException('The initiating capture view changed', 'AbortError');
+            if (pdfViewerRef.value !== viewer || viewer.getViewerContainer() !== viewerContainer || !viewerContainer.isConnected) {throw new DOMException('The initiating capture view changed', 'AbortError');}
         };
         assertCurrent();
         handleGoToPage(pageNumber);
@@ -209,7 +209,7 @@ export function createDocumentAgentPageImageCapture(options: ICreateDocumentAgen
         assertCurrent();
         const pageRect = toClientRect(pageElement.getBoundingClientRect());
         const selectionRect = getAgentPageImageSelection(input, pageRect);
-        if (!viewer.captureVisibleRegionAsPng) throw new Error('Current-view composed capture is unavailable');
+        if (!viewer.captureVisibleRegionAsPng) {throw new Error('Current-view composed capture is unavailable');}
         const capture = await viewer.captureVisibleRegionAsPng(selectionRect, assertCurrent);
         assertCurrent();
         if (!capture) {

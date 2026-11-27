@@ -177,10 +177,10 @@ runDjvuPrintHandoffOrSkip('Electron E2E - DjVu Print Handoff', () => {
         await openDjvuInApp(session.page, source, DJVU_OPEN_TIMEOUT_MS);
         await session.page.evaluate(() => {
             const api = (window as IE2EWindow).electronAPI?.djvu;
-            if (!api) throw new Error('DjVu capability is unavailable');
+            if (!api) {throw new Error('DjVu capability is unavailable');}
             Reflect.set(window, '__core4PrintProgress', null);
             const stop = api.onProgress(progress => {
-                if (progress.jobId.startsWith('djvu-print-')) Reflect.set(window, '__core4PrintProgress', progress);
+                if (progress.jobId.startsWith('djvu-print-')) {Reflect.set(window, '__core4PrintProgress', progress);}
             });
             Reflect.set(window, '__core4StopPrintProgress', stop);
         });

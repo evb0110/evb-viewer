@@ -114,7 +114,7 @@ async function renderedTextBoxInk(bytes: Uint8Array, unclipped: boolean) {
         for (let y = 0; y < canvas.height; y += 1) {
             for (let x = 0; x < canvas.width; x += 1) {
                 const offset = (y * canvas.width + x) * 4;
-                if (Math.min(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) >= 160) continue;
+                if (Math.min(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) >= 160) {continue;}
                 const within = x >= Math.min(left!, right!) && x <= Math.max(left!, right!) && y >= Math.min(top!, bottom!) && y <= Math.max(top!, bottom!);
                 ink[within ? 'inside' : 'outside'] += 1;
             }
@@ -133,7 +133,7 @@ async function expectTwoLinePreviewPaint(page: Page) {
         const row = document.querySelector('.note-item.is-active[data-annotation-id="sidebar-distant"]');
         const preview = row?.querySelector('.note-item-text');
         const mark = preview?.querySelector('.note-item-text-mark--squiggly');
-        if (!preview || !mark || getComputedStyle(mark).textDecorationStyle !== 'wavy') return false;
+        if (!preview || !mark || getComputedStyle(mark).textDecorationStyle !== 'wavy') {return false;}
         const bounds = preview.getBoundingClientRect();
         const range = document.createRange();
         range.selectNodeContents(mark);
@@ -159,12 +159,12 @@ async function expectTwoLinePreviewPaint(page: Page) {
             let count = 0;
             for (let x = 0; x < image.width; x += 1) {
                 const index = (y * image.width + x) * 4;
-                if (matches(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!)) count += 1;
+                if (matches(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!)) {count += 1;}
             }
-            if (count < 3) continue;
+            if (count < 3) {continue;}
             const last = bands.at(-1);
-            if (last && y - last.at(-1)! <= 2) last.push(y);
-            else bands.push([y]);
+            if (last && y - last.at(-1)! <= 2) {last.push(y);}
+            else {bands.push([y]);}
         }
         return bands;
     }
@@ -586,7 +586,7 @@ async function expectTextBoxPagePaint(page: Page, bytes: Uint8Array, greenFrameO
             const box = document.querySelector<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-text-box');
             const container = box?.closest<HTMLElement>('.page_container');
             const canvas = container?.querySelector<HTMLCanvasElement>('.page_canvas canvas');
-            if (!box || !container || !canvas?.isConnected || !canvas.width || !canvas.height) throw new Error('Current text box page canvas unavailable');
+            if (!box || !container || !canvas?.isConnected || !canvas.width || !canvas.height) {throw new Error('Current text box page canvas unavailable');}
             const context = canvas.getContext('2d')!;
             const boxBounds = box.getBoundingClientRect();
             const bounds = canvas.getBoundingClientRect();
@@ -601,8 +601,8 @@ async function expectTextBoxPagePaint(page: Page, bytes: Uint8Array, greenFrameO
             cropContext.putImageData(context.getImageData(left, top, width, height), 0, 0);
             const actual = crop.toDataURL();
             const browserPdfjs = Object.getOwnPropertyDescriptor(globalThis, 'pdfjsLib')?.value as typeof pdfjs | undefined;
-            if (!browserPdfjs || browserPdfjs.version !== expectedVersion || browserPdfjs.build !== expectedBuild) throw new Error('Independent Browser PDF.js reference runtime is unavailable or mismatched');
-            if (browserPdfjs.GlobalWorkerOptions.workerPort !== null) throw new Error('Independent reference cannot own a shared explicit worker port');
+            if (!browserPdfjs || browserPdfjs.version !== expectedVersion || browserPdfjs.build !== expectedBuild) {throw new Error('Independent Browser PDF.js reference runtime is unavailable or mismatched');}
+            if (browserPdfjs.GlobalWorkerOptions.workerPort !== null) {throw new Error('Independent reference cannot own a shared explicit worker port');}
             const task = browserPdfjs.getDocument({
                 data: new Uint8Array(data),
                 verbosity: browserPdfjs.VerbosityLevel.ERRORS,
@@ -616,7 +616,7 @@ async function expectTextBoxPagePaint(page: Page, bytes: Uint8Array, greenFrameO
             try {
                 const referencePage = await (await task.promise).getPage(1);
                 const scale = Number.parseFloat(getComputedStyle(container).getPropertyValue('--scale-factor'));
-                if (!(scale > 0)) throw new Error('Current page scale is unavailable');
+                if (!(scale > 0)) {throw new Error('Current page scale is unavailable');}
                 const viewport = referencePage.getViewport({scale});
                 const reference = document.createElement('canvas');
                 reference.width = canvas.width;
@@ -661,13 +661,13 @@ async function expectTextBoxPagePaint(page: Page, bytes: Uint8Array, greenFrameO
         let expectedInk = 0;
         const isGreen = (data: Uint8ClampedArray, offset: number) => data[offset + 1]! > data[offset]! && data[offset + 1]! > data[offset + 2]!;
         for (let offset = 0; offset < expected.length; offset += 4) {
-            if (greenFrameOnly ? isGreen(expected, offset) : Math.min(expected[offset]!, expected[offset + 1]!, expected[offset + 2]!) < 160) expectedInk += 1;
+            if (greenFrameOnly ? isGreen(expected, offset) : Math.min(expected[offset]!, expected[offset + 1]!, expected[offset + 2]!) < 160) {expectedInk += 1;}
             if (greenFrameOnly ? isGreen(actual, offset) !== isGreen(expected, offset) : [
                 0,
                 1,
                 2,
                 3,
-            ].some(channel => actual[offset + channel] !== expected[offset + channel])) differences += 1;
+            ].some(channel => actual[offset + channel] !== expected[offset + channel])) {differences += 1;}
         }
         return {
             differences,
@@ -771,8 +771,8 @@ describe('Electron E2E - annotation controls', () => {
                 // The existing vendored public API opens independent bytes, not the live document or raster.
                     const browserPdfjs = Object.getOwnPropertyDescriptor(globalThis, 'pdfjsLib')?.value as typeof pdfjs | undefined;
                     if (!browserPdfjs || browserPdfjs.version !== expectedVersion || browserPdfjs.build !== expectedBuild
-                    || typeof browserPdfjs.getDocument !== 'function') throw new Error('Independent Browser PDF.js reference runtime is unavailable or mismatched');
-                    if (browserPdfjs.GlobalWorkerOptions.workerPort !== null) throw new Error('Independent reference cannot own a shared explicit worker port');
+                    || typeof browserPdfjs.getDocument !== 'function') {throw new Error('Independent Browser PDF.js reference runtime is unavailable or mismatched');}
+                    if (browserPdfjs.GlobalWorkerOptions.workerPort !== null) {throw new Error('Independent reference cannot own a shared explicit worker port');}
                     const workerSrc = browserPdfjs.GlobalWorkerOptions.workerSrc;
                     const options = {
                         verbosity: browserPdfjs.VerbosityLevel.ERRORS,
@@ -796,10 +796,10 @@ describe('Electron E2E - annotation controls', () => {
                         reference.width = Math.ceil(viewport.width);
                         reference.height = Math.ceil(viewport.height);
                         const context = reference.getContext('2d', {alpha});
-                        if (!context) throw new Error('Independent Browser reference has no 2D canvas context');
-                        if (typeof context.getContextAttributes !== 'function') throw new Error('Independent Browser reference context attributes are unavailable');
+                        if (!context) {throw new Error('Independent Browser reference has no 2D canvas context');}
+                        if (typeof context.getContextAttributes !== 'function') {throw new Error('Independent Browser reference context attributes are unavailable');}
                         const contextAttributes = context.getContextAttributes();
-                        if (contextAttributes.alpha !== alpha) throw new Error('Independent Browser reference alpha does not match public text paint');
+                        if (contextAttributes.alpha !== alpha) {throw new Error('Independent Browser reference alpha does not match public text paint');}
                         await referencePage.render({
                             canvas: reference,
                             canvasContext: context,
@@ -858,17 +858,17 @@ describe('Electron E2E - annotation controls', () => {
                             x: number;
                             y: number
                         }> = [];
-                        for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+                        for (let y = 0; y < height; y += 1) {for (let x = 0; x < width; x += 1) {
                         // The collapsed editor caret is chrome, not a glyph. Exclude its exact column in both images.
                             const caretX = layout.caret ? (layout.caret.left - layout.box.left - inset) * layout.dpr : null;
-                            if (caretX !== null && x >= Math.floor(caretX) && x <= Math.ceil(caretX)) continue;
+                            if (caretX !== null && x >= Math.floor(caretX) && x <= Math.ceil(caretX)) {continue;}
                             const offset = (y * width + x) * 4;
                             if (lightGlyphs ? Math.min(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) > 200
-                                : Math.max(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) < 160) result.push({
+                                : Math.max(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) < 160) {result.push({
                                 x,
                                 y,
-                            });
-                        }
+                            });}
+                        }}
                         return result;
                     };
                     const liveInk = points(actual);
@@ -893,7 +893,7 @@ describe('Electron E2E - annotation controls', () => {
                         liveBounds,
                         referenceBounds,
                     }));
-                    for (let i = 0; i < 4; i += 1) expect(Math.abs(liveBounds[i]! - referenceBounds[i]!) / layout.dpr, `${label} glyph extent ${i}, one CSS pixel rounding`).toBeLessThanOrEqual(1);
+                    for (let i = 0; i < 4; i += 1) {expect(Math.abs(liveBounds[i]! - referenceBounds[i]!) / layout.dpr, `${label} glyph extent ${i}, one CSS pixel rounding`).toBeLessThanOrEqual(1);}
                     const outside = (from: typeof liveInk, to: typeof liveInk) => from.filter(a => !to.some(b => Math.abs(a.x - b.x) <= layout.dpr && Math.abs(a.y - b.y) <= layout.dpr)).length;
                     expect(outside(liveInk, originalInk), `${label} live glyph silhouette matches original font`).toBe(0);
                     expect(outside(originalInk, liveInk), `${label} original glyph silhouette is complete`).toBe(0);
@@ -908,22 +908,22 @@ describe('Electron E2E - annotation controls', () => {
             const annotation = (pdf.getPage(0).node.Annots()?.asArray() ?? []).map(ref => pdf.context.lookup(ref, PDFDict))
                 .find(object => object.get(PDFName.of('Subtype'))?.toString() === '/FreeText')!;
             const normal = annotation.lookup(PDFName.of('AP'), PDFDict).lookup(PDFName.of('N'));
-            if (!(normal instanceof PDFRawStream)) throw new Error('Saved normal appearance is not a stream');
+            if (!(normal instanceof PDFRawStream)) {throw new Error('Saved normal appearance is not a stream');}
             // Recovery can remap object numbers. Compare the saved resource graph's
             // actual dictionaries and stream bytes, rather than those local numbers.
             const resource = (object: PDFObject | undefined, path = new Set<string>()): unknown => {
-                if (!object) throw new Error('Saved appearance resource graph has a dangling reference');
+                if (!object) {throw new Error('Saved appearance resource graph has a dangling reference');}
                 if (object instanceof PDFRef) {
                     const key = object.toString();
-                    if (path.has(key)) throw new Error('Saved appearance resource graph has a reference cycle');
+                    if (path.has(key)) {throw new Error('Saved appearance resource graph has a reference cycle');}
                     return resource(pdf.context.lookup(object), new Set(path).add(key));
                 }
-                if (object instanceof PDFArray) return object.asArray().map(value => resource(value, path));
-                if (object instanceof PDFRawStream) return {
+                if (object instanceof PDFArray) {return object.asArray().map(value => resource(value, path));}
+                if (object instanceof PDFRawStream) {return {
                     dictionary: resource(object.dict, path),
                     bytes: Buffer.from(object.contents),
-                };
-                if (object instanceof PDFDict) return Object.fromEntries(object.entries()
+                };}
+                if (object instanceof PDFDict) {return Object.fromEntries(object.entries()
                     .sort(([a], [b]) => a.toString().localeCompare(b.toString()))
                     .map(([
                         key,
@@ -931,7 +931,7 @@ describe('Electron E2E - annotation controls', () => {
                     ]) => [
                         key.toString(),
                         resource(value, path),
-                    ]));
+                    ]));}
                 return object.toString();
             };
             const resources = normal.dict.lookup(PDFName.of('Resources'), PDFDict);
@@ -965,7 +965,7 @@ describe('Electron E2E - annotation controls', () => {
             '[data-pdf-annotation-move-handle]',
             '[data-pdf-annotation-resize-handle="se"]',
         ]) {
-            if (handleSelector.includes('resize')) await clickAsUser(page, selector);
+            if (handleSelector.includes('resize')) {await clickAsUser(page, selector);}
             const handle = await page.waitForSelector(handleSelector);
             const point = await revealForPointer(page, handle!);
             await page.mouse.move(point.x, point.y);
@@ -1075,7 +1075,7 @@ describe('Electron E2E - annotation controls', () => {
                     Off: blankRef,
                 }));
                 annotation.set(PDFName.of('AS'), PDFName.of(mode === 'selected-state' ? 'On' : 'Off'));
-                if (mode !== 'selected-state') annotation.set(PDFName.of('DA'), PDFString.of('/Helv 12 Tf 0 0 0 rg'));
+                if (mode !== 'selected-state') {annotation.set(PDFName.of('DA'), PDFString.of('/Helv 12 Tf 0 0 0 rg'));}
             }
             const bytes = Buffer.from(await pdf.save());
             const path = join(evidence, `${mode}.pdf`);
@@ -1092,13 +1092,13 @@ describe('Electron E2E - annotation controls', () => {
         ]) {
             const pdf = await PDFDocument.load(original);
             const pdfPage = pdf.getPage(0);
-            if (mode === 'multiply-stamp-overlap') pdfPage.drawRectangle({
+            if (mode === 'multiply-stamp-overlap') {pdfPage.drawRectangle({
                 x: 80,
                 y: 580,
                 width: 220,
                 height: 80,
                 color: rgb(1, 0.5, 0.25),
-            });
+            });}
             const annotations = pdfPage.node.Annots()!;
             const text = annotations.get(0);
             const squareAppearance = pdf.context.register(pdf.context.stream('q /GS gs 0 0 1 rg 0 0 180 60 re f Q', {
@@ -1196,7 +1196,7 @@ describe('Electron E2E - annotation controls', () => {
                     positions, pageScale, pageBounds, dpr,
                 }) => {
                     const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active .page_container[data-page="1"] .page_canvas canvas');
-                    if (!canvas?.isConnected || !canvas.width || !canvas.height) throw new Error('Current connected page canvas unavailable');
+                    if (!canvas?.isConnected || !canvas.width || !canvas.height) {throw new Error('Current connected page canvas unavailable');}
                     const bounds = canvas.getBoundingClientRect();
                     const ancestors = [];
                     for (let element: Element | null = canvas; element; element = element.parentElement) {
@@ -1268,7 +1268,7 @@ describe('Electron E2E - annotation controls', () => {
                 // The reference never detaches or changes the product canvas.
                 const referenceCanvas = await page.evaluateHandle(async (png) => {
                     const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active .page_container[data-page="1"] .page_canvas canvas');
-                    if (!canvas?.isConnected || !canvas.width || !canvas.height) throw new Error('Current connected page canvas unavailable');
+                    if (!canvas?.isConnected || !canvas.width || !canvas.height) {throw new Error('Current connected page canvas unavailable');}
                     const image = new Image();
                     image.src = png;
                     await image.decode();
@@ -1401,7 +1401,7 @@ describe('Electron E2E - annotation controls', () => {
                         minRowCount = Math.min(minRowCount, rows.length);
                         for (const row of rows) {
                             const previous = original.find(item => item.id === row.getAttribute('data-annotation-id'));
-                            if (previous) maxShift = Math.max(maxShift, Math.abs(row.getBoundingClientRect().top - previous.top));
+                            if (previous) {maxShift = Math.max(maxShift, Math.abs(row.getBoundingClientRect().top - previous.top));}
                         }
                     }
                     return {
@@ -1896,7 +1896,7 @@ describe('Electron E2E - annotation controls', () => {
             for (let y = 2; y < image.height - 2; y += 1) {
                 for (let x = 2; x < image.width - 2; x += 1) {
                     const offset = (y * image.width + x) * 4;
-                    if (Math.max(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) < 150) ink += 1;
+                    if (Math.max(pixels[offset]!, pixels[offset + 1]!, pixels[offset + 2]!) < 150) {ink += 1;}
                 }
             }
             expect.soft(ink, 'The actual text box paints text pixels').toBeGreaterThan(0);
@@ -2540,7 +2540,7 @@ describe('Electron E2E - annotation controls', () => {
             await expectVisibleTypingFrame(page, editorSelector);
             const caretPoint = await page.$eval(editorSelector, editor => {
                 const node = editor.firstChild;
-                if (!(node instanceof Text)) throw new Error('Typed annotation has no text node');
+                if (!(node instanceof Text)) {throw new Error('Typed annotation has no text node');}
                 const range = document.createRange();
                 range.setStart(node, 5);
                 range.collapse(true);

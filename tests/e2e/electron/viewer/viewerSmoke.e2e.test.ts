@@ -1531,7 +1531,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                 once: true,
             });
             const sample = () => {
-                if (!probe.running) return;
+                if (!probe.running) {return;}
                 const r = rail.getBoundingClientRect();
                 const visible = [...rail.querySelectorAll<HTMLElement>('[data-thumbnail-page]')].filter(row => {
                     const box = row.getBoundingClientRect(); return box.bottom > r.top && box.top < r.bottom;
@@ -1539,10 +1539,10 @@ describe('Electron E2E - Viewer Smoke', () => {
                 const intervals = visible.map(row => row.getBoundingClientRect()).sort((a, b) => a.top - b.top);
                 let bottom = r.top;
                 for (const interval of intervals) {
-                    if (interval.top - bottom > 10) probe.blankFrames++;
+                    if (interval.top - bottom > 10) {probe.blankFrames++;}
                     bottom = Math.max(bottom, interval.bottom);
                 }
-                if (r.bottom - bottom > 10) probe.blankFrames++;
+                if (r.bottom - bottom > 10) {probe.blankFrames++;}
                 for (const row of visible) {
                     const canvas = row.querySelector('canvas');
                     const width = canvas?.width ?? 0;
@@ -1665,7 +1665,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             if (before) {
                 expect.soft(Math.abs(row.height - before.height), 'raster arrival does not resize a row').toBeLessThanOrEqual(1);
                 expect.soft(Math.abs(row.top - before.top), 'raster arrival does not move a row').toBeLessThanOrEqual(1);
-            } else geometry.set(row.page, row);
+            } else {geometry.set(row.page, row);}
         }
         expect.soft(observed.afterTop, 'the pressed row stays under the pointer through the tail').toBe(observed.pressTop);
         await import('node:fs/promises').then(fs => fs.writeFile(resolve('.devkit/thumbs-e2e-observed.json'), JSON.stringify({
@@ -1784,9 +1784,9 @@ describe('Electron E2E - Viewer Smoke', () => {
             new Promise(resolve => setTimeout(resolve, 5_000)),
         ]);
         const restore = async () => {
-            if (restored) return;
+            if (restored) {return;}
             restored = true;
-            if (pressed) await bounded(page.mouse.up());
+            if (pressed) {await bounded(page.mouse.up());}
             await bounded(workerDebugger.send('Debugger.resume'));
             await bounded(workerDebugger.send('Debugger.disable'));
         };
@@ -1887,7 +1887,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                 const matches = await row.evaluate((element, text) => (
                     element.textContent?.trim() === text && element.getBoundingClientRect().width > 0
                 ), title);
-                if (!matches) continue;
+                if (!matches) {continue;}
                 if (key) {
                     await row.focus();
                     await page.keyboard.press(key);
@@ -3462,12 +3462,12 @@ describe('Electron E2E - Viewer Smoke', () => {
                 font,
                 size: 18,
             });
-            if (number === 4) page.drawText('Valve valve valves v.lve', {
+            if (number === 4) {page.drawText('Valve valve valves v.lve', {
                 x: 50,
                 y: 680,
                 font,
                 size: 16,
-            });
+            });}
             for (let line = 0; line < 24; line += 1) {
                 page.drawText(`Reading line ${line + 1}`, {
                     x: 50,
@@ -3495,7 +3495,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                     if ([
                         'warning',
                         'error',
-                    ].includes(message.type())) problems.push(message.text());
+                    ].includes(message.type())) {problems.push(message.text());}
                 });
                 await session.page.evaluate(async (scale: 'default' | 'compact' | 'large') => {
                     const target = window as IE2EWindow;
@@ -3619,8 +3619,8 @@ describe('Electron E2E - Viewer Smoke', () => {
                     anchor,
                     resizable,
                 });
-                if (resizable) expect(size(after)).toBeGreaterThan(size(before));
-                else expect(after, 'a pinned sash does not move').toEqual(before);
+                if (resizable) {expect(size(after)).toBeGreaterThan(size(before));}
+                else {expect(after, 'a pinned sash does not move').toEqual(before);}
                 expect(after.focused).toBe(true);
                 expect(after.label).toBeTruthy();
                 expect(after.controlsExists).toBe(true);
@@ -3633,7 +3633,7 @@ describe('Electron E2E - Viewer Smoke', () => {
                 await waitForAnimationFrames(session.page, 2);
                 const maximum = await readGeometry();
                 expect(Number(maximum.value)).toBe(Number(maximum.max));
-                if (resizable) expect(size(maximum)).toBeGreaterThan(size(minimum));
+                if (resizable) {expect(size(maximum)).toBeGreaterThan(size(minimum));}
                 expectSplitResizeAnchorPreserved(await waitForSplitResizeViewportAnchor(session, paneId, 'pdf', anchor), anchor);
                 await session.page.keyboard.press('Tab');
                 await session.page.keyboard.down('Shift');
@@ -3696,7 +3696,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         const problems: string[] = [];
         session.page.on('pageerror', error => problems.push(String(error)));
         session.page.on('console', message => {
-            if (message.type() === 'warn' || message.type() === 'error') problems.push(message.text());
+            if (message.type() === 'warn' || message.type() === 'error') {problems.push(message.text());}
         });
         const pdf = await PDFDocument.create();
         pdf.setCreationDate(new Date('2026-01-01T00:00:00Z'));
@@ -3783,7 +3783,7 @@ describe('Electron E2E - Viewer Smoke', () => {
         await inspect(0, 1, 'Inspection 1');
         const selectedText = await session.page.evaluateHandle(() => {
             const mark = document.querySelector('.editor-pane.is-active .pdf-search-highlight--current');
-            if (!mark) throw new Error('The initial current match is not painted');
+            if (!mark) {throw new Error('The initial current match is not painted');}
             const range = document.createRange();
             range.selectNodeContents(mark);
             return range;
@@ -3829,7 +3829,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             if ([
                 'warning',
                 'error',
-            ].includes(message.type())) problems.push(message.text());
+            ].includes(message.type())) {problems.push(message.text());}
         });
         const pdf = await PDFDocument.create();
         const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -3838,7 +3838,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             792,
         ]);
         const lines = ['PLANT MAINTENANCE MANUAL'];
-        for (let row = 1; row <= 70; row++) lines.push(`Inspection ${row}: valve valve valve valve valve valve valve valve`);
+        for (let row = 1; row <= 70; row++) {lines.push(`Inspection ${row}: valve valve valve valve valve valve valve valve`);}
         lines.forEach((line, index) => page.drawText(line, {
             x: 40,
             y: 752 - index * 9.7,
@@ -3906,7 +3906,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             if ([
                 'warning',
                 'error',
-            ].includes(message.type())) problems.push(message.text());
+            ].includes(message.type())) {problems.push(message.text());}
         });
         await session.page.evaluate(() => localStorage.setItem('pdfHighlightMode', 'css'));
         const fixturePath = await createMultiPageTextFixturePdf('css-linked-search.pdf', 2);
@@ -3925,7 +3925,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             await session.page.keyboard.press('Enter');
             await waitForFunctionInPage(session.page, (selector: string) => document.querySelector(`${selector} .document-search-result`)?.textContent?.includes('Page 1 sample text'), {timeout: 15_000}, root);
         };
-        for (const paneId of paneIds) await searchInPane(paneId);
+        for (const paneId of paneIds) {await searchInPane(paneId);}
         const capture = async (label: string) => {
             const geometry = await session.page.evaluate((ids: string[]) => ({
                 viewport: {
@@ -4012,7 +4012,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             if ([
                 'warning',
                 'error',
-            ].includes(message.type())) problems.push(message.text());
+            ].includes(message.type())) {problems.push(message.text());}
         });
         const fixturePath = await createMultiPageTextFixturePdf('query-error.pdf', 3);
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -4059,7 +4059,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             if ([
                 'warning',
                 'error',
-            ].includes(message.type())) problems.push(message.text());
+            ].includes(message.type())) {problems.push(message.text());}
         });
         const fixturePath = await createMultiPageTextFixturePdf('coverage.pdf', 4);
         await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
@@ -4110,8 +4110,8 @@ describe('Electron E2E - Viewer Smoke', () => {
             }));
             await session.page.screenshot({path: join(evidence, `query-${query}.png`)});
             expect(text).toContain(coverageText);
-            if (query === 'missing') expect(text).toContain('No matches in the pages searched');
-            else expect(text).toContain('Page 1 sample text');
+            if (query === 'missing') {expect(text).toContain('No matches in the pages searched');}
+            else {expect(text).toContain('Page 1 sample text');}
         }
         expect(problems).toEqual([]);
     }, 90_000);
@@ -4127,7 +4127,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             if ([
                 'warning',
                 'error',
-            ].includes(message.type())) problems.push(message.text());
+            ].includes(message.type())) {problems.push(message.text());}
         });
         const fixturePath = createFixturePath('quoted-source.djvu');
         await copyFile(resolve('tests/fixtures/djvu/sources/bookmark-component-ids.djvu'), fixturePath);
@@ -5148,7 +5148,7 @@ describe('Electron E2E - Viewer Smoke', () => {
             const frame = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active [data-thumbnail-page="1"] [data-document-thumbnail-frame]',
             );
-            if (!frame?.querySelector('canvas')) return false;
+            if (!frame?.querySelector('canvas')) {return false;}
             const rect = frame.getBoundingClientRect();
             return Math.abs(rect.width / rect.height - 793 / 566) < 0.1;
         }, {timeout: 15_000});
@@ -6779,7 +6779,7 @@ describe('Electron E2E - Document Output', () => {
         );
         await clickAsUser(session.page, submit!);
         await expect.poll(async () => {
-            if (!existsSync(printedPath)) return [];
+            if (!existsSync(printedPath)) {return [];}
             return readPdfTextAnnotationRecords(printedPath);
         }, {timeout: 30_000}).toEqual(expect.arrayContaining([expect.objectContaining({contents: marker})]));
         expect(createHash('sha256').update(await readFile(fixturePath)).digest('hex')).toBe(sourceChecksum);
@@ -6922,7 +6922,7 @@ describe('Electron E2E - Document Output', () => {
             ]);
             expect(stdout).toContain('Page 1 sample text');
         } finally {
-            for (const path of moved) await rename(`${path}.crpart3ne-away`, path);
+            for (const path of moved) {await rename(`${path}.crpart3ne-away`, path);}
         }
     }, 90_000);
 
@@ -7311,7 +7311,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
     it('keeps toolbar zoom equal to painted PDF and DjVu pages through fit and zoom input', async () => {
         const session = await sessionFixture.restart({clean: true});
         const page = session.page;
-        if (!djvuFixture.path) throw new Error(djvuFixture.reason);
+        if (!djvuFixture.path) {throw new Error(djvuFixture.reason);}
         const pdfPath = await createMultiPageTextFixturePdf(`zoom-owner-${Date.now()}.pdf`, 2);
         const pdf = await PDFDocument.load(await readFile(pdfPath));
         const pdfSize = pdf.getPage(0).getSize();
@@ -9277,7 +9277,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
                 const canvas = page?.querySelector<HTMLCanvasElement>(
                     '.page_canvas__render-layer canvas, .page_canvas canvas, canvas',
                 );
-                if (!viewer || !page || !canvas) return false;
+                if (!viewer || !page || !canvas) {return false;}
                 const viewerRect = viewer.getBoundingClientRect();
                 const pageRect = page.getBoundingClientRect();
                 const visibleHeight = Math.min(pageRect.bottom, viewerRect.bottom)
@@ -9494,7 +9494,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
                     const red = pixels[index]!;
                     const green = pixels[index + 1]!;
                     const blue = pixels[index + 2]!;
-                    if (!matches(red, green, blue)) continue;
+                    if (!matches(red, green, blue)) {continue;}
                     const pixel = index / 4;
                     count += 1;
                     xTotal += pixel % canvas.width;

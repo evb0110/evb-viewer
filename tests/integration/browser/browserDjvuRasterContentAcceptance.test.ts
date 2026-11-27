@@ -174,7 +174,7 @@ async function renderSavedPageInkPixels(pdfBytes: number[], pageNumber: number) 
     const headerLength = pgm.indexOf('\n', pgm.indexOf('\n', pgm.indexOf('\n') + 1) + 1) + 1;
     let ink = 0;
     for (let offset = headerLength; offset < pgm.length; offset += 1) {
-        if (pgm[offset]! < 200) ink += 1;
+        if (pgm[offset]! < 200) {ink += 1;}
     }
     return ink;
 }

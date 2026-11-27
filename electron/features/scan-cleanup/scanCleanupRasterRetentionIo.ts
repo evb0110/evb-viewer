@@ -74,7 +74,7 @@ export function createScanCleanupPathOperationQueue() {
         const tracked = next.then(() => undefined, () => undefined);
         operations.set(path, tracked);
         void next.finally(() => {
-            if (operations.get(path) === tracked) operations.delete(path);
+            if (operations.get(path) === tracked) {operations.delete(path);}
         }).catch(() => undefined);
         return next;
     };
@@ -266,8 +266,8 @@ export async function readRetainedRaster<TValue>(input: {
                 && !input.document.removeWhenIdle
                 && !input.pendingRasterReleases.has(operation.token)
                 && !input.rasters.has(input.key);
-            if (canRestore) input.rasters.set(input.key, input.raster);
-            else input.adjustBytes(-input.raster.sizeBytes);
+            if (canRestore) {input.rasters.set(input.key, input.raster);}
+            else {input.adjustBytes(-input.raster.sizeBytes);}
             input.finishRead(input.key, operation);
             throw error;
         }
@@ -348,7 +348,7 @@ export async function readPreviewMetadata(
             sizeBytes: file.size,
         };
     }
-    if (bytesRead !== header.byteLength) throw new Error('Scan cleanup raster produced a truncated PNG');
+    if (bytesRead !== header.byteLength) {throw new Error('Scan cleanup raster produced a truncated PNG');}
     return {
         ...readPngDimensions(header, undefined, 'preview'),
         sizeBytes: file.size,

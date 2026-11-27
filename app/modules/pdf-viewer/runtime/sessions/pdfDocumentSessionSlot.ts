@@ -67,9 +67,9 @@ export function createPdfDocumentSessionSlot(options: ICreatePdfDocumentSessionO
             if (session.value) {
                 return session.value.admit(job);
             }
-            if (waitingJob) settlePdfSourceJob(waitingJob, {status: 'superseded'});
+            if (waitingJob) {settlePdfSourceJob(waitingJob, {status: 'superseded'});}
             waitingJob = intent === 'clear' ? null : job;
-            if (intent === 'clear') settlePdfSourceJob(job, {status: 'released'});
+            if (intent === 'clear') {settlePdfSourceJob(job, {status: 'released'});}
             return job;
         },
         /** The reload or Save adoption still running for the published source, else null. */
@@ -79,13 +79,13 @@ export function createPdfDocumentSessionSlot(options: ICreatePdfDocumentSessionO
         },
         /** Ends a running job as released; a waiting one is no longer handed to the first viewer. */
         release(job: IPdfSourceJob) {
-            if (job === waitingJob) waitingJob = null;
+            if (job === waitingJob) {waitingJob = null;}
             settlePdfSourceJob(job, {status: 'released'});
         },
         resolve(create: (sessionOptions: ICreatePdfDocumentSessionOptions) => TPdfDocumentSession) {
             if (!session.value) {
                 session.value = scope.run(() => create(options)) ?? null;
-                if (session.value && waitingJob) session.value.admit(waitingJob);
+                if (session.value && waitingJob) {session.value.admit(waitingJob);}
                 waitingJob = null;
             }
             if (!session.value) {

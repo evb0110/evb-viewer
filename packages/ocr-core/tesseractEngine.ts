@@ -147,7 +147,7 @@ export function createTesseractEngine(source: ITesseractEngineSource) {
         for (const path of [
             BROWSER_OCR_ENGINE_IMAGE_PATH,
             ...pass.outputs,
-        ]) instance.FS.unlink(path);
+        ]) {instance.FS.unlink(path);}
         return {
             stderr: log.stderr,
             outputs,

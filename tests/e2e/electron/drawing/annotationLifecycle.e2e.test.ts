@@ -201,9 +201,9 @@ async function maxPageCanvasHighlightPixelsAcrossFrames(page: Page, rect: {
             const canvas = document.querySelector<HTMLCanvasElement>(
                 `.editor-pane.is-active .page_container[data-page="${input.pageNumber}"] .page_canvas canvas`,
             );
-            if (!canvas || canvas.width <= 0 || canvas.height <= 0) throw new Error('Page canvas is not painted');
+            if (!canvas || canvas.width <= 0 || canvas.height <= 0) {throw new Error('Page canvas is not painted');}
             const context = canvas.getContext('2d', {willReadFrequently: true});
-            if (!context) throw new Error('Page canvas has no 2d context');
+            if (!context) {throw new Error('Page canvas has no 2d context');}
             const x = Math.max(0, Math.floor(input.left * canvas.width));
             const y = Math.max(0, Math.floor(input.top * canvas.height));
             const width = Math.max(1, Math.ceil(input.width * canvas.width));
@@ -214,7 +214,7 @@ async function maxPageCanvasHighlightPixelsAcrossFrames(page: Page, rect: {
                 const r = pixels[index]!;
                 const g = pixels[index + 1]!;
                 const b = pixels[index + 2]!;
-                if (r > 175 && g > 95 && r - b > 45 && g - b > 20) highlighted += 1;
+                if (r > 175 && g > 95 && r - b > 45 && g - b > 20) {highlighted += 1;}
             }
             return highlighted;
         };
@@ -249,7 +249,7 @@ async function maxThumbnailHighlightPixelsAcrossFrames(page: Page, rect: {
             throw new Error('Page one thumbnail canvas is not painted');
         }
         const context = canvas.getContext('2d', {willReadFrequently: true});
-        if (!context) throw new Error('Thumbnail canvas has no 2d context');
+        if (!context) {throw new Error('Thumbnail canvas has no 2d context');}
         const x = Math.max(0, Math.floor((input.left - input.width * 0.05) * canvas.width));
         const y = Math.max(0, Math.floor((input.top - input.height * 0.4) * canvas.height));
         const right = Math.min(canvas.width, Math.ceil((input.left + input.width * 1.05) * canvas.width));
@@ -261,7 +261,7 @@ async function maxThumbnailHighlightPixelsAcrossFrames(page: Page, rect: {
                 const red = pixels[index]!;
                 const green = pixels[index + 1]!;
                 const blue = pixels[index + 2]!;
-                if (red > 175 && green > 95 && red - blue > 45 && green - blue > 20) highlighted += 1;
+                if (red > 175 && green > 95 && red - blue > 45 && green - blue > 20) {highlighted += 1;}
             }
             return highlighted;
         };
@@ -278,7 +278,7 @@ async function annotationPointerTarget(page: Page, selector = '.editor-pane.is-a
     return page.evaluate((entitySelector: string) => {
         const entity = document.querySelector<HTMLElement | SVGElement>(entitySelector);
         const rect = entity?.getBoundingClientRect();
-        if (!entity || !rect) throw new Error('No authored annotation to select');
+        if (!entity || !rect) {throw new Error('No authored annotation to select');}
         // Hollow circles/rectangles and diagonal lines have different hit areas.
         // Sample the actual visible entity; never call its handlers directly.
         for (const [
@@ -432,7 +432,7 @@ async function dragImagePlacementControl(
         const rect = element.getBoundingClientRect();
         const frame = element.closest<HTMLElement>('.pdf-image-placement');
         const container = frame?.parentElement?.getBoundingClientRect();
-        if (!container) throw new Error('Image placement container is missing');
+        if (!container) {throw new Error('Image placement container is missing');}
         return {
             x: rect.left + rect.width / 2,
             y: rect.top + rect.height / 2,
@@ -532,12 +532,12 @@ async function readCanonicalStampSnapshot(page: Page): Promise<IStampVisualSnaps
 async function readCanonicalStampPixels(page: Page) {
     return page.$eval(CANONICAL_STAMP_SELECTOR, async element => {
         const image = element.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
-        if (!image?.complete || image.naturalWidth === 0) throw new Error('Stamp image has not decoded');
+        if (!image?.complete || image.naturalWidth === 0) {throw new Error('Stamp image has not decoded');}
         const canvas = document.createElement('canvas');
         canvas.width = image.naturalWidth;
         canvas.height = image.naturalHeight;
         const context = canvas.getContext('2d');
-        if (!context) throw new Error('Cannot read decoded stamp pixels');
+        if (!context) {throw new Error('Cannot read decoded stamp pixels');}
         context.drawImage(image, 0, 0);
         const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
         const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(pixels));
@@ -644,10 +644,10 @@ async function clickEnabledToolbarAction(page: Page, label: string) {
         const target = await page.waitForFunction((name: string) => {
             const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button[aria-label]'));
             for (const button of buttons) {
-                if (button.getAttribute('aria-label') !== name || button.disabled || button.getAttribute('aria-disabled') === 'true') continue;
+                if (button.getAttribute('aria-label') !== name || button.disabled || button.getAttribute('aria-disabled') === 'true') {continue;}
                 const rect = button.getBoundingClientRect();
                 const style = getComputedStyle(button);
-                if (rect.width <= 0 || rect.height <= 0 || style.visibility === 'hidden' || style.display === 'none') continue;
+                if (rect.width <= 0 || rect.height <= 0 || style.visibility === 'hidden' || style.display === 'none') {continue;}
                 const x = rect.left + rect.width / 2;
                 const y = rect.top + rect.height / 2;
                 const hit = document.elementFromPoint(x, y);
@@ -662,7 +662,7 @@ async function clickEnabledToolbarAction(page: Page, label: string) {
         }, {timeout: 20_000}, label);
         const point = await target.jsonValue();
         await target.dispose();
-        if (!point) throw new Error(`No visible enabled ${label} button`);
+        if (!point) {throw new Error(`No visible enabled ${label} button`);}
         await page.mouse.click(point.x, point.y);
     } catch (error) {
         throw new Error(`Visible ${label} failed: ${JSON.stringify(await readAnnotationInteractionDiagnostic(page))}`, {cause: error});
@@ -706,7 +706,7 @@ async function expectCanonicalCountsAcrossFrames(page: Page, expected: {
         result.push(read());
         return result;
     });
-    for (const sample of samples) expect(sample).toEqual(expected);
+    for (const sample of samples) {expect(sample).toEqual(expected);}
     const ownership = await collectAnnotationOwnershipDebugState(page);
     expect(ownership.canonicalEntities).toHaveLength(expected.markup + expected.notes);
     expect(ownership.legacyEditorLayerCount).toBe(0);
@@ -1102,7 +1102,7 @@ async function readCanonicalTextBoxEditorState(page: Page, annotationId: string)
 async function placeEmptyNote(page: Page) {
     await clickAnnotationTool(page, 'Note');
     const point = await resolvePageNotePoint(page);
-    if (!point) throw new Error('No visible page point for note placement');
+    if (!point) {throw new Error('No visible page point for note placement');}
     const hit = await page.evaluate(({
         x,
         y,
@@ -1152,7 +1152,7 @@ async function editCanonicalNoteText(page: Page, currentText: string, nextText: 
             .find(item => item.querySelector('.note-item-text')?.textContent?.includes(expectedText));
         return row?.dataset.annotationId;
     }, currentText);
-    if (!id) throw new Error(`Could not find the canonical note card: ${currentText}`);
+    if (!id) {throw new Error(`Could not find the canonical note card: ${currentText}`);}
     await clickVisibleAnnotationControl(page, `.editor-pane.is-active .note-item[data-annotation-id="${id}"] .note-item-content`, 2);
     const textarea = await page.waitForSelector('textarea.note-window__textarea', {
         timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS,
@@ -1233,7 +1233,7 @@ async function movePagesTwoAndThreeFirst(page: Page) {
 async function noteRowWithText(page: Page, text: string) {
     const id = await page.$$eval('.editor-pane.is-active .note-item[data-annotation-kind="note"]', (rows, expected) => rows
         .find(row => row.textContent?.includes(expected))?.getAttribute('data-annotation-id'), text);
-    if (!id) throw new Error(`No note row shows ${text}`);
+    if (!id) {throw new Error(`No note row shows ${text}`);}
     return `.editor-pane.is-active .note-item[data-annotation-id="${id}"]`;
 }
 
@@ -1467,7 +1467,7 @@ async function assertImportedAnnotationSave(
 ) {
     const {outcome, saved} = await observeImportedAnnotationSave(view, step);
     expect.soft(outcome, `${step} toolbar Save`).toBe('saved');
-    if (outcome !== 'saved') return;
+    if (outcome !== 'saved') {return;}
     await assertImportedAnnotationOutput(view.originalBytes, saved, step, rotations, edited, movedNoteRect);
 }
 
@@ -1515,13 +1515,8 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     // so the parser names them by page and object, which a page move renumbers.
     async function openImportedAnnotationFixture(mode: 'mixed' | 'comments' | 'sibling' | 'reorder') {
         const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'evb-note-rotation-save-')));
-        let restoreSession: (() => Promise<unknown>) | undefined;
-        onTestFinished(async () => {
-            try {
-                await restoreSession?.();
-            } finally {
-                rmSync(scratch, {recursive: true, force: true});
-            }
+        onTestFinished(() => {
+            rmSync(scratch, {recursive: true, force: true});
         });
         const fixture = join(scratch, 'imported.pdf');
         // The writer normalizes note icons to 20 pt squares around their centers.
@@ -1545,7 +1540,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                 const annotations = document.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
                 for (let index = 0; index < annotations.size(); index++) {
                     const annotation = annotations.lookup(index, PDFDict);
-                    if (annotation.get(PDFName.of('Subtype'))?.toString() === '/Text') annotation.delete(PDFName.of('NM'));
+                    if (annotation.get(PDFName.of('Subtype'))?.toString() === '/Text') {annotation.delete(PDFName.of('NM'));}
                 }
             } else {
                 const annotations = document.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
@@ -1593,18 +1588,18 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             },
         });
         const release = () => writeFileSync(released, 'release real annotation readback');
-        restoreSession = async () => {
+        onTestFinished(async () => {
             release();
-            return sessionFixture.restart({hard: true, extraEnv: {}});
-        };
+            await sessionFixture.restart({hard: true, extraEnv: {}});
+        });
         await openPdfInApp(page, fixture);
         await waitForPdfLoaded(page);
         await waitForViewerInteractive(page);
         const square = `.editor-pane.is-active .page_container[data-document-page-number="${rotatedPage}"] [data-annotation-kind="shape"] rect`;
-        if (rotatedPage === 2) await goToPageViaToolbar(page, 2);
+        if (rotatedPage === 2) {await goToPageViaToolbar(page, 2);}
         await page.waitForSelector(square);
         const squareX = await page.$eval(square, element => element.getAttribute('x'));
-        if (rotatedPage === 2) await goToPageViaToolbar(page, 1);
+        if (rotatedPage === 2) {await goToPageViaToolbar(page, 1);}
         return {
             page,
             fixture,
@@ -1622,13 +1617,13 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                 await expect.poll(() => existsSync(held), {timeout: 20_000}).toBe(true);
             },
             async waitForRotatedAnnotations() {
-                if (rotatedPage === 2) await goToPageViaToolbar(page, 2);
+                if (rotatedPage === 2) {await goToPageViaToolbar(page, 2);}
                 // An untouched square reprojects when the parse lands. The raster can appear earlier.
                 await page.waitForFunction((selector, previousX) => {
                     const x = document.querySelector(selector)?.getAttribute('x');
                     return x != null && x !== previousX;
                 }, {}, square, squareX);
-                if (rotatedPage === 2) await goToPageViaToolbar(page, 1);
+                if (rotatedPage === 2) {await goToPageViaToolbar(page, 1);}
                 await waitForViewerInteractive(page);
             },
         };
@@ -1670,7 +1665,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await page.mouse.down();
         await page.mouse.move(point.x + 65, point.y + 42, {steps: 8});
         await page.mouse.up();
-        await expect.poll(async () => await readImportedNoteCenter(page), {timeout: 8_000}).not.toEqual(before);
+        await expect.poll(() => readImportedNoteCenter(page), {timeout: 8_000}).not.toEqual(before);
         const moved = await readImportedNoteCenter(page);
         view.release();
         await view.waitForRotatedAnnotations();
@@ -1711,9 +1706,9 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await rotateImportedAnnotationPage(page, 1);
         const secondRotation = await page.waitForFunction((selector) => {
             const toast = document.querySelector('.app-toast-failure');
-            if (toast?.textContent) return toast.textContent.trim();
+            if (toast?.textContent) {return toast.textContent.trim();}
             const x = Number(document.querySelector(selector)?.getAttribute('x'));
-            if (Math.abs(x - 142 / 612) < 0.001) return '180-degree annotations presented';
+            if (Math.abs(x - 142 / 612) < 0.001) {return '180-degree annotations presented';}
             // The second rotation may be waiting for the first parse. Release
             // once the accepted command is visibly in progress in that case.
             return document.querySelector('.workspace-page-op-progress-overlay') && 'rotation in progress';
@@ -1762,7 +1757,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await openAnnotationsTab(page);
         const textarea = `${IMPORTED_NOTE_WINDOW} textarea`;
         // A draft past the note window's debounce is the note's text; reopen that note.
-        if (!await page.$(textarea)) await clickVisibleAnnotationControl(page, `${await noteRowWithText(page, marker)} .note-item-content`, 2);
+        if (!await page.$(textarea)) {await clickVisibleAnnotationControl(page, `${await noteRowWithText(page, marker)} .note-item-content`, 2);}
         await page.waitForSelector(textarea, {visible: true});
         expect(await page.$eval(textarea, element => (element as HTMLTextAreaElement).value), 'recovered note draft').toBe(marker);
         await saveViaVisibleToolbar(page, 30_000, view.fixture);
@@ -2049,7 +2044,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await page.waitForSelector('[role="dialog"]', {visible: true});
         await page.waitForFunction(() => {
             for (let node = document.querySelector('[role="dialog"]'); node; node = node.parentElement) {
-                if (Number(getComputedStyle(node).opacity) < 1) return false;
+                if (Number(getComputedStyle(node).opacity) < 1) {return false;}
             }
             return true;
         });
@@ -2094,7 +2089,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             scenario,
         ] of POINTER_STYLE_CASES.entries()) {
             console.info(`[annotation matrix] ${caseIndex + 1}/${POINTER_STYLE_CASES.length} ${scenario.tool}${'preset' in scenario ? ` ${scenario.preset}` : ''}`);
-            if (caseIndex > 0) await sessionFixture.restart();
+            if (caseIndex > 0) {await sessionFixture.restart();}
             const fixturePath = await createMultiPageTextFixturePdf(`annotation-all-tools-${caseIndex}-${Date.now()}.pdf`, 1);
             onTestFinished(() => rmSync(fixturePath, {force: true}));
             await openPdfInApp(page, fixturePath);
@@ -2151,7 +2146,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             const initial = await readPaintedAnnotation(page);
             expect(initial?.color, JSON.stringify(scenario)).toBe('rgb(6, 182, 212)');
             expect(initial?.chipWidth).toBeGreaterThan(0);
-            if (isMarkupTool(scenario.tool)) expect(initial?.subtype).toBe(scenario.subtype);
+            if (isMarkupTool(scenario.tool)) {expect(initial?.subtype).toBe(scenario.subtype);}
 
             const target = await annotationPointerTarget(page);
             await page.mouse.click(target.x, target.y);
@@ -2192,7 +2187,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                     const rect = element.getBoundingClientRect();
                     const x = rect.left + rect.width / 2;
                     const y = rect.top + rect.height / 2;
-                    if (!element.contains(document.elementFromPoint(x, y))) throw new Error('Shape resize handle is obstructed');
+                    if (!element.contains(document.elementFromPoint(x, y))) {throw new Error('Shape resize handle is obstructed');}
                     return {
                         x,
                         y,
@@ -2213,7 +2208,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             await waitForActiveTabDirtyState(page, false);
             await waitForPdfAnnotationSubtypeCount(fixturePath, scenario.subtype, 1);
             const paint = await readPaintedAnnotation(page);
-            if (!paint) throw new Error(`Saved ${scenario.tool} disappeared`);
+            if (!paint) {throw new Error(`Saved ${scenario.tool} disappeared`);}
             saved.push({
                 path: preserveFixtureAcrossRestart(fixturePath),
                 subtype: scenario.subtype,
@@ -2316,7 +2311,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                 };
             }).sort((a, b) => (b.x + b.y) - (a.x + a.y));
             const handle = handles[0];
-            if (!handle || !handle.element.contains(document.elementFromPoint(handle.x, handle.y))) throw new Error('Rotated resize handle is obstructed');
+            if (!handle || !handle.element.contains(document.elementFromPoint(handle.x, handle.y))) {throw new Error('Rotated resize handle is obstructed');}
             return {
                 x: handle.x,
                 y: handle.y,
@@ -3048,7 +3043,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
             const layer = element.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
             const viewer = element.closest<HTMLElement>('.pdfViewer');
-            if (!layer || !viewer) throw new Error('Text creation page is unavailable');
+            if (!layer || !viewer) {throw new Error('Text creation page is unavailable');}
             const rect = layer.getBoundingClientRect();
             const viewport = viewer.getBoundingClientRect();
             for (const y of [
@@ -3065,7 +3060,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                     const clientX = Math.round(rect.left + rect.width * x);
                     const clientY = Math.round(rect.top + rect.height * y);
                     if (clientX < viewport.left + 24 || clientX > viewport.right - 24
-                        || clientY < viewport.top + 24 || clientY > viewport.bottom - 24) continue;
+                        || clientY < viewport.top + 24 || clientY > viewport.bottom - 24) {continue;}
                     const hit = document.elementFromPoint(clientX, clientY);
                     if (hit?.classList.contains('pdf-annotation-editor-surface__background') && layer.contains(hit)) {
                         return {
@@ -3274,7 +3269,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             });
             const overflow = await overflowPoint.jsonValue();
             await overflowPoint.dispose();
-            if (!overflow) throw new Error('Visible toolbar menu is unavailable');
+            if (!overflow) {throw new Error('Visible toolbar menu is unavailable');}
             await page.mouse.click(overflow.x, overflow.y);
             const menuPoint = await page.waitForFunction(() => {
                 const item = Array.from(document.querySelectorAll<HTMLElement>('.overflow-menu-item'))
@@ -3293,7 +3288,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             });
             const target = await menuPoint.jsonValue();
             await menuPoint.dispose();
-            if (!target) throw new Error('Add note menu item is unavailable');
+            if (!target) {throw new Error('Add note menu item is unavailable');}
             await page.mouse.click(target.x, target.y);
             await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>('.overflow-menu')).every(menu => {
                 const rect = menu.getBoundingClientRect();
@@ -3318,7 +3313,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(notes).toHaveLength(1);
         const clearPoint = await page.evaluate(() => {
             const layer = document.querySelector<HTMLElement>('.editor-pane.is-active .pdf-annotation-editor-layer');
-            if (!layer) throw new Error('Annotation layer is absent');
+            if (!layer) {throw new Error('Annotation layer is absent');}
             const rect = layer.getBoundingClientRect();
             const x = rect.left + rect.width * 0.8;
             const y = rect.top + Math.min(rect.height, window.innerHeight - rect.top - 30) * 0.7;
@@ -3600,7 +3595,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
         const parentId = await page.evaluate((parentText: string) => Array.from(document.querySelectorAll<HTMLElement>('.notes-list .note-item'))
             .find(item => item.querySelector('.note-item-text')?.textContent?.includes(parentText))?.dataset.annotationId, fixture.parentText);
-        if (!parentId) throw new Error('The foreign note card has no canonical identity');
+        if (!parentId) {throw new Error('The foreign note card has no canonical identity');}
         await clickVisibleAnnotationControl(page, `.note-item[data-annotation-id="${parentId}"] .note-item-delete`);
         await page.waitForFunction((parentText: string) => !Array.from(
             document.querySelectorAll<HTMLElement>('.notes-list .note-item'),
@@ -3800,7 +3795,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             cards: 1,
         });
         const persistedHighlight = await readPaintedAnnotation(reopenedPage);
-        if (!persistedHighlight) throw new Error('Reopened highlight is not painted');
+        if (!persistedHighlight) {throw new Error('Reopened highlight is not painted');}
         await clickFirstSidebarAnnotationDelete(reopenedPage);
         await expectCanonicalCountsAcrossFrames(reopenedPage, {
             markup: 0,
@@ -3850,7 +3845,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             cards: 1,
         });
         const persistedHighlight = await readPaintedAnnotation(reopenedPage);
-        if (!persistedHighlight) throw new Error('Saved highlight was not painted after reopening');
+        if (!persistedHighlight) {throw new Error('Saved highlight was not painted after reopening');}
 
         await openDocumentSidebarTab(reopenedPage, 'Pages');
         await reopenedPage.waitForFunction(() => {
@@ -3891,8 +3886,8 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             await openPdfInApp(page, reopenPath);
             await waitForPdfLoaded(page);
             await waitForViewerInteractive(page);
-            if (kind === 'highlight') await createTextMarkupWithPointer(page);
-            else await placeEmptyNote(page);
+            if (kind === 'highlight') {await createTextMarkupWithPointer(page);}
+            else {await placeEmptyNote(page);}
             await waitForSidebarAnnotationCount(page, 1);
             await clickEnabledToolbarAction(page, 'Undo');
             await expectCanonicalCountsAcrossFrames(page, {

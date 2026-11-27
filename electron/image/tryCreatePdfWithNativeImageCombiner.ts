@@ -413,7 +413,7 @@ function hasCompleteJpegMetadataPrefix(bytes: Uint8Array) {
     }
     let offset = 2;
     while (offset < bytes.byteLength) {
-        while (offset < bytes.byteLength && bytes[offset] === 0xff) offset += 1;
+        while (offset < bytes.byteLength && bytes[offset] === 0xff) {offset += 1;}
         if (offset >= bytes.byteLength) {
             return false;
         }
@@ -422,7 +422,7 @@ function hasCompleteJpegMetadataPrefix(bytes: Uint8Array) {
         if (marker === 0xda || marker === 0xd9) {
             return true;
         }
-        if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+        if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {continue;}
         if (offset + 2 > bytes.byteLength) {
             return false;
         }
@@ -446,9 +446,9 @@ async function readBoundedJpegMetadata(inputPath: string, signal?: AbortSignal) 
         const bytes = Buffer.alloc(byteLength);
         let bytesRead = 0;
         while (bytesRead < byteLength) {
-            if (signal?.aborted) throw abortErrorFromSignal(signal);
+            if (signal?.aborted) {throw abortErrorFromSignal(signal);}
             const result = await handle.read(bytes, bytesRead, byteLength - bytesRead, bytesRead);
-            if (result.bytesRead <= 0) break;
+            if (result.bytesRead <= 0) {break;}
             bytesRead += result.bytesRead;
         }
         return bytes.subarray(0, bytesRead);
@@ -460,7 +460,7 @@ async function readBoundedJpegMetadata(inputPath: string, signal?: AbortSignal) 
 async function readInputRotationDegrees(inputPaths: string[], signal?: AbortSignal): Promise<number[] | null> {
     const rotations: number[] = [];
     for (const inputPath of inputPaths) {
-        if (signal?.aborted) throw abortErrorFromSignal(signal);
+        if (signal?.aborted) {throw abortErrorFromSignal(signal);}
         const extension = extname(inputPath).toLowerCase();
         if (extension !== '.jpg' && extension !== '.jpeg') {
             rotations.push(0);

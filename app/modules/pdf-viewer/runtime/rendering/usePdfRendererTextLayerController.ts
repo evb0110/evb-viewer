@@ -98,7 +98,7 @@ export const usePdfRendererTextLayerController = (options: IUsePdfRendererTextLa
                 error,
             };
         }
-        if (!shouldContinue() || !publish()) return false;
+        if (!shouldContinue() || !publish()) {return false;}
         return failure ?? true;
     };
 };

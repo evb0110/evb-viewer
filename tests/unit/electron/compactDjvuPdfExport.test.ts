@@ -256,7 +256,7 @@ describe('buildCompactDjvuAwarePdfFromDjvu', () => {
             const manifest = await readFile(args[args.indexOf('--compact-manifest') + 1]!, 'utf8');
             for (const line of manifest.trim().split('\n').slice(1)) {
                 const raster = line.split('\t').at(-1)!;
-                if (!await stat(raster).catch(() => null)) missing.push(raster);
+                if (!await stat(raster).catch(() => null)) {missing.push(raster);}
             }
             await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.4\n%%EOF\n', 'utf8');
             return {success: true};

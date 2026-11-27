@@ -276,9 +276,9 @@ async function readPageImage(path: string, pageIndex: number) {
         , reference,
     ] of xObjects?.entries() ?? []) {
         const stream = doc.context.lookup(reference);
-        if (!(stream instanceof PDFRawStream) || stream.dict.get(PDFName.of('Subtype')) !== PDFName.of('Image')) continue;
+        if (!(stream instanceof PDFRawStream) || stream.dict.get(PDFName.of('Subtype')) !== PDFName.of('Image')) {continue;}
         const width = stream.dict.lookupMaybe(PDFName.of('Width'), PDFNumber)?.asNumber() ?? 0;
-        if (width <= 0) continue;
+        if (width <= 0) {continue;}
         widest = Math.max(widest, width);
         bilevel &&= stream.dict.lookupMaybe(PDFName.of('ImageMask'), PDFBool)?.asBoolean() === true
             || stream.dict.lookupMaybe(PDFName.of('BitsPerComponent'), PDFNumber)?.asNumber() === 1;
@@ -305,7 +305,7 @@ interface IInkRaster {
  */
 async function readPageInk(pdfPath: string, directory: string, pageNumber: number): Promise<IInkRaster> {
     const {pdfimages} = getPdfNativeToolPaths();
-    if (!pdfimages) throw new Error('The bundled Poppler tools have no pdfimages.');
+    if (!pdfimages) {throw new Error('The bundled Poppler tools have no pdfimages.');}
     const prefix = join(directory, `cleaned-page-${pageNumber}`);
     await execFileAsync(pdfimages, [
         '-png',
@@ -342,7 +342,7 @@ function inkShapes({
     const areas: number[] = [];
     const stack: number[] = [];
     for (let start = 0; start < ink.length; start += 1) {
-        if (!ink[start] || label[start] !== -1) continue;
+        if (!ink[start] || label[start] !== -1) {continue;}
         const shape = areas.length;
         let area = 0;
         label[start] = shape;
@@ -356,7 +356,7 @@ function inkShapes({
                 for (let dx = -1; dx <= 1; dx += 1) {
                     const nx = x + dx;
                     const ny = y + dy;
-                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) {continue;}
                     const neighbor = ny * width + nx;
                     if (ink[neighbor] && label[neighbor] === -1) {
                         label[neighbor] = shape;
@@ -389,7 +389,7 @@ async function cleanScan(sourcePath: string, options: {blackAndWhite: boolean}) 
     await waitForPdfLoaded(session.page, 90_000);
     await waitForViewerInteractive(session.page, 90_000);
     for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
-        if (await toast.isVisible()) await clickAsUser(session.page, toast);
+        if (await toast.isVisible()) {await clickAsUser(session.page, toast);}
     }
 
     await clickAsUser(session.page, 'button[aria-label="Scan cleanup"]');
@@ -410,7 +410,7 @@ async function cleanScan(sourcePath: string, options: {blackAndWhite: boolean}) 
     }
     await waitForFunctionInPage(session.page, () => {
         const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
-        if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') return false;
+        if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') {return false;}
         const rect = action.getBoundingClientRect();
         const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
         return (hit === action || action.contains(hit))
@@ -508,9 +508,9 @@ function paintCapital(coverage: Float32Array, strokes: number[][]) {
             const ax = corners[corner]!;
             const ay = corners[corner + 1]!;
             const cross = (corners[(corner + 2) % 8]! - ax) * (py - ay) - (corners[(corner + 3) % 8]! - ay) * (px - ax);
-            if (cross === 0) continue;
-            if (sign === 0) sign = Math.sign(cross);
-            else if (Math.sign(cross) !== sign) return false;
+            if (cross === 0) {continue;}
+            if (sign === 0) {sign = Math.sign(cross);}
+            else if (Math.sign(cross) !== sign) {return false;}
         }
         return true;
     };
@@ -523,7 +523,7 @@ function paintCapital(coverage: Float32Array, strokes: number[][]) {
             for (let sample = 0; sample < samples; sample += 1) {
                 const px = x + (sample % CAPITAL_SUBPIXELS + 0.5) / CAPITAL_SUBPIXELS;
                 const py = y + (Math.floor(sample / CAPITAL_SUBPIXELS) + 0.5) / CAPITAL_SUBPIXELS;
-                if (strokes.some(corners => inside(corners, px, py))) hits += 1;
+                if (strokes.some(corners => inside(corners, px, py))) {hits += 1;}
             }
             coverage[y * PAGE_WIDTH + x] = hits / samples;
         }
@@ -570,8 +570,8 @@ function thinStrokeInk({
             run = 0;
         }
     };
-    for (let y = 0; y < height; y += 1) measure(y * width, 1, width);
-    for (let x = 0; x < width; x += 1) measure(x, width, height);
+    for (let y = 0; y < height; y += 1) {measure(y * width, 1, width);}
+    for (let x = 0; x < width; x += 1) {measure(x, width, height);}
     return Uint8Array.from(across, (run, index) => (ink[index] && run <= 3 ? 1 : 0));
 }
 
@@ -583,7 +583,7 @@ function glyphCentres(raster: IInkRaster) {
     const sumX = new Float64Array(areas.length);
     const sumY = new Float64Array(areas.length);
     label.forEach((shape, index) => {
-        if (shape < 0) return;
+        if (shape < 0) {return;}
         sumX[shape] = sumX[shape]! + index % raster.width;
         sumY[shape] = sumY[shape]! + Math.floor(index / raster.width);
     });
@@ -614,7 +614,7 @@ function inkOffset(printed: IInkRaster, cleaned: IInkRaster) {
         votedY,
     ] = voted.split(',').map(Number) as [number, number];
     const printedInk = printed.ink.reduce<number[]>((indices, inked, index) => {
-        if (inked) indices.push(index);
+        if (inked) {indices.push(index);}
         return indices;
     }, []);
     let best = {
@@ -628,7 +628,7 @@ function inkOffset(printed: IInkRaster, cleaned: IInkRaster) {
             for (const index of printedInk) {
                 const x = index % printed.width + dx;
                 const y = Math.floor(index / printed.width) + dy;
-                if (x >= 0 && y >= 0 && x < cleaned.width && y < cleaned.height && cleaned.ink[y * cleaned.width + x]) overlap += 1;
+                if (x >= 0 && y >= 0 && x < cleaned.width && y < cleaned.height && cleaned.ink[y * cleaned.width + x]) {overlap += 1;}
             }
             if (overlap > best.overlap) {
                 best = {
@@ -746,10 +746,10 @@ describe('scan cleanup of soft display capitals', () => {
         let thinInk = 0;
         let thinKept = 0;
         thin.forEach((inked, index) => {
-            if (!inked) return;
+            if (!inked) {return;}
             thinInk += 1;
             const target = cleanedIndex(index);
-            if (target >= 0 && cleaned.ink[target]) thinKept += 1;
+            if (target >= 0 && cleaned.ink[target]) {thinKept += 1;}
         });
         // Each letter is one cleaned shape, and each cleaned shape one letter:
         // a letter broken in two cannot hide behind two letters run together.
@@ -760,7 +760,7 @@ describe('scan cleanup of soft display capitals', () => {
         letters.label.forEach((letter, index) => {
             const target = cleanedIndex(index);
             const shape = target >= 0 ? shapes.label[target]! : -1;
-            if (letter < 0 || shape < 0) return;
+            if (letter < 0 || shape < 0) {return;}
             shapesOfLetter[letter]!.add(shape);
             lettersOfShape[shape]!.add(letter);
         });

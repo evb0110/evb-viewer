@@ -266,7 +266,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             const revision = options.documentRevisionToken.value;
             await ensureAnnotationProjectionReady();
             const document = documentSession.pdfDocument.value;
-            if (!document) throw new DOMException('Text appearance document closed', 'AbortError');
+            if (!document) {throw new DOMException('Text appearance document closed', 'AbortError');}
             return fitNativeTextBox(
                 proposal,
                 await document.getPage(proposal.pageIndex + 1),
@@ -286,7 +286,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         publishTextBoxAppearance: async (proposal, handoff, isInputCurrent, appearance) => {
             const documentIdentity = annotationDocumentIdentity.value;
             const document = documentSession.pdfDocument.value;
-            if (!document) throw new DOMException('Text appearance document closed', 'AbortError');
+            if (!document) {throw new DOMException('Text appearance document closed', 'AbortError');}
             const pageNumber = requirePageNumber(proposal.pageIndex + 1);
             const isCurrent = () => annotationDocumentIdentity.value === documentIdentity && isInputCurrent();
             const accept = () => {
@@ -302,7 +302,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                         entity: proposal,
                         appearance,
                     });
-                    if (!input) throw new DOMException('Text appearance document closed', 'AbortError');
+                    if (!input) {throw new DOMException('Text appearance document closed', 'AbortError');}
                     return input;
                 },
                 isCurrent,
@@ -365,7 +365,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         },
     });
     watch(options.isActive, (isActive) => {
-        if (!isActive) void annotationEditorSurface.suspendInteraction()?.catch(error => BrowserLogger.debug('annotations', 'Hidden text draft retained after protection failed', error));
+        if (!isActive) {void annotationEditorSurface.suspendInteraction()?.catch(error => BrowserLogger.debug('annotations', 'Hidden text draft retained after protection failed', error));}
     }, {flush: 'sync'});
     provide(annotationEditorSurfaceKey, annotationEditorSurface);
     const shapeTool = usePdfShapeTool({
@@ -792,7 +792,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     }
     function preparePagePaint(page: IPdfPage, annotations: readonly IPdfAnnotation[], signal?: AbortSignal, reserveAppearanceBytes?: (bytes: number) => void, accepted?: IAcceptedNativeTextBox) {
         const document = documentSession.pdfDocument.value;
-        if (!document) return;
+        if (!document) {return;}
         return prepareNativeTextBoxPagePaint({
             document,
             page,

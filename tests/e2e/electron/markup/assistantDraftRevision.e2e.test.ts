@@ -372,7 +372,7 @@ describe('Electron E2E - assistant draft revision', () => {
             .findLast(record => record.type === 'session-snapshot');
         expect(readCanonicalSnapshot()?.session?.providerThreadId).toBe('thread-Saved before the file-key upgrade');
         const backups = readdirSync(join(root, 'archive')).map(name => readFileSync(join(root, 'archive', name), 'utf8'));
-        for (const bytes of originals) expect(backups).toContain(bytes);
+        for (const bytes of originals) {expect(backups).toContain(bytes);}
         await clickAsUser(session.page, '.composer-input');
         await session.page.keyboard.type('Continue this saved conversation.');
         await session.page.waitForSelector('.composer-send:not(:disabled)', {visible: true});

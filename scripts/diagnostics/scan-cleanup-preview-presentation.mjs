@@ -132,7 +132,7 @@ export async function measurePreviewPresentationStability({
         reason: 'Temporal stability requires independently observed provisional and settled frames at the renderer presentation boundary.',
         violations: [],
     };
-    if (!Array.isArray(observations)) return skipped;
+    if (!Array.isArray(observations)) {return skipped;}
     const phases = [
         'provisional',
         'settled',
@@ -140,13 +140,13 @@ export async function measurePreviewPresentationStability({
     const comparisons = [];
     for (const phase of phases) {
         const samples = observations.filter(sample => sample.phase === phase);
-        if (samples.length < 2) return skipped;
+        if (samples.length < 2) {return skipped;}
         for (let index = 1; index < samples.length; index++) {
             const before = samples[index - 1];
             const after = samples[index];
             if (!Number.isFinite(before.atMs) || !(after.atMs > before.atMs)
                 || before.leaves.length === 0 || after.leaves.length === 0
-                || before.leaves.some(leaf => after.leaves.some(next => next.metricsPath === leaf.metricsPath))) return skipped;
+                || before.leaves.some(leaf => after.leaves.some(next => next.metricsPath === leaf.metricsPath))) {return skipped;}
             comparisons.push({
                 phase,
                 fromMs: before.atMs,

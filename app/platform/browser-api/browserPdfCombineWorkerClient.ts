@@ -34,7 +34,7 @@ const DESKTOP_NATIVE_IMAGE_COMBINE_TIMEOUT_MS = 5 * 60 * 1000;
 const ENGINE_DEADLINE_MS_PER_MIB = 1000;
 
 function getCombineDeadlineMs(payload: IBrowserPdfCombineWorkerRequestMap[TBrowserPdfCombineWorkerRequestType], signal: AbortSignal | undefined) {
-    if (signal) return undefined;
+    if (signal) {return undefined;}
     const specInputs = payload.wasmImagePreprocessing?.pageSpecs?.flatMap(spec => [
         spec.image,
         spec.background,
@@ -222,7 +222,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
                     ...(options.onEngineIdentity === undefined ? {} : {onEngineIdentity: options.onEngineIdentity}),
                     resolveData: (value) => {
                         const result = v.safeParse(BROWSER_PDF_COMBINE_WORKER_RESULT_SCHEMAS[type], {data: value}, {abortEarly: true});
-                        if (!result.success) return false;
+                        if (!result.success) {return false;}
                         resolve(result.output);
                         return true;
                     },

@@ -656,7 +656,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             await clickAsUser(page, 'button[aria-label="Save options"]');
             await clickFoundAsUser(page, () => Array.from(document.querySelectorAll<HTMLButtonElement>('.save-split-item'))
                 .find(button => button.textContent?.trim().startsWith('Save As')), null, {description: 'Save As'});
-        } else await clickEnabledSaveButton(page);
+        } else {await clickEnabledSaveButton(page);}
         await waitForStagedArtifact(page);
         await createStickyNoteWithPointer(page, 'Accepted later note', {
             x: 0.6,
@@ -715,7 +715,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             new MutationObserver(() => {
                 for (const toast of document.querySelectorAll('.app-toast-failure')) {
                     const text = toast.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
-                    if (text && !shown.includes(text)) shown.push(text);
+                    if (text && !shown.includes(text)) {shown.push(text);}
                 }
             }).observe(document.body, {
                 childList: true,
@@ -737,8 +737,8 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await waitForWorkspaceToolbarIdle(page, {timeoutMs: SAVE_TIMEOUT_MS});
 
         const savedEdits = (await readPdfTextAnnotationRecords(pathA)).map(record => record.contents);
-        if (decision === 'Save changes') expect(savedEdits, 'A on disk holds the text box').toContain(edit);
-        else expect((await readFile(pathA)).equals(originalA), 'A on disk is unchanged').toBe(true);
+        if (decision === 'Save changes') {expect(savedEdits, 'A on disk holds the text box').toContain(edit);}
+        else {expect((await readFile(pathA)).equals(originalA), 'A on disk is unchanged').toBe(true);}
         expect(await page.evaluate(() => Reflect.get(window, '__switchFailureNotices') as string[]), 'no failure is reported').toEqual([]);
         expect(opened).toBe(decision !== 'Cancel');
         const activeTab = () => page.$eval('.editor-pane.is-active .tab.is-active', tab => ({
@@ -775,7 +775,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         // the toolbar page indicator and the viewer's retained state.
         const readPoints = () => Array.from(document.querySelectorAll<HTMLElement>('.editor-pane')).map(pane => {
             const viewport = pane.querySelector<HTMLElement>('.workspace-host [data-document-viewer-chassis-viewport]');
-            if (!viewport) throw new Error('The visible pane has no viewport');
+            if (!viewport) {throw new Error('The visible pane has no viewport');}
             const box = viewport.getBoundingClientRect();
             const x = box.left + viewport.clientLeft + viewport.clientWidth / 2;
             const y = box.top + viewport.clientTop + viewport.clientHeight / 2;
@@ -784,7 +784,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
                     const rect = element.getBoundingClientRect();
                     return rect.top <= y && rect.bottom > y && rect.left <= x && rect.right > x;
                 });
-            if (!element) throw new Error('No page covers the viewport centre');
+            if (!element) {throw new Error('No page covers the viewport centre');}
             const rect = element.getBoundingClientRect();
             const canvas = element.querySelector<HTMLCanvasElement>('canvas');
             return {
@@ -810,7 +810,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             });
             const {page} = session;
             await waitForOpenedPdf(page, source);
-            if (linked) await splitActiveTabFromTabMenu(page, 'right');
+            if (linked) {await splitActiveTabFromTabMenu(page, 'right');}
             const panes = await page.$$eval('.editor-pane', elements => elements.map(element => (element as HTMLElement).dataset.editorPaneId!));
             for (const [
                 index,
@@ -1010,7 +1010,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
                 const context = canvas && canvas.width > 0 && canvas.height > 0
                     ? canvas.getContext('2d', {willReadFrequently: true})
                     : null;
-                if (!canvas || !context) return false;
+                if (!canvas || !context) {return false;}
                 const {data} = context.getImageData(0, 0, canvas.width, canvas.height);
                 for (let index = 0; index < data.length; index += 4) {
                     if ((data[index] ?? 255) < 128 && (data[index + 1] ?? 255) < 128 && (data[index + 2] ?? 255) < 128) {
@@ -1091,12 +1091,12 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         let heldFileError: unknown = null;
         let heldFileDone: Promise<void> | null = null;
         const releaseHeldFile = async () => {
-            if (heldFileReadyPath === null) return;
+            if (heldFileReadyPath === null) {return;}
             const readyPath = heldFileReadyPath;
             heldFileReadyPath = null;
             await writeFile(`${readyPath}.release`, 'release').catch(() => undefined);
             await heldFileDone;
-            if (heldFileError) throw heldFileError;
+            if (heldFileError) {throw heldFileError;}
         };
         if (process.platform === 'win32') {
             const refusedBytes = await readFile(sourcePath);
@@ -1143,9 +1143,9 @@ describe('Electron E2E - save pipeline diagnostics', () => {
                 for (const notification of document.querySelectorAll(selector)) {
                     // One notification nests several live regions; count the
                     // outermost element once, however often its text changes.
-                    if (seen.has(notification) || notification.parentElement?.closest(selector)) continue;
+                    if (seen.has(notification) || notification.parentElement?.closest(selector)) {continue;}
                     const text = notification.textContent?.replace(/\s+/gu, ' ').trim() ?? '';
-                    if (!text) continue;
+                    if (!text) {continue;}
                     seen.add(notification);
                     shown.push(text);
                 }
@@ -1167,14 +1167,14 @@ describe('Electron E2E - save pipeline diagnostics', () => {
                         && rect.width > 8
                         && rect.height > 8;
                 });
-            if (!button) return null;
+            if (!button) {return null;}
             const rect = button.getBoundingClientRect();
             return {
                 x: rect.left + rect.width / 2,
                 y: rect.top + rect.height / 2,
             };
         });
-        if (!saveAsTriggerPoint) throw new Error('The visible Save options button is not enabled');
+        if (!saveAsTriggerPoint) {throw new Error('The visible Save options button is not enabled');}
         await session.page.mouse.click(saveAsTriggerPoint.x, saveAsTriggerPoint.y);
         await session.page.waitForSelector('.save-split-menu', {visible: true});
         const saveAsMenuItemPoint = await session.page.evaluate(() => {
@@ -1190,14 +1190,14 @@ describe('Electron E2E - save pipeline diagnostics', () => {
                         && rect.width > 8
                         && rect.height > 8;
                 });
-            if (!item) return null;
+            if (!item) {return null;}
             const rect = item.getBoundingClientRect();
             return {
                 x: rect.left + rect.width / 2,
                 y: rect.top + rect.height / 2,
             };
         });
-        if (!saveAsMenuItemPoint) throw new Error('The visible Save As menu item is not enabled');
+        if (!saveAsMenuItemPoint) {throw new Error('The visible Save As menu item is not enabled');}
         await session.page.mouse.click(saveAsMenuItemPoint.x, saveAsMenuItemPoint.y);
         // The refusal is told once, as a save failure in the user's language
         // (contract I4). The document is still open and intact, so it must not
@@ -1354,14 +1354,14 @@ syncBuiltinESMExports();
                 pixels: 'two red A pages and two blue B pages',
             }));
         } catch (error) {
-            for (const ownSession of sessions) await ownSession.captureFailureArtifacts('overlapping-exports');
+            for (const ownSession of sessions) {await ownSession.captureFailureArtifacts('overlapping-exports');}
             throw error;
         } finally {
             await Promise.all([
                 'a',
                 'b',
             ].map(role => writeFile(join(exportRoot, `${role}.release`), 'release')));
-            for (const ownSession of sessions.reverse()) await ownSession.stop();
+            for (const ownSession of sessions.reverse()) {await ownSession.stop();}
             await rm(exportRoot, {
                 force: true,
                 recursive: true,
@@ -1880,7 +1880,7 @@ syncBuiltinESMExports();
         expect((await captureCommittedCanvasForSaveContinuity(session.page)).rendered).toBe(true);
         await session.page.evaluate(() => {
             const sidebar = document.querySelector('.workspace-host[data-workspace-active="true"] .pdf-sidebar');
-            if (!sidebar || sidebar.getBoundingClientRect().width === 0) throw new Error('Annotation sidebar is not visible');
+            if (!sidebar || sidebar.getBoundingClientRect().width === 0) {throw new Error('Annotation sidebar is not visible');}
             (window as TSaveReceiptProbeWindow).__savedSidebar = sidebar;
         });
         await installCommittedSurfaceSampler(session.page);
@@ -2096,32 +2096,32 @@ describe('[crpart3core] replacement lifecycle', () => {
             let slot: IReplacementSessionSlot | undefined;
             while (component && !slot) {
                 for (const key of Reflect.ownKeys(component.provides ?? {})) {
-                    if (typeof key === 'symbol' && key.description === 'pdfDocumentSessionSlot') slot = component.provides[key] as IReplacementSessionSlot;
+                    if (typeof key === 'symbol' && key.description === 'pdfDocumentSessionSlot') {slot = component.provides[key] as IReplacementSessionSlot;}
                 }
                 component = component.parent ?? undefined;
             }
             if (!slot) {
                 const seen = new Set<IPageLabelProbeVNode>();
                 const visit = (vnode: IPageLabelProbeVNode | undefined) => {
-                    if (!vnode || seen.has(vnode) || slot) return;
+                    if (!vnode || seen.has(vnode) || slot) {return;}
                     seen.add(vnode);
                     const owner = vnode.component;
                     if (owner) {
                         for (const key of Reflect.ownKeys(owner.provides ?? {})) {
-                            if (typeof key === 'symbol' && key.description === 'pdfDocumentSessionSlot') slot = owner.provides[key] as IReplacementSessionSlot;
+                            if (typeof key === 'symbol' && key.description === 'pdfDocumentSessionSlot') {slot = owner.provides[key] as IReplacementSessionSlot;}
                         }
                         visit(owner.subTree);
                     }
-                    if (Array.isArray(vnode.children)) vnode.children.forEach(visit);
+                    if (Array.isArray(vnode.children)) {vnode.children.forEach(visit);}
                     visit(vnode.ssContent);
                     visit(vnode.ssFallback);
                 };
                 visit(document.querySelector<HTMLElement & {_vnode?: IPageLabelProbeVNode}>('#__nuxt')?._vnode);
             }
-            if (!slot) throw new Error('No real document session slot is reachable for the fault seam');
+            if (!slot) {throw new Error('No real document session slot is reachable for the fault seam');}
             const session = slot.resolve(() => {throw new Error('An existing session is required');});
             const pdfDocument = session.pdfDocument.value;
-            if (!pdfDocument) throw new Error('The initial PDF must be loaded before holding cancellation');
+            if (!pdfDocument) {throw new Error('The initial PDF must be loaded before holding cancellation');}
             let release!: () => void;
             const gate = new Promise<void>(resolve => {release = resolve;});
             const probe = {
@@ -2134,7 +2134,7 @@ describe('[crpart3core] replacement lifecycle', () => {
             session.attachView = (...args: unknown[]) => {
                 const view = attachView(...args);
                 view.subscribe((transition: {reason: string}) => {
-                    if (transition.reason !== 'deactivated') return;
+                    if (transition.reason !== 'deactivated') {return;}
                     probe.entered = true;
                     return gate;
                 });
@@ -2177,10 +2177,10 @@ describe('[crpart3core] replacement lifecycle', () => {
         await page.waitForFunction(() => {
             const canvas = document.querySelector<HTMLCanvasElement>('.editor-pane.is-active .page_container[data-page="1"] .page_canvas__render-layer canvas');
             const context = canvas?.getContext('2d');
-            if (!canvas || !context || canvas.width === 0 || canvas.height === 0) return false;
+            if (!canvas || !context || canvas.width === 0 || canvas.height === 0) {return false;}
             const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
             for (let index = 0; index < pixels.length; index += 4) {
-                if (pixels[index + 3]! > 0 && Math.min(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!) < 200) return true;
+                if (pixels[index + 3]! > 0 && Math.min(pixels[index]!, pixels[index + 1]!, pixels[index + 2]!) < 200) {return true;}
             }
             return false;
         }, {timeout: 20_000});
@@ -2254,7 +2254,7 @@ describe('[crpart3core] huge imported numbering', () => {
             let state: IPageLabelProbeMetadata['metadata']['pageLabelState'] | null = null;
             const seen = new Set<IPageLabelProbeVNode>();
             const visit = (vnode: IPageLabelProbeVNode | undefined) => {
-                if (!vnode || seen.has(vnode) || state) return;
+                if (!vnode || seen.has(vnode) || state) {return;}
                 seen.add(vnode);
                 const component = vnode.component;
                 if (component) {
@@ -2265,12 +2265,12 @@ describe('[crpart3core] huge imported numbering', () => {
                     }
                     visit(component.subTree);
                 }
-                if (Array.isArray(vnode.children)) vnode.children.forEach(visit);
+                if (Array.isArray(vnode.children)) {vnode.children.forEach(visit);}
                 visit(vnode.ssContent);
                 visit(vnode.ssFallback);
             };
             visit((document.querySelector('#__nuxt') as HTMLElement & {_vnode?: IPageLabelProbeVNode} | null)?._vnode);
-            if (!state) throw new Error('The real document page-label owner is unavailable');
+            if (!state) {throw new Error('The real document page-label owner is unavailable');}
             const owner = state as IPageLabelProbeMetadata['metadata']['pageLabelState'];
             const firstLength = owner.labelAt(1)?.length ?? 0;
             // Avoid asking the old code to serialize a multi-gigabyte window.

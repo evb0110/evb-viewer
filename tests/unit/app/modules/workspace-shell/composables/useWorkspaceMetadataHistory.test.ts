@@ -180,11 +180,11 @@ describe('useWorkspaceMetadataHistory', () => {
         expect(await registrations[0]!.undo()).toBe(false);
         expect(bookmarkItems.value[0]?.title).toBe('edit-54');
         let undoCount = 0;
-        while (await history.undoMetadata()) undoCount += 1;
+        while (await history.undoMetadata()) {undoCount += 1;}
         expect(undoCount).toBe(14);
         expect(bookmarkItems.value[0]?.title).toBe('edit-40');
         let redoCount = 0;
-        while (await history.redoMetadata()) redoCount += 1;
+        while (await history.redoMetadata()) {redoCount += 1;}
         expect(redoCount).toBe(14);
         expect(bookmarkItems.value[0]?.title).toBe('edit-54');
     });

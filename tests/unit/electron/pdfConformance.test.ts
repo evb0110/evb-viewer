@@ -844,7 +844,7 @@ describe('conformance admission through the main handler', () => {
                 });
             },
             async close() {
-                for (const operation of operations.values()) operation.controller.abort(new Error('test cleanup'));
+                for (const operation of operations.values()) {operation.controller.abort(new Error('test cleanup'));}
                 for (const name of [
                     'fs/promises',
                     '@electron/resources/jobBroker',
@@ -853,7 +853,7 @@ describe('conformance admission through the main handler', () => {
                     '@electron/file-access/workingCopyQuarantine',
                     '@electron/features/documents/main/documentFilePathResolution',
                     '@electron/operation-lifecycle/mainOperationLifecycle',
-                ]) vi.doUnmock(name);
+                ]) {vi.doUnmock(name);}
                 vi.resetModules(); await fs.rm(directory, {
                     recursive: true,
                     force: true,
@@ -936,7 +936,7 @@ describe('conformance admission through the main handler', () => {
                     active: marked ? 1 : 0,
                     queued: 0,
                 });
-                if (marked) expect(h.broker.getSnapshot().used).toEqual(h.resources);
+                if (marked) {expect(h.broker.getSnapshot().used).toEqual(h.resources);}
                 expect(h.active()).toBe(0);
             } finally { await h.close(); }
         },

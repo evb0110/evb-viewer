@@ -83,16 +83,16 @@ function pickModel(instanceId: string, model: string) {
         effort: selection?.effort ?? '',
         speedMode: selection?.speedMode ?? 'standard',
     }, instances, null);
-    if (!nextSelection) return;
+    if (!nextSelection) {return;}
     emit('select', nextSelection);
     requestAnimationFrame(() => effortColumn.value?.focusLevel());
 }
 
 function pickEffort(effort: string) {
-    if (selection) emit('select', {
+    if (selection) {emit('select', {
         ...selection,
         effort,
-    });
+    });}
 }
 
 const speedControl = ref<HTMLElement | null>(null);
@@ -101,20 +101,20 @@ const currentSpeed = computed(() => selection?.speedMode ?? 'standard');
 // One tab stop; the arrow keys move between and select the speeds.
 function handleSpeedKeydown(event: KeyboardEvent) {
     const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
-    if (!step || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (!step || event.altKey || event.ctrlKey || event.metaKey) {return;}
     event.preventDefault();
     const index = speeds.findIndex(speed => speed.id === currentSpeed.value);
     const next = speeds[(index + step + speeds.length) % speeds.length];
-    if (!next) return;
+    if (!next) {return;}
     pickSpeed(next.id);
     nextTick(() => speedControl.value?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus());
 }
 
 function pickSpeed(speedMode: IAssistantSelection['speedMode']) {
-    if (selection) emit('select', {
+    if (selection) {emit('select', {
         ...selection,
         speedMode,
-    });
+    });}
 }
 defineExpose({ open: () => { open.value = true; } });
 </script>

@@ -355,7 +355,7 @@ async function probeEntry(entry: IInstanceEntry) {
     }
     try {
         const version = await identifyAssistantExecutable(config.driver, context.binaryPath, context.env);
-        if (!version) throw new Error(te('dialogs.agentAssistant.invalidExecutable', {provider: config.driver === 'codex' ? 'Codex' : 'Claude'}));
+        if (!version) {throw new Error(te('dialogs.agentAssistant.invalidExecutable', {provider: config.driver === 'codex' ? 'Codex' : 'Claude'}));}
         if (config.driver === 'codex' && entry.codex) {
             const result = await entry.codex.probe(undefined, Math.max(1, ASSISTANT_MODEL_PROBE_DEADLINE_MS - (Date.now() - startedAt)));
             updateStatus(entry, {
@@ -1170,9 +1170,9 @@ export async function getAgentAssistantState(request?: IAssistantStateRequest): 
         await shutdownAgentAssistant();
         return disabledState();
     }
-    if (request?.probe) refreshAssistantLocalSetups();
+    if (request?.probe) {refreshAssistantLocalSetups();}
     await syncInstances();
-    if (request?.selection && !instances.has(request.selection.instanceId)) await getAssistantInstanceConfigs().then(syncInstances);
+    if (request?.selection && !instances.has(request.selection.instanceId)) {await getAssistantInstanceConfigs().then(syncInstances);}
     for (const entry of instances.values()) {
         if (entry.config.enabled) {
             startProbe(entry, request?.probe === true);

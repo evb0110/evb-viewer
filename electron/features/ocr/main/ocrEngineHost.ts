@@ -50,11 +50,11 @@ const laneFailed = (lane: number, error: unknown) => send({
 
 parentPort.on('message', ({data}) => {
     const message = decodeOcrEngineHostRequest(data);
-    if (!message || shuttingDown) return;
+    if (!message || shuttingDown) {return;}
     switch (message.type) {
         case 'start': {
             const {lane} = message;
-            if (lanes.has(lane)) return;
+            if (lanes.has(lane)) {return;}
             let worker: Worker;
             try {
                 worker = new Worker(message.workerPath, {workerData: message.workerData});
@@ -88,7 +88,7 @@ parentPort.on('message', ({data}) => {
             // As with a worker thread, a page sent to a lane that has exited is dropped;
             // main has its exit already.
             const worker = lanes.get(message.lane);
-            if (!worker) return;
+            if (!worker) {return;}
             const {image} = message.message.request;
             const transfer = image instanceof Uint8Array && image.buffer instanceof ArrayBuffer
                 ? [image.buffer]
@@ -106,12 +106,12 @@ parentPort.on('message', ({data}) => {
             // how a busy lane is canceled. A lane this process does not have
             // has exited, so main is told so rather than left waiting.
             const worker = lanes.get(message.lane);
-            if (worker) void worker.terminate();
-            else send({
+            if (worker) {void worker.terminate();}
+            else {send({
                 type: 'exit',
                 lane: message.lane,
                 code: 1,
-            });
+            });}
             return;
         }
         case 'shutdown':

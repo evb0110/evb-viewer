@@ -58,8 +58,8 @@ function compactPreview(result: IScanCleanupPreviewResult, validity: string): IC
             byteLength += bytes.buffer.byteLength;
         }
     };
-    for (const output of result.outputs) addBytes(output.imageData);
-    if (rawOutputIndex < 0) addBytes(result.rawImageData);
+    for (const output of result.outputs) {addBytes(output.imageData);}
+    if (rawOutputIndex < 0) {addBytes(result.rawImageData);}
     const {
         rawImageData,
         ...rest
@@ -79,7 +79,7 @@ function materializePreview(entry: ICachedPreview): IScanCleanupPreviewResult {
     const rawImageData = entry.rawOutputIndex === null
         ? entry.result.rawImageData
         : entry.result.outputs[entry.rawOutputIndex]?.imageData;
-    if (!rawImageData) throw new Error('Scan cleanup preview cache entry lost its source raster');
+    if (!rawImageData) {throw new Error('Scan cleanup preview cache entry lost its source raster');}
     return {
         ...entry.result,
         rawImageData,
@@ -126,7 +126,7 @@ export function createScanCleanupPreviewCache(options: {
             return null;
         }
         if (entry.validity !== validity) {
-            if (dropStale) remove(identity);
+            if (dropStale) {remove(identity);}
             return null;
         }
         return {
@@ -167,7 +167,7 @@ export function createScanCleanupPreviewCache(options: {
             totalBytes += entry.byteLength;
             while (entries.size > maxEntries || totalBytes > maxBytes) {
                 const oldestIdentity = entries.keys().next().value;
-                if (oldestIdentity === undefined) break;
+                if (oldestIdentity === undefined) {break;}
                 remove(oldestIdentity);
             }
         },

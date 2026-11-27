@@ -102,8 +102,8 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         const normalizedPageCount = Math.max(1, Math.trunc(countedPages));
         // A retained page stands until the viewer or a preview has counted the pages.
         const knownPageCount = previewResult?.rawResult.value?.totalPages ?? previewResult?.result.value?.totalPages ?? (countedPages > 0 ? normalizedPageCount : null);
-        if (active && !previous?.[0] && knownPageCount !== null) selection.resetToLeader(knownPageCount);
-        if (!previous?.length) return;
+        if (active && !previous?.[0] && knownPageCount !== null) {selection.resetToLeader(knownPageCount);}
+        if (!previous?.length) {return;}
         if (identity !== previous[1]) {
             const pageMapping = options.pageMapping?.();
             selection.reconcileDocumentReplacement({

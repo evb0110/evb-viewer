@@ -50,7 +50,7 @@ describe('tiff encoding helpers', () => {
         ]);
         expect(groups.flat()).toEqual(pages);
         expect(groups.flat().every((page, index) => page === pages[index])).toBe(true);
-        for (const group of groups) expect(estimateMultiPageTiffByteLength(group, UTIF)).toBeLessThanOrEqual(0xFFFFFFFF);
+        for (const group of groups) {expect(estimateMultiPageTiffByteLength(group, UTIF)).toBeLessThanOrEqual(0xFFFFFFFF);}
         expect(estimateMultiPageTiffByteLength([
             ...groups[0]!,
             groups[1]![0]!,
@@ -126,7 +126,7 @@ describe('tiff encoding helpers', () => {
             }
             const view = new DataView(bytes.buffer);
             let offset = view.getUint32(4);
-            for (let index = 0; index < group.length; index += 1) offset = view.getUint32(offset + 2 + view.getUint16(offset) * 12);
+            for (let index = 0; index < group.length; index += 1) {offset = view.getUint32(offset + 2 + view.getUint16(offset) * 12);}
             expect(offset).toBe(0);
         }
         expect(decodedMarkers).toEqual([

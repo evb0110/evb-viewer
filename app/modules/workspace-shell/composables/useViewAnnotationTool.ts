@@ -30,7 +30,7 @@ export const useViewAnnotationTool = (deps: {
         const apply = () => {
             annotationTool.value = tool;
             deps.dragMode.value = interaction.dragMode === true;
-            if (interaction.dragMode) window.getSelection()?.removeAllRanges();
+            if (interaction.dragMode) {window.getSelection()?.removeAllRanges();}
             if (interaction.sidebarTab) {
                 deps.showSidebar.value = true;
                 deps.sidebarTab.value = interaction.sidebarTab;

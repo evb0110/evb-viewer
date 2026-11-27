@@ -68,7 +68,7 @@ async function waitForSettledDetection(session: ReturnType<typeof sessionFixture
 
 async function openCleanup(session: ReturnType<typeof sessionFixture.getSession>) {
     for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
-        if (await toast.isVisible()) await clickAsUser(session.page, toast);
+        if (await toast.isVisible()) {await clickAsUser(session.page, toast);}
     }
     await clickAsUser(session.page, 'button[aria-label="Scan cleanup"]');
     await session.page.waitForSelector('.scan-cleanup-surface', {
@@ -83,7 +83,7 @@ describe('scan cleanup required page ops', () => {
         const session = await sessionFixture.restart({extraEnv: {EVB_SCAN_CLEANUP_EVIDENCE_DIR: evidence}});
         const fixture = await createLargeScannedFixturePdf('scan-cleanup-notes.pdf', 3, 0, 0.125, {runOwner: `${session.name}-notes`});
         const source = await PDFDocument.load(readFileSync(fixture));
-        for (const page of source.getPages()) page.scale(0.1, 0.1);
+        for (const page of source.getPages()) {page.scale(0.1, 0.1);}
         const plainPath = join(dirname(fixture), 'scan-cleanup-without-notes.pdf');
         writeFileSync(plainPath, await source.save());
         for (const [
@@ -172,7 +172,7 @@ describe('scan cleanup required page ops', () => {
             fixture,
             plainPath,
         ]) {
-            if (path === plainPath) await session.resetForE2E();
+            if (path === plainPath) {await session.resetForE2E();}
             await session.command('windowResize', [
                 1280,
                 900,
@@ -198,7 +198,7 @@ describe('scan cleanup required page ops', () => {
             const quality = await session.page.evaluate(() => {
                 const label = [...document.querySelectorAll('label')].find(node => node.textContent?.trim() === 'Keep original images');
                 const checkbox = document.getElementById(label?.htmlFor ?? '');
-                if (!checkbox) throw new Error('Keep original images checkbox is missing');
+                if (!checkbox) {throw new Error('Keep original images checkbox is missing');}
                 return checkbox.getAttribute('aria-checked') === 'true';
             });
             if (quality) {
@@ -337,7 +337,7 @@ describe('scan cleanup required page ops', () => {
         ), {timeout: 120_000});
         await waitForFunctionInPage(session.page, () => {
             const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
-            if (!action || action.disabled) return false;
+            if (!action || action.disabled) {return false;}
             const rect = action.getBoundingClientRect();
             const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
             return (hit === action || action.contains(hit))
@@ -383,7 +383,7 @@ describe('scan cleanup required page ops', () => {
             const checked = await session.page.evaluate((text: string) => {
                 const fieldLabel = [...document.querySelectorAll('label')].find(node => node.textContent?.trim() === text);
                 const checkbox = document.getElementById(fieldLabel?.htmlFor ?? '');
-                if (!checkbox) throw new Error(`${text} checkbox is missing`);
+                if (!checkbox) {throw new Error(`${text} checkbox is missing`);}
                 return checkbox.getAttribute('aria-checked') === 'true';
             }, label);
             if (checked) {
@@ -395,7 +395,7 @@ describe('scan cleanup required page ops', () => {
         const actionSelector = '.scan-cleanup-toolbar-primary-action';
         await waitForFunctionInPage(session.page, (selector: string) => {
             const action = document.querySelector<HTMLButtonElement>(selector);
-            if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') return false;
+            if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') {return false;}
             const rect = action.getBoundingClientRect();
             const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
             const previewRunning = /Building cleanup preview|Preview updating|Updating preview|Reading page images/i

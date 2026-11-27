@@ -137,13 +137,13 @@ export function resetDrainingBrowserScanCleanupWorkers() {
 /** The buffers and bitmaps a request owns; the worker takes them over. */
 function transferablesOf(value: unknown, found = new Set<Transferable>()): Set<Transferable> {
     if (value instanceof Uint8Array) {
-        if (value.buffer instanceof ArrayBuffer) found.add(value.buffer);
+        if (value.buffer instanceof ArrayBuffer) {found.add(value.buffer);}
     } else if (typeof ImageBitmap !== 'undefined' && value instanceof ImageBitmap) {
         found.add(value);
     } else if (Array.isArray(value)) {
-        for (const entry of value) transferablesOf(entry, found);
+        for (const entry of value) {transferablesOf(entry, found);}
     } else if (typeof value === 'object' && value !== null) {
-        for (const entry of Object.values(value)) transferablesOf(entry, found);
+        for (const entry of Object.values(value)) {transferablesOf(entry, found);}
     }
     return found;
 }
@@ -193,7 +193,7 @@ function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
     concurrency: number | undefined,
     onProgress: ((progress: IScanCleanupWasmSubPageProgress) => void) | undefined,
 ): Promise<IBrowserScanCleanupWorkerResultMap[K]> {
-    if (signal.aborted) return Promise.reject(abortError(signal));
+    if (signal.aborted) {return Promise.reject(abortError(signal));}
     const engines = getOwner();
     const id = engines.createRequestId();
     const abort = () => engines.cancel(id, abortError(signal));
@@ -205,7 +205,7 @@ function runOnWorker<K extends TBrowserScanCleanupWorkerRequestType>(
             onEngineIdentity,
             onProgress,
             resolveData: data => {
-                if (!isBrowserScanCleanupWorkerResult(type, data)) return false;
+                if (!isBrowserScanCleanupWorkerResult(type, data)) {return false;}
                 resolve(data);
                 return true;
             },

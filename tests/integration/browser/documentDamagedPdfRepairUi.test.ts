@@ -106,7 +106,7 @@ describe('browser PDF open recovery', () => {
     // cross-reference table opens and takes edits in the browser too.
     it('rewrites a PDF with a broken startxref on open, so a note saves into it', async () => {
         const evidence = process.env.EVB_QPDF_REPAIR_EVIDENCE_DIR;
-        if (evidence) await mkdir(evidence, {recursive: true});
+        if (evidence) {await mkdir(evidence, {recursive: true});}
         const source = (await readFile(join(process.cwd(), 'tests/fixtures/electron/generated-text.pdf'))).toString('latin1');
         // startxref points into the header line, not at the cross-reference stream.
         const damaged = Buffer.from(`${source.slice(0, source.lastIndexOf('startxref'))}startxref\n9\n%%EOF\n`, 'latin1');
@@ -127,22 +127,22 @@ describe('browser PDF open recovery', () => {
                 x: 200,
                 y: 200,
             });
-            if (evidence) await page.screenshot({path: join(evidence, 'annotated.png')});
+            if (evidence) {await page.screenshot({path: join(evidence, 'annotated.png')});}
             const download = page.waitForEvent('download', {timeout: 60_000});
             await page.getByRole('button', {
                 name: 'Save',
                 exact: true,
             }).click();
             const saved = new Uint8Array(await readDownloadBytes(await download));
-            if (evidence) await writeFile(join(evidence, 'saved.pdf'), saved);
+            if (evidence) {await writeFile(join(evidence, 'saved.pdf'), saved);}
             // The note was appended to a base whose chain an edit can extend:
             // the saved file takes the next edit, as desktop's would.
             expect(noteTexts(await PDFDocument.load(saved), '/Text')).toContain(text);
             expect(await readAppendAdmission(saved)).toBe('appendable');
             expect(Buffer.from(saved).includes(damaged.subarray(-64))).toBe(false);
         } finally {
-            if (evidence) await page.screenshot({path: join(evidence, 'terminal.png')});
-            if (evidence) await writeFile(join(evidence, 'terminal.txt'), await page.locator('body').innerText());
+            if (evidence) {await page.screenshot({path: join(evidence, 'terminal.png')});}
+            if (evidence) {await writeFile(join(evidence, 'terminal.txt'), await page.locator('body').innerText());}
             await page.context().close();
         }
     }, browserPdfRecoveryTimeoutMs);

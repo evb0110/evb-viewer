@@ -28,7 +28,7 @@ describe('browser document lifecycle UI', () => {
                 const response = await route.fetch();
                 const body = await response.text();
                 const marker = 'const comment = resolveNoteComment(annotationId);';
-                if (!body.includes(marker)) throw new Error('Note update fault seam was not found');
+                if (!body.includes(marker)) {throw new Error('Note update fault seam was not found');}
                 await route.fulfill({
                     response,
                     body: body.replace(marker,

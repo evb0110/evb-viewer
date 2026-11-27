@@ -18,7 +18,7 @@ async function identifyDimensions(
         options,
     );
     const match = /^(\d+)x(\d+)$/u.exec(result.stdout.trim());
-    if (!match) throw new Error(`Could not read image dimensions for ${inputPath}`);
+    if (!match) {throw new Error(`Could not read image dimensions for ${inputPath}`);}
     return {
         height: Number.parseInt(match[2]!, 10),
         width: Number.parseInt(match[1]!, 10),

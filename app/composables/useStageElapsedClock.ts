@@ -22,8 +22,8 @@ export const useStageElapsedClock = <TStage extends string>(
     // The clock ticks only while a stage without a count is showing it.
     watch(() => toValue(stage), (next) => {
         startedAtMs.value = next === null ? null : Date.now();
-        if (next !== null && uncountedStages.has(next)) resume();
-        else pause();
+        if (next !== null && uncountedStages.has(next)) {resume();}
+        else {pause();}
     }, {immediate: true});
     return computed(() => {
         const current = toValue(stage);

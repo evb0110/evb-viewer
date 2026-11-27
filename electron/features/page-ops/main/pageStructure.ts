@@ -38,7 +38,7 @@ function pageRuns(pages: readonly number[]) {
             previous = page;
             continue;
         }
-        if (start !== undefined) runs.push(start === previous ? String(start) : `${start}-${previous}`);
+        if (start !== undefined) {runs.push(start === previous ? String(start) : `${start}-${previous}`);}
         start = page;
         previous = page;
     }

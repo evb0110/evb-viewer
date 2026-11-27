@@ -368,7 +368,7 @@ describe('AnnotationStore dirty and persistence projection', () => {
         ];
         reads.forEach((entity) => {
             expect(entity.kind).toBe('shape');
-            if (entity.kind !== 'shape') return;
+            if (entity.kind !== 'shape') {return;}
             expect(() => {
                 entity.rect.left = 0.3;
             }).toThrow(TypeError);

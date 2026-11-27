@@ -179,7 +179,7 @@ function probeSessionMetadataOwnership(worktreePath) {
             'session-starting.json',
         ]) {
             const metadataPath = path.join(sessionPath, fileName);
-            if (!existsSync(metadataPath)) continue;
+            if (!existsSync(metadataPath)) {continue;}
             let metadata;
             try {
                 metadata = JSON.parse(readFileSync(metadataPath, 'utf8'));
@@ -263,7 +263,7 @@ function probeWorktreeOwnership(worktreePath) {
     }
     for (const pid of pids) {
         const sameUser = processBelongsToCurrentUser(pid, currentUid);
-        if (sameUser === false) continue;
+        if (sameUser === false) {continue;}
         if (sameUser === null) {
             return {
                 status: 'ambiguous',
@@ -274,7 +274,7 @@ function probeWorktreeOwnership(worktreePath) {
         try {
             ownerCwd = readlinkSync(`/proc/${pid}/cwd`).replace(/ \(deleted\)$/u, '');
         } catch (error) {
-            if (error?.code === 'ENOENT') continue;
+            if (error?.code === 'ENOENT') {continue;}
             return {
                 status: 'ambiguous',
                 reason: `live-owner probe could not inspect process ${pid}`,

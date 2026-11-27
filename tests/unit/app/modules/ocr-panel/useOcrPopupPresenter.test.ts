@@ -269,7 +269,7 @@ describe('useOcrPopupPresenter', () => {
         const scope = effectScope();
         try {
             const ocr = scope.run(() => useOcr());
-            if (!ocr) throw new Error('OCR composable is unavailable');
+            if (!ocr) {throw new Error('OCR composable is unavailable');}
             ocr.progress.value.phase = 'model-prep';
             ocr.progress.value.modelDownload = {
                 languageCode: 'deu',
@@ -457,11 +457,11 @@ describe('useOcrPopupPresenter', () => {
             const run = harness.presenter.runOcrForAgent({open: false}, {
                 signal: command.signal,
                 assertCurrentDocument: () => {
-                    if (documentReplaced) throw new Error('The document changed');
+                    if (documentReplaced) {throw new Error('The document changed');}
                 },
             });
-            if (change === 'aborted') command.abort(new DOMException('Interrupted', 'AbortError'));
-            else documentReplaced = true;
+            if (change === 'aborted') {command.abort(new DOMException('Interrupted', 'AbortError'));}
+            else {documentReplaced = true;}
             languagesLoaded.resolve(undefined);
 
             await expect(run).rejects.toThrow(change === 'aborted' ? 'Interrupted' : 'The document changed');

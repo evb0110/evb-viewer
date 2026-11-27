@@ -15,7 +15,7 @@ definePageMeta({
     preloadWorkspaceShell: false,
     keepalive: true,
 });
-if (import.meta.server) useSeoMeta({ robots: 'noindex, nofollow' });
+if (import.meta.server) {useSeoMeta({ robots: 'noindex, nofollow' });}
 useHead(() => ({ title: t('app.title') }));
 
 onMounted(() => {

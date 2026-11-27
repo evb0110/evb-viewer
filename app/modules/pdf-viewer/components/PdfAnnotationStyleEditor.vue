@@ -304,7 +304,7 @@ async function updateSelectedWidth(event: Event) {
     }
     await nextTick();
     const input = event.target;
-    if (input instanceof HTMLInputElement) input.value = selectionWidthDisplay.value;
+    if (input instanceof HTMLInputElement) {input.value = selectionWidthDisplay.value;}
 }
 const opacitySettingKey = computed(() => {
     switch (tool) {
@@ -327,7 +327,7 @@ const defaultFillColorValue = computed(() => (
 const idleDescription = computed(() => t(hasAnnotations ? 'annotations.styleDescription' : 'annotations.styleDescriptionNoAnnotations'));
 function updateDefaultOpacity(event: Event) {
     const key = opacitySettingKey.value;
-    if (key) updateSetting(key, Number(inputValue(event)) / 100);
+    if (key) {updateSetting(key, Number(inputValue(event)) / 100);}
 }
 
 const colorSwatches = ANNOTATION_COLOR_SWATCHES;

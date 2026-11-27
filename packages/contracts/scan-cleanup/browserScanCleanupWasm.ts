@@ -375,7 +375,7 @@ function encodeFrame(
         planes,
         json.byteLength,
         present.length,
-    ]) write(value);
+    ]) {write(value);}
     for (const [
         role,
         bytes,
@@ -494,14 +494,14 @@ class FrameReader {
     }
 
     u32() {
-        if (this.offset + 4 > this.bytes.byteLength) throw new InvalidScanCleanupWasmResultError('truncated header');
+        if (this.offset + 4 > this.bytes.byteLength) {throw new InvalidScanCleanupWasmResultError('truncated header');}
         const value = this.view.getUint32(this.offset, true);
         this.offset += 4;
         return value;
     }
 
     take(length: number) {
-        if (this.offset + length > this.bytes.byteLength) throw new InvalidScanCleanupWasmResultError('truncated data');
+        if (this.offset + length > this.bytes.byteLength) {throw new InvalidScanCleanupWasmResultError('truncated data');}
         const slice = this.bytes.slice(this.offset, this.offset + length);
         this.offset += length;
         return slice;
@@ -512,7 +512,7 @@ class FrameReader {
     }
 
     end() {
-        if (this.offset !== this.bytes.byteLength) throw new InvalidScanCleanupWasmResultError('trailing bytes');
+        if (this.offset !== this.bytes.byteLength) {throw new InvalidScanCleanupWasmResultError('trailing bytes');}
     }
 }
 
@@ -595,7 +595,7 @@ function decodeDetails(detailsJson: string, field: string, accepts: (value: unkn
         throw new InvalidScanCleanupWasmResultError('details are not JSON');
     }
     const value = typeof details === 'object' && details !== null ? (details as Record<string, unknown>)[field] : undefined;
-    if (!accepts(value)) throw new InvalidScanCleanupWasmResultError(`details carry no valid ${field}`);
+    if (!accepts(value)) {throw new InvalidScanCleanupWasmResultError(`details carry no valid ${field}`);}
     return value;
 }
 
@@ -639,7 +639,7 @@ export function decodeScanCleanupWasmAnalyzeResult(output: Uint8Array): IScanCle
         detailsJson,
         outputs,
     } = decodeFrame(output);
-    if (outputs.length !== 0) throw new InvalidScanCleanupWasmResultError('an analysis carries no outputs');
+    if (outputs.length !== 0) {throw new InvalidScanCleanupWasmResultError('an analysis carries no outputs');}
     return {
         ...decodePage(pageMetadataJson),
         reconciliation: decodeDetails(detailsJson, 'reconciliation', isObject) as ReconciliationCandidate,

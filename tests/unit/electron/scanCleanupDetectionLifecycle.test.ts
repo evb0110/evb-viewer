@@ -425,7 +425,7 @@ export async function scenarioDoesNotHangWhenDetectionAbortsDuringNativeAnalysis
                 reject(signal.reason);
             };
             signal.addEventListener('abort', onAbort, {once: true});
-            if (signal.aborted) onAbort();
+            if (signal.aborted) {onAbort();}
         });
     });
     const service = createDetectionScenarioOwner(deps);
@@ -1035,7 +1035,7 @@ export async function scenarioStreamsEveryDetectionClassificationToTheSubscriber
         };
         let nextPage = 1;
         for (const batch of batches) {
-            for (; nextPage <= batch.lastPage; nextPage += 1) await analyzePage(nextPage);
+            for (; nextPage <= batch.lastPage; nextPage += 1) {await analyzePage(nextPage);}
             batch.entered.resolve(undefined);
             await batch.released.promise;
         }
@@ -1464,15 +1464,13 @@ export async function scenarioJoinsIdenticalDetectionWorkAndReplacesAChangedRequ
 export async function scenarioCoalescesBackToBackIdenticalDetectionRequestsBeforeStart(): Promise<void> {
 
     const {deps} = await previewDependencies();
-    deps.runWithDetectionLease = vi.fn(async (_ownerId, signal) => {
-        return await new Promise<never>((_resolve, reject) => {
-            if (signal.aborted) {
-                reject(signal.reason);
-                return;
-            }
-            signal.addEventListener('abort', () => reject(signal.reason), {once: true});
-        });
-    });
+    deps.runWithDetectionLease = vi.fn((_ownerId, signal) => new Promise<never>((_resolve, reject) => {
+        if (signal.aborted) {
+            reject(signal.reason);
+            return;
+        }
+        signal.addEventListener('abort', () => reject(signal.reason), {once: true});
+    }));
     const service = createDetectionScenarioOwner(deps);
     const owner = sender();
     const firstPromise = service.detectAll(owner, detectionRequest);
@@ -1883,7 +1881,7 @@ describe('scanCleanupDetectionLifecycleTest', () => {
             readRange: async () => [record],
             forEachChunk: async onChunk => {
                 chunkReads += 1;
-                if (chunkReads === 1) await firstChunk.promise;
+                if (chunkReads === 1) {await firstChunk.promise;}
                 await onChunk([record], 1);
             },
             close: vi.fn(async () => undefined),

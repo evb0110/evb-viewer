@@ -57,7 +57,7 @@ async function openStoreSink(output: string): Promise<TPageStructureSink> {
             }
         },
         read(into, at) {
-            if (handle.read(into, {at}) !== into.byteLength) throw new Error('The written file ended early');
+            if (handle.read(into, {at}) !== into.byteLength) {throw new Error('The written file ended early');}
         },
         finish() {
             handle.flush();
@@ -83,7 +83,7 @@ function createMemorySink(): TPageStructureSink {
             length = Math.max(length, end);
         },
         read(into, at) {
-            if (at + into.byteLength > length) throw new Error('The written output ended early');
+            if (at + into.byteLength > length) {throw new Error('The written output ended early');}
             into.set(buffer.subarray(at, at + into.byteLength));
         },
         finish: written => buffer.slice(0, written),
@@ -107,13 +107,13 @@ async function handlePageStructureRequest(
                     for (let done = 0; done < length; done += COPY_CHUNK_BYTES) {
                         const end = from + Math.min(length, done + COPY_CHUNK_BYTES);
                         const bytes = new Uint8Array(await sources[source]!.slice(from + done, end).arrayBuffer());
-                        if (bytes.byteLength !== end - from - done) throw new Error('The document ended before its cross-reference said');
+                        if (bytes.byteLength !== end - from - done) {throw new Error('The document ended before its cross-reference said');}
                         sink.write(bytes, at + done);
                     }
                 }
             },
         });
-        if (isBrowserPageOpsWasmFailure(result)) return result;
+        if (isBrowserPageOpsWasmFailure(result)) {return result;}
         const data = sink.finish(result.length);
         return {
             status: 'written',
@@ -121,7 +121,7 @@ async function handlePageStructureRequest(
             ...(data ? {data} : {}),
         };
     } catch (error) {
-        if (error instanceof DOMException && error.name === 'QuotaExceededError') return {status: 'storage-full'};
+        if (error instanceof DOMException && error.name === 'QuotaExceededError') {return {status: 'storage-full'};}
         throw error;
     } finally {
         sink.close();
@@ -212,16 +212,16 @@ async function postResponse(message: Record<string, unknown> & {ok: boolean}, tr
 }
 
 function handleEvictDocumentMessage(data: unknown): boolean {
-    if (typeof data !== 'object' || data === null) return false;
+    if (typeof data !== 'object' || data === null) {return false;}
     const record = data as Record<string, unknown>;
-    if (record.type !== EVICT_BROWSER_PAGE_OPS_DOCUMENT_MESSAGE_TYPE) return false;
+    if (record.type !== EVICT_BROWSER_PAGE_OPS_DOCUMENT_MESSAGE_TYPE) {return false;}
     evictCachedBrowserPageOpsDocument(typeof record.keyPrefix === 'string' ? record.keyPrefix : undefined);
     return true;
 }
 
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
-    if (handlePrecompiledWasmModuleMessage(event.data)) return;
-    if (handleEvictDocumentMessage(event.data)) return;
+    if (handlePrecompiledWasmModuleMessage(event.data)) {return;}
+    if (handleEvictDocumentMessage(event.data)) {return;}
     const request = parseBrowserPageOpsWorkerRequest(event.data);
     if (request === null) {
         const id = getBrowserPageOpsWorkerRequestId(event.data);

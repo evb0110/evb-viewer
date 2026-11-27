@@ -24,7 +24,7 @@ export function observePdfOpeningPageGeometry(options: {
         }
     });
     const stopCurrencyWatch = watch(options.isCurrent, (current) => {
-        if (!current) stop();
+        if (!current) {stop();}
     }, {flush: 'sync'});
     function stop() {
         observer.disconnect();

@@ -70,7 +70,7 @@ describe('browser document lifecycle UI', () => {
             await markup.waitFor({state: 'visible'});
             // Page fitting may change screen bounds without moving an annotation.
             const readMarkupBounds = () => markup.evaluate(element => {
-                if (!(element instanceof SVGGraphicsElement)) throw new Error('The Highlight is not SVG markup');
+                if (!(element instanceof SVGGraphicsElement)) {throw new Error('The Highlight is not SVG markup');}
                 const {
                     x, y, width, height,
                 } = element.getBBox();
@@ -96,11 +96,11 @@ describe('browser document lifecycle UI', () => {
             expect(await page.locator('.page_container [data-annotation-kind="note"]').count()).toBe(1);
             expect(await readMarkupBounds()).toEqual(original);
             const placementError = await markup.evaluate((element, bounds) => {
-                if (!(element instanceof SVGGraphicsElement)) throw new Error('The Highlight is not SVG markup');
+                if (!(element instanceof SVGGraphicsElement)) {throw new Error('The Highlight is not SVG markup');}
                 const matrix = element.getScreenCTM();
                 const marker = element.closest('.pdf-annotation-editor-layer')
                     ?.querySelector('[data-annotation-kind="note"]')?.getBoundingClientRect();
-                if (!matrix || !marker) throw new Error('The note placement is not rendered');
+                if (!matrix || !marker) {throw new Error('The note placement is not rendered');}
                 const center = new DOMPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2).matrixTransform(matrix);
                 return {
                     x: marker.x + marker.width / 2 - center.x,
@@ -258,7 +258,7 @@ describe('browser document lifecycle UI', () => {
                 const response = await route.fetch();
                 const body = await response.text();
                 const marker = 'const annotations = await getParsedPageAnnotations(pdfPage);';
-                if (!body.includes(marker)) throw new Error('PDF.js layer hydration fault seam was not found');
+                if (!body.includes(marker)) {throw new Error('PDF.js layer hydration fault seam was not found');}
                 const hold = readiness === 'hydrating'
                     ? 'document.body.dataset.optionalHydrationFault = "held"; annotationLayerDiv.dataset.hydrationFault = "held"; try { await new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), {once: true})); } finally { annotationLayerDiv.dataset.hydrationFault = "settled"; }'
                     : 'document.body.dataset.optionalHydrationFault = "refused"; const refusal = new Error("Injected optional annotation hydration refusal"); refusal.name = "AbortError"; throw refusal;';
@@ -292,7 +292,7 @@ describe('browser document lifecycle UI', () => {
                 exact: true,
             }).waitFor({state: 'visible'});
             const bounds = await pageContainer.boundingBox();
-            if (!bounds) throw new Error('The first PDF page is not visible');
+            if (!bounds) {throw new Error('The first PDF page is not visible');}
             await page.mouse.click(bounds.x + 200, bounds.y + 200);
             const input = page.getByRole('textbox', {
                 name: 'Write annotation note',
@@ -313,10 +313,10 @@ describe('browser document lifecycle UI', () => {
             const heldLayer = readiness === 'hydrating'
                 ? await pageContainer.locator('.annotation-layer[data-hydration-fault="held"]').elementHandle()
                 : null;
-            if (readiness === 'hydrating') expect(heldLayer).not.toBeNull();
+            if (readiness === 'hydrating') {expect(heldLayer).not.toBeNull();}
             const canvas = page.locator('.page_container--rendered canvas').first();
             const readCanvasWidth = () => canvas.evaluate(element => {
-                if (!(element instanceof HTMLCanvasElement)) throw new Error('The painted page is not a canvas');
+                if (!(element instanceof HTMLCanvasElement)) {throw new Error('The painted page is not a canvas');}
                 return element.width;
             });
             const width = await readCanvasWidth();
@@ -327,7 +327,7 @@ describe('browser document lifecycle UI', () => {
             }
             await placeNote.click();
             const replacementBounds = await pageContainer.boundingBox();
-            if (!replacementBounds) throw new Error('The replacement PDF page is not visible');
+            if (!replacementBounds) {throw new Error('The replacement PDF page is not visible');}
             await page.mouse.click(replacementBounds.x + 300, replacementBounds.y + 260);
             await input.fill('Draft retained until closing the replaced page');
             await page.getByRole('button', {name: 'Close tab'}).last().click();
@@ -375,7 +375,7 @@ describe('browser document lifecycle UI', () => {
                 const response = await route.fetch();
                 const body = await response.text();
                 const marker = 'usePdfAnnotationLayerRenderer({';
-                if (!body.includes(marker)) throw new Error('Required page-resource version seam was not found');
+                if (!body.includes(marker)) {throw new Error('Required page-resource version seam was not found');}
                 await route.fulfill({
                     response,
                     body: body.replace(marker, `${marker}
@@ -389,7 +389,7 @@ describe('browser document lifecycle UI', () => {
                 const response = await route.fetch();
                 const body = await response.text();
                 const marker = 'const annotations = await getParsedPageAnnotations(pdfPage);';
-                if (!body.includes(marker)) throw new Error('Required annotation producer seam was not found');
+                if (!body.includes(marker)) {throw new Error('Required annotation producer seam was not found');}
                 const hold = `const faultRoot = document.querySelector('.page_container[data-page="' + pageNumber + '"]');
                     const target = JSON.stringify([deps.getTestPageVersion(pageNumber), viewport.width, viewport.height]);
                     if (faultRoot?.getAttribute('data-required-hydration-fault') === 'armed'
@@ -410,7 +410,7 @@ describe('browser document lifecycle UI', () => {
                 const response = await route.fetch();
                 const body = await response.text();
                 const marker = 'onFire: () => {';
-                if (!body.includes(marker)) throw new Error('Existing stage-deadline observation seam was not found');
+                if (!body.includes(marker)) {throw new Error('Existing stage-deadline observation seam was not found');}
                 await route.fulfill({
                     response,
                     body: body.replace(marker, `${marker}
@@ -429,9 +429,9 @@ describe('browser document lifecycle UI', () => {
             await annotationCanvas.waitFor({state: 'visible'});
             const readCanvas = async (element: Element, selector: string) => {
                 const canvas = element.querySelector(selector);
-                if (!(canvas instanceof HTMLCanvasElement)) throw new Error('The appearance is not a painted canvas');
+                if (!(canvas instanceof HTMLCanvasElement)) {throw new Error('The appearance is not a painted canvas');}
                 const context = canvas.getContext('2d');
-                if (!context) throw new Error('The painted canvas has no pixel reader');
+                if (!context) {throw new Error('The painted canvas has no pixel reader');}
                 const width = canvas.width;
                 const height = canvas.height;
                 const rgba = context.getImageData(0, 0, width, height).data;
@@ -458,7 +458,7 @@ describe('browser document lifecycle UI', () => {
             });
             await placeNote.click();
             const bounds = await container.boundingBox();
-            if (!bounds) throw new Error('The original painted page is not visible');
+            if (!bounds) {throw new Error('The original painted page is not visible');}
             await page.mouse.click(bounds.x + 220, bounds.y + 240);
             const input = page.getByRole('textbox', {
                 name: 'Write annotation note',
@@ -519,7 +519,7 @@ describe('browser document lifecycle UI', () => {
             expect(await page.locator('body').getAttribute('data-required-hydration-deadline-fired')).toBeNull();
             expect(await selectedNote.count()).toBe(1);
             const retiredContainer = await container.elementHandle();
-            if (!retiredContainer) throw new Error('The replacement page is not mounted');
+            if (!retiredContainer) {throw new Error('The replacement page is not mounted');}
             await container.evaluate(element => {
                 element.setAttribute('data-required-hydration-baseline-width', String(element.getBoundingClientRect().width));
                 element.removeAttribute('data-required-hydration-target');
@@ -600,7 +600,7 @@ describe('browser document lifecycle UI', () => {
             await expect.poll(async () => {
                 const recovery = await readRecovery();
                 const texts = Array.from(recovery.notes);
-                if (!texts.includes(acceptedText)) return false;
+                if (!texts.includes(acceptedText)) {return false;}
                 initial = recovery;
                 return true;
             }, {timeout: 15_000}).toBe(true);

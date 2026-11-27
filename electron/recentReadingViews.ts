@@ -24,7 +24,7 @@ async function readAdmittedSource(documentPath: string, senderWebContentsId: num
     const mapped = getWorkingCopyOriginalPath(documentPath, senderWebContentsId);
     const version = getBaselineFileVersion(documentPath, senderWebContentsId);
     const originalPath = mapped ? parseDocumentRef(mapped.originalPath) : null;
-    if (originalPath && version) return {originalPath, ...readingViewSourceOf(version)};
+    if (originalPath && version) {return {originalPath, ...readingViewSourceOf(version)};}
     const djvu = await getAdmittedDjvuViewingSource(documentPath, senderWebContentsId);
     const djvuPath = djvu ? parseDocumentRef(djvu.originalPath) : null;
     return djvu && djvuPath

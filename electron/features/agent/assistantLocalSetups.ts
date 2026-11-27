@@ -25,7 +25,7 @@ async function isRetiredManagedExecutable(path: string, env: NodeJS.ProcessEnv) 
         const managed = await realpath(root).catch(() => resolve(root));
         for (const [directory, executable] of [[resolve(root), resolve(path)], [managed, candidate]]) {
             const child = relative(directory!, executable!);
-            if (!child || (!child.startsWith('..') && !isAbsolute(child))) return true;
+            if (!child || (!child.startsWith('..') && !isAbsolute(child))) {return true;}
         }
     }
     return false;
@@ -33,7 +33,7 @@ async function isRetiredManagedExecutable(path: string, env: NodeJS.ProcessEnv) 
 
 export async function isAssistantExecutable(path: string) {
     try {
-        if (!existsSync(path)) return false;
+        if (!existsSync(path)) {return false;}
         await access(path, process.platform === 'win32' ? constants.F_OK : constants.X_OK);
         return (await stat(path)).isFile();
     } catch {
@@ -60,7 +60,7 @@ export async function resolveInstalledAssistantExecutable(driver: TAssistantDriv
         ...executableNames(driver).map(name => join(home, '.local', 'bin', name)),
     ];
     for (const candidate of candidates) {
-        if (!await isRetiredManagedExecutable(candidate, env) && await isAssistantExecutable(candidate)) return resolve(candidate);
+        if (!await isRetiredManagedExecutable(candidate, env) && await isAssistantExecutable(candidate)) {return resolve(candidate);}
     }
     return null;
 }
@@ -77,7 +77,7 @@ export function identifyAssistantExecutable(driver: TAssistantDriver, executable
         let output = '';
         let settled = false;
         const finish = async (version: string | null) => {
-            if (settled) return;
+            if (settled) {return;}
             settled = true;
             clearTimeout(timer);
             await terminateDetachedChildProcess(child, 1_000).catch(() => false);
@@ -127,22 +127,22 @@ export async function discoverAssistantLocalSetups(env: NodeJS.ProcessEnv = proc
         for (const name of names.sort()) {
             const stem = process.platform === 'win32' ? name.replace(/\.(?:exe|cmd|bat)$/iu, '') : name;
             const driver = /^(codex|claude)(?:-[a-z0-9][a-z0-9._-]*)?$/iu.exec(stem)?.[1]?.toLowerCase();
-            if (driver !== 'codex' && driver !== 'claude') continue;
+            if (driver !== 'codex' && driver !== 'claude') {continue;}
             const path = resolve(directory, name);
-            if (driver === 'claude' && isUnsupportedClaudeSdkWrapper(path)) continue;
-            if (!await isRetiredManagedExecutable(path, env) && await isAssistantExecutable(path)) candidates.set(path, driver);
+            if (driver === 'claude' && isUnsupportedClaudeSdkWrapper(path)) {continue;}
+            if (!await isRetiredManagedExecutable(path, env) && await isAssistantExecutable(path)) {candidates.set(path, driver);}
         }
     }
     const defaults = await resolveDefaultAssistantSetups(env);
     const identities = new Set(defaults.map(assistantSetupIdentity));
     const identified = await Promise.all([...candidates].map(async ([binaryPath, driver]) => {
-        if (!await identifyAssistantExecutable(driver, binaryPath, env).catch(() => null)) return null;
+        if (!await identifyAssistantExecutable(driver, binaryPath, env).catch(() => null)) {return null;}
         const name = basename(binaryPath).replace(/\.(?:exe|cmd|bat)$/iu, '');
         // Windows names are case-insensitive: `Codex.exe` is the plain `codex` launcher.
         const isPlain = name.toLowerCase() === driver;
         const homePath = isPlain ? join(env.HOME || env.USERPROFILE || homedir(), `.${driver}`) : undefined;
         const identity = assistantSetupIdentity({driver, binaryPath, homePath});
-        if (identities.has(identity)) return null;
+        if (identities.has(identity)) {return null;}
         identities.add(identity);
         return {
             id: `local-${driver}-${createHash('sha256').update(identity).digest('hex').slice(0, 16)}`,

@@ -149,14 +149,14 @@ function readCheckpointFaultState(page: Page) {
         const root = await navigator.storage.getDirectory();
         const workspaces = await root.getDirectoryHandle('workspaces').catch(() => null);
         const checkpoints: string[] = [];
-        for await (const name of workspaces?.keys() ?? []) checkpoints.push(name);
+        for await (const name of workspaces?.keys() ?? []) {checkpoints.push(name);}
         const documents = await root.getDirectoryHandle('documents').catch(() => null);
         const manifests: Array<{next: number; drafts?: string; pendingPublish?: unknown; current?: {id: number; openOnly?: true}}> = [];
         for await (const [, dir] of documents?.entries() ?? []) {
             const manifest = await (dir as FileSystemDirectoryHandle).getFileHandle('manifest.json')
                 .then(async handle => JSON.parse(await (await handle.getFile()).text()) as {next: number; drafts?: string; pendingPublish?: unknown; current?: {id: number; openOnly?: true}})
                 .catch(() => null);
-            if (manifest) manifests.push(manifest);
+            if (manifest) {manifests.push(manifest);}
         }
         return {
             injectedFailures: Number(Reflect.get(window, '__injectedCheckpointWriteFailures') ?? 0),
@@ -253,7 +253,7 @@ describe('browser document lifecycle UI', () => {
             await settleActiveOpen(page);
             await addNote(page, NOTE, {x: 90, y: 100});
             await expect.poll(async () => (await readRecoveries(page)).some(record => record.notes.has(NOTE)), {timeout: 15_000}).toBe(true);
-            if (scenario === 'changed-elsewhere') await writeUserFile(page, Uint8Array.of(88), changedAt);
+            if (scenario === 'changed-elsewhere') {await writeUserFile(page, Uint8Array.of(88), changedAt);}
 
             killBrowser(profile);
             await context.close().catch(() => undefined);

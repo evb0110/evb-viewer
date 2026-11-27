@@ -470,7 +470,7 @@ describe('useAnnotationNoteWindows', () => {
         windows.handleOpenAnnotationNote(deps.annotationComments.value[0]!);
         windows.updateAnnotationNoteText(noteId, 'Rejected draft');
         deps.updateAnnotationCommentInViewer.mockImplementation(() => {
-            if (failureKind === 'rejection') throw new Error('Document refused note');
+            if (failureKind === 'rejection') {throw new Error('Document refused note');}
             return false;
         });
         expect(await windows.persistAnnotationNote(noteId)).toBe(false);
@@ -525,7 +525,7 @@ describe('useAnnotationNoteWindows', () => {
 
         try {
             windows.handleOpenAnnotationNote(comment);
-            if (draft === 'dirty') windows.updateAnnotationNoteText(noteId, 'Typed during the reload');
+            if (draft === 'dirty') {windows.updateAnnotationNoteText(noteId, 'Typed during the reload');}
             const draftText = draft === 'dirty' ? 'Typed during the reload' : 'Initial note';
 
             deps.annotationComments.value = [];

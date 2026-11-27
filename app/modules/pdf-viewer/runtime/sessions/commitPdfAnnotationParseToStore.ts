@@ -27,10 +27,10 @@ export function applyParsedHighlightTextToStore(options: {
 }) {
     // One pass over the parsed highlights, each looked up in the map.
     options.targetStore.batch(() => options.parsedEntities.forEach((parsed) => {
-        if (parsed.kind !== 'highlight') return;
+        if (parsed.kind !== 'highlight') {return;}
         const pdfRef = pdfAnnotationRefKey(parsed.objectNumber, parsed.generationNumber);
         const id = options.selectedTextByPdfRef.has(pdfRef) && options.targetStore.resolveExternal({pdfRef});
-        if (id) options.targetStore.updateTextMarkupSelectedText(id, options.selectedTextByPdfRef.get(pdfRef) ?? null, parsed.quadPoints);
+        if (id) {options.targetStore.updateTextMarkupSelectedText(id, options.selectedTextByPdfRef.get(pdfRef) ?? null, parsed.quadPoints);}
     }));
 }
 

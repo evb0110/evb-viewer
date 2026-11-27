@@ -140,7 +140,7 @@ describe('useAnnotationKeyboardCommands', () => {
         const surface = harness();
         const commands = useAnnotationKeyboardCommands({surface});
         const host = document.createElement(kind === 'contenteditable' ? 'div' : kind);
-        if (kind === 'contenteditable') host.contentEditable = 'true';
+        if (kind === 'contenteditable') {host.contentEditable = 'true';}
         const target = kind === 'contenteditable' ? host.appendChild(document.createElement('span')) : host;
         const event = new KeyboardEvent('keydown', {
             key: 'a',

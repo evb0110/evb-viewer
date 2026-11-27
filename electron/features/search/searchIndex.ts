@@ -335,7 +335,7 @@ function followProvisionalMatches(
             ...queryFields,
         }, controller.signal);
         const response = parseSearchResponse(raw);
-        if (controller.signal.aborted || (!reported && response.results.length === 0)) return;
+        if (controller.signal.aborted || (!reported && response.results.length === 0)) {return;}
         reported = true;
         onMatches({
             results: response.results,
@@ -356,7 +356,7 @@ function followProvisionalMatches(
             || controller.signal.aborted
             || chunks.length === 0
             || writtenBytes <= searchedBytes * PROVISIONAL_RESCAN_GROWTH
-        ) return;
+        ) {return;}
         const snapshot = concatUint8Arrays(chunks);
         searchedBytes = snapshot.byteLength;
         running = search(snapshot).catch((error: unknown) => {
@@ -375,7 +375,7 @@ function followProvisionalMatches(
     return async () => {
         controller.abort();
         build.followers.delete(follower);
-        while (running !== null) await running;
+        while (running !== null) {await running;}
     };
 }
 

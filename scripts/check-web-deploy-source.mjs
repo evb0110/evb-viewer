@@ -180,7 +180,7 @@ export function isRootVendorPath(relativePath) {
 // A file: dependency is a build input even when vendor archives are otherwise excluded.
 export function getWebDeployVendorDependencies(projectRoot = defaultProjectRoot) {
     const manifestPath = path.join(projectRoot, 'package.json');
-    if (!existsSync(manifestPath)) return new Set();
+    if (!existsSync(manifestPath)) {return new Set();}
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
     const dependencies = {
         ...manifest.dependencies,

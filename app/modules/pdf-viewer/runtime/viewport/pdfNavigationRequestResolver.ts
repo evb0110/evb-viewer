@@ -64,12 +64,12 @@ export async function resolvePdfNavigationTarget(
             rect: null,
         };
     }
-    if (!pdfDocument) throw new DOMException('Named destination requires a PDF document', 'AbortError');
+    if (!pdfDocument) {throw new DOMException('Named destination requires a PDF document', 'AbortError');}
     const destination = await resolveBookmarkDestinationTarget(pdfDocument, target.destination, signal);
     if (signal?.aborted) {
         throw new DOMException('PDF navigation was superseded', 'AbortError');
     }
-    if (!destination) throw new DOMException('Named destination could not be resolved', 'AbortError');
+    if (!destination) {throw new DOMException('Named destination could not be resolved', 'AbortError');}
     return {
         page: destination.page,
         rect: typeof destination.pageYRatio === 'number'

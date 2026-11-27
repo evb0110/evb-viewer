@@ -173,7 +173,7 @@ export function makeRealFilm(m: IFilmManifest) {
         let i = starts.findIndex(
             (st, k) => frame >= st && frame < st + m.steps[k]!.dur,
         );
-        if (i < 0) i = m.steps.length - 1;
+        if (i < 0) {i = m.steps.length - 1;}
         const step = m.steps[i]!;
         const local = frame - starts[i]!;
         const prev = i > 0 ? m.steps[i - 1]! : null;

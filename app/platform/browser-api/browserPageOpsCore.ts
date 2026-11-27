@@ -191,7 +191,7 @@ export function createOrderedPdfMerge(options: {
     return {
         append: (pdf: Uint8Array) => pages.push(pdf),
         async merge() {
-            if (pages.length < 2) return pages[0] ?? null;
+            if (pages.length < 2) {return pages[0] ?? null;}
             const result = await runBrowserPageOpsWorkerRequest('pageStructure', {
                 edit: {kind: 'merge'},
                 sources: pages.map(page => new Blob([page as Uint8Array<ArrayBuffer>])),

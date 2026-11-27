@@ -213,7 +213,7 @@ export const useAppShellTabLifecycle = (
     // transition queue for other tabs. It decides nothing: Close's own lease
     // turn reads the document's state.
     async function waitForTabOperationsToSettle(tabId: string) {
-        if (!hasTabBusyOperation(tabId)) return;
+        if (!hasTabBusyOperation(tabId)) {return;}
         notifyTabBusy(tabId);
         try {
             await until(() => hasTabBusyOperation(tabId)).toBe(false);
@@ -394,7 +394,7 @@ export const useAppShellTabLifecycle = (
         if (pane && closesTab && panes.value.length > 1 && pane.tabIds.length === 1) {
             await fence();
         }
-        if (pane && closesTab) closeTabInState(pane.paneId, tabId);
+        if (pane && closesTab) {closeTabInState(pane.paneId, tabId);}
         cleanupEmptyPanes();
         activateCloseHandoff(handoff);
     }
@@ -478,7 +478,7 @@ export const useAppShellTabLifecycle = (
         // A close that collapses a split ends once the views are placed, after
         // its tab transition, so the views see the fence fall with it.
         const transition = options.changeWorkspaceLayout(async (fence) => {
-            if (endRelease) await waitForTabOperationsToSettle(tabId);
+            if (endRelease) {await waitForTabOperationsToSettle(tabId);}
             await enqueueTabTransition(
                 () => closeTabDuringTransition(paneId, tabId, fence, endRelease),
                 {

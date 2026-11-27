@@ -91,8 +91,8 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     function presentInView(transactionId: string) {
         return until(computed((): TWorkspaceOpenFinish | null => {
             const failure = options.readOpenFailure();
-            if (activeOpen.value?.id !== transactionId) return {status: 'superseded'};
-            if (failure) return {status: 'failed', failure};
+            if (activeOpen.value?.id !== transactionId) {return {status: 'superseded'};}
+            if (failure) {return {status: 'failed', failure};}
             return options.documentOpenSettled.value ? {status: 'presented'} : null;
         })).not.toBeNull();
     }
@@ -161,8 +161,8 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
         }
         const presented = didPresent(finish);
         // A tab whose open did not present shows what it held before.
-        if (presented) options.onOpened();
-        else presentWhenShown();
+        if (presented) {options.onOpened();}
+        else {presentWhenShown();}
         // An open that fails on an empty tab gives the tab back to Start,
         // which then says why the file did not open. A generated result
         // belongs to the page that made it, which reports its own failure and

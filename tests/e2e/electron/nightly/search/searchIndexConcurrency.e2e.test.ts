@@ -156,7 +156,7 @@ describe('Electron E2E - concurrent search indexes', () => {
             const document = await PDFDocument.create();
             const template = i % 2 === 0 ? cjk : rtl;
             for (let batch = 0; batch < 256; batch++) {
-                for (const copied of await document.copyPages(template, template.getPageIndices())) document.addPage(copied);
+                for (const copied of await document.copyPages(template, template.getPageIndices())) {document.addPage(copied);}
             }
             document.getPages().at(-1)!.drawText(`fallbackfinaldoc${i}`, {
                 x: 72,
@@ -165,7 +165,7 @@ describe('Electron E2E - concurrent search indexes', () => {
             const path = join(dirname(cjkPath), `fallback-concurrency-${i}.pdf`);
             await writeFile(path, await document.save());
             pageCounts.push(document.getPageCount());
-            if (i > 0) await createNewWorkspaceTab(session);
+            if (i > 0) {await createNewWorkspaceTab(session);}
             await openPdfInApp(page, path, 120_000);
             paths.push(await getActiveWorkspaceWorkingCopyPath(page));
         }
@@ -253,7 +253,7 @@ describe('Electron E2E - concurrent search indexes', () => {
             ].includes(record.msg) || (record.data?.online === true && [
                 'Worker exited before returning a result',
                 'Worker exited while cancelling',
-            ].includes(record.msg))) active--;
+            ].includes(record.msg))) {active--;}
         }
         expect(started).toBeGreaterThan(admitted);
         expect(peak).toBeLessThanOrEqual(admitted);

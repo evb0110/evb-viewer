@@ -337,9 +337,9 @@ async function runBatchedScanCleanupDetection<TDocument>(
     scratch: string,
 ) {
     const fileSystem = dependencies.fileSystem;
-    if (!fileSystem) throw new Error('Scan cleanup detection requires injected filesystem capabilities');
+    if (!fileSystem) {throw new Error('Scan cleanup detection requires injected filesystem capabilities');}
     const getAvailableScratchBytes = dependencies.getAvailableScratchBytes;
-    if (!getAvailableScratchBytes) throw new Error('Scan cleanup detection requires injected scratch-budget capability');
+    if (!getAvailableScratchBytes) {throw new Error('Scan cleanup detection requires injected scratch-budget capability');}
     let sourceRasterStructure: IScanCleanupPageRasterSource | undefined;
     let geometryPages = 0;
     let expectedGeometryPageNumber = 1;
@@ -386,7 +386,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
         throw new Error('Scan cleanup detection could not resolve source raster facts');
     }
     const binary = dependencies.resolveBinary();
-    if (!binary) throw new ScanCleanupNativeToolUnavailableError('evb-scan-cleanup');
+    if (!binary) {throw new ScanCleanupNativeToolUnavailableError('evb-scan-cleanup');}
 
     recorder.sealGeometry();
 
@@ -632,10 +632,10 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     }
                 }
             } catch (error) {
-                if (getUnprovenNativeTerminationDetail(error) === undefined) await Promise.allSettled(pageNumbers.flatMap(pageNumber => [
+                if (getUnprovenNativeTerminationDetail(error) === undefined) {await Promise.allSettled(pageNumbers.flatMap(pageNumber => [
                     fileSystem.rm(scratchPathByPage.get(pageNumber)!, {force: true}),
                     retention.releaseRaster(document, pageNumber, analysisDpi(pageNumber)),
-                ]));
+                ]));}
                 throw error;
             }
         };
@@ -693,12 +693,12 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         );
                     }
                 } catch (error) {
-                    if (getUnprovenNativeTerminationDetail(error) === undefined) await fileSystem.rm(scratchPath, {force: true}).catch((cleanupError: unknown) => {
+                    if (getUnprovenNativeTerminationDetail(error) === undefined) {await fileSystem.rm(scratchPath, {force: true}).catch((cleanupError: unknown) => {
                         log(
                             'warn',
                             `Scan cleanup could not drop the partial detection raster at ${scratchPath}: ${getErrorMessage(cleanupError)}`,
                         );
-                    });
+                    });}
                     throw error;
                 }
             }),
@@ -716,7 +716,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             },
             onStaged: pageNumber => {
                 recordRasterizedPage(pageNumber);
-                if (batchRecorder.awaitingFirstVerdict) recorder.markProgress();
+                if (batchRecorder.awaitingFirstVerdict) {recorder.markProgress();}
             },
         });
         let batchCompleted = false;
@@ -737,7 +737,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 facingPairGeometry: sourcePage !== undefined && recorder.isFacingPair(sourcePage),
             };
             const alternate = sourcePage === undefined ? undefined : describeScanCleanupAlternateView(sourcePage, facts);
-            if (alternate !== undefined) alternateMediaByPage.set(pageNumber, alternate.media);
+            if (alternate !== undefined) {alternateMediaByPage.set(pageNumber, alternate.media);}
             return {
                 inputPath: stagedPathByPage.get(pageNumber)!,
                 ...facts,
@@ -787,7 +787,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     'mediabox',
                 );
             } catch (error) {
-                if (operationSignal.aborted || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+                if (operationSignal.aborted || getUnprovenNativeTerminationDetail(error) !== undefined) {throw error;}
                 log(
                     'warn',
                     `Scan cleanup kept the first-pass classification for page ${String(manifestPage.pageNumber)} because its MediaBox view failed: ${getErrorMessage(error)}`,
@@ -837,7 +837,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 }
             } catch (error) {
                 await stagedWindow.dispose({retainStaged: getUnprovenNativeTerminationDetail(error) !== undefined});
-                if (getUnprovenNativeTerminationDetail(error) === undefined) await releasePreStaged(new Set());
+                if (getUnprovenNativeTerminationDetail(error) === undefined) {await releasePreStaged(new Set());}
                 throw error;
             }
             recorder.markProgress();
@@ -1014,7 +1014,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             const cachePreStagedPages = retainPreStaged
                 ? new Set(rasterScope.slice(-Math.max(1, admission.windowPages)))
                 : new Set<number>();
-            if (!unproven) await releasePreStaged(cachePreStagedPages);
+            if (!unproven) {await releasePreStaged(cachePreStagedPages);}
         }
     }
 
@@ -1036,7 +1036,7 @@ export async function runScanCleanupDetection<TDocument>(
     log: TScanCleanupLog = () => undefined,
 ) {
     const fileSystem = dependencies.fileSystem;
-    if (!fileSystem) throw new Error('Scan cleanup detection requires injected filesystem capabilities');
+    if (!fileSystem) {throw new Error('Scan cleanup detection requires injected filesystem capabilities');}
     // The document opens first: a scratch directory created before it has
     // nothing to release if opening throws, and only this function removes it.
     const document = await retention.openDocument(request);
@@ -1102,12 +1102,12 @@ export async function runScanCleanupDetection<TDocument>(
         failure = error;
         throw error;
     } finally {
-        if (getUnprovenNativeTerminationDetail(failure) === undefined) await retention.release(document).catch(error => {
+        if (getUnprovenNativeTerminationDetail(failure) === undefined) {await retention.release(document).catch(error => {
             log(
                 'warn',
                 `Could not release scan-cleanup document: ${getErrorMessage(error)}`,
             );
-        });
+        });}
         if (scratchDir !== null && getUnprovenNativeTerminationDetail(failure) === undefined) {
             await preserveScanCleanupJsonEvidence(scratchDir, log, dependencies.evidenceDirectory, fileSystem).catch(error => {
                 log(

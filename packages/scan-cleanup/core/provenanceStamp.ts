@@ -514,7 +514,7 @@ function compareOutputMapping(left: IScanCleanupOutputMapping, right: IScanClean
 }
 
 function requiredNumber(value: number | undefined, name: string) {
-    if (value === undefined || !Number.isFinite(value) || value <= 0) throw new Error(`Missing finite positive ${name}`);
+    if (value === undefined || !Number.isFinite(value) || value <= 0) {throw new Error(`Missing finite positive ${name}`);}
     return value;
 }
 
@@ -528,8 +528,8 @@ function sortJsonValue(value: unknown): unknown {
             sortJsonValue(value[key]),
         ]));
     }
-    if (value === undefined) throw new Error('Cannot canonicalize undefined');
-    if (typeof value === 'number' && !Number.isFinite(value)) throw new Error('Cannot canonicalize non-finite number');
+    if (value === undefined) {throw new Error('Cannot canonicalize undefined');}
+    if (typeof value === 'number' && !Number.isFinite(value)) {throw new Error('Cannot canonicalize non-finite number');}
     return value;
 }
 

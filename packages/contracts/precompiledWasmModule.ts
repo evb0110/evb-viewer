@@ -19,9 +19,9 @@ export function isRealWasmModule(value: unknown): value is WebAssembly.Module {
  * the message is not a preload message or has invalid fields.
  */
 export function parsePrecompiledWasmModuleMessage(data: unknown): IPrecompiledWasmModuleMessage | null {
-    if (typeof data !== 'object' || data === null) return null;
+    if (typeof data !== 'object' || data === null) {return null;}
     const record = data as Record<string, unknown>;
-    if (record.type !== PRECOMPILED_WASM_MODULE_MESSAGE_TYPE) return null;
+    if (record.type !== PRECOMPILED_WASM_MODULE_MESSAGE_TYPE) {return null;}
     if (typeof record.path !== 'string' || record.path.length === 0 || !isRealWasmModule(record.module)) {
         return null;
     }

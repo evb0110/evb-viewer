@@ -89,7 +89,7 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
     const {
         start: startSuccessTimer, stop: stopSuccessTimer,
     } = useTimeoutFn(() => {
-        if (session.value?.state === 'success') finish(session.value, true);
+        if (session.value?.state === 'success') {finish(session.value, true);}
     }, 850, {immediate: false});
     const current = (value: ISnipSession) => session.value === value && !value.abort.signal.aborted;
     function setState(value: ISnipSession, next: ISnipSession['state']) {
@@ -104,7 +104,7 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
     function finish(value: ISnipSession, copied: boolean, cause?: unknown) {
         value.abort.abort(cause);
         value.completion.resolve(copied);
-        if (session.value !== value) return;
+        if (session.value !== value) {return;}
         stopSuccessTimer();
         session.value = null;
         dragStartPoint = null;
@@ -114,27 +114,27 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
     }
     function cancelCapture(retiring = false) {
         const value = session.value;
-        if (!value || value.state === 'copying' && !retiring) return;
+        if (!value || value.state === 'copying' && !retiring) {return;}
         const work = value.state === 'capturing' || value.state === 'copying' ? value.work : undefined;
         finish(value, value.state === 'success');
         return work;
     }
     function fail(value: ISnipSession, error: unknown) {
-        if (!current(value)) return;
+        if (!current(value)) {return;}
         if (!isAbortError(error)) {
-            if (isFailurePresentation(error)) presentFailureToast(error);
+            if (isFailurePresentation(error)) {presentFailureToast(error);}
             else if (error instanceof DOMException && (error.name === 'NotSupportedError' || error.name === 'SecurityError')) {
                 presentNoticeToast({
                     tone: 'warning',
                     title: t('toolbar.captureFailed'),
                     description: t(error.name === 'NotSupportedError' ? 'toolbar.captureUnsupported' : 'toolbar.captureSourceRefused'),
                 });
-            } else presentFailureToast({
+            } else {presentFailureToast({
                 failure: getFailureReceipt(error) ?? BrowserLogger.error('pdf-snip', 'Failed to capture the current PDF view', error, {code: 'RENDERER_WORKSPACE_OPERATION_FAILED'}),
                 title: t('toolbar.captureFailed'),
                 description: t('toolbar.captureFailureReason', {message: getErrorMessage(error)}),
                 technicalDetails: getErrorMessage(error),
-            });
+            });}
         }
         finish(value, false, error);
     }
@@ -285,7 +285,7 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
             selectionRect.value = toLocalRect(plan.outputRect, overlay);
             setState(value, 'preparing');
             await value.preparation;
-            if (!current(value)) return;
+            if (!current(value)) {return;}
             value.assertCurrent();
             setState(value, 'confirming');
         } catch (error) {fail(value, error);}
@@ -294,7 +294,7 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         const {
             plan, overlay, target,
         } = value;
-        if (!options.viewerContainer.value || !plan?.outputRect || !overlay || !target || !value.assertCurrent) throw new Error('The current capture target is unavailable');
+        if (!options.viewerContainer.value || !plan?.outputRect || !overlay || !target || !value.assertCurrent) {throw new Error('The current capture target is unavailable');}
         const rect = plan.outputRect;
         const assertCurrent = () => {
             value.assertCurrent?.();
@@ -342,7 +342,7 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
                 assertCurrent,
             });
         } finally {
-            if (current(value) && value.state === 'capturing') setState(value, 'preparing');
+            if (current(value) && value.state === 'capturing') {setState(value, 'preparing');}
         }
     }
     async function copySelection(value: ISnipSession) {
@@ -363,19 +363,19 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
     }
     function confirmCapture() {
         const value = session.value;
-        if (value?.state !== 'confirming') return;
+        if (value?.state !== 'confirming') {return;}
         value.work = copySelection(value);
     }
     function handleKeyboardKey(event: KeyboardEvent) {
-        if (!isActive.value) return false;
+        if (!isActive.value) {return false;}
         if (event.key === 'Escape') {event.preventDefault(); void cancelCapture(); return true;}
         if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
             event.preventDefault();
-            if (state.value === 'confirming') confirmCapture();
+            if (state.value === 'confirming') {confirmCapture();}
             else if (state.value === 'selecting') {
                 const overlay = getOverlayRect();
                 if (overlay) {rebaseKeyboardSelection(overlay); void completeSelectionRect(keyboardSelection ?? createKeyboardSelection(overlay), overlay);}
-                else void cancelCapture();
+                else {void cancelCapture();}
             }
             return true;
         }
@@ -384,7 +384,7 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
             'ArrowRight',
             'ArrowUp',
             'ArrowDown',
-        ].includes(event.key)) return false;
+        ].includes(event.key)) {return false;}
         event.preventDefault();
         updateKeyboardSelection(event);
         return true;
@@ -415,16 +415,16 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         return value;
     }
     function startCaptureSession() {
-        if (!options.viewerContainer.value) return Promise.resolve(false);
+        if (!options.viewerContainer.value) {return Promise.resolve(false);}
         if (session.value) {void cancelCapture(); return Promise.resolve(false);}
         return createSession().completion.promise;
     }
     async function captureVisibleRegionAsPng(selection: IClientRect, assertRequestCurrent: () => void = () => {}) {
-        if (!hasElectronAPI()) throw new DOMException('Assistant view capture is unavailable in the browser', 'NotSupportedError');
-        if (session.value) throw new Error('An image capture is already in progress');
+        if (!hasElectronAPI()) {throw new DOMException('Assistant view capture is unavailable in the browser', 'NotSupportedError');}
+        if (session.value) {throw new Error('An image capture is already in progress');}
         assertRequestCurrent();
         const overlay = getOverlayRect();
-        if (!overlay) throw new Error('The initiating capture view is unavailable');
+        if (!overlay) {throw new Error('The initiating capture view is unavailable');}
         const value = createSession();
         const operation = (async () => {
             await completeSelectionRect(selection, overlay);
@@ -439,15 +439,15 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         value.work = operation.then(() => undefined, () => undefined);
         try {return await operation;} finally {finish(value, false);}
     }
-    useEventListener(options.viewerContainer, 'scroll', () => {if (session.value?.plan) void cancelCapture();}, {passive: true});
-    useEventListener(window, 'resize', () => {if (session.value?.plan) void cancelCapture();});
-    watch(getViewState, () => {if (session.value?.plan) void cancelCapture();});
+    useEventListener(options.viewerContainer, 'scroll', () => {if (session.value?.plan) {void cancelCapture();}}, {passive: true});
+    useEventListener(window, 'resize', () => {if (session.value?.plan) {void cancelCapture();}});
+    watch(getViewState, () => {if (session.value?.plan) {void cancelCapture();}});
     const unsubscribe = options.document.subscribe(transition => {
         return transition.phase === 'invalidated' ? cancelCapture(true) : undefined;
     });
     options.document.registerDisposable(() => {unsubscribe(); return cancelCapture(true);});
     onBeforeUnmount(() => {unsubscribe(); void cancelCapture(true); stopSuccessTimer();});
-    const setCropTarget = (element: Element | null) => {if (session.value) session.value.target = element ?? undefined;};
+    const setCropTarget = (element: Element | null) => {if (session.value) {session.value.target = element ?? undefined;}};
     provide(pdfRegionSnipKeyboardKey, {
         handleKeyboardKey,
         state,

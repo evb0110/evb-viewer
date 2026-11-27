@@ -60,11 +60,11 @@ export function createBrowserScanCleanupJobRegistry<TState extends IJobState, TR
         options.onState(state);
     };
     const settle = (record: IRecord<TState>, state: TState) => {
-        if (record.settled) return;
+        if (record.settled) {return;}
         record.settled = true;
         store(record, state);
         setTimeout(() => {
-            if (records.get(state.jobId) !== record) return;
+            if (records.get(state.jobId) !== record) {return;}
             records.delete(state.jobId);
             options.onRetired({jobId: state.jobId, status: 'retired'});
         }, TERMINAL_RECORD_TTL_MS);
@@ -93,7 +93,7 @@ export function createBrowserScanCleanupJobRegistry<TState extends IJobState, TR
                     const result = await input.run({
                         signal,
                         publish: state => {
-                            if (!record.settled) store(record, state);
+                            if (!record.settled) {store(record, state);}
                         },
                         latest: () => record.state,
                     });
@@ -118,18 +118,18 @@ export function createBrowserScanCleanupJobRegistry<TState extends IJobState, TR
         },
         cancel(jobId: string, owner: IScanCleanupOwnerContext, reason: string): TBrowserScanCleanupJobCancel {
             const record = records.get(jobId);
-            if (record === undefined || !owns(record, owner)) return 'not-found';
-            if (record.settled) return 'settled';
-            if (record.controller.signal.aborted) return 'canceled';
-            if (options.cancelable?.(record.state) === false) return 'refused';
-            if (options.canceling !== undefined) store(record, options.canceling(record.state));
+            if (record === undefined || !owns(record, owner)) {return 'not-found';}
+            if (record.settled) {return 'settled';}
+            if (record.controller.signal.aborted) {return 'canceled';}
+            if (options.cancelable?.(record.state) === false) {return 'refused';}
+            if (options.canceling !== undefined) {store(record, options.canceling(record.state));}
             record.controller.abort(new DOMException(reason, 'AbortError'));
             return 'canceled';
         },
         /** Cancels every live job; for window teardown. */
         cancelAll(reason: string) {
             for (const record of records.values()) {
-                if (!record.settled) record.controller.abort(new DOMException(reason, 'AbortError'));
+                if (!record.settled) {record.controller.abort(new DOMException(reason, 'AbortError'));}
             }
         },
     };

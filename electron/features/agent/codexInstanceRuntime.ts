@@ -174,13 +174,13 @@ export class CodexInstanceRuntime {
                 do {
                     const page: Record<string, unknown> = await client.requestDecoded('model/list', {includeHidden: false, ...(cursor ? {cursor} : {})}, decodeRecord, CODEX_CONTROL_TIMEOUT_MS);
                     const models = normalizeCodexModelListResponse(page);
-                    if (!models) throw new Error('Codex returned an invalid model catalog.');
+                    if (!models) {throw new Error('Codex returned an invalid model catalog.');}
                     for (const model of models) {
-                        if (!result.models.some(existing => existing.id === model.id)) result.models.push(model);
+                        if (!result.models.some(existing => existing.id === model.id)) {result.models.push(model);}
                     }
                     cursor = typeof page.nextCursor === 'string' && page.nextCursor ? page.nextCursor : null;
-                    if (cursor && cursors.has(cursor)) throw new Error('Codex repeated a model catalog page.');
-                    if (cursor) cursors.add(cursor);
+                    if (cursor && cursors.has(cursor)) {throw new Error('Codex repeated a model catalog page.');}
+                    if (cursor) {cursors.add(cursor);}
                 } while (cursor);
 
             } catch (error) {

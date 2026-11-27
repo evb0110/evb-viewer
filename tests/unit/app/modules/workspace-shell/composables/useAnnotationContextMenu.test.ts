@@ -152,9 +152,9 @@ describe('#1608 annotation action feedback', () => {
                 openAnnotationNoteWindow: () => {}, handleAnnotationToolChange: () => true,
             })))!;
             try {
-                if (action === 'create note') await actions.createContextMenuFreeNote();
-                else if (action === 'copy selection') await actions.copyContextMenuSelectionText();
-                else await actions.handleCopyAnnotationComment(cast<IAnnotationCommentSummary>({text: 'Comment words'}));
+                if (action === 'create note') {await actions.createContextMenuFreeNote();}
+                else if (action === 'copy selection') {await actions.copyContextMenuSelectionText();}
+                else {await actions.handleCopyAnnotationComment(cast<IAnnotationCommentSummary>({text: 'Comment words'}));}
                 expect(messages.join(' '), 'I1: a failed enabled action must explain its failure').toMatch(
                     action === 'create note' ? /note|annotation/i : /cop|clipboard/i,
                 );

@@ -88,10 +88,10 @@ export const usePdfSearchHighlight = () => {
         const elements = segments.flatMap(segment => segment.element ? [segment.element] : []);
         const ranges = segments.flatMap(segment => segment.range ? [segment.range] : []);
         for (const element of painted.result.currentMatchElements) {
-            if (!elements.includes(element)) element.classList.remove(HIGHLIGHT_CURRENT_CLASS);
+            if (!elements.includes(element)) {element.classList.remove(HIGHLIGHT_CURRENT_CLASS);}
         }
         for (const element of elements) {
-            if (!element.classList.contains(HIGHLIGHT_CURRENT_CLASS)) element.classList.add(HIGHLIGHT_CURRENT_CLASS);
+            if (!element.classList.contains(HIGHLIGHT_CURRENT_CLASS)) {element.classList.add(HIGHLIGHT_CURRENT_CLASS);}
         }
         const ids = cssState.layerRangeIds.get(textLayerDiv);
         if (ids) {
@@ -100,9 +100,9 @@ export const usePdfSearchHighlight = () => {
                 ...segments,
             ]);
             for (const segment of changed) {
-                if (!segment.range || !segment.id) continue;
+                if (!segment.range || !segment.id) {continue;}
                 const current = ranges.includes(segment.range);
-                if (ids.current.has(segment.id) === current) continue;
+                if (ids.current.has(segment.id) === current) {continue;}
                 const from = current ? HIGHLIGHT_API_NAME : HIGHLIGHT_API_CURRENT_NAME;
                 const to = current ? HIGHLIGHT_API_CURRENT_NAME : HIGHLIGHT_API_NAME;
                 CSS.highlights.get(from)?.delete(segment.range);
@@ -132,11 +132,11 @@ export const usePdfSearchHighlight = () => {
                 runIndex,
                 run,
             ] of runs.entries()) {
-                if (run.kind !== 'span' || !runOverlaps[runIndex]?.length) continue;
+                if (run.kind !== 'span' || !runOverlaps[runIndex]?.length) {continue;}
                 if (painted.mode === 'css' && run.textNode) {
                     for (const match of runOverlaps[runIndex]) {
                         const [entry] = createHighlightRangesInSpan(run.textNode, run.startOffset, [match], [match]);
-                        if (!entry) continue;
+                        if (!entry) {continue;}
                         const id = `pdf-${painted.pageMatches.pageIndex}-${run.startOffset}-${painted.segments.length}`;
                         registerHighlightRange(cssState, textLayerDiv, entry.range, false, id);
                         painted.segments.push({
@@ -163,7 +163,7 @@ export const usePdfSearchHighlight = () => {
                     }
                 }
             }
-            if (painted.mode === 'css') updateHighlightAPI(cssState, HIGHLIGHT_API_NAME, HIGHLIGHT_API_CURRENT_NAME);
+            if (painted.mode === 'css') {updateHighlightAPI(cssState, HIGHLIGHT_API_NAME, HIGHLIGHT_API_CURRENT_NAME);}
             painted.matches = matches;
         }
         updateCurrent(textLayerDiv, painted, matches);
@@ -215,10 +215,10 @@ export const usePdfSearchHighlight = () => {
         const layer = painted;
         void reconcileVisualMatches(pageMatches, layer.text, layer.assembled, controller.signal)
             .then(reconciled => {
-                if (controller.signal.aborted) return;
+                if (controller.signal.aborted) {return;}
                 paintVisualMatches(textLayerDiv, layer, reconciled, currentMatch);
             }).catch((error: unknown) => {
-                if (!controller.signal.aborted) BrowserLogger.warn('pdf-search', 'Failed to reconcile search highlights', error);
+                if (!controller.signal.aborted) {BrowserLogger.warn('pdf-search', 'Failed to reconcile search highlights', error);}
             });
         return painted.result;
     }

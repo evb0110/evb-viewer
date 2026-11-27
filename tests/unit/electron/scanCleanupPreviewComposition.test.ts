@@ -178,7 +178,7 @@ it.each([
 
         expect.soft(isWorkingCopyQuarantined(previewRequest.sourcePdfPath), 'close must preserve a source with an unproven native reader').toBe(true);
         expect.soft(existsSync(inputPath), 'the unproven reader must retain its raster input').toBe(true);
-        if (existsSync(inputPath)) await expect(readFile(inputPath)).resolves.toEqual(inputBytes);
+        if (existsSync(inputPath)) {await expect(readFile(inputPath)).resolves.toEqual(inputBytes);}
     } finally {
         await service.dispose();
         await pending;
@@ -579,8 +579,8 @@ export async function scenarioReleasesPreviewArtifactsAfterExplicitCancellation(
     await expect(pending).rejects.toMatchObject({name: 'AbortError'});
     await vi.waitFor(async () => {
         const entries = await readdir(dir, {recursive: true});
-        if (retainRawCache) expect(entries.some(entry => entry.endsWith('.png'))).toBe(true);
-        else expect(entries.filter(entry => entry.endsWith('.png'))).toHaveLength(0);
+        if (retainRawCache) {expect(entries.some(entry => entry.endsWith('.png'))).toBe(true);}
+        else {expect(entries.filter(entry => entry.endsWith('.png'))).toHaveLength(0);}
         expect(entries.some(entry => entry.includes('scan-cleanup-preview-'))).toBe(false);
     });
     await service.dispose();
@@ -1423,7 +1423,7 @@ export async function scenarioSchedulesAPageSwitchDuringDetectionInsteadOfPiling
     const heldDetectionRasters = Promise.withResolvers<undefined>();
     const originalRenderPage = deps.renderPage;
     deps.renderPage = vi.fn((...args) => trackNative(async () => {
-        if (args[2] > 3) await heldDetectionRasters.promise;
+        if (args[2] > 3) {await heldDetectionRasters.promise;}
         await originalRenderPage(
             args[0],
             args[1],
@@ -1623,7 +1623,7 @@ export async function scenarioPreservesComposedResourcesAcrossTwoOwnersAndDispos
         const closed = {value: false};
         let reads = 0;
         const assertOpen = () => {
-            if (closed.value) throw new Error('page-size store is closed');
+            if (closed.value) {throw new Error('page-size store is closed');}
         };
         const store: IPdfPageSizeStore = {
             pageCount: DOCUMENT_PAGE_SIZES.length,
@@ -1996,7 +1996,7 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 input.brokerRun,
                 async () => {
                     const held = getActiveJobBrokerLease(input.brokerRun);
-                    if (held) observedLeaseTokens.detectionBatch.push(held.token);
+                    if (held) {observedLeaseTokens.detectionBatch.push(held.token);}
                     const results = [];
                     for (const target of input.targets) {
                         await writeFile(target.outputPath, PNG);
@@ -2014,7 +2014,7 @@ describe('scanCleanupPreviewCompositionTest', () => {
                 args[13],
                 async () => {
                     const held = getActiveJobBrokerLease(args[13]);
-                    if (held) observedLeaseTokens.previewRender.push(held.token);
+                    if (held) {observedLeaseTokens.previewRender.push(held.token);}
                     await originalRenderPage(...args);
                 },
             ));
@@ -2030,13 +2030,13 @@ describe('scanCleanupPreviewCompositionTest', () => {
                         }>;
                     };
                     if (manifest.operation !== 'analyze') {
-                        if (held) observedLeaseTokens.previewSidecar.push(held.token);
+                        if (held) {observedLeaseTokens.previewSidecar.push(held.token);}
                         previewEntered.resolve(undefined);
                         await releasePreview.promise;
                         await originalSidecar(binary, manifestPath, signal, log, onProgress, options);
                         return;
                     }
-                    if (held) observedLeaseTokens.detectionSidecar.push(held.token);
+                    if (held) {observedLeaseTokens.detectionSidecar.push(held.token);}
                     // Wait until preview also holds its bulk slot so bulk capacity is 100% full,
                     // then demand pages 2 and 3 while the detection sidecar stays running.
                     await previewEntered.promise;
@@ -2185,7 +2185,7 @@ describe('scanCleanupPreviewCompositionTest', () => {
         deps.isRasterDetectionAvailable = () => true;
         deps.detectRasterPages = vi.fn(async (_sourcePdfPath, _signal, pageNumbers: readonly number[] = [], brokerRun) => {
             const activeLease = getActiveJobBrokerLease(brokerRun, mainJobBroker);
-            if (activeLease) observedProbeLeases.push(activeLease.token);
+            if (activeLease) {observedProbeLeases.push(activeLease.token);}
             return createScanCleanupPageRasterSource({
                 pages: pageNumbers,
                 sourceDpiByPage: new Map(pageNumbers.map((pageNumber: number) => [

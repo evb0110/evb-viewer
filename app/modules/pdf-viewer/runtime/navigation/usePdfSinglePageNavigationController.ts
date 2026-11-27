@@ -460,7 +460,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                     });
                     requireIntentDocument(intent, signal);
                     const currentRange = getRange();
-                    if (settled && currentRange.start >= range.start && currentRange.end <= range.end) break;
+                    if (settled && currentRange.start >= range.start && currentRange.end <= range.end) {break;}
                     range = currentRange;
                 }
             }
@@ -489,7 +489,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             });
         },
         beforeApply: async (intent, signal) => {
-            if (signal.aborted) return;
+            if (signal.aborted) {return;}
             await nextTick();
             requireIntentDocument(intent, signal);
             refreshGeometry();
@@ -570,7 +570,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             navigationTicket: ticket,
         };
         const captured = captureIntentDocument(intent, ticket);
-        if (!captured) return null;
+        if (!captured) {return null;}
         refreshGeometry();
         return viewportAuthority.submit(intent);
     }
@@ -580,8 +580,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             navigationRestartRequested = true;
             return false;
         }
-        if (!isNavigationTicketCurrent(ticket)) return false;
-        if (!isNavigationRuntimeReady()) return false;
+        if (!isNavigationTicketCurrent(ticket)) {return false;}
+        if (!isNavigationRuntimeReady()) {return false;}
         // A cancelled attempt is replayed only by the readiness watch below:
         // every input that can cancel a live ticket (document, geometry,
         // readiness) is one of its sources.
@@ -593,11 +593,11 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 message: `PDF viewport navigation ${ticket.id} failed`,
             });
         }).finally(() => {
-            if (activeNavigationTicket !== ticket) return;
+            if (activeNavigationTicket !== ticket) {return;}
             activeNavigationTicket = null;
             if (navigationRestartRequested) {
                 navigationRestartRequested = false;
-                if (isNavigationTicketCurrent(ticket)) startNavigationTicket(ticket);
+                if (isNavigationTicketCurrent(ticket)) {startNavigationTicket(ticket);}
             }
         });
         return true;
@@ -644,11 +644,11 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 documentRevision: options.getDocumentRevision(),
                 navigation: request,
             };
-            if (!captureIntentDocument(intent)) return false;
+            if (!captureIntentDocument(intent)) {return false;}
             void viewportAuthority.submit(intent);
             return true;
         }
-        if (!ticket) return false;
+        if (!ticket) {return false;}
         intentSequence += 1;
         startNavigationTicket(ticket);
         return ticket;
@@ -925,7 +925,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         if (!holdOpeningTicket) {
             viewportAuthority.observeUserScroll(anchor);
         }
-        if (container && observeWritePort) options.viewportWritePort.observeUserScroll(container);
+        if (container && observeWritePort) {options.viewportWritePort.observeUserScroll(container);}
         return viewportAuthority.currentPage.value;
     }
 
@@ -1003,7 +1003,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         const ticketMatches = ticket !== null && (!source || ticket.request.source === source);
         const activeMatches = activeIntent?.navigation !== undefined && (!source || activeIntent.navigation.source === source);
         const hasDestinationDemand = ticketMatches || activeMatches;
-        if (!source || hasDestinationDemand) wheelFlipGate.reset();
+        if (!source || hasDestinationDemand) {wheelFlipGate.reset();}
         logPdfRenderTrace('navigation-destination-intent-cancelled', () => ({
             commandPage: navigationAnchorPage.value,
             pendingPage: viewportAuthority.pendingTargetPage.value,
@@ -1046,7 +1046,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
 
     function handleWheel(event: IPdfSinglePageWheelEvent, deltaPx = event.deltaY) {
         const container = options.viewerContainer.value;
-        if (options.continuousScroll.value || !container) return false;
+        if (options.continuousScroll.value || !container) {return false;}
         const packet = {
             cancelable: event.cancelable,
             deltaMode: event.deltaMode,
@@ -1054,7 +1054,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             timeStamp: event.timeStamp,
         };
         if (!deltaPx || Math.abs(event.deltaY) < Math.abs(event.deltaX)) {
-            if (!wheelFlipGate.consumeGestureJitter(packet)) return false;
+            if (!wheelFlipGate.consumeGestureJitter(packet)) {return false;}
             event.preventDefault();
             return true;
         }
@@ -1066,7 +1066,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             viewMode: options.viewMode.value,
             scaledMargin: options.scaledMargin.value,
         });
-        if (!bounds) return false;
+        if (!bounds) {return false;}
         if (canScrollWithinPageBounds(container, bounds, dir)) {
             wheelFlipGate.recordInteriorScroll(packet);
             return false;
@@ -1077,12 +1077,12 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         }
         const page = navigationAnchorPage.value ?? viewportAuthority.currentPage.value;
         const target = resolveWheelTargetPage(page, options.viewMode.value, options.numPages.value, dir);
-        if (target === page) return false;
+        if (target === page) {return false;}
         event.preventDefault();
         if (submitPageNavigation(toPageNumber(target), {
             navigationSource: 'wheel',
             alignPageBottom: dir < 0,
-        }) === false) return false;
+        }) === false) {return false;}
         wheelFlipGate.recordFlip(dir, packet);
         return true;
     }
@@ -1107,7 +1107,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         // was minted. Replaying the complete ticket is safe because the
         // ticket id remains the sole ordering key and an active execution is
         // coalesced until its causal cancellation has settled.
-        if (ticket) startNavigationTicket(ticket);
+        if (ticket) {startNavigationTicket(ticket);}
     }, {
         flush: 'post',
         immediate: true,
@@ -1133,7 +1133,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         place,
         resumeNavigation: () => {
             const ticket = navigationTicket.value;
-            if (ticket) startNavigationTicket(ticket);
+            if (ticket) {startNavigationTicket(ticket);}
         },
         revealSearchNavigationTarget: (page: number, scrollOptions?: IScrollToPageOptions) => submitPageNavigation(toPageNumber(page), {
             ...scrollOptions,

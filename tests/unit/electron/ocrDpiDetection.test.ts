@@ -372,7 +372,7 @@ describe('ocr dpi detection', () => {
             activeProbes += 1;
             peakProbes = Math.max(peakProbes, activeProbes);
             enteredProbes += 1;
-            if (enteredProbes === 4) firstBatchEntered.resolve(undefined);
+            if (enteredProbes === 4) {firstBatchEntered.resolve(undefined);}
             await firstBatchEntered.promise;
             try {
                 const firstPage = Number(args[args.indexOf('-f') + 1]);

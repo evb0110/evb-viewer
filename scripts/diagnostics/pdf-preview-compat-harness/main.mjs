@@ -25,7 +25,7 @@ const args = Object.fromEntries(process.argv.slice(2).map((argument) => {
     ];
 }));
 
-if (!args.pdf) throw new Error('--pdf is required');
+if (!args.pdf) {throw new Error('--pdf is required');}
 const pdfPath = resolve(args.pdf);
 const outputDirectory = resolve(args.out ?? '.devkit/pdf-preview-compat');
 const pdfjsRoot = resolve(args.pdfjs ?? 'node_modules/pdfjs-dist-codex-preview');
@@ -33,7 +33,7 @@ const requestedPages = (args.pages ?? '').split(',')
     .map(value => Number(value))
     .filter(value => Number.isSafeInteger(value) && value > 0);
 const scale = Number(args.scale ?? '1.3333333333333333');
-if (!Number.isFinite(scale) || scale <= 0) throw new Error('--scale must be positive');
+if (!Number.isFinite(scale) || scale <= 0) {throw new Error('--scale must be positive');}
 
 const html = String.raw`<!doctype html>
 <html>
@@ -123,7 +123,7 @@ const server = createServer(async (request, response) => {
         if (url.pathname.startsWith('/pdfjs/')) {
             const relativePath = url.pathname.slice('/pdfjs/'.length);
             const requestedPath = resolve(pdfjsRoot, relativePath);
-            if (!requestedPath.startsWith(`${pdfjsRoot}/`)) throw new Error('Invalid asset path');
+            if (!requestedPath.startsWith(`${pdfjsRoot}/`)) {throw new Error('Invalid asset path');}
             response.writeHead(200, {'Content-Type': contentType(requestedPath)});
             response.end(await readFile(requestedPath));
             return;
@@ -140,7 +140,7 @@ await app.whenReady();
 await mkdir(outputDirectory, {recursive: true});
 await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen));
 const address = server.address();
-if (typeof address !== 'object' || address === null) throw new Error('Server did not bind');
+if (typeof address !== 'object' || address === null) {throw new Error('Server did not bind');}
 
 const consoleMessages = [];
 const window = new BrowserWindow({

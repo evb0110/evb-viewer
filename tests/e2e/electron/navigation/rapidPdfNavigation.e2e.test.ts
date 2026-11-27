@@ -903,7 +903,7 @@ describe('Electron E2E - bookmark destination viewport presentation', () => {
                     };
                     (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe = probe;
                     document.addEventListener('pointerdown', (event) => {
-                        if (event.isTrusted) probe.inputAtMs = event.timeStamp;
+                        if (event.isTrusted) {probe.inputAtMs = event.timeStamp;}
                     }, {
                         once: true,
                         capture: true,
@@ -911,7 +911,7 @@ describe('Electron E2E - bookmark destination viewport presentation', () => {
                     const startedAt = performance.now();
                     const firstVisibleAt = new Map<number, number>();
                     const sample = () => {
-                        if (probe.stopped) return;
+                        if (probe.stopped) {return;}
                         const viewport = document.querySelector<HTMLElement>(
                             '.editor-pane.is-active .workspace-host[data-workspace-active="true"] #pdf-viewer',
                         );
@@ -935,7 +935,7 @@ describe('Electron E2E - bookmark destination viewport presentation', () => {
                                 )).filter(isPainted).map((page) => {
                                     const rect = page.getBoundingClientRect();
                                     const pageNumber = Number(page.dataset.page);
-                                    if (!firstVisibleAt.has(pageNumber)) firstVisibleAt.set(pageNumber, performance.now());
+                                    if (!firstVisibleAt.has(pageNumber)) {firstVisibleAt.set(pageNumber, performance.now());}
                                     const skeletons = Array.from(page.querySelectorAll<HTMLElement>('.document-page-skeleton'));
                                     // A white padding sliver is page paper, not
                                     // perceived loading ink. Count actual bars,
@@ -981,7 +981,7 @@ describe('Electron E2E - bookmark destination viewport presentation', () => {
                 await waitForAnimationFrames(session.page, 5);
                 const frames = await session.page.evaluate(() => {
                     const probe = (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe;
-                    if (!probe) throw new Error('Bookmark destination frame sampler is missing');
+                    if (!probe) {throw new Error('Bookmark destination frame sampler is missing');}
                     probe.stopped = true;
                     return probe.frames;
                 });
@@ -1031,7 +1031,7 @@ describe('Electron E2E - bookmark destination viewport presentation', () => {
         } finally {
             await session.page.evaluate(() => {
                 const probe = (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe;
-                if (probe) probe.stopped = true;
+                if (probe) {probe.stopped = true;}
                 delete (window as IBookmarkViewportProbeWindow).__evbBookmarkViewportProbe;
             }).catch(() => undefined);
             await session.command('windowResize', [
@@ -1417,10 +1417,10 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             const dimensions = await session.page.evaluate(() => {
                 const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
                 const cover = viewer?.querySelector<HTMLElement>('.page_container[data-page="1"]');
-                if (!viewer || !cover) throw new Error('Missing cover or viewport');
+                if (!viewer || !cover) {throw new Error('Missing cover or viewport');}
                 const rect = cover.getBoundingClientRect();
                 const track = viewer.querySelector<HTMLElement>('[data-pdf-page-track]');
-                if (!track) throw new Error('Missing page track');
+                if (!track) {throw new Error('Missing page track');}
                 const gap = Number.parseFloat(getComputedStyle(track).columnGap);
                 const scrollbar = viewer.offsetWidth - viewer.clientWidth;
                 // The old policy hides the bar once the shrunken spread fits,
@@ -1466,7 +1466,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             // A transient canvas between two resize invalidations is not recovery.
             await session.page.waitForFunction(() => {
                 const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
-                if (!viewer) return false;
+                if (!viewer) {return false;}
                 const bounds = viewer.getBoundingClientRect();
                 const visible = Array.from(viewer.querySelectorAll<HTMLElement>('.page_container'))
                     .filter((page) => {
@@ -1478,7 +1478,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             }, { timeout: 10_000 });
             const observation = await session.page.evaluate(() => {
                 const viewer = document.querySelector<HTMLElement>('#pdf-viewer');
-                if (!viewer) throw new Error('Missing viewer');
+                if (!viewer) {throw new Error('Missing viewer');}
                 return {
                     scrollTop: viewer.scrollTop,
                     clientHeight: viewer.clientHeight,
@@ -2232,7 +2232,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
             testWindow.__trustedFastScrollSamples = [];
             testWindow.__trustedFastScrollCount = 0;
             element.addEventListener('scroll', event => {
-                if (event.isTrusted) testWindow.__trustedFastScrollCount = (testWindow.__trustedFastScrollCount ?? 0) + 1;
+                if (event.isTrusted) {testWindow.__trustedFastScrollCount = (testWindow.__trustedFastScrollCount ?? 0) + 1;}
             }, {passive: true});
             const sample = () => {
                 const viewerRect = element.getBoundingClientRect();
@@ -2609,7 +2609,7 @@ describe('Electron E2E - PDF Page Jump Rendering', () => {
                         && style.display !== 'none'
                         && style.visibility !== 'hidden';
                 });
-                if (!button) return null;
+                if (!button) {return null;}
                 const rect = button.getBoundingClientRect();
                 return {
                     ariaDisabled: button.getAttribute('aria-disabled'),
@@ -4007,7 +4007,7 @@ describe('Electron E2E - deliberate navigation to a page whose buffer raster fai
         const session = sessionFixture.getSession();
         const warnings: string[] = [];
         const collectWarning = (message: {text(): string}) => {
-            if (/Skipping page 2 render due to invalid/.test(message.text())) warnings.push(message.text());
+            if (/Skipping page 2 render due to invalid/.test(message.text())) {warnings.push(message.text());}
         };
         session.page.on('console', collectWarning);
         try {
@@ -4263,7 +4263,7 @@ describe('Electron E2E - failed prefetch feedback', () => {
         ));
         await session.page.evaluate(async () => {
             const pdfjs = (window as IPageRenderGateWindow).pdfjsLib;
-            if (!pdfjs) throw new Error('PDF.js is not loaded');
+            if (!pdfjs) {throw new Error('PDF.js is not loaded');}
             if (!pdfjs.GlobalWorkerOptions.workerSrc) {
                 pdfjs.GlobalWorkerOptions.workerSrc = new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
             }
@@ -4291,13 +4291,13 @@ describe('Electron E2E - failed prefetch feedback', () => {
         } finally {
             await session.page.evaluate(() => {
                 const restore = Reflect.get(window, '__restorePrefetchViewport');
-                if (typeof restore === 'function') restore();
+                if (typeof restore === 'function') {restore();}
             });
         }
         const delta = await session.page.evaluate(() => {
             const viewport = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer');
             const page = document.querySelector<HTMLElement>('.editor-pane.is-active .page_container[data-page="2"]');
-            if (!viewport || !page) throw new Error('Expected the buffered page near the viewport');
+            if (!viewport || !page) {throw new Error('Expected the buffered page near the viewport');}
             return page.getBoundingClientRect().top - viewport.getBoundingClientRect().top - 10;
         });
         await wheelPdfViewportAndWaitForSettlement(session.page, delta);
@@ -4312,11 +4312,11 @@ describe('Electron E2E - failed prefetch feedback', () => {
         const pixels = await session.page.evaluate(() => {
             const canvas = document.querySelector<HTMLCanvasElement>('.page_container[data-page="2"] .page_canvas canvas');
             const context = canvas?.getContext('2d');
-            if (!canvas || !context) throw new Error('Expected the recovered page canvas');
+            if (!canvas || !context) {throw new Error('Expected the recovered page canvas');}
             const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
             let ink = 0;
             for (let index = 0; index < data.length; index += 128) {
-                if (data[index + 3]! > 0 && Math.min(data[index]!, data[index + 1]!, data[index + 2]!) < 220) ink += 1;
+                if (data[index + 3]! > 0 && Math.min(data[index]!, data[index + 1]!, data[index + 2]!) < 220) {ink += 1;}
             }
             return {
                 width: canvas.width,

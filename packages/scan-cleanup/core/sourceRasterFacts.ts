@@ -113,7 +113,7 @@ export function reduceScanCleanupRasterRows(rows: Iterable<IScanCleanupRasterRow
     }
     for (const pageNumber of bilevelPages) {
         const raster = rasterByPage.get(pageNumber);
-        if (!raster) continue;
+        if (!raster) {continue;}
         raster.hasBilevelLayer = true;
         const dominantArea = raster.width * raster.height;
         const largestBilevelRaster = largestBilevelRasterByPage.get(pageNumber);
@@ -139,7 +139,7 @@ export function reduceScanCleanupRasterRows(rows: Iterable<IScanCleanupRasterRow
                 right.width * right.height - left.width * left.height
                 || right.dpi - left.dpi,
             )[0];
-        if (background) raster.backgroundDpi = background.dpi;
+        if (background) {raster.backgroundDpi = background.dpi;}
     }
 
     return withDerivedPageDpi({
@@ -170,7 +170,7 @@ export function toScanCleanupPageRasterSource(
 ): ISourceDpiDetectionResult {
     let compactLayeredPageCount = 0;
     for (const raster of result.rasterByPage.values()) {
-        if (isScanCleanupCompactLayeredRaster(raster)) compactLayeredPageCount += 1;
+        if (isScanCleanupCompactLayeredRaster(raster)) {compactLayeredPageCount += 1;}
     }
     return {
         detected: result.rasterByPage.size > 0,

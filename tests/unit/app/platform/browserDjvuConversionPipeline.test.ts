@@ -940,8 +940,8 @@ describe('browserDjvuConversionPipeline', () => {
         const pageTwoEncoded = Promise.withResolvers<void>();
         mocks.combineWorker.mockImplementation(async (_type: string, payload: {wasmImagePreprocessing: {pageSpecs: Array<{image: {fileName: string}}>}}) => {
             const fileName = payload.wasmImagePreprocessing.pageSpecs[0]!.image.fileName;
-            if (fileName === 'page-1.ppm') await pageTwoEncoded.promise;
-            else pageTwoEncoded.resolve();
+            if (fileName === 'page-1.ppm') {await pageTwoEncoded.promise;}
+            else {pageTwoEncoded.resolve();}
             return {data: new TextEncoder().encode(`[${fileName}]`)};
         });
         mocks.pageOps.mockImplementation(async (_type: string, payload: {sources: Blob[]}) => ({

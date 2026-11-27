@@ -143,7 +143,7 @@ function createScanCleanupDetectionLifecycle(): IScanCleanupDetectionLifecycle {
             activeJobs.set(ownerId, job);
         },
         clearActiveJob(ownerId, jobId) {
-            if (activeJobs.get(ownerId)?.jobId === jobId) activeJobs.delete(ownerId);
+            if (activeJobs.get(ownerId)?.jobId === jobId) {activeJobs.delete(ownerId);}
         },
         async dispose() {
             const stores = [...ownedResultStores.values()];
@@ -331,7 +331,7 @@ export function scanCleanupDetectionOwner(
         };
         const stop = onSenderLifetimeEnd(sender, () => void close(), {navigation: true});
         resultStoreOwnerBindings.set(ownerKey, {close});
-        if (sender.isDestroyed()) void close();
+        if (sender.isDestroyed()) {void close();}
     };
     const resolvePlacementAnchorCalibration = async (
         _sender: IScanCleanupDetectionSubscriber,
@@ -439,7 +439,7 @@ export function scanCleanupDetectionOwner(
                     let sourcePdfPath = request.sourcePdfPath;
                     try {
                         const runWithLease = dependencies.runWithDetectionLease;
-                        if (!runWithLease) throw new Error('Scan cleanup detection requires injected admission capability');
+                        if (!runWithLease) {throw new Error('Scan cleanup detection requires injected admission capability');}
                         const rasterPolicy = dependencies.resolveRasterAdmissionPolicy(request.options);
                         return await runWithLease(
                             brokerOwnerId(sender, request),
@@ -556,7 +556,7 @@ export function scanCleanupDetectionOwner(
                         );
                     } catch (error) {
                         const detail = getUnprovenNativeTerminationDetail(error);
-                        if (detail !== undefined) quarantineWorkingCopy(sourcePdfPath, detail);
+                        if (detail !== undefined) {quarantineWorkingCopy(sourcePdfPath, detail);}
                         throw error;
                     }
                 },
@@ -634,7 +634,7 @@ export function scanCleanupDetectionOwner(
     const disposeResultStoreOwnerBindings = async () => {
         await Promise.all([...resultStoreOwnerBindings.values()].map(binding => binding.close()));
         resultStoreOwnerBindings.clear();
-        for (const closeRetirement of workingCopyCloseRetirements.values()) closeRetirement.complete();
+        for (const closeRetirement of workingCopyCloseRetirements.values()) {closeRetirement.complete();}
         workingCopyCloseRetirements.clear();
     };
     return {

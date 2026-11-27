@@ -418,7 +418,7 @@ export function requestAgentCommand(
         return Promise.reject(createAbortError('Agent renderer request was aborted by the caller.'));
     }
     const requestId = createRequestId('agent-command');
-    if (onSuccessor) commandSuccessorHandlers.set(requestId, onSuccessor);
+    if (onSuccessor) {commandSuccessorHandlers.set(requestId, onSuccessor);}
     const effectiveTimeoutMs = resolveAgentCommandRequestTimeoutMs(command, timeoutMs);
     const request: IAgentCommandRequest = {
         requestId,

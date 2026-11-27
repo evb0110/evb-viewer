@@ -461,10 +461,10 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         resetInternalDragState();
         clickSkip = true;
 
-        if (insertAt === null) return;
+        if (insertAt === null) {return;}
         if (!reorderContext?.compactMove) {
             const order = buildNewOrder(insertAt, reorderContext);
-            if (order) onReorder(order);
+            if (order) {onReorder(order);}
             return;
         }
         const move = createPageMoveRanges(
@@ -472,7 +472,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             reorderContext.compactMove.ranges,
             insertAt,
         );
-        if (isPageMoveRangesNoOp(move)) return;
+        if (isPageMoveRangesNoOp(move)) {return;}
 
         const [
             onlyRange,
@@ -481,12 +481,12 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
         const operation: TPageMoveOperation = onlyRange && !secondRange
             ? createPageMoveRange(move.pageCount, onlyRange.startPage, onlyRange.endPage, move.insertAt)
             : move;
-        if (onMove) onMove(operation);
-        else onReorder(
+        if (onMove) {onMove(operation);}
+        else {onReorder(
             'ranges' in operation
                 ? buildPageMoveRangesOrder(operation)
                 : buildPageMoveOrder(operation),
-        );
+        );}
     }
 
     function handleMouseDown(e: MouseEvent, page: number) {

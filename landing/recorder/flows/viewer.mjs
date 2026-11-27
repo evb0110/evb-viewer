@@ -68,11 +68,11 @@ export default async function flow(win, rec, {
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
             const value = node.nodeValue.replace(pattern, shown);
-            if (value !== node.nodeValue) node.nodeValue = value;
+            if (value !== node.nodeValue) {node.nodeValue = value;}
         }
         for (const element of document.querySelectorAll('[title]')) {
             const value = element.title.replace(pattern, shown);
-            if (value !== element.title) element.title = value;
+            if (value !== element.title) {element.title = value;}
         }
     }, {
         roots: [
@@ -257,7 +257,7 @@ export default async function flow(win, rec, {
     for (let tick = 0; tick < 600; tick++) {
         await win.waitForTimeout(400);
         const text = await dialog.innerText().catch(() => '');
-        if (text.includes(complete)) break;
+        if (text.includes(complete)) {break;}
         const status = text.split('\n').find((line) => /\d+\s*\/\s*\d+/.test(line)) ?? '';
         if (status && status !== last) {
             last = status;

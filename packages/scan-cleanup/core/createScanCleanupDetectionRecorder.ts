@@ -224,7 +224,7 @@ export function createScanCleanupDetectionRecorder({
             clearTimeout(trailingReadOnlyPublish);
             trailingReadOnlyPublish = null;
         }
-        if (!readOnlyProgressDirty || signal.aborted) return;
+        if (!readOnlyProgressDirty || signal.aborted) {return;}
         const now = Date.now();
         const interval = compatibilityResults === null
             ? LARGE_PROGRESS_PUBLISH_INTERVAL_MS
@@ -270,7 +270,7 @@ export function createScanCleanupDetectionRecorder({
         isFacingPair: facingPairGeometry.isFacingPair,
         /** Fixes the baseline canvas once every geometry page is added, and publishes the first frame. */
         sealGeometry() {
-            if (!Number.isFinite(matchedPreviewDpi)) matchedPreviewDpi = PREVIEW_DPI;
+            if (!Number.isFinite(matchedPreviewDpi)) {matchedPreviewDpi = PREVIEW_DPI;}
             baselineCanvasSignature = scanCleanupDocumentCanvasSignature(
                 request.options.matchPageSize
                     ? resolveScanCleanupDocumentCanvasFromAccumulator(
@@ -324,8 +324,8 @@ export function createScanCleanupDetectionRecorder({
                     sourceDpi,
                     includeContentBoxes,
                 });
-                if (isFirstClassification) await resultStore.append(result);
-                else await resultStore.replace(input.sourcePageNumber, result);
+                if (isFirstClassification) {await resultStore.append(result);}
+                else {await resultStore.replace(input.sourcePageNumber, result);}
                 batchResults.set(input.sourcePageNumber, result);
                 batchSourcePages.set(input.sourcePageNumber, sourcePage);
                 compatibilityResults?.set(input.sourcePageNumber, result);
@@ -357,7 +357,7 @@ export function createScanCleanupDetectionRecorder({
                         added += 1;
                     }
                     rasterizedPages += added;
-                    if (added > 0) markProgress();
+                    if (added > 0) {markProgress();}
                 },
                 /** One page's analysis raster exists; counted once however often it is rendered. */
                 markRasterized(pageNumber: number) {
@@ -397,12 +397,12 @@ export function createScanCleanupDetectionRecorder({
                         firstVerdictsComplete = true;
                     }
                     if (input.verdict.classification === undefined || input.verdict.confidence === undefined) {
-                        if (clearedActive) markProgress();
+                        if (clearedActive) {markProgress();}
                         return;
                     }
                     await recordResult(input);
                     if (!shouldPublishLargeProgress(analyzedPages >= totalPages)) {
-                        if (clearedActive) markProgress();
+                        if (clearedActive) {markProgress();}
                         return;
                     }
                     readOnlyProgressDirty = false;
@@ -420,7 +420,7 @@ export function createScanCleanupDetectionRecorder({
                     const clearedActive = activePageTracker.finish(input.sourcePageNumber);
                     reportPage(input.sourcePageNumber);
                     if (input.verdict.classification === undefined || input.verdict.confidence === undefined) {
-                        if (clearedActive) markProgress();
+                        if (clearedActive) {markProgress();}
                         return;
                     }
                     const previousPlan = batchResults.get(input.sourcePageNumber)?.pagePlanEvidence;
@@ -432,7 +432,7 @@ export function createScanCleanupDetectionRecorder({
                         batch.startOffset + input.completedPages,
                     );
                     if (!planChanged && !shouldPublishLargeProgress(completedUnits >= totalPages)) {
-                        if (clearedActive) markProgress();
+                        if (clearedActive) {markProgress();}
                         return;
                     }
                     readOnlyProgressDirty = false;
@@ -451,7 +451,7 @@ export function createScanCleanupDetectionRecorder({
                     for (const [
                         pageNumber,
                         result,
-                    ] of batchResults) addResolvedPage(batchSourcePages.get(pageNumber)!, result);
+                    ] of batchResults) {addResolvedPage(batchSourcePages.get(pageNumber)!, result);}
                 },
             };
         },
@@ -467,7 +467,7 @@ export function createScanCleanupDetectionRecorder({
             activePageTracker.clear();
             // The last frame carries the canvas of every page's final layout.
             layoutEvidenceComplete = true;
-            if (documentCanvasSignature() !== publishedCanvasSignature) readOnlyProgressDirty = true;
+            if (documentCanvasSignature() !== publishedCanvasSignature) {readOnlyProgressDirty = true;}
             publishReadOnlyProgress(true);
             const placementAnchorSummary = usesScanCleanupInkAlignment(request.options)
                 ? await buildScanCleanupPlacementAnchorSummary({
@@ -488,7 +488,7 @@ export function createScanCleanupDetectionRecorder({
             await resultStore.forEachChunk(results => {
                 signal.throwIfAborted();
                 for (const result of results) {
-                    if (result.recommendedOutputModeReason === 'blank') blankPageCount += 1;
+                    if (result.recommendedOutputModeReason === 'blank') {blankPageCount += 1;}
                 }
             });
             return {

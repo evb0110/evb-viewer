@@ -76,7 +76,7 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
 
     function setDisplayMode(mode: TDocumentBookmarkDisplayMode) {
         displayMode.value = mode;
-        if (mode === 'top-level') expandedIds.value = new Set();
+        if (mode === 'top-level') {expandedIds.value = new Set();}
     }
 
     function toggleExpanded(id: string) {
@@ -85,10 +85,10 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
             expandedIds: expandedIds.value,
             activePathIds: activePathIds.value,
         });
-        if (displayMode.value !== 'top-level') displayMode.value = 'top-level';
+        if (displayMode.value !== 'top-level') {displayMode.value = 'top-level';}
         const next = new Set(expandedIds.value);
-        if (wasExpanded) next.delete(id);
-        else next.add(id);
+        if (wasExpanded) {next.delete(id);}
+        else {next.add(id);}
         expandedIds.value = next;
     }
 
@@ -105,8 +105,8 @@ export const useDocumentBookmarkSession = (options: IUseDocumentBookmarkSessionO
         void load();
     }, {flush: 'post'});
     watch(options.isActive, (active) => {
-        if (active) void load();
-        else cancel();
+        if (active) {void load();}
+        else {cancel();}
     }, {immediate: true});
     onScopeDispose(cancel);
 

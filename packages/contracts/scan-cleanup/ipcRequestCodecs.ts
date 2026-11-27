@@ -167,7 +167,7 @@ const pageOverrideInputCaps = v.rawCheck(({
     dataset, addIssue,
 }) => {
     const value = dataset.value;
-    if (!isRecord(value)) return;
+    if (!isRecord(value)) {return;}
     const keys = Object.keys(value);
     if (keys.length > SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES) {
         addIssue({message: 'too many scan-cleanup page overrides'});
@@ -177,11 +177,11 @@ const pageOverrideInputCaps = v.rawCheck(({
     let vertices = 0;
     for (const key of keys) {
         const override = value[key];
-        if (!isRecord(override) || !isRecord(override.manualZones)) continue;
+        if (!isRecord(override) || !isRecord(override.manualZones)) {continue;}
         const {
             picture, fill,
         } = override.manualZones;
-        if (!Array.isArray(picture) || !Array.isArray(fill)) continue;
+        if (!Array.isArray(picture) || !Array.isArray(fill)) {continue;}
         zones += picture.length + fill.length;
         if (zones > SCAN_CLEANUP_INPUT_MAX_ZONES
             || picture.length + fill.length > SCAN_CLEANUP_INPUT_MAX_ZONES_PER_PAGE) {
@@ -194,7 +194,7 @@ const pageOverrideInputCaps = v.rawCheck(({
         ]) {
             for (const zone of zones as unknown[]) {
                 const polygon = isRecord(zone) && 'polygon' in zone ? zone.polygon : zone;
-                if (!isRecord(polygon) || !Array.isArray(polygon.points)) continue;
+                if (!isRecord(polygon) || !Array.isArray(polygon.points)) {continue;}
                 if (polygon.points.length > SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_POLYGON) {
                     addIssue({message: 'too many vertices in fill zone or picture zone'});
                     return;
@@ -552,7 +552,7 @@ export function decodeScanCleanupPageOverride(value: unknown, budget = createSca
     ];
     consumeScanCleanupZones(budget, polygons.length, 'manual zones');
     const vertices = polygons.reduce((count, polygon) => count + polygon.points.length, 0);
-    if (vertices > SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE) throw new Error('too many scan-cleanup manual-zone vertices on one page');
+    if (vertices > SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE) {throw new Error('too many scan-cleanup manual-zone vertices on one page');}
     consumeScanCleanupVertices(budget, vertices, 'manual-zone vertices');
     return parsed;
 }
@@ -567,7 +567,7 @@ export function decodeScanCleanupPageOverrides(value: unknown, budget = createSc
         ];
         consumeScanCleanupZones(budget, polygons.length, 'manual zones');
         const vertices = polygons.reduce((count, polygon) => count + polygon.points.length, 0);
-        if (vertices > SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE) throw new Error('too many scan-cleanup manual-zone vertices on one page');
+        if (vertices > SCAN_CLEANUP_INPUT_MAX_VERTICES_PER_PAGE) {throw new Error('too many scan-cleanup manual-zone vertices on one page');}
         consumeScanCleanupVertices(budget, vertices, 'manual-zone vertices');
     }
     return parsed;
@@ -591,6 +591,6 @@ export function decodeScanCleanupPageOverrideEdits(value: unknown, budget = crea
         ]) => override !== null),
     ), budget);
     const edits: Record<string, (typeof overrides)[string] | null> = {};
-    for (const page of Object.keys(parsed)) edits[page] = overrides[page] ?? null;
+    for (const page of Object.keys(parsed)) {edits[page] = overrides[page] ?? null;}
     return edits;
 }

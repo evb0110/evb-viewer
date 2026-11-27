@@ -208,7 +208,7 @@ function completedOutputJournal(initial: readonly TDocumentRef[]) {
         getPendingCompletedOutputs: async () => [...pending],
         acknowledgeCompletedOutputs: async (paths: readonly TDocumentRef[]) => {
             acknowledged.push(...paths);
-            for (const path of paths) pending.delete(path);
+            for (const path of paths) {pending.delete(path);}
         },
     };
 }
@@ -1286,7 +1286,7 @@ describe('scan cleanup run coordinator', () => {
             await nextTick();
             await expectRouting('after unmount while the active getter still returns true', false, unmount);
         } finally {
-            if (mounted) unmount();
+            if (mounted) {unmount();}
             cleanup();
         }
     });
@@ -2109,7 +2109,7 @@ describe('scan cleanup run coordinator', () => {
             createTab: ({activate}) => {
                 const id = `tab-${String(nextTab++)}`;
                 tabs.value = [...tabs.value, {id}];
-                if (activate) activeTabId.value = id;
+                if (activate) {activeTabId.value = id;}
                 const session = documentSessions.getSession(id)!;
                 session.attachWorkspace(id, createWorkspaceExposeFixture({
                     handleOpenFileWithResult: async (target) => {
@@ -2239,7 +2239,7 @@ describe('scan cleanup run coordinator', () => {
             createTab: ({activate}) => {
                 const id = `tab-${String(nextTab++)}`;
                 tabs.value = [...tabs.value, {id}];
-                if (activate) activeTabId.value = id;
+                if (activate) {activeTabId.value = id;}
                 const session = documentSessions.getSession(id)!;
                 session.attachWorkspace(id, createWorkspaceExposeFixture({
                     handleOpenFileWithResult: async (target) => {

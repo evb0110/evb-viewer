@@ -77,7 +77,7 @@ export function createPageOpsHostImports(memory: () => WebAssembly.Memory) {
     const view = (pointer: number, len: number) => new Uint8Array(memory().buffer, pointer >>> 0, len >>> 0);
     const call = (run: (open: NonNullable<typeof openFiles>) => void) => {
         const open = openFiles;
-        if (!open) return -1;
+        if (!open) {return -1;}
         try {
             run(open);
             return 0;
@@ -211,11 +211,11 @@ export function runFileRequest(
     writeU32(view, FILE_REQUEST_HEADER.sourceCount, file.sourceCount);
     writeU32(view, FILE_REQUEST_HEADER.afterPage, toWasmU32(file.afterPage ?? 0));
     let offset = writeU32(view, FILE_REQUEST_HEADER.pageCount, pages.length);
-    for (const page of pages) offset = writeU32(view, offset, toWasmU32(page));
+    for (const page of pages) {offset = writeU32(view, offset, toWasmU32(page));}
     request.set(payload, offset);
     const result = pageOpsWasm.callLoaded(tool, request, {
         afterRun: () => {
-            if (openFiles?.error !== undefined) throw openFiles.error;
+            if (openFiles?.error !== undefined) {throw openFiles.error;}
         },
         rethrowNonTrapErrors: true,
         ...(options?.skipHighWaterRelease ? {skipHighWaterRelease: true} : {}),
@@ -225,7 +225,7 @@ export function runFileRequest(
 
 /** A WRITTEN_HEADER answer: what the engine wrote, and a save's identity bindings as JSON after it. */
 function readWritten(output: Uint8Array | IBrowserPageOpsWasmFailure) {
-    if (isBrowserPageOpsWasmFailure(output)) return output;
+    if (isBrowserPageOpsWasmFailure(output)) {return output;}
     const written = new DataView(output.buffer, output.byteOffset, output.byteLength);
     if (output.byteLength < WRITTEN_HEADER.bytes || written.getUint32(WRITTEN_HEADER.kind, true) !== RESPONSE_WRITTEN) {
         return createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
@@ -260,7 +260,7 @@ export async function runPageStructureEdit(
             ...(edit.kind === 'insert' ? {afterPage: edit.afterPage} : {}),
             ...('pages' in edit ? {pages: edit.pages} : {}),
         }));
-        if (isBrowserPageOpsWasmFailure(written)) return written;
+        if (isBrowserPageOpsWasmFailure(written)) {return written;}
         await files.copy(open.copies);
         const verified = readWritten(runFileRequest(exports, {operation: PAGE_STRUCTURE_OPERATIONS.verify, sourceCount: 0}));
         return isBrowserPageOpsWasmFailure(verified) ? verified : {pageCount: verified.pageCount, length: verified.length};
@@ -336,7 +336,7 @@ export function createSyncBlobSource(blob: Blob, reader: ISyncBlobReader) {
         size: blob.size,
         read(into: Uint8Array, at: number) {
             const length = into.byteLength;
-            if (length === 0) return;
+            if (length === 0) {return;}
             if (!Number.isSafeInteger(at) || at < 0 || at + length > blob.size) {
                 throw new Error('The document ended before its cross-reference said');
             }
@@ -410,8 +410,8 @@ export async function appendPdfMutations(
     })));
     if ('instructions' in request) {
         const written = await append(request.pagePdfs.map(bytesSource), OPERATION_CODES.ocrTextLayer, request.instructions);
-        if (isBrowserPageOpsWasmFailure(written)) return written;
-        if (written.length <= base) return createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');
+        if (isBrowserPageOpsWasmFailure(written)) {return written;}
+        if (written.length <= base) {return createWasmFailure('invalid-request', 'Page operation WASM returned malformed output');}
         pageCount = written.pageCount;
         document.size = written.length;
     } else {
@@ -426,7 +426,7 @@ export async function appendPdfMutations(
                 OPERATION_CODES.saveMutations,
                 {mutations, modifiedAt: request.modifiedAt},
             );
-            if (isBrowserPageOpsWasmFailure(written)) return written;
+            if (isBrowserPageOpsWasmFailure(written)) {return written;}
             let bindings: unknown;
             try {
                 bindings = JSON.parse(new TextDecoder().decode(written.tail));
@@ -460,11 +460,11 @@ export async function appendPdfMutationsToBytes(data: Uint8Array, request: IPdfA
     let length = data.byteLength;
     const result = await appendPdfMutations({
         read(into, at) {
-            if (at + into.byteLength > length) throw new Error('The document ended before its cross-reference said');
+            if (at + into.byteLength > length) {throw new Error('The document ended before its cross-reference said');}
             into.set(buffer.subarray(at, at + into.byteLength));
         },
         write(bytes, at) {
-            if (at < data.byteLength) throw new Error('An append cannot write over its document');
+            if (at < data.byteLength) {throw new Error('An append cannot write over its document');}
             if (at + bytes.byteLength > buffer.byteLength) {
                 const grown = new Uint8Array(Math.max(at + bytes.byteLength, buffer.byteLength * 2));
                 grown.set(buffer.subarray(0, length));

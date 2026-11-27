@@ -60,7 +60,7 @@ function pickedFile(name: string, text: string) {
             const chunks: Uint8Array<ArrayBuffer>[] = [];
             return Object.assign(new WritableStream(), {
                 write: async (chunk: FileSystemWriteChunkType) => {
-                    if (!(chunk instanceof ArrayBuffer)) throw new TypeError('The fixture takes ArrayBuffer chunks');
+                    if (!(chunk instanceof ArrayBuffer)) {throw new TypeError('The fixture takes ArrayBuffer chunks');}
                     chunks.push(new Uint8Array(chunk));
                 },
                 close: async () => {
@@ -91,7 +91,7 @@ async function stageText(repo: BrowserDocumentStore, ref: string, token: Paramet
         await file.writeAt(base, encode(text));
         return base + encode(text).byteLength;
     });
-    if (lease === null) throw new Error('Nothing was staged');
+    if (lease === null) {throw new Error('Nothing was staged');}
     return lease;
 }
 
@@ -212,7 +212,7 @@ it('hashes the file a Save wrote while it holds the origin\'s publication lock, 
     const getFile = picked.handle.getFile.bind(picked.handle);
     picked.handle.getFile = async () => {
         const file = await getFile();
-        if (!written) return file;
+        if (!written) {return file;}
         const slice = file.slice.bind(file);
         return Object.assign(file, {
             slice: (...range: Parameters<Blob['slice']>) => Object.assign(slice(...range), {
@@ -242,7 +242,7 @@ it('refuses a streamed document the full browser store cut short, rather than ke
         const file = await open(path);
         let batches = 0;
         return {...file, writeAt: async (offset: number, bytes: Uint8Array) => {
-            if (++batches > 1) throw new DOMException('The browser\'s storage is full', 'QuotaExceededError');
+            if (++batches > 1) {throw new DOMException('The browser\'s storage is full', 'QuotaExceededError');}
             await file.writeAt(offset, bytes);
         }};
     }};
@@ -261,7 +261,7 @@ it('leaves the document openable with its old bytes when replacing its content f
     const source = await repo.createStoredDocument('source.pdf', encode('replacement'), {mimeType: 'application/pdf'});
     const writeAtomic = store.port.writeAtomic.bind(store.port);
     const full = vi.spyOn(store.port, 'writeAtomic').mockImplementation(async (path, bytes) => {
-        if (path === doc.path('manifest.json')) throw new DOMException('The store is full', 'QuotaExceededError');
+        if (path === doc.path('manifest.json')) {throw new DOMException('The store is full', 'QuotaExceededError');}
         return writeAtomic(path, bytes);
     });
 

@@ -61,7 +61,7 @@ function readLabels(document: PDFDocument) {
     }
     return document.getPages().map((_page, pageIndex) => {
         const range = ranges.findLast(candidate => candidate.start <= pageIndex);
-        if (!range) return String(pageIndex + 1);
+        if (!range) {return String(pageIndex + 1);}
         const number = range.first + pageIndex - range.start;
         const numerals: Record<string, string> = {D: String(number), R: romanNumeral(number), r: romanNumeral(number).toLowerCase()};
         const numeral = numerals[range.style] ?? '';
@@ -314,7 +314,7 @@ async function runBrowserCatalogPartsAcceptance() {
                 bookmarks: await settleCatalogPart(async () => (await pageOps.readOutline(workingPath)).map(entry => entry.title)),
                 pageLabels: await settleCatalogPart(async () => {
                     const catalog = await readPdfCatalog(new Blob([bytes]));
-                    if (!catalog.pageLabels) throw new Error(catalog.pageLabelsError);
+                    if (!catalog.pageLabels) {throw new Error(catalog.pageLabelsError);}
                     return catalog.pageLabels.map(range => range.style ?? null);
                 }),
             };
@@ -427,8 +427,8 @@ async function runBrowserBookmarkSaveAcceptance() {
         }));
         const refs = entries.map(entry => source.context.register(entry));
         entries.forEach((entry, index) => {
-            if (index > 0) entry.set(PDFName.of('Prev'), refs[index - 1]!);
-            if (index + 1 < count) entry.set(PDFName.of('Next'), refs[index + 1]!);
+            if (index > 0) {entry.set(PDFName.of('Prev'), refs[index - 1]!);}
+            if (index + 1 < count) {entry.set(PDFName.of('Next'), refs[index + 1]!);}
         });
         source.context.assign(outline, source.context.obj({
             Type: PDFName.of('Outlines'),
@@ -488,7 +488,7 @@ function writeLargeFixture() {
         const offsets: number[] = [];
         const write = (data: string | Uint8Array) => {
             const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-            if (handle.write(bytes, {at: offset}) !== bytes.byteLength) throw new Error('The fixture did not fit');
+            if (handle.write(bytes, {at: offset}) !== bytes.byteLength) {throw new Error('The fixture did not fit');}
             offset += bytes.byteLength;
         };
         const object = (id: number, body: string) => {
@@ -508,7 +508,7 @@ function writeLargeFixture() {
             object(pageId(index), `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${100 + index} 200] /Contents ${pageId(index) + 1} 0 R /Resources << >> >>`);
             offsets[pageId(index) + 1] = offset;
             write(`${pageId(index) + 1} 0 obj\n<< /Length ${streamBytes} >>\nstream\n`);
-            for (let left = streamBytes; left > 0; left -= filler.byteLength) write(left >= filler.byteLength ? filler : filler.subarray(0, left));
+            for (let left = streamBytes; left > 0; left -= filler.byteLength) {write(left >= filler.byteLength ? filler : filler.subarray(0, left));}
             write('\nendstream\nendobj\n');
         }
         const xref = offset;
@@ -639,16 +639,16 @@ const largeScenarios = {
     },
     async files(ref: string) {
         const doc = await browserDocumentStore.documentOf(ref);
-        if (!doc) return null;
+        if (!doc) {return null;}
         let dir = await navigator.storage.getDirectory();
-        for (const name of ['documents', doc.id]) dir = await dir.getDirectoryHandle(name);
+        for (const name of ['documents', doc.id]) {dir = await dir.getDirectoryHandle(name);}
         const files: Array<[string, number]> = [];
-        for await (const [name, handle] of dir as unknown as AsyncIterable<[string, FileSystemFileHandle]>) files.push([name, (await handle.getFile()).size]);
+        for await (const [name, handle] of dir as unknown as AsyncIterable<[string, FileSystemFileHandle]>) {files.push([name, (await handle.getFile()).size]);}
         return files.sort();
     },
     /** Saves the working copy to its file through the file's handle. */
-    async save(ref: string) {
-        return (await timed(async () => (await browserDocumentStore.save(ref, (await tokenOf(ref)).expectedDocumentRevisionToken)).status));
+    save(ref: string) {
+        return timed(async () => (await browserDocumentStore.save(ref, (await tokenOf(ref)).expectedDocumentRevisionToken)).status);
     },
     /** Starts a download of the document's bytes, for checks outside the browser. */
     async download(ref: string, fileName: string) {

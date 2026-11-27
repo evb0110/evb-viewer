@@ -214,7 +214,7 @@ export function captureCanonicalAnnotationRecovery(
     const entities = new Map(changes.map(({entity}) => [entity.identity.id, entity]));
     drafts.forEach((draft) => {
         const entity = entities.has(draft.annotationId) ? null : store.get(draft.annotationId);
-        if (entity) entities.set(entity.identity.id, entity);
+        if (entity) {entities.set(entity.identity.id, entity);}
     });
     return {
         version: CANONICAL_ANNOTATION_RECOVERY_VERSION,
@@ -235,11 +235,11 @@ export function captureCanonicalAnnotationRecovery(
  * text is what its annotation, which the bytes hold, already says.
  */
 export function isAnnotationRecoveryWritten(recovery: ICanonicalAnnotationRecovery) {
-    if (Object.keys(recovery.changedFields ?? {}).length > 0) return false;
+    if (Object.keys(recovery.changedFields ?? {}).length > 0) {return false;}
     const entities = new Map(recovery.entities.map(entity => [entity.identity.id, entity]));
     return recovery.drafts.every((draft) => {
         const entity = entities.get(draft.annotationId);
-        if (!entity || (entity.kind !== 'note' && entity.kind !== 'text-markup' && entity.kind !== 'text-box')) return false;
+        if (!entity || (entity.kind !== 'note' && entity.kind !== 'text-markup' && entity.kind !== 'text-box')) {return false;}
         const edited = entity.kind === 'text-box'
             ? {...entity, text: draft.text, rect: draft.geometry ?? entity.rect}
             : {...entity, contents: draft.text};
@@ -276,8 +276,8 @@ export function validateCanonicalAnnotationRecovery(value: unknown): ICanonicalA
         entitiesById.set(entity.identity.id, entity);
         validatedEntities.push(entity);
     });
-    if (version !== 1) assertChangedFieldsValid(changedFields, entitiesById);
-    if (version === CANONICAL_ANNOTATION_RECOVERY_VERSION) assertHeldFieldsValid(heldFields, entitiesById);
+    if (version !== 1) {assertChangedFieldsValid(changedFields, entitiesById);}
+    if (version === CANONICAL_ANNOTATION_RECOVERY_VERSION) {assertHeldFieldsValid(heldFields, entitiesById);}
     drafts.forEach((draft) => {
         validateDraft(draft);
         const entity = entitiesById.get(draft.annotationId);
@@ -424,18 +424,18 @@ function idsInStore(
     const sameBytes = recovery.version === CANONICAL_ANNOTATION_RECOVERY_VERSION && !reread;
     const matchesExistingId = (captured: AnnotationEntity) => {
         const existing = current.get(captured.identity.id);
-        if (!existing) return false;
+        if (!existing) {return false;}
         const existingFields = semanticFields(existing);
         // A read can give another annotation an id a page operation took from this one.
-        if (!holdsHeldFields(captured, existingFields)) return false;
+        if (!holdsHeldFields(captured, existingFields)) {return false;}
         if (!reread) {
             const ref = captured.identity.pdfRef?.trim();
             return !sameBytes || !ref || !existing.identity.pdfRef?.trim() || existing.identity.pdfRef === captured.identity.pdfRef;
         }
-        if (existing.deleted) return false;
+        if (existing.deleted) {return false;}
         const fields = semanticFields(captured);
         const compared = comparedKeysFor(captured, fields).filter(key => !rotatableGeometryKeys.has(key));
-        if (!compared.includes('kind')) return false;
+        if (!compared.includes('kind')) {return false;}
         return compared.every(key => sameField(existingFields, fields, key));
     };
     const directIds = new Set<string>(recovery.entities.filter(matchesExistingId).map(entity => entity.identity.id));
@@ -514,14 +514,14 @@ function idsInStore(
     };
 
     recovery.entities.forEach((captured) => {
-        if (directIds.has(captured.identity.id)) return;
+        if (directIds.has(captured.identity.id)) {return;}
         const fields = semanticFields(captured);
         const changed = changedFields.get(captured.identity.id) ?? [];
         // A deletion the bytes already hold names no annotation of the read.
-        if (captured.deleted && (recovery.version === 1 || !changed.includes('deleted'))) return;
+        if (captured.deleted && (recovery.version === 1 || !changed.includes('deleted'))) {return;}
         // Another read's geometry may be in another frame.
         const compared = comparedKeysFor(captured, fields).filter(key => !reread || !rotatableGeometryKeys.has(key));
-        if (!compared.includes('kind')) return;
+        if (!compared.includes('kind')) {return;}
         const capturedRef = captured.identity.pdfRef?.trim();
         // Without a ref, an annotation the bytes hold binds by its fields: those it changed, by what the bytes held.
         const boundByFields = changed.length === 0 || heldFields.has(captured.identity.id);
@@ -540,7 +540,7 @@ function idsInStore(
             const onPage = matches.length > 1
                 ? matches.filter(({fields: candidate}) => sameField(candidate, fields, 'pageIndex'))
                 : matches;
-            if (onPage.length !== 1) return;
+            if (onPage.length !== 1) {return;}
             const bound = onPage[0]!.entity;
             taken.add(bound.identity.id);
             ids.set(captured.identity.id, bound.identity.id);
@@ -626,7 +626,7 @@ export function restoreCanonicalAnnotationRecovery(
                 || (refHolder !== null && refHolder !== captured.identity.id)
             );
             const detachedId = collidesWithOther ? asAnnotationId(crypto.randomUUID()) : captured.identity.id;
-            if (collidesWithOther) ids.set(captured.identity.id, detachedId);
+            if (collidesWithOther) {ids.set(captured.identity.id, detachedId);}
             // The store's read names the object. A captured ref or minted id from before a renumbering page operation
             // that has no unique match in the recovered read is kept as a new annotation rather than written over an
             // object that may not be its own (or kept with a stale pdfRef that no longer exists).
@@ -645,7 +645,7 @@ export function restoreCanonicalAnnotationRecovery(
             } else {
                 const unchanged = new Set(Object.keys(semanticFields(entity)).filter(key => !changed.includes(key)));
                 store.import(takeParsedFields(pending, read, unchanged), {preserveSavedBaseline: true});
-                if (unchanged.has('rect')) placedByRead.add(entity.identity.id);
+                if (unchanged.has('rect')) {placedByRead.add(entity.identity.id);}
             }
         });
     });

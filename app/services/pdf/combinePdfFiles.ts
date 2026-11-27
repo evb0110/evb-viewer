@@ -260,7 +260,7 @@ export async function combinePdfFiles(options: ICombinePdfFilesOptions): Promise
             ? combineElectronFiles(options)
             : combineBrowserFiles(options));
     } catch (error) {
-        if (error instanceof CombinePdfError) throw error;
+        if (error instanceof CombinePdfError) {throw error;}
         const code = classifyCombineError(error, options.signal);
         if (code === 'canceled' || code === 'invalid-input' || code === 'limit' || code === 'unsupported') {
             throw new CombinePdfError(code, {cause: error});

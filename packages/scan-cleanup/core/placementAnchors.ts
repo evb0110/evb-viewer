@@ -146,7 +146,7 @@ export async function buildScanCleanupPlacementAnchorSummary({
             const inkTops = collectScanCleanupSheetInkTops(options, toScanCleanupInkSheet(result), referenceHeightPoints);
             for (const half of SCAN_CLEANUP_OUTPUT_HALVES) {
                 const yNormalized = inkTops[half];
-                if (yNormalized === undefined) continue;
+                if (yNormalized === undefined) {continue;}
                 if (targetOrdinalSet.has(ordinal)) {
                     candidates.push({
                         pageNumber: result.pageNumber,

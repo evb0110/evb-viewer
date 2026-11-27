@@ -1069,7 +1069,7 @@ function makeFontCoverage(buffer) {
         view, tables,
     } = readSfntTables(buffer);
     const cmap = tables.get('cmap');
-    if (!cmap) throw new Error('font has no cmap table');
+    if (!cmap) {throw new Error('font has no cmap table');}
     const tableStart = cmap.offset;
     const records = view.getUint16(tableStart + 2);
     /** @type {Array<{platform: number, encoding: number, offset: number, format: number}>} */
@@ -1101,9 +1101,9 @@ function makeFontCoverage(buffer) {
                     const group = subtable.offset + 16 + middle * 12;
                     const start = view.getUint32(group);
                     const end = view.getUint32(group + 4);
-                    if (codePoint < start) high = middle - 1;
-                    else if (codePoint > end) low = middle + 1;
-                    else return view.getUint32(group + 8) + codePoint - start > 0;
+                    if (codePoint < start) {high = middle - 1;}
+                    else if (codePoint > end) {low = middle + 1;}
+                    else {return view.getUint32(group + 8) + codePoint - start > 0;}
                 }
             } else if (codePoint <= 0xffff) {
                 const segmentCount = view.getUint16(subtable.offset + 6) / 2;
@@ -1114,7 +1114,7 @@ function makeFontCoverage(buffer) {
                 for (let segment = 0; segment < segmentCount; segment += 1) {
                     const end = view.getUint16(endCodes + segment * 2);
                     const start = view.getUint16(startCodes + segment * 2);
-                    if (codePoint < start || codePoint > end) continue;
+                    if (codePoint < start || codePoint > end) {continue;}
                     const rangeOffset = view.getUint16(idRangeOffsets + segment * 2);
                     if (rangeOffset === 0) {
                         return ((codePoint + view.getInt16(idDeltas + segment * 2)) & 0xffff) !== 0;
@@ -1179,7 +1179,7 @@ function wrapText(context, text, maxWidth) {
             current = candidate;
         }
     }
-    if (current) lines.push(current);
+    if (current) {lines.push(current);}
     return lines;
 }
 
@@ -1413,7 +1413,7 @@ function drawImageToCanvas(image, width, height, filter) {
     const context = canvas.getContext('2d');
     context.fillStyle = '#ffffff';
     context.fillRect(0, 0, width, height);
-    if (filter) context.filter = filter;
+    if (filter) {context.filter = filter;}
     context.drawImage(image, 0, 0, width, height);
     return canvas;
 }

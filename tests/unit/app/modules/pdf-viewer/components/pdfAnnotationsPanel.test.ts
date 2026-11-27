@@ -134,12 +134,12 @@ function inspector(host: HTMLElement) {
 
 function numberInput(host: HTMLElement, label: string) {
     const input = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
-    if (!input) throw new Error(`Missing inspector input ${label}`);
+    if (!input) {throw new Error(`Missing inspector input ${label}`);}
     return input;
 }
 
 afterEach(() => {
-    for (const unmount of [...activeUnmounts]) unmount();
+    for (const unmount of [...activeUnmounts]) {unmount();}
 });
 
 describe('PdfAnnotationsPanel inline inspector', () => {
@@ -254,7 +254,7 @@ describe('PdfAnnotationsPanel inline inspector', () => {
         state.tool = 'text';
         await nextTick();
         const button = host.querySelector<HTMLButtonElement>('button[data-tool="text"]');
-        if (!button) throw new Error('Missing text tool button');
+        if (!button) {throw new Error('Missing text tool button');}
         button.focus();
         button.click();
         await nextTick();

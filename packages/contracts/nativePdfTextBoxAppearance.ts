@@ -77,7 +77,7 @@ export function normalizePdfNativeTextBoxAppearanceRequest(
     let totalBytes = 0;
     const keys = new Set<string>();
     const textBoxes = value.textBoxes.map((input, index) => {
-        if (!isRecord(input)) fail('Invalid text box appearance input', options);
+        if (!isRecord(input)) {fail('Invalid text box appearance input', options);}
         const textBox = normalizeTextBoxes([input.textBox], `textBoxes[${index}]`, options)[0]!;
         if (textBox.originalAppearance?.sourceAnnotationId !== undefined || keys.has(textBox.stableKey)) {
             fail('Text box appearance input must have unique keys and inline or derived paint', options);
@@ -86,7 +86,7 @@ export function normalizePdfNativeTextBoxAppearanceRequest(
         totalBytes += new TextEncoder().encode(textBox.text).byteLength;
         const source = input.source === undefined
             ? undefined : v.safeParse(PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA, input.source);
-        if (source && !source.success) fail(`textBoxes[${index}].source must be a valid text box source descriptor`, options);
+        if (source && !source.success) {fail(`textBoxes[${index}].source must be a valid text box source descriptor`, options);}
         return {
             textBox,
             ...(source === undefined ? {} : {source: source.output}),
@@ -118,7 +118,7 @@ export function normalizePdfNativeTextBoxAppearanceMetadata(
         lineCount: v.nullable(v.pipe(v.number(), v.safeInteger(), v.minValue(0), v.maxValue(65_537))),
         textBounds: v.nullable(positiveRect),
     })), v.minLength(1), v.maxLength(PDF_NATIVE_TEXT_BOX_APPEARANCE_LIMITS.textBoxes))}), value);
-    if (!metadata.success) fail('Invalid text box appearance fit metadata', options);
+    if (!metadata.success) {fail('Invalid text box appearance fit metadata', options);}
     return metadata.output;
 }
 
@@ -171,7 +171,7 @@ export function normalizeTextBoxes(
         let originalAppearance: IPdfNativeTextBoxMutation['originalAppearance'];
         if (editor.originalAppearance !== undefined) {
             const original = editor.originalAppearance;
-            if (!isRecord(original)) fail(`${label}[${index}].originalAppearance must be an object`, options);
+            if (!isRecord(original)) {fail(`${label}[${index}].originalAppearance must be an object`, options);}
             if (original.sourceAnnotationId !== undefined && original.recoveryData === undefined
                 && typeof original.sourceAnnotationId === 'string' && parsePdfAnnotationRef(original.sourceAnnotationId) !== null) {
                 originalAppearance = {sourceAnnotationId: original.sourceAnnotationId};
@@ -183,7 +183,7 @@ export function normalizeTextBoxes(
             }
         }
         const source = editor.source === undefined ? undefined : v.safeParse(PDF_NATIVE_TEXT_BOX_SOURCE_DESCRIPTOR_SCHEMA, editor.source);
-        if (source && !source.success) fail(`${label}[${index}].source must be a valid text box source descriptor`, options);
+        if (source && !source.success) {fail(`${label}[${index}].source must be a valid text box source descriptor`, options);}
         const unsupportedCharacter = originalAppearance === undefined ? firstUnsupportedAnnotationCharacter(editor.text) : undefined;
         if (unsupportedCharacter !== undefined) {
             const codepoint = unsupportedCharacter.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0');

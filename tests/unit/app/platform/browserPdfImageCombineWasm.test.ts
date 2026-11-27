@@ -58,7 +58,7 @@ function createNetpbmBytes(channels: 1 | 3, width: number, height: number, pixel
     let offset = header.byteLength;
     for (let y = 0; y < height; y += 1) {
         for (let x = 0; x < width; x += 1) {
-            for (let channel = 0; channel < channels; channel += 1) bytes[offset++] = pixel(x, y, channel);
+            for (let channel = 0; channel < channels; channel += 1) {bytes[offset++] = pixel(x, y, channel);}
         }
     }
     return bytes;
@@ -412,7 +412,7 @@ describe('tryCombineImageInputsWithWasm', () => {
                     false,
                 ],
             ] as const) {
-            if (outcome.status !== 'success') throw new Error(`Expected PDF bytes, got ${outcome.status}`);
+            if (outcome.status !== 'success') {throw new Error(`Expected PDF bytes, got ${outcome.status}`);}
             expect(Buffer.from(outcome.data).toString('latin1').includes('/DCTDecode')).toBe(isJpeg);
             expect((await PDFDocument.load(outcome.data)).getPage(0).getSize()).toEqual({
                 width: 48,
@@ -442,7 +442,7 @@ describe('tryCombineImageInputsWithWasm', () => {
             }],
         });
 
-        if (outcome.status !== 'success') throw new Error(`Expected PDF bytes, got ${outcome.status}`);
+        if (outcome.status !== 'success') {throw new Error(`Expected PDF bytes, got ${outcome.status}`);}
         const text = Buffer.from(outcome.data).toString('latin1');
         expect(text).toContain('/BitsPerComponent 1');
         expect(text).toContain('/Width 96');
@@ -475,7 +475,7 @@ describe('tryCombineImageInputsWithWasm', () => {
             'image-jpeg\t72.000000\t72.000000\t85\tp2-0.pgm\t0.000000\t0.000000\t36.000000\t36.000000',
         ]});
 
-        if (outcome.status !== 'success') throw new Error(`Expected PDF bytes, got ${outcome.status}`);
+        if (outcome.status !== 'success') {throw new Error(`Expected PDF bytes, got ${outcome.status}`);}
         const text = Buffer.from(outcome.data).toString('latin1');
         expect(text).toContain('/BitsPerComponent 1');
         const pdf = await PDFDocument.load(outcome.data);
@@ -1040,7 +1040,7 @@ describe('tryCombineImageInputsWithWasm', () => {
             data: new Uint8Array([1]),
         }]);
         expect(result.status).toBe('success');
-        if (result.status !== 'success') throw new Error(JSON.stringify(result));
+        if (result.status !== 'success') {throw new Error(JSON.stringify(result));}
         expect(Buffer.from(result.data).equals(Buffer.from(output))).toBe(true);
         expect(wasmMock.free).toHaveBeenCalledOnce();
     });

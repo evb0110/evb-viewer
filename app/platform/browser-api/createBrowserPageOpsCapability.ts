@@ -366,9 +366,9 @@ export function createBrowserPageOpsCapability(
             return await run(mutationOptions);
         } catch (error) {
             const {workingCopyPath, controller: {signal}} = operation;
-            if (findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code !== 'corrupt-xref') throw error;
+            if (findSerializableErrorEnvelope(error, NATIVE_ERROR_ENVELOPE_SCHEMA)?.code !== 'corrupt-xref') {throw error;}
             const refused = await browserDocumentStore.getDocumentRevision(workingCopyPath);
-            if (!await options.repairWorkingCopy(workingCopyPath, signal).catch(() => false)) throw error;
+            if (!await options.repairWorkingCopy(workingCopyPath, signal).catch(() => false)) {throw error;}
             BrowserLogger.debug('page-ops', 'Repaired a revision the page engine could not read', {error: getErrorMessage(error)});
             const repaired = await browserDocumentStore.getDocumentRevision(workingCopyPath);
             try {
@@ -626,7 +626,7 @@ export function createBrowserPageOpsCapability(
                 }
                 published = true;
             } finally {
-                if (!published) await browserDocumentStore.remove(destPath).catch(() => undefined);
+                if (!published) {await browserDocumentStore.remove(destPath).catch(() => undefined);}
             }
             await browserDocumentStore.touchRecentFile(destPath);
             return {
@@ -722,7 +722,7 @@ export function createBrowserPageOpsCapability(
             let canceled = 0;
             let committing = 0;
             for (const operation of activePageOperations) {
-                if (operation.workingCopyPath !== workingCopyPath || operation.controller.signal.aborted) continue;
+                if (operation.workingCopyPath !== workingCopyPath || operation.controller.signal.aborted) {continue;}
                 if (operation.committing) {
                     committing += 1;
                 } else {

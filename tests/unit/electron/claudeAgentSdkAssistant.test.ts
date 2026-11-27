@@ -1054,7 +1054,7 @@ describe('claudeAgentSdkAssistant', () => {
                 'electron', '@electron/settings', '@electron/features/agent/assistantInstances',
                 '@electron/features/agent/assistantLocalSetups', '@electron/features/agent/mcpServer',
                 '@electron/features/agent/assistantChatPersistence', '@electron/window/registry', '@electron/utils/sendPlatformEvent',
-            ]) vi.doUnmock(module);
+            ]) {vi.doUnmock(module);}
             vi.resetModules();
         }
     });

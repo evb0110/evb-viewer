@@ -42,7 +42,7 @@ export function createScanCleanupOutputSaveAs(
     return async () => {
         const output = findOutput();
         const view = output?.[1].getView(output[0]);
-        if (output) activateTab(output[0]);
+        if (output) {activateTab(output[0]);}
         // The output tab's own view saves it. A view that failed or was
         // removed answers null; activation can also open or close a
         // document, so the output is resolved again once it has mounted.
@@ -50,10 +50,10 @@ export function createScanCleanupOutputSaveAs(
         const saved = workspace && findOutput()?.[1] === output?.[1]
             ? await workspace.handleSaveAs()
             : false;
-        if (!saved && !findOutput()) toast.add({
+        if (!saved && !findOutput()) {toast.add({
             color: 'warning',
             title: t('scanCleanup.outputClosedBeforeSaveAs'),
-        });
+        });}
         return saved;
     };
 }

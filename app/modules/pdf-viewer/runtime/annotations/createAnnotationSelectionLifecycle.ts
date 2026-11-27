@@ -97,7 +97,7 @@ export const createAnnotationSelectionLifecycle = (
         });
         const forget = () => {
             const current = requestKey(live, requestEpoch);
-            if (pending.get(current)?.outcome === outcome) pending.delete(current);
+            if (pending.get(current)?.outcome === outcome) {pending.delete(current);}
         };
         outcome.then(forget, forget);
         return outcome;

@@ -163,7 +163,7 @@ export function resolveDocumentPageDisplayLayoutsBounded(
                 exactCount += 1;
                 widest = Math.max(widest, metric.widthPoints);
             });
-            if (exactCount < metrics.length) widest = Math.max(widest, metrics.fallbackMetric.widthPoints);
+            if (exactCount < metrics.length) {widest = Math.max(widest, metrics.fallbackMetric.widthPoints);}
         } else {
             for (let index = 0; index < metrics.length; index += 1) {
                 widest = Math.max(widest, (metrics.get(index) ?? metrics.fallbackMetric).widthPoints);
@@ -351,7 +351,7 @@ export const useDocumentPageSourceRuntime = (options: {
     let lastProjectedNavigationSignal: AbortSignal | null = null;
     function measureViewport() {
         const container = viewerContainer.value;
-        if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) return;
+        if (!container || container.clientWidth <= 0 || container.clientHeight <= 0) {return;}
         // A hidden tab has no measurable viewport. Retain its last layout so
         // fit mode cannot collapse the document and clamp its scroll offset.
         containerWidth.value = container.clientWidth;
@@ -921,10 +921,10 @@ export const useDocumentPageSourceRuntime = (options: {
             pageHeights: pageHeights.value,
             viewMode: props.value.viewMode,
         }, interaction.deltaPx);
-        if (target !== null) scrollToPage(target, {
+        if (target !== null) {scrollToPage(target, {
             navigationSource: 'wheel',
             alignPageBottom: interaction.deltaPx < 0,
-        });
+        });}
     }
     function scrollToPage(
         pageNumber: number,
@@ -1212,7 +1212,7 @@ export const useDocumentPageSourceRuntime = (options: {
     }
     // Opening geometry the host commits before this source is acquired seeds the cold page metrics.
     watch(() => chassisAuthority?.openSurface.snapshot.value.openingPageGeometry ?? null, (geometry) => {
-        if (geometry && !source.value) seedOpeningPageMetrics();
+        if (geometry && !source.value) {seedOpeningPageMetrics();}
     }, {immediate: true});
     transitions.channel.subscribe((transition) => {
         switch (transition.kind) {
@@ -1301,7 +1301,7 @@ export const useDocumentPageSourceRuntime = (options: {
             // the layout watcher then queues its restore in the next flush. An
             // unchanged, hidden or closed view has no restore to wait for.
             whenLayoutPlaced: async () => {
-                if (!props.value.isActive) return;
+                if (!props.value.isActive) {return;}
                 measureViewport();
                 await nextTick();
                 await layoutLifecycle.whenRestored();

@@ -358,7 +358,7 @@ describe('browser document lifecycle UI', () => {
                         const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
                         let ink = 0;
                         for (let index = 0; index < pixels.length; index += 4) {
-                            if (pixels[index]! < 128 && pixels[index + 1]! < 128 && pixels[index + 2]! < 128) ink += 1;
+                            if (pixels[index]! < 128 && pixels[index + 1]! < 128 && pixels[index + 2]! < 128) {ink += 1;}
                         }
                         return {
                             ink,
@@ -425,10 +425,10 @@ describe('browser document lifecycle UI', () => {
                 window.Worker = class extends NativeWorker {
                     public constructor(url: string | URL, options?: WorkerOptions) {
                         super(url, options);
-                        if (!String(url).includes('opfsStore')) return;
+                        if (!String(url).includes('opfsStore')) {return;}
                         const post = this.postMessage.bind(this) as (message: unknown, transfer?: Transferable[]) => void;
                         this.postMessage = ((message: unknown, transfer?: Transferable[]) => {
-                            if (!Reflect.get(window, '__storeGone')) post(message, transfer);
+                            if (!Reflect.get(window, '__storeGone')) {post(message, transfer);}
                         }) as Worker['postMessage'];
                     }
                 };
@@ -583,7 +583,7 @@ describe('browser document lifecycle UI', () => {
                 throw new Error('The rotation did not commit');
             }, {id: directoryId, opened}).catch((error: unknown) => {
                 // The reload ends the script that made it.
-                if (!/context was destroyed|navigat/iu.test(String(error))) throw error;
+                if (!/context was destroyed|navigat/iu.test(String(error))) {throw error;}
             });
             await page.getByRole('button', {name: 'Toggle Sidebar', exact: true}).click();
             await page.getByRole('tab', {name: 'Pages', exact: true}).click();

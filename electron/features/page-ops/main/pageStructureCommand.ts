@@ -24,7 +24,7 @@ interface IPageStructureArguments {
 
 function requirePageOpsBinary() {
     const binary = resolveNativePageOpsPath();
-    if (!binary) throw new Error('Native page operations are unavailable');
+    if (!binary) {throw new Error('Native page operations are unavailable');}
     return binary;
 }
 
@@ -48,8 +48,8 @@ export async function runPageStructureCommand(
             await writeFile(pagesPath, args.pages.join('\n'), 'utf8');
             commandArgs.push('--pages-file', pagesPath);
         }
-        for (const source of args.sources ?? []) commandArgs.push('--source', source);
-        if (args.afterPage !== undefined) commandArgs.push('--after-page', String(args.afterPage));
+        for (const source of args.sources ?? []) {commandArgs.push('--source', source);}
+        if (args.afterPage !== undefined) {commandArgs.push('--after-page', String(args.afterPage));}
         await runNativeToolCommand(binary, commandArgs, {
             timeoutMs: QPDF_TIMEOUT_MS,
             commandLabel: `pdf-page-ops(${command})`,

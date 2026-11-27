@@ -973,7 +973,7 @@ describe('scan cleanup document canvas', () => {
                 losslessOptions,
                 layoutByPage,
             );
-            if (canvas === null) throw new Error('expected a matched canvas');
+            if (canvas === null) {throw new Error('expected a matched canvas');}
             const store: IPdfPageSizeStore = {
                 pageCount: 1,
                 getPage: async () => spread,
@@ -1016,7 +1016,7 @@ describe('scan cleanup document canvas', () => {
                 SCAN_CLEANUP_LOSSLESS_CANVAS_GRID_DPI,
                 losslessOptions,
             );
-            if (canvas === null) throw new Error('expected a matched canvas');
+            if (canvas === null) {throw new Error('expected a matched canvas');}
             const createPageSizeStore = (pages: readonly IPdfPageSize[]): IPdfPageSizeStore => ({
                 pageCount: 2,
                 getPage: async pageNumber => pages[pageNumber - 1] ?? pages[0]!,

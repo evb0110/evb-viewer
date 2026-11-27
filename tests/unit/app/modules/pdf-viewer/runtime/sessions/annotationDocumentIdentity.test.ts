@@ -515,7 +515,7 @@ describe('canonical image placement', () => {
         }))).toBe(true);
         const image = session.annotationApplication.value.store.list()[0];
         expect(image).toMatchObject({rotation: 295});
-        if (image?.kind !== 'placed-image') throw new Error('Missing stamp');
+        if (image?.kind !== 'placed-image') {throw new Error('Missing stamp');}
         expect(image.rect.width * 600).toBeCloseTo(0.25 * 800);
         expect(image.rect.height * 800).toBeCloseTo(0.125 * 600);
     });
@@ -688,7 +688,7 @@ it.each([
     document.body.append(viewer);
     harness.probeViewer.value = viewer;
     selectionGeometry.resolve.mockImplementation(async () => {
-        if (replace) queueMicrotask(() => { current = false; });
+        if (replace) {queueMicrotask(() => { current = false; });}
         return {
             status: 'ready',
             pages: [{
@@ -744,7 +744,7 @@ describe('note marker moves', () => {
         })).toBe(true);
 
         const moved = session.annotationApplication.value.store.list().find(entity => entity.identity.id === note.identity.id);
-        if (moved?.kind !== 'note') throw new Error('note missing');
+        if (moved?.kind !== 'note') {throw new Error('note missing');}
         // The 600 x 800 pt page keeps the 20 pt icon's centre 10 pt inside each edge.
         expect((moved.position.left + moved.position.width / 2) * 600).toBeCloseTo(10, 9);
         expect((moved.position.top + moved.position.height / 2) * 800).toBeCloseTo(10, 9);

@@ -52,7 +52,7 @@ function parsedShape(overrides: Partial<IPdfAnnotationShapeEntry> = {}): IPdfAnn
 }
 function canonical(entry: IPdfAnnotationShapeEntry): IShapeEntity {
     const result = mapPdfAnnotationParseEntity(entry);
-    if (result.kind !== 'shape') throw new Error('Expected canonical shape');
+    if (result.kind !== 'shape') {throw new Error('Expected canonical shape');}
     return result;
 }
 

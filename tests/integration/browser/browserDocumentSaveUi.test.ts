@@ -123,16 +123,16 @@ describe('browser document lifecycle UI', () => {
         page.on('crash', () => trace.push('PAGE CRASHED'));
         page.on('close', () => trace.push('PAGE CLOSED'));
         page.on('request', request => {
-            if (request.isNavigationRequest()) trace.push(`NAVIGATION REQUEST ${request.url()}`);
+            if (request.isNavigationRequest()) {trace.push(`NAVIGATION REQUEST ${request.url()}`);}
         });
         page.on('response', response => {
-            if (response.request().isNavigationRequest()) trace.push(`NAVIGATION RESPONSE ${response.status()} ${response.url()}`);
+            if (response.request().isNavigationRequest()) {trace.push(`NAVIGATION RESPONSE ${response.status()} ${response.url()}`);}
         });
         page.on('requestfailed', request => {
-            if (request.isNavigationRequest()) trace.push(`NAVIGATION FAILED ${request.failure()?.errorText} ${request.url()}`);
+            if (request.isNavigationRequest()) {trace.push(`NAVIGATION FAILED ${request.failure()?.errorText} ${request.url()}`);}
         });
         page.on('framenavigated', frame => {
-            if (frame === page.mainFrame()) trace.push(`NAVIGATION COMMITTED ${frame.url()}`);
+            if (frame === page.mainFrame()) {trace.push(`NAVIGATION COMMITTED ${frame.url()}`);}
         });
         page.on('domcontentloaded', () => trace.push('DOM CONTENT LOADED'));
         let phase = 'chooser';
@@ -196,7 +196,7 @@ describe('browser document lifecycle UI', () => {
             writeFileSync(dropPath, buffer);
             const drag = await context.newCDPSession(page);
             const dropTarget = await page.locator('.workspace-host').first().boundingBox();
-            if (!dropTarget) throw new Error('The workspace has no drop target');
+            if (!dropTarget) {throw new Error('The workspace has no drop target');}
             for (const type of [
                 'dragEnter',
                 'dragOver',
@@ -332,7 +332,7 @@ describe('browser document lifecycle UI', () => {
                 const chooser = mode === 'input' ? page.waitForEvent('filechooser') : null;
                 await page.getByRole('button', {name: 'Menu', exact: true}).click();
                 await page.getByRole('menuitem', {name: /^Open File/u}).click();
-                if (chooser) await (await chooser).setFiles({name, mimeType: 'application/pdf', buffer: encrypted});
+                if (chooser) {await (await chooser).setFiles({name, mimeType: 'application/pdf', buffer: encrypted});}
                 await page.getByRole('textbox', {name: 'Password', exact: true}).fill('frame-secret');
                 await page.getByRole('button', {name: 'Open', exact: true}).click();
                 await expect.poll(() => page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').textContent()).toContain(name);
@@ -486,10 +486,10 @@ describe('browser document lifecycle UI', () => {
                         exact: true,
                     }).click();
                     await page!.getByRole('menuitem', {name: /^Save As/u}).click();
-                } else await page!.getByRole('button', {
+                } else {await page!.getByRole('button', {
                     name: 'Save',
                     exact: true,
-                }).click();
+                }).click();}
                 return PDFDocument.load(await readDownloadBytes(await download));
             };
             if (mode === 'save') {
@@ -576,7 +576,7 @@ describe('browser document lifecycle UI', () => {
             expect(noteTexts(await save(false))).toContain('Edited after Save As');
             expect(problems).toEqual([]);
         } finally {
-            if (page && !page.isClosed()) await page.evaluate(() => Reflect.get(window, '__releaseSaveFrontier')?.()).catch(() => undefined);
+            if (page && !page.isClosed()) {await page.evaluate(() => Reflect.get(window, '__releaseSaveFrontier')?.()).catch(() => undefined);}
             await context.close();
         }
     }, 120000);
@@ -703,7 +703,7 @@ describe('browser document lifecycle UI', () => {
             expect(problems.filter(problem => !problem.startsWith('warning:'))).toEqual([]);
             expect(problems.some(problem => problem.includes('Annotation read-back failed after published save') && problem.includes('refresh-failed'))).toBe(true);
         } finally {
-            if (page && !page.isClosed()) await page.evaluate(() => Reflect.get(window, '__releaseReadBackFault')?.()).catch(() => undefined);
+            if (page && !page.isClosed()) {await page.evaluate(() => Reflect.get(window, '__releaseReadBackFault')?.()).catch(() => undefined);}
             await context.close();
         }
     }, 120_000);

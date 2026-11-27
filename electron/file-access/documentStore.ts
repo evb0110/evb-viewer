@@ -202,7 +202,7 @@ function canUse(entry: IOpenDocument, senderId?: number) {
 
 function findByDirectory(id: string) {
     for (const entry of openDocuments.values()) {
-        if (entry.doc.id === id) return entry;
+        if (entry.doc.id === id) {return entry;}
     }
     return null;
 }
@@ -216,7 +216,7 @@ export function getOpenDocument(path: string, senderId?: number) {
 
 export function requireOpenDocument(path: string, senderId?: number) {
     const entry = getOpenDocument(path, senderId);
-    if (!entry) throw new WorkingCopyMissingError('Working copy path is not managed by this owner');
+    if (!entry) {throw new WorkingCopyMissingError('Working copy path is not managed by this owner');}
     return entry;
 }
 
@@ -250,19 +250,20 @@ export function getWorkingCopyDerivedPath(ref: string, name: string) {
 }
 
 function register(doc: DocumentDirectory, options: Omit<IOpenDocument, 'ref' | 'doc' | 'session' | 'registrationId'>) {
-    let entry!: IOpenDocument;
+    const entryBox: {current?: IOpenDocument} = {};
     const session = new OpenDocument(doc, {
         codec: DESKTOP_REVISION_CODEC,
-        beforeEdit: () => nameDirectory(entry),
-        beforeMutation: () => preservePinnedRevisions(entry),
+        beforeEdit: () => nameDirectory(entryBox.current!),
+        beforeMutation: () => preservePinnedRevisions(entryBox.current!),
     });
-    entry = {
+    const entry: IOpenDocument = {
         ...options,
         ref: refFor(doc),
         doc,
         session,
         registrationId: nextRegistrationId++,
     };
+    entryBox.current = entry;
     openDocuments.set(entry.ref, entry);
     return entry;
 }
@@ -349,7 +350,7 @@ export async function reopenStoredDocument(id: string, options: {ownerWebContent
     await collected();
     const existing = findByDirectory(id);
     if (existing) {
-        if (options.ownerWebContentsId !== undefined) existing.ownerWebContentsId = options.ownerWebContentsId;
+        if (options.ownerWebContentsId !== undefined) {existing.ownerWebContentsId = options.ownerWebContentsId;}
         return existing;
     }
     const doc = await openDocument(getDocumentStore(), id);
@@ -401,7 +402,7 @@ export function onDocumentRevisionChanged(listener: (event: IDocumentRevisionCha
 
 function notifyRevisionChanged(entry: IOpenDocument, previousToken: TDocumentRevisionToken, reason: TDocumentRevisionChangeReason) {
     const event: IDocumentRevisionChangedEvent = {...getDocumentRevisionInfo(entry), previousToken, reason};
-    if (event.token === previousToken) return event;
+    if (event.token === previousToken) {return event;}
     for (const listener of revisionListeners) {
         try {
             listener(event);
@@ -416,16 +417,16 @@ export function normalizeExpectedDocumentRevisionToken(
     options?: {expectedDocumentRevisionToken?: TDocumentRevisionToken | null} | null,
 ): TDocumentRevisionToken | null {
     const token = options?.expectedDocumentRevisionToken;
-    if (token === undefined || token === null) return null;
+    if (token === undefined || token === null) {return null;}
     const parsed = parseDocumentRevisionToken(token);
-    if (parsed === null) throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');
+    if (parsed === null) {throw new TypeError('expectedDocumentRevisionToken must be a non-empty string');}
     return parsed;
 }
 
 /** Throws unless `token` names the current revision of the document `path` belongs to. */
 export function assertWorkingCopyRevisionCurrent(path: string, token: TDocumentRevisionToken, senderId?: number) {
     const entry = requireOpenDocument(path, senderId);
-    if (entry.session.checkRevision(token).status !== 'ok') throw staleRevisionError(entry, token, entry.doc.state().current);
+    if (entry.session.checkRevision(token).status !== 'ok') {throw staleRevisionError(entry, token, entry.doc.state().current);}
     return Promise.resolve();
 }
 
@@ -453,7 +454,7 @@ async function assertAdmission(entry: IOpenDocument, destination: string) {
             retryable: true,
         });
     });
-    if (!entry.admission || !sameIdentity(now, entry.admission)) throw sourceChangedError();
+    if (!entry.admission || !sameIdentity(now, entry.admission)) {throw sourceChangedError();}
 }
 
 function revisionPath(entry: IOpenDocument, revision: IRevision) {
@@ -463,8 +464,8 @@ function revisionPath(entry: IOpenDocument, revision: IRevision) {
 /** Reads the document's bytes: its current revision, or its destination while it has none of its own. */
 export async function readOpenDocument(entry: IOpenDocument, offset: number, length: number) {
     const {current, destination} = entry.doc.state();
-    if (current) return entry.doc.read(offset, length);
-    if (destination === null) throw new WorkingCopyMissingError();
+    if (current) {return entry.doc.read(offset, length);}
+    if (destination === null) {throw new WorkingCopyMissingError();}
     await assertAdmission(entry, destination);
     const handle = await open(destination, 'r');
     let bytes: Uint8Array;
@@ -489,7 +490,7 @@ export function statOpenDocument(entry: IOpenDocument) {
         };
     }
     const now = destination === null ? null : statSync(destination, {bigint: true});
-    if (!now || !entry.admission || !sameIdentity(now, entry.admission)) throw sourceChangedError();
+    if (!now || !entry.admission || !sameIdentity(now, entry.admission)) {throw sourceChangedError();}
     return {
         size: Number(now.size),
         modifiedAt: Math.trunc(Number(now.mtimeNs / 1_000_000n)),
@@ -499,7 +500,7 @@ export function statOpenDocument(entry: IOpenDocument) {
 /** The file holding the document's current bytes, copying the destination in first when it has none. */
 export async function requireDocumentFile(entry: IOpenDocument) {
     const current = await entry.doc.materialize();
-    if (!current) throw sourceChangedError();
+    if (!current) {throw sourceChangedError();}
     return revisionPath(entry, current);
 }
 
@@ -525,12 +526,12 @@ export async function runWithWorkingCopyReadBacking<TResult>(
     operation: (physicalReadPath: string, assertOriginalUnchanged: () => Promise<void>) => Promise<TResult>,
     options: {ownerWebContentsId?: number} = {},
 ) {
-    if (isPinnedRevisionPath(ref)) return readPinnedRevision(ref, operation, options.ownerWebContentsId);
+    if (isPinnedRevisionPath(ref)) {return readPinnedRevision(ref, operation, options.ownerWebContentsId);}
     const entry = getWorkingCopyBackingEntry(ref, options.ownerWebContentsId);
-    if (!entry) throw new Error('Working copy path is not managed');
+    if (!entry) {throw new Error('Working copy path is not managed');}
     const {current, destination} = entry.doc.state();
-    if (current) return operation(revisionPath(entry, current), () => Promise.resolve());
-    if (destination === null) throw new WorkingCopyMissingError();
+    if (current) {return operation(revisionPath(entry, current), () => Promise.resolve());}
+    if (destination === null) {throw new WorkingCopyMissingError();}
     const assertUnchanged = () => assertAdmission(entry, destination);
     await assertUnchanged();
     const result = await operation(destination, assertUnchanged);
@@ -544,7 +545,7 @@ function clearNextRevision(entry: IOpenDocument) {
 }
 
 function throwFailedMutation(entry: IOpenDocument, token: TDocumentRevisionToken | null, result: TStaleRevision | {status: 'conflict'}): never {
-    if (result.status === 'stale-revision') throw staleRevisionError(entry, token, result.current);
+    if (result.status === 'stale-revision') {throw staleRevisionError(entry, token, result.current);}
     throw sourceChangedError();
 }
 
@@ -561,9 +562,9 @@ export async function commitDocumentMutation(
     const outcome = await entry.session.mutate(token, {...change, drafts: 'clear'}, {
         beforeRun: () => clearNextRevision(entry),
     });
-    if (outcome.status === 'stale-revision') throw staleRevisionError(entry, token, entry.doc.state().current);
-    if (outcome.status === 'conflict') throw sourceChangedError();
-    if (outcome.status === 'missing-revision') throw createMissingRevisionError({documentRef: requireDocumentRef(entry.ref)});
+    if (outcome.status === 'stale-revision') {throw staleRevisionError(entry, token, entry.doc.state().current);}
+    if (outcome.status === 'conflict') {throw sourceChangedError();}
+    if (outcome.status === 'missing-revision') {throw createMissingRevisionError({documentRef: requireDocumentRef(entry.ref)});}
     return notifyRevisionChanged(entry, requireDocumentRevisionToken(outcome.previousToken), reason);
 }
 
@@ -578,28 +579,28 @@ export async function rewriteDocument(
     rewrite: (input: string, output: string) => Promise<void>,
     reason: TDocumentRevisionChangeReason,
 ) {
-    if (reason !== 'open') await nameDirectory(entry);
+    if (reason !== 'open') {await nameDirectory(entry);}
     await preservePinnedRevisions(entry);
     const previous = documentRevisionToken(entry);
     // The tool reads its input to the end, where an append no one committed may still be.
     const current = await entry.doc.ownCurrentFile();
     const {destination} = entry.doc.state();
     const input = current ? revisionPath(entry, current) : destination;
-    if (input === null) throw new WorkingCopyMissingError();
+    if (input === null) {throw new WorkingCopyMissingError();}
     const output = absolute(entry.doc.nextRevisionPath());
     const removeOutput = () => entry.doc.run(() => rm(output, {force: true}));
     await removeOutput();
     try {
-        if (!current) await assertAdmission(entry, input);
+        if (!current) {await assertAdmission(entry, input);}
         await rewrite(input, output);
-        if (!(await stat(output).catch(() => null))?.size) throw new Error('The rewrite wrote no revision');
+        if (!(await stat(output).catch(() => null))?.size) {throw new Error('The rewrite wrote no revision');}
         const result = await entry.doc.mutate(entry.session.resolveExpectedId(previous), {
             kind: 'rewrite',
             source: () => Promise.resolve(),
             drafts: 'clear',
             ...(reason === 'open' ? {openOnly: true} : {}),
         });
-        if (result.status !== 'committed') throwFailedMutation(entry, previous, result);
+        if (result.status !== 'committed') {throwFailedMutation(entry, previous, result);}
     } catch (error) {
         await removeOutput();
         throw error;
@@ -616,10 +617,10 @@ export async function rewriteDocument(
  */
 export async function prepareDocumentAppend(entry: IOpenDocument, asItIs = false) {
     const revision = await entry.session.prepareInPlaceAppend(asItIs).catch((error: unknown) => {
-        if (entry.doc.state().current !== null) throw error;
+        if (entry.doc.state().current !== null) {throw error;}
         throw new WorkingCopyMaterializationError('SOURCE_BACKING_UNAVAILABLE', `The original file cannot be read: ${getErrorMessage(error)}`, {cause: error, retryable: true});
     });
-    if (!revision) throw sourceChangedError();
+    if (!revision) {throw sourceChangedError();}
     return revisionPath(entry, revision);
 }
 
@@ -638,7 +639,7 @@ export function discardDocumentAppend(entry: IOpenDocument, error?: unknown) {
 export function endDocumentAppend(entry: IOpenDocument, path: string, staged: BigIntStats) {
     return enqueueWorkingCopyMutation(entry.ref, async () => {
         const now = await stat(path, {bigint: true}).catch(() => null);
-        if (now && now.size === staged.size && now.mtimeNs === staged.mtimeNs && now.ctimeNs === staged.ctimeNs) await discardDocumentAppend(entry);
+        if (now && now.size === staged.size && now.mtimeNs === staged.mtimeNs && now.ctimeNs === staged.ctimeNs) {await discardDocumentAppend(entry);}
     }, {kind: 'document-append-end'}).catch(() => undefined);
 }
 
@@ -657,7 +658,7 @@ export async function appendToDocument(
     try {
         await append(path, path);
         const result = await entry.doc.mutate(entry.session.resolveExpectedId(previous), {kind: 'extend', drafts: 'clear'});
-        if (result.status !== 'committed') throwFailedMutation(entry, previous, result);
+        if (result.status !== 'committed') {throwFailedMutation(entry, previous, result);}
     } catch (error) {
         await discardDocumentAppend(entry, error);
         throw error;
@@ -685,12 +686,12 @@ export function rewriteOpenDocument(
 export async function restoreOpenDocumentRevision(entry: IOpenDocument, token: TDocumentRevisionToken, expected: TDocumentRevisionToken | null) {
     const outcome = await entry.session.restore(expected, token, {ownCurrentFileAfterRestore: true});
     if (outcome.status === 'conflict') {
-        if (outcome.sourceBackingUnavailable) throw openedBytesNotKeptError();
+        if (outcome.sourceBackingUnavailable) {throw openedBytesNotKeptError();}
         throw sourceChangedError();
     }
-    if (outcome.status === 'stale-revision') throw staleRevisionError(entry, expected, entry.doc.state().current);
-    if (outcome.status === 'missing-revision') throw createMissingRevisionError({documentRef: requireDocumentRef(entry.ref)});
-    if (!outcome.revision) entry.admission = await stat(entry.doc.state().destination!, {bigint: true});
+    if (outcome.status === 'stale-revision') {throw staleRevisionError(entry, expected, entry.doc.state().current);}
+    if (outcome.status === 'missing-revision') {throw createMissingRevisionError({documentRef: requireDocumentRef(entry.ref)});}
+    if (!outcome.revision) {entry.admission = await stat(entry.doc.state().destination!, {bigint: true});}
     return notifyRevisionChanged(entry, requireDocumentRevisionToken(outcome.previousToken), 'write');
 }
 
@@ -786,18 +787,18 @@ export async function pinOpenDocumentRevision(workingPath: string, expectedRevis
         const assertCurrent = () => {
             // A window that ended while this waited released its pins then, so none is recorded for it now.
             signal.throwIfAborted();
-            if (openDocuments.get(entry.ref) !== entry || !canUse(entry, senderId)) throw new WorkingCopyMissingError();
+            if (openDocuments.get(entry.ref) !== entry || !canUse(entry, senderId)) {throw new WorkingCopyMissingError();}
             const {current} = entry.doc.state();
-            if (documentRevisionToken(entry) !== expectedRevisionToken) throw staleRevisionError(entry, expectedRevisionToken, current);
+            if (documentRevisionToken(entry) !== expectedRevisionToken) {throw staleRevisionError(entry, expectedRevisionToken, current);}
             // A Save that built on a PDF another program changed copied those bytes in as revision 1; they are not
             // the bytes the renderer parsed as revision 1.
-            if (current?.foreign !== undefined) throw sourceChangedError();
+            if (current?.foreign !== undefined) {throw sourceChangedError();}
         };
         assertCurrent();
         const directory = await preparePinDirectory();
         const {current, destination} = entry.doc.state();
         if (!current) {
-            if (destination === null) throw new WorkingCopyMissingError();
+            if (destination === null) {throw new WorkingCopyMissingError();}
             await assertAdmission(entry, destination);
         }
         // Synchronous from here: what is recorded is what was checked.
@@ -828,7 +829,7 @@ export async function pinOpenDocumentRevision(workingPath: string, expectedRevis
 /** Copies exactly `[0, length)` of `source` to the new file `target`: a clone when that is the whole file. */
 async function copyRevisionPrefix(source: string, target: string, length: number) {
     const {size} = await stat(source);
-    if (size < length) throw new WorkingCopyMaterializationError('SOURCE_BACKING_UNAVAILABLE', 'The pinned revision file was cut short');
+    if (size < length) {throw new WorkingCopyMaterializationError('SOURCE_BACKING_UNAVAILABLE', 'The pinned revision file was cut short');}
     if (size === length) {
         await copyNewFile(source, target);
     } else {
@@ -836,8 +837,8 @@ async function copyRevisionPrefix(source: string, target: string, length: number
     }
     // A native tool may have appended to the source during a clone: those bytes belong to a later revision.
     const copied = await stat(target);
-    if (copied.size > length) await truncate(target, length);
-    else if (copied.size < length) throw new WorkingCopyMaterializationError('SOURCE_BACKING_UNAVAILABLE', 'The pinned revision could not be copied whole');
+    if (copied.size > length) {await truncate(target, length);}
+    else if (copied.size < length) {throw new WorkingCopyMaterializationError('SOURCE_BACKING_UNAVAILABLE', 'The pinned revision could not be copied whole');}
 }
 
 /**
@@ -853,7 +854,7 @@ async function copyAdmittedFile(source: string, admission: BigIntStats, target: 
     });
     try {
         const assertAdmitted = async () => {
-            if (!sameIdentity(await handle.stat({bigint: true}), admission)) throw sourceChangedError();
+            if (!sameIdentity(await handle.stat({bigint: true}), admission)) {throw sourceChangedError();}
         };
         await assertAdmitted();
         await pipeline(handle.createReadStream({start: 0, autoClose: false}), createWriteStream(target, {flags: 'wx'}));
@@ -861,7 +862,7 @@ async function copyAdmittedFile(source: string, admission: BigIntStats, target: 
     } finally {
         await handle.close();
     }
-    if (BigInt((await stat(target)).size) !== admission.size) throw sourceChangedError();
+    if (BigInt((await stat(target)).size) !== admission.size) {throw sourceChangedError();}
 }
 
 /**
@@ -877,7 +878,7 @@ function materializePin(pin: IPinnedRevision) {
             } else {
                 await copyRevisionPrefix(backing.file, pin.ref, backing.length);
             }
-            if (pin.state === 'pinned') pin.state = 'materialized';
+            if (pin.state === 'pinned') {pin.state = 'materialized';}
         } catch (error) {
             await rm(pin.ref, {force: true}).catch(() => undefined);
             if (pin.state === 'pinned') {
@@ -897,7 +898,7 @@ async function preservePinnedRevisions(entry: IOpenDocument) {
 
 function requirePinnedRevision(ref: string, senderId: number | undefined) {
     const pin = pinnedRevisions.get(pinKey(ref));
-    if (!pin) throw new WorkingCopyMissingError('Pinned document revision is missing or was released');
+    if (!pin) {throw new WorkingCopyMissingError('Pinned document revision is missing or was released');}
     if (senderId !== undefined && pin.ownerWebContentsId !== senderId) {
         throw new WorkingCopyMissingError('Pinned document revision is not managed by this owner');
     }
@@ -923,30 +924,30 @@ async function readPinnedRevision<TResult>(
 ) {
     const pin = requirePinnedRevision(ref, senderId);
     await materializePin(pin);
-    if (pin.state === 'released') throw new WorkingCopyMissingError('Pinned document revision is missing or was released');
-    if (pin.state !== 'materialized') throw unavailablePinError(pin);
+    if (pin.state === 'released') {throw new WorkingCopyMissingError('Pinned document revision is missing or was released');}
+    if (pin.state !== 'materialized') {throw unavailablePinError(pin);}
     pin.readers += 1;
     try {
         return await operation(pin.ref, () => Promise.resolve());
     } catch (error) {
         // Before the copy can go below: a reader that did not provably stop may still hold it.
         const unprovenTermination = getUnprovenNativeTerminationDetail(error);
-        if (unprovenTermination !== undefined) quarantineWorkingCopy(pin.ref, unprovenTermination);
+        if (unprovenTermination !== undefined) {quarantineWorkingCopy(pin.ref, unprovenTermination);}
         throw error;
     } finally {
         pin.readers -= 1;
-        if (isReleased(pin) && pin.readers === 0) await removePinFile(pin);
+        if (isReleased(pin) && pin.readers === 0) {await removePinFile(pin);}
     }
 }
 
 async function removePinFile(pin: IPinnedRevision) {
     await pin.materializing;
     // A native reader that did not provably stop may still hold the copy; the next start removes it.
-    if (!isWorkingCopyQuarantined(pin.ref)) await rm(pin.ref, {force: true}).catch(() => undefined);
+    if (!isWorkingCopyQuarantined(pin.ref)) {await rm(pin.ref, {force: true}).catch(() => undefined);}
 }
 
 function endPin(pin: IPinnedRevision) {
-    if (pinnedRevisions.get(pinKey(pin.ref)) === pin) pinnedRevisions.delete(pinKey(pin.ref));
+    if (pinnedRevisions.get(pinKey(pin.ref)) === pin) {pinnedRevisions.delete(pinKey(pin.ref));}
     pin.state = 'released';
     return pin.readers === 0 ? removePinFile(pin) : Promise.resolve();
 }
@@ -958,7 +959,7 @@ async function endPins(matches: (pin: IPinnedRevision) => boolean) {
 /** Ends a pin `senderId` made; `false` for a pin that is gone or another window's. */
 export async function releasePinnedDocumentRevision(ref: string, senderId?: number) {
     const pin = typeof ref === 'string' ? pinnedRevisions.get(pinKey(ref)) : undefined;
-    if (!pin || (senderId !== undefined && pin.ownerWebContentsId !== senderId)) return false;
+    if (!pin || (senderId !== undefined && pin.ownerWebContentsId !== senderId)) {return false;}
     await endPin(pin);
     return true;
 }
@@ -984,7 +985,7 @@ async function removeDirectory(doc: DocumentDirectory) {
  * the rest as an aborted creation rather than offering its work again.
  */
 export async function discardOpenDocument(entry: IOpenDocument) {
-    if (openDocuments.get(entry.ref) !== entry) return false;
+    if (openDocuments.get(entry.ref) !== entry) {return false;}
     openDocuments.delete(entry.ref);
     await endPins(pin => pin.entry === entry);
     const current = entry.doc.state().current;
@@ -1009,9 +1010,9 @@ async function stopDependents(entry: IOpenDocument) {
     const ownership = {isRegistrationCurrent: () => openDocuments.get(entry.ref) === entry};
     for (let round = 0; round < MAX_DEPENDENT_CANCELLATION_ROUNDS; round += 1) {
         const canceled = cancelMainOperationsForClosingWorkingCopy(entry.ref, CLOSING_REASON, ownership);
-        if (canceled === null) return false;
-        if (canceled.length === 0) return true;
-        if (!(await waitForMainOperationsSettled(canceled, {timeoutMs: DEPENDENT_SETTLEMENT_TIMEOUT_MS})).settled) return false;
+        if (canceled === null) {return false;}
+        if (canceled.length === 0) {return true;}
+        if (!(await waitForMainOperationsSettled(canceled, {timeoutMs: DEPENDENT_SETTLEMENT_TIMEOUT_MS})).settled) {return false;}
     }
     return snapshotCancellableWorkingCopyDependents(entry.ref).length === 0;
 }
@@ -1022,7 +1023,7 @@ async function stopDependents(entry: IOpenDocument) {
  */
 export async function cleanupWorkingCopy(ref: string, senderId?: number) {
     const entry = getWorkingCopyBackingEntry(ref, senderId);
-    if (!entry) return false;
+    if (!entry) {return false;}
     await drainWorkingCopyMutations(entry.ref);
     if (!await stopDependents(entry)) {
         log.warn('Retained a closing document whose readers did not stop', {ref: entry.ref});
@@ -1065,10 +1066,10 @@ function collected() {
             .catch((error: unknown) => log.warn(`Kept pinned revisions an earlier run left: ${getErrorMessage(error)}`));
         const docStore = getDocumentStore();
         for (const id of await docStore.port.list(DOCUMENTS_DIR)) {
-            if (!STORE_ID_PATTERN.test(id)) continue;
+            if (!STORE_ID_PATTERN.test(id)) {continue;}
             // A manifest that cannot be read is the collection's to report.
             const manifest = await docStore.port.read(`${DOCUMENTS_DIR}/${id}/${MANIFEST_NAME}`).then(decodeManifest).catch(() => null);
-            if (!manifest?.pendingPublish && !manifest?.unsettled) continue;
+            if (!manifest?.pendingPublish && !manifest?.unsettled) {continue;}
             const kept = (error: unknown) => log.warn(`Document ${DOCUMENTS_DIR}/${id} kept an interrupted save for later: ${getErrorMessage(error)}`);
             // Opening keeps a save it cannot settle recorded without failing; the reason is told here. Desktop
             // publication always settles.
@@ -1085,7 +1086,7 @@ function collected() {
         }
         // Nothing is open yet, so every directory is the collection's to decide.
         const result = await collectDocuments(docStore, () => Promise.resolve(() => undefined));
-        for (const {path, error} of result.unreadable) log.warn(`Kept recovery data that cannot be read: ${path}: ${getErrorMessage(error)}`);
+        for (const {path, error} of result.unreadable) {log.warn(`Kept recovery data that cannot be read: ${path}: ${getErrorMessage(error)}`);}
         return result;
     })().catch((error: unknown) => {
         log.warn(`Document collection stopped: ${getErrorMessage(error)}`);
@@ -1121,7 +1122,7 @@ export function findWorkingCopyPathByOriginalPath(originalPath: string, senderId
     for (const entry of openDocuments.values()) {
         if (entry.role === 'current' && entry.originalPath !== undefined && canUse(entry, senderId)
             && normalizePathForLookup(entry.originalPath) === key
-            && (found === null || entry.registrationId > found.registrationId)) found = entry;
+            && (found === null || entry.registrationId > found.registrationId)) {found = entry;}
     }
     return found ? requireDocumentRef(found.ref) : null;
 }
@@ -1152,7 +1153,7 @@ export function readWorkingCopyRevision(path: string) {
 /** A tab move hands the document to `targetOwner` at once; the returned registration id ends the move. */
 export function grantWorkingCopyTransferAccess(ref: string, sourceOwner: number, targetOwner: number): number | false {
     const entry = getWorkingCopyBackingEntry(ref);
-    if (!entry || entry.ownerWebContentsId !== sourceOwner) return false;
+    if (!entry || entry.ownerWebContentsId !== sourceOwner) {return false;}
     entry.ownerWebContentsId = targetOwner;
     return entry.registrationId;
 }

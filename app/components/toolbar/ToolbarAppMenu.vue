@@ -226,8 +226,8 @@ const textEditSource = shallowRef<ITextEditSource | null>(null);
 const toast = useToast();
 
 function textControl(element: Element | null) {
-    if (element instanceof HTMLTextAreaElement) return element;
-    if (!(element instanceof HTMLInputElement)) return null;
+    if (element instanceof HTMLTextAreaElement) {return element;}
+    if (!(element instanceof HTMLInputElement)) {return null;}
     try {
         return element.selectionStart === null ? null : element;
     } catch {
@@ -237,7 +237,7 @@ function textControl(element: Element | null) {
 
 function editingHost(element: Element | null) {
     let host = element instanceof HTMLElement && element.isContentEditable ? element : null;
-    while (host?.parentElement?.isContentEditable) host = host.parentElement;
+    while (host?.parentElement?.isContentEditable) {host = host.parentElement;}
     return host;
 }
 
@@ -258,7 +258,7 @@ function readTextEditSource(focused: Element | null): ITextEditSource | null {
     const container = selected[0]?.commonAncestorContainer;
     const focusedSource = control ?? host ?? annotation;
     const element = focusedSource ?? (container instanceof HTMLElement ? container : container?.parentElement ?? null);
-    if (element === null || inTextEditMenu(element)) return null;
+    if (element === null || inTextEditMenu(element)) {return null;}
     return {
         element,
         focused: focusedSource !== null,
@@ -272,7 +272,7 @@ function readTextEditSource(focused: Element | null): ITextEditSource | null {
 
 function captureTextEditSource(focused: Element | null = document.activeElement) {
     // The open menu's own trigger dismisses it; the source stays for that dismissal.
-    if (!menuOpen.value) textEditSource.value = readTextEditSource(focused);
+    if (!menuOpen.value) {textEditSource.value = readTextEditSource(focused);}
 }
 
 // Keyboard entry: focus leaving a source for this menu names the source.
@@ -289,12 +289,12 @@ function isTextEditSourceCurrent(source: ITextEditSource) {
 }
 
 function restoreTextEditSource(source: ITextEditSource) {
-    if (!isTextEditSourceCurrent(source)) return false;
+    if (!isTextEditSourceCurrent(source)) {return false;}
     source.element.focus({preventScroll: true});
     if (Array.isArray(source.selection)) {
         const selection = window.getSelection();
         selection?.removeAllRanges();
-        for (const range of source.selection) selection?.addRange(range);
+        for (const range of source.selection) {selection?.addRange(range);}
     } else {
         (source.element as HTMLInputElement).setSelectionRange(source.selection.start, source.selection.end, source.selection.direction);
     }

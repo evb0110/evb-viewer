@@ -82,7 +82,7 @@ async function readFirstPageImages(path: string): Promise<IPageImage[]> {
         , reference,
     ] of xObjects?.entries() ?? []) {
         const stream = doc.context.lookup(reference);
-        if (!(stream instanceof PDFRawStream) || stream.dict.get(PDFName.of('Subtype')) !== PDFName.of('Image')) continue;
+        if (!(stream instanceof PDFRawStream) || stream.dict.get(PDFName.of('Subtype')) !== PDFName.of('Image')) {continue;}
         const bits = stream.dict.lookupMaybe(PDFName.of('BitsPerComponent'), PDFNumber);
         images.push({
             bitsPerComponent: bits?.asNumber() ?? null,
@@ -151,7 +151,7 @@ async function createPositionedTextControlsPdf(path: string) {
                         ],
                     ]) {
                     for (let y = startY!; y < endY!; y += 1) {
-                        for (let x = left; x < left + width!; x += 1) pixels[y * 720 + x] = ink;
+                        for (let x = left; x < left + width!; x += 1) {pixels[y * 720 + x] = ink;}
                     }
                 }
             }
@@ -227,7 +227,7 @@ describe('scan cleanup of a photographed book page', () => {
         await waitForViewerInteractive(session.page, 90_000);
 
         for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
-            if (await toast.isVisible()) await clickAsUser(session.page, toast);
+            if (await toast.isVisible()) {await clickAsUser(session.page, toast);}
         }
         await clickAsUser(session.page, 'button[aria-label="Scan cleanup"]');
         await session.page.waitForSelector('.scan-cleanup-surface', {
@@ -236,7 +236,7 @@ describe('scan cleanup of a photographed book page', () => {
         });
         await waitForFunctionInPage(session.page, () => {
             const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
-            if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') return false;
+            if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') {return false;}
             const rect = action.getBoundingClientRect();
             const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
             return (hit === action || action.contains(hit))
@@ -280,7 +280,7 @@ describe('scan cleanup of a photographed book page', () => {
         await waitForViewerInteractive(session.page, 90_000);
 
         for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
-            if (await toast.isVisible()) await clickAsUser(session.page, toast);
+            if (await toast.isVisible()) {await clickAsUser(session.page, toast);}
         }
         await clickAsUser(session.page, 'button[aria-label="Scan cleanup"]');
         await session.page.waitForSelector('.scan-cleanup-surface', {
@@ -291,7 +291,7 @@ describe('scan cleanup of a photographed book page', () => {
         await clickFoundAsUser(session.page, (text: string) => Array.from(document.querySelectorAll('label')).find(label => label.textContent?.trim() === text), 'Automatically correct page curvature (experimental)', {description:'automatic dewarp checkbox'});
         await waitForFunctionInPage(session.page, () => {
             const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
-            if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') return false;
+            if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') {return false;}
             const rect = action.getBoundingClientRect();
             const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
             return (hit === action || action.contains(hit))

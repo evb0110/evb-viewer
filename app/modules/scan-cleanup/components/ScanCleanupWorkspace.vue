@@ -438,7 +438,7 @@ watch([
 const toast = useToast();
 let toldDetailFailureId: string | null = null;
 function dismissDetailFailure() {
-    if (toldDetailFailureId !== null) toast.remove(toldDetailFailureId);
+    if (toldDetailFailureId !== null) {toast.remove(toldDetailFailureId);}
     toldDetailFailureId = null;
 }
 watch(previewDetailError, (failure) => {

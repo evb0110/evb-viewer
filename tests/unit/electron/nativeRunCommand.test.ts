@@ -980,7 +980,7 @@ describe('runNativeCommand', () => {
         const proc = new MockNativeProcess();
         mocks.spawn.mockReturnValue(proc);
         mocks.terminateDetachedChildProcess.mockResolvedValueOnce(false);
-        if (mode === 'job-close') mocks.jobProof.mockReturnValue(Promise.resolve(false));
+        if (mode === 'job-close') {mocks.jobProof.mockReturnValue(Promise.resolve(false));}
         const {
             configureMainJobBroker,
             mainJobBroker,
@@ -993,7 +993,7 @@ describe('runNativeCommand', () => {
         const rejection = result.catch((error: unknown) => error);
         await vi.waitFor(() => expect(mocks.spawn).toHaveBeenCalledOnce());
         const scratch = await mocks.createManagedScratchTempDir.mock.results[0]!.value;
-        if (mode === 'cancellation') controller.abort(new Error('cancel native command'));
+        if (mode === 'cancellation') {controller.abort(new Error('cancel native command'));}
         proc.emit('close', 2, null);
         expect(getUnprovenNativeTerminationDetail(await rejection)).toBeDefined();
         expect(existsSync(scratch)).toBe(true);
@@ -1070,7 +1070,7 @@ describe('runNativeCommand broker admission', () => {
 
     it('runs more than eight commands at once on a large host', async () => {
         const processes = Array.from({length: 12}, (_, index) => new MockNativeProcess(50_000 + index));
-        for (const proc of processes) mocks.spawn.mockReturnValueOnce(proc);
+        for (const proc of processes) {mocks.spawn.mockReturnValueOnce(proc);}
         const {
             mainJobBroker,
             runNativeCommand,
@@ -1084,7 +1084,7 @@ describe('runNativeCommand broker admission', () => {
             queued: 0,
             used: {nativeProcesses: 12},
         });
-        for (const proc of processes) proc.emit('close', 0, null);
+        for (const proc of processes) {proc.emit('close', 0, null);}
         await Promise.all(results);
         expect(mainJobBroker.getSnapshot()).toMatchObject({
             active: 0,

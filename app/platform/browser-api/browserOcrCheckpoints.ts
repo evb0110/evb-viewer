@@ -66,7 +66,7 @@ export async function sweepStaleBrowserOcrCheckpoints(
     const entries = await port.list(OCR_CHECKPOINT_ROOT).catch(() => []);
     await Promise.all(entries.map(async (name) => {
         const dir = `${OCR_CHECKPOINT_ROOT}/${name}`;
-        if (activeCheckpointDirs.has(dir)) return;
+        if (activeCheckpointDirs.has(dir)) {return;}
         try {
             const raw = await port.read(`${dir}/meta.json`);
             const parsed = JSON.parse(decoder.decode(raw)) as {createdAt?: unknown};
@@ -119,8 +119,8 @@ export async function createBrowserOcrCheckpointStore(
 
     const readPage = async (pageNumber: number): Promise<{record: TBrowserOcrCheckpointRecord; pdf: Uint8Array}> => {
         const inMemory = memoryFallback.get(pageNumber);
-        if (inMemory) return inMemory;
-        if (!durablePort) throw new Error(`OCR checkpoint missing for page ${pageNumber}`);
+        if (inMemory) {return inMemory;}
+        if (!durablePort) {throw new Error(`OCR checkpoint missing for page ${pageNumber}`);}
         const paths = pagePaths(dir, pageNumber);
         const [
             pdf,
@@ -139,7 +139,7 @@ export async function createBrowserOcrCheckpointStore(
         },
         directory: dir,
         async stagePage(page) {
-            if (cleanedUp) throw new Error('OCR checkpoint store was already cleaned up');
+            if (cleanedUp) {throw new Error('OCR checkpoint store was already cleaned up');}
             const record = extractRecord(page);
             const metaBytes = encoder.encode(JSON.stringify(record));
             const totalBytes = page.pdf.byteLength + metaBytes.byteLength;
@@ -152,7 +152,7 @@ export async function createBrowserOcrCheckpointStore(
                     stagedBytesByPage.set(page.pageNumber, totalBytes);
                     return;
                 } catch (error) {
-                    if (!isQuotaError(error)) throw error;
+                    if (!isQuotaError(error)) {throw error;}
                     // Quota exhausted mid-job: latch writes to memory while keeping `durablePort`
                     // intact for reading already-staged pages and cleaning up on completion/abort.
                     opfsWritesExhausted = true;
@@ -181,7 +181,7 @@ export async function createBrowserOcrCheckpointStore(
                 while (cursor < sortedPages.length && batchPageNumbers.length < maxPages) {
                     const pageNumber = sortedPages[cursor]!;
                     const pageBytes = stagedBytesByPage.get(pageNumber) ?? 0;
-                    if (batchPageNumbers.length > 0 && batchBytes + pageBytes > maxBytes) break;
+                    if (batchPageNumbers.length > 0 && batchBytes + pageBytes > maxBytes) {break;}
                     batchPageNumbers.push(pageNumber);
                     batchBytes += pageBytes;
                     cursor += 1;
@@ -198,7 +198,7 @@ export async function createBrowserOcrCheckpointStore(
             }
         },
         async cleanup() {
-            if (cleanedUp) return;
+            if (cleanedUp) {return;}
             cleanedUp = true;
             stagedBytesByPage.clear();
             memoryFallback.clear();

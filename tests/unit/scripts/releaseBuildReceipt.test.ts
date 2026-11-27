@@ -483,7 +483,7 @@ describe('release strict-build receipts', () => {
             put('.tmp/generated-electron-builder-resources.yml', 'resources: []');
             put('.env', `EVB_NATIVE_TARGET_ARCH=${alternateArch}\n`);
             putNativeOutputs(platformArch);
-            if (mode === 'with stale alternate outputs') putNativeOutputs(alternateTarget);
+            if (mode === 'with stale alternate outputs') {putNativeOutputs(alternateTarget);}
 
             writeReleaseBuildReceipt(receiptPath, options);
             expect(validateReleaseBuildReceipt(receiptPath, options)).toMatchObject({valid: true});

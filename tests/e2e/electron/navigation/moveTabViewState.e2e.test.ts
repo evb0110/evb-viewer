@@ -61,10 +61,10 @@ const sessions = createElectronE2ESessionFixture({
 let outputDirectory: string | null = null;
 
 afterEach(() => {
-    if (outputDirectory) rmSync(outputDirectory, {
+    if (outputDirectory) {rmSync(outputDirectory, {
         recursive: true,
         force: true,
-    });
+    });}
     outputDirectory = null;
 });
 
@@ -124,8 +124,8 @@ function createSlowTransferFixture(filePath: string, fontMapBytes = 64 * 1024 * 
         const id = next++, contentId = next++;
         kids.push(`${id} 0 R`);
         let content = `BT /F 22 Tf 50 790 Td (${name} / PAGE ${page}) Tj ET\n`;
-        for (let row = 0; row < 20; row++) content += `BT /F 12 Tf 55 ${740-row*30} Td (Reading marker ${page}.${row} - stable text and geometry) Tj ET\n`;
-        for (let font = 0; font < 16; font++) content += `BT /S${font} 10 Tf 460 ${750-font*22} Td <0053004C004F0057> Tj ET\n`;
+        for (let row = 0; row < 20; row++) {content += `BT /F 12 Tf 55 ${740-row*30} Td (Reading marker ${page}.${row} - stable text and geometry) Tj ET\n`;}
+        for (let font = 0; font < 16; font++) {content += `BT /S${font} 10 Tf 460 ${750-font*22} Td <0053004C004F0057> Tj ET\n`;}
         objects.set(contentId, text(`<< /Length ${content.length} >>\nstream\n${content}endstream`));
         objects.set(id, text(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << ${fonts} >> >> /Contents ${contentId} 0 R >>`));
     }
@@ -226,7 +226,7 @@ async function waitForHeldIncomingOpen(target: Page) {
 }
 
 async function releaseIncomingOpen(target: Page) {
-    if (!target.isClosed()) await target.evaluate(() => (window as TMovingLoadWindow).__movingMenuLoad?.restore());
+    if (!target.isClosed()) {await target.evaluate(() => (window as TMovingLoadWindow).__movingMenuLoad?.restore());}
 }
 
 describe('Move Tab to New Window view state', () => {
@@ -268,7 +268,7 @@ describe('Move Tab to New Window view state', () => {
         await clickFoundAsUser(source, () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
             .find(item => item.textContent?.includes('Move Tab to New Window')), null, {description: 'Move Tab to New Window'});
         const destination = await (await destinationTarget).page();
-        if (!destination) throw new Error('The moved DjVu has no destination renderer');
+        if (!destination) {throw new Error('The moved DjVu has no destination renderer');}
         destinationPage = destination;
         await installPageEvaluationShims(destination);
 
@@ -318,7 +318,7 @@ describe('Move Tab to New Window view state', () => {
             seed,
             cold,
             hot,
-        ]) await createTwelvePageFixture(path);
+        ]) {await createTwelvePageFixture(path);}
         await openPdfInApp(source, seed);
         const target = await moveTabToNewWindow(source, {tabTitle: 'target.pdf'});
         await installPageEvaluationShims(target);
@@ -390,7 +390,7 @@ describe('Move Tab to New Window view state', () => {
         const replacement = join(home, 'replacement.pdf');
         let destination: Page | null = null;
         onTestFinished(async () => {
-            if (destination) await releaseIncomingOpen(destination);
+            if (destination) {await releaseIncomingOpen(destination);}
             await sessions.restart({
                 clean: true,
                 hard: true,
@@ -496,7 +496,7 @@ describe('Move Tab to New Window view state', () => {
         const home = mkdtempSync(join(tmpdir(), 'moving-neighbour-'));
         let destination: Page | null = null;
         onTestFinished(async () => {
-            if (destination) await releaseIncomingOpen(destination);
+            if (destination) {await releaseIncomingOpen(destination);}
             await sessions.restart({
                 clean: true,
                 hard: true,
@@ -668,7 +668,7 @@ describe('Move Tab to New Window view state', () => {
             expect(source.isClosed()).toBe(false);
         }
         writeFileSync(`${gate}.release`, '');
-        if (closeSource) await vi.waitFor(() => expect(source.isClosed()).toBe(true), {timeout: 30_000});
+        if (closeSource) {await vi.waitFor(() => expect(source.isClosed()).toBe(true), {timeout: 30_000});}
         await vi.waitFor(async () => expect(await destination.$('.workspace-transfer-state')).toBeNull(), {timeout: 30_000});
         const texts = await vi.waitFor(async () => {
             const renderedTexts = await destination.$$eval('.pdf-annotation-editor-text-box[data-annotation-kind="text-box"]', nodes => nodes.map(node => (
@@ -740,7 +740,7 @@ describe('Move Tab to New Window view state', () => {
             }
             // Trusted input hits the moving surface, which shields the editor.
             await clickAsUser(source, '.workspace-transfer-state');
-            if (action === 'annotation') await source.keyboard.type('Accepted during move');
+            if (action === 'annotation') {await source.keyboard.type('Accepted during move');}
         } else if (action === 'annotation') {
             await createFreeTextAnnotationWithPointer(source, 'Accepted during move', {
                 x: 0.65,
@@ -844,7 +844,7 @@ describe('Move Tab to New Window view state', () => {
         const targetWindow = await fastSource.evaluate(async (peerIds: number[]) => (
             (await window.electronAPI!.windowTabs!.listTargetWindows()).find(candidate => !peerIds.includes(candidate.windowId))
         ), peers.map(peer => peer.windowId));
-        if (!targetWindow) throw new Error('Transfer target window was not listed');
+        if (!targetWindow) {throw new Error('Transfer target window was not listed');}
         const moveToTarget = async (source: Page) => {
             await clickAsUser(source, '.tab.is-active[data-tab-id]', {button: 'right'});
             // The first incoming document changes the window's title. Its
@@ -933,7 +933,7 @@ describe('Move Tab to New Window view state', () => {
         // and ends A's open while its reload waiter awaits a ready viewport.
         const restoreRender = await target.evaluate(async () => {
             const pdfjs = (window as Window & {pdfjsLib?: typeof Pdfjs}).pdfjsLib;
-            if (!pdfjs) throw new Error('PDF.js is not loaded in the renderer');
+            if (!pdfjs) {throw new Error('PDF.js is not loaded in the renderer');}
             pdfjs.GlobalWorkerOptions.workerSrc ||= new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
             const probe = pdfjs.getDocument({data: new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF')});
             const proxy = await (await probe.promise).getPage(1);
@@ -942,11 +942,11 @@ describe('Move Tab to New Window view state', () => {
             const render = prototype.render;
             prototype.render = function (...args: Parameters<typeof render>) {
                 const task = render.apply(this, args);
-                if (this.pageNumber === 1) Object.defineProperty(task, 'onContinue', {
+                if (this.pageNumber === 1) {Object.defineProperty(task, 'onContinue', {
                     configurable: true,
                     get: () => () => {throw new Error('Transfer fixture: first-page raster failed');},
                     set: () => {},
-                });
+                });}
                 return task;
             };
             (window as Window & {__restoreTransferRender?: () => void}).__restoreTransferRender = () => {
@@ -957,7 +957,7 @@ describe('Move Tab to New Window view state', () => {
         expect(restoreRender).toBe(true);
         const transferFailed = Promise.withResolvers<undefined>();
         const onTransferFailure = (message: ConsoleMessage) => {
-            if (message.text().includes('Cross-window transfer failed')) transferFailed.resolve(undefined);
+            if (message.text().includes('Cross-window transfer failed')) {transferFailed.resolve(undefined);}
         };
         source.on('console', onTransferFailure);
         onTestFinished(() => {source.off('console', onTransferFailure);});
@@ -1026,7 +1026,7 @@ describe('Move Tab to New Window view state', () => {
         // The transfer and replacement still use the real tab menu and picker.
         await target.evaluate(async () => {
             const pdfjs = (window as Window & {pdfjsLib?: typeof Pdfjs}).pdfjsLib;
-            if (!pdfjs) throw new Error('PDF.js is not loaded in the renderer');
+            if (!pdfjs) {throw new Error('PDF.js is not loaded in the renderer');}
             pdfjs.GlobalWorkerOptions.workerSrc ||= new URL('/pdf/pdf.worker.min.mjs', document.baseURI).href;
             const probe = pdfjs.getDocument({data: new TextEncoder().encode('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF')});
             const proxy = await (await probe.promise).getPage(1);
@@ -1043,7 +1043,7 @@ describe('Move Tab to New Window view state', () => {
             };
             prototype.render = function (...args: Parameters<typeof render>) {
                 const task = render.apply(this, args);
-                if (this.pageNumber === 1) Object.defineProperty(task, 'onContinue', {
+                if (this.pageNumber === 1) {Object.defineProperty(task, 'onContinue', {
                     configurable: true,
                     get: () => (continueRender: () => void) => {
                         release = continueRender;
@@ -1051,14 +1051,14 @@ describe('Move Tab to New Window view state', () => {
                         prototype.render = render;
                     },
                     set: () => {},
-                });
+                });}
                 return task;
             };
             (window as Window & {__cancelledTransferLoad?: typeof state}).__cancelledTransferLoad = state;
         });
         const rejected = Promise.withResolvers<undefined>();
         const onRejection = (message: ConsoleMessage) => {
-            if (message.text().includes('Cross-window transfer failed')) rejected.resolve(undefined);
+            if (message.text().includes('Cross-window transfer failed')) {rejected.resolve(undefined);}
         };
         source.on('console', onRejection);
         onTestFinished(() => {source.off('console', onRejection);});
@@ -1101,7 +1101,7 @@ describe('Move Tab to New Window view state', () => {
         await goToPageViaToolbar(session.page, 7);
         await ensureSidebarOpen(session.page);
         const zoomButton = await session.page.$('#editor-global-toolbar-host .zoom-controls-display:not(:disabled)');
-        if (!zoomButton) throw new Error('Custom zoom control was not available');
+        if (!zoomButton) {throw new Error('Custom zoom control was not available');}
         await clickAsUser(session.page, zoomButton);
         await session.page.waitForSelector('.zoom-dropdown input', {
             visible: true,

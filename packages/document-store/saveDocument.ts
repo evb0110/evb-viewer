@@ -77,10 +77,10 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
     return doc.run(async (): Promise<TSaveResult> => {
         if (options.commit) {
             const committed = await doc.applyMutation(options.expected, options.commit);
-            if (committed.status !== 'committed') return committed;
+            if (committed.status !== 'committed') {return committed;}
         } else {
             const stale = doc.staleRevision(options.expected);
-            if (stale) return stale;
+            if (stale) {return stale;}
         }
         // A pending publish for another destination comes from an unacknowledged Save As that reported
         // adoption failure to the workspace. Move it to `unsettled` so recovery settles any temp/displaced
@@ -103,13 +103,13 @@ export function saveDocument(doc: DocumentDirectory, options: ISaveOptions) {
         const { saveAs } = options;
         const { destination: saved, baseline } = doc.snapshot();
         const destination = saveAs ?? saved;
-        if (destination === undefined || (saveAs === undefined && baseline === undefined)) return { status: 'needs-save-as' };
+        if (destination === undefined || (saveAs === undefined && baseline === undefined)) {return { status: 'needs-save-as' };}
         // Without bytes of its own the document still is its destination: a plain Save has nothing to write.
-        if (saveAs === undefined && !doc.snapshot().current) return { status: 'saved', revision: null };
+        if (saveAs === undefined && !doc.snapshot().current) {return { status: 'saved', revision: null };}
         // Save As publishes a destination another program changed as it is now; a plain Save refuses it below.
         const current = await doc.ensureCurrent(saveAs !== undefined);
-        if (!current) return { status: 'conflict' };
-        if (saveAs === undefined && sameWitness(current.witness, baseline)) return { status: 'saved', revision: current };
+        if (!current) {return { status: 'conflict' };}
+        if (saveAs === undefined && sameWitness(current.witness, baseline)) {return { status: 'saved', revision: current };}
         await doc.keepDestinationRevision();
 
         // This publish's record: first the file it stages beside the destination, then the witness it stages. The

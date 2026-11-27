@@ -43,7 +43,7 @@ const MEMARG_HAS_MEMORY = 0x40;
 /** @param {Uint8Array} bytes @param {number} offset @returns {number} */
 function byteAt(bytes, offset) {
     const byte = bytes[offset];
-    if (byte === undefined) throw new Error('Truncated WebAssembly module');
+    if (byte === undefined) {throw new Error('Truncated WebAssembly module');}
     return byte;
 }
 
@@ -53,7 +53,7 @@ function readU32(bytes, offset) {
     let shift = 0;
     let byte;
     do {
-        if (shift > 28) throw new Error(`Overlong WebAssembly u32 at byte ${offset}`);
+        if (shift > 28) {throw new Error(`Overlong WebAssembly u32 at byte ${offset}`);}
         byte = byteAt(bytes, offset++);
         value += (byte & 0x7f) * 2 ** shift;
         shift += 7;
@@ -65,7 +65,7 @@ function readU32(bytes, offset) {
 function skipLeb(bytes, offset) {
     const start = offset;
     while (byteAt(bytes, offset++) & 0x80) {
-        if (offset - start >= 10) throw new Error(`Overlong WebAssembly LEB128 at byte ${start}`);
+        if (offset - start >= 10) {throw new Error(`Overlong WebAssembly LEB128 at byte ${start}`);}
     }
     return offset;
 }
@@ -77,7 +77,7 @@ function encodeU32(value) {
     do {
         let byte = remaining & 0x7f;
         remaining = Math.floor(remaining / 128);
-        if (remaining !== 0) byte |= 0x80;
+        if (remaining !== 0) {byte |= 0x80;}
         out.push(byte);
     } while (remaining !== 0);
     return out;
@@ -92,7 +92,7 @@ function encodeS64(value) {
         remaining >>= 7n;
         const done = (remaining === 0n && !(byte & 0x40)) || (remaining === -1n && (byte & 0x40));
         out.push(done ? byte : byte | 0x80);
-        if (done) return out;
+        if (done) {return out;}
     }
 }
 
@@ -119,7 +119,7 @@ function readValueType(bytes, offset, what) {
 /** Skips a block type: empty, one value type, or a type index. @param {Uint8Array} bytes @param {number} offset */
 function skipBlockType(bytes, offset) {
     const byte = byteAt(bytes, offset);
-    if (byte === 0x40 || VALUE_TYPES.has(byte)) return offset + 1;
+    if (byte === 0x40 || VALUE_TYPES.has(byte)) {return offset + 1;}
     // A one-byte s33 from 0x40 to 0x7f is negative: a type code, not an index.
     if (byte >= 0x40 && byte <= 0x7f) {
         throw new Error(`Unsupported WebAssembly block type 0x${byte.toString(16)} at byte ${offset}`);
@@ -131,7 +131,7 @@ function skipBlockType(bytes, offset) {
 function skipMemarg(bytes, offset) {
     const align = readU32(bytes, offset);
     offset = align.offset;
-    if (align.value & MEMARG_HAS_MEMORY) offset = skipLeb(bytes, offset);
+    if (align.value & MEMARG_HAS_MEMORY) {offset = skipLeb(bytes, offset);}
     return skipLeb(bytes, offset);
 }
 
@@ -169,13 +169,13 @@ function walkInstructions(bytes, offset, end, visit) {
         } else if (opcode === 0x0e) {
             const targets = readU32(bytes, offset);
             offset = targets.offset;
-            for (let index = 0; index <= targets.value; index += 1) offset = skipLeb(bytes, offset);
+            for (let index = 0; index <= targets.value; index += 1) {offset = skipLeb(bytes, offset);}
         } else if (opcode === 0x11 || opcode === 0x13) {
             offset = skipLeb(bytes, skipLeb(bytes, offset));
         } else if (opcode === 0x1c) {
             const types = readU32(bytes, offset);
             offset = types.offset;
-            for (let index = 0; index < types.value; index += 1) offset = readValueType(bytes, offset, 'select');
+            for (let index = 0; index < types.value; index += 1) {offset = readValueType(bytes, offset, 'select');}
         } else if (opcode >= 0x28 && opcode <= 0x3e) {
             offset = skipMemarg(bytes, offset);
         } else if (opcode === 0x3f || opcode === 0x40 || opcode === 0x41 || opcode === 0x42) {
@@ -219,14 +219,14 @@ function walkInstructions(bytes, offset, end, visit) {
             if (sub.value <= 0x0b || sub.value === 0x5c || sub.value === 0x5d) {
                 offset = skipMemarg(bytes, offset);
             } else if (sub.value === 0x0c || sub.value === 0x0d) {
-                if (offset + 16 > end) throw new Error(`Truncated WebAssembly SIMD128 immediate at byte ${start}`);
+                if (offset + 16 > end) {throw new Error(`Truncated WebAssembly SIMD128 immediate at byte ${start}`);}
                 offset += 16;
             } else if (sub.value >= 0x15 && sub.value <= 0x22) {
-                if (offset + 1 > end) throw new Error(`Truncated WebAssembly SIMD128 lane index at byte ${start}`);
+                if (offset + 1 > end) {throw new Error(`Truncated WebAssembly SIMD128 lane index at byte ${start}`);}
                 offset += 1;
             } else if (sub.value >= 0x54 && sub.value <= 0x5b) {
                 offset = skipMemarg(bytes, offset);
-                if (offset + 1 > end) throw new Error(`Truncated WebAssembly SIMD128 lane index at byte ${start}`);
+                if (offset + 1 > end) {throw new Error(`Truncated WebAssembly SIMD128 lane index at byte ${start}`);}
                 offset += 1;
             } else if (sub.value <= 0xff) {
                 // Remaining WebAssembly 2.0 fixed-width SIMD128 instructions take no immediates.
@@ -237,7 +237,7 @@ function walkInstructions(bytes, offset, end, visit) {
             const sub = readU32(bytes, offset);
             offset = sub.offset;
             if (sub.value === 0x03) {
-                if (byteAt(bytes, offset) !== 0) throw new Error(`Unknown atomic.fence encoding at byte ${start}`);
+                if (byteAt(bytes, offset) !== 0) {throw new Error(`Unknown atomic.fence encoding at byte ${start}`);}
                 offset += 1;
             } else if (sub.value <= 0x02 || (sub.value >= 0x10 && sub.value <= 0x4e)) {
                 offset = skipMemarg(bytes, offset);
@@ -248,7 +248,7 @@ function walkInstructions(bytes, offset, end, visit) {
             throw new Error(`Unknown WebAssembly instruction 0x${opcode.toString(16)} at byte ${start}`);
         }
     }
-    if (offset !== end) throw new Error('A WebAssembly function body ends inside an instruction');
+    if (offset !== end) {throw new Error('A WebAssembly function body ends inside an instruction');}
 }
 
 /** @param {Uint8Array} bytes */
@@ -263,7 +263,7 @@ function readSections(bytes) {
         const id = byteAt(bytes, offset);
         const size = readU32(bytes, offset + 1);
         const end = size.offset + size.value;
-        if (end > bytes.length) throw new Error('Truncated WebAssembly section');
+        if (end > bytes.length) {throw new Error('Truncated WebAssembly section');}
         sections.push({id, start: offset, contentStart: size.offset, end});
         offset = end;
     }
@@ -313,7 +313,7 @@ function skipLimits(bytes, offset, allowedFlags, what) {
 
 /** The number of imported functions. @param {Uint8Array} bytes @param {{contentStart: number} | undefined} section */
 function countImportedFunctions(bytes, section) {
-    if (!section) return 0;
+    if (!section) {return 0;}
     let functions = 0;
     const count = readU32(bytes, section.contentStart);
     let offset = count.offset;
@@ -327,7 +327,7 @@ function countImportedFunctions(bytes, section) {
             offset = skipLeb(bytes, offset);
         } else if (kind === 0x01) {
             const type = byteAt(bytes, offset);
-            if (!REFERENCE_TYPES.has(type)) throw new Error(`Unsupported WebAssembly table type 0x${type.toString(16)}`);
+            if (!REFERENCE_TYPES.has(type)) {throw new Error(`Unsupported WebAssembly table type 0x${type.toString(16)}`);}
             offset = skipLimits(bytes, offset + 1, [0, 1], 'table');
         } else if (kind === 0x02) {
             // Unshared or shared 32-bit memories; not memory64 or custom page sizes.
@@ -335,7 +335,7 @@ function countImportedFunctions(bytes, section) {
         } else if (kind === 0x03) {
             offset = readValueType(bytes, offset, 'global');
             const mutability = byteAt(bytes, offset++);
-            if (mutability > 1) throw new Error(`Unsupported WebAssembly global mutability ${mutability}`);
+            if (mutability > 1) {throw new Error(`Unsupported WebAssembly global mutability ${mutability}`);}
         } else {
             throw new Error(`Unsupported WebAssembly import kind ${kind}`);
         }
@@ -351,7 +351,7 @@ function countImportedFunctions(bytes, section) {
 export function countWasmBulkMemory(bytes) {
     const counts = {copy: 0, fill: 0};
     const code = readSections(bytes).find(section => section.id === SECTION_CODE);
-    if (!code) return counts;
+    if (!code) {return counts;}
     for (const body of readBodies(bytes, code)) {
         walkInstructions(bytes, firstInstruction(bytes, body), body.end, (kind) => {
             counts[kind] += 1;

@@ -171,7 +171,7 @@ export function isBrowserScanCleanupWorkerResult<K extends TBrowserScanCleanupWo
     type: K,
     value: unknown,
 ): value is IBrowserScanCleanupWorkerResultMap[K] {
-    if (type === 'assemble-raster') return isRecord(value) && value.ppm instanceof Uint8Array;
-    if (type === 'encode-png') return isRecord(value) && value.png instanceof Uint8Array;
+    if (type === 'assemble-raster') {return isRecord(value) && value.ppm instanceof Uint8Array;}
+    if (type === 'encode-png') {return isRecord(value) && value.png instanceof Uint8Array;}
     return v.safeParse(outcomeSchema, value, {abortEarly: true}).success;
 }

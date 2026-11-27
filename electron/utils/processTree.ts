@@ -156,10 +156,10 @@ export async function terminateProcessTree(
 
     if (platform === 'win32') {
         // A dead root gives no descendant identity, and signalling a reused PID is unsafe.
-        if (!isDirectTargetAlive()) return false;
+        if (!isDirectTargetAlive()) {return false;}
         const gracefulTreeKill = await runTaskkill(pid, false, taskkillTimeoutMs);
-        if (await waitForExit(isDirectTargetAlive, graceMs)) return gracefulTreeKill;
-        if (!isDirectTargetAlive()) return false;
+        if (await waitForExit(isDirectTargetAlive, graceMs)) {return gracefulTreeKill;}
+        if (!isDirectTargetAlive()) {return false;}
         const forcedTreeKill = await runTaskkill(pid, true, taskkillTimeoutMs);
         return await waitForExit(isDirectTargetAlive, forceKillWaitMs) && forcedTreeKill;
     }
@@ -167,7 +167,7 @@ export async function terminateProcessTree(
     const targetAlive = preferProcessGroup
         ? isProcessGroupAlive(pid) || isDirectTargetAlive()
         : isDirectTargetAlive();
-    if (!targetAlive) return true;
+    if (!targetAlive) {return true;}
 
     const processGroupWasAlive = preferProcessGroup && isProcessGroupAlive(pid);
     sendPosixSignal(pid, 'SIGTERM', processGroupWasAlive);

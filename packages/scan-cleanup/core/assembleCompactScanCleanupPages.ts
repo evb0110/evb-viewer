@@ -54,7 +54,7 @@ async function assertSourceAnnotationsHaveGeometry(
     dependencies: IRunScanCleanupPipelineDependencies,
     onTerminationProof?: IScanCleanupRunCommandOptions['onTerminationProof'],
 ) {
-    if (pages.length === 0) return;
+    if (pages.length === 0) {return;}
     if (!paths.pdfPageOpsBinary || isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }
@@ -119,15 +119,15 @@ async function assertSourceAnnotationsHaveGeometry(
             expectedChunkIndex += 1;
             for (const entry of value.entries) {
                 const pageNumber = isRecord(entry) && typeof entry.pageIndex === 'number' ? pages[entry.pageIndex] : undefined;
-                if (pageNumber === undefined) throw new ScanCleanupContractError('Invalid source annotation page index');
+                if (pageNumber === undefined) {throw new ScanCleanupContractError('Invalid source annotation page index');}
                 throw new ScanCleanupContractError(
                     `Cannot preserve annotations on source page ${String(pageNumber)} `
                     + 'without affine cleanup geometry. Disable dewarping or preserve original quality.',
                 );
             }
         }
-        if (protocolError) throw protocolError;
-        if (!headerRead) throw new ScanCleanupContractError('Missing source annotation header');
+        if (protocolError) {throw protocolError;}
+        if (!headerRead) {throw new ScanCleanupContractError('Missing source annotation header');}
     } finally {
         protocol.lines.close();
         source.destroy();
@@ -151,7 +151,7 @@ export async function overlayScanCleanupTextLayer(
     provenanceStampHex?: string,
 ) {
     // Every output participates in the final catalog map, including non-affine rasters.
-    if (pages.length === 0) return null;
+    if (pages.length === 0) {return null;}
     if (paths.pdfPageOpsBinary === undefined || isScanCleanupCliFallbackSentinel(paths.pdfPageOpsBinary)) {
         throw new ScanCleanupNativeToolUnavailableError('evb-pdf-page-ops');
     }

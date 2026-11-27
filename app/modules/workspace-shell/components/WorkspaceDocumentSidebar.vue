@@ -150,12 +150,12 @@ const thumbnailPageGeometry = computed<IPdfThumbnailPageGeometry | null>(() => {
 });
 
 async function editTextBox(comment: IAnnotationCommentSummary) {
-    if (await annotationToolState.handleAnnotationToolChange('select') === false) return;
+    if (await annotationToolState.handleAnnotationToolChange('select') === false) {return;}
     try {
         await pdfViewer.value?.editAnnotationTextBox?.(comment);
     } catch (error) {
         if (isAbortError(error)
-            || (isFailurePresentation(error) && getFailureReceipt(error))) return;
+            || (isFailurePresentation(error) && getFailureReceipt(error))) {return;}
         throw error;
     }
 }

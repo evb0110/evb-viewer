@@ -1201,13 +1201,13 @@ function normalizePageRotations(
     label: string,
     options: IPdfNativeValidationOptions,
 ): IPdfNativePageRotationMutation[] {
-    if (value === undefined) return [];
+    if (value === undefined) {return [];}
     if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
         fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} rotations`, options);
     }
     const seen = new Set<number>();
     return value.map((item, index) => {
-        if (!isRecord(item)) fail(`${label}[${index}] must be an object`, options);
+        if (!isRecord(item)) {fail(`${label}[${index}] must be an object`, options);}
         const pageIndex = item.pageIndex;
         if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
             fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
@@ -1232,13 +1232,13 @@ function normalizePageCrops(
     label: string,
     options: IPdfNativeValidationOptions,
 ): IPdfNativePageCropMutation[] {
-    if (value === undefined) return [];
+    if (value === undefined) {return [];}
     if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
         fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} crops`, options);
     }
     const seen = new Set<number>();
     return value.map((item, index) => {
-        if (!isRecord(item)) fail(`${label}[${index}] must be an object`, options);
+        if (!isRecord(item)) {fail(`${label}[${index}] must be an object`, options);}
         const pageIndex = item.pageIndex;
         if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
             fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
@@ -1270,7 +1270,7 @@ function normalizePageCropRemovals(
     label: string,
     options: IPdfNativeValidationOptions,
 ) {
-    if (value === undefined) return [];
+    if (value === undefined) {return [];}
     if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.collectionItems) {
         fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} pages`, options);
     }
@@ -1349,7 +1349,7 @@ export function normalizePdfNativeMutationSet(
         fail(`${label} must include at least one native PDF mutation`, options);
     }
     const originalAppearanceSource = value.originalAppearanceSource === undefined ? undefined : parseDocumentRef(value.originalAppearanceSource);
-    if (originalAppearanceSource === null) fail(`${label}.originalAppearanceSource must be a document reference`, options);
+    if (originalAppearanceSource === null) {fail(`${label}.originalAppearanceSource must be a document reference`, options);}
     const normalized: IPdfNativeMutationSet = {
         ...(originalAppearanceSource === undefined ? {} : {originalAppearanceSource}),
         ...(updates.length > 0 ? {updates} : {}),

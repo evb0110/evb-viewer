@@ -250,6 +250,6 @@ export const useScanCleanupRunCoordinator = (
 
     onUnmounted(cleanup);
     watch(isStartupOpenClaimPending, (pending) => {
-        if (!pending) void pruneScanCleanupOutputs().catch(() => undefined);
+        if (!pending) {void pruneScanCleanupOutputs().catch(() => undefined);}
     }, {immediate: true});
 };

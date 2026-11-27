@@ -38,11 +38,11 @@ function readTableOffset(font: Buffer, tag: string) {
 }
 
 function classifyEncoding(platform: number, encoding: number) {
-    if (platform === 3 && encoding === 0) return SUBTABLE_KIND_SYMBOL;
+    if (platform === 3 && encoding === 0) {return SUBTABLE_KIND_SYMBOL;}
     // Variation-sequence records (platform 0, encoding 5) map through format 14 only.
-    if (platform === 0 && encoding === 5) return undefined;
-    if ((platform === 3 && encoding === 10) || (platform === 0 && encoding === 4)) return SUBTABLE_KIND_FULL;
-    if (platform === 2 || platform === 0 || (platform === 3 && encoding === 1)) return SUBTABLE_KIND_BMP;
+    if (platform === 0 && encoding === 5) {return undefined;}
+    if ((platform === 3 && encoding === 10) || (platform === 0 && encoding === 4)) {return SUBTABLE_KIND_FULL;}
+    if (platform === 2 || platform === 0 || (platform === 3 && encoding === 1)) {return SUBTABLE_KIND_BMP;}
     return undefined;
 }
 
@@ -56,7 +56,7 @@ function selectCmapSubtable(font: Buffer, cmapOffset: number): ICmapRecord {
         const offset = cmapOffset + font.readUInt32BE(record + 4);
         const format = font.readUInt16BE(offset);
         const readable = format === 4 || format === 12 || format === 13;
-        if (kind === undefined || !readable) continue;
+        if (kind === undefined || !readable) {continue;}
         if (selected === undefined || kind > selected.kind) {
             selected = {
                 format,
@@ -90,9 +90,9 @@ function* format4Codepoints(font: Buffer, offset: number) {
             if (rangeOffset !== 0) {
                 const glyphAddress = idRangeOffsets + segment * 2 + rangeOffset + (code - start) * 2;
                 glyph = font.readUInt16BE(glyphAddress);
-                if (glyph !== 0) glyph = (glyph + delta) & 0xffff;
+                if (glyph !== 0) {glyph = (glyph + delta) & 0xffff;}
             }
-            if (glyph !== 0) yield code;
+            if (glyph !== 0) {yield code;}
         }
     }
 }
@@ -105,7 +105,7 @@ function* format12Codepoints(font: Buffer, offset: number) {
         const end = font.readUInt32BE(record + 4);
         const startGlyph = font.readUInt32BE(record + 8);
         for (let code = start; code <= end; code++) {
-            if (startGlyph + code - start !== 0) yield code;
+            if (startGlyph + code - start !== 0) {yield code;}
         }
     }
 }
@@ -147,9 +147,9 @@ export function unicodeRanges(fonts: Buffer | readonly Buffer[]): Array<[number,
 export function faceRanges(files: readonly string[], programs: readonly Buffer[]) {
     const general = new Set(mappedCodepoints(programs.at(-1)!));
     return files.map((file, index) => {
-        if (index === files.length - 1) return undefined;
+        if (index === files.length - 1) {return undefined;}
         const script = /^NotoSans(\p{L}+)-/u.exec(file)?.[1];
-        if (!script) throw new Error(`${file} does not name the script its face serves`);
+        if (!script) {throw new Error(`${file} does not name the script its face serves`);}
         const own = new RegExp(`^[\\p{Script=${script}}\\p{Script=Inherited}]$`, 'u');
         const codepoints = mappedCodepoints(programs[index]!);
         const stranded = codepoints.find(code => !general.has(code) && !own.test(String.fromCodePoint(code))
@@ -201,9 +201,13 @@ function within(list: ReadonlyArray<readonly number[]>, code: number) {
     while (low < high) {
         const middle = Math.floor((low + high) / 2);
         const range = list[middle]!;
-        if (code < range[0]!) high = middle;
-        else if (code > range[1]!) low = middle + 1;
-        else return true;
+        if (code < range[0]!) {
+            high = middle;
+        } else if (code > range[1]!) {
+            low = middle + 1;
+        } else {
+            return true;
+        }
     }
     return false;
 }

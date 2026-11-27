@@ -208,7 +208,7 @@ async function openSinglePdfInputPath(
     const settleOpeningGeometry = async () => {
         cancelNativeCommandGroup(geometryGroup);
         await geometry.read?.catch(error => {
-            if (getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+            if (getUnprovenNativeTerminationDetail(error) !== undefined) {throw error;}
         });
     };
     try {
@@ -252,7 +252,7 @@ async function openSinglePdfInputPath(
                 });
                 geometry.read = runWithWorkingCopyReadBacking(entry.ref, path => readExactPageGeometry(path, signal, geometryGroup))
                     .catch(error => {
-                        if (signal.aborted || error instanceof NativeToolBuildMismatchError || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+                        if (signal.aborted || error instanceof NativeToolBuildMismatchError || getUnprovenNativeTerminationDetail(error) !== undefined) {throw error;}
                         logger.warn('Opening geometry unavailable', {error: getErrorMessage(error)});
                         return null;
                     });

@@ -264,7 +264,7 @@ async function interceptCombinedOpenHandoffs(page: Page) {
             // paused. The reference itself has no bytes to corrupt.
             const directory = dirname(workingPath);
             const revision = decodeManifest(readFileSync(join(directory, 'manifest.json'))).current;
-            if (!revision) throw new Error('Combined document has no generated revision');
+            if (!revision) {throw new Error('Combined document has no generated revision');}
             const revisionPath = join(directory, revision.file);
             const handoff = {
                 workingPath,
@@ -520,7 +520,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         // Stopping the session is not a person's Quit, so the unsaved result
         // must not hold the app open until the runner kills it after 10 s.
         const electronPid = getSessionInfo(session.name)?.electronPid;
-        if (typeof electronPid !== 'number') throw new Error('The Electron pid was missing');
+        if (typeof electronPid !== 'number') {throw new Error('The Electron pid was missing');}
         const stopping = session.stop();
         session = null;
         try {
@@ -555,7 +555,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         await clickAsUser(page, 'nav[aria-label="File"] button.rail-item');
         await page.waitForSelector('[data-combine-page]', {visible: true});
         const input = await page.$('input[type="file"]');
-        if (!input) throw new Error('Combine input missing');
+        if (!input) {throw new Error('Combine input missing');}
         await input.uploadFile(featurePath, ordinaryPath);
         await page.waitForFunction(() => document.querySelectorAll('[data-combine-row]').length === 2);
         const tabs = await page.$$eval('[role="tab"]', elements => elements.length);
@@ -894,7 +894,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
             Reflect.set(window, '__routedTabWatch', watch);
             const tick = () => {
                 watch.max = Math.max(watch.max, document.querySelectorAll('.tab[data-tab-id]').length);
-                if (!watch.stop) requestAnimationFrame(tick);
+                if (!watch.stop) {requestAnimationFrame(tick);}
             };
             tick();
         });

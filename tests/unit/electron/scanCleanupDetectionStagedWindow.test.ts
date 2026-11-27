@@ -242,7 +242,7 @@ function createHarness(tempDir: string, options: IHarnessOptions) {
             const path = `${stagedPath(pageNumber, dpi)}.${String(renderedPages.length)}.part`;
             // `rm` refuses a directory unless it is recursive, so this is the
             // one refusal a test can stage on any filesystem.
-            if (options.undeletableScratchPages?.has(pageNumber)) await mkdir(path, {recursive: true});
+            if (options.undeletableScratchPages?.has(pageNumber)) {await mkdir(path, {recursive: true});}
             scratchPaths.push(path);
             return path;
         }),
@@ -361,7 +361,7 @@ function createLeaseSidecar(options: {
                     options.onLeaseAcquired?.(sourcePageNumber);
                     return;
                 } catch (error) {
-                    if (Date.now() > deadline) throw error;
+                    if (Date.now() > deadline) {throw error;}
                     await new Promise(resolve => setTimeout(resolve, 1));
                 }
             }
@@ -719,7 +719,7 @@ describe('runScanCleanupDetection staged raster window', () => {
         });
         const publish = vi.fn();
         const sidecar = createLeaseSidecar({onLeaseAcquired: pageNumber => {
-            if (pageNumber === 3) controller.abort(new Error('canceled by the user'));
+            if (pageNumber === 3) {controller.abort(new Error('canceled by the user'));}
         }});
 
         await expect(runScanCleanupDetection(

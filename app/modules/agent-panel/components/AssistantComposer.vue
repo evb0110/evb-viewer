@@ -109,13 +109,13 @@ function handlePrimaryAction() {
 function handleKeydown(event: KeyboardEvent) {
     // Safari may clear isComposing before the final IME Enter.
     const legacyCode: unknown = Reflect.get(event, 'keyCode');
-    if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.isComposing || legacyCode === 229 || event.repeat) return;
+    if (event.key !== 'Enter' || event.shiftKey || event.altKey || event.isComposing || legacyCode === 229 || event.repeat) {return;}
     event.preventDefault();
-    if (!sendDisabledReason) emit('submit');
+    if (!sendDisabledReason) {emit('submit');}
 }
 function focus() { input.value?.focus({ preventScroll: true }); }
 const picker = ref<{ open: () => void } | null>(null);
-onMounted(() => { if (hasDocument) focus(); });
+onMounted(() => { if (hasDocument) {focus();} });
 watch(
     () => [
         hasDocument,

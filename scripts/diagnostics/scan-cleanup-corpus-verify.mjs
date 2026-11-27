@@ -416,7 +416,7 @@ function parseArgs(argv) {
             parsed.allowMissingExpectations = true;
         } else if (argument === '--config' || argument === '--expected' || argument === '--work-dir') {
             const value = argv[index + 1];
-            if (!value) throw new Error(`Missing value for ${argument}`);
+            if (!value) {throw new Error(`Missing value for ${argument}`);}
             parsed[argument === '--work-dir' ? 'workDir' : argument.slice(2)] = resolve(value);
             index += 1;
         } else if (argument === '--help' || argument === '-h') {
@@ -886,7 +886,7 @@ function parsePdfPageBoxes(output) {
     const pages = new Map();
     for (const line of output.split(/\r?\n/u)) {
         const match = /^Page\s+(\d+)\s+CropBox:\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)/u.exec(line);
-        if (!match) continue;
+        if (!match) {continue;}
         const [
             pageNumber,
             x1,
@@ -1543,7 +1543,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot, sourceAdmission
     const previewRuns = await Promise.all(pageRuns.map(async (page, pageIndex) => {
         const previewOutputs = [];
         for (const output of previewPages[pageIndex].outputs) {
-            if (!await readableFile(output.metadataPath)) continue;
+            if (!await readableFile(output.metadataPath)) {continue;}
             previewOutputs.push(JSON.parse(await readFile(output.metadataPath, 'utf8')));
         }
         if (previewOutputs.length === 0) {
@@ -1598,7 +1598,7 @@ async function verifyFixture(fixture, expectedFixture, workRoot, sourceAdmission
         for (const output of renderPage.outputs) {
             // The sidecar publishes one raster per output and writes this
             // metadata beside it, so its absence means the half was skipped.
-            if (!await readableFile(output.metadataPath)) continue;
+            if (!await readableFile(output.metadataPath)) {continue;}
             const metadata = JSON.parse(await readFile(output.metadataPath, 'utf8'));
             const parityFailures = pagePlanParityFailures(page.analysis, page.previewOutputs, metadata);
             planParityFailures.push(...parityFailures.map(failure => (
@@ -2533,7 +2533,7 @@ async function main() {
             typeof fixture.id !== 'string'
             || typeof fixture.pdfPath !== 'string'
             || !isAbsolute(fixture.pdfPath)
-        ) throw new Error(`Invalid corpus fixture config: ${JSON.stringify(fixture)}`);
+        ) {throw new Error(`Invalid corpus fixture config: ${JSON.stringify(fixture)}`);}
         const pages = resolveFixturePages(fixture);
         const expectations = resolveFixtureExpectations(fixture, expected.fixtures?.[fixture.id]);
         if (Object.keys(expectations).length === 0 && !args.allowMissingExpectations) {

@@ -83,7 +83,7 @@ async function lineDragPoints(page: Page, text: string) {
         const spans = Array.from(document.querySelectorAll<HTMLElement>('.editor-pane.is-active .textLayer span, .editor-pane.is-active .text-layer span'));
         const span = spans.find(candidate => candidate.textContent?.includes(expected));
         const node = span?.firstChild;
-        if (!(node instanceof Text)) throw new Error(`Rendered PDF text was unavailable: ${expected}`);
+        if (!(node instanceof Text)) {throw new Error(`Rendered PDF text was unavailable: ${expected}`);}
         const start = node.textContent!.indexOf(expected);
         const range = document.createRange();
         range.setStart(node, start);
@@ -130,12 +130,12 @@ async function readImportedHighlight(path: string) {
     const refs = pdf.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).asArray();
     const ref = refs.find(value => pdf.context.lookup(value, PDFDict)
         .get(PDFName.of('Subtype'))?.toString() === '/Highlight');
-    if (!(ref instanceof PDFRef)) throw new Error('The fixture has no referenced highlight');
+    if (!(ref instanceof PDFRef)) {throw new Error('The fixture has no referenced highlight');}
     const dictionary = pdf.context.lookup(ref, PDFDict);
     const objectBytes = [...bytes.toString('latin1').matchAll(new RegExp(
         `${ref.objectNumber} ${ref.generationNumber} obj[\\s\\S]*?endobj`, 'gu',
     ))].at(-1)?.[0];
-    if (!objectBytes) throw new Error('The highlight object bytes are missing');
+    if (!objectBytes) {throw new Error('The highlight object bytes are missing');}
     return {
         dictionary: dictionary.toString(),
         objectBytes,
@@ -175,7 +175,7 @@ async function importedHighlightPixels(page: Page, screenshotPath: string) {
         let yellow = 0;
         for (let index = 0; index < pixels.length; index += 4) {
             if (pixels[index]! > 180 && pixels[index + 1]! > 140 && pixels[index + 2]! < 160
-                && pixels[index]! > pixels[index + 2]! + 60) yellow += 1;
+                && pixels[index]! > pixels[index + 2]! + 60) {yellow += 1;}
         }
         return yellow;
     }, {
@@ -224,12 +224,12 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         expect(await page.$$('textarea.note-window__textarea:not([readonly]):not([disabled])')).toHaveLength(0);
         expect(await page.$$('.editor-pane.is-active [data-annotation-kind="text-markup"]')).toHaveLength(0);
         const yellowPixels = await page.$eval('.editor-pane.is-active .page_container[data-page="1"] canvas', element => {
-            if (!(element instanceof HTMLCanvasElement)) throw new Error('Page canvas is missing');
+            if (!(element instanceof HTMLCanvasElement)) {throw new Error('Page canvas is missing');}
             const {data} = element.getContext('2d')!.getImageData(0, 0, element.width, element.height);
             let yellow = 0;
             for (let index = 0; index < data.length; index += 4) {
                 if (data[index]! > 180 && data[index + 1]! > 140 && data[index + 2]! < 160
-                    && data[index]! > data[index + 2]! + 60) yellow += 1;
+                    && data[index]! > data[index + 2]! + 60) {yellow += 1;}
             }
             return yellow;
         });
@@ -272,7 +272,7 @@ describe('Electron E2E - Text Select over existing highlight', () => {
         await page.mouse.click(region.x + region.width / 2, region.y + region.height / 2, {count: 2});
         const markup = '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-markup"]';
         const canonicalMarks = await page.$$(markup);
-        if (canonicalMarks.length) await page.waitForSelector('textarea.note-window__textarea', {visible: true});
+        if (canonicalMarks.length) {await page.waitForSelector('textarea.note-window__textarea', {visible: true});}
         const writable = await page.$$('textarea.note-window__textarea:not([readonly]):not([disabled])');
         await page.screenshot({path: join(artifacts, 'after-double-click.png')});
         console.log('NOVIEW_HIGHLIGHT', {
@@ -450,7 +450,7 @@ describe('Electron E2E - Text Select over existing highlight', () => {
                 const rect = element.getBoundingClientRect();
                 const x = rect.right - 4;
                 const y = rect.top + rect.height / 2;
-                if (!element.contains(document.elementFromPoint(x, y))) throw new Error('Highlight edge is covered');
+                if (!element.contains(document.elementFromPoint(x, y))) {throw new Error('Highlight edge is covered');}
                 return {
                     x,
                     y,

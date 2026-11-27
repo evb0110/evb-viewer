@@ -884,7 +884,7 @@ export async function resolveMatchedCanvasResamplePagesFromStore(input: {
                 continue;
             }
             const carriesRaster = !input.rasterDetectionAvailable || rasters[index] !== undefined;
-            if (!carriesRaster) continue;
+            if (!carriesRaster) {continue;}
             const shares = resolveSheetShares(input.options, pageNumber, layoutByPage);
             const scale = resolveScanCleanupCanvasFitScale(
                 canvas,

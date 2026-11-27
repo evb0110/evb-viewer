@@ -838,7 +838,7 @@ describe('PdfDocumentSession range loading', () => {
         const documentState = createPdfDocumentSession();
         const view = documentState.attachView();
         view.subscribe(transition => {
-            if (transition.phase !== 'invalidated') return;
+            if (transition.phase !== 'invalidated') {return;}
             cancelling.resolve(undefined);
             return cancellation.promise;
         });
@@ -918,10 +918,10 @@ describe('PdfDocumentSession range loading', () => {
             publishedDocument,
             publishedSource,
         ]) => {
-            if (publishedDocument || publishedSource) publications.push({
+            if (publishedDocument || publishedSource) {publications.push({
                 hasDocument: publishedDocument !== null,
                 hasSource: publishedSource !== null,
-            });
+            });}
         }, {flush: 'sync'});
         try {
             const loading = documentState.loadPdf({
@@ -2273,7 +2273,7 @@ describe('PdfDocumentSession range loading', () => {
                 cancelling.resolve(undefined);
                 return cancellation.promise;
             }
-            if (transition.reason === 'source-replaced') replacing.resolve(undefined);
+            if (transition.reason === 'source-replaced') {replacing.resolve(undefined);}
             return undefined;
         });
         try {
@@ -2287,7 +2287,7 @@ describe('PdfDocumentSession range loading', () => {
             void documentState.admit(createPdfSourceJob('reload', {src: source}));
             await replacing.promise;
             // Let the replacement finish if it has bypassed cancellation.
-            for (let turn = 0; turn < 100; turn += 1) await Promise.resolve();
+            for (let turn = 0; turn < 100; turn += 1) {await Promise.resolve();}
             expect(documentState.acceptedSource.value).not.toBe(source.value);
             expect(firstDocument!.loadingTask.destroy).not.toHaveBeenCalled();
             cancellation.resolve(undefined);

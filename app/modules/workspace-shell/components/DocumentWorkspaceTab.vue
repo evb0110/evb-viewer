@@ -239,7 +239,7 @@ async function revealRecentFile(file: IRecentFile) {
 // other tabs keep working. Until Retry, one crash is reported once: other
 // descendants can still fail in the render update that replaces the subtree.
 onErrorCaptured((error, instance, info) => {
-    if (crashDescription.value !== null) return false;
+    if (crashDescription.value !== null) {return false;}
     const failure = handleDocumentWorkspaceCrash(error, instance?.$options.name ?? null, info, {tabId});
     documentSession.markFailed({
         message: getErrorMessage(error),

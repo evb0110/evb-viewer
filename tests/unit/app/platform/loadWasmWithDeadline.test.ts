@@ -343,7 +343,7 @@ describe('WASM memory high-water release', () => {
         const GROW = 99;
         let trapping = false;
         const instances = stubInstances(() => memoryGrowingExports('evb_pdf_page_ops', (memory, pointer) => {
-            if (trapping) throw new WebAssembly.RuntimeError('unreachable');
+            if (trapping) {throw new WebAssembly.RuntimeError('unreachable');}
             return new DataView(memory.buffer).getUint32(pointer + FILE_REQUEST_HEADER.operation, true) === GROW;
         }));
         const {loadPdfPageOpsWasm, runFileRequest} = await import('@app/platform/browser/pdfPageEngine');
@@ -368,7 +368,7 @@ describe('WASM memory high-water release', () => {
         const GROW = 99;
         let trapping = false;
         const instances = stubInstances(() => memoryGrowingExports('evb_pdf_page_ops', (memory, pointer) => {
-            if (trapping) throw new WebAssembly.RuntimeError('unreachable');
+            if (trapping) {throw new WebAssembly.RuntimeError('unreachable');}
             return new DataView(memory.buffer).getUint32(pointer + FILE_REQUEST_HEADER.operation, true) === GROW;
         }));
         const {loadPdfPageOpsWasm, runFileRequest} = await import('@app/platform/browser/pdfPageEngine');
@@ -431,7 +431,7 @@ function sharedMemoryExports(prefix: string, code: number, envelope?: string) {
 class BrowserTextDecoder extends TextDecoder {
     public override decode(input?: AllowSharedBufferSource, options?: TextDecodeOptions) {
         const buffer = input && 'buffer' in input ? input.buffer : input;
-        if (buffer instanceof SharedArrayBuffer) throw new TypeError('The provided ArrayBufferView value must not be shared.');
+        if (buffer instanceof SharedArrayBuffer) {throw new TypeError('The provided ArrayBufferView value must not be shared.');}
         return super.decode(input, options);
     }
 }
@@ -504,7 +504,7 @@ function stubThreadedBuild({runCode, failThreadStart = false}: {runCode: () => n
         }
 
         public postMessage(message: {type: string; threadId: number; faultPointer: number}) {
-            if (message.type === 'load') this.reply({type: 'ready'});
+            if (message.type === 'load') {this.reply({type: 'ready'});}
             if (message.type === 'start') {
                 this.record.starts.push({threadId: message.threadId, faultPointer: message.faultPointer});
                 this.reply(failThreadStart ? {type: 'failed', message: 'RangeError: too many tables'} : {type: 'started'});
@@ -533,7 +533,7 @@ function stubThreadedBuild({runCode, failThreadStart = false}: {runCode: () => n
             evb_wasm_request_allocation_abi_version: () => WASM_REQUEST_ALLOCATION_ABI_VERSION,
             evb_test_thread_fault_ptr: () => 8,
             evb_test_start_threads: (count: number) => {
-                for (let index = 0; index < count; index += 1) spawn(1000 + index);
+                for (let index = 0; index < count; index += 1) {spawn(1000 + index);}
                 return count;
             },
             evb_test_alloc: () => TOOL_POINTER,
@@ -594,7 +594,7 @@ describe('a native tool on its threaded build', () => {
     it('reports a dead thread with its own message, ends the faulted instance\'s threads and starts new ones from the same module', async () => {
         let fault = true;
         const build = stubThreadedBuild({runCode: () => {
-            if (!fault) return 0;
+            if (!fault) {return 0;}
             build.threadWorkers[1]!.fault('RuntimeError: memory access out of bounds');
             return -2;
         }});

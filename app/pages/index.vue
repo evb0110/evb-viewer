@@ -13,7 +13,7 @@ const route = useRoute();
 
 definePageMeta({keepalive: true});
 // The extension's page is not a web page anyone finds or shares.
-if (!isBrowserExtensionPage()) useWebSeo();
+if (!isBrowserExtensionPage()) {useWebSeo();}
 
 if (import.meta.client && resolveInitialDesktopRuntime(route.path)) {
     await navigateTo('/electron', { replace: true });

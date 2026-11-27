@@ -36,7 +36,7 @@ function readRaster(image: TBrowserOcrPreprocessRequest['payload']['image']) {
  * Desktop hands the engine the same pixels decoded from the cleanup's PNG.
  */
 function encodePlane(plane: IScanCleanupWasmPlane) {
-    if (plane.encoding !== 'raw') throw new Error('OCR preprocessing returned an encoded plane');
+    if (plane.encoding !== 'raw') {throw new Error('OCR preprocessing returned an encoded plane');}
     return encodePnm(plane.width, plane.height, plane.kind === 'gray8' ? 1 : 3, plane.data);
 }
 
@@ -52,10 +52,10 @@ async function preprocess(payload: TBrowserOcrPreprocessRequest['payload']): Pro
     try {
         outcome = await preprocessBrowserOcrPage(raster, payload.mode, payload.dpi);
     } catch (error) {
-        if (error instanceof NativeWasmThreadStartError) throw new ThreadedEngineUnavailable(error, {
+        if (error instanceof NativeWasmThreadStartError) {throw new ThreadedEngineUnavailable(error, {
             ...payload,
             image: raster,
-        });
+        });}
         throw error;
     }
     if (outcome.status === 'failed') {
@@ -87,7 +87,7 @@ async function preprocess(payload: TBrowserOcrPreprocessRequest['payload']): Pro
 }
 
 self.addEventListener('message', async (event: MessageEvent<unknown>) => {
-    if (handlePrecompiledWasmModuleMessage(event.data)) return;
+    if (handlePrecompiledWasmModuleMessage(event.data)) {return;}
     const request = parseBrowserOcrEngineRequest(event.data);
     if (request === null || request.type !== 'preprocess') {
         const id = getBrowserPageOpsWorkerRequestId(event.data);
@@ -128,6 +128,6 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
             error: getErrorMessage(error),
         });
     } finally {
-        if (!(request.payload.image instanceof Uint8Array)) request.payload.image.tiles.forEach(tile => tile.close());
+        if (!(request.payload.image instanceof Uint8Array)) {request.payload.image.tiles.forEach(tile => tile.close());}
     }
 });

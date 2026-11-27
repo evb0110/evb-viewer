@@ -44,8 +44,8 @@ export function editDistance(expected, actual) {
         expectedEnd -= 1;
         actualEnd -= 1;
     }
-    if (expectedEnd === start) return actualEnd - start;
-    if (actualEnd === start) return expectedEnd - start;
+    if (expectedEnd === start) {return actualEnd - start;}
+    if (actualEnd === start) {return expectedEnd - start;}
     if (start > 0 || expectedEnd < expected.length || actualEnd < actual.length) {
         return editDistance(expected.slice(start, expectedEnd), actual.slice(start, actualEnd));
     }

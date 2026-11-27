@@ -212,7 +212,7 @@ describe('Agent platform feature with assistant instances', () => {
                 },
             },
         ];
-        for (const payload of payloads) expect(v.parse(events.onAssistantEvent.payload, payload)).toEqual(payload);
+        for (const payload of payloads) {expect(v.parse(events.onAssistantEvent.payload, payload)).toEqual(payload);}
         expect(() => v.parse(events.onAssistantEvent.payload, {type: 'heartbeat'})).toThrow('invalid assistant event');
         expect(() => v.parse(events.onAssistantEvent.payload, {
             type: 'item-delta',

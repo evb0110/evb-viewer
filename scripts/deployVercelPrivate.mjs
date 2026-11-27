@@ -721,7 +721,7 @@ async function runDeployAcceptanceChecks({
             '--write-out',
             '%{http_code}',
         ]);
-        if ((result.status ?? 1) !== 0) throw new Error(`Vercel acceptance request exited with ${result.status ?? 1}${formatVercelCommandFailure(result)}.`);
+        if ((result.status ?? 1) !== 0) {throw new Error(`Vercel acceptance request exited with ${result.status ?? 1}${formatVercelCommandFailure(result)}.`);}
         const status = Number(result.stdout?.trim());
         return {
             ok: status >= 200 && status < 300,
@@ -799,7 +799,7 @@ function rollBackPromotedDeployment({
             previous.id,
             '--yes',
         ]);
-        if ((result.status ?? 1) !== 0) throw new Error(`Vercel promote exited with ${result.status ?? 1}${formatVercelCommandFailure(result)}.`);
+        if ((result.status ?? 1) !== 0) {throw new Error(`Vercel promote exited with ${result.status ?? 1}${formatVercelCommandFailure(result)}.`);}
     } catch (error) {
         return `Rollback also failed: ${getCliErrorMessage(error)}`;
     }
@@ -882,7 +882,7 @@ export async function runPrivateVercelDeploy({
                         ...(lock ? [lock.fd] : []),
                     ],
                 });
-            if (result.error) throw result.error;
+            if (result.error) {throw result.error;}
             return result;
         };
         const inspectProduction = () => inspectDeployment({
@@ -903,7 +903,7 @@ export async function runPrivateVercelDeploy({
         if ((result.status ?? 1) !== 0) {
             return result.status ?? 1;
         }
-        if (!isProduction) return 0;
+        if (!isProduction) {return 0;}
         // stdout is the CLI's deployment result, not a log line naming an alias.
         const deploymentUrl = extractVercelDeploymentUrl(result.stdout ?? '');
         if (!deploymentUrl) {
@@ -926,7 +926,7 @@ export async function runPrivateVercelDeploy({
                 deployment.id,
                 '--yes',
             ]);
-            if ((promotion.status ?? 1) !== 0) throw new Error(`Vercel promote exited with ${promotion.status ?? 1}${formatVercelCommandFailure(promotion)}.`);
+            if ((promotion.status ?? 1) !== 0) {throw new Error(`Vercel promote exited with ${promotion.status ?? 1}${formatVercelCommandFailure(promotion)}.`);}
             await runDeployAcceptanceChecks({
                 acceptanceUrls,
                 deploymentUrl,

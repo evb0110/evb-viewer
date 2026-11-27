@@ -48,7 +48,7 @@ function isMatrix(value: unknown): value is TMatrix {
 }
 
 function imageSize(value: unknown) {
-    if (typeof value !== 'object' || value === null) return null;
+    if (typeof value !== 'object' || value === null) {return null;}
     const {
         width, height,
     } = value as {
@@ -83,7 +83,7 @@ function readPageImages(operatorList: IPdfOperatorList) {
     } | null, mask: boolean) => {
         const scaleX = Math.hypot(ctm[0], ctm[1]);
         const scaleY = Math.hypot(ctm[2], ctm[3]);
-        if (!size || size.width <= 0 || size.height <= 0 || scaleX <= 0 || scaleY <= 0) return;
+        if (!size || size.width <= 0 || size.height <= 0 || scaleX <= 0 || scaleY <= 0) {return;}
         images.push({
             width: size.width,
             height: size.height,
@@ -101,11 +101,11 @@ function readPageImages(operatorList: IPdfOperatorList) {
                 ctm = stack.pop() ?? ctm;
                 break;
             case OPS.transform:
-                if (isMatrix(args)) ctm = multiply(ctm, args);
+                if (isMatrix(args)) {ctm = multiply(ctm, args);}
                 break;
             case OPS.paintFormXObjectBegin:
                 stack.push(ctm);
-                if (isMatrix(args[0])) ctm = multiply(ctm, args[0]);
+                if (isMatrix(args[0])) {ctm = multiply(ctm, args[0]);}
                 break;
             case OPS.paintFormXObjectEnd:
                 ctm = stack.pop() ?? ctm;
@@ -138,7 +138,7 @@ export function readPageSourceDpi(operatorList: IPdfOperatorList) {
     const dominant = images
         .filter(image => !image.mask)
         .sort((left, right) => area(right) - area(left) || right.dpi - left.dpi)[0];
-    if (!dominant) return undefined;
+    if (!dominant) {return undefined;}
     const mask = images
         .filter(image => image.mask)
         .sort((left, right) => area(right) - area(left) || right.dpi - left.dpi)[0];

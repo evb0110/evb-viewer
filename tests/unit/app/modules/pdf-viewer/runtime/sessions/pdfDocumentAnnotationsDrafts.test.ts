@@ -471,7 +471,7 @@ describe('writer annotations shared by linked views', () => {
 
     it('#1608 retains a failed annotation revision lookup cause', async () => {
         const retained: string[] = [];
-        setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
+        setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') {retained.push(JSON.stringify(entry));}});
         const annotations = createPdfDocumentAnnotations({
             workingCopyPath: computed(() => requireDocumentRef('/managed/working.pdf')),
             source: computed(() => null), documentRevisionToken: computed(() => null),
@@ -974,7 +974,7 @@ describe('writer annotations shared by linked views', () => {
 
 it('#1608 retains the cause of failed imported highlight preview text', async () => {
     const retained: string[] = [];
-    setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') retained.push(JSON.stringify(entry));});
+    setBrowserLogSink(entry => {if (entry.level === 'warn' || entry.level === 'error') {retained.push(JSON.stringify(entry));}});
     try {
         const text = await deriveSelectedTextForParsedHighlights({
             documentSession: cast<Parameters<typeof deriveSelectedTextForParsedHighlights>[0]['documentSession']>({

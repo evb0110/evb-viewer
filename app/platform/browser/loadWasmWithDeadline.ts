@@ -63,8 +63,8 @@ export function registerPrecompiledWasmModule(
  * Returns true when `data` was a preload message and has been consumed.
  */
 export function handlePrecompiledWasmModuleMessage(data: unknown): boolean {
-    if (typeof data !== 'object' || data === null) return false;
-    if (Reflect.get(data, 'type') !== PRECOMPILED_WASM_MODULE_MESSAGE_TYPE) return false;
+    if (typeof data !== 'object' || data === null) {return false;}
+    if (Reflect.get(data, 'type') !== PRECOMPILED_WASM_MODULE_MESSAGE_TYPE) {return false;}
     const parsed = parsePrecompiledWasmModuleMessage(data);
     if (parsed !== null) {
         registerPrecompiledWasmModule(parsed.path, parsed.module, parsed.digest);
@@ -89,7 +89,7 @@ export function compileWasmModuleOnce(
 ) {
     const key = wasmCacheKey(path);
     const existing = sharedCompiledWasmPromises.get(key);
-    if (existing) return existing;
+    if (existing) {return existing;}
     const pending = (async () => {
         const url = resolveWasmUrl(path);
         const module = await compileWasmWithDeadline(url, stallTimeoutMs);
@@ -128,7 +128,7 @@ export function postPrecompiledWasmModules(worker: Worker, paths: readonly strin
     for (const path of paths) {
         const resolvedUrl = resolveWasmUrl(path);
         const ready = precompiledWasmModules.get(wasmCacheKey(resolvedUrl));
-        if (!ready || !isRealWasmModule(ready.module)) continue;
+        if (!ready || !isRealWasmModule(ready.module)) {continue;}
         try {
             worker.postMessage({
                 type: PRECOMPILED_WASM_MODULE_MESSAGE_TYPE,
@@ -172,7 +172,7 @@ function cacheAndShareCompiledWasmModule(
     key: string,
     module: WebAssembly.Module,
 ) {
-    if (!isRealWasmModule(module)) return;
+    if (!isRealWasmModule(module)) {return;}
     const resolvedUrl = resolveWasmUrl(url);
     const digestPromise = loadedWasmDigests.get(key);
     if (digestPromise) {
@@ -316,12 +316,12 @@ async function fetchWasmWithDeadline<TResult>(url: string, stallTimeoutMs: numbe
         rejectStalled = reject;
     });
     const disarm = () => {
-        if (watch.timer !== null) clearTimeout(watch.timer);
+        if (watch.timer !== null) {clearTimeout(watch.timer);}
         watch.timer = null;
     };
     const arm = () => {
         disarm();
-        if (watch.settled) return;
+        if (watch.settled) {return;}
         watch.timer = setTimeout(() => {
             const error = createWasmStallError(stallTimeoutMs);
             abortController.abort(error);
@@ -361,7 +361,7 @@ async function fetchWasmWithDeadline<TResult>(url: string, stallTimeoutMs: numbe
                 // otherwise leave the body consumed before the buffered fallback reads it.
                 if (build.streaming && servesWasmContentType(response)) {
                     const built = await build.streaming(response);
-                    if (observed !== null) loadedWasmDigests.set(wasmCacheKey(url), observed);
+                    if (observed !== null) {loadedWasmDigests.set(wasmCacheKey(url), observed);}
                     return built;
                 }
                 const bytes = await response.arrayBuffer();

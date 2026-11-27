@@ -196,7 +196,7 @@ describe('browser document lifecycle UI', () => {
             // while frozen: its held lock must keep the copy from taking over
             // the original's checkpoint.
             const copy = await openWindow(page => page.addInitScript((windowName) => {
-                if (!window.name) window.name = windowName;
+                if (!window.name) {window.name = windowName;}
                 Reflect.set(window, '__evbBrowserWindowTabsState', {recoveryInstanceNonce: '!'});
             }, `evb-viewer-window:${originalOwnerId}`), frozenReader);
             const copyOwnerId = await copy.evaluate(() => window.name.slice('evb-viewer-window:'.length));

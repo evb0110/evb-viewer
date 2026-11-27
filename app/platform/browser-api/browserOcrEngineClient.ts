@@ -89,7 +89,7 @@ export function resolveBrowserOcrLanes(pagePixels = 0, modelBytes = 0, cleanup?:
         lanes: 1,
         preprocessLanes: cleanup ? 1 : 0,
     };
-    if (memoryGb !== undefined && memoryGb <= 4) return single;
+    if (memoryGb !== undefined && memoryGb <= 4) {return single;}
     const totalBudget = (memoryGb ?? 4) * 1024 ** 3 / 2;
     const perLane = 192 * 1024 * 1024 + pagePixels * 12 + modelBytes * 3;
     if (!cleanup) {
@@ -105,7 +105,7 @@ export function resolveBrowserOcrLanes(pagePixels = 0, modelBytes = 0, cleanup?:
     for (let lanes = cores > 2 ? cores - 2 : 1; lanes >= 1; lanes -= 1) {
         const affordable = Math.min(lanes, Math.floor((totalBudget - lanes * perLane) / perPreprocess));
         const fedLanes = Math.min(lanes, affordable / share);
-        if (affordable < 1 || fedLanes <= bestFedLanes) continue;
+        if (affordable < 1 || fedLanes <= bestFedLanes) {continue;}
         bestFedLanes = fedLanes;
         best = {
             lanes,
@@ -139,7 +139,7 @@ function createWorkerClient(
             event.error instanceof Error ? event.error.message : event.message || fallbackMessage,
         ),
         handleMessage: (pendingRequests, response, onSettled) => {
-            if (engine) observeScanCleanupEngineReply(response);
+            if (engine) {observeScanCleanupEngineReply(response);}
             settleBrowserWorkerResult(pendingRequests, response, onSettled);
         },
     });
@@ -207,10 +207,10 @@ function runWorkerRequest<TResult>(
 ): Promise<TResult> {
     const {payload} = request;
     const closeTiles = () => {
-        if (!(payload.image instanceof Uint8Array)) payload.image.tiles.forEach(tile => tile.close());
+        if (!(payload.image instanceof Uint8Array)) {payload.image.tiles.forEach(tile => tile.close());}
     };
     // A page that waited for a worker may arrive after its job was canceled.
-    if (signal.aborted) closeTiles();
+    if (signal.aborted) {closeTiles();}
     signal.throwIfAborted();
     const requestId = pool.createRequestId();
     const onAbort = () => pool.cancel(
@@ -229,7 +229,7 @@ function runWorkerRequest<TResult>(
             reject,
             resolveData: (data) => {
                 const result = readResult(data);
-                if (result === null) return false;
+                if (result === null) {return false;}
                 resolve(result);
                 return true;
             },

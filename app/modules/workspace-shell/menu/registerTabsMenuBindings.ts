@@ -360,7 +360,7 @@ export function registerTabsMenuBindings(
             { capture: true },
         ),
         subscribeBrowserMenuEvent('onMenuSelectAll')(() => {
-            if (deps.isActive.value) selectAll();
+            if (deps.isActive.value) {selectAll();}
         }),
         documentMenu?.onMenuOpenPdf?.(() => {
             runMenuAction('open-pdf', () => deps.handleFallbackToolbarOpenFile());

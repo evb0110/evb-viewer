@@ -113,13 +113,13 @@ function isPathInside(path: string, parent: string) {
 
 async function sha256File(path: string) {
     const hash = createHash('sha256');
-    for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+    for await (const chunk of createReadStream(path)) {hash.update(chunk as Buffer);}
     return hash.digest('hex');
 }
 
 async function describeArtifacts(spec: ICheckpointedCompactPageSpec, artifactDirectory: string) {
     const paths = getManifestArtifactPaths(spec.manifestLine);
-    if (!paths) throw new Error(`Compact DjVu page ${spec.pageNumber} has an invalid artifact manifest`);
+    if (!paths) {throw new Error(`Compact DjVu page ${spec.pageNumber} has an invalid artifact manifest`);}
     return Promise.all(paths.map(async path => {
         if (!isPathInside(path, artifactDirectory)) {
             throw new Error(`Compact DjVu artifact escapes its job directory: ${path}`);
@@ -175,7 +175,7 @@ export async function loadOrBuildCompactDjvuPage(
     build: () => Promise<ICheckpointedCompactPageSpec>,
 ) {
     const checkpoint = job.manifest.ranges[index];
-    if (!checkpoint) throw new Error(`Missing compact DjVu checkpoint ${index}`);
+    if (!checkpoint) {throw new Error(`Missing compact DjVu checkpoint ${index}`);}
     const artifactDirectory = resolve(job.directory, 'compact-pages');
     if (checkpoint.status === 'verified') {
         const saved = await readFile(checkpoint.outputPath, 'utf8')

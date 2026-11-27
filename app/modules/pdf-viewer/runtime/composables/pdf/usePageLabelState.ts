@@ -182,7 +182,7 @@ export const usePageLabelState = (deps: {
             resolvedDocumentBytes = sourceBytes;
             resolvedThisSync = true;
         } catch (error) {
-            if (!isCurrentSync()) return;
+            if (!isCurrentSync()) {return;}
             const gone = isRecord(error) && (error.name === 'NotFoundError' || error.code === 'ENOENT'
                 || /FileReader.*could not be found/iu.test(String(error.message)));
             BrowserLogger[gone ? 'debug' : 'warn']('page-labels', 'Failed to read page labels', error);

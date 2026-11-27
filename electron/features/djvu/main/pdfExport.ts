@@ -151,7 +151,7 @@ function resolveSubsample(rawSubsample: number | undefined) {
 }
 
 function throwIfCanceled(signal: AbortSignal) {
-    if (signal.aborted) throw abortErrorFromSignal(signal);
+    if (signal.aborted) {throw abortErrorFromSignal(signal);}
 }
 
 async function runDjvuConversionJobWithSlot<T>(
@@ -410,9 +410,9 @@ async function copyFileCancellable(sourcePath: string, targetPath: string, signa
     try {
         target = await open(targetPath, 'wx');
         for (;;) {
-            if (signal.aborted) throw abortErrorFromSignal(signal);
+            if (signal.aborted) {throw abortErrorFromSignal(signal);}
             const {bytesRead} = await source.read(buffer, 0, buffer.byteLength, position);
-            if (bytesRead === 0) break;
+            if (bytesRead === 0) {break;}
             await writeFileHandleFully(target, buffer.subarray(0, bytesRead), position, signal);
             position += bytesRead;
         }
@@ -430,7 +430,7 @@ async function replaceFileAtomically(sourcePath: string, targetPath: string, sig
     let replaced = false;
     try {
         await copyFileCancellable(sourcePath, stagedPath, signal);
-        if (signal.aborted) throw abortErrorFromSignal(signal);
+        if (signal.aborted) {throw abortErrorFromSignal(signal);}
         await atomicReplace(stagedPath, targetPath);
         replaced = true;
     } finally {
@@ -810,7 +810,7 @@ async function embedPdfBookmarks(
                 if (getUnprovenNativeTerminationDetail(error) !== undefined) {
                     throw error;
                 }
-                if (signal.aborted) throw abortErrorFromSignal(signal);
+                if (signal.aborted) {throw abortErrorFromSignal(signal);}
                 throw error;
             }
         });

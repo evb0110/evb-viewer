@@ -165,7 +165,7 @@ describe('browser page-ops capability acceptance in Chromium', () => {
             ]);
             const bookmarks = await page.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbRunBrowserBookmarkSaveAcceptance');
-                if (typeof run !== 'function') throw new Error('Browser bookmark save entry point was not installed');
+                if (typeof run !== 'function') {throw new Error('Browser bookmark save entry point was not installed');}
                 return run();
             });
             expect(bookmarks).toEqual([
@@ -179,7 +179,7 @@ describe('browser page-ops capability acceptance in Chromium', () => {
             })));
             const geometry = await page.evaluate(async () => {
                 const run = Reflect.get(globalThis, '__evbRunBrowserIncrementalGeometryAcceptance');
-                if (typeof run !== 'function') throw new Error('Browser incremental geometry entry point was not installed');
+                if (typeof run !== 'function') {throw new Error('Browser incremental geometry entry point was not installed');}
                 return run();
             });
             expect(geometry).toEqual({

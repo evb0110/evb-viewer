@@ -188,25 +188,25 @@ function mapDjvuOutlineWithLimits(value: unknown[]): IDjvuOutlineItem[] {
     let titleChars = 0;
     while (stack.length) {
         const entry = stack.pop()!;
-        if (typeof entry.item !== 'object' || entry.item === null || Array.isArray(entry.item)) throw new Error('invalid DjVu outline item');
+        if (typeof entry.item !== 'object' || entry.item === null || Array.isArray(entry.item)) {throw new Error('invalid DjVu outline item');}
         const item = entry.item as Record<string, unknown>;
         const pageNumber = item.pageNumber;
         const children = item.children;
-        if (typeof item.title !== 'string' || !(pageNumber === null || typeof pageNumber === 'number' && parsePageNumber(pageNumber) !== null) || !Array.isArray(children)) throw new Error('invalid DjVu outline item');
+        if (typeof item.title !== 'string' || !(pageNumber === null || typeof pageNumber === 'number' && parsePageNumber(pageNumber) !== null) || !Array.isArray(children)) {throw new Error('invalid DjVu outline item');}
         nodeCount++;
         titleChars += item.title.length;
-        if (entry.depth > DJVU_OUTLINE_MAX_DEPTH || nodeCount > DJVU_OUTLINE_MAX_NODES || titleChars > DJVU_OUTLINE_MAX_TITLE_CHARS) throw new Error('DjVu outline exceeds the supported limit');
+        if (entry.depth > DJVU_OUTLINE_MAX_DEPTH || nodeCount > DJVU_OUTLINE_MAX_NODES || titleChars > DJVU_OUTLINE_MAX_TITLE_CHARS) {throw new Error('DjVu outline exceeds the supported limit');}
         const mapped: IDjvuOutlineItem = {
             title: item.title,
             pageNumber: pageNumber === null ? null : parsePageNumber(pageNumber)!,
             children: [],
         };
         entry.target.push(mapped);
-        for (let index = children.length - 1; index >= 0; index--) stack.push({
+        for (let index = children.length - 1; index >= 0; index--) {stack.push({
             depth: entry.depth + 1,
             item: children[index],
             target: mapped.children,
-        });
+        });}
     }
     return result;
 }

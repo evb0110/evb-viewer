@@ -44,7 +44,7 @@ export const MAX_LIVE_THREADED_SCAN_CLEANUP_ENGINES = 6;
  * a forgotten hint never oversubscribes the device.
  */
 export function resolveScanCleanupEngineThreads(concurrency: number | undefined, cores = hardwareCores()) {
-    if (concurrency === undefined || !Number.isFinite(concurrency)) return 1;
+    if (concurrency === undefined || !Number.isFinite(concurrency)) {return 1;}
     const siblings = Math.max(1, Math.min(Math.floor(concurrency), MAX_LIVE_THREADED_SCAN_CLEANUP_ENGINES - 1));
     return Math.max(1, Math.min(MAX_SCAN_CLEANUP_ENGINE_THREADS, Math.floor((cores - 1) / siblings)));
 }
@@ -94,8 +94,8 @@ export interface IBrowserArchitecture {
  * 64-bit, and Windows and Linux name the build. Anything unclear is not.
  */
 export function isSixtyFourBitBrowser({userAgent, bitness, wow64}: IBrowserArchitecture) {
-    if (bitness !== undefined) return bitness === '64' && wow64 !== true;
-    if (/WOW64|\bi[3-6]86\b|armv7|armv8l/u.test(userAgent)) return false;
+    if (bitness !== undefined) {return bitness === '64' && wow64 !== true;}
+    if (/WOW64|\bi[3-6]86\b|armv7|armv8l/u.test(userAgent)) {return false;}
     return /Macintosh|\bWin64\b|\bx86_64\b|\baarch64\b|\barm64\b/u.test(userAgent);
 }
 
@@ -103,7 +103,7 @@ async function readBrowserArchitecture(): Promise<IBrowserArchitecture> {
     const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
     const hints: unknown = typeof navigator === 'undefined' ? undefined : Reflect.get(navigator, 'userAgentData');
     const getHighEntropyValues: unknown = hints === undefined || hints === null ? undefined : Reflect.get(hints, 'getHighEntropyValues');
-    if (typeof getHighEntropyValues !== 'function') return {userAgent};
+    if (typeof getHighEntropyValues !== 'function') {return {userAgent};}
     try {
         const values: unknown = await getHighEntropyValues.call(hints, ['bitness', 'wow64']);
         const read = (name: string): unknown => (typeof values === 'object' && values !== null ? Reflect.get(values, name) : undefined);
@@ -152,11 +152,11 @@ export function usesThreadedScanCleanupEngine() {
  * idle threaded workers. Requests admitted after this read the new worker key.
  */
 export function switchOffThreadedScanCleanupEngine() {
-    if (threadedEngine === false) return;
+    if (threadedEngine === false) {return;}
     const wasThreaded = threadedEngine === true;
     threadedEngine = false;
-    if (!wasThreaded) return;
-    for (const reset of switchedOff) reset();
+    if (!wasThreaded) {return;}
+    for (const reset of switchedOff) {reset();}
 }
 
 /** The places of every pool's threaded engines; a pool that runs them passes it to its owner and clients. */
@@ -191,7 +191,7 @@ export function scanCleanupEngineAdmission(concurrency: number | undefined) {
  * pools admit nothing threaded after it.
  */
 export function observeScanCleanupEngineReply(response: unknown) {
-    if (typeof response !== 'object' || response === null || Reflect.get(response, 'ok') !== false) return;
+    if (typeof response !== 'object' || response === null || Reflect.get(response, 'ok') !== false) {return;}
     const envelope: unknown = Reflect.get(response, 'errorEnvelope');
     if (isSerializableErrorEnvelope(envelope) && envelope.code === SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE) {
         console.warn('The threaded scan cleanup engine could not start; this page runs the single-threaded engine from now on.', envelope.message);
@@ -221,9 +221,9 @@ export async function runWithScanCleanupEngineFailover<TPayload, TResult>(
     try {
         return await attempt(payload);
     } catch (error) {
-        if (!(error instanceof SerializableError) || error.code !== SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE) throw error;
+        if (!(error instanceof SerializableError) || error.code !== SCAN_CLEANUP_THREADED_ENGINE_UNAVAILABLE) {throw error;}
         const returned: unknown = Reflect.get(Object(error.errorEnvelope.details), 'payload');
-        if (returned === undefined) throw error;
+        if (returned === undefined) {throw error;}
         switchOffThreadedScanCleanupEngine();
         return attempt(returned as TPayload);
     }

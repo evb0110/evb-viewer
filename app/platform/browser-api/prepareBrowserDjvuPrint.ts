@@ -83,7 +83,7 @@ export async function prepareBrowserDjvuPrint(
             printablePdfPath: printablePath,
         };
     } catch (error) {
-        if (!signal.aborted) throw error;
+        if (!signal.aborted) {throw error;}
         return {
             success: false,
             jobId,

@@ -199,11 +199,11 @@ export function resolveDocumentVisiblePageForIndicator(
     let high = pageCount;
     while (low < high) {
         const middle = Math.floor((low + high) / 2);
-        if (options.pageLayouts[middle]!.top > viewportTop) high = middle;
-        else low = middle + 1;
+        if (options.pageLayouts[middle]!.top > viewportTop) {high = middle;}
+        else {low = middle + 1;}
     }
     let first = Math.max(0, low - 1);
-    while (first > 0 && options.pageLayouts[first - 1]!.top === options.pageLayouts[first]!.top) first -= 1;
+    while (first > 0 && options.pageLayouts[first - 1]!.top === options.pageLayouts[first]!.top) {first -= 1;}
 
     let visiblePage: number | null = null;
     let greatestFraction = 0;
@@ -213,8 +213,8 @@ export function resolveDocumentVisiblePageForIndicator(
         const {
             top, height, width, left = 0,
         } = options.pageLayouts[index]!;
-        if (top >= viewportBottom) break;
-        if (height <= 0 || width <= 0) continue;
+        if (top >= viewportBottom) {break;}
+        if (height <= 0 || width <= 0) {continue;}
         const visibleHeight = measureIntersectionHeight(top, top + height, viewportTop, viewportBottom);
         const visibleWidth = measureIntersectionHeight(left, left + width, viewportLeft, viewportRight);
         const fraction = visibleHeight * visibleWidth / (height * width);

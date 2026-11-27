@@ -159,7 +159,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             progressCleanup();
             progressCleanup = null;
         }
-        if (!searchProgress.value?.coverage) searchProgress.value = undefined;
+        if (!searchProgress.value?.coverage) {searchProgress.value = undefined;}
     }
 
     function normalizeSearchError(error: unknown) {
@@ -197,7 +197,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         response.results.forEach((result) => {
             const pageIndex = pageNumberToPageIndex(result.pageNumber);
             const pageSearchResults = pageResults.get(pageIndex) ?? [];
-            if (pageSearchResults.length === 0) pageResults.set(pageIndex, pageSearchResults);
+            if (pageSearchResults.length === 0) {pageResults.set(pageIndex, pageSearchResults);}
             pageSearchResults.push(result);
         });
 
@@ -241,11 +241,11 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         results.value = normalizedResponse.results;
         pageMatches.value = normalizedResponse.pageMatches;
         isTruncated.value = response.truncated;
-        if (response.coverage) searchProgress.value = {
+        if (response.coverage) {searchProgress.value = {
             processed: response.coverage.pagesScanned,
             total: response.coverage.pageCount,
             coverage: response.coverage,
-        };
+        };}
 
         if (normalizedResponse.results.length === 0) {
             currentResultIndex.value = -1;
@@ -380,7 +380,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 currentResultIndex.value = -1;
             }
             cleanupProgressListener();
-            if (!direction) searchProgress.value = undefined;
+            if (!direction) {searchProgress.value = undefined;}
 
             // Call backend search API
             const api = getSearchCapability();
@@ -545,7 +545,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
 
     async function goToResult(direction: TSearchDirection) {
         if (isSearching.value || !results.value.length || !searchCommand
-            || !isCurrentSearchRun(searchRunId, searchCommand.documentRevisionToken)) return;
+            || !isCurrentSearchRun(searchRunId, searchCommand.documentRevisionToken)) {return;}
         const nextIndex = currentResultIndex.value + (direction === 'next' ? 1 : -1);
         if (nextIndex >= 0 && nextIndex < results.value.length) {
             setResultIndex(nextIndex);
@@ -610,7 +610,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         const interrupted = searchCommand?.runId === searchRunId && !searchCommand.completed;
         const ordinal = !searchCommand?.direction ? currentResult.value?.matchIndex : undefined;
         cancelSearch();
-        if (!searchCommand) return;
+        if (!searchCommand) {return;}
         const command = {
             ...searchCommand,
             runId: searchRunId,
@@ -626,7 +626,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         const rotatedMatches = new Map(pageMatches.value);
         for (const pageIndex of rotatedPages) {
             const data = rotatedMatches.get(pageIndex);
-            if (!data) continue;
+            if (!data) {continue;}
             const rotated = {
                 ...data,
                 matches: data.matches.map(rotate),
@@ -637,8 +637,8 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
             });
         }
         pageMatches.value = rotatedMatches;
-        if (currentResult.value && rotatedPages.has(currentResult.value.pageIndex)) currentResultNavigationId.value += 1;
-        if (!interrupted) return;
+        if (currentResult.value && rotatedPages.has(currentResult.value.pageIndex)) {currentResultNavigationId.value += 1;}
+        if (!interrupted) {return;}
         isSearching.value = true;
         const resumed = ordinal === undefined ? command : {
             ...command,
@@ -649,7 +649,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     }
 
     function resetSearchCache() {
-        if (!searchCommand || searchCommand.documentRevisionToken !== getCurrentDocumentRevisionToken()) clearSearch();
+        if (!searchCommand || searchCommand.documentRevisionToken !== getCurrentDocumentRevisionToken()) {clearSearch();}
         void Promise.resolve(getSearchCapability().resetCache()).catch((error) => {
             BrowserLogger.debug(
                 'pdf-search',

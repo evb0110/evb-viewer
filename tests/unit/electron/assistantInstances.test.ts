@@ -21,7 +21,7 @@ const state = vi.hoisted(() => ({
 vi.mock('@electron/features/agent/assistantLocalSetups', async importOriginal => ({
     ...await importOriginal(),
     discoverAssistantLocalSetups: async () => {
-        if (state.discoveryFails) throw new Error('fixture discovery unavailable');
+        if (state.discoveryFails) {throw new Error('fixture discovery unavailable');}
         return state.discoveries.shift() ?? state.local;
     },
 }));
@@ -43,7 +43,7 @@ vi.mock('electron', () => ({default: {
         getSelectedStorageBackend: () => 'keychain',
         encryptString: (value: string) => Buffer.from(`encrypted:${Buffer.from(value).toString('base64')}`),
         decryptString: (value: Buffer) => {
-            if (!state.decryptionAvailable) throw new Error('fixture storage locked');
+            if (!state.decryptionAvailable) {throw new Error('fixture storage locked');}
             return Buffer.from(value.toString().slice('encrypted:'.length), 'base64').toString();
         },
     },
@@ -249,7 +249,7 @@ describe('assistant instance configuration', () => {
             'CLAUDE_CODE_SESSION_ID',
             'CLAUDE_CODE_SSE_PORT',
             'ELECTRON_RUN_AS_NODE',
-        ]) vi.stubEnv(name, 'host-session');
+        ]) {vi.stubEnv(name, 'host-session');}
         const home = join(state.root, 'claude');
         await save({
             id: 'claude',

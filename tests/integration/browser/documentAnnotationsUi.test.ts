@@ -53,10 +53,10 @@ describe('browser document lifecycle UI', () => {
                 const NativeWorker = window.Worker;
                 window.Worker = new Proxy(NativeWorker, {construct(Target, args) {
                     const worker: Worker = Reflect.construct(Target, args);
-                    if (!String(args[0]).includes('browserPageOps')) return worker;
+                    if (!String(args[0]).includes('browserPageOps')) {return worker;}
                     worker.addEventListener('message', (event) => {
                         const response: unknown = event.data;
-                        if (typeof response !== 'object' || response === null) return;
+                        if (typeof response !== 'object' || response === null) {return;}
                         responses.push({
                             id: Reflect.get(response, 'id'),
                             type: Reflect.get(response, 'type'),
@@ -81,8 +81,8 @@ describe('browser document lifecycle UI', () => {
                                 return;
                             }
                         }
-                        if (Array.isArray(transfer)) post(request, transfer);
-                        else post(request, transfer);
+                        if (Array.isArray(transfer)) {post(request, transfer);}
+                        else {post(request, transfer);}
                     };
                     return worker;
                 }});
@@ -110,13 +110,13 @@ describe('browser document lifecycle UI', () => {
             await page.keyboard.press('Control+Enter');
             await page.waitForFunction(() => Reflect.get(window, '__refusedTextPointerAppearance').held.length === 1);
             const before = await box.boundingBox();
-            if (!before) throw new Error('The pending text frame is not visible');
+            if (!before) {throw new Error('The pending text frame is not visible');}
             const grip = page.locator('.editor-pane.is-active [data-pdf-annotation-move-handle]');
             const start = await grip.evaluate(element => {
                 const rect = element.getBoundingClientRect();
                 const x = rect.x + rect.width / 2;
                 const y = rect.y + rect.height / 2;
-                if (!element.contains(document.elementFromPoint(x, y))) throw new Error('The move grip is obstructed');
+                if (!element.contains(document.elementFromPoint(x, y))) {throw new Error('The move grip is obstructed');}
                 return {
                     x,
                     y,
@@ -249,7 +249,7 @@ describe('browser document lifecycle UI', () => {
                 const response = await route.fetch();
                 const body = await response.text();
                 const marker = 'return layer.render({';
-                if (!body.includes(marker)) throw new Error('PDF.js annotation render fault seam was not found');
+                if (!body.includes(marker)) {throw new Error('PDF.js annotation render fault seam was not found');}
                 await route.fulfill({
                     response,
                     body: body.replace(marker,
@@ -502,7 +502,7 @@ describe('browser document lifecycle UI', () => {
             }> = [];
             const hoverAndClick = async (x: number, y: number, label: string) => {
                 const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
-                if (!bounds) throw new Error(`${label} page is not visible`);
+                if (!bounds) {throw new Error(`${label} page is not visible`);}
                 const px = bounds.x + x * bounds.width / 612;
                 const py = bounds.y + (792 - y) * bounds.height / 792;
                 await page.mouse.move(px, py);
@@ -578,7 +578,7 @@ describe('browser document lifecycle UI', () => {
                 };
             })()`);
             releaseCapture = async () => {
-                if (!page.isClosed()) await page.evaluate(() => Reflect.get(window, '__restoreForeignCapture')?.());
+                if (!page.isClosed()) {await page.evaluate(() => Reflect.get(window, '__restoreForeignCapture')?.());}
             };
             await page.getByRole('button', {
                 name: 'Place a sticky note on the page.',
@@ -611,7 +611,7 @@ describe('browser document lifecycle UI', () => {
                 await api.callActiveWorkspaceCommand?.('handleDisableDragMode');
                 const span = Array.from(document.querySelectorAll('.text-layer span'))
                     .find(element => element.textContent === text);
-                if (!span?.firstChild) throw new Error('Own highlight text is missing');
+                if (!span?.firstChild) {throw new Error('Own highlight text is missing');}
                 const range = document.createRange();
                 range.selectNodeContents(span);
                 const selection = document.getSelection();
@@ -703,7 +703,7 @@ describe('browser document lifecycle UI', () => {
                 const hit = savedHighlight.locator('[data-annotation-hit-target]').first();
                 const ownLineBounds = await reopened.locator('.text-layer span').filter({hasText: ownText}).first().boundingBox();
                 const savedHitBounds = await hit.boundingBox();
-                if (!ownLineBounds || !savedHitBounds) throw new Error('Saved highlight is not visible over its text');
+                if (!ownLineBounds || !savedHitBounds) {throw new Error('Saved highlight is not visible over its text');}
                 expect(savedHitBounds.x).toBeLessThan(ownLineBounds.x + ownLineBounds.width / 2);
                 expect(savedHitBounds.x + savedHitBounds.width).toBeGreaterThan(ownLineBounds.x + ownLineBounds.width / 2);
                 expect(savedHitBounds.y).toBeLessThan(ownLineBounds.y + ownLineBounds.height / 2);
@@ -742,7 +742,7 @@ describe('browser document lifecycle UI', () => {
                         const resizer = reopened.locator('.sidebar-resizer');
                         const handle = await resizer.boundingBox();
                         const currentWidth = await reopened.locator('.sidebar-wrapper__content').evaluate(element => element.getBoundingClientRect().width);
-                        if (!handle) throw new Error('Sidebar resize handle is missing');
+                        if (!handle) {throw new Error('Sidebar resize handle is missing');}
                         await reopened.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
                         await reopened.mouse.down();
                         await reopened.mouse.move(handle.x + handle.width / 2 + width - currentWidth, handle.y + handle.height / 2);
@@ -795,12 +795,12 @@ describe('browser document lifecycle UI', () => {
                             }
                             expect(card.previewInside).toBe(true);
                             expect(card.metaHeight).toBeCloseTo(card.metaLine, 1);
-                            if (card.author === 'evb') expect(card.authorClipped).toBe(false);
+                            if (card.author === 'evb') {expect(card.authorClipped).toBe(false);}
                         }
                         const button = reopened.locator('.note-item-delete').first();
                         await button.scrollIntoViewIfNeeded();
                         const box = await button.boundingBox();
-                        if (!box) throw new Error('Sidebar delete target is missing');
+                        if (!box) {throw new Error('Sidebar delete target is missing');}
                         expect(box.width).toBeCloseTo(box.height, 1);
                         for (const point of [
                             {x: box.x + 2, y: box.y + 2},
@@ -822,7 +822,7 @@ describe('browser document lifecycle UI', () => {
                 }).click();
                 const line = reopened.locator('.text-layer span').filter({hasText: foreignText}).first();
                 const lineBounds = await line.boundingBox();
-                if (!lineBounds) throw new Error('Commented highlight text is not visible');
+                if (!lineBounds) {throw new Error('Commented highlight text is not visible');}
                 await reopened.mouse.move(lineBounds.x + 1, lineBounds.y + lineBounds.height / 2);
                 await reopened.mouse.down();
                 await reopened.mouse.move(lineBounds.x + lineBounds.width - 1, lineBounds.y + lineBounds.height / 2, {steps: 12});
@@ -834,7 +834,7 @@ describe('browser document lifecycle UI', () => {
                 await reopened.locator('.tool-button[data-tool="highlight"]').click();
                 const stackedLine = reopened.locator('.text-layer span').filter({hasText: ownText}).first();
                 const stackedBounds = await stackedLine.boundingBox();
-                if (!stackedBounds) throw new Error('Existing markup text is not visible');
+                if (!stackedBounds) {throw new Error('Existing markup text is not visible');}
                 expect(await stackedLine.evaluate(element => {
                     const rect = element.getBoundingClientRect();
                     return document.elementFromPoint(rect.left + 1, rect.top + rect.height / 2) === element;
@@ -868,7 +868,7 @@ describe('browser document lifecycle UI', () => {
                         && bounds && bounds.width > 0 && bounds.height > 0
                         && getComputedStyle(layer).visibility !== 'hidden';
                 });
-                if (!image) return null;
+                if (!image) {return null;}
                 const rect = image.getBoundingClientRect();
                 return {
                     naturalWidth: image.naturalWidth,
@@ -883,7 +883,7 @@ describe('browser document lifecycle UI', () => {
             let dimensions!: NonNullable<Awaited<ReturnType<typeof readDimensions>>>;
             await expect.poll(async () => {
                 const current = await readDimensions();
-                if (!current) return false;
+                if (!current) {return false;}
                 dimensions = current;
                 return true;
             }).toBe(true);

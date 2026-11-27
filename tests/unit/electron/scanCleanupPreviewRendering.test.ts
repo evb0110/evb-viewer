@@ -792,7 +792,7 @@ export async function scenarioHandsTheDetailTileToTheSidecarThroughTheSharedRast
             return;
         }
         detailManifestPaths.push(manifestPath);
-        if (detailPlan.baseMetadataPath !== undefined) baseMetadataPaths.push(detailPlan.baseMetadataPath);
+        if (detailPlan.baseMetadataPath !== undefined) {baseMetadataPaths.push(detailPlan.baseMetadataPath);}
         if (detailPlan.baseCleanedRasterPath !== undefined) {
             baseCleanedRasterPaths.push(detailPlan.baseCleanedRasterPath);
         }
@@ -1545,7 +1545,7 @@ export async function scenarioPreviewsWithoutMatchingWhenItCannotMeasureAndMeasu
     let measurements = 0;
     deps.getPageSizes = vi.fn(async () => {
         measurements += 1;
-        if (measurements === 1) throw new Error('evb-pdf-page-ops is unavailable');
+        if (measurements === 1) {throw new Error('evb-pdf-page-ops is unavailable');}
         return DOCUMENT_PAGE_SIZES;
     });
     const canvases: unknown[] = [];
@@ -1717,8 +1717,8 @@ export async function scenarioAnswersTheVisiblePageWhenThePrefetchThatStartedThe
     deps.getPageSizes = vi.fn(async (_path, options) => {
         measurements += 1;
         measuring.resolve(undefined);
-        if (options?.signal) await waitForRelease(releaseMeasurement.promise, options.signal);
-        else await releaseMeasurement.promise;
+        if (options?.signal) {await waitForRelease(releaseMeasurement.promise, options.signal);}
+        else {await releaseMeasurement.promise;}
         return DOCUMENT_PAGE_SIZES;
     });
     const canvases = new Map<number, unknown>();
@@ -1776,8 +1776,8 @@ export async function scenarioKeepsTheSharedMeasurementAliveWhenALaterAwaiterIsC
     deps.getPageSizes = vi.fn(async (_path, options) => {
         measurements += 1;
         measuring.resolve(undefined);
-        if (options?.signal) await waitForRelease(releaseMeasurement.promise, options.signal);
-        else await releaseMeasurement.promise;
+        if (options?.signal) {await waitForRelease(releaseMeasurement.promise, options.signal);}
+        else {await releaseMeasurement.promise;}
         return DOCUMENT_PAGE_SIZES;
     });
     const canvases = new Map<number, unknown>();

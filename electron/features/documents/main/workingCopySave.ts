@@ -146,7 +146,7 @@ async function saveRewritten(
     try {
         const optimized = await rewrite(await requireDocumentFile(entry), tempPath);
         const validation = optimized ?? await validatePdfFile(tempPath);
-        if (!validation.isValid) return validation;
+        if (!validation.isValid) {return validation;}
         const saved = await saveOpenDocument(entry, token, {commit: {kind: 'move', file: tempPath}});
         if (saved.status === 'saved' && saved.acknowledgmentError !== undefined) {
             logger.warn('Rewritten working-copy save published with an unacknowledged manifest', {

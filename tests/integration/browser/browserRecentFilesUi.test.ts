@@ -117,7 +117,7 @@ describe('browser document lifecycle UI', () => {
                         };
                     });
                     expect(painting.ink).toBe(true);
-                    if (paintings.has(label)) expect(painting.hash).toBe(paintings.get(label));
+                    if (paintings.has(label)) {expect(painting.hash).toBe(paintings.get(label));}
                     else {
                         expect(Array.from(paintings.values())).not.toContain(painting.hash);
                         paintings.set(label, painting.hash);
@@ -127,7 +127,7 @@ describe('browser document lifecycle UI', () => {
                 // The books the store holds beside nothing else once no tab is open.
                 const storedBooks = new Set<unknown>();
                 const open = async (fixture: Parameters<typeof openPdfFromChooser>[1]) => {
-                    if (journey !== 'count') storedBooks.add(fixture);
+                    if (journey !== 'count') {storedBooks.add(fixture);}
                     const chooser = page.waitForEvent('filechooser');
                     await page.getByRole('button', {
                         name: 'Open File',
@@ -143,7 +143,7 @@ describe('browser document lifecycle UI', () => {
                     await page.locator('.workspace-host[data-workspace-active="true"] .workspace-host__start').waitFor();
                     // The start screen returns before the closed tab's working copy has left the store. The next
                     // book is stored once it has, as a person's next open would find it.
-                    if (journey !== 'count') await expect.poll(async () => (await readBrowserPayloadCounts(page)).documents).toBe(storedBooks.size);
+                    if (journey !== 'count') {await expect.poll(async () => (await readBrowserPayloadCounts(page)).documents).toBe(storedBooks.size);}
                 };
                 const assertRecent = async (names: string[]) => {
                     await expect.poll(recentNames).toEqual(names);
@@ -561,13 +561,13 @@ describe('browser document lifecycle UI', () => {
             await page.waitForFunction(() => Boolean(Reflect.get(window, '__resumeTarget')));
             const ref: string = await page.evaluate(() => Reflect.get(window, '__pendingTargetRef'));
             const before = await readPersistedDocumentBytes(peer, ref, operation === 'save-as');
-            if (operation === 'conversion') expect(before.slice(0, 5)).toEqual([
+            if (operation === 'conversion') {expect(before.slice(0, 5)).toEqual([
                 37,
                 80,
                 68,
                 70,
                 45,
-            ]);
+            ]);}
             else {
                 expect(before).toEqual(savedDigest);
             }
@@ -585,7 +585,7 @@ describe('browser document lifecycle UI', () => {
             expect(createHash('sha256').update(Uint8Array.from(after)).digest('hex'),
                 'Committed target bytes survive collection before adoption')
                 .toBe(createHash('sha256').update(Uint8Array.from(before)).digest('hex'));
-            if (operation === 'conversion') expect((await PDFDocument.load(Uint8Array.from(after))).getPageCount()).toBe(2);
+            if (operation === 'conversion') {expect((await PDFDocument.load(Uint8Array.from(after))).getPageCount()).toBe(2);}
             await page.locator('.page_container--rendered .page_canvas canvas').first().waitFor({timeout: 60_000});
             await expect.poll(async () => await page.locator('[data-tab-list] [role="tab"][aria-selected="true"]').getAttribute('aria-description') ?? '', {timeout: 30_000}).not.toMatch(/unsaved/iu);
             if (operation === 'save-as') {

@@ -521,13 +521,13 @@ describe('scan cleanup raster batch renderer', () => {
             })),
             rename: async (source, target) => {
                 const bytes = memoryFiles.get(source);
-                if (!bytes) throw new Error(`Missing encoded raster: ${source}`);
+                if (!bytes) {throw new Error(`Missing encoded raster: ${source}`);}
                 memoryFiles.set(target, bytes);
                 memoryFiles.delete(source);
             },
             rm: async () => {
                 for (const path of memoryFiles.keys()) {
-                    if (path.startsWith(`${scratch}${sep}`)) memoryFiles.delete(path);
+                    if (path.startsWith(`${scratch}${sep}`)) {memoryFiles.delete(path);}
                 }
             },
         });

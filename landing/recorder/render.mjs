@@ -34,9 +34,9 @@ const flow = args[0] && !args[0].startsWith('--') ? args.shift() : 'viewer';
 let localeFilter;
 let themeFilter;
 for (let index = 0; index < args.length; index += 2) {
-    if (args[index] === '--locale') localeFilter = args[index + 1];
-    else if (args[index] === '--theme') themeFilter = args[index + 1];
-    else throw new Error(`Unknown option: ${args[index]}`);
+    if (args[index] === '--locale') {localeFilter = args[index + 1];}
+    else if (args[index] === '--theme') {themeFilter = args[index + 1];}
+    else {throw new Error(`Unknown option: ${args[index]}`);}
 }
 
 const manifests = readdirSync(path.join(CAPTURE, 'manifests'))

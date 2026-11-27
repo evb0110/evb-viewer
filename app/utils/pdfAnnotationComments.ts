@@ -164,7 +164,7 @@ export function splitByQueryMatches(text: string, normalizedQuery: string): ICom
         cursor = matchEnd;
         // Resume after the last original character the match touched.
         foldedCursor = foldedMatch + queryLength;
-        while (foldedCursor < loweredText.length && originalStart[foldedCursor]! < matchEnd) foldedCursor += 1;
+        while (foldedCursor < loweredText.length && originalStart[foldedCursor]! < matchEnd) {foldedCursor += 1;}
     }
 
     return parts.length ? parts : [{

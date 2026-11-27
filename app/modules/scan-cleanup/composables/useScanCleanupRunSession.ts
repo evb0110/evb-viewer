@@ -481,7 +481,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
         // asking again; a replaced document retires the attempt.
         let attemptRetired = false;
         const retireIfDocumentChanged = () => {
-            if (attemptRetired) return true;
+            if (attemptRetired) {return true;}
             if (
                 requestSourcePdfPath === options.sourcePath.value
                 && requestDocumentRevision === options.documentRevision.value
@@ -636,10 +636,10 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
             if (isStopRequested()) {
                 // The stop arrived while the start was in flight. The job it
                 // came back with is the one the user already asked to stop.
-                if (result.started) await requestActiveJobCancellation(result.jobId);
+                if (result.started) {await requestActiveJobCancellation(result.jobId);}
                 return;
             }
-            if (attemptRetired) return;
+            if (attemptRetired) {return;}
             if (!result.started) {
                 reportScanCleanupRunError(
                     options.ownerId,

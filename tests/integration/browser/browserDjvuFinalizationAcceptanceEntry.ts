@@ -212,14 +212,14 @@ async function installBrowserCompactDjvuAcceptance(documentCount = 1, compareRef
         document.body.insertAdjacentHTML('beforeend', `<button id="compact-export${suffix}">Export compact PDF${suffix}</button><button id="compact-cancel${suffix}">Cancel${suffix}</button><output id="compact-status${suffix}">Ready</output>`);
         const status = document.querySelector(`#compact-status${suffix}`)!;
         document.querySelector(`#compact-cancel${suffix}`)!.addEventListener('click', (event) => {
-            if (!event.isTrusted) throw new Error('Compact cancellation requires trusted input');
+            if (!event.isTrusted) {throw new Error('Compact cancellation requires trusted input');}
             void browserDjvuCapability.cancel(jobId);
         });
         document.querySelector(`#compact-export${suffix}`)!.addEventListener('click', (event) => {
-            if (!event.isTrusted) throw new Error('Compact export requires trusted input');
+            if (!event.isTrusted) {throw new Error('Compact export requires trusted input');}
             status.textContent = 'Converting';
             const stop = browserDjvuCapability.onConvertComplete((result) => {
-                if (result.requestId !== requestId) return;
+                if (result.requestId !== requestId) {return;}
                 stop();
                 void (async () => {
                     try {
@@ -239,7 +239,7 @@ async function installBrowserCompactDjvuAcceptance(documentCount = 1, compareRef
                         status.textContent = result.success ? 'Completed' : 'Canceled';
                     } finally {
                         finished += 1;
-                        if (finished === documentCount) browserDurableDjvuJobs.clearForTests();
+                        if (finished === documentCount) {browserDurableDjvuJobs.clearForTests();}
                         await browserDocumentStore.remove(documentOutput);
                         await browserDocumentStore.remove(documentSource);
                     }
@@ -432,7 +432,7 @@ async function exportMultiPageTiffAs(sourcePath: TDocumentRef, sourceKind: 'djvu
             requireRequestId(`browser-${sourceKind}-multi-page-tiff-export`),
             sourceKind,
         );
-        if (!result.success || !result.outputPaths?.[0]) throw new Error('TIFF export did not succeed');
+        if (!result.success || !result.outputPaths?.[0]) {throw new Error('TIFF export did not succeed');}
         const storedName = getBrowserDocumentFileName(result.outputPaths[0]);
         const file = await (singlePage ? imageExportHandle : await directory.getFileHandle(storedName)).getFile();
         return {
@@ -442,7 +442,7 @@ async function exportMultiPageTiffAs(sourcePath: TDocumentRef, sourceKind: 'djvu
             pickerOptions: imageExportPickerOptions,
         };
     } catch (error) {
-        if (!singlePage) throw error;
+        if (!singlePage) {throw error;}
         const {
             bytes, savedName, pickerOptions,
         } = await readImageExportDestination();
@@ -497,8 +497,8 @@ function summarizeTiff(bytes: Uint8Array) {
             const at = offset + 2 + entry * 12;
             const tag = view.getUint16(at);
             const value = view.getUint16(at + 2) === 3 ? view.getUint16(at + 8) : view.getUint32(at + 8);
-            if (tag === 256) frame.width = value;
-            if (tag === 257) frame.height = value;
+            if (tag === 256) {frame.width = value;}
+            if (tag === 257) {frame.height = value;}
         }
         frames.push(frame);
     }
@@ -566,7 +566,7 @@ async function runBrowserBatchImageExportAcceptance(sourceKind: 'djvu' | 'pdf', 
         await earlier.close();
         Reflect.set(window, 'showDirectoryPicker', async (options: {mode?: string}) => {
             prompts.directory += 1;
-            if (options.mode !== 'readwrite') throw new Error('Batch export must ask for a writable folder');
+            if (options.mode !== 'readwrite') {throw new Error('Batch export must ask for a writable folder');}
             return directory;
         });
     } else {
@@ -592,7 +592,7 @@ async function runBrowserBatchImageExportAcceptance(sourceKind: 'djvu' | 'pdf', 
                 name,
                 entry,
             ] of listEntries.call(directory)) {
-                if (entry.kind !== 'file') continue;
+                if (entry.kind !== 'file') {continue;}
                 const bytes = new Uint8Array(await (await (entry as FileSystemFileHandle).getFile()).arrayBuffer());
                 files.push({
                     name,
@@ -628,7 +628,7 @@ async function readDirectoryImages(directory: FileSystemDirectoryHandle) {
         name,
         entry,
     ] of entries.call(directory)) {
-        if (entry.kind !== 'file') continue;
+        if (entry.kind !== 'file') {continue;}
         const file = await (entry as FileSystemFileHandle).getFile();
         const bytes = new Uint8Array(await file.arrayBuffer());
         const decodable = bytes[0] === 0xff || bytes[0] === 0x89
@@ -667,9 +667,9 @@ async function installFolderFailureAcceptance(mode: string) {
     };
     let failedHandleName: string | null = null;
     FileSystemFileHandle.prototype.createWritable = async function (options) {
-        if (this.name !== 'document-pages-002.jpg') return createWritable.call(this, options);
+        if (this.name !== 'document-pages-002.jpg') {return createWritable.call(this, options);}
         failedHandleName = this.name;
-        if (mode === 'open') throw new Error('second page writer refused');
+        if (mode === 'open') {throw new Error('second page writer refused');}
         const writer = await createWritable.call(this, options);
         if (mode === 'close-unknown') {
             const close = writer.close.bind(writer);
@@ -708,7 +708,7 @@ async function installFolderFailureAcceptance(mode: string) {
     }
     document.body.insertAdjacentHTML('beforeend', '<button id="folder-failure-export">Export pages</button><output id="folder-failure-result"></output>');
     document.querySelector('#folder-failure-export')!.addEventListener('click', async event => {
-        if (!event.isTrusted) throw new Error('Folder export requires trusted input');
+        if (!event.isTrusted) {throw new Error('Folder export requires trusted input');}
         let error = '';
         try {
             await createBrowserImageExportCapability().exportPdfToImages(source, [
@@ -722,7 +722,7 @@ async function installFolderFailureAcceptance(mode: string) {
             FileSystemFileHandle.prototype.createWritable = createWritable;
             FileSystemFileHandle.prototype.getFile = getFile;
         }
-        if (mode === 'encode') await failedImages.promise;
+        if (mode === 'encode') {await failedImages.promise;}
         const failed = await readDirectoryImages(directory);
         const recent = await browserDocumentStore.getRecentFiles();
         const retainedOutputs = await Promise.all(recent.filter(item => /document-pages/u.test(item.fileName)).map(item => browserDocumentStore.exists(item.originalPath)));
@@ -751,7 +751,7 @@ async function installTiffPartsAcceptance(sourceKind: 'pdf' | 'djvu', destinatio
     const directory = await root.getDirectoryHandle(`parts-${crypto.randomUUID()}`, {create: true});
     Reflect.set(window, 'showSaveFilePicker', undefined);
     Reflect.set(window, 'showDirectoryPicker', destination === 'download' ? undefined : async () => {
-        if (destination === 'cancel') throw new DOMException('Canceled', 'AbortError');
+        if (destination === 'cancel') {throw new DOMException('Canceled', 'AbortError');}
         return directory;
     });
     const firstName = sourceKind === 'pdf' ? 'browser-pdf-image-export-part-001.tif' : 'document-part-001.tiff';
@@ -765,13 +765,13 @@ async function installTiffPartsAcceptance(sourceKind: 'pdf' | 'djvu', destinatio
     const stop = capability.onProgress(event => {progress.push(event.percent);});
     const getImageData = CanvasRenderingContext2D.prototype.getImageData;
     let rendered = 0;
-    if (failPage) CanvasRenderingContext2D.prototype.getImageData = function (...args) {
-        if (++rendered === 3) throw new Error('third page raster failed');
+    if (failPage) {CanvasRenderingContext2D.prototype.getImageData = function (...args) {
+        if (++rendered === 3) {throw new Error('third page raster failed');}
         return getImageData.apply(this, args);
-    };
+    };}
     document.body.insertAdjacentHTML('beforeend', '<button id="tiff-parts-export">Export TIFF</button><output id="tiff-parts-result"></output>');
     document.querySelector('#tiff-parts-export')!.addEventListener('click', async event => {
-        if (!event.isTrusted) throw new Error('TIFF export requires trusted input');
+        if (!event.isTrusted) {throw new Error('TIFF export requires trusted input');}
         let result;
         try {
             result = await capability.exportPdfToMultiPageTiff(source, Array.from({length: 5}, (_, index) => requirePageNumber(index + 1)), requireRequestId('tiff-parts'), sourceKind);
@@ -816,7 +816,7 @@ async function installTypedPdfSaveAcceptance() {
     Reflect.set(window, 'showSaveFilePicker', async () => handle);
     document.body.insertAdjacentHTML('beforeend', '<button id="typed-pdf-save">Save PDF As</button><output id="typed-save-message"></output>');
     document.querySelector('#typed-pdf-save')!.addEventListener('click', async event => {
-        if (!event.isTrusted) throw new Error('Save As requires trusted input');
+        if (!event.isTrusted) {throw new Error('Save As requires trusted input');}
         let message = '';
         let saved: TDocumentRef | null = null;
         try {
@@ -865,7 +865,7 @@ async function installConcurrentFolderAcceptance() {
                 && error instanceof DOMException && error.name === 'NotFoundError') {
                 vacancyReads += 1;
                 vacancyReached.resolve(undefined);
-                if (vacancyReads === 2) vacanciesReleased.resolve(undefined);
+                if (vacancyReads === 2) {vacanciesReleased.resolve(undefined);}
                 await vacanciesReleased.promise;
             }
             throw error;
@@ -879,7 +879,7 @@ async function installConcurrentFolderAcceptance() {
         return Reflect.apply(request, navigator.locks, args);
     });
     FileSystemFileHandle.prototype.createWritable = async function (options) {
-        if (!/^document-pages-001(?:-\d+)?\.jpg$/u.test(this.name)) return createWritable.call(this, options);
+        if (!/^document-pages-001(?:-\d+)?\.jpg$/u.test(this.name)) {return createWritable.call(this, options);}
         firstPageWriters += 1;
         if (firstPageWriters === 2) {
             await writerOpened.promise;
@@ -896,7 +896,7 @@ async function installConcurrentFolderAcceptance() {
     };
     document.body.insertAdjacentHTML('beforeend', '<button id="concurrent-folder-export">Export twice</button><output id="concurrent-folder-result"></output>');
     document.querySelector('#concurrent-folder-export')!.addEventListener('click', async event => {
-        if (!event.isTrusted) throw new Error('Concurrent exports require trusted input');
+        if (!event.isTrusted) {throw new Error('Concurrent exports require trusted input');}
         const capability = createBrowserImageExportCapability();
         const pages = [
             requirePageNumber(1),

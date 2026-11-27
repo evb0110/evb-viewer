@@ -129,6 +129,8 @@ checks. Remove tests that only freeze source text, file layout, or test inventor
 ```bash
 # Root app lint and fast static checks
 pnpm lint
+pnpm run format:check
+pnpm run format
 
 # Web deploy source check, split out from lint
 pnpm run check:static:assets

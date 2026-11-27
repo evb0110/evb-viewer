@@ -164,8 +164,8 @@ describe('text box caret ownership', () => {
             expect(element.textContent).toBe('After fonts');
             expect(selection.toString()).toBe('After fonts');
         } finally {
-            if (fonts) Object.defineProperty(document, 'fonts', fonts);
-            else Reflect.deleteProperty(document, 'fonts');
+            if (fonts) {Object.defineProperty(document, 'fonts', fonts);}
+            else {Reflect.deleteProperty(document, 'fonts');}
         }
     });
 

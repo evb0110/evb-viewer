@@ -183,7 +183,7 @@ describe('createDocumentThumbnailScheduler', () => {
         const scheduler = createDocumentThumbnailScheduler({
             maxConcurrency: 1,
             onStateChange(_page, state) {
-                if (state) committed.push(state.widthPx);
+                if (state) {committed.push(state.widthPx);}
             },
             prepareSurface: vi.fn(async (_lease, signal) => signal.throwIfAborted()),
             render: vi.fn(() => {
@@ -242,19 +242,21 @@ describe('createDocumentThumbnailScheduler', () => {
             }
             throw new Error('render failed');
         });
-        let scheduler: ReturnType<typeof createDocumentThumbnailScheduler>;
-        const onError = vi.fn((_error: unknown, failedDemand: IDocumentThumbnailDemand) => {
-            reported.push(failedDemand.pageNumber);
-            expect(failedDemand.widthPx).toBe(128);
-            // The scheduler re-queues a failed page as soon as this returns, so the
-            // caller has to withdraw the demand here to stop the retries.
-            if (reported.length >= 3) scheduler.reconcile([demand(6, 128)]);
-        });
-        scheduler = createDocumentThumbnailScheduler({
+        const scheduler = createDocumentThumbnailScheduler({
             maxConcurrency: 1,
-            onError,
+            onError: vi.fn((_error: unknown, failedDemand: IDocumentThumbnailDemand) => {
+                reported.push(failedDemand.pageNumber);
+                expect(failedDemand.widthPx).toBe(128);
+                // The scheduler re-queues a failed page as soon as this returns, so the
+                // caller has to withdraw the demand here to stop the retries.
+                if (reported.length >= 3) {
+                    scheduler.reconcile([demand(6, 128)]);
+                }
+            }),
             onStateChange: (pageNumber, state) => {
-                if (state) committed.push(pageNumber);
+                if (state) {
+                    committed.push(pageNumber);
+                }
             },
             prepareSurface: vi.fn(async () => undefined),
             render,
@@ -289,19 +291,19 @@ describe('createDocumentThumbnailScheduler', () => {
             maxConcurrency: 1,
             renderTimeoutMs: 10,
             render: request => {
-                if (request.pageNumber !== 5) return Promise.resolve(lease(request.widthPx));
-                if (behavior === 'ignores abort') return late.promise;
+                if (request.pageNumber !== 5) {return Promise.resolve(lease(request.widthPx));}
+                if (behavior === 'ignores abort') {return late.promise;}
                 return new Promise<never>((_resolve, reject) => {
                     request.signal?.addEventListener('abort', () => reject(new DOMException('Canceled render', 'AbortError')), {once: true});
                 });
             },
             prepareSurface: async () => undefined,
             onStateChange: (pageNumber, state) => {
-                if (state) surfaces.push(pageNumber);
+                if (state) {surfaces.push(pageNumber);}
             },
             onError: error => {
                 failures.push(error instanceof Error ? error.message : String(error));
-                if (failures.length === 3) scheduler.reconcile([demand(6, 128)]);
+                if (failures.length === 3) {scheduler.reconcile([demand(6, 128)]);}
             },
         });
         try {

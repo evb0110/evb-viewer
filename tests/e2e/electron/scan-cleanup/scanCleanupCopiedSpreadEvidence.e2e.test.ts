@@ -72,8 +72,8 @@ describe('scan cleanup copied spread evidence', () => {
         await app.page.evaluate(() => {
             const probe = window as Window & {__recordScanCleanupPlan?: (state: TScanCleanupDetectionJobState) => Promise<void>};
             const api = window.electronAPI?.scanCleanup;
-            if (api === undefined || probe.__recordScanCleanupPlan === undefined) throw new Error('Scan cleanup event recorder unavailable');
-            api.onDetectionJobState(state => {if ('progress' in state) void probe.__recordScanCleanupPlan!(state);});
+            if (api === undefined || probe.__recordScanCleanupPlan === undefined) {throw new Error('Scan cleanup event recorder unavailable');}
+            api.onDetectionJobState(state => {if ('progress' in state) {void probe.__recordScanCleanupPlan!(state);}});
         });
         const sourcePath = await createLargeScannedFixturePdf('scan-cleanup-provisional-plan.pdf', 64, 0);
         await openPdfInApp(app.page, sourcePath, 90_000);
@@ -118,7 +118,7 @@ describe('scan cleanup copied spread evidence', () => {
                         }>;
                     };
                 } catch (error) {
-                    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+                    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {return null;}
                     throw error;
                 }
             }));
@@ -160,7 +160,7 @@ describe('scan cleanup copied spread evidence', () => {
         await waitForViewerInteractive(session.page, 90_000);
 
         for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
-            if (await toast.isVisible()) await clickAsUser(session.page, toast);
+            if (await toast.isVisible()) {await clickAsUser(session.page, toast);}
         }
         await clickAsUser(session.page, 'button[aria-label="Scan cleanup"]');
         await session.page.waitForSelector('.scan-cleanup-surface', {
@@ -229,7 +229,7 @@ describe('scan cleanup copied spread evidence', () => {
         await clickAsUser(session.page, '[role="radio"][aria-label="All pages"]');
         await waitForFunctionInPage(session.page, () => {
             const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
-            if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') return false;
+            if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') {return false;}
             const rect = action.getBoundingClientRect();
             const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
             return (hit === action || action.contains(hit))

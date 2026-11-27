@@ -826,7 +826,7 @@ async function getOptionalDjvuOutlineBookmarks(filePath: string): Promise<IPdfBo
     try {
         return await getDjvuOutlineBookmarks(filePath);
     } catch (error) {
-        if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) throw error;
+        if (isAbortError(error) || getUnprovenNativeTerminationDetail(error) !== undefined) {throw error;}
         logger.debug(`Failed to read optional DjVu outline for ${filePath}: ${String(error)}`);
         return [];
     }

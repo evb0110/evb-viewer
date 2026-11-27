@@ -49,15 +49,15 @@ export async function readEvbLayerLines(ref: TDocumentRef, pageNumbers: number[]
         text: string;
         layout: IDocumentTextPageLayout
     }>();
-    if (pageNumbers.length === 0) return layers;
+    if (pageNumbers.length === 0) {return layers;}
     const report = await runBrowserPageOpsWorkerRequest('ocrTextVisibility', {
         source: await browserDocumentStore.readableBlob(ref),
         pages: pageNumbers,
         withEvbOcrText: true,
     }, signal === undefined ? {} : {signal}).catch(() => null);
-    if (report === null || isBrowserPageOpsWasmFailure(report)) return layers;
+    if (report === null || isBrowserPageOpsWasmFailure(report)) {return layers;}
     for (const page of report.pages) {
-        if (page.paintedText || !page.evbOcrLayer || page.evbOcrLines === null) continue;
+        if (page.paintedText || !page.evbOcrLayer || page.evbOcrLines === null) {continue;}
         layers.set(page.pageNumber, {
             text: normalizeExtractedPageText(page.evbOcrLines.map(line => line.text).join('\n')),
             layout: readOcrLayerLayout(page.evbOcrLines),
@@ -82,7 +82,7 @@ export function createEvbLayerTextReader(path: string, pageCount: number) {
         signal: AbortSignal | undefined;
     } | undefined;
     const readText = async (pageNumber: number, signal?: AbortSignal): Promise<string | undefined> => {
-        if (ref === null) return undefined;
+        if (ref === null) {return undefined;}
         const firstPage = pageNumber - (pageNumber - 1) % EVB_LAYER_WINDOW_PAGES;
         if (current?.firstPage !== firstPage) {
             const lastPage = Math.min(firstPage + EVB_LAYER_WINDOW_PAGES - 1, pageCount);
@@ -97,7 +97,7 @@ export function createEvbLayerTextReader(path: string, pageCount: number) {
         // A canceled read leaves its window unread: the canceled search stops,
         // and another search reads the window again.
         if (window.signal?.aborted) {
-            if (current === window) current = undefined;
+            if (current === window) {current = undefined;}
             signal?.throwIfAborted();
             return readText(pageNumber, signal);
         }
@@ -145,7 +145,7 @@ async function readTextPages(
         ] of texts) {
             const layer = layers.get(pageNumber);
             const text = layer?.text ?? pdfText;
-            if (!text.trim()) continue;
+            if (!text.trim()) {continue;}
             textLength += text.length
                 + (layer?.layout.regions.flatMap(region => region.columns.flat()).reduce((length, paragraph) => length + paragraph.length, 0) ?? 0);
             if (textLength > maxTextLength) {

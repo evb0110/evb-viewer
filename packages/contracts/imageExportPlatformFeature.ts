@@ -98,7 +98,7 @@ export function readCapturePngSize(bytes: Uint8Array) {
             26,
             10,
         ].every((byte, index) => bytes[index] === byte)
-        || String.fromCharCode(...bytes.subarray(12, 16)) !== 'IHDR') throw new Error('Invalid capture PNG');
+        || String.fromCharCode(...bytes.subarray(12, 16)) !== 'IHDR') {throw new Error('Invalid capture PNG');}
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const width = view.getUint32(16);
     const height = view.getUint32(20);

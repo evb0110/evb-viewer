@@ -54,12 +54,12 @@ function lockManager() {
  */
 async function deleteOrphanedDatabases(factory: IDBFactory, ownName: string) {
     const locks = lockManager();
-    if (locks === null || typeof factory.databases !== 'function') return;
+    if (locks === null || typeof factory.databases !== 'function') {return;}
     const databases = await factory.databases().catch(() => []);
     for (const {name} of databases) {
-        if (name === undefined || name === ownName || !name.startsWith(DATABASE_PREFIX)) continue;
+        if (name === undefined || name === ownName || !name.startsWith(DATABASE_PREFIX)) {continue;}
         await locks.request(name, {ifAvailable: true}, async lock => {
-            if (lock === null) return;
+            if (lock === null) {return;}
             await request(factory.deleteDatabase(name)).catch(() => undefined);
         });
     }
@@ -128,10 +128,10 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
         return next;
     };
     const assertOpen = () => {
-        if (closed) throw new Error('Scan cleanup result store is closed');
+        if (closed) {throw new Error('Scan cleanup result store is closed');}
     };
     const flush = async () => {
-        if (pending.size === 0) return;
+        if (pending.size === 0) {return;}
         const rows: IRecordRow[] = [...pending].map(([
             pageNumber,
             record,
@@ -143,7 +143,7 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
         pending.clear();
         const transaction = database.transaction(RECORDS_STORE, 'readwrite');
         const store = transaction.objectStore(RECORDS_STORE);
-        for (const row of rows) store.put(row);
+        for (const row of rows) {store.put(row);}
         await transactionDone(transaction);
     };
     const write = async (pageNumber: number, result: IScanCleanupDetectionResult, requireExisting: boolean) => {
@@ -160,12 +160,12 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
             present[pageNumber] = 1;
             resultCount += 1;
         }
-        if (pending.size >= WRITE_BATCH_RECORDS) await flush();
+        if (pending.size >= WRITE_BATCH_RECORDS) {await flush();}
     };
     const readRange = async (firstPageNumber: number, lastPageNumberExclusive: number) => {
         assertReadWindow(firstPageNumber, lastPageNumberExclusive, pageCount, maxReadPages);
         await flush();
-        if (lastPageNumberExclusive === firstPageNumber) return [];
+        if (lastPageNumberExclusive === firstPageNumber) {return [];}
         const transaction = database.transaction(RECORDS_STORE, 'readonly');
         const rows = await request(transaction.objectStore(RECORDS_STORE).getAll(IDBKeyRange.bound(
             [
@@ -182,9 +182,9 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
     const readPage = async (pageNumber: number) => {
         assertOpen();
         assertPageNumber(pageNumber, pageCount);
-        if (present[pageNumber] !== 1) return undefined;
+        if (present[pageNumber] !== 1) {return undefined;}
         const buffered = pending.get(pageNumber);
-        if (buffered !== undefined) return JSON.parse(buffered) as IScanCleanupDetectionResult;
+        if (buffered !== undefined) {return JSON.parse(buffered) as IScanCleanupDetectionResult;}
         const transaction = database.transaction(RECORDS_STORE, 'readonly');
         const row = await request(transaction.objectStore(RECORDS_STORE).get([
             storeId,
@@ -222,11 +222,11 @@ export async function createIndexedDbScanCleanupDetectionResultStore(
             }
         },
         close: () => enqueue(async () => {
-            if (closed) return;
+            if (closed) {return;}
             closed = true;
             pending.clear();
             layoutByPage = {};
-            if (pageCount === 0) return;
+            if (pageCount === 0) {return;}
             const transaction = database.transaction(RECORDS_STORE, 'readwrite');
             transaction.objectStore(RECORDS_STORE).delete(IDBKeyRange.bound(
                 [

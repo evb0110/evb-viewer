@@ -222,11 +222,11 @@ const architectureRules = {
                 'packages',
                 'scripts',
                 'server',
-            ].some(root => hasRepoPathPrefix(fileName, root))) return {};
+            ].some(root => hasRepoPathPrefix(fileName, root))) {return {};}
             const source = context.sourceCode.text;
             const aliases = new Set(['annotationStorage']);
             for (const match of source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;]*?\??\.\s*annotationStorage\b/gu)) {
-                if (match[1]) aliases.add(match[1]);
+                if (match[1]) {aliases.add(match[1]);}
             }
             const members = '(?:serializable|modifiedIds|resetModified|resetModifiedIds)';
             return {Program() {
@@ -242,7 +242,7 @@ const architectureRules = {
     'platform-api-narrow-getter': makeArchitectureRule('Require narrow platform capability getters', context => {
         const fileName = toRepoPath(context.filename);
         if (!hasRepoPathPrefix(fileName, 'app') || /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(fileName)
-            || fileName.includes('/__tests__/')) return {};
+            || fileName.includes('/__tests__/')) {return {};}
         const allowed = new Set([
             'app/utils/platformDocuments.ts',
             'app/utils/getShellCapability.ts',
@@ -257,7 +257,7 @@ const architectureRules = {
             'app/utils/getHostCapability.ts',
             'app/utils/getSystemCapability.ts',
         ]);
-        if (allowed.has(fileName)) return {};
+        if (allowed.has(fileName)) {return {};}
         const direct = new Set();
         const namespace = new Set();
         const normalize = value => value.startsWith('@app/') ? `app/${value.slice(5)}`
@@ -269,11 +269,11 @@ const architectureRules = {
         }
         return {
             ImportDeclaration(node) {
-                if (!isPlatformHelper(node.source.value) || node.importKind === 'type') return;
+                if (!isPlatformHelper(node.source.value) || node.importKind === 'type') {return;}
                 for (const specifier of node.specifiers) {
-                    if (specifier.importKind === 'type') continue;
-                    if (specifier.type === 'ImportNamespaceSpecifier') namespace.add(specifier.local.name);
-                    if (specifier.type === 'ImportSpecifier' && (specifier.imported.name ?? specifier.imported.value) === 'getPlatformAPI') direct.add(specifier.local.name);
+                    if (specifier.importKind === 'type') {continue;}
+                    if (specifier.type === 'ImportNamespaceSpecifier') {namespace.add(specifier.local.name);}
+                    if (specifier.type === 'ImportSpecifier' && (specifier.imported.name ?? specifier.imported.value) === 'getPlatformAPI') {direct.add(specifier.local.name);}
                 }
             },
             CallExpression(node) {
@@ -290,7 +290,7 @@ const architectureRules = {
         };
     }),
     'workspace-format-comparison': makeArchitectureRule('Avoid format comparisons in workspace shell', context => {
-        if (!hasRepoPathPrefix(toRepoPath(context.filename), 'app/modules/workspace-shell')) return {};
+        if (!hasRepoPathPrefix(toRepoPath(context.filename), 'app/modules/workspace-shell')) {return {};}
         const formatLiterals = new Set([
             'pdf',
             'native-pdf',
@@ -307,7 +307,7 @@ const architectureRules = {
                 'TSTypeAssertion',
                 'TSNonNullExpression',
                 'TSSatisfiesExpression',
-            ].includes(current.type)) current = current.expression;
+            ].includes(current.type)) {current = current.expression;}
             return current;
         };
         const liveName = name => name === 'adapter' || name === 'document' || name === 'driver' || name === 'format' || name === 'sourceKind' || name === 'viewer'
@@ -315,8 +315,8 @@ const architectureRules = {
             || /^(?:document|driver|viewer)(?:id|type|kind|format|identifier|state)$/iu.test(name);
         const memberNames = node => {
             const item = unwrap(node);
-            if (item?.type === 'Identifier') return [item.name];
-            if (item?.type !== 'MemberExpression') return [];
+            if (item?.type === 'Identifier') {return [item.name];}
+            if (item?.type !== 'MemberExpression') {return [];}
             const property = item.property.type === 'Identifier' ? item.property.name : item.property.value;
             return [
                 ...memberNames(item.object),
@@ -336,20 +336,20 @@ const architectureRules = {
                     '===',
                     '!=',
                     '!==',
-                ].includes(node.operator)) return;
+                ].includes(node.operator)) {return;}
                 const literal = isLiteral(node.left) ? node.left : isLiteral(node.right) ? node.right : null;
                 const discriminant = literal === node.left ? node.right : node.left;
-                if (literal && isDiscriminant(discriminant)) context.report({
+                if (literal && isDiscriminant(discriminant)) {context.report({
                     node,
                     message: `Format comparison on ${text(discriminant)} uses "${literal.value}".`,
-                });
+                });}
             },
             SwitchStatement(node) {
-                if (!isDiscriminant(node.discriminant)) return;
-                for (const item of node.cases) if (isLiteral(item.test)) context.report({
+                if (!isDiscriminant(node.discriminant)) {return;}
+                for (const item of node.cases) {if (isLiteral(item.test)) {context.report({
                     node: item,
                     message: `Format switch case on ${text(node.discriminant)} uses "${item.test.value}".`,
-                });
+                });}}
             },
         };
     }),
@@ -364,19 +364,150 @@ const architectureRules = {
             'server',
         ].some(root => hasRepoPathPrefix(fileName, root))
             && fileName.split('/').includes('components') && !fileName.endsWith('.vue')
-            && !/\.d\.(?:ts|mts|cts)$/u.test(fileName)) context.report({
+            && !/\.d\.(?:ts|mts|cts)$/u.test(fileName)) {context.report({
             node: context.sourceCode.ast,
             message: 'Component directories must contain Vue SFCs only; move helpers, state, and schedulers into feature modules.',
-        });
+        });}
     }})),
     'top-level-pdf-composable': makeArchitectureRule('Keep PDF composables in feature modules', context => ({Program() {
         const fileName = toRepoPath(context.filename);
         if (fileName.startsWith('app/composables/usePdf') && fileName.endsWith('.ts')
-            && !fileName.endsWith('.d.ts') && fileName !== 'app/composables/usePdfFile.ts') context.report({
+            && !fileName.endsWith('.d.ts') && fileName !== 'app/composables/usePdfFile.ts') {context.report({
             node: context.sourceCode.ast,
             message: 'Top-level app/composables/usePdf*.ts files are blocked; keep PDF composables in feature modules.',
-        });
+        });}
     }})),
+};
+
+const NESTED_FUNCTION_TYPES = new Set([
+    'ArrowFunctionExpression',
+    'FunctionDeclaration',
+    'FunctionExpression',
+    'StaticBlock',
+    'TSCallSignatureDeclaration',
+    'TSConstructSignatureDeclaration',
+    'TSDeclareFunction',
+    'TSEmptyBodyFunctionExpression',
+    'TSFunctionType',
+    'TSMethodSignature',
+]);
+
+const SKIPPED_AST_KEYS = new Set([
+    'comments',
+    'end',
+    'loc',
+    'parent',
+    'range',
+    'start',
+    'tokens',
+]);
+
+function unwrapParenthesized(node) {
+    let current = node;
+    while (current?.type === 'ParenthesizedExpression') {
+        current = current.expression;
+    }
+    return current;
+}
+
+function containsAwaitInCurrentFunction(root) {
+    if (!root || typeof root !== 'object') {
+        return false;
+    }
+    if (Array.isArray(root)) {
+        return root.some(item => containsAwaitInCurrentFunction(item));
+    }
+    if (typeof root.type !== 'string') {
+        return false;
+    }
+    if (root.type === 'AwaitExpression') {
+        return true;
+    }
+    if (root.type === 'ForOfStatement' && root.await === true) {
+        return true;
+    }
+    if (NESTED_FUNCTION_TYPES.has(root.type)) {
+        return false;
+    }
+    for (const [key, value] of Object.entries(root)) {
+        if (SKIPPED_AST_KEYS.has(key) || !value || typeof value !== 'object') {
+            continue;
+        }
+        if (containsAwaitInCurrentFunction(value)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+const NON_PROMISE_VALUE_TYPES = new Set([
+    'ArrayExpression',
+    'ArrowFunctionExpression',
+    'BinaryExpression',
+    'ClassExpression',
+    'FunctionExpression',
+    'Literal',
+    'ObjectExpression',
+    'TemplateLiteral',
+    'UnaryExpression',
+    'UpdateExpression',
+]);
+
+function getUselessTailAwaitMessage(operand) {
+    const unwrapped = unwrapParenthesized(operand);
+    if (unwrapped && NON_PROMISE_VALUE_TYPES.has(unwrapped.type)) {
+        return 'Useless tail await on a non-promise value: remove await (keep async if a Promise is required).';
+    }
+    return 'Useless tail await: remove await, and drop async only when parameter evaluation and the expression cannot throw synchronously and always return a Promise (otherwise keep async to preserve the rejection boundary).';
+}
+
+const noUselessAsyncRule = {
+    meta: {
+        type: 'suggestion',
+        docs: {
+            description: 'Disallow useless single-statement tail async/await wrappers',
+            recommended: false,
+        },
+        schema: [],
+    },
+    create(context) {
+        function checkFunction(node) {
+            if (!node.async || node.generator || !node.body) {
+                return;
+            }
+
+            let tailAwait = null;
+            if (node.type === 'ArrowFunctionExpression' && node.body.type !== 'BlockStatement') {
+                const body = unwrapParenthesized(node.body);
+                if (body?.type === 'AwaitExpression') {
+                    tailAwait = body;
+                }
+            } else if (node.body.type === 'BlockStatement' && node.body.body.length === 1) {
+                const [statement] = node.body.body;
+                if (statement?.type === 'ReturnStatement' && statement.argument) {
+                    const returned = unwrapParenthesized(statement.argument);
+                    if (returned?.type === 'AwaitExpression') {
+                        tailAwait = returned;
+                    }
+                }
+            }
+
+            if (!tailAwait || containsAwaitInCurrentFunction(tailAwait.argument)) {
+                return;
+            }
+
+            context.report({
+                node: tailAwait,
+                message: getUselessTailAwaitMessage(tailAwait.argument),
+            });
+        }
+
+        return {
+            ArrowFunctionExpression: checkFunction,
+            FunctionDeclaration: checkFunction,
+            FunctionExpression: checkFunction,
+        };
+    },
 };
 
 export default {rules: {
@@ -422,5 +553,6 @@ export default {rules: {
         },
     },
     'no-raw-red-presentation': noRawRedPresentationRule,
+    'no-useless-async': noUselessAsyncRule,
     'e2e-click-as-user': e2eClickAsUserRule,
 }};

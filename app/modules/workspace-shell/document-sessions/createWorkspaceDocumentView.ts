@@ -86,7 +86,7 @@ export function createWorkspaceDocumentView(tabId: string, options: {
     }
 
     function applyViewState(state: ITabViewSessionState, anchor?: IPdfSemanticAnchor | null) {
-        if (anchor !== undefined) readingAnchor.value = anchor;
+        if (anchor !== undefined) {readingAnchor.value = anchor;}
         if (!isEqual(viewState.value, state)) {
             viewState.value = state;
         }

@@ -22,7 +22,7 @@ export function parseNativePdfSaveReport(value: unknown) {
 }
 
 export function mergeNativeAnnotationDeleteEffects(effects: readonly TNativeAnnotationDeleteEffects[]) {
-    if (!effects.length) return undefined;
+    if (!effects.length) {return undefined;}
     const affectedPageIndices = [...new Set(effects.flatMap(effect => effect.affectedPageIndices))].sort((a, b) => a - b);
     const deletedReplyRefs = [...new Set(effects.flatMap(effect => effect.deletedReplyRefs))];
     return v.safeParse(PDF_NATIVE_ANNOTATION_DELETE_EFFECTS_SCHEMA, {

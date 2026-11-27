@@ -344,8 +344,8 @@ describe('browser recovery diagnostics', () => {
         const {store, api, diagnostics} = await recovery();
         const ref = createBrowserDocumentRef('paper.pdf', 'draft-document');
         const list = store.port.list.bind(store.port);
-        if (mode === 'rejects') vi.spyOn(store.port, 'list').mockImplementation(key => key === 'documents'
-            ? Promise.reject(new Error('NotReadableError injected durable-entry lookup')) : list(key));
+        if (mode === 'rejects') {vi.spyOn(store.port, 'list').mockImplementation(key => key === 'documents'
+            ? Promise.reject(new Error('NotReadableError injected durable-entry lookup')) : list(key));}
         const drafts: IWorkspaceCheckpointAnnotationRecovery = {artifactId: 'draft-1609', documentInstanceId: 'instance-1609', workingCopyRef: ref, workingByteRevision: '1', annotationMutationGeneration: 1, payload: {entities: []}};
         const outcome = await api.setBrowserDocumentDrafts(drafts).then(value => value, () => false);
         expect.soft(outcome, 'true acknowledges a checkpoint whose drafts were never written').toBe(false);
@@ -439,7 +439,7 @@ describe('browser recovery diagnostics', () => {
         const releaseNameEdited = Promise.withResolvers<void>();
         let pauseFirstNameEdited = true;
         repo.onDirectoryEdited = async () => {
-            if (!pauseFirstNameEdited) return;
+            if (!pauseFirstNameEdited) {return;}
             pauseFirstNameEdited = false;
             nameEditedStarted.resolve();
             await releaseNameEdited.promise;
@@ -583,8 +583,8 @@ describe('browser recovery diagnostics', () => {
 
     it('stores drafts when materialize copies an unchanged picked PDF while nameEdited awaits, and rejects foreign bytes', async () => {
         const {repo, api, store} = await recovery();
-        let diskBytes = new TextEncoder().encode('%PDF-1.7 picked');
-        let lastModified = 1_000;
+        const diskBytes = new TextEncoder().encode('%PDF-1.7 picked');
+        const lastModified = 1_000;
         const handle = createFileSystemFileHandle({
             name: 'picked.pdf',
             getFile: async () => new File([diskBytes], 'picked.pdf', {lastModified}),
@@ -684,7 +684,7 @@ describe('browser recovery diagnostics', () => {
         const releaseFirstNameEdited = Promise.withResolvers<void>();
         let pauseFirst = true;
         repo.onDirectoryEdited = async () => {
-            if (!pauseFirst) return;
+            if (!pauseFirst) {return;}
             pauseFirst = false;
             firstNameEditedStarted.resolve();
             await releaseFirstNameEdited.promise;
@@ -793,7 +793,7 @@ describe('browser recovery diagnostics', () => {
                     const chunks: Uint8Array<ArrayBuffer>[] = [];
                     return Object.assign(new WritableStream(), {
                         write: async (chunk: FileSystemWriteChunkType) => {
-                            if (!(chunk instanceof ArrayBuffer)) throw new TypeError('Expected ArrayBuffer chunk');
+                            if (!(chunk instanceof ArrayBuffer)) {throw new TypeError('Expected ArrayBuffer chunk');}
                             chunks.push(new Uint8Array(chunk));
                         },
                         close: async () => {
@@ -1099,7 +1099,7 @@ describe('browser recovery diagnostics', () => {
                 const chunks: Uint8Array<ArrayBuffer>[] = [];
                 return Object.assign(new WritableStream(), {
                     write: async (chunk: FileSystemWriteChunkType) => {
-                        if (!(chunk instanceof ArrayBuffer)) throw new TypeError('Expected ArrayBuffer chunk');
+                        if (!(chunk instanceof ArrayBuffer)) {throw new TypeError('Expected ArrayBuffer chunk');}
                         chunks.push(new Uint8Array(chunk));
                     },
                     close: async () => {
@@ -1218,7 +1218,7 @@ describe('browser recovery diagnostics', () => {
                 const chunks: Uint8Array<ArrayBuffer>[] = [];
                 return Object.assign(new WritableStream(), {
                     write: async (chunk: FileSystemWriteChunkType) => {
-                        if (!(chunk instanceof ArrayBuffer)) throw new TypeError('Expected ArrayBuffer chunk');
+                        if (!(chunk instanceof ArrayBuffer)) {throw new TypeError('Expected ArrayBuffer chunk');}
                         chunks.push(new Uint8Array(chunk));
                     },
                     close: async () => {
@@ -1486,7 +1486,6 @@ describe('browser recovery diagnostics', () => {
         const reopenedMalformedRevision = await repo.getDocumentRevision(malformedRef);
         const restoreCanonicalHealthy = vi.fn();
         const restoreCanonicalMalformed = vi.fn();
-        let malformedDocRecovery: ReturnType<typeof createWorkspaceDocumentRecovery> | undefined;
 
         const restoring = restoreWorkspaceCheckpoint(claimed!, {
             activeTabId: ref(null),
@@ -1525,7 +1524,7 @@ describe('browser recovery diagnostics', () => {
         }));
 
         const malformedSession = documentSessions.getSession(claimedMalformed!.tabId)!;
-        malformedDocRecovery = createWorkspaceDocumentRecovery({
+        const malformedDocRecovery = createWorkspaceDocumentRecovery({
             controller: malformedSession,
             pdfViewer: () => ({
                 captureCanonicalAnnotationRecovery: () => ({

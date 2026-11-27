@@ -56,7 +56,7 @@ export const useWorkspaceCommandLedger = () => {
         ) {
             const removed = nextCommands.shift();
             retainedBytes -= removed?.estimatedBytes ?? 0;
-            if (removed) discarded.push(removed);
+            if (removed) {discarded.push(removed);}
         }
         commands.value = nextCommands;
         commandIndex.value = commands.value.length - 1;
@@ -76,7 +76,7 @@ export const useWorkspaceCommandLedger = () => {
         const discarded: IWorkspaceCommand[] = [];
         const nextCommands = commands.value.filter((command, index) => {
             const removed = shouldRemove(command);
-            if (removed) discarded.push(command);
+            if (removed) {discarded.push(command);}
             if (removed && index <= commandIndex.value) {
                 removedAppliedCommands += 1;
             }

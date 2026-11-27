@@ -70,7 +70,7 @@ export function resetPageShortcutsTest() {
     vi.clearAllMocks();
     const windowMock = {
         addEventListener: vi.fn((event: string, listener: EventListener, options?: boolean | AddEventListenerOptions) => {
-            if (event === 'pointerdown') capturedPointerDown = listener as (event: PointerEvent) => void;
+            if (event === 'pointerdown') {capturedPointerDown = listener as (event: PointerEvent) => void;}
             if (event === 'keydown') {
                 const isCapture = typeof options === 'boolean' ? options : Boolean(options?.capture);
                 if (isCapture) {
@@ -79,7 +79,7 @@ export function resetPageShortcutsTest() {
                     capturedOnEventFired = listener as (event: KeyboardEvent) => void;
                 }
             }
-            if (event === 'paste') capturedPaste = listener as (event: ClipboardEvent) => void;
+            if (event === 'paste') {capturedPaste = listener as (event: ClipboardEvent) => void;}
         }),
         removeEventListener: vi.fn(),
     };

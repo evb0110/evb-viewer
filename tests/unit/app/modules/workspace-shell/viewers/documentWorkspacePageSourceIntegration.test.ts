@@ -172,7 +172,7 @@ function mountWorkspaceChain(
 }
 
 afterEach(() => {
-    for (const unmount of mountedApps) unmount();
+    for (const unmount of mountedApps) {unmount();}
     document.body.innerHTML = '';
 });
 

@@ -31,7 +31,7 @@ export function readReadingView(page: Page) {
         const host = document.querySelector('.workspace-host[data-workspace-active="true"]');
         const viewport = host?.querySelector('[data-document-viewer-chassis-viewport]')?.getBoundingClientRect();
         const visible = Array.from(host?.querySelectorAll<HTMLElement>('.page_container--rendered') ?? []).find((container) => {
-            if (!viewport) return false;
+            if (!viewport) {return false;}
             const rect = container.getBoundingClientRect();
             const centerX = viewport.left + viewport.width / 2;
             const centerY = viewport.top + viewport.height / 2;

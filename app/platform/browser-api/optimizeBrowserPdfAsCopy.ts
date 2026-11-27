@@ -98,7 +98,7 @@ function assertInstructedRequestFits(bytes: number) {
  * is. The whole document must fit the next consumer before it is allocated.
  */
 function append(base: Uint8Array, suffix: Uint8Array, nextConsumerMaxBytes: number) {
-    if (!suffix.byteLength) return base;
+    if (!suffix.byteLength) {return base;}
     if (base.byteLength + suffix.byteLength > nextConsumerMaxBytes) {
         throw buildBrowserByteLimitError('Optimize PDF', nextConsumerMaxBytes, 'inputs');
     }
@@ -111,7 +111,7 @@ function append(base: Uint8Array, suffix: Uint8Array, nextConsumerMaxBytes: numb
 function readNetpbmSize(image: Uint8Array) {
     const header = new TextDecoder('latin1').decode(image.subarray(0, 40));
     const match = /^P[56]\n(\d+) (\d+)\n255\n/u.exec(header);
-    if (!match) throw new Error('Optimize rendered a page that is not an 8-bit Netpbm image');
+    if (!match) {throw new Error('Optimize rendered a page that is not an 8-bit Netpbm image');}
     return {
         width: Number(match[1]),
         height: Number(match[2]),
@@ -151,7 +151,7 @@ async function encodePage(
                 tooLarge: (width, height) => new BrowserOcrRasterTooLargeError(width, height, BROWSER_PDF_COMBINE_MAX_IMAGE_PIXELS),
             },
         );
-        if (!(raster.image instanceof Uint8Array)) throw new Error('Optimize expected an assembled page raster');
+        if (!(raster.image instanceof Uint8Array)) {throw new Error('Optimize expected an assembled page raster');}
         image = raster.image;
     } finally {
         page.cleanup();

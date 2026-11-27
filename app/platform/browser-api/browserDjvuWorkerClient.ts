@@ -114,7 +114,7 @@ export function createBrowserDjvuWorker(readComponent?: TDjvuComponentReader): I
             return;
         }
         const entry = pending.get(response.id);
-        if (!entry) return;
+        if (!entry) {return;}
         pending.delete(response.id);
         if (response.ok) {
             entry.resolve(response.data);

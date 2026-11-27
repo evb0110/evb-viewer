@@ -293,7 +293,7 @@ async function collectCheckpointPageText(tempDirectory) {
     const pages = new Map();
     for (const pageFile of pageFiles) {
         const match = /^page-(\d+)\.json$/u.exec(basename(pageFile));
-        if (!match) continue;
+        if (!match) {continue;}
         const pageNumber = Number(match[1]);
         const checkpoint = JSON.parse(await readFile(pageFile, 'utf8'));
         pages.set(pageNumber, checkpoint.page?.text ?? '');
@@ -316,7 +316,7 @@ async function extractPopplerPageText(pdfPath) {
         timeout: 30_000,
     });
     const pages = stdout.split('\f');
-    if (pages.at(-1) === '') pages.pop();
+    if (pages.at(-1) === '') {pages.pop();}
     return pages;
 }
 
@@ -397,7 +397,7 @@ function scoreCleanLanguageSamples(manifest, rawPages, pdfjsPages, popplerPages)
         },
     ]));
     for (const page of manifest.pages) {
-        if (page.kind !== 'language') continue;
+        if (page.kind !== 'language') {continue;}
         const language = byLanguage.get(page.language);
         if (!page.coverage.valid) {
             language.invalidFixtureCount += 1;
@@ -474,10 +474,10 @@ function polygonIntersectionOverUnion(first, second) {
 function tokenOverlap(first, second) {
     const firstTokens = new Set(first.toLocaleLowerCase('und').match(/[\p{L}\p{M}\p{N}]+/gu) ?? []);
     const secondTokens = new Set(second.toLocaleLowerCase('und').match(/[\p{L}\p{M}\p{N}]+/gu) ?? []);
-    if (firstTokens.size === 0 || secondTokens.size === 0) return 0;
+    if (firstTokens.size === 0 || secondTokens.size === 0) {return 0;}
     let intersection = 0;
     for (const token of firstTokens) {
-        if (secondTokens.has(token)) intersection += 1;
+        if (secondTokens.has(token)) {intersection += 1;}
     }
     return intersection / Math.max(firstTokens.size, secondTokens.size);
 }
@@ -539,16 +539,16 @@ function evaluatePageOutput(page, result, pdfjsText, searchablePdfText, transfor
     for (const predicted of predictedRegions) {
         let best = null;
         expectedLines.forEach((reference, index) => {
-            if (usedReferences.has(index)) return;
+            if (usedReferences.has(index)) {return;}
             const geometry = polygonIntersectionOverUnion(predicted.polygon, reference.polygon);
             const text = tokenOverlap(predicted.text, reference.text);
             const score = geometry * 0.65 + text * 0.35;
-            if (!best || score > best.score) best = {
+            if (!best || score > best.score) {best = {
                 index,
                 geometry,
                 text,
                 score,
-            };
+            };}
         });
         if (best && (best.geometry >= 0.05 || best.text >= 0.25)) {
             usedReferences.add(best.index);
@@ -566,7 +566,7 @@ function evaluatePageOutput(page, result, pdfjsText, searchablePdfText, transfor
     if (!page.readingOrderAmbiguous) {
         for (let left = 0; left < orderIndexes.length; left += 1) {
             for (let right = left + 1; right < orderIndexes.length; right += 1) {
-                if (orderIndexes[left] > orderIndexes[right]) orderFailureCount += 1;
+                if (orderIndexes[left] > orderIndexes[right]) {orderFailureCount += 1;}
             }
         }
     }
@@ -578,22 +578,22 @@ function evaluatePageOutput(page, result, pdfjsText, searchablePdfText, transfor
         let bestIndex = -1;
         let bestScore = 0;
         actualLines.forEach((actualLine, index) => {
-            if (usedActualLines.has(index)) return;
+            if (usedActualLines.has(index)) {return;}
             const score = tokenOverlap(expectedLine, actualLine);
             if (score > bestScore) {
                 bestScore = score;
                 bestIndex = index;
             }
         });
-        if (bestIndex >= 0 && bestScore >= 0.25) usedActualLines.add(bestIndex);
-        else missingLineCount += 1;
+        if (bestIndex >= 0 && bestScore >= 0.25) {usedActualLines.add(bestIndex);}
+        else {missingLineCount += 1;}
     }
     let duplicateLineCount = 0;
     for (const [
         index,
         actualLine,
     ] of actualLines.entries()) {
-        if (usedActualLines.has(index)) continue;
+        if (usedActualLines.has(index)) {continue;}
         if (availableExpectedLines.some(expectedLine => tokenOverlap(expectedLine, actualLine) >= 0.25)) {
             duplicateLineCount += 1;
         }
@@ -852,7 +852,7 @@ async function runDegradedLanguageBenchmark({
         profile,
     ]));
     const cleanProfile = profileById.get('clean-300dpi');
-    if (!cleanProfile) throw new Error('MLOCR-03 clean control profile is missing');
+    if (!cleanProfile) {throw new Error('MLOCR-03 clean control profile is missing');}
     const pageImages = new Map(fixture.pageImages.map(entry => [
         entry.page.id,
         entry.raster,
@@ -865,7 +865,7 @@ async function runDegradedLanguageBenchmark({
     const selectedLanguagesByPage = new Map();
     for (const page of pages) {
         const cleanRaster = pageImages.get(page.id);
-        if (!cleanRaster) throw new Error(`Missing clean counterpart for ${page.id}`);
+        if (!cleanRaster) {throw new Error(`Missing clean counterpart for ${page.id}`);}
         const clean = await realizeOcrQualityProfile({
             cleanRaster,
             profile: cleanProfile,
@@ -875,7 +875,7 @@ async function runDegradedLanguageBenchmark({
     for (const profile of profiles) {
         for (const page of pages) {
             const cleanRaster = pageImages.get(page.id);
-            if (!cleanRaster || !page.coverage.valid) continue;
+            if (!cleanRaster || !page.coverage.valid) {continue;}
             const selectedLanguage = page.control
                 ? 'eng'
                 : (page.selectedLanguages?.length > 0
@@ -1049,7 +1049,7 @@ async function resolveOptionalPdfPageOps() {
 }
 
 function describeProbeError(error) {
-    if (error instanceof Error) return error.message;
+    if (error instanceof Error) {return error.message;}
     return String(error);
 }
 

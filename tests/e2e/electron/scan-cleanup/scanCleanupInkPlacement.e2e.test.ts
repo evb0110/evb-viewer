@@ -167,22 +167,22 @@ async function openInScanCleanup(
     await waitForViewerInteractive(session.page, 90_000);
 
     for (const toast of await session.page.$$('button[aria-label="Dismiss"]')) {
-        if (await toast.isVisible()) await clickAsUser(session.page, toast);
+        if (await toast.isVisible()) {await clickAsUser(session.page, toast);}
     }
     await clickAsUser(session.page, 'button[aria-label="Scan cleanup"]');
     await session.page.waitForSelector('.scan-cleanup-surface', {
         visible: true,
         timeout: 20_000,
     });
-    if (waitForDetection) await waitForFunctionInPage(session.page, () => {
+    if (waitForDetection) {await waitForFunctionInPage(session.page, () => {
         const action = document.querySelector<HTMLButtonElement>('.scan-cleanup-toolbar-primary-action');
-        if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') return false;
+        if (!action || action.disabled || action.getAttribute('aria-disabled') === 'true') {return false;}
         const rect = action.getBoundingClientRect();
         const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
         return (hit === action || action.contains(hit))
             && document.querySelector('.scan-cleanup-surface')?.getAttribute('data-detection-status') === 'completed'
             && !/Building cleanup preview|Preview updating|Updating preview|Reading page images/i.test(document.body.innerText);
-    }, {timeout: 120_000});
+    }, {timeout: 120_000});}
     return {
         session,
         sourceDirectory,

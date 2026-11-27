@@ -63,7 +63,7 @@ function assertManifestPagePaths(
     for (const {
         field,
         label,
-    } of MANIFEST_PAGE_PATH_FIELDS) check(page[field], `${pageTrail}.${field}`, `${pageLabel} ${label}`);
+    } of MANIFEST_PAGE_PATH_FIELDS) {check(page[field], `${pageTrail}.${field}`, `${pageLabel} ${label}`);}
     for (const [
         outputIndex,
         output,
@@ -113,7 +113,7 @@ function assertNoUncheckedManifestPaths(
             for (const [
                 index,
                 entry,
-            ] of value.entries()) visit(entry, `${trail}.${String(index)}`);
+            ] of value.entries()) {visit(entry, `${trail}.${String(index)}`);}
             return;
         }
         if (value === null || typeof value !== 'object') {

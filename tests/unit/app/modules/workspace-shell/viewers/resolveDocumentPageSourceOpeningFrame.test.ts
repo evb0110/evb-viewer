@@ -89,7 +89,7 @@ describe('readArrivedViewportClientSize', () => {
             scrollWidth: {value: box.scrollWidth},
         });
         // The chassis suppresses scrolling with an inline overflow.
-        if (box.suppressed ?? true) viewport.style.overflow = 'hidden';
+        if (box.suppressed ?? true) {viewport.style.overflow = 'hidden';}
         return viewport;
     }
 

@@ -53,7 +53,7 @@ class MockLineReader extends EventEmitter {
     readonly close = vi.fn(() => this.emit('close'));
 
     async *[Symbol.asyncIterator]() {
-        for await (const [line] of on(this, 'line', {close: ['close']})) yield String(line);
+        for await (const [line] of on(this, 'line', {close: ['close']})) {yield String(line);}
     }
 }
 
@@ -115,7 +115,7 @@ describe('CLI scan cleanup sidecar protocol failures', () => {
             new AbortController().signal,
             vi.fn(),
             () => {
-                if (progressError !== undefined) throw progressError;
+                if (progressError !== undefined) {throw progressError;}
             },
         );
 
@@ -123,8 +123,8 @@ describe('CLI scan cleanup sidecar protocol failures', () => {
 
         await vi.waitFor(() => expect(lines.close).toHaveBeenCalledOnce());
         // Windows has no POSIX process groups; the adapter terminates the child itself there.
-        if (process.platform === 'win32') expect(child.kill).toHaveBeenCalledWith('SIGTERM');
-        else expect(processKill).toHaveBeenCalledWith(-child.pid, 'SIGTERM');
+        if (process.platform === 'win32') {expect(child.kill).toHaveBeenCalledWith('SIGTERM');}
+        else {expect(processKill).toHaveBeenCalledWith(-child.pid, 'SIGTERM');}
         child.exitCode = 1;
         child.emit('exit', null, 'SIGTERM');
         if (progressError === undefined) {
@@ -371,7 +371,7 @@ describe.skipIf(!layeredMaskMagickAvailable)('CLI layered-mask fallback polarity
             // ImageMagick writes a two-colour result as a 1-bit palette PNG; the
             // single-colour fallback is a 1-bit gray PNG, and the colored one is 8-bit.
             const sample = (index: number) => {
-                if (decoded.depth !== 1) return decoded.data[index * decoded.channels]!;
+                if (decoded.depth !== 1) {return decoded.data[index * decoded.channels]!;}
                 const bit = (decoded.data[index >> 3]! >> (7 - (index & 7))) & 1;
                 return decoded.palette ? decoded.palette[bit]![0]! : bit * 255;
             };

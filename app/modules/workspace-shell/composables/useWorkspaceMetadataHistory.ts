@@ -58,8 +58,8 @@ export const useWorkspaceMetadataHistory = (deps: {
         return (field?: keyof IWorkspaceMetadataSnapshot) => {
             cleanSnapshot.value = baseline;
             // A catalog read reconciles its own field; file history restores both.
-            if (field) markCurrentStateClean(field, baseline?.[field]);
-            else syncDirtyFlags(currentSnapshot.value ?? captureCurrentSnapshot());
+            if (field) {markCurrentStateClean(field, baseline?.[field]);}
+            else {syncDirtyFlags(currentSnapshot.value ?? captureCurrentSnapshot());}
         };
     }
 
@@ -128,9 +128,9 @@ export const useWorkspaceMetadataHistory = (deps: {
         // A field read clears only its own flag. The other field may be
         // between a reload's clear and its own read, which is no edit.
         const dirty = field !== undefined && !isEqual(snapshot[field], clean);
-        if (field === 'bookmarkItems') deps.bookmarksDirty.value = dirty;
-        else if (field === 'pageLabelRanges') deps.pageLabelsDirty.value = dirty;
-        else syncDirtyFlags(snapshot);
+        if (field === 'bookmarkItems') {deps.bookmarksDirty.value = dirty;}
+        else if (field === 'pageLabelRanges') {deps.pageLabelsDirty.value = dirty;}
+        else {syncDirtyFlags(snapshot);}
     }
 
     function recordCurrentState() {
@@ -160,12 +160,12 @@ export const useWorkspaceMetadataHistory = (deps: {
         deps.commandSink.register({
             source: 'metadata',
             undo: () => {
-                if (!before || !after) return false;
+                if (!before || !after) {return false;}
                 applySnapshot(before, after);
                 return true;
             },
             cmd: () => {
-                if (!after || !before) return false;
+                if (!after || !before) {return false;}
                 applySnapshot(after, before);
                 return true;
             },

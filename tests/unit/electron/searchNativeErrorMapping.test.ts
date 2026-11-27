@@ -212,8 +212,8 @@ vi.mock('@electron/native-tools/runNativeToolCommand', () => ({async runNativeTo
         if (fake.nativeTextFailure) {
             fake.nativeTextStarted?.();
             await new Promise<void>(resolve => {
-                if (options.signal?.aborted) resolve();
-                else options.signal?.addEventListener('abort', () => resolve(), {once: true});
+                if (options.signal?.aborted) {resolve();}
+                else {options.signal?.addEventListener('abort', () => resolve(), {once: true});}
             });
             throw fake.nativeTextFailure;
         }
@@ -319,14 +319,14 @@ vi.mock('@electron/utils/workerTask', async importOriginal => ({
                         text: `pdfjs page ${pageNumber}`,
                     },
                 });
-                if (fake.pdfjsRelease) await Promise.race([
+                if (fake.pdfjsRelease) {await Promise.race([
                     fake.pdfjsRelease,
                     new Promise<void>(resolve => {
-                        if (options.signal?.aborted) resolve();
-                        else options.signal?.addEventListener('abort', () => resolve(), {once: true});
+                        if (options.signal?.aborted) {resolve();}
+                        else {options.signal?.addEventListener('abort', () => resolve(), {once: true});}
                     }),
-                ]);
-                if (options.signal?.aborted) break;
+                ]);}
+                if (options.signal?.aborted) {break;}
             }
             return undefined;
         } finally {
@@ -748,7 +748,7 @@ describe('search service coverage', () => {
 
             const unnamed = service.run({sender: sender as never}, request('canceled-pane', signal => new Promise((_resolve, reject) => {
                 const abort = () => reject(new Error('Search canceled'));
-                if (signal.aborted) abort();
+                if (signal.aborted) {abort();}
                 signal.addEventListener('abort', abort, {once: true});
             })));
             expect(service.cancel({sender: sender as never})).toEqual({canceled: true});
@@ -888,7 +888,7 @@ describe('PDF.js admission and producer cancellation (native-seam test)', () => 
         const {markUnprovenNativeTermination} = await import('@electron/utils/nativeTerminationProof');
         const started = Promise.withResolvers<undefined>();
         const error = new Error('pdftotext cancelled');
-        if (marked) markUnprovenNativeTermination(error, 'native reader did not settle');
+        if (marked) {markUnprovenNativeTermination(error, 'native reader did not settle');}
         fake.pageTexts.set(1, 'native text');
         fake.nativeTextStarted = () => started.resolve(undefined);
         fake.nativeTextFailure = error;
@@ -897,11 +897,11 @@ describe('PDF.js admission and producer cancellation (native-seam test)', () => 
         await started.promise;
         const leaving = pages.return(undefined);
         try {
-            if (marked) expect(await pending).toBe(error);
-            else expect(await pending).toEqual({
+            if (marked) {expect(await pending).toBe(error);}
+            else {expect(await pending).toEqual({
                 value: undefined,
                 done: true,
-            });
+            });}
         } finally {
             await leaving;
         }
@@ -922,7 +922,7 @@ function gatedPages(texts: readonly string[]) {
                 await Promise.race([
                     gates[index]!.promise,
                     new Promise((_resolve, reject) => {
-                        if (signal.aborted) reject(signal.reason);
+                        if (signal.aborted) {reject(signal.reason);}
                         signal.addEventListener('abort', () => reject(signal.reason), {once: true});
                     }),
                 ]);
@@ -1095,7 +1095,7 @@ describe('provisional search matches', () => {
         let search: Promise<unknown> | null = null;
         let finalized = false;
         const finalize = async () => {
-            if (finalized) return;
+            if (finalized) {return;}
             finalized = true;
             source.openAll();
             indexer.resolve(undefined);

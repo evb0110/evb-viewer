@@ -220,7 +220,7 @@ function migrateManualContentBoxes(
     }
     for (const half of OUTPUT_HALVES) {
         const rect = scanCleanupPreferenceRecord(stored[half]);
-        if (!rect) continue;
+        if (!rect) {continue;}
         const storedRotation = decodeRotation(rect.rotationDegrees ?? rect.rotation);
         if (storedRotation !== null) {
             const normalized = {
@@ -248,12 +248,12 @@ function migrateManualContentBoxes(
             continue;
         }
         legacy = true;
-        if (!dimensions) continue;
+        if (!dimensions) {continue;}
         const x = positiveDimension(rect.x) ?? (rect.x === 0 ? 0 : null);
         const y = positiveDimension(rect.y) ?? (rect.y === 0 ? 0 : null);
         const width = positiveDimension(rect.width);
         const height = positiveDimension(rect.height);
-        if (x === null || y === null || width === null || height === null) continue;
+        if (x === null || y === null || width === null || height === null) {continue;}
         const normalized = {
             xNormalized: x / dimensions.width,
             yNormalized: y / dimensions.height,
@@ -295,7 +295,7 @@ export function migrateScanCleanupDocumentOverridesV1(
     ] of Object.entries(overrides)) {
         const value = scanCleanupPreferenceRecord(storedOverride);
         const pageNumber = Number(pageKey);
-        if (!value || !Number.isSafeInteger(pageNumber) || pageNumber < 1) continue;
+        if (!value || !Number.isSafeInteger(pageNumber) || pageNumber < 1) {continue;}
         const rotationDegrees = decodeRotation(value.rotationDegrees ?? value.rotation) ?? 0;
         const dimensions = legacyRasterDimensions(entry, value, pageKey, rotationDegrees);
         const manualSplit = migrateManualSplit(value.manualSplit ?? value.manualSplitX, rotationDegrees, dimensions);

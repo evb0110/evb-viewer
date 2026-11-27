@@ -272,8 +272,8 @@ export function normalizeClaudeSdkModelList(rawModels: unknown): IAgentAssistant
     }
     if (pointer) {
         const target = pointer.resolvedModel ? models.find(model => model.resolvedModel === pointer.resolvedModel) : undefined;
-        if (target) target.isDefault = true;
-        else models.unshift({...pointer, isDefault: true});
+        if (target) {target.isDefault = true;}
+        else {models.unshift({...pointer, isDefault: true});}
     }
     return models;
 }
@@ -286,7 +286,7 @@ export async function discoverClaudeAssistantModels(
     extraArgs: Record<string, string | null> = {},
     budgetMs = CLAUDE_METADATA_TIMEOUT_MS,
 ) {
-    if (!executablePath) throw new Error(te('dialogs.agentAssistant.claudeMissing'));
+    if (!executablePath) {throw new Error(te('dialogs.agentAssistant.claudeMissing'));}
     const prompts = new ClaudePromptQueue();
     const metadata = query({
         prompt: prompts,
@@ -431,7 +431,7 @@ function getResultErrorMessage(message: SDKResultMessage) {
         return result;
     }
 
-    if ('errors' in message && message.errors.length) return message.errors.join('\n');
+    if ('errors' in message && message.errors.length) {return message.errors.join('\n');}
 
     const apiErrorStatus = 'api_error_status' in message && message.api_error_status
         ? ` (${message.api_error_status})`
@@ -684,7 +684,7 @@ export class ClaudeAgentAssistantSession {
         if (isStartupCanceled()) {
             throw new Error('Claude assistant session is closed.');
         }
-        if (!this.options.executablePath) throw new Error(te('dialogs.agentAssistant.claudeMissing'));
+        if (!this.options.executablePath) {throw new Error(te('dialogs.agentAssistant.claudeMissing'));}
         const promptQueue = new ClaudePromptQueue();
         const claudeQuery = query({
             prompt: promptQueue,
@@ -820,7 +820,7 @@ export class ClaudeAgentAssistantSession {
             return;
         }
 
-        if (!this.currentTurnId) return;
+        if (!this.currentTurnId) {return;}
 
         if (message.type === 'stream_event') {
             const thinkingDelta = extractThinkingDelta(message);
@@ -847,8 +847,8 @@ export class ClaudeAgentAssistantSession {
                 } else {
                     // T3 settleToolCall: correlate and remove only this native call.
                     const name = this.activeToolNames.get(item.toolId) ?? item.name;
-                    if (item.phase === 'running') this.activeToolNames.set(item.toolId, name);
-                    else if (!this.activeToolNames.delete(item.toolId)) continue;
+                    if (item.phase === 'running') {this.activeToolNames.set(item.toolId, name);}
+                    else if (!this.activeToolNames.delete(item.toolId)) {continue;}
                     this.options.callbacks.onToolActivity(this.currentTurnId, {...item, name});
                 }
             }

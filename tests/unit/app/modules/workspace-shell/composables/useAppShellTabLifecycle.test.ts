@@ -398,7 +398,7 @@ describe('useAppShellTabLifecycle', () => {
             closeTab: (paneId, tabId) => {
                 fenceWhenClosed.push(layoutResizing.value);
                 const pane = panes.value.find(candidate => candidate.paneId === paneId);
-                if (pane) pane.tabIds = pane.tabIds.filter(candidate => candidate !== tabId);
+                if (pane) {pane.tabIds = pane.tabIds.filter(candidate => candidate !== tabId);}
             },
         });
 
@@ -428,7 +428,7 @@ describe('useAppShellTabLifecycle', () => {
             activateTab: (_paneId, tabId) => {
                 activeTabId.value = tabId;
                 panes.value[0]!.activeTabId = requireTabId(tabId);
-                if (tabId === 'tab-2') replacementShown();
+                if (tabId === 'tab-2') {replacementShown();}
             },
             closeTab: (_paneId, tabId) => {
                 panes.value[0]!.tabIds = panes.value[0]!.tabIds.filter(candidate => candidate !== tabId);
@@ -754,7 +754,7 @@ describe('document views', () => {
         }));
         expect(views.pdfViewer.value === viewerRef.deref()).toBe(true);
 
-        if (first === 'document host') scope.stop();
+        if (first === 'document host') {scope.stop();}
         // Unmounting clears the view's template ref, then the view gives its port back.
         pdfViewerRef.value = null;
         detach();
@@ -820,8 +820,8 @@ describe('view layout receipt', () => {
         await Promise.resolve();
         expect(settled).toBe(false);
 
-        if (end === 'unmounted') view.scope.stop();
-        else view.isShown.value = false;
+        if (end === 'unmounted') {view.scope.stop();}
+        else {view.isShown.value = false;}
         await receipt;
 
         expect(settled).toBe(true);

@@ -142,7 +142,7 @@ export function discardCargoBuildFromOtherWrapperFlags({
         targetDirectory,
     }));
     const stampPath = path.join(profileDirectory, '.evb-wrapper-flags');
-    if (existsSync(stampPath) && readFileSync(stampPath, 'utf8') === identity) return;
+    if (existsSync(stampPath) && readFileSync(stampPath, 'utf8') === identity) {return;}
     rmSync(profileDirectory, {
         force: true,
         recursive: true,

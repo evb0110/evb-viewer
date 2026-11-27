@@ -46,7 +46,7 @@ export const MAX_EAGER_PDF_CONFORMANCE_BYTES = 64 * 1024 * 1024;
  */
 export function readOriginalFailureReason(error: unknown): 'original-changed' | 'write-failed' | null {
     const message = getErrorMessage(error);
-    if (!message.includes('WorkingCopyMaterializationError')) return null;
+    if (!message.includes('WorkingCopyMaterializationError')) {return null;}
     return message.includes('changed after it was opened') ? 'original-changed' : 'write-failed';
 }
 
@@ -102,7 +102,7 @@ export function createDocumentConformance(
 
         const promise = getDocumentPdfCapability().analyzePdfConformance(path, {purpose: 'save-restrictions'})
             .catch((error: unknown) => {
-                if (readOriginalFailureReason(error)) throw error;
+                if (readOriginalFailureReason(error)) {throw error;}
                 BrowserLogger.warn('pdf-file', 'PDF save restriction analysis failed', {
                     path,
                     error,

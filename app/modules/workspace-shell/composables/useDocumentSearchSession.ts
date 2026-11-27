@@ -103,11 +103,11 @@ export const useDocumentSearchSession = (
         if (currentResultIndex.value < 0) {
             return select(direction === 'next' ? 0 : resultCount - 1);
         }
-        if (isSearching.value || !searchCommand) return false;
+        if (isSearching.value || !searchCommand) {return false;}
         const nextIndex = currentResultIndex.value + (direction === 'next' ? 1 : -1);
-        if (nextIndex >= 0 && nextIndex < resultCount) return select(nextIndex);
+        if (nextIndex >= 0 && nextIndex < resultCount) {return select(nextIndex);}
         const firstOrdinal = results.value[0]!.matchIndex;
-        if (!isTruncated.value && (searchCommand.resultOffset ?? 0) === 0) return select(direction === 'next' ? 0 : resultCount - 1);
+        if (!isTruncated.value && (searchCommand.resultOffset ?? 0) === 0) {return select(direction === 'next' ? 0 : resultCount - 1);}
         const resultOffset = direction === 'next'
             ? isTruncated.value ? results.value.at(-1)!.matchIndex + 1 : 0
             : firstOrdinal > 0 ? Math.max(0, firstOrdinal - SEARCH_RESULT_LIMIT) : 'last';
@@ -121,7 +121,7 @@ export const useDocumentSearchSession = (
         const normalizedQuery = direction ? searchCommand?.query ?? '' : resolveDocumentSearchQuery(query.value);
         const matchOptions = direction ? searchCommand!.matchOptions : {...searchOptions.value};
         submittedQuery.value = normalizedQuery;
-        if (!direction) resetResults();
+        if (!direction) {resetResults();}
         if (!backend || normalizedQuery.length < minQueryLength.value) {
             return false;
         }
@@ -138,10 +138,10 @@ export const useDocumentSearchSession = (
         const currentDocumentRevision = toValue(options.documentRevision);
         activeController = controller;
         isSearching.value = true;
-        if (!direction) progress.value = {
+        if (!direction) {progress.value = {
             processed: 0,
             total: 0,
-        };
+        };}
         try {
             const response = await backend.search({
                 query: normalizedQuery,
@@ -153,10 +153,10 @@ export const useDocumentSearchSession = (
                         !controller.signal.aborted
                         && currentRunGeneration === runGeneration
                         && currentSourceGeneration === sourceGeneration
-                    ) progress.value = {
+                    ) {progress.value = {
                         ...(direction ? progress.value : {}),
                         ...nextProgress,
-                    };
+                    };}
                 },
             });
             if (
@@ -176,14 +176,14 @@ export const useDocumentSearchSession = (
             };
             results.value = [...response.results];
             isTruncated.value = response.truncated;
-            if (response.coverage) progress.value = {
+            if (response.coverage) {progress.value = {
                 processed: response.coverage.pagesScanned,
                 total: response.coverage.pageCount,
                 coverage: response.coverage,
-            };
-            if (results.value.length > 0) select(targetMatchIndex === undefined
+            };}
+            if (results.value.length > 0) {select(targetMatchIndex === undefined
                 ? direction === 'previous' ? results.value.length - 1 : 0
-                : results.value.findIndex(match => match.matchIndex === targetMatchIndex));
+                : results.value.findIndex(match => match.matchIndex === targetMatchIndex));}
             return true;
         } catch (caught) {
             if (
@@ -192,7 +192,7 @@ export const useDocumentSearchSession = (
                 && currentRunGeneration === runGeneration
                 && currentSourceGeneration === sourceGeneration
                 && currentDocumentRevision === toValue(options.documentRevision)
-            ) error.value = (options.normalizeError ?? defaultSearchError)(caught);
+            ) {error.value = (options.normalizeError ?? defaultSearchError)(caught);}
             return false;
         } finally {
             if (activeController === controller) {

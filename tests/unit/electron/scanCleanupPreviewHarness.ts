@@ -156,7 +156,7 @@ export function previewOf(
         const result = await service.preview(subscriber, previewRequest);
         // Cancellation is reported to the renderer as a result; a test that
         // asked for a rendered preview still wants to see it as the abort it is.
-        if (result.canceled === true) throw new DOMException('Canceled scan cleanup preview', 'AbortError');
+        if (result.canceled === true) {throw new DOMException('Canceled scan cleanup preview', 'AbortError');}
         return result;
     })();
     // The service holds its own handler on the underlying run, so this derived
@@ -269,7 +269,7 @@ export const documentPrior = {
 
 export function decodePpm(bytes: Buffer) {
     const match = /^P6\s+(\d+)\s+(\d+)\s+(\d+)\s/.exec(bytes.subarray(0, 64).toString('ascii'));
-    if (!match) throw new Error('not a P6 raster');
+    if (!match) {throw new Error('not a P6 raster');}
     const width = Number(match[1]);
     const height = Number(match[2]);
     return {

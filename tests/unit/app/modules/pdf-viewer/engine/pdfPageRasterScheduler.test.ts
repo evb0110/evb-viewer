@@ -144,7 +144,7 @@ describe('PdfPageRasterScheduler', () => {
         const receipts: string[] = [];
         harness.target.commit = async (prepared, _demand, publishRaster) => {
             harness.committed.push(prepared.pageNumber);
-            if (!publishRaster()) return false;
+            if (!publishRaster()) {return false;}
             await layers;
             return true;
         };
@@ -822,7 +822,7 @@ describe('PdfPageRasterScheduler', () => {
         expect(onRenderUncommitted).toHaveBeenCalledOnce();
         publish([createDemand(4, 'viewport-visible')]);
         await vi.advanceTimersByTimeAsync(1);
-        if (stage !== 'lease' && stage !== 'prepare') expect(harness.started.at(-1)).toBe(4);
+        if (stage !== 'lease' && stage !== 'prepare') {expect(harness.started.at(-1)).toBe(4);}
     });
 
     it('settles a rejected commit once without leaking a lease or reservation', async () => {
@@ -1100,7 +1100,7 @@ describe('PdfPageRasterScheduler', () => {
         }> = {
             id: 'held-visible-replacement',
             prepare: async demand => {
-                if (demand.consumerGeneration === 2) await replacement.promise;
+                if (demand.consumerGeneration === 2) {await replacement.promise;}
                 return {
                     pageNumber: demand.pageNumber,
                     generation: demand.consumerGeneration,
@@ -1114,7 +1114,7 @@ describe('PdfPageRasterScheduler', () => {
             discard() {},
             // Like the viewport, a raster taken for budget is disposed with its charge.
             release(pageNumber, reason) {
-                if (reason === 'surface-budget-eviction') painted.delete(pageNumber);
+                if (reason === 'surface-budget-eviction') {painted.delete(pageNumber);}
             },
         };
         const publish = (demands: readonly IPdfRasterDemand[]) => scheduler.setDemand({
@@ -1501,7 +1501,7 @@ describe('PdfPageRasterScheduler', () => {
             start: () => createTask(),
             async commit(prepared, _demand, commitRaster) {
                 painted.add(prepared.pageNumber);
-                if (!commitRaster()) return false;
+                if (!commitRaster()) {return false;}
                 published.resolve(undefined);
                 await hydration.promise;
                 return false;
@@ -1575,7 +1575,7 @@ describe('PdfPageRasterScheduler', () => {
             id: 'pressured-visible-pages',
             async prepare(demand, _page, _signal, _settlement, reserveAdditionalBytes) {
                 reserveAdditionalBytes(MIB);
-                if (demand.consumerGeneration === 2) await replacement.promise;
+                if (demand.consumerGeneration === 2) {await replacement.promise;}
                 return {
                     pageNumber: demand.pageNumber,
                     generation: demand.consumerGeneration,
@@ -1585,7 +1585,7 @@ describe('PdfPageRasterScheduler', () => {
             commit(prepared) {painted.set(prepared.pageNumber, prepared.generation); return true;},
             discard() {},
             release(pageNumber, reason) {
-                if (reason === 'surface-budget-eviction') painted.delete(pageNumber);
+                if (reason === 'surface-budget-eviction') {painted.delete(pageNumber);}
             },
         };
         const visible = (pages: ReadonlyArray<[number, number]>) => scheduler.setDemand({
@@ -1667,7 +1667,7 @@ describe('PdfPageRasterScheduler', () => {
         }> = {
             id: 'bounded-annotation',
             async prepare(demand, _page, _signal, _settlement, reserveAdditionalBytes) {
-                if (demand.consumerGeneration === 2) reserveAdditionalBytes(900);
+                if (demand.consumerGeneration === 2) {reserveAdditionalBytes(900);}
                 return {
                     pageNumber: demand.pageNumber,
                     generation: demand.consumerGeneration,

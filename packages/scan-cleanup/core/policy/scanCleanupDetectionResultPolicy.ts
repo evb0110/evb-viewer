@@ -279,6 +279,6 @@ export function projectScanCleanupDetectionResult({
             }}),
     };
     result.pagePlanEvidence = createDetectionPagePlanEvidence(result, metadata, includeContentBoxes);
-    if (metadata.splitDiagnostics !== undefined) result.splitDiagnostics = metadata.splitDiagnostics;
+    if (metadata.splitDiagnostics !== undefined) {result.splitDiagnostics = metadata.splitDiagnostics;}
     return result;
 }

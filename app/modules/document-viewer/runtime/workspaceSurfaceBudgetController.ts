@@ -175,7 +175,7 @@ export function createWorkspaceSurfaceBudgetController(
                 entry.priority = priority;
             },
             resize(bytes) {
-                if (released || !scopeLeases.has(entry)) return false;
+                if (released || !scopeLeases.has(entry)) {return false;}
                 const nextBytes = normalizeSurfaceBytes(bytes);
                 const increase = nextBytes - entry.bytes;
                 const admittedBytes = required
@@ -183,7 +183,7 @@ export function createWorkspaceSurfaceBudgetController(
                     : reservedBytes + increase - getEvictionCandidates()
                         .filter(candidate => candidate.entry !== entry)
                         .reduce((sum, candidate) => sum + candidate.entry.bytes, 0);
-                if (increase > 0 && admittedBytes > getEffectiveMaxBytes()) return false;
+                if (increase > 0 && admittedBytes > getEffectiveMaxBytes()) {return false;}
                 reservedBytes += increase;
                 entry.bytes = nextBytes;
                 evictToBudget();

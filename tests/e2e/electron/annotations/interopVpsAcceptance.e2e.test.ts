@@ -341,16 +341,16 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
         async function waitForPaintedAppearance() {
             await page.waitForFunction(() => {
                 const container = document.querySelector('.editor-pane.is-active .workspace-host[data-workspace-active="true"] .page_container[data-page="1"]');
-                if (!container) return false;
+                if (!container) {return false;}
                 const pageRect = container.getBoundingClientRect();
                 return Array.from(container.querySelectorAll('canvas')).some(canvas => {
                     const rect = canvas.getBoundingClientRect();
-                    if (!rect.width || !rect.height) return false;
+                    if (!rect.width || !rect.height) {return false;}
                     const left = Math.max(rect.left, pageRect.left + pageRect.width / 2);
                     const top = Math.max(rect.top, pageRect.top + pageRect.height / 6);
                     const right = Math.min(rect.right, pageRect.left + pageRect.width * 0.55);
                     const bottom = Math.min(rect.bottom, pageRect.top + pageRect.height * 2 / 3);
-                    if (right <= left || bottom <= top) return false;
+                    if (right <= left || bottom <= top) {return false;}
                     const pixels = canvas.getContext('2d')?.getImageData(
                         (left - rect.left) * canvas.width / rect.width,
                         (top - rect.top) * canvas.height / rect.height,
@@ -360,7 +360,7 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
                     let ink = 0;
                     for (let index = 0; pixels && index < pixels.length; index += 4) {
                         if (pixels[index + 3]! > 0 && pixels[index]! < 200
-                            && pixels[index + 1]! < 200 && pixels[index + 2]! < 200) ink += 1;
+                            && pixels[index + 1]! < 200 && pixels[index + 2]! < 200) {ink += 1;}
                     }
                     return ink > 100;
                 });
@@ -394,10 +394,10 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
             for (let y = 0; y < image.height; y += 1) {
                 for (let x = 0; x < image.width; x += 1) {
                     const offset = (y * image.width + x) * 4;
-                    if (pixels[offset]! < 200 && pixels[offset + 1]! < 200 && pixels[offset + 2]! < 200) ink.push({
+                    if (pixels[offset]! < 200 && pixels[offset + 1]! < 200 && pixels[offset + 2]! < 200) {ink.push({
                         x,
                         y,
-                    });
+                    });}
                 }
             }
             const inkWidth = Math.max(...ink.map(point => point.x)) - Math.min(...ink.map(point => point.x)) + 1;
@@ -522,7 +522,7 @@ describe('Electron E2E - VPS interoperability acceptance', () => {
                 while (walker.nextNode()) {
                     const node = walker.currentNode;
                     for (let index = 0; index < (node.textContent?.length ?? 0); index += 1) {
-                        if (/\s|\u200b|\ufeff/u.test(node.textContent![index]!)) continue;
+                        if (/\s|\u200b|\ufeff/u.test(node.textContent![index]!)) {continue;}
                         const range = document.createRange();
                         range.setStart(node, index);
                         range.setEnd(node, index + 1);
@@ -716,7 +716,7 @@ describe('Electron E2E - annotated raster readiness', () => {
                     const chassis = activeHost?.querySelector<HTMLElement>('.document-viewer-chassis');
                     const status = api?.readActiveWorkspaceStateValues(['annotationCommentsStatus']).annotationCommentsStatus;
                     if (!workspace || status !== 'ready' || chassis?.dataset.viewportLifecycle !== 'ready'
-                        || !activeHost?.querySelector('.page_container[data-page="1"] canvas')) return;
+                        || !activeHost?.querySelector('.page_container[data-page="1"] canvas')) {return;}
                     observer.disconnect();
                     // This public action awaits the page's raster before creating
                     // its shape. Read the foreign appearance at that acknowledgement.
@@ -735,7 +735,7 @@ describe('Electron E2E - annotated raster readiness', () => {
                         let red = 0;
                         for (let offset = 0; pixels && offset < pixels.length; offset += 4) {
                             if (pixels[offset]! > 140 && pixels[offset + 1]! < 110
-                                && pixels[offset + 2]! < 110 && pixels[offset + 3]! > 100) red += 1;
+                                && pixels[offset + 2]! < 110 && pixels[offset + 3]! > 100) {red += 1;}
                         }
                         resolve({
                             created: result.created === true,
@@ -898,7 +898,7 @@ describe('Electron E2E - annotation save budgets and imported replies', () => {
         // itself is the same trusted toolbar action a person uses.
         const created = await page.evaluate(async () => {
             const workspace = window.__evbTestApi?.getActiveWorkspaceHandle();
-            if (!workspace) throw new Error('Public workspace API was unavailable');
+            if (!workspace) {throw new Error('Public workspace API was unavailable');}
             const results = await Promise.all(Array.from({length: 3_200}, () => workspace.runAgentAction(
                 'annotation.create_shape', {
                     page: 1,

@@ -271,7 +271,7 @@ describe('Electron E2E - large object-dense PDF opening', () => {
             const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host[data-workspace-active="true"]');
             const viewport = host?.querySelector<HTMLElement>('[data-document-viewer-chassis-viewport], #pdf-viewer');
             const firstPage = host?.querySelector<HTMLElement>('.page_container[data-page]');
-            if (!viewport || !firstPage) throw new Error('Missing document viewport or page');
+            if (!viewport || !firstPage) {throw new Error('Missing document viewport or page');}
             const rect = viewport.getBoundingClientRect();
             const centre = {
                 x: rect.left + viewport.clientLeft + viewport.clientWidth / 2,
@@ -472,7 +472,7 @@ describe('Electron E2E - large object-dense PDF opening', () => {
             await clickAsUser(session.page, '.editor-pane.is-active .tab.is-active .tab-close');
             const recent = '.editor-pane.is-active .recent-row--data button.recent-open';
             await session.page.waitForSelector(recent, {visible: true});
-            for (const gate of gates) writeFileSync(join(scratch, `${gate}.arm`), '');
+            for (const gate of gates) {writeFileSync(join(scratch, `${gate}.arm`), '');}
             await installCommittedSurfaceSampler(session.page, {sampleCanvasPixels: false});
             await clickAsUser(session.page, recent);
             await expect.poll(() => evaluateInPage(session.page, () => {

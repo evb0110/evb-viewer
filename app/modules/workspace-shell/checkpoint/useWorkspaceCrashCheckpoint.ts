@@ -69,7 +69,7 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
                         failure = {error};
                     });
                 }
-                if (failure) throw (failure as {error: unknown}).error;
+                if (failure) {throw (failure as {error: unknown}).error;}
             } finally {
                 inFlight = null;
                 pendingLatest = null;
@@ -80,9 +80,9 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
 
     /** Writes the window's layout now, ahead of the debounce, and resolves once it is written. */
     async function persistCheckpointNow() {
-        if (!options.enabled.value || disposed || options.isStartupOpenClaimPending.value) return;
+        if (!options.enabled.value || disposed || options.isStartupOpenClaimPending.value) {return;}
         await nextTick();
-        if (!options.enabled.value || disposed || options.isStartupOpenClaimPending.value) return;
+        if (!options.enabled.value || disposed || options.isStartupOpenClaimPending.value) {return;}
         cancelScheduledCheckpoint();
         await persistCheckpoint(buildWorkspaceCheckpoint(options));
     }
@@ -103,11 +103,11 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
     const stop = watch(
         [() => signature.value?.workspace ?? null, () => signature.value?.structure ?? null],
         ([workspace, structure], previous) => {
-            if (workspace === null) return;
+            if (workspace === null) {return;}
             // A document opened, closed, moved or saved is written at once, so a crash right after it
             // still relaunches with that tab. View state such as page and zoom waits for the debounce.
-            if (structure !== previous?.[1]) persistInBackground();
-            else scheduleCheckpoint();
+            if (structure !== previous?.[1]) {persistInBackground();}
+            else {scheduleCheckpoint();}
         },
         {immediate: true},
     );

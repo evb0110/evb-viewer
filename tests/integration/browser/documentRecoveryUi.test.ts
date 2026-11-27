@@ -53,7 +53,7 @@ describe('browser document lifecycle UI', () => {
                         const response = await route.fetch();
                         const body = await response.text();
                         const marker = 'const comment = resolveNoteComment(annotationId);';
-                        if (!body.includes(marker)) throw new Error('Document note update fault seam was not found');
+                        if (!body.includes(marker)) {throw new Error('Document note update fault seam was not found');}
                         await route.fulfill({
                             response,
                             body: body.replace(marker,
@@ -86,7 +86,7 @@ describe('browser document lifecycle UI', () => {
                         exact: true,
                     }).click();
                     const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
-                    if (!bounds) throw new Error('The first PDF page is not visible');
+                    if (!bounds) {throw new Error('The first PDF page is not visible');}
                     await page.mouse.click(bounds.x + 200, bounds.y + 200);
                     const input = page.getByRole('textbox', {
                         name: 'Write annotation note',
@@ -156,9 +156,9 @@ describe('browser document lifecycle UI', () => {
                     const texts: string[] = [];
                     for (let index = 0; index < (annots?.size() ?? 0); index += 1) {
                         const annotation = annots!.lookup(index, PDFDict);
-                        if (annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Text') continue;
+                        if (annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Text') {continue;}
                         const text = annotation.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString);
-                        if (text) texts.push(text.decodeText());
+                        if (text) {texts.push(text.decodeText());}
                     }
                     expect(texts).toEqual([draft]);
                     expect(problems.filter(problem => !problem.includes('1108 sustained note update rejection'))).toEqual([]);
@@ -223,7 +223,7 @@ describe('browser document lifecycle UI', () => {
                 const response = await route.fetch();
                 const body = await response.text();
                 const marker = 'const comment = resolveNoteComment(annotationId);';
-                if (!body.includes(marker)) throw new Error('Document note update fault seam was not found');
+                if (!body.includes(marker)) {throw new Error('Document note update fault seam was not found');}
                 await route.fulfill({
                     response,
                     body: body.replace(marker, 'if (Reflect.get(window, "__noteUpdateFailure")) throw new Error("RUX06 note write rejected by document policy"); ' + marker),
@@ -263,7 +263,7 @@ describe('browser document lifecycle UI', () => {
                 exact:true,
             }).click();
             const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
-            if (!bounds) throw new Error('The first PDF page is not visible');
+            if (!bounds) {throw new Error('The first PDF page is not visible');}
             await page.mouse.click(bounds.x + 200, bounds.y + 200);
             const note = page.locator('.note-window').first();
             const input = page.getByRole('textbox', {
@@ -294,7 +294,7 @@ describe('browser document lifecycle UI', () => {
             const cdp = await context.newCDPSession(page);
             await cdp.send('Emulation.setCPUThrottlingRate', {rate: 6});
             const typingBounds = await input.boundingBox();
-            if (!typingBounds) throw new Error('The note input is not visible');
+            if (!typingBounds) {throw new Error('The note input is not visible');}
             await page.mouse.move(typingBounds.x + 20, typingBounds.y + 20, {steps: 10});
             await input.fill('Retained RUX06 draft');
             // Either baseline's inline row or the operation toast acknowledges
@@ -382,9 +382,9 @@ describe('browser document lifecycle UI', () => {
             const contents: string[]=[];
             for(let i=0;i<(annots?.size()??0);i++) {
                 const annotation=annots!.lookup(i,PDFDict);
-                if (annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Text') continue;
+                if (annotation.lookupMaybe(PDFName.of('Subtype'), PDFName)?.asString() !== '/Text') {continue;}
                 const text=annotation.lookupMaybe(PDFName.of('Contents'),PDFString,PDFHexString);
-                if(text) contents.push(text.decodeText());
+                if(text) {contents.push(text.decodeText());}
             }
             expect(contents.filter(text=>text==='Retained RUX06 draft plus newer typing')).toHaveLength(1);
             observations.push({
@@ -477,7 +477,7 @@ describe('browser document lifecycle UI', () => {
                     let yellowPixels = 0;
                     for (const canvas of canvases) {
                         const pixels = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height).data;
-                        if (!pixels) throw new Error('The print canvas has no pixels');
+                        if (!pixels) {throw new Error('The print canvas has no pixels');}
                         for (let index = 0; index < pixels.length; index += 4) {
                             if (pixels[index]! > 150 && pixels[index + 1]! > 100 && pixels[index + 2]! < 100) {
                                 yellowPixels += 1;
@@ -522,7 +522,7 @@ describe('browser document lifecycle UI', () => {
                 exact: true,
             }).click();
             const bounds = await page.locator('.page_container[data-page="1"]').first().boundingBox();
-            if (!bounds) throw new Error('The first PDF page is not visible');
+            if (!bounds) {throw new Error('The first PDF page is not visible');}
             await page.mouse.click(bounds.x + 200, bounds.y + 200);
             const text = 'Recovery descriptor regression note';
             await page.getByRole('textbox', {
