@@ -1,12 +1,12 @@
 # EVB PDF.js artifact
 
-This directory contains the complete generated `pdfjs-dist@6.3.316` package
+This directory contains the complete generated `pdfjs-dist@6.3.317` package
 from the public EVB fork at
 `https://github.com/evb0110/pdf.js`, commit
-`c6bd72136cf5f51423071ee298e99e251a7cef74`, tree
-`f7a8f4f759078918288f5993a5a93404e7dd48b8`, branch
-`evb-1442-background-rendering`, based on the native annotation appearance
-renderer at `f88c766ad`. The fork rebases the EVB changes onto upstream `v6.3.289`.
+`0b4dd364e07b4370cf5e53b6e57a3b0816afb0cb`, tree
+`5a047db1e92a13b5f7cb7dad13e69c2d076eba76`, branch
+`evb-1734-wide-xref-offsets`, based on the background-rendering & abort-fix
+pin at `c6bd72136`. The fork rebases the EVB changes onto upstream `v6.3.289`.
 
 The generated fork metadata keeps `sourceVersion: 5.7.284` to identify the
 original EVB fork base. The upstream rebase is identified separately by the
@@ -44,3 +44,8 @@ This pin backports upstream [PR 22164](https://github.com/mozilla/pdf.js/pull/22
 Aborting a range-backed load preserves the request rejection, while a separate
 observer handles discarded background promises. Worker termination yields to
 those rejections before cleanup, so replacing a document can await its teardown.
+
+`XRef.readXRefStream()` decodes cross-reference stream entry offsets using
+base-256 arithmetic with `Number.isSafeInteger()` validation instead of 32-bit
+bitwise shifts, allowing range-backed PDF 1.5+ files with >2 GiB, >4 GiB, and
+>10 GiB cross-reference stream offsets to open without truncation.
