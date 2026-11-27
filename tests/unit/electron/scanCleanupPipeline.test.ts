@@ -4566,13 +4566,24 @@ describe('scan cleanup pipeline', () => {
         expect(classifyScanCleanupError(new NativeScanCleanupError('native-failure', 'fixture'), false)).toBe('native-failure');
         const workerErrorFrame = {
             code: 'insufficient-scratch',
-            scratchShortfall: {
-                availableBytes: 512,
-                requiredBytes: 1_024,
+            details: {
+                scratchShortfall: {
+                    availableBytes: 512,
+                    requiredBytes: 1_024,
+                },
             },
         };
         expect(classifyScanCleanupError(workerErrorFrame, false)).toBe('insufficient-scratch');
-        expect(scanCleanupScratchShortfall(workerErrorFrame)).toEqual({details: {scratchShortfall: workerErrorFrame.scratchShortfall}});
+        expect(scanCleanupScratchShortfall(workerErrorFrame)).toEqual({details: {scratchShortfall: workerErrorFrame.details.scratchShortfall}});
+        expect(scanCleanupScratchShortfall({
+            code: 'insufficient-scratch',
+            details: {
+                scratchShortfall: {
+                    availableBytes: 'not-a-number',
+                    requiredBytes: 1_024,
+                },
+            },
+        })).toEqual({});
         expect(await readFile(fixture.sourcePdfPath, 'utf8')).toBe('ORIGINAL');
         await expect(readFile(fixture.outputPdfPath)).rejects.toMatchObject({code: 'ENOENT'});
     });

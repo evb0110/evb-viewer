@@ -76,12 +76,6 @@ export function classifyScanCleanupPreviewError(error: unknown, aborted: boolean
 export function scanCleanupScratchShortfall(
     error: unknown,
 ): Pick<IScanCleanupErrorEnvelope, 'details'> {
-    if (error instanceof ScanCleanupInsufficientScratchError) {
-        return {details: {scratchShortfall: {
-            availableBytes: error.availableBytes,
-            requiredBytes: error.requiredBytes,
-        }}};
-    }
     if (!isRecord(error)) {
         return {};
     }

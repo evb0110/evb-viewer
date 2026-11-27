@@ -1788,7 +1788,6 @@ export default {
         'tiffImages': 'TIFF-afbeeldingen',
     }},
     'errors': {
-        'pdfStructurePreservation': 'Deze bewerking is gestopt omdat de toegankelijkheidstags of lagen van de PDF niet behouden kunnen blijven. Er is geen resultaat opgeslagen.',
         'recent': {
             'load': 'Kan recente bestanden niet laden',
             'remove': 'Kan bestand niet verwijderen',

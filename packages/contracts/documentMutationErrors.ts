@@ -10,11 +10,10 @@ import { getErrorMessage } from '@contracts/getErrorMessage';
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     decodeSerializableErrorEnvelope,
+    encodeSerializableErrorEnvelope,
     SERIALIZABLE_ERROR_ENVELOPE_SCHEMA,
 } from '@contracts/serializableError';
 import * as v from 'valibot';
-
-export const DOCUMENT_MUTATION_ERROR_PREFIX = 'EVB_DOCUMENT_MUTATION_ERROR:';
 
 const DOCUMENT_MUTATION_ERROR_CODES = [
     'MISSING_REVISION',
@@ -81,24 +80,12 @@ export class DocumentMutationError extends Error {
 }
 
 export function encodeDocumentMutationError(payload: IDocumentMutationErrorPayload) {
-    return `${DOCUMENT_MUTATION_ERROR_PREFIX}${JSON.stringify(payload)}`;
+    return encodeSerializableErrorEnvelope(payload);
 }
 
 function parseDocumentMutationError(value: unknown): IDocumentMutationErrorPayload | null {
     const result = v.safeParse(documentMutationErrorEnvelopeSchema, value, {abortEarly: true});
     return result.success ? result.output : null;
-}
-
-function decodeDocumentMutationErrorMessage(message: string): IDocumentMutationErrorPayload | null {
-    const markerIndex = message.indexOf(DOCUMENT_MUTATION_ERROR_PREFIX);
-    if (markerIndex < 0) {
-        return null;
-    }
-    return decodeSerializableErrorEnvelope(
-        message.slice(markerIndex + DOCUMENT_MUTATION_ERROR_PREFIX.length),
-        documentMutationErrorEnvelopeSchema,
-        {allowBareJsonString: true},
-    );
 }
 
 function documentMutationErrorDetails(error: Record<string, unknown>) {
@@ -109,20 +96,27 @@ function documentMutationErrorDetails(error: Record<string, unknown>) {
     };
 }
 
-export function getDocumentMutationErrorPayload(error: unknown): IDocumentMutationErrorPayload | null {
+function getDocumentMutationErrorPayloadInternal(
+    error: unknown,
+    seen: Set<object>,
+): IDocumentMutationErrorPayload | null {
     if (error instanceof DocumentMutationError) {
         const details = {
             ...(error.documentRef === undefined ? {} : {documentRef: error.documentRef}),
             ...(error.expectedRevision === undefined ? {} : {expectedRevision: error.expectedRevision}),
             ...(error.actualRevision === undefined ? {} : {actualRevision: error.actualRevision}),
         };
-        return decodeDocumentMutationErrorMessage(error.message) ?? parseDocumentMutationError({
+        return decodeSerializableErrorEnvelope(error.message, documentMutationErrorEnvelopeSchema) ?? parseDocumentMutationError({
             code: error.code,
             message: getDefaultDocumentMutationErrorMessage(error.code),
             ...(Object.keys(details).length === 0 ? {} : {details}),
         });
     }
     if (isRecord(error)) {
+        if (seen.has(error)) {
+            return null;
+        }
+        seen.add(error);
         const legacyDetails = error.details === undefined ? documentMutationErrorDetails(error) : null;
         const envelope = parseDocumentMutationError(legacyDetails === null
             ? error
@@ -133,12 +127,16 @@ export function getDocumentMutationErrorPayload(error: unknown): IDocumentMutati
         if (envelope) {
             return envelope;
         }
-        const causePayload = getDocumentMutationErrorPayload(error.cause);
+        const causePayload = getDocumentMutationErrorPayloadInternal(error.cause, seen);
         if (causePayload) {
             return causePayload;
         }
     }
-    return decodeDocumentMutationErrorMessage(getErrorMessage(error));
+    return decodeSerializableErrorEnvelope(getErrorMessage(error), documentMutationErrorEnvelopeSchema);
+}
+
+export function getDocumentMutationErrorPayload(error: unknown): IDocumentMutationErrorPayload | null {
+    return getDocumentMutationErrorPayloadInternal(error, new Set());
 }
 
 export function isDocumentMutationErrorCode(error: unknown, code: TDocumentMutationErrorCode) {
