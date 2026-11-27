@@ -300,11 +300,19 @@ describe('vendored pdfjs-dist wide XRef stream offsets', () => {
             expect(range.requestCount).toBeLessThanOrEqual(MAX_RANGE_REQUESTS);
             expect(range.requestedBytes).toBeLessThanOrEqual(MAX_REQUESTED_BYTES);
             expect(pdfDocument.numPages).toBe(1);
-            const page = await pdfDocument.getPage(1);
+            const page = await Promise.race([
+                pdfDocument.getPage(1),
+                budgetFailure,
+            ]);
             const viewport = page.getViewport({ scale: 1 });
             expect(viewport.width).toBe(pageWidth);
             expect(viewport.height).toBe(pageHeight);
         } finally {
+            // In Node fake-worker mode, calling loadingTask.destroy() while a
+            // range load is aborted mid-flight rejects an unchained internal
+            // ensureNotTerminated() handler in pdf.worker.mjs. Skip destroy()
+            // only on the failing budget-breach path so the budget error is
+            // reported cleanly without an unhandled Worker termination error.
             if (!range.budgetExceededError) {
                 await loadingTask.destroy();
             }

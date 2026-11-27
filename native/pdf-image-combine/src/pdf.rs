@@ -36,6 +36,18 @@ fn ensure_safe_pdf_offset(offset: u64) -> Result<()> {
     Ok(())
 }
 
+fn checked_add_safe_offset(offset: u64, delta: usize) -> Result<u64> {
+    let next = offset
+        .checked_add(delta as u64)
+        .ok_or_else(|| pdf_offset_limit_error(None))?;
+    ensure_safe_pdf_offset(next)?;
+    Ok(next)
+}
+
+fn indirect_object_byte_len(object_number: usize, body: &[u8]) -> usize {
+    format!("{object_number} 0 obj\n").len() + body.len() + "\nendobj\n".len()
+}
+
 pub(crate) enum ImagePayload {
     RawFlate {
         data: Vec<u8>,
@@ -673,42 +685,41 @@ impl<W: IoWrite> PdfWriter<W> {
             kids.trim_end(),
             self.page_objects.len()
         );
-        self.push_object(2, pages_body.as_bytes())?;
-
-        let info_object = if let Some(stamp) = self.provenance_stamp_hex.take() {
+        let info_spec = self.provenance_stamp_hex.take().map(|stamp| {
             let object_number = self.next_object;
-            self.next_object += 1;
             let info_body = format!("<< /EVBScanCleanup ({stamp}) >>");
-            self.push_object(object_number, info_body.as_bytes())?;
-            Some(object_number)
-        } else {
-            None
+            (object_number, info_body)
+        });
+        let info_object = info_spec.as_ref().map(|(object_number, _)| *object_number);
+        let object_count = info_object.unwrap_or(self.next_object - 1);
+
+        // Validate the entire ending (Pages, optional Info, optional replacement
+        // PDF 1.5 Catalog, and XRef table or stream through %%EOF) before writing
+        // any bytes so a TooLarge rejection never leaves partial final objects.
+        let pages_offset = self.bytes_written;
+        ensure_safe_pdf_offset(pages_offset)?;
+        let after_pages = checked_add_safe_offset(
+            pages_offset,
+            indirect_object_byte_len(2, pages_body.as_bytes()),
+        )?;
+        let (info_offset, after_info) = match &info_spec {
+            Some((object_number, info_body)) => {
+                let offset = after_pages;
+                let end = checked_add_safe_offset(
+                    offset,
+                    indirect_object_byte_len(*object_number, info_body.as_bytes()),
+                )?;
+                (Some(offset), end)
+            }
+            None => (None, after_pages),
         };
 
-        let object_count = self.next_object - 1;
-        let xref_offset = self.bytes_written;
-        let classic_trailer = match info_object {
-            Some(info_object) => format!(
-                "trailer\n<< /Size {} /Root 1 0 R /Info {} 0 R >>\nstartxref\n{}\n%%EOF\n",
-                object_count + 1,
-                info_object,
-                xref_offset
-            ),
-            None => format!(
-                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
-                object_count + 1,
-                xref_offset
-            ),
-        };
-        let classic_xref_header = format!("xref\n0 {}\n", object_count + 1);
-        let classic_entries_len = (object_count as u64 + 1).checked_mul(20);
-        let classic_end_offset = classic_entries_len
-            .and_then(|entries_len| entries_len.checked_add(classic_xref_header.len() as u64))
-            .and_then(|table_len| table_len.checked_add(classic_trailer.len() as u64))
-            .and_then(|tail_len| xref_offset.checked_add(tail_len));
-        let mut needs_xref_stream =
-            classic_end_offset.is_none_or(|end_offset| end_offset > MAX_CLASSIC_XREF_OFFSET);
+        let mut any_wide_offset = pages_offset > MAX_CLASSIC_XREF_OFFSET
+            || info_offset.is_some_and(|offset| offset > MAX_CLASSIC_XREF_OFFSET);
         for object_number in 1..=object_count {
+            if object_number == 2 || info_object == Some(object_number) {
+                continue;
+            }
             let offset = self
                 .offsets
                 .get(object_number)
@@ -716,23 +727,103 @@ impl<W: IoWrite> PdfWriter<W> {
                 .ok_or_else(|| format!("Missing PDF object offset: {object_number}"))?;
             ensure_safe_pdf_offset(offset)?;
             if offset > MAX_CLASSIC_XREF_OFFSET {
-                needs_xref_stream = true;
+                any_wide_offset = true;
             }
         }
 
-        if needs_xref_stream {
-            let root_object = self.next_object;
-            self.next_object += 1;
-            self.push_object(
-                root_object,
-                b"<< /Type /Catalog /Version /1.5 /Pages 2 0 R >>",
-            )?;
+        let classic_xref_header = format!("xref\n0 {}\n", object_count + 1);
+        let classic_trailer = match info_object {
+            Some(info_object) => format!(
+                "trailer\n<< /Size {} /Root 1 0 R /Info {} 0 R >>\nstartxref\n{}\n%%EOF\n",
+                object_count + 1,
+                info_object,
+                after_info
+            ),
+            None => format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+                object_count + 1,
+                after_info
+            ),
+        };
+        let classic_end_offset = (object_count as u64 + 1)
+            .checked_mul(20)
+            .and_then(|entries_len| entries_len.checked_add(classic_xref_header.len() as u64))
+            .and_then(|table_len| table_len.checked_add(classic_trailer.len() as u64))
+            .and_then(|tail_len| after_info.checked_add(tail_len));
+        let needs_xref_stream = any_wide_offset
+            || classic_end_offset.is_none_or(|end_offset| end_offset > MAX_CLASSIC_XREF_OFFSET);
 
-            let xref_object = self.next_object;
-            let xref_offset = self.bytes_written;
-            ensure_safe_pdf_offset(xref_offset)?;
+        let xref_stream_plan = if needs_xref_stream {
+            const CATALOG_15_BODY: &[u8] = b"<< /Type /Catalog /Version /1.5 /Pages 2 0 R >>";
+            let root_object = object_count + 1;
+            let xref_object = root_object + 1;
+            let xref_offset = checked_add_safe_offset(
+                after_info,
+                indirect_object_byte_len(root_object, CATALOG_15_BODY),
+            )?;
+            let total_entries = xref_object
+                .checked_add(1)
+                .ok_or_else(|| pdf_offset_limit_error(None))?;
+            let xref_stream_len = total_entries
+                .checked_mul(11)
+                .ok_or_else(|| pdf_offset_limit_error(None))?;
+            let info_entry = info_object
+                .map(|object_number| format!(" /Info {object_number} 0 R"))
+                .unwrap_or_default();
+            let header = format!("{xref_object} 0 obj\n");
+            let dict = format!(
+                "<< /Type /XRef /Size {total_entries} /W [1 8 2] /Root {root_object} 0 R{info_entry} /Length {xref_stream_len} >>"
+            );
+            let stream_start = b"\nstream\n";
+            let stream_end = format!("\nendstream\nendobj\nstartxref\n{xref_offset}\n%%EOF\n");
+            let mut end_offset = xref_offset;
+            for part_len in [
+                header.len(),
+                dict.len(),
+                stream_start.len(),
+                xref_stream_len,
+                stream_end.len(),
+            ] {
+                end_offset = checked_add_safe_offset(end_offset, part_len)?;
+            }
+            Some((
+                root_object,
+                CATALOG_15_BODY,
+                xref_object,
+                xref_offset,
+                total_entries,
+                header,
+                dict,
+                stream_start,
+                stream_end,
+            ))
+        } else {
+            None
+        };
+
+        self.push_object(2, pages_body.as_bytes())?;
+        if let Some((object_number, info_body)) = info_spec {
+            self.next_object = object_number + 1;
+            self.push_object(object_number, info_body.as_bytes())?;
+        }
+
+        if let Some((
+            root_object,
+            catalog_body,
+            xref_object,
+            xref_offset,
+            total_entries,
+            header,
+            dict,
+            stream_start,
+            stream_end,
+        )) = xref_stream_plan
+        {
+            self.next_object = root_object + 1;
+            self.push_object(root_object, catalog_body)?;
+            debug_assert_eq!(self.bytes_written, xref_offset);
+
             let offsets = std::mem::take(&mut self.offsets);
-            let total_entries = xref_object + 1;
             let mut xref_stream = Vec::with_capacity(total_entries * 11);
             // Object 0: free head entry (type 0, next free 0, gen 65535).
             xref_stream.extend_from_slice(&[0; 9]);
@@ -742,7 +833,6 @@ impl<W: IoWrite> PdfWriter<W> {
                     .get(object_number)
                     .and_then(|offset| *offset)
                     .ok_or_else(|| format!("Missing PDF object offset: {object_number}"))?;
-                ensure_safe_pdf_offset(offset)?;
                 xref_stream.push(1);
                 xref_stream.extend_from_slice(&offset.to_be_bytes());
                 xref_stream.extend_from_slice(&0u16.to_be_bytes());
@@ -752,23 +842,6 @@ impl<W: IoWrite> PdfWriter<W> {
             xref_stream.extend_from_slice(&xref_offset.to_be_bytes());
             xref_stream.extend_from_slice(&0u16.to_be_bytes());
 
-            let info_entry = info_object
-                .map(|object_number| format!(" /Info {object_number} 0 R"))
-                .unwrap_or_default();
-            let header = format!("{xref_object} 0 obj\n");
-            let dict = format!(
-                "<< /Type /XRef /Size {total_entries} /W [1 8 2] /Root {root_object} 0 R{info_entry} /Length {} >>",
-                xref_stream.len()
-            );
-            let stream_start = b"\nstream\n";
-            let stream_end = format!("\nendstream\nendobj\nstartxref\n{xref_offset}\n%%EOF\n");
-            self.ensure_body_write_fits(&[
-                header.len(),
-                dict.len(),
-                stream_start.len(),
-                xref_stream.len(),
-                stream_end.len(),
-            ])?;
             self.write_all(header.as_bytes())?;
             self.write_all(dict.as_bytes())?;
             self.write_all(stream_start)?;
@@ -2659,16 +2732,38 @@ mod tests {
         assert!(info_dict.contains("/Type /XRef /Size 6 /W [1 8 2] /Root 4 0 R /Info 3 0 R"));
         assert_eq!(info_entries.len(), 6);
 
-        // Recorded object offset past the safe-offset limit is refused before writing xref.
+        // Recorded object offset past the safe-offset limit is refused before writing any final objects.
         let mut buffer = Vec::new();
+        let bytes_before;
         {
             let mut writer = PdfWriter::new(&mut buffer, None).unwrap();
+            bytes_before = writer.inner.len();
             writer.offsets[1] = Some(MAX_SAFE_PDF_OFFSET + 1);
             let error = writer.finish().unwrap_err();
             let native = error.downcast_ref::<NativeError>().unwrap();
             assert_eq!(native.code, NativeErrorCode::TooLarge);
             assert!(native.message.contains("maximum safe PDF offset"));
         }
+        assert_eq!(buffer.len(), bytes_before);
+        assert!(find_bytes(&buffer, b"/Type /XRef").is_none());
+
+        // Ending whose /Pages + /Info + replacement catalog fit, but whose XRef
+        // stream + trailer crosses MAX_SAFE_PDF_OFFSET, must reject without
+        // writing any final objects to the sink.
+        let mut buffer = Vec::new();
+        let bytes_before;
+        {
+            let mut writer = PdfWriter::new(&mut buffer, Some("deadbeef")).unwrap();
+            bytes_before = writer.inner.len();
+            writer.bytes_written = MAX_SAFE_PDF_OFFSET - 220;
+            let error = writer.finish().unwrap_err();
+            let native = error.downcast_ref::<NativeError>().unwrap();
+            assert_eq!(native.code, NativeErrorCode::TooLarge);
+            assert!(native.message.contains("maximum safe PDF offset"));
+        }
+        assert_eq!(buffer.len(), bytes_before);
+        assert!(find_bytes(&buffer, b"/Type /Pages").is_none());
+        assert!(find_bytes(&buffer, b"/Version /1.5").is_none());
         assert!(find_bytes(&buffer, b"/Type /XRef").is_none());
     }
 
@@ -2757,7 +2852,35 @@ mod tests {
         drop(finished);
 
         let metadata = fs::metadata(&pdf_path).unwrap();
-        assert!(metadata.len() > 10 * 1024 * 1024 * 1024);
+        let file_len = metadata.len();
+        assert!(file_len > 10 * 1024 * 1024 * 1024);
+
+        // Unconditionally validate the written >10 GiB tail structure (so the
+        // test verifies the on-disk /Type /XRef stream even on runners without
+        // external qpdf or Node binaries).
+        {
+            use std::io::Read;
+            let mut read_file = fs::File::open(&pdf_path).unwrap();
+            let tail_len = 2048u64.min(file_len);
+            read_file
+                .seek(SeekFrom::Start(file_len - tail_len))
+                .unwrap();
+            let mut tail = vec![0u8; tail_len as usize];
+            read_file.read_exact(&mut tail).unwrap();
+            assert!(find_bytes(&tail, b"/Version /1.5").is_some());
+            assert!(find_bytes(&tail, b"/Type /XRef").is_some());
+            assert!(find_bytes(&tail, b"/W [1 8 2]").is_some());
+            assert!(find_bytes(&tail, b"/Info ").is_some());
+            let startxref_pos = find_bytes(&tail, b"startxref\n").unwrap();
+            let startxref_str = std::str::from_utf8(&tail[startxref_pos..]).unwrap();
+            let startxref = startxref_str
+                .lines()
+                .nth(1)
+                .unwrap()
+                .parse::<u64>()
+                .unwrap();
+            assert!(startxref > 10 * 1024 * 1024 * 1024);
+        }
 
         let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let qpdf = [
@@ -2850,9 +2973,9 @@ const task = getDocument({
 task.promise.catch(() => undefined);
 try {
     const doc = await Promise.race([task.promise, budgetFailure]);
-    const page = await doc.getPage(1);
+    const page = await Promise.race([doc.getPage(1), budgetFailure]);
     const viewport = page.getViewport({ scale: 1 });
-    const meta = await doc.getMetadata();
+    const meta = await Promise.race([doc.getMetadata(), budgetFailure]);
     const stamp = meta.info?.Custom instanceof Map
         ? meta.info.Custom.get('EVBScanCleanup')
         : meta.info?.Custom?.EVBScanCleanup ?? null;
