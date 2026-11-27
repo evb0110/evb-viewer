@@ -51,7 +51,7 @@
 </template>
 
 <script setup lang="ts">
-
+import { whenever } from '@vueuse/core';
 import { parsePageRangeInput } from '@app/modules/document-viewer/public';
 import { createPageSelectionFromRange } from '@app/utils/pdfPageSelection';
 import PdfPageScopeRadioGroup from '@app/modules/pdf-viewer/components/PdfPageScopeRadioGroup.vue';
@@ -194,11 +194,7 @@ function handleSubmit() {
     open.value = false;
 }
 
-watch(open, (isOpen) => {
-    if (!isOpen) {
-        return;
-    }
-
+whenever(open, () => {
     resetScopeForOpen();
 });
 </script>

@@ -31,7 +31,12 @@ interface IScanCleanupSegmentedItem {
     value: string;
 }
 
-const props = defineProps<{
+const {
+    disabled = false,
+    groupLabel,
+    items,
+    modelValue,
+} = defineProps<{
     disabled?: boolean;
     groupLabel: string;
     items: readonly IScanCleanupSegmentedItem[];
@@ -40,22 +45,22 @@ const props = defineProps<{
 
 const emit = defineEmits<{'update:modelValue': [value: string];}>();
 const group = ref<HTMLElement | null>(null);
-const hasSelectedItem = computed(() => props.items.some(item => item.value === props.modelValue));
+const hasSelectedItem = computed(() => items.some(item => item.value === modelValue));
 
 function select(value: string) {
-    if (props.disabled) {
+    if (disabled) {
         return;
     }
     emit('update:modelValue', value);
 }
 
 function focusOption(index: number) {
-    const count = props.items.length;
+    const count = items.length;
     if (count === 0) {
         return;
     }
     const boundedIndex = (index + count) % count;
-    const item = props.items[boundedIndex];
+    const item = items[boundedIndex];
     if (!item) {
         return;
     }
@@ -64,7 +69,7 @@ function focusOption(index: number) {
 }
 
 function handleKeydown(event: KeyboardEvent, index: number) {
-    if (props.disabled) {
+    if (disabled) {
         return;
     }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
@@ -78,7 +83,7 @@ function handleKeydown(event: KeyboardEvent, index: number) {
         focusOption(0);
     } else if (event.key === 'End') {
         event.preventDefault();
-        focusOption(props.items.length - 1);
+        focusOption(items.length - 1);
     }
 }
 </script>

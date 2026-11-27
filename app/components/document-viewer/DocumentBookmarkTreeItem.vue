@@ -79,6 +79,7 @@
 </template>
 
 <script setup lang="ts">
+import { whenever } from '@vueuse/core';
 import type {IDocumentBookmarkTreeItem} from '@app/modules/document-viewer/public';
 import type {
     IBookmarkDropPayload,
@@ -87,7 +88,18 @@ import type {
 } from '@app/types/pdfOutline';
 import {getEventCurrentTarget} from '@app/utils/getEventCurrentTarget';
 
-const props = defineProps<{
+const {
+    item,
+    depth,
+    isExpanded,
+    isActive,
+    editMode = false,
+    isSelected,
+    isEditing = false,
+    isDragging,
+    dropPosition,
+    canDrop = false,
+} = defineProps<{
     item: IDocumentBookmarkTreeItem;
     depth: number;
     isExpanded: boolean;
@@ -117,34 +129,31 @@ const {t} = useTypedI18n();
 const BOOKMARK_DROP_EDGE_ZONE_RATIO = 0.28;
 const titleInputRef = ref<HTMLInputElement | null>(null);
 const editingTitle = ref('');
-const displayTitle = computed(() => props.item.title || t('bookmarks.untitled'));
-const rowCssVars = computed(() => ({'--bookmark-depth': String(props.depth)}));
+const displayTitle = computed(() => item.title || t('bookmarks.untitled'));
+const rowCssVars = computed(() => ({'--bookmark-depth': String(depth)}));
 const titleColorStyle = computed(() => (
-    props.item.color ? {'--bookmark-color': props.item.color} : undefined
+    item.color ? {'--bookmark-color': item.color} : undefined
 ));
 
-watch(() => props.isEditing, async editing => {
-    if (!editing) {
-        return;
-    }
-    editingTitle.value = props.item.title;
+whenever(() => isEditing, async () => {
+    editingTitle.value = item.title;
     await nextTick();
     titleInputRef.value?.focus();
     titleInputRef.value?.select();
 }, {immediate: true});
 
 function activate(event: MouseEvent | KeyboardEvent) {
-    if (!props.isEditing && !(event instanceof MouseEvent && event.button !== 0)) {
-        emit('activate', props.item.id, event);
+    if (!isEditing && !(event instanceof MouseEvent && event.button !== 0)) {
+        emit('activate', item.id, event);
     }
 }
 
 function openActionsFromPointer(event: MouseEvent) {
-    if (props.editMode) {
+    if (editMode) {
         event.preventDefault();
         event.stopPropagation();
         emit('open-actions', {
-            id: props.item.id,
+            id: item.id,
             x: event.clientX,
             y: event.clientY,
         });
@@ -154,18 +163,18 @@ function openActionsFromPointer(event: MouseEvent) {
 function openActionsFromButton(event: MouseEvent) {
     const rect = getEventCurrentTarget(event, HTMLElement)?.getBoundingClientRect();
     emit('open-actions', {
-        id: props.item.id,
+        id: item.id,
         x: rect?.right ?? event.clientX,
         y: rect?.bottom ?? event.clientY,
     });
 }
 
 function commitEdit() {
-    if (!props.isEditing) {
+    if (!isEditing) {
         return;
     }
     emit('save-edit', {
-        id: props.item.id,
+        id: item.id,
         title: editingTitle.value,
     });
 }
@@ -180,34 +189,34 @@ function detectDropPosition(event: DragEvent): TBookmarkDropPosition {
 }
 
 function handleDragStart(event: DragEvent) {
-    if (!props.editMode || props.isEditing) {
+    if (!editMode || isEditing) {
         event.preventDefault();
         return;
     }
-    event.dataTransfer?.setData('text/plain', props.item.id);
+    event.dataTransfer?.setData('text/plain', item.id);
     if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = 'move';
     }
-    emit('drag-start', {id: props.item.id});
+    emit('drag-start', {id: item.id});
 }
 
 function handleDragOver(event: DragEvent) {
-    if (!props.canDrop) {
+    if (!canDrop) {
         return;
     }
     if (event.dataTransfer) {
         event.dataTransfer.dropEffect = 'move';
     }
     emit('drag-hover', {
-        targetId: props.item.id,
+        targetId: item.id,
         position: detectDropPosition(event),
     });
 }
 
 function handleDrop(event: DragEvent) {
-    if (props.canDrop) {
+    if (canDrop) {
         emit('drop-bookmark', {
-            targetId: props.item.id,
+            targetId: item.id,
             position: detectDropPosition(event),
         });
     }

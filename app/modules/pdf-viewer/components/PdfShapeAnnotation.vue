@@ -54,7 +54,12 @@ import type { IShapeEntity } from '@app/modules/pdf-viewer/engine/annotations/do
 import { toPdfScaledCssLength } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 import type { IAnnotationPageDimensions } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 
-const props = defineProps<{
+const {
+    entity,
+    selected,
+    originalAppearance,
+    pageSize,
+} = defineProps<{
     entity: IShapeEntity;
     selected: boolean;
     originalAppearance?: boolean;
@@ -64,27 +69,27 @@ const renderPasses = [
     'hit',
     'visual',
 ] as const;
-const strokePointSets = computed(() => props.entity.strokes?.length ? props.entity.strokes : props.entity.points ? [props.entity.points] : []);
+const strokePointSets = computed(() => entity.strokes?.length ? entity.strokes : entity.points ? [entity.points] : []);
 const drawStrokeTag = computed(() => (
-    props.entity.pdfSubtype === 'Polygon' ? 'polygon' : 'polyline'
+    entity.pdfSubtype === 'Polygon' ? 'polygon' : 'polyline'
 ));
 const drawableStrokePoints = computed(() => strokePointSets.value
     .filter(points => points.length > 1)
     .map(formatPoints));
 const ellipse = computed(() => ({
-    cx: props.entity.rect.left + props.entity.rect.width / 2,
-    cy: props.entity.rect.top + props.entity.rect.height / 2,
-    rx: Math.abs(props.entity.rect.width / 2),
-    ry: Math.abs(props.entity.rect.height / 2),
+    cx: entity.rect.left + entity.rect.width / 2,
+    cy: entity.rect.top + entity.rect.height / 2,
+    rx: Math.abs(entity.rect.width / 2),
+    ry: Math.abs(entity.rect.height / 2),
 }));
-const linePoints = computed(() => props.entity.points?.length ? props.entity.points : props.entity.strokes?.[0] ?? []);
+const linePoints = computed(() => entity.points?.length ? entity.points : entity.strokes?.[0] ?? []);
 // Drawing tools clamp to unit page space, but an imported line, polyline or
 // ink annotation authored elsewhere is not clamped and legitimately paints
 // past the page edge. Marking it here is what lets an observer tell that case
 // apart from an overlay that drifted off its page.
 const OUTSIDE_PAGE_EPSILON = 0.001;
 const isDrawnPastPageEdge = computed(() => {
-    const { rect } = props.entity;
+    const { rect } = entity;
     const coordinates = [
         rect.left,
         rect.top,
@@ -109,17 +114,17 @@ const line = computed(() => {
     const first = linePoints.value[0];
     const last = linePoints.value.at(-1);
     return {
-        x1: first?.x ?? props.entity.rect.left,
-        y1: first?.y ?? props.entity.rect.top,
-        x2: last?.x ?? props.entity.rect.left + props.entity.rect.width,
-        y2: last?.y ?? props.entity.rect.top + props.entity.rect.height,
+        x1: first?.x ?? entity.rect.left,
+        y1: first?.y ?? entity.rect.top,
+        x2: last?.x ?? entity.rect.left + entity.rect.width,
+        y2: last?.y ?? entity.rect.top + entity.rect.height,
     };
 });
 const arrowHeads = computed(() => {
-    if (props.entity.tool !== 'line' && props.entity.tool !== 'arrow') {
+    if (entity.tool !== 'line' && entity.tool !== 'arrow') {
         return [];
     }
-    const page = props.pageSize ?? {
+    const page = pageSize ?? {
         width: 612,
         height: 792,
     };
@@ -134,8 +139,8 @@ const arrowHeads = computed(() => {
         },
     ] as const;
     const styles = [
-        props.entity.lineStartStyle ?? 'none',
-        props.entity.lineEndStyle ?? (props.entity.tool === 'arrow' ? 'closedArrow' : 'none'),
+        entity.lineStartStyle ?? 'none',
+        entity.lineEndStyle ?? (entity.tool === 'arrow' ? 'closedArrow' : 'none'),
     ];
     return styles.flatMap((style, index) => {
         if (style === 'none') {
@@ -147,7 +152,7 @@ const arrowHeads = computed(() => {
         if (!length) {
             return [];
         }
-        const headLength = Math.min(length * 0.4, Math.max(6, props.entity.strokeWidth * 10));
+        const headLength = Math.min(length * 0.4, Math.max(6, entity.strokeWidth * 10));
         const halfWidth = headLength * 0.35;
         const ux = (tip.x - other.x) / length;
         const uy = (tip.y - other.y) / length;
@@ -171,11 +176,11 @@ const arrowHeads = computed(() => {
     });
 });
 const shapeStyle = computed(() => ({
-    '--annotation-stroke': props.entity.strokeColor,
-    '--annotation-fill': props.entity.fill ?? 'none',
-    '--annotation-opacity': String(props.entity.opacity),
-    '--annotation-stroke-width': toPdfScaledCssLength(props.entity.strokeWidth),
-    '--annotation-hit-width': `max(14px, ${toPdfScaledCssLength(props.entity.strokeWidth, 10)})`,
+    '--annotation-stroke': entity.strokeColor,
+    '--annotation-fill': entity.fill ?? 'none',
+    '--annotation-opacity': String(entity.opacity),
+    '--annotation-stroke-width': toPdfScaledCssLength(entity.strokeWidth),
+    '--annotation-hit-width': `max(14px, ${toPdfScaledCssLength(entity.strokeWidth, 10)})`,
 }));
 </script>
 

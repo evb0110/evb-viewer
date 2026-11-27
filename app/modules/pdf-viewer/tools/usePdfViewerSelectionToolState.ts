@@ -2,6 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import { whenever } from '@vueuse/core';
 import { clamp } from 'es-toolkit/math';
 import { usePdfDrag } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfDrag';
 import { isSelectionInteractionTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionInteractionTool';
@@ -70,10 +71,8 @@ export const usePdfViewerSelectionToolState = (options: IUsePdfViewerSelectionTo
     });
 
     const drag = usePdfDrag(() => isViewerPanDragModeActive.value, options.viewportWritePort);
-    watch(isImagePlacementActive, (active) => {
-        if (active) {
-            drag.stopDrag();
-        }
+    whenever(isImagePlacementActive, () => {
+        drag.stopDrag();
     });
 
     return {

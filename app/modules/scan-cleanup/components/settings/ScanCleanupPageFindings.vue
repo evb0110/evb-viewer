@@ -43,13 +43,16 @@ import {
     type IScanCleanupPageFacts,
 } from '@app/modules/scan-cleanup/runtime/describeScanCleanupPage';
 
-const props = defineProps<{
+const {
+    facts,
+    pageNumber,
+} = defineProps<{
     facts: IScanCleanupPageFacts;
     pageNumber: number;
 }>();
 const {t} = useTypedI18n();
-const attentionHints = computed(() => scanCleanupPageAttentionHints(t, props.facts));
-const diagnosticGroups = computed(() => scanCleanupPageDiagnosticGroups(t, props.facts));
+const attentionHints = computed(() => scanCleanupPageAttentionHints(t, facts));
+const diagnosticGroups = computed(() => scanCleanupPageDiagnosticGroups(t, facts));
 </script>
 
 <style scoped>

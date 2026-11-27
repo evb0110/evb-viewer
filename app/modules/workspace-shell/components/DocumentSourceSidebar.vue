@@ -73,7 +73,16 @@ import DocumentThumbnailList from '@app/components/document-viewer/DocumentThumb
 import DocumentSidebarPagesPanel from '@app/components/document-viewer/DocumentSidebarPagesPanel.vue';
 
 const { t } = useTypedI18n();
-const props = defineProps<{
+const {
+    source,
+    currentPage,
+    isActive,
+    searchSession,
+    isResizing,
+    searchFocusRequest,
+    activeTab,
+    availableTabs,
+} = defineProps<{
     source: IDocumentPageSource | null;
     currentPage: number;
     isActive?: boolean;
@@ -91,11 +100,10 @@ const emit = defineEmits<{
     'update:activeTab': [value: TDocumentSidebarTab];
 }>();
 
-const isActive = computed(() => props.isActive);
 const bookmarkSession = useDocumentBookmarkSession({
-    source: computed(() => props.source),
-    currentPage: computed(() => props.currentPage),
-    isActive: computed(() => props.activeTab === 'bookmarks'),
+    source: computed(() => source),
+    currentPage: computed(() => currentPage),
+    isActive: computed(() => activeTab === 'bookmarks'),
 });
 const {
     activeId: activeBookmarkId,
@@ -115,7 +123,7 @@ const isBookmarkToolbarVisible = computed(() => (
     outlineStatus.value === 'ready' || outlineStatus.value === 'empty'
 ));
 
-const availableShellTabs = computed(() => props.availableTabs.map(tab => ({
+const availableShellTabs = computed(() => availableTabs.map(tab => ({
     value: tab,
     label: getTabLabel(tab),
     title: getTabLabel(tab),
@@ -133,9 +141,9 @@ function getTabLabel(tab: TDocumentSidebarTab) {
 
 function handleShellTabUpdate(value: string) {
     const tab = /^\d+$/u.test(value)
-        ? props.availableTabs[Number(value)]
+        ? availableTabs[Number(value)]
         : value as TDocumentSidebarTab;
-    if (!tab || !props.availableTabs.includes(tab)) {
+    if (!tab || !availableTabs.includes(tab)) {
         return;
     }
     emit('update:activeTab', tab);

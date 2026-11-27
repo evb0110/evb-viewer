@@ -1,6 +1,5 @@
 import { normalizePdfViewRotation } from '@app/utils/pdfViewRotation';
 import { getErrorMessage } from '@app/utils/error';
-import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 import {
     pageNumberToPageIndex, type TPageIndex,
 } from '@contracts/pageNumbers';
@@ -100,10 +99,8 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     const isTruncated = ref(false);
     let searchRunId = 0;
     let searchCommand: IScheduledPdfSearch | null = null;
-    const scheduledResolvers = new Map<number, (applied: boolean) => void>();
     let progressCleanup: (() => void) | null = null;
     let activeRequestId: TRequestId | null = null;
-    let pendingSearchTimer: ReturnType<typeof setTimeout> | null = null;
     let resumeInterruptedSearch: (() => void) | null = null;
 
     const totalMatches = computed(() => results.value.length);
@@ -303,9 +300,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         return nextResults;
     }
 
-    async function runScheduledSearch(payload: IScheduledPdfSearch) {
-        const resolver = scheduledResolvers.get(payload.runId);
-        scheduledResolvers.delete(payload.runId);
+    async function runScheduledSearch(payload: IScheduledPdfSearch): Promise<boolean> {
         try {
             await performSearch(payload);
         } catch (error) {
@@ -321,41 +316,13 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
                 query: payload.query,
                 error,
             });
-        } finally {
-            resolver?.(isCurrentSearchRun(payload.runId, payload.documentRevisionToken) && !searchError.value);
         }
+        return isCurrentSearchRun(payload.runId, payload.documentRevisionToken) && !searchError.value;
     }
 
-    /**
-     * The debounce timer is owned here rather than by a filter wrapper so that
-     * leaving the search tab can actually drop work that has not started yet.
-     */
     function scheduleSearch(payload: IScheduledPdfSearch) {
         searchCommand = payload;
-        clearPendingSearchTimer();
-        if (SEARCH_DEBOUNCE_MS <= 0) {
-            void runScheduledSearch(payload);
-            return;
-        }
-        pendingSearchTimer = setTimeout(() => {
-            pendingSearchTimer = null;
-            void runScheduledSearch(payload);
-        }, SEARCH_DEBOUNCE_MS);
-    }
-
-    function clearPendingSearchTimer() {
-        if (pendingSearchTimer !== null) {
-            clearTimeout(pendingSearchTimer);
-            pendingSearchTimer = null;
-        }
-    }
-
-    function cancelScheduledSearch() {
-        clearPendingSearchTimer();
-        for (const resolver of scheduledResolvers.values()) {
-            resolver(false);
-        }
-        scheduledResolvers.clear();
+        return runScheduledSearch(payload);
     }
 
     async function cancelActiveSearch() {
@@ -383,7 +350,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
      */
     function cancelSearch() {
         searchRunId += 1;
-        cancelScheduledSearch();
         void cancelActiveSearch();
         cleanupProgressListener();
         isSearching.value = false;
@@ -526,7 +492,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         const normalizedDocumentRevisionToken = documentRevisionToken === undefined
             ? getCurrentDocumentRevisionToken()
             : normalizeDocumentRevisionToken(documentRevisionToken);
-        cancelScheduledSearch();
         await cancelActiveSearch();
         if (!isCurrentSearchRun(runId, normalizedDocumentRevisionToken)) {
             return false;
@@ -547,29 +512,25 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
         }
 
         // Mark as searching immediately so the UI doesn't show "No results found" while we're
-        // waiting for the debounce window / backend response.
+        // waiting for the backend response.
         isSearching.value = true;
         isTruncated.value = false;
         searchError.value = null;
 
-        return new Promise<boolean>((resolve) => {
-            scheduledResolvers.set(runId, resolve);
-            const payload = {
-                runId,
-                query: resolvedQuery,
-                pdfPath,
-                documentRevisionToken: normalizedDocumentRevisionToken,
-                options: { ...searchOptions.value },
-            };
-            if (pageCount !== undefined) {
-                scheduleSearch({
-                    ...payload,
-                    pageCount,
-                });
-                return;
-            }
-            scheduleSearch(payload);
-        });
+        const payload = {
+            runId,
+            query: resolvedQuery,
+            pdfPath,
+            documentRevisionToken: normalizedDocumentRevisionToken,
+            options: { ...searchOptions.value },
+        };
+        if (pageCount !== undefined) {
+            return scheduleSearch({
+                ...payload,
+                pageCount,
+            });
+        }
+        return scheduleSearch(payload);
     }
 
     function setSearchOption(
@@ -621,7 +582,6 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
     function clearSearch() {
         searchCommand = null;
         searchRunId++;
-        cancelScheduledSearch();
         void cancelActiveSearch();
         cleanupProgressListener();
         searchProgress.value = undefined;
@@ -648,7 +608,7 @@ export const usePdfSearch = (hookOptions: IUsePdfSearchOptions = {}) => {
      */
     function adoptPageRotation(documentRevisionToken: TDocumentRevisionToken, pages: readonly number[], rotationDelta: 90 | 180 | 270) {
         const interrupted = searchCommand?.runId === searchRunId && !searchCommand.completed;
-        const ordinal = pendingSearchTimer === null && !searchCommand?.direction ? currentResult.value?.matchIndex : undefined;
+        const ordinal = !searchCommand?.direction ? currentResult.value?.matchIndex : undefined;
         cancelSearch();
         if (!searchCommand) return;
         const command = {

@@ -27,16 +27,20 @@ import {
     type IDocumentPageSourceSearchHighlight,
 } from '@app/modules/document-viewer/page-source-renderer/resolveDocumentPageSourceSearchHighlights';
 
-const props = defineProps<{
+const {
+    currentResultIndex,
+    pageNumber,
+    results,
+} = defineProps<{
     currentResultIndex: number;
     pageNumber: number;
     results: readonly IDocumentSearchMatch[];
 }>();
 
 const highlights = computed(() => resolveDocumentPageSourceSearchHighlights({
-    currentResultIndex: props.currentResultIndex,
-    pageNumber: props.pageNumber,
-    results: props.results,
+    currentResultIndex,
+    pageNumber,
+    results,
 }));
 
 function getHighlightStyle(highlight: IDocumentPageSourceSearchHighlight) {

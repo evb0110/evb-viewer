@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import {
     useEventListener,
     useResizeObserver,
+    whenever,
 } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
@@ -94,11 +95,9 @@ export const useShellWorkspaceToolbar = (options: IUseShellWorkspaceToolbarOptio
     }
     // The menus outlive tab, pane and document changes; they close only when
     // the row that holds their triggers leaves the screen.
-    watch(() => options.isToolbarHidden() || !showShellMenus.value, (hidden) => {
-        if (hidden) {
-            shellToolbarAppMenuOpen.value = false;
-            shellToolbarOverflowMenuOpen.value = false;
-        }
+    whenever(() => options.isToolbarHidden() || !showShellMenus.value, () => {
+        shellToolbarAppMenuOpen.value = false;
+        shellToolbarOverflowMenuOpen.value = false;
     });
     // A dialog takes over from a window menu, whichever command or shortcut opened it.
     useEventListener('focusin', (event) => {

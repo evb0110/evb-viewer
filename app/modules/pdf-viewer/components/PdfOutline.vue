@@ -113,7 +113,12 @@
 </template>
 
 <script setup lang="ts">
+import { useTimeoutFn } from '@vueuse/core';
 import type {IPdfDocument} from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource';
+import {
+    BOOKMARK_INITIAL_SELECTION_BUDGET_MS,
+    BOOKMARK_LOADING_INDICATOR_DELAY_MS,
+} from '@app/constants/timeouts';
 
 
 import type {
@@ -168,7 +173,14 @@ interface IProps {
     bookmarksDirty?: boolean | undefined;
 }
 
-const props = defineProps<IProps>();
+const {
+    pdfDocument,
+    documentRef,
+    currentPage,
+    isEditMode: isEditModeProp,
+    bookmarkItems,
+    bookmarksDirty,
+} = defineProps<IProps>();
 
 const emit = defineEmits<{
     goToPage: [page: number, options?: IScrollToPageOptions];
@@ -182,7 +194,7 @@ function toggleEditMode() {
 
 const { t } = useTypedI18n();
 
-const bookmarkTreeRef = useTemplateRef<{focusActiveRow: () => Promise<void>}>('bookmarkTreeRef');
+const bookmarkTreeRef = useTemplateRef<InstanceType<typeof DocumentBookmarkTree>>('bookmarkTreeRef');
 const bookmarks = ref<IBookmarkItem[]>([]);
 const isLoading = ref(false);
 const isLoadingIndicatorVisible = ref(false);
@@ -238,13 +250,13 @@ const isBookmarkToolbarVisible = computed(() => (
 ));
 
 watch(outlinePersistenceBlocked, blocked => {
-    if (blocked && props.isEditMode) {
+    if (blocked && isEditModeProp) {
         emit('update:isEditMode', false);
     }
 }, {flush: 'post'});
 
 const isEditMode = computed({
-    get: () => props.isEditMode && !outlinePersistenceBlocked.value,
+    get: () => isEditModeProp && !outlinePersistenceBlocked.value,
     set: (value: boolean) => {
         if (value && outlinePersistenceBlocked.value) {
             BrowserLogger.warn('pdfOutline', 'Refused bookmark editing outside native persistence limits', {
@@ -259,7 +271,7 @@ const isEditMode = computed({
     },
 });
 
-const currentPageRef = computed(() => props.currentPage);
+const currentPageRef = computed(() => currentPage);
 
 const parentBookmarkIdMap = computed(() => {
     const map = new Map<string, string | null>();
@@ -300,18 +312,14 @@ function createBookmarkIdentity() {
 
 let bookmarkIdentity = createBookmarkIdentity();
 
-const BOOKMARK_LOADING_INDICATOR_DELAY_MS = 150;
-// The first rows wait this long at most for the current page's selection. A
-// destination lookup that stalls must not keep the outline hidden.
-const BOOKMARK_INITIAL_SELECTION_BUDGET_MS = 1_000;
-let loadingIndicatorTimer: ReturnType<typeof setTimeout> | null = null;
-
-function cancelLoadingIndicatorDelay() {
-    if (loadingIndicatorTimer !== null) {
-        clearTimeout(loadingIndicatorTimer);
-        loadingIndicatorTimer = null;
+const {
+    start: startLoadingIndicatorDelay,
+    stop: cancelLoadingIndicatorDelay,
+} = useTimeoutFn(() => {
+    if (isLoading.value) {
+        isLoadingIndicatorVisible.value = true;
     }
-}
+}, BOOKMARK_LOADING_INDICATOR_DELAY_MS, {immediate: false});
 
 function stopOutlineLoading() {
     cancelLoadingIndicatorDelay();
@@ -323,15 +331,8 @@ function beginOutlineLoading() {
     cancelLoadingIndicatorDelay();
     isLoading.value = true;
     isLoadingIndicatorVisible.value = false;
-    loadingIndicatorTimer = setTimeout(() => {
-        loadingIndicatorTimer = null;
-        if (isLoading.value) {
-            isLoadingIndicatorVisible.value = true;
-        }
-    }, BOOKMARK_LOADING_INDICATOR_DELAY_MS);
+    startLoadingIndicatorDelay();
 }
-
-onScopeDispose(cancelLoadingIndicatorDelay);
 
 function resetBookmarkIdentity() {
     bookmarkIdentity = createBookmarkIdentity();
@@ -585,13 +586,13 @@ async function updateActiveItemFromCurrentPage() {
     cancelActiveItemResolution();
     const controller = new AbortController();
     activeItemResolution = controller;
-    const pdfDocument = props.pdfDocument;
-    const currentPage = props.currentPage;
+    const targetPdfDocument = pdfDocument;
+    const targetCurrentPage = currentPage;
     const items = flatBookmarks.value;
     let targets: Map<IBookmarkItem, IResolvedBookmarkPageTarget | null> | null;
     try {
         targets = await resolveBookmarkPageTargets(
-            pdfDocument,
+            targetPdfDocument,
             items,
             bookmarkDestinationCache,
             bookmarkPageRefCache,
@@ -603,7 +604,7 @@ async function updateActiveItemFromCurrentPage() {
         throw error;
     }
     if (!targets) return;
-    if (controller.signal.aborted || props.currentPage !== currentPage || props.pdfDocument !== pdfDocument) return;
+    if (controller.signal.aborted || currentPage !== targetCurrentPage || pdfDocument !== targetPdfDocument) return;
     activeItemResolution = null;
     // The vertical anchor is saved with the page; without it an unrelated edit
     // would rewrite the bookmark to the top of its page.
@@ -617,7 +618,7 @@ async function updateActiveItemFromCurrentPage() {
     }
     const active = resolveActiveBookmarkForPage(
         items,
-        currentPage,
+        targetCurrentPage,
         activeItemId.value,
         item => targets.get(item)?.pageIndex ?? null,
     );
@@ -634,7 +635,7 @@ async function updateActiveItemFromCurrentPage() {
 // The document's bookmarks, once it has them for the bytes in hand, outrank
 // this panel's read of its own outline, which may hold older bytes.
 function getPendingBookmarkEntries() {
-    return props.bookmarkItems ?? null;
+    return bookmarkItems ?? null;
 }
 
 function syncBookmarkBaselineFromCurrentItems() {
@@ -670,7 +671,7 @@ function applyDocumentBookmarkItems() {
     }
 
     stopOutlineLoading();
-    applyPendingBookmarkItems(pendingBookmarkEntries, {syncBaseline: !props.bookmarksDirty});
+    applyPendingBookmarkItems(pendingBookmarkEntries, {syncBaseline: !bookmarksDirty});
     return true;
 }
 
@@ -696,11 +697,11 @@ function clearLoadedOutline() {
     setBookmarkBaseline();
 }
 
-function isStaleOutlineRun(runId: number, pdfDocument: IPdfDocument) {
+function isStaleOutlineRun(runId: number, expectedPdfDocument: IPdfDocument) {
     return (
         runId !== outlineRunId ||
-        props.pdfDocument !== pdfDocument ||
-        !isPdfDocumentUsable(pdfDocument)
+        pdfDocument !== expectedPdfDocument ||
+        !isPdfDocumentUsable(expectedPdfDocument)
     );
 }
 
@@ -786,8 +787,8 @@ async function loadUsableOutline(pdfDocument: IPdfDocument, documentRef: TDocume
 async function loadOutline() {
     bookmarkDestinationCache.clear();
     bookmarkPageRefCache.clear();
-    const pdfDocument = props.pdfDocument;
-    const documentRef = props.documentRef;
+    const targetPdfDocument = pdfDocument;
+    const targetDocumentRef = documentRef;
     outlineRunId += 1;
     const runId = outlineRunId;
     resetOutlineInteractionState();
@@ -796,12 +797,12 @@ async function loadOutline() {
         return;
     }
 
-    if (!pdfDocument || !documentRef || !isPdfDocumentUsable(pdfDocument)) {
+    if (!targetPdfDocument || !targetDocumentRef || !isPdfDocumentUsable(targetPdfDocument)) {
         clearLoadedOutline();
         return;
     }
 
-    await loadUsableOutline(pdfDocument, documentRef, runId);
+    await loadUsableOutline(targetPdfDocument, targetDocumentRef, runId);
 }
 
 function setDisplayMode(mode: TBookmarkDisplayMode) {
@@ -879,8 +880,8 @@ function handleTreeEndDrop() {
 
 watch(
     [
-        () => props.pdfDocument,
-        () => props.documentRef,
+        () => pdfDocument,
+        () => documentRef,
     ],
     () => loadOutline(),
     { immediate: true },
@@ -888,8 +889,8 @@ watch(
 
 watch(
     [
-        () => props.bookmarksDirty,
-        () => props.bookmarkItems,
+        () => bookmarksDirty,
+        () => bookmarkItems,
     ],
     ([
         isDirty,
@@ -903,7 +904,7 @@ watch(
 );
 
 watch(
-    () => props.currentPage,
+    () => currentPage,
     () => updateActiveItemFromCurrentPage(),
 );
 

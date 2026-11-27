@@ -112,6 +112,7 @@
 </template>
 
 <script setup lang="ts">
+import { whenever } from '@vueuse/core';
 import PdfPageScopeRadioGroup from '@app/modules/pdf-viewer/components/PdfPageScopeRadioGroup.vue';
 import type { TPdfViewMode } from '@contracts/shared';
 import {
@@ -357,11 +358,7 @@ function handleSubmit() {
     });
 }
 
-watch(open, (isOpen) => {
-    if (!isOpen) {
-        return;
-    }
-
+whenever(open, () => {
     resetScopeForOpen();
     viewMode.value = supportsAdvancedPrintOptions === false
         || (defaultViewMode === 'facing-first-single' && !supportsFirstPageSinglePrintLayout)

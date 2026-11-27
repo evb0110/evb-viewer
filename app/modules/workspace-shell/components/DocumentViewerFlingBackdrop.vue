@@ -35,6 +35,11 @@
 </template>
 
 <script setup lang="ts">
+import { useTimeoutFn } from '@vueuse/core';
+import {
+    FLING_BACKDROP_HOLD_MS,
+    FLING_BACKDROP_USER_WHEEL_WINDOW_MS,
+} from '@app/constants/timeouts';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import {
     injectDocumentViewerRuntime,
@@ -57,12 +62,6 @@ if (!runtime) {
 const backdrop = runtime.viewportFlingBackdrop;
 const viewport = runtime.viewportElement;
 
-// A fling moves more than a viewport between consecutive scroll events. So can
-// a page jump or a zoom, which is why a step shows the strip only while wheel
-// scrolling is under way. The strip hides once the scroll slows down.
-const USER_WHEEL_WINDOW_MS = 200;
-const FLING_HOLD_MS = 400;
-
 const active = ref(false);
 const viewportWidth = ref(0);
 const viewportHeight = ref(0);
@@ -71,12 +70,14 @@ const viewportClientTop = ref(0);
 const stripElement = shallowRef<HTMLElement | null>(null);
 let lastScrollTop: number | null = null;
 let lastUserWheelAt = Number.NEGATIVE_INFINITY;
-let holdTimer: ReturnType<typeof setTimeout> | null = null;
 let binding: {
     animation: Animation;
     rowPitch: number;
     scrollRange: number;
 } | null = null;
+const { start: startHold } = useTimeoutFn(() => {
+    active.value = false;
+}, FLING_BACKDROP_HOLD_MS, {immediate: false});
 // Rebinds the scroll animation when no binding exists yet, for example while
 // the scroll range was still empty.
 const bindRevision = ref(0);
@@ -126,13 +127,6 @@ function getScrollTimelineConstructor() {
     return typeof candidate === 'function' ? candidate as IScrollTimelineConstructor : null;
 }
 
-function releaseHold() {
-    if (holdTimer !== null) {
-        clearTimeout(holdTimer);
-        holdTimer = null;
-    }
-}
-
 function syncScrollRange() {
     if (!binding) {
         bindRevision.value += 1;
@@ -151,11 +145,7 @@ function syncScrollRange() {
 
 function showStrip() {
     active.value = true;
-    releaseHold();
-    holdTimer = setTimeout(() => {
-        holdTimer = null;
-        active.value = false;
-    }, FLING_HOLD_MS);
+    startHold();
 }
 
 function handleScroll(event: Event) {
@@ -172,7 +162,7 @@ function handleScroll(event: Event) {
     if (Math.abs(scrollTop - previousScrollTop) <= viewportHeight.value) {
         return;
     }
-    if (!active.value && performance.now() - lastUserWheelAt > USER_WHEEL_WINDOW_MS) {
+    if (!active.value && performance.now() - lastUserWheelAt > FLING_BACKDROP_USER_WHEEL_WINDOW_MS) {
         return;
     }
     showStrip();
@@ -299,8 +289,6 @@ watch(pitch, (rowPitch) => {
     effect.updateTiming({iterations: binding.scrollRange / rowPitch});
     binding.rowPitch = rowPitch;
 });
-
-onBeforeUnmount(releaseHold);
 </script>
 
 <style scoped>

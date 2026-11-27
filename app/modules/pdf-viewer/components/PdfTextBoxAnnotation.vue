@@ -59,7 +59,20 @@ interface ITextBoxCommitDraft {
     readonly restoreFocus?: boolean;
 }
 
-const props = defineProps<{
+const {
+    entity,
+    selected,
+    editing: editingProp = false,
+    originalAppearance,
+    nativeAppearance,
+    recoveredDraftText,
+    recoveredDraftRect,
+    autoSizeDraft,
+    caretPoint,
+    displayRect,
+    displayFontSize,
+    commitDraft,
+} = defineProps<{
     entity: ITextBoxEntity;
     selected: boolean;
     editing?: boolean;
@@ -85,25 +98,25 @@ const emit = defineEmits<{
     'draft-change': [text: string];
 }>();
 const { t } = useTypedI18n();
-const editing = computed(() => props.editing ?? false);
-const paintsOriginal = computed(() => props.entity.readOnly === true || props.originalAppearance === true);
+const editing = computed(() => editingProp);
+const paintsOriginal = computed(() => entity.readOnly === true || originalAppearance === true);
 const rootRef = ref<HTMLElement | null>(null);
 const draftRect = ref<IAnnotationMarkerRect | null>(null);
 const inlineEdit = useTextBoxInlineEdit({
-    entity: computed(() => props.entity),
+    entity: computed(() => entity),
     editing,
-    recoveredDraftText: computed(() => props.recoveredDraftText ?? null),
-    caretPoint: computed(() => props.caretPoint ?? null),
+    recoveredDraftText: computed(() => recoveredDraftText ?? null),
+    caretPoint: computed(() => caretPoint ?? null),
     onCommit: (text, options) => {
-        const rect = draftRect.value ?? props.recoveredDraftRect ?? (text !== props.entity.text ? draftRectForContent() : undefined);
-        if (!props.commitDraft) throw new Error('Missing text draft completion owner');
-        return props.commitDraft({
+        const rect = draftRect.value ?? recoveredDraftRect ?? (text !== entity.text ? draftRectForContent() : undefined);
+        if (!commitDraft) throw new Error('Missing text draft completion owner');
+        return commitDraft({
             text,
             restoreFocus: options?.restoreFocus ?? false,
             ...(rect ? {rect: {...rect}} : {}),
         });
     },
-    onCancel: () => props.commitDraft?.(),
+    onCancel: () => commitDraft?.(),
 });
 const {
     commit,
@@ -114,18 +127,18 @@ const {
 } = inlineEdit;
 
 watch(editing, async (value) => {
-    draftRect.value = props.recoveredDraftRect ?? null;
-    if (value && !props.recoveredDraftRect && (props.autoSizeDraft || props.recoveredDraftText != null && props.recoveredDraftText !== props.entity.text)) { await nextTick(); draftRectForContent(); }
+    draftRect.value = recoveredDraftRect ?? null;
+    if (value && !recoveredDraftRect && (autoSizeDraft || recoveredDraftText != null && recoveredDraftText !== entity.text)) { await nextTick(); draftRectForContent(); }
 }, {immediate: true});
 onMounted(() => {
-    void document.fonts?.ready.then(() => {if (editing.value && (draftRect.value || props.autoSizeDraft || inlineEdit.draftText.value !== props.entity.text)) {draftRectForContent();}});
+    void document.fonts?.ready.then(() => {if (editing.value && (draftRect.value || autoSizeDraft || inlineEdit.draftText.value !== entity.text)) {draftRectForContent();}});
 });
 
-watch(() => props.entity.fontSize, async () => {
+watch(() => entity.fontSize, async () => {
     if (editing.value) { await nextTick(); draftRectForContent(); }
 });
 
-watch(() => props.entity.rect, async (rect, previous) => {
+watch(() => entity.rect, async (rect, previous) => {
     if (annotationRectsEqual(rect, previous)) return;
     draftRect.value = editing.value ? rect : null;
     if (editing.value) { await nextTick(); draftRectForContent(); }
@@ -169,7 +182,7 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
 
     const rootStyle = root.style.cssText;
     const editorStyle = editor.style.cssText;
-    let next = draftRect.value ?? props.entity.rect;
+    let next = draftRect.value ?? entity.rect;
     try {
         root.style.width = 'max-content';
         root.style.height = 'auto';
@@ -182,10 +195,10 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
             pixels(getComputedStyle(editor).width),
         );
         const intrinsicWidth = (Math.ceil(intrinsicEditorWidth) + extraWidth) / pageWidth;
-        const baseRect = props.autoSizeDraft ? props.entity.rect : draftRect.value ?? props.entity.rect;
+        const baseRect = autoSizeDraft ? entity.rect : draftRect.value ?? entity.rect;
         const width = Math.min(
-            props.autoSizeDraft ? Math.max(baseRect.width, intrinsicWidth) : baseRect.width,
-            annotationInlineCapacity(baseRect, props.entity.rotation, {
+            autoSizeDraft ? Math.max(baseRect.width, intrinsicWidth) : baseRect.width,
+            annotationInlineCapacity(baseRect, entity.rotation, {
                 width: pageWidth,
                 height: pageHeight,
             }),
@@ -197,17 +210,17 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
         editor.style.whiteSpace = 'pre-wrap';
         editor.style.overflowWrap = 'anywhere';
         const contentHeight = (editor.scrollHeight + extraHeight) / pageHeight;
-        next = props.entity.rotation
+        next = entity.rotation
             ? {
                 ...baseRect,
                 width,
-                height: Math.max(props.entity.rect.height, contentHeight),
+                height: Math.max(entity.rect.height, contentHeight),
             }
             : expandTextBoxRectToContentSize({
                 ...baseRect,
-                height: props.entity.rect.height,
+                height: entity.rect.height,
             }, width, contentHeight);
-        if (props.entity.rotation) {
+        if (entity.rotation) {
             const center = {
                 x: baseRect.left + baseRect.width / 2,
                 y: baseRect.top + baseRect.height / 2,
@@ -215,7 +228,7 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
             const nextCenter = rotateAnnotationPointAround({
                 x: baseRect.left + next.width / 2,
                 y: baseRect.top + next.height / 2,
-            }, center, props.entity.rotation, {
+            }, center, entity.rotation, {
                 width: pageWidth,
                 height: pageHeight,
             });
@@ -224,7 +237,7 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
                 left: nextCenter.x - next.width / 2,
                 top: nextCenter.y - next.height / 2,
             };
-            const bounds = rotatedAnnotationBounds(next, props.entity.rotation, {
+            const bounds = rotatedAnnotationBounds(next, entity.rotation, {
                 width: pageWidth,
                 height: pageHeight,
             });
@@ -237,7 +250,7 @@ function draftRectForContent(): IAnnotationMarkerRect | undefined {
     }
     draftRect.value = next;
     emit('draft-change', inlineEdit.draftText.value);
-    return annotationRectsEqual(next, props.entity.rect) ? undefined : next;
+    return annotationRectsEqual(next, entity.rect) ? undefined : next;
 }
 
 function handleInputEvent(event: Event) {
@@ -246,7 +259,7 @@ function handleInputEvent(event: Event) {
     draftRectForContent();
 }
 
-function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize = props.entity.fontSize): IAnnotationMarkerRect | null {
+function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResizeHandle, fontSize = entity.fontSize): IAnnotationMarkerRect | null {
     const root = rootRef.value;
     const layer = root?.closest<HTMLElement>('.pdf-annotation-editor-layer');
     const bounds = layer?.getBoundingClientRect();
@@ -258,7 +271,7 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
     const pageWidth = swapped ? bounds.height : bounds.width;
     const pageHeight = swapped ? bounds.width : bounds.height;
     const measurement = root.cloneNode(false) as HTMLElement;
-    measurement.textContent = (editing.value ? inlineEdit.draftText.value : props.entity.text) || '\u00a0';
+    measurement.textContent = (editing.value ? inlineEdit.draftText.value : entity.text) || '\u00a0';
     measurement.removeAttribute('data-annotation-id');
     Object.assign(measurement.style, {
         width: `${rect.width * pageWidth}px`,
@@ -271,7 +284,7 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
     root.parentElement?.append(measurement);
     try {
         const contentHeight = measurement.scrollHeight / pageHeight;
-        const height = (handle === 'e' || handle === 'w' || fontSize !== props.entity.fontSize) && contentHeight > 0
+        const height = (handle === 'e' || handle === 'w' || fontSize !== entity.fontSize) && contentHeight > 0
             ? contentHeight
             : Math.max(rect.height, contentHeight);
         const anchorY = handle?.includes('n') ? 1 : !handle || handle.includes('s') ? 0 : 0.5;
@@ -282,7 +295,7 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
         const nextCenter = rotateAnnotationPointAround({
             x: center.x,
             y: center.y + (height - rect.height) * (0.5 - anchorY),
-        }, center, props.entity.rotation, {
+        }, center, entity.rotation, {
             width: pageWidth,
             height: pageHeight,
         });
@@ -292,7 +305,7 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
             top: nextCenter.y - height / 2,
             height,
         };
-        const footprint = rotatedAnnotationBounds(fitted, props.entity.rotation, {
+        const footprint = rotatedAnnotationBounds(fitted, entity.rotation, {
             width: pageWidth,
             height: pageHeight,
         });
@@ -309,19 +322,19 @@ function fitRectToContent(rect: IAnnotationMarkerRect, handle?: TAnnotationResiz
 
 // Keep the browser editor's content inset; the page renderer owns frame ink.
 const frameInsets = computed(() => {
-    const insets = props.entity.readOnly ? undefined : props.entity.frame?.insets;
-    return insets?.map((_, side) => insets[(side + props.entity.rotation / 90) % 4]!);
+    const insets = entity.readOnly ? undefined : entity.frame?.insets;
+    return insets?.map((_, side) => insets[(side + entity.rotation / 90) % 4]!);
 });
-const inputFrameStyle = computed(() => props.entity.frame && frameInsets.value ? {
+const inputFrameStyle = computed(() => entity.frame && frameInsets.value ? {
     position: 'absolute' as const,
     inset: frameInsets.value.map(inset => toPdfScaledCssLength(inset)).join(' '),
-    boxShadow: props.entity.frame.borderColor ? `inset 0 0 0 ${toPdfScaledCssLength(props.entity.frame.borderWidth)} ${props.entity.frame.borderColor}` : 'none',
-    background: props.entity.frame.background ?? 'transparent',
+    boxShadow: entity.frame.borderColor ? `inset 0 0 0 ${toPdfScaledCssLength(entity.frame.borderWidth)} ${entity.frame.borderColor}` : 'none',
+    background: entity.frame.background ?? 'transparent',
     zIndex: -1,
     pointerEvents: 'none' as const,
 } : undefined);
 const framePadding = computed(() => {
-    const frame = props.entity.frame;
+    const frame = entity.frame;
     return frame && frameInsets.value
         ? {padding: frameInsets.value.map((inset, side) => (
             `calc(${toPdfScaledCssLength(inset + frame.borderWidth)} + ${side % 2 ? 0.3 : 0.15}em)`
@@ -330,22 +343,22 @@ const framePadding = computed(() => {
 });
 
 const rectStyle = computed(() => ({
-    left: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).left * 100}%`,
-    top: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).top * 100}%`,
-    width: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).width * 100}%`,
-    height: `${(props.displayRect ?? draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect).height * 100}%`,
+    left: `${(displayRect ?? draftRect.value ?? recoveredDraftRect ?? entity.rect).left * 100}%`,
+    top: `${(displayRect ?? draftRect.value ?? recoveredDraftRect ?? entity.rect).top * 100}%`,
+    width: `${(displayRect ?? draftRect.value ?? recoveredDraftRect ?? entity.rect).width * 100}%`,
+    height: `${(displayRect ?? draftRect.value ?? recoveredDraftRect ?? entity.rect).height * 100}%`,
     // Resting text stays selectable and accessible; only the real editor paints DOM glyphs.
-    color: !editing.value || paintsOriginal.value || props.nativeAppearance ? 'transparent' : props.entity.color ?? 'var(--ui-text)',
-    caretColor: props.entity.color ?? 'var(--ui-text)',
-    cursor: props.entity.readOnly ? 'default' : undefined,
-    fontSize: toPdfScaledCssLength(props.displayFontSize ?? props.entity.fontSize),
-    transform: `rotate(${props.entity.rotation}deg)`,
+    color: !editing.value || paintsOriginal.value || nativeAppearance ? 'transparent' : entity.color ?? 'var(--ui-text)',
+    caretColor: entity.color ?? 'var(--ui-text)',
+    cursor: entity.readOnly ? 'default' : undefined,
+    fontSize: toPdfScaledCssLength(displayFontSize ?? entity.fontSize),
+    transform: `rotate(${entity.rotation}deg)`,
     ...framePadding.value,
 }));
 
 defineExpose({
     commitDraft: commit,
-    getDraftRect: () => toRaw(draftRect.value ?? props.recoveredDraftRect ?? props.entity.rect),
+    getDraftRect: () => toRaw(draftRect.value ?? recoveredDraftRect ?? entity.rect),
     get pendingCompletion() { return inlineEdit.pendingCompletion; },
     fitRectToContent,
 });

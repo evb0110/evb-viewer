@@ -479,6 +479,7 @@ import {
     useNow,
     useTimeoutFn,
 } from '@vueuse/core';
+import { SCAN_CLEANUP_DETAIL_REQUEST_DEBOUNCE_MS } from '@app/constants/timeouts';
 import {useWindowDevicePixelRatio} from '@app/composables/useWindowDevicePixelRatio';
 import type {
     IScanCleanupManualZones,
@@ -692,7 +693,37 @@ interface IPlacementDragGeometry {
     top: number;
 }
 type TScanCleanupDragGeometry = ICutterDragGeometry | IContentDragGeometry | IPlacementDragGeometry;
-const props = defineProps<{
+const {
+    result,
+    resultCurrent,
+    resultPresentationKey,
+    detailResult,
+    rawResult,
+    loading,
+    error,
+    viewMode,
+    matchPageSize,
+    alignment,
+    pageNumber,
+    totalPages,
+    showMarginBoundary,
+    showFirstRunGuidance,
+    manualSplit,
+    readingOrder,
+    manualContentBoxes,
+    manualZones,
+    placementOverrides,
+    outputMode,
+    zoneEditing,
+    disabled,
+    lossless,
+    source,
+    layoutClassification,
+    layoutDetectionComplete,
+    rotationDegrees,
+    activity,
+    activityTimeline,
+} = defineProps<{
     result: IScanCleanupPreviewResult | null;
     resultCurrent?: boolean;
     resultPresentationKey?: string;
@@ -770,8 +801,8 @@ function captureFramePresentation(): IScanCleanupDisplayedFramePresentation {
     // A frame built while the document plan is still open remains provisional
     // even if live detection settles while it is pinned.
     return {
-        resultCurrent: props.resultCurrent === true,
-        settled: props.layoutDetectionComplete === true,
+        resultCurrent: resultCurrent === true,
+        settled: layoutDetectionComplete === true,
     };
 }
 
@@ -789,44 +820,44 @@ const {
     pendingCleanedPixelUrls,
     rawPixelSwap,
     revealLatestFrame,
-} = useScanCleanupPreviewImages(() => props.result, (hadPreviousResult) => {
+} = useScanCleanupPreviewImages(() => result, (hadPreviousResult) => {
     void nextTick(() => {
         pruneOutputElementRefs();
         if (!hadPreviousResult) {
             observeCutterStage();
         }
     });
-}, () => props.rawResult ?? null, () => props.detailResult ?? null,
+}, () => rawResult ?? null, () => detailResult ?? null,
 () => captureFramePresentation(),
-props.resultPresentationKey === undefined ? undefined : () => props.resultPresentationKey ?? '',
+resultPresentationKey === undefined ? undefined : () => resultPresentationKey ?? '',
 presentation => presentation.resultCurrent && presentation.settled);
 const presentationResult = computed(() => displayedCleanedFrame.value?.result ?? null);
-const effectiveError = computed(() => cleanedFrameError.value || props.error);
+const effectiveError = computed(() => cleanedFrameError.value || error);
 const displayedPresentation = computed(
     () => displayedCleanedFrame.value?.presentation ?? captureFramePresentation(),
 );
 // The displayed frame is the live session frame: its result and its
 // presentation key are both the ones the session publishes now.
-const displayedFrameIdentityCurrent = computed(() => props.resultPresentationKey === undefined
-    || displayedCleanedFrame.value?.transitionKey === props.resultPresentationKey);
+const displayedFrameIdentityCurrent = computed(() => resultPresentationKey === undefined
+    || displayedCleanedFrame.value?.transitionKey === resultPresentationKey);
 // This is the only renderer-facing presentation-current decision. The preview
 // request coordinator owns request freshness, while the image owner owns the
 // displayed frame; the pane combines those facts once for edits, notices, and
 // detail tiles.
-const previewPresentationCurrent = computed(() => props.resultCurrent !== false
+const previewPresentationCurrent = computed(() => resultCurrent !== false
     && displayedFrameIdentityCurrent.value
-    && (props.resultPresentationKey === undefined
-        ? displayedCleanedFrame.value?.result.pageNumber === props.pageNumber
+    && (resultPresentationKey === undefined
+        ? displayedCleanedFrame.value?.result.pageNumber === pageNumber
         : displayedCleanedFrameCurrent.value));
-const previewPresentationNoticeCurrent = computed(() => props.resultCurrent !== false
-    && (props.resultPresentationKey === undefined
+const previewPresentationNoticeCurrent = computed(() => resultCurrent !== false
+    && (resultPresentationKey === undefined
         || displayedPresentation.value.resultCurrent && displayedFrameIdentityCurrent.value));
 // The source-frame editors stay on screen while a same-page edit refreshes the
 // preview, so a zone or cut the user just placed does not vanish, but they take
 // input only once the shown frame is current.
-const previewEditsShown = computed(() => presentationResult.value?.pageNumber === props.pageNumber
+const previewEditsShown = computed(() => presentationResult.value?.pageNumber === pageNumber
     && effectiveError.value === ''
-    && !props.disabled);
+    && !disabled);
 const previewEditsEnabled = computed(() => previewEditsShown.value && previewPresentationCurrent.value);
 const {
     canPanPreview,
@@ -849,12 +880,12 @@ const {
     stepPreviewZoom,
     toggleFitAndActualSize,
 } = useScanCleanupPreviewZoom({
-    disabled: () => props.disabled === true,
+    disabled: () => disabled === true,
     dragActive: dragTransaction.active,
     formatFitLabel: () => t('scanCleanup.preview.zoomFit'),
     formatZoomLabel: zoom => t('scanCleanup.preview.zoomValue', {zoom}),
     overlayBounds: dragOverlayBounds,
-    result: () => presentationResult.value ?? props.rawResult ?? null,
+    result: () => presentationResult.value ?? rawResult ?? null,
     surface: previewSurface,
     updateGeometry: () => updateOverlayGeometry(),
 });
@@ -879,11 +910,11 @@ const {
     result: () => presentationResult.value,
     transformScale: previewTransformScale,
 });
-const effectiveViewMode = computed(() => props.lossless
+const effectiveViewMode = computed(() => lossless
     ? 'original'
-    : props.viewMode ?? 'cleaned');
-const zoomControlsDisabled = computed(() => props.disabled === true
-    || (presentationResult.value ?? props.rawResult ?? null) === null);
+    : viewMode ?? 'cleaned');
+const zoomControlsDisabled = computed(() => disabled === true
+    || (presentationResult.value ?? rawResult ?? null) === null);
 const devicePixelScale = useWindowDevicePixelRatio();
 // Detail rendering starts as soon as the fixed-DPI base raster is stretched
 // past one device pixel per raster pixel; the display density (not a zoom
@@ -892,7 +923,7 @@ const detailDensityExceeded = computed(
     () => previewEffectiveZoom.value * devicePixelScale.value > 1.001,
 );
 const detailLayerEligible = computed(() => effectiveViewMode.value === 'cleaned'
-    && props.lossless !== true
+    && lossless !== true
     // Deliberate degradation while pinned: detail tiles describe the live
     // generation and must not be composited onto a different displayed base.
     && previewPresentationCurrent.value
@@ -900,14 +931,14 @@ const detailLayerEligible = computed(() => effectiveViewMode.value === 'cleaned'
     && Boolean(presentationResult.value?.outputs.length)
     && detailDensityExceeded.value);
 const detailResultMatchesPage = computed(() => detailLayerEligible.value
-    && props.detailResult?.pageNumber === presentationResult.value?.pageNumber);
+    && detailResult?.pageNumber === presentationResult.value?.pageNumber);
 const activeDetailPixelUrls = computed(() => detailResultMatchesPage.value ? detailPixelUrls : {});
 const detailRegionStyles = computed<Partial<Record<TScanCleanupOutputHalf, CSSProperties>>>(() => {
     if (!detailResultMatchesPage.value) {
         return {};
     }
     const styles: Partial<Record<TScanCleanupOutputHalf, CSSProperties>> = {};
-    for (const output of props.detailResult?.outputs ?? []) {
+    for (const output of detailResult?.outputs ?? []) {
         const region = output.metadata.renderRegion;
         if (!region) {
             styles[output.metadata.half] = {inset: '0'};
@@ -922,25 +953,25 @@ const detailRegionStyles = computed<Partial<Record<TScanCleanupOutputHalf, CSSPr
     }
     return styles;
 });
-const isStalePage = computed(() => Boolean(props.result && props.result.pageNumber !== props.pageNumber));
+const isStalePage = computed(() => Boolean(result && result.pageNumber !== pageNumber));
 // A source sheet is not a cleaned output. Until this page's cleaned result
 // exists, Cleaned mode owns a topology-aware loading shell; the raw sheet is
 // available only through Original mode. This prevents an unsplit landscape
 // raster from ever masquerading as the first portrait output.
 const requestedPageLoadingVisible = computed(() => effectiveViewMode.value === 'cleaned'
-    && props.error === ''
-    && presentationResult.value?.pageNumber !== props.pageNumber);
-const rawLayerVisible = computed(() => props.rawResult?.pageNumber === props.pageNumber && (
+    && error === ''
+    && presentationResult.value?.pageNumber !== pageNumber);
+const rawLayerVisible = computed(() => rawResult?.pageNumber === pageNumber && (
     effectiveViewMode.value === 'original'
     || (
-        props.result?.pageNumber === props.pageNumber
-        && props.rawResult.pageNumber === props.pageNumber
+        result?.pageNumber === pageNumber
+        && rawResult.pageNumber === pageNumber
     )
-) || Boolean(props.lossless && props.result));
+) || Boolean(lossless && result));
 const resultLayerVisible = computed(() => !requestedPageLoadingVisible.value
     && (Boolean(presentationResult.value) || rawLayerVisible.value));
 const emptyLayerVisible = computed(() => requestedPageLoadingVisible.value
-    || (!props.result && !rawLayerVisible.value));
+    || (!result && !rawLayerVisible.value));
 const resultLayerTestId = computed(() => (
     presentationResult.value ? undefined : 'scan-cleanup-original-only'
 ));
@@ -951,9 +982,9 @@ const emptyResultMessage = computed(() => presentationResult.value?.pageMetadata
     ? t('scanCleanup.preview.excluded')
     : t('scanCleanup.preview.blankSkipped'));
 const originalAltText = computed(() => t('scanCleanup.preview.originalAlt', {
-    page: (props.rawResult ?? props.result)?.pageNumber ?? props.pageNumber,
+    page: (rawResult ?? result)?.pageNumber ?? pageNumber,
 }));
-const cleanedCanvasVisible = computed(() => Boolean(presentationResult.value) && !props.lossless);
+const cleanedCanvasVisible = computed(() => Boolean(presentationResult.value) && !lossless);
 const refreshErrorVisible = computed(() => Boolean(effectiveError.value) && effectiveViewMode.value === 'cleaned');
 const previewZoomPercent = computed(() => Math.round(previewEffectiveZoom.value * 100));
 const originalLayerVisible = computed(() => rawLayerVisible.value
@@ -975,22 +1006,22 @@ const canvasNoticeKind = computed(() => {
     // is live now. A frame rendered from an open plan stays provisional while
     // pinned. Once layout has settled, an older frame instead says that the
     // preview is updating and its placement still reflects previous settings.
-    if (props.resultPresentationKey !== undefined && !displayedPresentation.value.settled) {
+    if (resultPresentationKey !== undefined && !displayedPresentation.value.settled) {
         return 'provisional';
     }
     if (
         dragTransaction.active.value
         || (
-            props.resultPresentationKey !== undefined
+            resultPresentationKey !== undefined
             && (
-                displayedCleanedFrame.value?.transitionKey !== props.resultPresentationKey
+                displayedCleanedFrame.value?.transitionKey !== resultPresentationKey
                 || !previewPresentationNoticeCurrent.value
             )
         )
     ) {
         return 'updating';
     }
-    if (!props.matchPageSize) {
+    if (!matchPageSize) {
         return '';
     }
     // The main process could not measure this document, so it dropped matching
@@ -1020,7 +1051,7 @@ const {
     scheduler: callback => useIntervalFn(callback, 1000, {immediate: false}),
 });
 watch(
-    () => props.activity !== null,
+    () => activity !== null && activity !== undefined,
     (active) => {
         if (active) {
             liveClock.value = new Date();
@@ -1032,17 +1063,17 @@ watch(
     {immediate: true},
 );
 const liveStageStatus = computed(() => {
-    const activity = props.activity;
-    if (!activity) return null;
-    if (!activity.run && (activity.activeSubPageStage === undefined || canvasNotice.value !== '')) {
+    const currentActivity = activity;
+    if (!currentActivity) return null;
+    if (!currentActivity.run && (currentActivity.activeSubPageStage === undefined || canvasNotice.value !== '')) {
         return null;
     }
-    const stage = activity.activeSubPageStage ?? activity.detail;
-    const label = activity.activeSubPageStage === undefined
-        ? t(`scanCleanup.activity.detail.${activity.detail}`)
-        : t(`scanCleanup.activity.subPageStage.${activity.activeSubPageStage}`);
-    const startedAtMs = props.activityTimeline?.steps[activity.step]?.startedAtMs
-        ?? props.activityTimeline?.startedAtMs;
+    const stage = currentActivity.activeSubPageStage ?? currentActivity.detail;
+    const label = currentActivity.activeSubPageStage === undefined
+        ? t(`scanCleanup.activity.detail.${currentActivity.detail}`)
+        : t(`scanCleanup.activity.subPageStage.${currentActivity.activeSubPageStage}`);
+    const startedAtMs = activityTimeline?.steps[currentActivity.step]?.startedAtMs
+        ?? activityTimeline?.startedAtMs;
     const elapsed = startedAtMs === undefined
         ? ''
         : formatScanCleanupDuration(liveClock.value.getTime() - startedAtMs);
@@ -1055,13 +1086,13 @@ const liveStageStatus = computed(() => {
 // Keep the initial preview skeleton's "Building cleanup preview…" caption during
 // background detection; only replace it when an active cleanup run is underway.
 const skeletonLiveStageStatus = computed(() => (
-    props.activity?.run === true ? liveStageStatus.value : null
+    activity?.run === true ? liveStageStatus.value : null
 ));
 const viewportCaptionHidden = computed(() => liveStageStatus.value === null && canvasNotice.value === '');
 const viewportCaptionNoticeKind = computed(() => (
     liveStageStatus.value !== null ? 'cleaning' : canvasNoticeKind.value
 ));
-const viewModes = computed(() => props.lossless ? [{
+const viewModes = computed(() => lossless ? [{
     value: 'original' as const,
     label: t('scanCleanup.preview.preview'),
 }] : [
@@ -1083,9 +1114,9 @@ const {
     zoneCount,
     zoneKind,
 } = useScanCleanupZoneEditor({
-    editing: () => props.zoneEditing,
-    manualZones: () => props.manualZones,
-    pageNumber: () => props.pageNumber,
+    editing: () => zoneEditing,
+    manualZones: () => manualZones,
+    pageNumber: () => pageNumber,
     updateManualZones: value => emit('update:manualZones', value),
 });
 const {
@@ -1094,15 +1125,15 @@ const {
     sourceMetricsReady,
 } = useScanCleanupViewportFrame({
     activeDrag: dragTransaction.active,
-    layoutClassification: () => props.layoutClassification,
-    requestedPage: () => props.pageNumber,
+    layoutClassification: () => layoutClassification,
+    requestedPage: () => pageNumber,
     result: () => presentationResult.value,
-    rotationDegrees: () => props.rotationDegrees ?? 0,
-    source: () => props.source ?? null,
+    rotationDegrees: () => rotationDegrees ?? 0,
+    source: () => source ?? null,
 });
 
 const loadingFrames = computed(() => {
-    const orderedHalves = props.readingOrder === 'rtl' && placeholderHalves.value.length > 1
+    const orderedHalves = readingOrder === 'rtl' && placeholderHalves.value.length > 1
         ? [...placeholderHalves.value].reverse()
         : placeholderHalves.value;
     const frames = orderedHalves.map(half => ({
@@ -1171,7 +1202,7 @@ const activeCutterDraft = computed(() => draftGeometry.value?.kind === 'cutter'
 const activePlacementHalf = computed(() => draftGeometry.value?.kind === 'placement'
     ? draftGeometry.value.half
     : null);
-const cutterXPx = computed(() => resolveNormalizedManualSplitX(props.manualSplit, analysisWidth.value)
+const cutterXPx = computed(() => resolveNormalizedManualSplitX(manualSplit, analysisWidth.value)
     ?? presentationResult.value?.pageMetadata.cutterXPx
     ?? analysisWidth.value / 2);
 const displayedCutterX = computed(() => activeCutterDraft.value
@@ -1188,12 +1219,12 @@ const originalCutterAxis = computed(() => {
         mirrored: original && (cutterRotation.value === 90 || cutterRotation.value === 180),
     };
 });
-const showCutter = computed(() => props.zoneEditing !== true
+const showCutter = computed(() => zoneEditing !== true
     && (
         activeCutterDraft.value !== null
         || Boolean(presentationResult.value) && (
             presentationResult.value?.pageMetadata.layoutClassification === 'two-page-spread'
-            || props.manualSplit !== null
+            || manualSplit !== null
         )
     ));
 const originalFitPlacement = computed(() => resolvePreviewFitPlacement(
@@ -1210,7 +1241,7 @@ const cutterSourceFitPlacement = computed(() => resolvePreviewFitPlacement(
 ));
 const cutterSourceUnderlayVisible = computed(() => activeCutterDraft.value !== null
     && effectiveViewMode.value === 'cleaned');
-const sourceUnderlayVisible = computed(() => props.zoneEditing === true || cutterSourceUnderlayVisible.value);
+const sourceUnderlayVisible = computed(() => zoneEditing === true || cutterSourceUnderlayVisible.value);
 const dragOverlayStyle = computed<CSSProperties>(() => ({
     left: `${dragOverlayBounds.x}px`,
     top: `${dragOverlayBounds.y}px`,
@@ -1233,13 +1264,13 @@ const cutterSourceImageStyle = computed<CSSProperties>(() => {
     };
 });
 const losslessCropOverlayStyles = computed(() => {
-    const result = presentationResult.value;
-    if (!props.lossless || !result || originalFitPlacement.value.width <= 0) {
+    const currentResult = presentationResult.value;
+    if (!lossless || !currentResult || originalFitPlacement.value.width <= 0) {
         return [];
     }
-    return result.outputs.map(output => {
+    return currentResult.outputs.map(output => {
         const metadata = output.metadata;
-        const content = resolveNormalizedContentBox(metadata, props.manualContentBoxes?.[metadata.half])
+        const content = resolveNormalizedContentBox(metadata, manualContentBoxes?.[metadata.half])
             ?? metadata.contentBox;
         const local = content ? expandPreviewRectByMargins(content, metadata.appliedMargins) : {
             xPx: 0,
@@ -1254,10 +1285,10 @@ const losslessCropOverlayStyles = computed(() => {
             heightPx: local.heightPx,
         }, metadata);
         return {
-            insetInlineStart: `${originalFitPlacement.value.left + rawRect.xPx / result.rawWidthPx * originalFitPlacement.value.width}px`,
-            insetBlockStart: `${originalFitPlacement.value.top + rawRect.yPx / result.rawHeightPx * originalFitPlacement.value.height}px`,
-            width: `${rawRect.widthPx / result.rawWidthPx * originalFitPlacement.value.width}px`,
-            height: `${rawRect.heightPx / result.rawHeightPx * originalFitPlacement.value.height}px`,
+            insetInlineStart: `${originalFitPlacement.value.left + rawRect.xPx / currentResult.rawWidthPx * originalFitPlacement.value.width}px`,
+            insetBlockStart: `${originalFitPlacement.value.top + rawRect.yPx / currentResult.rawHeightPx * originalFitPlacement.value.height}px`,
+            width: `${rawRect.widthPx / currentResult.rawWidthPx * originalFitPlacement.value.width}px`,
+            height: `${rawRect.heightPx / currentResult.rawHeightPx * originalFitPlacement.value.height}px`,
         };
     });
 });
@@ -1284,18 +1315,18 @@ const cutterStyle = computed(() => {
         originalPlacement: originalFitPlacement.value,
         originalVisible: effectiveViewMode.value === 'original' && originalFitPlacement.value.width > 0,
         outputs: outputs.map(output => output.metadata.half),
-        readingOrder: props.readingOrder,
+        readingOrder,
         sourcePlacement: cutterSourceFitPlacement.value,
         sourceRatio,
         sourceUnderlayVisible: cutterSourceUnderlayVisible.value,
     });
 });
 function navigateFromKeyboard(direction: 'previous' | 'next') {
-    if (props.disabled) {
+    if (disabled) {
         return;
     }
-    if (direction === 'previous' && props.pageNumber > 1) emit('previous');
-    if (direction === 'next' && props.pageNumber < props.totalPages) emit('next');
+    if (direction === 'previous' && pageNumber > 1) emit('previous');
+    if (direction === 'next' && pageNumber < totalPages) emit('next');
 }
 function handlePaneKeydown(event: KeyboardEvent) {
     if (event.target !== event.currentTarget) {
@@ -1336,7 +1367,7 @@ const outputHalves = computed(
 const cleanedAltByHalf = computed(() => Object.fromEntries(outputHalves.value.map(half => [
     half,
     t('scanCleanup.preview.cleanedAlt', {
-        page: presentationResult.value?.pageNumber ?? props.pageNumber,
+        page: presentationResult.value?.pageNumber ?? pageNumber,
         half: outputHalfLabel(half),
     }),
 ])));
@@ -1369,8 +1400,8 @@ function startCutterDrag(event: PointerEvent) {
     const transformScale = Math.max(0.001, previewTransformScale.value);
     const canonicalGeometry: ICutterDragGeometry = {
         kind: 'cutter',
-        value: props.manualSplit
-            ? {...props.manualSplit}
+        value: manualSplit
+            ? {...manualSplit}
             : normalizeManualSplitX(cutterXPx.value, analysisWidth.value, rotation),
     };
     const started = dragTransaction.start(event, {
@@ -1446,7 +1477,7 @@ function startContentDrag(
         return;
     }
     const startRect = {...output.contentRect};
-    const manualContentBox = props.manualContentBoxes?.[output.metadata.half];
+    const manualContentBox = manualContentBoxes?.[output.metadata.half];
     const canonicalGeometry: IContentDragGeometry = {
         kind: 'content',
         half: output.metadata.half,
@@ -1615,7 +1646,7 @@ function startPlacementDrag(event: PointerEvent, output: IScanCleanupPlacementOv
     }
     updateOverlayGeometry(true);
     const canvasClientRect = outputCanvasRects[output.metadata.half] ?? output.canvasClientRect;
-    if (!props.matchPageSize || canvasClientRect.width <= 0 || canvasClientRect.height <= 0) {
+    if (!matchPageSize || canvasClientRect.width <= 0 || canvasClientRect.height <= 0) {
         return;
     }
     const {
@@ -1695,12 +1726,12 @@ function finishPlacementDrag(event: PointerEvent) {
 }
 
 function nudgePlacement(event: KeyboardEvent, output: IRenderedScanCleanupOutput) {
-    if (!props.matchPageSize || !event.key.startsWith('Arrow')) {
+    if (!matchPageSize || !event.key.startsWith('Arrow')) {
         return;
     }
     event.preventDefault();
     event.stopPropagation();
-    const current = props.placementOverrides?.[output.metadata.half] ?? props.alignment;
+    const current = placementOverrides?.[output.metadata.half] ?? alignment;
     // `ink` is not on the nine-way compass. A nudge steps off it from the
     // compass position nearest to where the output was actually placed.
     const resolvedInkAlignment = () => {
@@ -1798,19 +1829,19 @@ const detailRequest = useTimeoutFn(() => {
         };
     }
     if (Object.keys(viewports).length > 0) emit('requestDetail', viewports);
-}, 300, {immediate: false});
+}, SCAN_CLEANUP_DETAIL_REQUEST_DEBOUNCE_MS, {immediate: false});
 
 function scheduleDetailRequest() {
     emit('invalidateDetail');
     detailRequest.stop();
     if (
         effectiveViewMode.value !== 'cleaned'
-        || props.lossless === true
+        || lossless === true
         || !presentationResult.value
         || presentationResult.value.outputs.length === 0
         || !previewPresentationCurrent.value
         || !displayedCleanedFrameCurrent.value
-        || props.loading
+        || loading
         || isStalePage.value
         || !detailDensityExceeded.value
         || panGesture.value !== null
@@ -1832,7 +1863,7 @@ watch([
     () => previewPan.y,
     panGesture,
     () => dragTransaction.active.value,
-    () => props.loading,
+    () => loading,
     () => presentationResult.value?.pageNumber,
     previewPresentationCurrent,
     () => displayedCleanedFrame.value?.transitionKey,
@@ -1846,17 +1877,17 @@ watch(() => dragTransaction.active.value, active => {
 });
 watch(
     [
-        () => props.disabled,
-        () => props.pageNumber,
-        () => props.resultPresentationKey,
+        () => disabled,
+        () => pageNumber,
+        () => resultPresentationKey,
         () => displayedCleanedFrame.value?.result,
         previewEditsEnabled,
     ],
     (
         [
-            disabled,
-            pageNumber,
-            resultPresentationKey,
+            isDisabled,
+            currentPageNumber,
+            currentResultPresentationKey,
             displayedResult,
             editsEnabled,
         ],
@@ -1869,9 +1900,9 @@ watch(
         ],
     ) => {
         if (
-            disabled
-            || pageNumber !== previousPageNumber
-            || resultPresentationKey !== previousResultPresentationKey
+            isDisabled
+            || currentPageNumber !== previousPageNumber
+            || currentResultPresentationKey !== previousResultPresentationKey
             || displayedResult !== previousDisplayedResult
             || editsEnabled !== previousEditsEnabled
         ) {
@@ -1886,13 +1917,13 @@ watch(
     ],
     ([
         scale,
-        pageNumber,
+        currentPageNumber,
     ], [
         previousScale,
         previousPageNumber,
     ]) => {
         const scaleChanged = scale !== previousScale;
-        const pageChanged = pageNumber !== previousPageNumber;
+        const pageChanged = currentPageNumber !== previousPageNumber;
         void nextTick(() => {
             updateOverlayGeometry();
             if (scaleChanged) {
@@ -1928,7 +1959,7 @@ const renderedOutputs = computed(() => {
         };
         const manualContentRect = resolveNormalizedContentBox(
             metadata,
-            props.manualContentBoxes?.[metadata.half],
+            manualContentBoxes?.[metadata.half],
         );
         const contentRect = manualContentRect ?? metadata.contentBox;
         const content = manualContentRect
@@ -1946,7 +1977,7 @@ const renderedOutputs = computed(() => {
             canvasStyle: {},
         };
     });
-    const ordered = props.readingOrder === 'rtl' && outputs.length > 1
+    const ordered = readingOrder === 'rtl' && outputs.length > 1
         ? outputs.reverse()
         : outputs;
     const sizes = resolvePreviewOutputFitSizes(
@@ -1978,7 +2009,7 @@ function activeStageRect() {
 }
 
 const contentOverlayOutputs = computed<IScanCleanupContentOverlayOutput[]>(() => {
-    if (activeCutterDraft.value || props.zoneEditing) {
+    if (activeCutterDraft.value || zoneEditing) {
         return [];
     }
     const stageRect = activeStageRect();
@@ -1992,7 +2023,7 @@ const contentOverlayOutputs = computed<IScanCleanupContentOverlayOutput[]>(() =>
         };
         const normalized = draft?.half === output.metadata.half
             ? draft.value
-            : props.manualContentBoxes?.[output.metadata.half];
+            : manualContentBoxes?.[output.metadata.half];
         const contentRect = resolveNormalizedContentBox(output.metadata, normalized) ?? output.contentRect;
         const transformed = normalized
             ? transformPreviewSourceHalfRect(output.metadata, contentRect)
@@ -2011,7 +2042,7 @@ const contentOverlayOutputs = computed<IScanCleanupContentOverlayOutput[]>(() =>
 
 const placementOverlayOutputs = computed<IScanCleanupPlacementOverlayOutput[]>(() => {
     const stageRect = activeStageRect();
-    if (!props.matchPageSize || activeCutterDraft.value || props.zoneEditing) {
+    if (!matchPageSize || activeCutterDraft.value || zoneEditing) {
         return [];
     }
     const draft = draftGeometry.value?.kind === 'placement' ? draftGeometry.value : null;
@@ -2034,7 +2065,7 @@ const placementOverlayOutputs = computed<IScanCleanupPlacementOverlayOutput[]>((
             active,
             alignment: active
                 ? draft.alignment
-                : props.placementOverrides?.[output.metadata.half] ?? props.alignment,
+                : placementOverrides?.[output.metadata.half] ?? alignment,
             canvasClientRect: {...canvasClientRect},
             canvasStyle: {inset: '0'},
             imageStyle: toPreviewStyleRect({

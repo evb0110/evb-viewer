@@ -1,5 +1,9 @@
 import type { Ref } from 'vue';
-import { useEventListener } from '@vueuse/core';
+import {
+    useEventListener,
+    useTimeoutFn,
+} from '@vueuse/core';
+import { BROWSER_WORKSPACE_RECOVERY_DEBOUNCE_MS } from '@app/constants/timeouts';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
@@ -22,8 +26,6 @@ interface IUseBrowserWorkspaceRecoveryOptions {
     getPaneByTabId(tabId: string): IEditorPaneState | null;
 }
 
-const RECOVERY_DEBOUNCE_MS = 750;
-
 /**
  * Records the browser window's layout shortly after each change. A document commits its unsaved work as the
  * drafts of its store directory itself, and the window's checkpoint names every directory the window holds from
@@ -32,15 +34,17 @@ const RECOVERY_DEBOUNCE_MS = 750;
 export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecoveryOptions) => {
     const recovery = getWindowTabsCapability().browserRecovery;
     if (!recovery) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
     let inFlight: Promise<void> | null = null;
     let changedSinceRecord = false;
     let disposed = false;
+    const {
+        start: scheduleRecord,
+        stop: cancelScheduledRecord,
+    } = useTimeoutFn(record, BROWSER_WORKSPACE_RECOVERY_DEBOUNCE_MS, {immediate: false});
 
     // One record at a time, so an older capture never lands after a newer one.
     function record() {
-        if (timer) clearTimeout(timer);
-        timer = null;
+        cancelScheduledRecord();
         if (disposed || !options.enabled.value) return;
         if (inFlight) {
             changedSinceRecord = true;
@@ -59,8 +63,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
         // The cheap change signature keeps this watcher from rebuilding the checkpoint on every reactive tick.
         () => options.enabled.value ? buildWorkspaceCheckpointChangeSignature(options).workspace : null,
         () => {
-            if (timer) clearTimeout(timer);
-            timer = setTimeout(record, RECOVERY_DEBOUNCE_MS);
+            scheduleRecord();
         },
         {immediate: true, flush: 'sync'},
     );
@@ -73,6 +76,6 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     onBeforeUnmount(() => {
         disposed = true;
         stop();
-        if (timer) clearTimeout(timer);
+        cancelScheduledRecord();
     });
 };

@@ -9,11 +9,14 @@
 <script setup lang="ts">
 import { highlightAssistantCode } from '@app/modules/agent-panel/utils/highlightAssistantCode';
 
-const props = defineProps<{
+const {
+    code,
+    language,
+} = defineProps<{
     code: string;
     language: string | null;
 }>();
-const tokens = computed(() => highlightAssistantCode(props.code, props.language));
+const tokens = computed(() => highlightAssistantCode(code, language));
 </script>
 
 <style scoped>

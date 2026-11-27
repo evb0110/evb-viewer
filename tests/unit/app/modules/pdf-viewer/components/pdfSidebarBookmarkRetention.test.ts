@@ -256,7 +256,7 @@ describe('PdfSidebar bookmark panel retention', () => {
         await nextTick();
         expect(outlineLifecycle.unmounts).toBe(0);
         const sidebarWrapper = host.querySelector<HTMLElement>('.sidebar-wrapper')!;
-        expect(sidebarWrapper.style.width).toBe('0px');
+        expect(sidebarWrapper.style.width).toBe('');
         expect(sidebarWrapper.classList.contains('is-closed')).toBe(true);
         expect(sidebarWrapper.hasAttribute('inert')).toBe(true);
 

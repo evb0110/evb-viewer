@@ -57,13 +57,13 @@ const PERFORMANCE_MODE_OPTION_DEFINITIONS = [
     labelKey: string;
 }>;
 
-const props = defineProps<{settings: ISettingsData;}>();
+const { settings } = defineProps<{settings: ISettingsData;}>();
 
 const emit = defineEmits<{'update:performance-mode': [value: string | { value: string }];}>();
 
 const { t } = useTypedI18n();
 
-const showRestartNotice = computed(() => props.settings.performanceMode !== getPerformanceProfile().performanceMode);
+const showRestartNotice = computed(() => settings.performanceMode !== getPerformanceProfile().performanceMode);
 
 const settingsFormFieldUi = {
     label: 'settings-field-label',

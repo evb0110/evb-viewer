@@ -80,7 +80,19 @@ import {useDocumentThumbnailController} from '@app/modules/document-viewer/publi
 import DocumentThumbnailItem from '@app/components/document-viewer/DocumentThumbnailItem.vue';
 import DocumentThumbnailRail from '@app/components/document-viewer/DocumentThumbnailRail.vue';
 
-const props = defineProps<{
+const {
+    source,
+    currentPage,
+    isActive,
+    isResizing,
+    itemMetricsKey,
+    itemTag,
+    selectedPages,
+    focusPage,
+    pageRevision,
+    documentPage,
+    disabled,
+} = defineProps<{
     source: IDocumentPageSource | null;
     currentPage: number;
     isActive?: boolean;
@@ -95,7 +107,7 @@ const props = defineProps<{
     documentPage?: (pageNumber: number) => number;
     disabled?: boolean;
 }>();
-const labelPage = (pageNumber: number) => props.documentPage?.(pageNumber) ?? pageNumber;
+const labelPage = (pageNumber: number) => documentPage?.(pageNumber) ?? pageNumber;
 const emit = defineEmits<IDocumentThumbnailListEmits>();
 const {t} = useTypedI18n();
 const scrollRoot = ref<HTMLElement | null>(null);
@@ -119,13 +131,13 @@ const {
     states,
     virtualItems,
 } = useDocumentThumbnailController({
-    currentPage: toRef(props, 'currentPage'),
-    isActive: computed(() => props.isActive),
-    isResizing: computed(() => props.isResizing),
-    itemMetricsKey: toRef(props, 'itemMetricsKey'),
-    pageRevision: toRef(props, 'pageRevision'),
+    currentPage: toRef(() => currentPage),
+    isActive: computed(() => isActive),
+    isResizing: computed(() => isResizing),
+    itemMetricsKey: toRef(() => itemMetricsKey),
+    pageRevision: toRef(() => pageRevision),
     scrollRoot,
-    source: toRef(props, 'source'),
+    source: toRef(() => source),
 });
 // One tab stop among the mounted rows, so the rail stays reachable by Tab
 // after the focused row scrolls out of the virtual window.
@@ -134,7 +146,7 @@ const tabStopPage = computed(() => {
     const items = resolvedVirtualItems.value;
     const first = items[0]?.pageNumber ?? 0;
     const last = items.at(-1)?.pageNumber ?? 0;
-    return Math.min(Math.max(props.focusPage ?? props.currentPage, first), last);
+    return Math.min(Math.max(focusPage ?? currentPage, first), last);
 });
 defineExpose({
     revealPage,
@@ -154,8 +166,8 @@ const mountedRows = computed(() => {
     if (!items.length) {
         return [];
     }
-    const hasSelection = props.selectedPages !== undefined;
-    const stopPage = props.itemTag === 'div' ? tabStopPage.value : 0;
+    const hasSelection = selectedPages !== undefined;
+    const stopPage = itemTag === 'div' ? tabStopPage.value : 0;
     const minRasterWidth = unref(rasterWidth) ?? 0;
     const scale = unref(outputScale) ?? 1;
     return items.map((item) => {
@@ -169,7 +181,7 @@ const mountedRows = computed(() => {
         // failure semantics belong to a row that has nothing to show, so a page still
         // holding an older thumbnail keeps its plain name and no failure marker.
         const showsRenderError = renderErrors.has(pageNumber) && !surface;
-        const selected = hasSelection ? props.selectedPages!.has(pageNumber) : undefined;
+        const selected = hasSelection ? selectedPages!.has(pageNumber) : undefined;
         const displayPage = labelPage(pageNumber);
         return {
             pageNumber,
@@ -178,12 +190,12 @@ const mountedRows = computed(() => {
                 height: `${String(item.height)}px`,
                 transform: `translateY(${String(item.top)}px)`,
             },
-            current: pageNumber === props.currentPage,
+            current: pageNumber === currentPage,
             selected,
             role: hasSelection ? 'option' : undefined,
             ariaSelected: selected,
-            tabindex: props.itemTag === 'div'
-                ? (props.disabled ? -1 : pageNumber === stopPage ? 0 : -1)
+            tabindex: itemTag === 'div'
+                ? (disabled ? -1 : pageNumber === stopPage ? 0 : -1)
                 : undefined,
             ariaLabel: showsRenderError
                 ? t('documentSourceSidebar.goToPageRenderFailed', {page: displayPage})
@@ -218,7 +230,7 @@ function setCanvasHost(
 }
 
 function handleItemClick(pageNumber: number, event: MouseEvent) {
-    if (props.disabled) {
+    if (disabled) {
         return;
     }
     // Activating a row that failed to render also asks for it again; the call is

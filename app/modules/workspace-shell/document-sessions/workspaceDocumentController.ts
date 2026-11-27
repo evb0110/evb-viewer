@@ -96,9 +96,24 @@ export type TWorkspaceDocumentAssignment = Omit<ITabMetadataCore, 'originalBacke
     deferredReaderOpen?: boolean | undefined;
 };
 
+export type TReadonlyWorkspaceDocumentTarget = Readonly<IWorkspaceDocumentTarget>;
+export type TReadonlyWorkspaceDocumentFile = Readonly<IWorkspaceDocumentFile>;
+export type TReadonlyWorkspaceDocumentIdentity = Readonly<IWorkspaceDocumentIdentity>;
+export type TReadonlyWorkspaceDocumentTransaction = Readonly<Omit<IWorkspaceDocumentTransaction, 'target'>> & {
+    readonly target: TReadonlyWorkspaceDocumentTarget | null;
+};
+export type TReadonlyWorkspaceDocumentSnapshot = Readonly<Omit<
+    IWorkspaceDocumentSnapshot,
+    'identity' | 'activeTransaction' | 'failure'
+>> & {
+    readonly identity: TReadonlyWorkspaceDocumentIdentity;
+    readonly activeTransaction: TReadonlyWorkspaceDocumentTransaction | null;
+    readonly failure: Readonly<IWorkspaceRecordedFailure> | null;
+};
+
 export interface IWorkspaceOpenRequest {
     kind: Exclude<TWorkspaceDocumentTransactionKind, 'close'>;
-    target: IWorkspaceDocumentTarget | null;
+    target: TReadonlyWorkspaceDocumentTarget | null;
     acceptDocumentWithoutVisual?: boolean | undefined;
     /** Continues the open this caller already claimed before mounting its workspace. */
     transactionId?: string | undefined;
@@ -118,9 +133,9 @@ export interface IWorkspaceOpenRequest {
  * writes its own view record.
  */
 export interface IWorkspaceDocumentController {
-    readonly snapshot: Readonly<Ref<IWorkspaceDocumentSnapshot>>;
+    readonly snapshot: Readonly<Ref<TReadonlyWorkspaceDocumentSnapshot>>;
     /** The loaded document's file; the shell reads the identity derived from it. */
-    readonly file: Readonly<ShallowRef<IWorkspaceDocumentFile>>;
+    readonly file: Readonly<ShallowRef<TReadonlyWorkspaceDocumentFile>>;
     readonly views: Readonly<ShallowRef<ReadonlyMap<string, IWorkspaceDocumentView>>>;
     readonly operationLease: IDocumentOperationLease;
     assign(document: TWorkspaceDocumentAssignment): void;
@@ -155,7 +170,7 @@ export interface IWorkspaceDocumentController {
 }
 
 
-const EMPTY_FILE: IWorkspaceDocumentFile = {
+const EMPTY_FILE: TReadonlyWorkspaceDocumentFile = {
     originalPath: null,
     workingCopyPath: null,
     revisionInfo: null,
@@ -177,7 +192,7 @@ function createEmptyIdentity(): IWorkspaceDocumentIdentity {
     };
 }
 
-export function identityHasDocument(identity: IWorkspaceDocumentIdentity) {
+export function identityHasDocument(identity: TReadonlyWorkspaceDocumentIdentity) {
     return identity.revisionInfo !== null
         || identity.originalPath !== null
         || identity.fileName !== null
@@ -185,7 +200,7 @@ export function identityHasDocument(identity: IWorkspaceDocumentIdentity) {
 }
 
 /** The tab title, path and dirty dot the shell shows for this document. */
-export function describeTabDocument(snapshot: IWorkspaceDocumentSnapshot): ITabMetadataCore {
+export function describeTabDocument(snapshot: TReadonlyWorkspaceDocumentSnapshot): ITabMetadataCore {
     const target = snapshot.phase === 'opening' ? snapshot.activeTransaction?.target ?? null : null;
     const originalPath = target?.originalPath ?? snapshot.identity.originalPath;
     const originalBackend = resolveDocumentRefBackend(originalPath);
@@ -205,7 +220,7 @@ export function getDocumentWorkspace(controller: Pick<IWorkspaceDocumentControll
 }
 
 /** The tab holds a document or is opening or closing one. A tab whose open failed is empty again. */
-export function snapshotOccupiesTab(snapshot: IWorkspaceDocumentSnapshot) {
+export function snapshotOccupiesTab(snapshot: TReadonlyWorkspaceDocumentSnapshot) {
     return identityHasDocument(snapshot.identity) || snapshot.activeTransaction !== null;
 }
 
@@ -264,7 +279,7 @@ export function createWorkspaceDocumentController(options: {
 }): IWorkspaceDocumentController {
     const tabId = options.tabId;
     const sessionId = createSessionId('workspace-document-session');
-    const state = shallowRef<IWorkspaceDocumentSnapshot>({
+    const state = shallowRef<TReadonlyWorkspaceDocumentSnapshot>({
         sessionId,
         sessionRevision: 0,
         phase: 'empty',
@@ -280,12 +295,12 @@ export function createWorkspaceDocumentController(options: {
     const openWaiters = new Map<string, {accepted: PromiseWithResolvers<boolean>; finished: PromiseWithResolvers<TWorkspaceOpenFinish>; onPresented?: (() => void) | undefined}>();
     let activeClose: Promise<boolean> | null = null;
     let deferredReaderOpen = false;
-    const file = shallowRef<IWorkspaceDocumentFile>(EMPTY_FILE);
+    const file = shallowRef<TReadonlyWorkspaceDocumentFile>(EMPTY_FILE);
     const mutationFrontier = shallowRef<IDocumentMutationFrontier | null>(null);
     const liveDirty = computed(() => mutationFrontier.value?.isDirty() === true);
     // A loaded document is as dirty as its host's frontier; until it loads,
     // a restored or moved tab keeps the dirty state the shell assigned it.
-    const snapshot = computed(() => {
+    const snapshot = computed<TReadonlyWorkspaceDocumentSnapshot>(() => {
         const loaded = file.value.workingCopyPath !== null || file.value.isDjvu;
         const dirty = loaded ? liveDirty.value : state.value.dirty;
         return dirty === state.value.dirty ? state.value : {
@@ -294,7 +309,7 @@ export function createWorkspaceDocumentController(options: {
         };
     });
 
-    function update(patch: Partial<IWorkspaceDocumentSnapshot>, bumpRevision = false) {
+    function update(patch: Partial<TReadonlyWorkspaceDocumentSnapshot>, bumpRevision = false) {
         const current = state.value;
         const next = {
             ...current,
@@ -309,7 +324,7 @@ export function createWorkspaceDocumentController(options: {
         };
     }
 
-    function settle(transaction: IWorkspaceDocumentTransaction, finish: TWorkspaceOpenFinish) {
+    function settle(transaction: TReadonlyWorkspaceDocumentTransaction, finish: TWorkspaceOpenFinish) {
         const waiter = openWaiters.get(transaction.id);
         openWaiters.delete(transaction.id);
         waiter?.accepted.resolve(false);
@@ -390,7 +405,7 @@ export function createWorkspaceDocumentController(options: {
     function claimOpen(request: IWorkspaceOpenRequest, onPresented?: () => void) {
         supersedeActiveTransaction();
         deferredReaderOpen = false;
-        const transaction: IWorkspaceDocumentTransaction = {
+        const transaction: TReadonlyWorkspaceDocumentTransaction = {
             id: `workspace-document-transaction:${crypto.randomUUID()}`,
             kind: request.kind,
             target: request.target,
@@ -462,7 +477,7 @@ export function createWorkspaceDocumentController(options: {
     // The file session writes the record here; the identity the shell reads
     // follows in the same call, so no copy of it can lag behind.
     function commitFile(patch: Partial<IWorkspaceDocumentFile>, openTransactionId?: string | null) {
-        const committed = {
+        const committed: IWorkspaceDocumentFile = {
             ...file.value,
             ...patch,
         };

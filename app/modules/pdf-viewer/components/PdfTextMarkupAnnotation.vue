@@ -46,7 +46,15 @@ import type { ITextMarkupEntity } from '@app/modules/pdf-viewer/engine/annotatio
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import type { IAnnotationPageDimensions } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import { toPdfScaledCssLength } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
-const props = defineProps<{
+const {
+    entity,
+    selected,
+    originalAppearance,
+    pageSize,
+    pageRotation = 0,
+    highlightFillTarget,
+    highlightPaintQuads,
+} = defineProps<{
     entity: ITextMarkupEntity;
     selected: boolean;
     originalAppearance?: boolean;
@@ -60,12 +68,12 @@ const props = defineProps<{
 function highlightPathFor(quads: readonly IAnnotationMarkerRect[]) {
     return quads.map(quad => `M${quad.left} ${quad.top}h${quad.width}v${quad.height}h${-quad.width}z`).join(' ');
 }
-const highlightPath = computed(() => highlightPathFor(props.highlightPaintQuads ?? props.entity.quadPoints));
-const ownHighlightPath = computed(() => highlightPathFor(props.entity.quadPoints));
+const highlightPath = computed(() => highlightPathFor(highlightPaintQuads ?? entity.quadPoints));
+const ownHighlightPath = computed(() => highlightPathFor(entity.quadPoints));
 const highlightOutlineMaskId = useId();
 function lineFor(quad: IAnnotationMarkerRect) {
-    const fraction = props.entity.subtype === 'StrikeOut' ? 0.5 : 0.94;
-    const rotation = props.pageRotation ?? 0;
+    const fraction = entity.subtype === 'StrikeOut' ? 0.5 : 0.94;
+    const rotation = pageRotation;
     const position = rotation === 90 || rotation === 180 ? 1 - fraction : fraction;
     return rotation % 180 ? {
         x1: quad.left + quad.width * position,
@@ -81,7 +89,7 @@ function lineFor(quad: IAnnotationMarkerRect) {
 }
 function squiggleFor(quad: IAnnotationMarkerRect) {
     const line = lineFor(quad);
-    const page = props.pageSize ?? {
+    const page = pageSize ?? {
         width: 612,
         height: 792,
     };
@@ -102,8 +110,8 @@ function squiggleFor(quad: IAnnotationMarkerRect) {
 }
 
 const markupStyle = computed(() => ({
-    '--annotation-color': props.entity.color ?? 'var(--app-pdf-highlight-bg)',
-    '--annotation-opacity': String(props.entity.opacity ?? 0.45),
+    '--annotation-color': entity.color ?? 'var(--app-pdf-highlight-bg)',
+    '--annotation-opacity': String(entity.opacity ?? 0.45),
     '--annotation-markup-stroke-width': toPdfScaledCssLength(1),
 }));
 </script>

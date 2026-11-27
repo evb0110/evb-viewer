@@ -54,6 +54,9 @@ export interface IPdfStructTreeLayer {
 
 
 
+type TAnnotationLayerCtorParams = ConstructorParameters<typeof AnnotationLayer>[0];
+type TAnnotationLayerRenderParams = Parameters<TAnnotationLayer['render']>[0];
+
 export function createPdfjsAnnotationLayer(options: ICreatePdfjsAnnotationLayerOptions) {
     return new AnnotationLayer({
         div: options.div,
@@ -64,7 +67,7 @@ export function createPdfjsAnnotationLayer(options: ICreatePdfjsAnnotationLayerO
         annotationEditorUIManager: null,
         structTreeLayer: null,
         commentManager: null,
-        linkService: options.linkService as never,
+        linkService: options.linkService as unknown as TAnnotationLayerCtorParams['linkService'],
         // The canonical EVB store owns annotation state; PDF.js storage stays unused.
         annotationStorage: undefined,
     });
@@ -75,11 +78,11 @@ export function renderPdfjsAnnotationLayer(
     options: IRenderPdfjsAnnotationLayerOptions,
 ) {
     return layer.render({
-        annotations: options.annotations as never,
+        annotations: options.annotations as TAnnotationLayerRenderParams['annotations'],
         viewport: options.viewport,
         div: options.div,
-        page: options.page as never,
-        linkService: options.linkService as never,
+        page: options.page as unknown as TAnnotationLayerRenderParams['page'],
+        linkService: options.linkService as unknown as TAnnotationLayerRenderParams['linkService'],
         renderForms: options.renderForms,
         imageResourcesPath: getPdfjsAssetDir('images'),
     });

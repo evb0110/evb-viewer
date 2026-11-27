@@ -18,8 +18,6 @@ import {
     ref,
     type Ref,
 } from 'vue';
-import type * as TTimeoutConstants from '@app/constants/timeouts';
-import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireRequestId} from '@contracts/shared';
@@ -120,7 +118,6 @@ describe('usePdfSearch', () => {
 
     afterEach(() => {
         vi.useRealTimers();
-        vi.doUnmock('@app/constants/timeouts');
     });
 
     it('retains response coverage without progress events and clears it for a new query', async () => {
@@ -138,11 +135,11 @@ describe('usePdfSearch', () => {
         });
         const search = await createPdfSearch();
         const first = search.search('sample', '/tmp/work.pdf', 4);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         await first;
         expect(search.searchProgress.value?.coverage).toEqual(coverage);
         const cached = search.search('sample', '/tmp/work.pdf', 4);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         await cached;
         expect(search.searchProgress.value?.coverage).toEqual(coverage);
         let resolveNext!: (response: IPdfSearchRunResult) => void;
@@ -163,7 +160,7 @@ describe('usePdfSearch', () => {
     it('presents invalid regex as a correctable query error', async () => {
         const search = await createPdfSearch();
         const operation = search.search('[', '/tmp/work.pdf', 1, {useRegex: true});
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         expect(await operation).toBe(false);
         expect(search.searchError.value).toBe('searchResults.invalidRegex:{"count":512}');
         expect(search.results.value).toEqual([]);
@@ -173,7 +170,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('a', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         const applied = await promise;
 
         expect(applied).toBe(true);
@@ -188,7 +185,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('  " a "  ', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         await promise;
 
         expect(mockSearch.run).toHaveBeenCalledWith('/tmp/work.pdf', ' a ', expect.any(Object));
@@ -199,7 +196,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('" "', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         await promise;
 
         expect(mockSearch.run).toHaveBeenCalledWith('/tmp/work.pdf', ' ', expect.any(Object));
@@ -230,7 +227,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const firstSearch = search.search('alpha', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         await firstSearch;
 
         expect(search.submittedSearchQuery.value).toBe('alpha');
@@ -241,7 +238,7 @@ describe('usePdfSearch', () => {
             truncated: false,
         });
         const nextSearch = search.search('a', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         const applied = await nextSearch;
 
         expect(applied).toBe(true);
@@ -302,7 +299,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('term', '/tmp/work.pdf', 10);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         const applied = await promise;
 
         expect(applied).toBe(true);
@@ -382,7 +379,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('араб', '/tmp/work.pdf', 928);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
 
         expect(search.isSearching.value).toBe(true);
         expect(search.hasPartialResults.value).toBe(true);
@@ -412,7 +409,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const searchPromise = search.search('alpha', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         await expect(searchPromise).resolves.toBe(true);
 
         expect(search.results.value).toEqual([]);
@@ -476,7 +473,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('alpha', '/tmp/work.pdf', 928);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
 
         progressListener({
             requestId,
@@ -554,7 +551,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('alpha', '/tmp/work.pdf', 928);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
 
         progressListener({
             requestId,
@@ -663,7 +660,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('alpha', '/tmp/work.pdf', 928);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
 
         progressListener({
             requestId,
@@ -733,7 +730,7 @@ describe('usePdfSearch', () => {
         });
         const search = await createPdfSearch({documentRevisionToken: revision});
         const initial = search.search('alpha', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         await initial;
         search.setResultIndex(499);
         search.searchQuery.value = 'unsubmitted draft';
@@ -820,7 +817,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('alpha', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         await promise;
 
         expect(search.currentResultIndex.value).toBe(0);
@@ -860,7 +857,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const searchPromise = search.search('alpha', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
 
         expect(mockSearch.run).toHaveBeenCalledOnce();
         expect(requestId).toContain('search-');
@@ -914,7 +911,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const firstSearch = search.search('alpha', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         expect(mockSearch.run).toHaveBeenCalledOnce();
 
         const secondSearch = search.search('beta', '/tmp/work.pdf');
@@ -938,7 +935,7 @@ describe('usePdfSearch', () => {
         expect(search.isSearching.value).toBe(true);
 
         resolveCancel();
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         await secondSearch;
     });
 
@@ -962,7 +959,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const firstSearch = search.search('alpha', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         expect(mockSearch.run).toHaveBeenCalledWith(
             '/tmp/work.pdf',
             'alpha',
@@ -975,7 +972,7 @@ describe('usePdfSearch', () => {
         });
         const thirdSearch = search.search('gamma', '/tmp/work.pdf');
         await Promise.resolve();
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
 
         expect(mockSearch.run).toHaveBeenCalledTimes(2);
         expect(mockSearch.run).toHaveBeenLastCalledWith(
@@ -1005,7 +1002,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('alpha', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         const applied = await promise;
 
         expect(applied).toBe(false);
@@ -1025,7 +1022,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('alpha', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
 
         await expect(promise).resolves.toBe(false);
         expect(search.searchError.value).toBe('Search path denied');
@@ -1042,7 +1039,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('alpha', '/tmp/work.pdf');
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
 
         await expect(promise).resolves.toBe(false);
         expect(search.searchError.value).toBe('errors.search.unavailable');
@@ -1090,7 +1087,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch({documentRevisionToken});
 
         const searchPromise = search.search('alpha', '/tmp/work.pdf', 1);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
 
         documentRevisionToken.value = requireDocumentRevisionToken('revision-b');
         progressListener({
@@ -1148,7 +1145,7 @@ describe('usePdfSearch', () => {
         });
         const search = await createPdfSearch({documentRevisionToken});
         void search.search('alpha', '/tmp/work.pdf', 2);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         progressListener({
             requestId: mockSearch.run.mock.calls[0]![2].requestId,
             processed: 2,
@@ -1229,7 +1226,7 @@ describe('usePdfSearch', () => {
         });
         const search = await createPdfSearch({documentRevisionToken});
         const searched = search.search('alpha', '/tmp/work.pdf', 4);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         // The main process can announce the new revision before the page operation returns.
         documentRevisionToken.value = requireDocumentRevisionToken(revisionWhenRunEnds);
         runEnds.resolve(undefined);
@@ -1316,7 +1313,7 @@ describe('usePdfSearch', () => {
         mockSearch.run.mockReturnValueOnce(abandoned.promise);
         const search = await createPdfSearch({documentRevisionToken});
         const searched = search.search('alpha', '/tmp/work.pdf', 1);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         search.cancelSearch();
         abandoned.resolve({
             results: [],
@@ -1366,34 +1363,11 @@ describe('usePdfSearch', () => {
         const promise = search.search('alpha', '/tmp/work.pdf', 928);
         search.cancelSearch();
 
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         await expect(promise).resolves.toBe(false);
         expect(mockSearch.run).not.toHaveBeenCalled();
         expect(search.isSearching.value).toBe(false);
         expect(search.searchQuery.value).toBe('alpha');
-    });
-
-    it('clears the pending debounce timer instead of leaving it to fire', async () => {
-        // Only this case needs a nonzero debounce; the other instances share
-        // the normal module rather than reimporting its graph after every test.
-        vi.doMock('@app/constants/timeouts', async importOriginal => ({
-            ...await importOriginal<typeof TTimeoutConstants>(),
-            SEARCH_DEBOUNCE_MS: 50,
-        }));
-        vi.resetModules();
-        const {usePdfSearch: useDebouncedPdfSearch} = await import('@app/modules/pdf-viewer/runtime/composables/usePdfSearch');
-        const search = useDebouncedPdfSearch();
-
-        const promise = search.search('alpha', '/tmp/work.pdf', 928);
-        await flushToScheduledSearch();
-        expect(vi.getTimerCount()).toBeGreaterThan(0);
-
-        search.cancelSearch();
-
-        expect(vi.getTimerCount()).toBe(0);
-        await vi.advanceTimersByTimeAsync(50);
-        await expect(promise).resolves.toBe(false);
-        expect(mockSearch.run).not.toHaveBeenCalled();
     });
 
     it('cancels the in-flight backend request and ignores everything it reports afterwards', async () => {
@@ -1424,7 +1398,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const promise = search.search('alpha', '/tmp/work.pdf', 928);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         expect(search.isSearching.value).toBe(true);
 
         search.cancelSearch();
@@ -1494,7 +1468,7 @@ describe('usePdfSearch', () => {
         const search = await createPdfSearch();
 
         const canceled = search.search('alpha', '/tmp/work.pdf', 928);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         const requestId = mockSearch.run.mock.calls[0]?.[2]?.requestId;
         if (typeof requestId !== 'string') {
             throw new Error('Expected the fixture search request to have an ID');
@@ -1554,7 +1528,7 @@ describe('usePdfSearch', () => {
             };
         });
         const failed = search.search('beta', '/tmp/work.pdf', 928);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
         const envelope: ISearchErrorEnvelope = {
             code: 'SEARCH_PATH_DENIED',
             message: 'Search path denied by fixture',
@@ -1583,7 +1557,7 @@ describe('usePdfSearch', () => {
             truncated: false,
         });
         const restarted = search.search('alpha', '/tmp/work.pdf', 928);
-        await vi.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS);
+        await vi.advanceTimersByTimeAsync(0);
 
         await expect(restarted).resolves.toBe(true);
         expect(search.results.value).toHaveLength(1);

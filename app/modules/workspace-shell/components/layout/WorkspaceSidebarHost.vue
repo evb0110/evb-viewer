@@ -46,7 +46,11 @@
 
 <script setup lang="ts">
 import type { CSSProperties } from 'vue';
-import { useResizeObserver } from '@vueuse/core';
+import {
+    useResizeObserver,
+    useTimeoutFn,
+} from '@vueuse/core';
+import { SIDEBAR_SLIDE_END_FALLBACK_MARGIN_MS } from '@app/constants/timeouts';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { SIDEBAR } from '@app/constants/pdfLayout';
 
@@ -75,10 +79,18 @@ const emit = defineEmits<{
 }>();
 const workspaceMainRef = useTemplateRef<HTMLElement>('workspaceMainRef');
 const sidebarWrapperRef = useTemplateRef<HTMLElement>('sidebarWrapperRef');
-const sidebarPresentationStyle = computed<CSSProperties>(() => ({
-    ...(sidebarWrapperStyle ?? {}),
-    width: showSidebar ? sidebarWrapperStyle?.width : '0px',
-}));
+const sidebarPresentationStyle = computed<CSSProperties>(() => {
+    const {
+        width,
+        ...rest
+    } = sidebarWrapperStyle ?? {};
+    return showSidebar
+        ? {
+            ...rest,
+            ...(width !== undefined ? {width} : {}),
+        }
+        : rest;
+});
 /**
  * The wrapper animates its width and clips the panel, so the panel is revealed
  * and covered like a curtain. The panel itself takes its open width at once and
@@ -87,7 +99,7 @@ const sidebarPresentationStyle = computed<CSSProperties>(() => ({
  * measure as visible.
  */
 const sidebarContentStyle = computed<CSSProperties>(() => (
-    {width: showSidebar ? `${String(sidebarContentWidth)}px` : '0px'}
+    showSidebar ? {width: `${String(sidebarContentWidth)}px`} : {}
 ));
 
 /**
@@ -97,11 +109,14 @@ const sidebarContentStyle = computed<CSSProperties>(() => (
  * late `transitionend`; settling the viewer early would fix its fit scale to a
  * width the sidebar had not finished leaving.
  */
-const SLIDE_END_FALLBACK_MARGIN_MS = 150;
-let slideEndFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 // The sash is the visible edge of the curtain. It stays through the closing
 // slide so the panel is covered behind a border rather than cut off raw.
 const isSliding = ref(false);
+let slideEndFallbackDelayMs = SIDEBAR_SLIDE_END_FALLBACK_MARGIN_MS;
+const {
+    start: startSlideEndFallback,
+    stop: stopSlideEndFallback,
+} = useTimeoutFn(finishSlide, () => slideEndFallbackDelayMs, {immediate: false});
 
 function parseCssTimeMs(value: string) {
     const trimmed = value.trim();
@@ -130,11 +145,10 @@ function resolveWidthTransitionMs(style: CSSStyleDeclaration) {
 }
 
 function finishSlide() {
-    if (slideEndFallbackTimer === null) {
+    if (!isSliding.value) {
         return;
     }
-    clearTimeout(slideEndFallbackTimer);
-    slideEndFallbackTimer = null;
+    stopSlideEndFallback();
     isSliding.value = false;
     emit('slide-end');
 }
@@ -156,13 +170,12 @@ watch(() => showSidebar, () => {
         finishSlide();
         return;
     }
-    if (slideEndFallbackTimer === null) {
+    if (!isSliding.value) {
         isSliding.value = true;
         emit('slide-start');
-    } else {
-        clearTimeout(slideEndFallbackTimer);
     }
-    slideEndFallbackTimer = setTimeout(finishSlide, slideMs + SLIDE_END_FALLBACK_MARGIN_MS);
+    slideEndFallbackDelayMs = slideMs + SIDEBAR_SLIDE_END_FALLBACK_MARGIN_MS;
+    startSlideEndFallback();
 });
 
 onBeforeUnmount(finishSlide);
@@ -276,10 +289,12 @@ watch(
 }
 
 .sidebar-wrapper.is-closed {
+    width: 0;
     pointer-events: none;
 }
 
 .sidebar-wrapper.is-closed .sidebar-wrapper__content {
+    width: 0;
     transition: width 0s var(--app-transition-reorder-duration);
 }
 
@@ -299,7 +314,7 @@ watch(
     user-select: none;
     touch-action: none;
     background: var(--app-editor-sash-bg);
-    transition: background-color 0.12s ease;
+    transition: background-color var(--app-transition-quick);
 }
 
 .sidebar-resizer:hover,

@@ -60,7 +60,18 @@ import {
 } from '@app/modules/document-viewer/public';
 import DocumentBookmarkTreeItem from '@app/components/document-viewer/DocumentBookmarkTreeItem.vue';
 
-const props = defineProps<{
+const {
+    items,
+    activeId,
+    displayMode,
+    expandedIds,
+    activePathIds,
+    editMode = false,
+    editingId,
+    selectedIds,
+    draggingIds,
+    dropTarget,
+} = defineProps<{
     items: readonly IDocumentBookmarkTreeItem[];
     activeId: string | null;
     displayMode: TDocumentBookmarkDisplayMode;
@@ -92,10 +103,10 @@ const rowMeasureRef = ref<HTMLElement | null>(null);
 const {height: measuredRowHeight} = useElementSize(rowMeasureRef);
 const rowHeight = computed(() => measuredRowHeight.value || 42);
 
-const visibleRows = computed(() => getDocumentBookmarkVisibleRows(props.items, {
-    displayMode: props.displayMode,
-    expandedIds: props.expandedIds,
-    activePathIds: props.activePathIds,
+const visibleRows = computed(() => getDocumentBookmarkVisibleRows(items, {
+    displayMode,
+    expandedIds,
+    activePathIds,
 }));
 
 const {
@@ -113,7 +124,7 @@ const {
 // rows sit at their original list positions while the viewport keeps scrolling.
 const focusedId = ref<string | null>(null);
 const dragSourceId = ref<string | null>(null);
-const canDrop = computed(() => Boolean(props.editMode && props.draggingIds?.size));
+const canDrop = computed(() => Boolean(editMode && draggingIds?.size));
 
 interface IMountedBookmarkRow {
     id: string;
@@ -136,7 +147,7 @@ const mountedRows = computed<IMountedBookmarkRow[]>(() => {
     }));
     const retainedIds = new Set([
         focusedId.value,
-        props.editingId,
+        editingId,
         dragSourceId.value,
     ]);
     for (const id of retainedIds) {
@@ -173,11 +184,11 @@ const mountedRows = computed<IMountedBookmarkRow[]>(() => {
                     insetInline: 0,
                 }
                 : undefined,
-            isActive: id === props.activeId,
-            isSelected: Boolean(props.selectedIds?.has(id)),
-            isEditing: props.editingId === id,
-            isDragging: Boolean(props.draggingIds?.has(id)),
-            dropPosition: props.dropTarget?.id === id ? props.dropTarget.position : undefined,
+            isActive: id === activeId,
+            isSelected: Boolean(selectedIds?.has(id)),
+            isEditing: editingId === id,
+            isDragging: Boolean(draggingIds?.has(id)),
+            dropPosition: dropTarget?.id === id ? dropTarget.position : undefined,
         };
     });
 });
@@ -202,7 +213,7 @@ function completeEdit(payload?: {
     id: string;
     title: string
 }) {
-    const rowId = props.editingId ?? null;
+    const rowId = editingId ?? null;
     const input = document.activeElement;
     const restoreFocus = input?.matches('.pdf-bookmark-item-input')
         && input.closest<HTMLElement>('[data-bookmark-id]')?.dataset.bookmarkId === rowId;
@@ -215,7 +226,7 @@ function completeEdit(payload?: {
 
 function handleWheel(event: WheelEvent) {
     const list = containerProps.ref.value;
-    if (!props.editingId || !list || !event.cancelable || event.shiftKey) return;
+    if (!editingId || !list || !event.cancelable || event.shiftKey) return;
     if (event.deltaX !== 0 || event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) return;
     const interaction = resolveDocumentWheelInteraction(event, list);
     if (interaction.intent !== 'scroll') return;
@@ -234,7 +245,7 @@ function handleDragStart(payload: {id: string}) {
     emit('drag-start', payload);
 }
 
-watch(() => props.draggingIds?.size, size => {
+watch(() => draggingIds?.size, size => {
     if (!size) {
         dragSourceId.value = null;
     }
@@ -317,8 +328,8 @@ async function handleKeydown(event: KeyboardEvent) {
 
 const revealRowId = computed(() => visibleRows.value[resolveDocumentBookmarkRevealRowIndex(
     visibleRows.value,
-    props.activeId,
-    props.activePathIds,
+    activeId,
+    activePathIds,
 )]?.item.id ?? null);
 
 function revealRow(rowId: string) {
@@ -356,7 +367,7 @@ async function focusRow(rowId: string | null, lastControl = false) {
 // DOM ownership before Vue removes it, then focus a surviving visible neighbor.
 watch(visibleRows, async (rows, previousRows) => {
     const element = document.activeElement;
-    if (!element || !treeRef.value?.contains(element) || props.editingId) {
+    if (!element || !treeRef.value?.contains(element) || editingId) {
         return;
     }
     const index = previousRows.findIndex(row => row.item.id === focusedId.value);
@@ -378,7 +389,7 @@ defineExpose({focusActiveRow: () => focusRow(revealRowId.value)});
 // under the user's control: nothing here rewrites `expandedIds`.
 watch(
     [
-        () => props.activeId,
+        () => activeId,
         revealRowId,
     ],
     () => {

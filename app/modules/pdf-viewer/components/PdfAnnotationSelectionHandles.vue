@@ -11,7 +11,7 @@
             class="pdf-annotation-read-only-notice"
             data-pdf-annotation-read-only-notice
             role="status"
-            :style="{transform: `translate(calc(-50% + ${moveOffset.x}px), ${moveOffset.y}px)`}"
+            :style="moveHandleStyle"
         >
             {{ t('annotations.readOnlyBorderStyle') }}
         </p>
@@ -26,7 +26,7 @@
                 class="pdf-annotation-move-handle"
                 data-pdf-annotation-move-handle
                 :aria-label="t('annotations.moveTextBox')"
-                :style="{transform: `translate(calc(-50% + ${moveOffset.x}px), ${moveOffset.y}px)`}"
+                :style="moveHandleStyle"
                 @pointerdown.stop.prevent="emit('move-start', $event)"
                 @click.stop
                 @dblclick.stop
@@ -48,12 +48,22 @@
 
 <script setup lang="ts">
 import {
+    useEventListener,
+    useResizeObserver,
+} from '@vueuse/core';
+import {
     isReadOnlyAnnotation, type AnnotationEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import type { TAnnotationResizeHandle } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 
-const props = defineProps<{
+const MOVE_HANDLE_OFFSET_UPDATE_THRESHOLD_PX = 0.25;
+
+const {
+    entity,
+    displayRect,
+    viewRotation = 0,
+} = defineProps<{
     entity: AnnotationEntity | null;
     displayRect?: IAnnotationMarkerRect | undefined;
     viewRotation?: number;
@@ -64,13 +74,17 @@ const emit = defineEmits<{
 }>();
 const {t} = useTypedI18n();
 // A read-only label explains itself where its move grip would be, and has no grips.
-const readOnly = computed(() => Boolean(props.entity && isReadOnlyAnnotation(props.entity)));
+const readOnly = computed(() => Boolean(entity && isReadOnlyAnnotation(entity)));
 const handlesRef = ref<HTMLElement | null>(null);
 const moveHandleRef = ref<HTMLElement | null>(null);
 const moveOffset = shallowRef({
     x: 0,
     y: 0,
 });
+const moveHandleStyle = computed(() => ({
+    '--pdf-annotation-move-offset-x': `${moveOffset.value.x}px`,
+    '--pdf-annotation-move-offset-y': `${moveOffset.value.y}px`,
+}));
 
 function positionMoveHandle() {
     const root = handlesRef.value;
@@ -81,7 +95,7 @@ function positionMoveHandle() {
     }
     const bounds = viewport.getBoundingClientRect();
     const button = grip.getBoundingClientRect();
-    const angle = ((props.entity && 'rotation' in props.entity ? props.entity.rotation : 0) + (props.viewRotation ?? 0)) * Math.PI / 180;
+    const angle = ((entity && 'rotation' in entity ? entity.rotation : 0) + viewRotation) * Math.PI / 180;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
     const naturalX = button.x + button.width / 2 - (moveOffset.value.x * cos - moveOffset.value.y * sin);
@@ -110,35 +124,42 @@ function positionMoveHandle() {
         x: dx * cos + dy * sin,
         y: dy * cos - dx * sin,
     };
-    if (Math.abs(next.x - moveOffset.value.x) > 0.25 || Math.abs(next.y - moveOffset.value.y) > 0.25) {
+    if (
+        Math.abs(next.x - moveOffset.value.x) > MOVE_HANDLE_OFFSET_UPDATE_THRESHOLD_PX
+        || Math.abs(next.y - moveOffset.value.y) > MOVE_HANDLE_OFFSET_UPDATE_THRESHOLD_PX
+    ) {
         moveOffset.value = next;
     }
 }
 
 watch([
-    () => props.entity,
-    () => props.displayRect,
-    () => props.viewRotation,
+    () => entity,
+    () => displayRect,
+    () => viewRotation,
 ], async () => {
     await nextTick();
     positionMoveHandle();
 }, {flush: 'post'});
-watch(handlesRef, (root, _previous, onCleanup) => {
-    const viewport = root?.closest('.pdfViewer');
-    if (!root || !viewport) {
-        return;
+const viewportRef = computed(() => handlesRef.value?.closest<HTMLElement>('.pdfViewer') ?? null);
+const resizeTargets = computed(() => (
+    handlesRef.value && viewportRef.value
+        ? [
+            handlesRef.value,
+            viewportRef.value,
+        ]
+        : []
+));
+useResizeObserver(resizeTargets, positionMoveHandle);
+useEventListener(viewportRef, 'scroll', positionMoveHandle, {passive: true});
+useEventListener(
+    () => (viewportRef.value && typeof window !== 'undefined' ? window : null),
+    'resize',
+    positionMoveHandle,
+);
+watch(handlesRef, (root) => {
+    if (root && viewportRef.value) {
+        positionMoveHandle();
     }
-    const observer = new ResizeObserver(positionMoveHandle);
-    observer.observe(root);
-    observer.observe(viewport);
-    viewport.addEventListener('scroll', positionMoveHandle, {passive: true});
-    window.addEventListener('resize', positionMoveHandle);
-    onCleanup(() => {
-        observer.disconnect();
-        viewport.removeEventListener('scroll', positionMoveHandle);
-        window.removeEventListener('resize', positionMoveHandle);
-    });
-    positionMoveHandle();
 }, {flush: 'post'});
 
 function normalizeSelectionRect(value: IAnnotationMarkerRect): IAnnotationMarkerRect {
@@ -161,15 +182,15 @@ const handles = computed(() => ([
     's',
     'sw',
     'w',
-] as const).filter(handle => !readOnly.value && (props.entity?.kind !== 'text-box' || (handle !== 'n' && handle !== 's'))));
+] as const).filter(handle => !readOnly.value && (entity?.kind !== 'text-box' || (handle !== 'n' && handle !== 's'))));
 
 const rect = computed(() => {
-    const entity = props.entity;
-    if (!entity) {
+    const currentEntity = entity;
+    if (!currentEntity) {
         return null;
     }
-    return entity.kind === 'shape' || entity.kind === 'text-box' || entity.kind === 'placed-image'
-        ? normalizeSelectionRect(props.displayRect ?? entity.rect)
+    return currentEntity.kind === 'shape' || currentEntity.kind === 'text-box' || currentEntity.kind === 'placed-image'
+        ? normalizeSelectionRect(displayRect ?? currentEntity.rect)
         : null;
 });
 
@@ -178,17 +199,25 @@ const handlesStyle = computed(() => rect.value ? {
     top: `${rect.value.top * 100}%`,
     width: `${rect.value.width * 100}%`,
     height: `${rect.value.height * 100}%`,
-    transform: `rotate(${props.entity && 'rotation' in props.entity ? props.entity.rotation : 0}deg)`,
+    transform: `rotate(${entity && 'rotation' in entity ? entity.rotation : 0}deg)`,
 } : undefined);
 
 function handlePointerDown(handle: TAnnotationResizeHandle, event: PointerEvent) {
-    if (props.entity?.kind === 'text-box' || props.entity?.kind === 'placed-image' || props.entity?.kind === 'shape') {
+    if (entity?.kind === 'text-box' || entity?.kind === 'placed-image' || entity?.kind === 'shape') {
         emit('resize-start', handle, event);
     }
 }
 </script>
 
 <style scoped>
+.pdf-annotation-selection-handles .pdf-annotation-move-handle,
+.pdf-annotation-read-only-notice {
+    transform: translate(
+        calc(-50% + var(--pdf-annotation-move-offset-x, 0px)),
+        var(--pdf-annotation-move-offset-y, 0)
+    );
+}
+
 .pdf-annotation-read-only-notice {
     position: absolute;
     left: 50%;
