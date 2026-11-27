@@ -1,9 +1,9 @@
-// Every automated contributor tends to leave a new test, job, or gate behind
-// on every commit, so the suite grew from 210 to 1,379 test files in four
-// months while CI stayed red most of the time. A new check is a deliberate
-// decision the user made, not a by-product of a task, so a commit that adds
-// one must say who asked for it in an `Adds-Checks:` trailer. Deleting or
-// editing an existing check never needs the trailer.
+// New check infrastructure (a workflow, job, action, hook, CI script, lint
+// rule, vitest project, package.json check script, or gate policy entry) is a
+// deliberate decision the owner makes, not a by-product of a task, so a commit
+// that adds one must quote the owner's request in an `Adds-Checks:` trailer. A
+// test file in an existing lane and edits or deletions of existing checks need
+// no trailer.
 //
 // The same trailer covers flake tolerance: a retry, a wall-clock sleep, a
 // raised timeout, or a step allowed to fail hides a defect instead of fixing
@@ -18,23 +18,16 @@ import {spawnSync} from 'node:child_process';
 /** @typedef {{file: RegExp, label: string, pattern: RegExp}} IAddedCheckLinePattern */
 /** @typedef {{label: string, pattern: RegExp}} IAddedCheckFilePattern */
 /** @typedef {{path: string, status: string}} INameStatusEntry */
+/** @typedef {{body: string, committedAt: number, oid: string, parents: string[], subject: string}} ICommitMetadata */
 /** @typedef {(path: string) => string[]} TReadAddedLines */
 
 const ADDS_CHECKS_TRAILER = 'Adds-Checks';
 
 const TRAILER_PATTERN = /^Adds-Checks:[ \t]*(\S.*)$/imu;
 
-// Files whose creation is itself a new check.
+// Infrastructure files whose creation is itself a new check.
 /** @type {IAddedCheckFilePattern[]} */
 const ADDED_CHECK_FILE_PATTERNS = [
-    {
-        label: 'new test file',
-        pattern: /^tests\/.*\.(?:test|spec|e2e)\.[cm]?[jt]sx?$/u,
-    },
-    {
-        label: 'new native test',
-        pattern: /^native\/.*\/tests\/.*\.rs$/u,
-    },
     {
         label: 'new workflow or action',
         pattern: /^\.github\/(?:workflows|actions)\//u,
@@ -49,9 +42,14 @@ const ADDED_CHECK_FILE_PATTERNS = [
     },
 ];
 
-const TEST_FILE_PATTERN = /^tests\/.*\.(?:test|spec|e2e)\.[cm]?[jt]sx?$/u;
+const TEST_FILE_PATTERN = /^tests\/.*\.(?:test|spec|e2e)\.[cm]?[jt]sx?$/su;
+const ELECTRON_E2E_LANE_PATH_PATTERN = /^tests\/e2e\/electron\/(nightly\/[^/]+|[^/]+)\//u;
+const NON_LANE_ELECTRON_E2E_DIRS = new Set([
+    'helpers',
+    'nightly',
+]);
 const VITEST_CONFIG_PATTERN = /^vitest[A-Za-z.-]*\.config\.[cm]?[jt]s$/u;
-const WORKFLOW_PATTERN = /^\.github\/workflows\/.*\.ya?ml$/u;
+const WORKFLOW_PATTERN = /^\.github\/workflows\/.*\.ya?ml$/su;
 
 // Lines that make a check tolerate its own failures instead of catching a
 // defect. Matched only on added lines, so removing one never needs a trailer.
@@ -147,31 +145,15 @@ export function readAddsChecksTrailer(message) {
     return TRAILER_PATTERN.exec(message)?.[1]?.trim() ?? null;
 }
 
-// A diff cannot prove that a test moved unchanged, so moves fail closed. A
-// new test file that repeats, byte for byte, a test file the same change
-// deletes is a rename, and each deleted file excuses one copy. Any other
-// relocation needs the trailer, and every added line counts even when the
-// change removes the same text elsewhere.
-/** @param {INameStatusEntry[]} entries `git diff --name-status` rows @param {TReadAddedLines} readAddedLines returns the `+` lines of a unified diff for one path, without the leading `+` @param {TReadAddedLines} [readRemovedLines] returns its `-` lines @returns {string[]} */
-export function findAddedChecks(entries, readAddedLines, readRemovedLines = () => []) {
+/** @param {INameStatusEntry[]} entries `git diff --name-status` rows @param {TReadAddedLines} readAddedLines returns the `+` lines of a unified diff for one path, without the leading `+` @returns {string[]} */
+export function findAddedChecks(entries, readAddedLines) {
     /** @type {string[]} */
     const found = [];
-    const deletedTestFiles = entries
-        .filter(({
-            path, status,
-        }) => status === 'D' && TEST_FILE_PATTERN.test(path))
-        .map(({path}) => readRemovedLines(path).join('\n'));
     for (const {
         path,
         status,
     } of entries) {
         if (status === 'D') {
-            continue;
-        }
-        const addedLines = readAddedLines(path);
-        const renamedFrom = deletedTestFiles.indexOf(addedLines.join('\n'));
-        if (status === 'A' && TEST_FILE_PATTERN.test(path) && renamedFrom >= 0) {
-            deletedTestFiles.splice(renamedFrom, 1);
             continue;
         }
         if (status === 'A') {
@@ -182,6 +164,10 @@ export function findAddedChecks(entries, readAddedLines, readRemovedLines = () =
             }
         }
         const lineRules = ADDED_CHECK_LINE_PATTERNS.filter(candidate => candidate.file.test(path));
+        if (lineRules.length === 0) {
+            continue;
+        }
+        const addedLines = readAddedLines(path);
         for (const rule of lineRules) {
             const line = addedLines.find(candidate => rule.pattern.test(candidate));
             if (line) {
@@ -195,10 +181,10 @@ export function findAddedChecks(entries, readAddedLines, readRemovedLines = () =
 /** @param {string[]} added @returns {string[]} */
 export function describeMissingTrailer(added) {
     return [
-        `commit adds checks or flake tolerance without an \`${ADDS_CHECKS_TRAILER}:\` trailer: ${added.join('; ')}`,
+        `commit adds check infrastructure or flake tolerance without an \`${ADDS_CHECKS_TRAILER}:\` trailer: ${added.join('; ')}`,
         `Add \`${ADDS_CHECKS_TRAILER}: <the user's words that asked for this>\` to the message, `
-        + 'or drop the new check. A retry, sleep, raised timeout, or allowed failure hides a defect: '
-        + 'fix the flake or delete the check instead. Deleting or editing an existing check needs no trailer.',
+        + 'or drop the new check infrastructure. A retry, sleep, raised timeout, or allowed failure hides a defect: '
+        + 'fix the flake or delete the check instead. A test file in an existing lane and edits or deletions of existing checks need no trailer.',
     ];
 }
 
@@ -242,9 +228,8 @@ const JSON_KEY_PATTERN = /^\s*("[^"]+"):/u;
 
 // A new value under a JSON key the same diff removes (a package.json script
 // whose command changed) edits an existing check rather than adding one.
-/** @param {string} diff @returns {string[]} */
-function addedLinesOf(diff) {
-    const lines = diff.split('\n');
+/** @param {string[]} lines @returns {string[]} */
+function addedLinesOf(lines) {
     const removedKeys = new Set(lines
         .filter(line => line.startsWith('-') && !line.startsWith('---'))
         .map(line => JSON_KEY_PATTERN.exec(line.slice(1))?.[1] ?? ''));
@@ -254,21 +239,235 @@ function addedLinesOf(diff) {
         .filter(line => !removedKeys.has(JSON_KEY_PATTERN.exec(line)?.[1] ?? '\0'));
 }
 
-/** @param {string} diff @returns {string[]} */
-function removedLinesOf(diff) {
-    return diff.split('\n')
-        .filter(line => line.startsWith('-') && !line.startsWith('---'))
-        .map(line => line.slice(1));
+/** @param {string} escaped @returns {string} */
+function unquoteGitPath(escaped) {
+    /** @type {number[]} */
+    const bytes = [];
+    /** @type {Record<string, number>} */
+    const simpleEscapes = {
+        '"': 0x22,
+        '\\': 0x5c,
+        a: 0x07,
+        b: 0x08,
+        f: 0x0c,
+        n: 0x0a,
+        r: 0x0d,
+        t: 0x09,
+        v: 0x0b,
+    };
+    for (let index = 0; index < escaped.length; ) {
+        const char = escaped[index];
+        if (char !== '\\' || index + 1 >= escaped.length) {
+            const codePoint = escaped.codePointAt(index);
+            if (codePoint === undefined) {
+                break;
+            }
+            bytes.push(...Buffer.from(String.fromCodePoint(codePoint), 'utf8'));
+            index += codePoint > 0xffff ? 2 : 1;
+            continue;
+        }
+        const next = escaped[index + 1] ?? '';
+        const mapped = simpleEscapes[next];
+        if (mapped !== undefined) {
+            bytes.push(mapped);
+            index += 2;
+            continue;
+        }
+        const octal = escaped.slice(index + 1, index + 4);
+        if (/^[0-7]{3}$/u.test(octal)) {
+            bytes.push(Number.parseInt(octal, 8));
+            index += 4;
+            continue;
+        }
+        const codePoint = escaped.codePointAt(index + 1);
+        if (codePoint === undefined) {
+            break;
+        }
+        bytes.push(...Buffer.from(String.fromCodePoint(codePoint), 'utf8'));
+        index += 1 + (codePoint > 0xffff ? 2 : 1);
+    }
+    return Buffer.from(bytes).toString('utf8');
 }
 
-/** @param {string[]} arguments_ @param {string} cwd @returns {string | null} */
-function git(arguments_, cwd) {
+/** @param {string} rawHeader @returns {string} */
+function parseDiffDestinationPath(rawHeader) {
+    const trimmed = rawHeader.replace(/\t$/u, '');
+    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+        const unquoted = unquoteGitPath(trimmed.slice(1, -1));
+        return unquoted.startsWith('b/') ? unquoted.slice(2) : unquoted;
+    }
+    return trimmed.startsWith('b/') ? trimmed.slice(2) : trimmed;
+}
+
+/** @param {string} diff @returns {Map<string, string[]>} */
+function parseAddedLinesByPath(diff) {
+    /** @type {Map<string, string[]>} */
+    const rawDiffByPath = new Map();
+    /** @type {string | null} */
+    let currentPath = null;
+    let inHunk = false;
+
+    for (const line of diff.split('\n')) {
+        if (line.startsWith('diff --git ')) {
+            currentPath = null;
+            inHunk = false;
+            continue;
+        }
+        if (!inHunk && (line.startsWith('+++ b/') || line.startsWith('+++ "b/'))) {
+            currentPath = parseDiffDestinationPath(line.slice('+++ '.length));
+            if (!rawDiffByPath.has(currentPath)) {
+                rawDiffByPath.set(currentPath, []);
+            }
+            continue;
+        }
+        if (line.startsWith('@@ ')) {
+            inHunk = true;
+            continue;
+        }
+        if (inHunk && currentPath !== null) {
+            rawDiffByPath.get(currentPath)?.push(line);
+        }
+    }
+
+    /** @type {Map<string, string[]>} */
+    const addedByPath = new Map();
+    for (const [
+        filePath,
+        lines,
+    ] of rawDiffByPath) {
+        addedByPath.set(filePath, addedLinesOf(lines));
+    }
+    return addedByPath;
+}
+
+/** @param {INameStatusEntry[]} entries @returns {string[]} */
+function selectLineRulePaths(entries) {
+    return entries
+        .filter(({
+            path,
+            status,
+        }) => status !== 'D'
+            && !(status === 'A' && ADDED_CHECK_FILE_PATTERNS.some(rule => rule.pattern.test(path)))
+            && ADDED_CHECK_LINE_PATTERNS.some(rule => rule.file.test(path)))
+        .map(({path}) => path);
+}
+
+/** @param {string[]} arguments_ @param {string} cwd @param {string} [input] @returns {string | null} */
+function git(arguments_, cwd, input) {
     const result = spawnSync('git', arguments_, {
         cwd,
         encoding: 'utf8',
+        input,
         maxBuffer: 64 * 1024 * 1024,
     });
     return result.status === 0 ? result.stdout : null;
+}
+
+/** @param {string[]} arguments_ @param {string} cwd @param {string} [input] @returns {string} */
+function gitOrThrow(arguments_, cwd, input) {
+    const result = spawnSync('git', arguments_, {
+        cwd,
+        encoding: 'utf8',
+        input,
+        maxBuffer: 64 * 1024 * 1024,
+    });
+    if (result.status !== 0) {
+        const detail = result.stderr.trim() || result.stdout.trim();
+        throw new Error(`git ${arguments_.join(' ')} failed${detail ? `: ${detail}` : ''}`);
+    }
+    return result.stdout;
+}
+
+/**
+ * Reads parents, commit timestamp, subject, and full commit message for every
+ * commit in one `git log --no-walk --stdin` call, shared with `fix-chain.mjs`.
+ * @param {string[]} commits @param {string} cwd @returns {Map<string, ICommitMetadata>}
+ */
+export function readCommitMetadata(commits, cwd) {
+    /** @type {Map<string, ICommitMetadata>} */
+    const metadata = new Map();
+    if (commits.length === 0) {
+        return metadata;
+    }
+    const output = gitOrThrow([
+        'log',
+        '--no-walk=unsorted',
+        '--stdin',
+        '-z',
+        '--format=%H%x09%P%x09%ct%x09%s%n%B',
+    ], cwd, `${commits.join('\n')}\n`);
+    for (const record of output.split('\0')) {
+        if (record.length === 0) {
+            continue;
+        }
+        const newline = record.indexOf('\n');
+        const header = newline === -1 ? record : record.slice(0, newline);
+        const body = newline === -1 ? '' : record.slice(newline + 1);
+        const [
+            oid = '',
+            parentsField = '',
+            committedAtField = '0',
+            ...subjectParts
+        ] = header.split('\t');
+        if (!oid) {
+            continue;
+        }
+        metadata.set(oid, {
+            body,
+            committedAt: Number(committedAtField),
+            oid,
+            parents: parentsField.trim().split(' ').filter(Boolean),
+            subject: subjectParts.join('\t'),
+        });
+    }
+    for (const commit of commits) {
+        if (!metadata.has(commit)) {
+            throw new Error(`Missing commit metadata for ${commit}`);
+        }
+    }
+    return metadata;
+}
+
+/** @param {INameStatusEntry[]} entries @param {string | null} baseRevision @param {string} cwd @returns {string[]} */
+function findNewElectronE2ELanes(entries, baseRevision, cwd) {
+    /** @type {Set<string>} */
+    const candidateLanes = new Set();
+    for (const {
+        path,
+        status,
+    } of entries) {
+        if (status !== 'A') {
+            continue;
+        }
+        const match = ELECTRON_E2E_LANE_PATH_PATTERN.exec(path);
+        const lane = match?.[1];
+        if (lane && !NON_LANE_ELECTRON_E2E_DIRS.has(lane)) {
+            candidateLanes.add(lane);
+        }
+    }
+    if (candidateLanes.size === 0) {
+        return [];
+    }
+    /** @type {string[]} */
+    const found = [];
+    for (const lane of [...candidateLanes].sort()) {
+        const laneDir = `tests/e2e/electron/${lane}`;
+        const existingTree = baseRevision === null
+            ? ''
+            : (git([
+                'ls-tree',
+                baseRevision,
+                '--',
+                laneDir,
+            ], cwd) ?? '');
+        const hasExistingTree = existingTree
+            .split('\n')
+            .some(line => /^\d+\s+tree\s+/u.test(line));
+        if (!hasExistingTree) {
+            found.push(`new Electron E2E lane: ${laneDir}`);
+        }
+    }
+    return found;
 }
 
 /** @param {string} cwd @param {string[]} base @returns {string[]} */
@@ -285,18 +484,37 @@ function findStagedAddedChecksAgainst(cwd, base) {
         return [];
     }
     const entries = parseNameStatus(names);
-    const diffs = new Map(entries.map(({path}) => [
-        path,
-        git([
+    const baseRef = base[0] ?? 'HEAD';
+    const hasBaseRevision = git([
+        'rev-parse',
+        '-q',
+        '--verify',
+        `${baseRef}^{tree}`,
+    ], cwd) !== null;
+    const lineRulePaths = selectLineRulePaths(entries);
+    const addedByPath = lineRulePaths.length === 0
+        ? new Map()
+        : parseAddedLinesByPath(gitOrThrow([
+            '-c',
+            'core.quotePath=false',
+            '-c',
+            'diff.noprefix=false',
+            '-c',
+            'diff.mnemonicPrefix=false',
             'diff',
             '--cached',
+            '--src-prefix=a/',
+            '--dst-prefix=b/',
             '-U0',
+            '--no-renames',
             ...base,
             '--',
-            path,
-        ], cwd) ?? '',
-    ]));
-    return findAddedChecks(entries, path => addedLinesOf(diffs.get(path) ?? ''), path => removedLinesOf(diffs.get(path) ?? ''));
+            ...lineRulePaths,
+        ], cwd));
+    return [
+        ...findNewElectronE2ELanes(entries, hasBaseRevision ? baseRef : null, cwd),
+        ...findAddedChecks(entries, path => addedByPath.get(path) ?? []),
+    ];
 }
 
 // A merge commit only adds what neither parent already had, so a check that
@@ -316,9 +534,9 @@ export function findStagedAddedChecks(cwd) {
     return againstHead.filter(check => againstMergeHead.has(check));
 }
 
-/** @param {string} commit @param {string} cwd @returns {string[]} */
-function findCommitAddedChecks(commit, cwd) {
-    const names = git([
+/** @param {string} commit @param {string | null} parent @param {string} cwd @returns {string[]} */
+function findCommitAddedChecks(commit, parent, cwd) {
+    const names = gitOrThrow([
         'diff-tree',
         '--no-commit-id',
         '-r',
@@ -328,50 +546,51 @@ function findCommitAddedChecks(commit, cwd) {
         '--no-renames',
         commit,
     ], cwd);
-    if (names === null) {
-        return [];
-    }
     const entries = parseNameStatus(names);
-    const diffs = new Map(entries.map(({path}) => [
-        path,
-        git([
+    const lineRulePaths = selectLineRulePaths(entries);
+    const addedByPath = lineRulePaths.length === 0
+        ? new Map()
+        : parseAddedLinesByPath(gitOrThrow([
+            '-c',
+            'core.quotePath=false',
+            '-c',
+            'diff.noprefix=false',
+            '-c',
+            'diff.mnemonicPrefix=false',
             'diff-tree',
             '--no-commit-id',
             '--root',
+            '-r',
             '-p',
+            '--src-prefix=a/',
+            '--dst-prefix=b/',
             '-U0',
+            '--no-renames',
             commit,
             '--',
-            path,
-        ], cwd) ?? '',
-    ]));
-    return findAddedChecks(entries, path => addedLinesOf(diffs.get(path) ?? ''), path => removedLinesOf(diffs.get(path) ?? ''));
+            ...lineRulePaths,
+        ], cwd));
+    return [
+        ...findNewElectronE2ELanes(entries, parent, cwd),
+        ...findAddedChecks(entries, path => addedByPath.get(path) ?? []),
+    ];
 }
 
-/** @param {string[]} commits @param {string} cwd @returns {{matches: string[], subject: string}[]} */
-export function findAddedCheckViolations(commits, cwd) {
+/** @param {string[]} commits @param {string} cwd @param {Map<string, ICommitMetadata>} [commitMetadata] @returns {{matches: string[], subject: string}[]} */
+export function findAddedCheckViolations(commits, cwd, commitMetadata = readCommitMetadata(commits, cwd)) {
     return commits.flatMap((commit) => {
-        const parents = git([
-            'rev-list',
-            '--parents',
-            '-n',
-            '1',
-            commit,
-        ], cwd);
+        const metadata = commitMetadata.get(commit);
+        if (!metadata) {
+            throw new Error(`Missing commit metadata for ${commit}`);
+        }
         // A merge introduces nothing of its own; its parents were checked.
-        if (parents === null || parents.trim().split(' ').length > 2) {
+        if (metadata.parents.length > 1) {
             return [];
         }
-        const message = git([
-            'log',
-            '-1',
-            '--format=%B',
-            commit,
-        ], cwd) ?? '';
-        if (readAddsChecksTrailer(message) !== null) {
+        if (readAddsChecksTrailer(metadata.body) !== null) {
             return [];
         }
-        const added = findCommitAddedChecks(commit, cwd);
+        const added = findCommitAddedChecks(commit, metadata.parents[0] ?? null, cwd);
         return added.length > 0 ? [{
             matches: describeMissingTrailer(added),
             subject: commit,

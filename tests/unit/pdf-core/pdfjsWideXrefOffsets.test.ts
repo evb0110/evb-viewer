@@ -18,13 +18,19 @@ const MAX_REQUESTED_BYTES = 2 * 1024 * 1024;
 
 class SparsePdfRangeTransport extends PDFDataRangeTransport {
     private readonly segments: readonly ISparseSegment[];
+    private readonly onBudgetExceeded: (error: Error) => void;
     public requestCount = 0;
     public requestedBytes = 0;
     public budgetExceededError: Error | null = null;
 
-    constructor(totalLength: number, segments: readonly ISparseSegment[]) {
+    constructor(
+        totalLength: number,
+        segments: readonly ISparseSegment[],
+        onBudgetExceeded: (error: Error) => void,
+    ) {
         super(totalLength, null);
         this.segments = segments;
+        this.onBudgetExceeded = onBudgetExceeded;
     }
 
     override requestDataRange(begin: number, end: number) {
@@ -34,10 +40,12 @@ class SparsePdfRangeTransport extends PDFDataRangeTransport {
         this.requestCount += 1;
         this.requestedBytes += length;
         if (this.requestCount > MAX_RANGE_REQUESTS || this.requestedBytes > MAX_REQUESTED_BYTES) {
-            this.budgetExceededError ??= new Error(
-                `Range read budget exceeded (${this.requestCount} requests, ${this.requestedBytes} bytes; last range [${clampedBegin}, ${clampedEnd}))`,
-            );
-            this.abort();
+            if (!this.budgetExceededError) {
+                this.budgetExceededError = new Error(
+                    `Range read budget exceeded (${this.requestCount} requests, ${this.requestedBytes} bytes; last range [${clampedBegin}, ${clampedEnd}))`,
+                );
+                this.onBudgetExceeded(this.budgetExceededError);
+            }
             return;
         }
         const chunk = new Uint8Array(length);
@@ -242,11 +250,18 @@ describe('vendored pdfjs-dist wide XRef stream offsets', () => {
             pageHeight: 120,
         },
         {
-            label: '>10 GiB 8-byte offsets',
+            label: '>10 GB decimal cutoff 8-byte offsets',
             catalogOffset: 10_000_000_586,
             offsetFieldWidth: 8,
             pageWidth: 240,
             pageHeight: 140,
+        },
+        {
+            label: '>10 GiB binary 8-byte offsets',
+            catalogOffset: (10 * 1024 * 1024 * 1024) + 586,
+            offsetFieldWidth: 8,
+            pageWidth: 260,
+            pageHeight: 160,
         },
     ])('opens range-backed PDF 1.5 XRef stream with $label', async ({
         catalogOffset,
@@ -263,7 +278,11 @@ describe('vendored pdfjs-dist wide XRef stream offsets', () => {
             pageWidth,
             pageHeight,
         });
-        const range = new SparsePdfRangeTransport(totalLength, segments);
+        let rejectBudget!: (error: Error) => void;
+        const budgetFailure = new Promise<never>((_resolve, reject) => {
+            rejectBudget = reject;
+        });
+        const range = new SparsePdfRangeTransport(totalLength, segments, rejectBudget);
         const loadingTask = getDocument({
             range,
             rangeChunkSize: 65_536,
@@ -271,18 +290,32 @@ describe('vendored pdfjs-dist wide XRef stream offsets', () => {
             disableStream: true,
             useWorkerFetch: false,
         });
+        loadingTask.promise.catch(() => undefined);
         try {
-            const pdfDocument = await loadingTask.promise;
+            const pdfDocument = await Promise.race([
+                loadingTask.promise,
+                budgetFailure,
+            ]);
             expect(range.budgetExceededError).toBeNull();
             expect(range.requestCount).toBeLessThanOrEqual(MAX_RANGE_REQUESTS);
             expect(range.requestedBytes).toBeLessThanOrEqual(MAX_REQUESTED_BYTES);
             expect(pdfDocument.numPages).toBe(1);
-            const page = await pdfDocument.getPage(1);
+            const page = await Promise.race([
+                pdfDocument.getPage(1),
+                budgetFailure,
+            ]);
             const viewport = page.getViewport({ scale: 1 });
             expect(viewport.width).toBe(pageWidth);
             expect(viewport.height).toBe(pageHeight);
         } finally {
-            await loadingTask.destroy();
+            // In Node fake-worker mode, calling loadingTask.destroy() while a
+            // range load is aborted mid-flight rejects an unchained internal
+            // ensureNotTerminated() handler in pdf.worker.mjs. Skip destroy()
+            // only on the failing budget-breach path so the budget error is
+            // reported cleanly without an unhandled Worker termination error.
+            if (!range.budgetExceededError) {
+                await loadingTask.destroy();
+            }
         }
     });
 });

@@ -28,13 +28,13 @@ on:
 # The one required CI verdict: gates_ok. A release is cut from a commit whose
 # push run has a green gates_ok, and nothing else gates a release. Jobs run
 # in parallel and are sized so the verdict lands in about fifteen minutes;
-# the Electron E2E suite runs as a matrix of lanes, one per directory of
-# tests/e2e/electron, against the one strict production build. A push that
-# merges a pull request whose tree already passed runs only the smoke lane
-# (see scripts/ci/push-diff-base.sh). Slow, heavy or
-# large-fixture checks, timing budgets and the macOS E2E run live in
-# ci-nightly.yml, which reports and never gates.
-# A dispatched run skips the changed-area classifier and runs every job.
+# build_wasm produces browser-wasm once upstream, strict_build produces the
+# one Linux desktop/native bundle consumed by Electron E2E lanes, native PDF
+# integration, and scan-cleanup oracles. A push that merges a pull request
+# whose tree already passed runs only the smoke lane (see
+# scripts/ci/push-diff-base.sh). Slow, heavy or large-fixture checks, timing
+# budgets and the macOS E2E run live in ci-nightly.yml, which reports and never
+# gates. A dispatched run selects every gated job.
 
 permissions:
   actions: read
@@ -83,14 +83,8 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     outputs:
-      browser_integration: ${{ steps.classify.outputs.browser_integration }}
-      electron_smoke: ${{ steps.classify.outputs.electron_smoke }}
-      electron_save_reopen: ${{ steps.classify.outputs.electron_save_reopen }}
-      landing: ${{ steps.classify.outputs.landing }}
-      rust: ${{ steps.classify.outputs.rust }}
-      desktop_build: ${{ steps.classify.outputs.desktop_build }}
-      scan_cleanup_export: ${{ steps.classify.outputs.scan_cleanup_export }}
-      verified_tree: ${{ steps.classify.outputs.verified_tree }}
+      selected: ${{ steps.classify.outputs.selected }}
+      lanes: ${{ steps.classify.outputs.lanes }}
 
     steps:
       - name: Checkout
@@ -104,7 +98,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Classify changed areas from release policy
+      - name: Classify changed areas
         id: classify
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -113,8 +107,6 @@ jobs:
           PUSH_BEFORE_SHA: ${{ github.event.before }}
           PUSH_HEAD_SHA: ${{ github.sha }}
           GH_TOKEN: ${{ github.token }}
-        # An unresolvable base makes the classifier fail open, so a
-        # dispatched run selects every job.
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
             base_sha="$PR_BASE_SHA"
@@ -126,17 +118,47 @@ jobs:
             base_sha='unavailable-push-base'
             head_sha="$PUSH_HEAD_SHA"
           fi
-          node scripts/ci/classify-changed-areas.mjs --base="$base_sha" --head="$head_sha"
-          if [ "$base_sha" = "$head_sha" ]; then
-            echo 'verified_tree=true' >> "$GITHUB_OUTPUT"
-          fi
+          node scripts/ci/classify-changed-areas.mjs --event="$EVENT_NAME" --base="$base_sha" --head="$head_sha"
+
+  build_wasm:
+    name: Build Browser WASM
+    needs: changed_areas
+    if: ${{ contains(fromJSON(needs.changed_areas.outputs.selected), 'build_wasm') }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Restore or build browser WASM
+        uses: ./.github/actions/setup-ci-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          install-dependencies: 'false'
+          wasm: 'true'
+
+      # Unit, strict_build, and browser_integration shards all consume this
+      # source-checked build and its receipt instead of building WASM separately.
+      - name: Share browser WASM builds
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: browser-wasm
+          retention-days: 1
+          path: |
+            public/wasm
+            .tmp/wasm-build-ids.json
+          include-hidden-files: true
+          if-no-files-found: error
 
   lint:
     name: Lint
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     needs: changed_areas
-    if: ${{ needs.changed_areas.outputs.verified_tree != 'true' }}
+    if: ${{ contains(fromJSON(needs.changed_areas.outputs.selected), 'lint') }}
 
     steps:
       - name: Checkout
@@ -192,8 +214,8 @@ jobs:
     name: Typecheck And Unit Tests
     runs-on: ubuntu-26.04
     timeout-minutes: 20
-    needs: changed_areas
-    if: ${{ needs.changed_areas.outputs.verified_tree != 'true' }}
+    needs: [changed_areas, build_wasm]
+    if: ${{ contains(fromJSON(needs.changed_areas.outputs.selected), 'unit') }}
 
     steps:
       - name: Checkout
@@ -205,19 +227,11 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          wasm: 'true'
 
-      # Browser shards consume this same source-checked build, including its
-      # receipt, instead of each compiling all three tools on a cold cache.
-      - name: Share browser WASM builds
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - name: Download browser WASM builds
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: browser-wasm
-          path: |
-            public/wasm
-            .tmp/wasm-build-ids.json
-          include-hidden-files: true
-          if-no-files-found: error
 
       - name: Restore typecheck cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -243,7 +257,7 @@ jobs:
 
   rust:
     name: Rust
-    if: ${{ needs.changed_areas.outputs.rust == 'true' }}
+    if: ${{ contains(fromJSON(needs.changed_areas.outputs.selected), 'rust') }}
     needs: changed_areas
     runs-on: ubuntu-26.04
     timeout-minutes: 25
@@ -298,12 +312,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/cargo-deny-bin"
           tar -xzf "$CARGO_DENY_ARCHIVE" -C "$RUNNER_TEMP/cargo-deny-bin" --strip-components=1 --wildcards '*/cargo-deny'
 
-      # Same invocation as EmbarkStudios/cargo-deny-action@v2 with its defaults
-      # (log-level warn, arguments --all-features, command check).
+      # Advisory publication time is checked daily in dependency-audit.yml;
+      # push/PR CI enforces bans, licenses, and sources only.
       - name: Rust dependency policy
         env:
           CARGO_TERM_COLOR: always
-        run: '"$RUNNER_TEMP/cargo-deny-bin/cargo-deny" --log-level warn --manifest-path native/Cargo.toml --all-features check'
+        run: '"$RUNNER_TEMP/cargo-deny-bin/cargo-deny" --log-level warn --manifest-path native/Cargo.toml --all-features check bans licenses sources'
 
       - name: Rust tests
         run: pnpm run test:rust
@@ -313,15 +327,14 @@ jobs:
 
   # The one desktop production build of a run: the strict build, held to the
   # warning allowlist, of the renderer the packaged app loads, the Electron
-  # bundle and the native tools. Every Electron E2E lane downloads it.
+  # bundle and the Linux native tools. Electron E2E lanes, native PDF
+  # integration, and scan-cleanup oracles all download and unpack it.
   strict_build:
     name: Strict Build
-    if: ${{ needs.changed_areas.outputs.desktop_build == 'true' || needs.changed_areas.outputs.electron_smoke == 'true' || needs.changed_areas.outputs.verified_tree == 'true' }}
-    needs: changed_areas
+    if: ${{ contains(fromJSON(needs.changed_areas.outputs.selected), 'strict_build') }}
+    needs: [changed_areas, build_wasm]
     runs-on: ubuntu-26.04
     timeout-minutes: 25
-    outputs:
-      lanes: ${{ steps.lanes.outputs.lanes }}
 
     steps:
       - name: Checkout
@@ -333,14 +346,17 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          wasm: 'true'
+
+      - name: Download browser WASM builds
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: browser-wasm
 
       # A staged tool is reused only when its build receipt matches the exact
       # source inputs, so a stale restore costs a rebuild, never a wrong binary.
-      # The native integration and oracle jobs restore the same tools.
       - name: Restore staged Electron native binaries
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: &electron-native-binaries
+        with:
           path: |
             .tmp/windows-job-launcher
             .tmp/scan-cleanup
@@ -357,17 +373,6 @@ jobs:
       - name: Electron bundle static integrity
         run: pnpm run test:electron-bundle-static-integrity:no-build
 
-      - name: List lanes
-        id: lanes
-        env:
-          VERIFIED_TREE: ${{ needs.changed_areas.outputs.verified_tree }}
-        run: |
-          if [ "$VERIFIED_TREE" = 'true' ]; then
-            echo 'lanes=["e2e-smoke"]'
-          else
-            node scripts/electron-e2e-lanes.mjs
-          fi >> "$GITHUB_OUTPUT"
-
       # A tarball keeps the native tools executable.
       - name: Pack build
         run: tar -cf electron-e2e-build.tar nuxt-output/public dist-electron public/wasm .tmp/wasm-build-ids.json .tmp/windows-job-launcher .tmp/scan-cleanup .tmp/pdf-image-combine
@@ -381,8 +386,8 @@ jobs:
 
   native_pdf_integration:
     name: Native PDF Save Integration
-    if: ${{ needs.changed_areas.outputs.desktop_build == 'true' }}
-    needs: changed_areas
+    if: ${{ contains(fromJSON(needs.changed_areas.outputs.selected), 'native_pdf_integration') }}
+    needs: [changed_areas, strict_build]
     runs-on: ubuntu-26.04
     timeout-minutes: 20
 
@@ -396,22 +401,22 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          wasm: 'true'
 
-      - name: Restore staged Electron native binaries
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: *electron-native-binaries
+      - name: Download build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-e2e-build
 
-      - name: Build desktop page-ops WASM and Electron worker bundle
-        run: node scripts/ensure-wasm-artifacts.mjs && pnpm run build:electron
+      - name: Unpack build
+        run: tar -xf electron-e2e-build.tar && rm electron-e2e-build.tar
 
       - name: Run native PDF integration gate
         run: pnpm exec vitest run --project native-integration
 
   windows_atomic_pdf_replacement:
     name: Windows Atomic PDF Replacement
-    if: ${{ !cancelled() && needs.changed_areas.outputs.electron_save_reopen == 'true' }}
-    needs: [changed_areas, unit]
+    if: ${{ contains(fromJSON(needs.changed_areas.outputs.selected), 'windows_atomic_pdf_replacement') }}
+    needs: [changed_areas, build_wasm]
     runs-on: windows-latest
     timeout-minutes: 15
 
@@ -454,13 +459,13 @@ jobs:
 
   browser_integration:
     name: Browser Integration (${{ matrix.shard }}/8)
-    if: ${{ !cancelled() && needs.changed_areas.outputs.browser_integration == 'true' }}
-    needs: [changed_areas, unit]
+    if: ${{ contains(fromJSON(needs.changed_areas.outputs.selected), 'browser_integration') }}
+    needs: [changed_areas, build_wasm]
     runs-on: ubuntu-26.04
-    # Reuse the unit job's WASM so cold native builds leave the browser job's
-    # budget for tests. UI files each start Chromium and a Nuxt server; run
-    # files one at a time on the four-CPU runner, with eight shards keeping
-    # each inside the test step's own limit.
+    # Reuse build_wasm's artifact instead of waiting on unit or compiling WASM
+    # in every shard. UI files each start Chromium and a Nuxt server; run files
+    # one at a time on the four-CPU runner, with eight shards keeping each
+    # inside the test step's own limit.
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -487,7 +492,7 @@ jobs:
         # Playwright runs apt itself, so select the same probed Ubuntu mirrors
         # as apt-install.sh before it starts downloading system dependencies.
         run: |
-          scripts/ci/select-apt-mirrors.sh
+          scripts/ci/apt-install.sh --configure-only
           pnpm exec playwright install --with-deps chromium
 
       - name: Browser integration tests
@@ -500,8 +505,8 @@ jobs:
 
   scan_cleanup_oracles:
     name: Scan Cleanup Export Oracles
-    if: ${{ needs.changed_areas.outputs.scan_cleanup_export == 'true' }}
-    needs: changed_areas
+    if: ${{ contains(fromJSON(needs.changed_areas.outputs.selected), 'scan_cleanup_oracles') }}
+    needs: [changed_areas, strict_build]
     runs-on: ubuntu-26.04
     timeout-minutes: 15
 
@@ -515,21 +520,21 @@ jobs:
         uses: ./.github/actions/setup-ci-env
         with:
           node-version: ${{ env.NODE_VERSION }}
-          wasm: 'true'
+
+      - name: Download build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: electron-e2e-build
+
+      - name: Unpack build
+        run: tar -xf electron-e2e-build.tar && rm electron-e2e-build.tar
 
       - name: Install PDF audit tools
         timeout-minutes: 15
         run: scripts/ci/apt-install.sh img2pdf poppler-utils python3-numpy python3-opencv python3-pil qpdf
 
-      - name: Restore staged Electron native binaries
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with: *electron-native-binaries
-
       - name: Preview, export, and word-loss gates
         run: scripts/ci/scan-cleanup-oracles.sh export "$RUNNER_TEMP/scan-cleanup-oracles"
-
-      - name: Build native image combiner for native-backed TypeScript checks
-        run: pnpm run build:pdf-image-combine
 
       - name: Native-backed detection, large output, and diagnostics checks
         env:
@@ -543,7 +548,7 @@ jobs:
 
   landing:
     name: Landing
-    if: ${{ needs.changed_areas.outputs.landing == 'true' }}
+    if: ${{ contains(fromJSON(needs.changed_areas.outputs.selected), 'landing') }}
     needs: changed_areas
     runs-on: ubuntu-26.04
     timeout-minutes: 15
@@ -567,7 +572,7 @@ jobs:
 
   electron_e2e:
     name: Electron E2E (${{ matrix.lane }})
-    if: ${{ needs.changed_areas.outputs.electron_smoke == 'true' || needs.changed_areas.outputs.verified_tree == 'true' }}
+    if: ${{ contains(fromJSON(needs.changed_areas.outputs.selected), 'electron_e2e') }}
     needs:
       - changed_areas
       - strict_build
@@ -576,8 +581,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # One job per lane directory of tests/e2e/electron.
-        lane: ${{ fromJSON(needs.strict_build.outputs.lanes) }}
+        # One job per selected lane directory of tests/e2e/electron.
+        lane: ${{ fromJSON(needs.changed_areas.outputs.lanes) }}
 
     steps:
       - name: Checkout
@@ -621,6 +626,7 @@ jobs:
     needs:
       - publication_policy
       - changed_areas
+      - build_wasm
       - lint
       - unit
       - rust
@@ -638,33 +644,19 @@ jobs:
       - name: Require every applicable gate
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           node <<'NODE'
           const needs = JSON.parse(process.env.NEEDS_JSON);
-          const areas = needs.changed_areas.outputs ?? {};
-          const verifiedTree = areas.verified_tree === 'true';
-          // A job may be skipped only when the classifier said its area did
-          // not change or the tree already passed; the publication policy has
-          // no range to scan on a dispatched run.
-          const legitimatelySkippable = new Map([
-            ['publication_policy', process.env.EVENT_NAME === 'workflow_dispatch'],
-            ['lint', verifiedTree],
-            ['unit', verifiedTree],
-            ['rust', areas.rust === 'false'],
-            ['strict_build', areas.desktop_build === 'false' && areas.electron_smoke === 'false' && !verifiedTree],
-            ['native_pdf_integration', areas.desktop_build === 'false'],
-            ['windows_atomic_pdf_replacement', areas.electron_save_reopen === 'false'],
-            ['browser_integration', areas.browser_integration === 'false'],
-            ['scan_cleanup_oracles', areas.scan_cleanup_export === 'false'],
-            ['landing', areas.landing === 'false'],
-            ['electron_e2e', areas.electron_smoke === 'false' && !verifiedTree],
-          ]);
+          if (needs.changed_areas?.result !== 'success') {
+            console.error(`Required CI gates did not pass:\nchanged_areas: ${needs.changed_areas?.result ?? 'missing'}`);
+            process.exit(1);
+          }
+          const selected = new Set(JSON.parse(needs.changed_areas.outputs.selected));
           const rejected = [];
 
           for (const [job, state] of Object.entries(needs)) {
             if (state.result === 'success') continue;
-            if (state.result === 'skipped' && legitimatelySkippable.get(job) === true) continue;
+            if (state.result === 'skipped' && !selected.has(job)) continue;
             rejected.push(`${job}: ${state.result}`);
           }
 

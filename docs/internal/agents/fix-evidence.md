@@ -29,11 +29,11 @@ running app but no fabricated pre-existing failure.
    [recorded automation](recorded-automation.md) and review the frames before
    presenting them. Frame review is triage, not the oracle.
 6. Keep the reproduction as a regression test in an existing real-app lane when
-   the behavior can regress. This is pre-authorized: commit it with
-   `Adds-Checks: real-app regression for a user-facing fix`. The authorization
-   covers one focused regression in an existing lane and the local helpers it
-   needs. A new runner, job, lane, framework, monitor or generalized check
-   infrastructure still needs the owner's request.
+   the behavior can regress. A regression test in an existing lane needs no
+   `Adds-Checks:` trailer. New check infrastructure (a workflow, job, lane,
+   hook, CI script, lint rule, vitest project or check script) or flake
+   tolerance still needs the owner's request, quoted in an `Adds-Checks:`
+   trailer.
 7. Name the statement of the
    [behavior contract](../../architecture/behavior-contract.md) the bug violated.
    If none fits, propose one with its applicability condition. List sibling
@@ -169,7 +169,7 @@ in between, update and revalidate.
 Test a viewer-core change on the lanes hosted CI will select before its first
 push, so that hosted CI confirms the change and does not discover its failures.
 `node scripts/ci/classify-changed-areas.mjs --base=origin/main --head=HEAD`
-prints the matched areas and the CI job that owns each. After `pnpm run build`,
+prints the selected CI jobs (`selected`) and Electron E2E lanes (`lanes`). After `pnpm run build`,
 `pnpm run build:native:e2e` and `pnpm run build:electron`, an Electron lane runs
 with `bash scripts/test-electron-e2e-headless.sh --no-build <lane>`, where
 `node scripts/electron-e2e-lanes.mjs` lists the lanes; the browser lane runs with
