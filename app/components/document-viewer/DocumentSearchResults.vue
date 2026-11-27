@@ -47,10 +47,10 @@
                 </span>
             </div>
             <div
-                v-if="!isSearching && (isTruncated || (results[0]?.matchIndex ?? 0) > 0)"
+                v-if="rangeSummaryText"
                 class="document-search-results-truncated"
             >
-                {{ t('searchResults.showingRange', { start: (results[0]?.matchIndex ?? 0) + 1, end: (results.at(-1)?.matchIndex ?? 0) + 1 }) }}
+                {{ rangeSummaryText }}
             </div>
             <div v-if="!isSearching && isIncompleteCoverage" class="document-search-results-coverage" role="status">
                 {{ incompleteCoverageText }}
@@ -67,41 +67,38 @@
             >
                 <div v-bind="wrapperProps">
                     <template
-                        v-for="virtualRow in virtualRows"
-                        :key="virtualRow.data.key"
+                        v-for="row in renderedRows"
+                        :key="row.key"
                     >
-                    <button
-                        v-if="virtualRow.data.kind === 'group'"
-                        type="button"
-                        class="document-search-results-group-toggle"
-                        :data-page-number="virtualRow.data.pageIndex + 1"
-                        :aria-expanded="isGroupExpanded(virtualRow.data.pageIndex)"
-                        @click="togglePage(virtualRow.data.pageIndex)"
-                    >
-                        <UIcon
-                            name="i-ph-caret-right"
-                            class="document-search-results-group-chevron"
-                            :class="{ 'is-open': isGroupExpanded(virtualRow.data.pageIndex) }"
-                        />
-                        <span class="document-search-results-group-label">
-                            {{ t('searchResults.pageWithCount', {
-                                page: formatPageIndicatorWithOptions(virtualRow.data.pageIndex + 1, pageLabels ?? null),
-                                count: virtualRow.data.matchCount,
-                            }) }}
-                        </span>
-                    </button>
+                        <button
+                            v-if="row.kind === 'group'"
+                            type="button"
+                            class="document-search-results-group-toggle"
+                            :data-page-number="row.pageNumber"
+                            :aria-expanded="row.expanded"
+                            @click="togglePage(row.pageIndex)"
+                        >
+                            <UIcon
+                                name="i-ph-caret-right"
+                                class="document-search-results-group-chevron"
+                                :class="{ 'is-open': row.expanded }"
+                            />
+                            <span class="document-search-results-group-label">
+                                {{ row.label }}
+                            </span>
+                        </button>
 
-                    <DocumentSearchResultItem
+                        <DocumentSearchResultItem
                             v-else
-                            :result="asMatchRow(virtualRow.data).match"
-                            :is-active="asMatchRow(virtualRow.data).resultIndex === currentResultIndex"
-                            :data-page-number="asMatchRow(virtualRow.data).match.pageIndex + 1"
-                            :data-page-match-number="(asMatchRow(virtualRow.data).match.pageMatchIndex ?? asMatchRow(virtualRow.data).match.matchIndex) + 1"
-                            :data-result-index="asMatchRow(virtualRow.data).resultIndex"
+                            :result="row.match"
+                            :is-active="row.isActive"
+                            :data-page-number="row.pageNumber"
+                            :data-page-match-number="row.pageMatchNumber"
+                            :data-result-index="row.resultIndex"
                             :page-labels="pageLabels"
                             :show-page-label="false"
                             class="document-search-results-virtual-match"
-                            @activate="goToResult(asMatchRow(virtualRow.data).resultIndex)"
+                            @activate="goToResult(row.resultIndex)"
                         />
                     </template>
                 </div>
@@ -235,12 +232,36 @@ type TSearchVirtualRow = {
     resultIndex: number;
 };
 
-function asMatchRow(row: TSearchVirtualRow): Extract<TSearchVirtualRow, {kind: 'match';}> {
-    if (row.kind !== 'match') {
-        throw new Error('Expected a virtual search match row');
+type TRenderedSearchRow = {
+    kind: 'group';
+    key: string;
+    pageIndex: number;
+    pageNumber: number;
+    expanded: boolean;
+    label: string;
+} | {
+    kind: 'match';
+    key: string;
+    match: IDocumentSearchMatch;
+    resultIndex: number;
+    isActive: boolean;
+    pageNumber: number;
+    pageMatchNumber: number;
+};
+
+const rangeSummaryText = computed(() => {
+    if (isSearching) {
+        return '';
     }
-    return row;
-}
+    const firstMatchIndex = results[0]?.matchIndex ?? 0;
+    if (!isTruncated.value && firstMatchIndex <= 0) {
+        return '';
+    }
+    return t('searchResults.showingRange', {
+        start: firstMatchIndex + 1,
+        end: (results.at(-1)?.matchIndex ?? 0) + 1,
+    });
+});
 
 const flattenedRows = computed<TSearchVirtualRow[]>(() => groupedResults.value.flatMap((group) => {
     const header: TSearchVirtualRow = {
@@ -278,6 +299,31 @@ const {
     overscan: 8,
 });
 const searchResultsList = containerProps.ref;
+const renderedRows = computed<TRenderedSearchRow[]>(() => virtualRows.value.map(({data}) => {
+    if (data.kind === 'group') {
+        const pageNumber = data.pageIndex + 1;
+        return {
+            kind: 'group',
+            key: data.key,
+            pageIndex: data.pageIndex,
+            pageNumber,
+            expanded: expandedPages.value.has(data.pageIndex),
+            label: t('searchResults.pageWithCount', {
+                page: formatPageIndicatorWithOptions(pageNumber, pageLabels ?? null),
+                count: data.matchCount,
+            }),
+        };
+    }
+    return {
+        kind: 'match',
+        key: data.key,
+        match: data.match,
+        resultIndex: data.resultIndex,
+        isActive: data.resultIndex === currentResultIndex,
+        pageNumber: data.match.pageIndex + 1,
+        pageMatchNumber: (data.match.pageMatchIndex ?? data.match.matchIndex) + 1,
+    };
+}));
 
 function goToResult(resultIndex: number) {
     emit('goToResult', resultIndex);
@@ -315,10 +361,6 @@ const searchProgressPercent = computed(() => {
         : 0;
     return (processed / total) * 100;
 });
-
-function isGroupExpanded(pageIndex: number) {
-    return expandedPages.value.has(pageIndex);
-}
 
 function virtualRowHeight(row: TSearchVirtualRow) {
     return searchVirtualRowHeightsPx[row.kind];

@@ -9,19 +9,19 @@
             <div v-bind="wrapperProps" style="position: relative">
                 <DocumentBookmarkTreeItem
                     v-for="row in mountedRows"
-                    :key="row.data.item.id"
-                    :item="row.data.item"
-                    :depth="row.data.depth"
-                    :style="row.pinned ? {position: 'absolute', top: `${(row.index - (virtualRows[0]?.index ?? 0)) * rowHeight}px`, insetInline: 0} : undefined"
-                    :is-expanded="row.data.isExpanded"
-                    :is-active="row.data.item.id === activeId"
+                    :key="row.id"
+                    :item="row.item"
+                    :depth="row.depth"
+                    :style="row.style"
+                    :is-expanded="row.isExpanded"
+                    :is-active="row.isActive"
                     :edit-mode="editMode"
-                    :is-selected="selectedIds?.has(row.data.item.id)"
-                    :is-editing="editingId === row.data.item.id"
-                    :is-dragging="draggingIds?.has(row.data.item.id)"
-                    :drop-position="dropTarget?.id === row.data.item.id ? dropTarget.position : undefined"
-                    :can-drop="editMode && Boolean(draggingIds?.size)"
-                    @activate="(id, event) => emit('activate', id, event)"
+                    :is-selected="row.isSelected"
+                    :is-editing="row.isEditing"
+                    :is-dragging="row.isDragging"
+                    :drop-position="row.dropPosition"
+                    :can-drop="canDrop"
+                    @activate="handleActivate"
                     @open-actions="emit('open-actions', $event)"
                     @save-edit="completeEdit"
                     @cancel-edit="completeEdit()"
@@ -40,6 +40,7 @@
 </template>
 
 <script setup lang="ts">
+import type { CSSProperties } from 'vue';
 import {
     useElementSize,
     useVirtualList,
@@ -48,6 +49,7 @@ import type {
     IBookmarkDropPayload,
     IBookmarkDropTarget,
     IBookmarkMenuPayload,
+    TBookmarkDropPosition,
 } from '@app/types/pdfOutline';
 import {
     getDocumentBookmarkVisibleRows,
@@ -111,7 +113,23 @@ const {
 // rows sit at their original list positions while the viewport keeps scrolling.
 const focusedId = ref<string | null>(null);
 const dragSourceId = ref<string | null>(null);
-const mountedRows = computed(() => {
+const canDrop = computed(() => Boolean(props.editMode && props.draggingIds?.size));
+
+interface IMountedBookmarkRow {
+    id: string;
+    item: IDocumentBookmarkTreeItem;
+    depth: number;
+    isExpanded: boolean;
+    style: CSSProperties | undefined;
+    isActive: boolean;
+    isSelected: boolean;
+    isEditing: boolean;
+    isDragging: boolean;
+    dropPosition: TBookmarkDropPosition | undefined;
+}
+
+const mountedRows = computed<IMountedBookmarkRow[]>(() => {
+    const firstVirtualIndex = virtualRows.value[0]?.index ?? 0;
     const rows = virtualRows.value.map(row => ({
         ...row,
         pinned: false,
@@ -135,8 +153,38 @@ const mountedRows = computed(() => {
             });
         }
     }
-    return rows.sort((left, right) => left.index - right.index);
+    rows.sort((left, right) => left.index - right.index);
+    return rows.map((row): IMountedBookmarkRow => {
+        const {
+            item,
+            depth,
+            isExpanded,
+        } = row.data;
+        const id = item.id;
+        return {
+            id,
+            item,
+            depth,
+            isExpanded,
+            style: row.pinned
+                ? {
+                    position: 'absolute',
+                    top: `${(row.index - firstVirtualIndex) * rowHeight.value}px`,
+                    insetInline: 0,
+                }
+                : undefined,
+            isActive: id === props.activeId,
+            isSelected: Boolean(props.selectedIds?.has(id)),
+            isEditing: props.editingId === id,
+            isDragging: Boolean(props.draggingIds?.has(id)),
+            dropPosition: props.dropTarget?.id === id ? props.dropTarget.position : undefined,
+        };
+    });
 });
+
+function handleActivate(id: string, event?: MouseEvent | KeyboardEvent) {
+    emit('activate', id, event);
+}
 
 function handleFocusIn(event: FocusEvent) {
     if (event.target instanceof Element) {
@@ -192,6 +240,45 @@ watch(() => props.draggingIds?.size, size => {
     }
 });
 
+async function handleTabKeydown(event: KeyboardEvent, currentRow: HTMLElement, index: number) {
+    const controls = currentRow.querySelectorAll<HTMLElement>('button, input');
+    const lastControl = controls.item(controls.length - 1) ?? currentRow;
+    // Preserve the full tree's tab order at the virtual window's edges,
+    // including the row controls when travelling backwards.
+    if (event.target !== (event.shiftKey ? currentRow : lastControl)) {
+        return;
+    }
+    const nextRow = visibleRows.value[index + (event.shiftKey ? -1 : 1)];
+    if (!nextRow) {
+        return;
+    }
+    event.preventDefault();
+    await focusRow(nextRow.item.id, event.shiftKey);
+}
+
+function resolveNavigationTargetIndex(
+    key: string,
+    index: number,
+    current: (typeof visibleRows.value)[number],
+): number {
+    switch (key) {
+        case 'ArrowDown':
+            return index + 1;
+        case 'ArrowUp':
+            return index - 1;
+        case 'ArrowRight':
+            return current.item.children.length > 0 && current.isExpanded ? index + 1 : -1;
+        case 'ArrowLeft':
+            return visibleRows.value.findLastIndex((row, rowIndex) => rowIndex < index && row.depth < current.depth);
+        case 'Home':
+            return 0;
+        case 'End':
+            return visibleRows.value.length - 1;
+        default:
+            return -1;
+    }
+}
+
 async function handleKeydown(event: KeyboardEvent) {
     if (!(event.target instanceof HTMLElement)) {
         return;
@@ -205,55 +292,27 @@ async function handleKeydown(event: KeyboardEvent) {
     if (!current) {
         return;
     }
-    let nextIndex: number;
     if (event.key === 'Tab') {
-        const controls = currentRow.querySelectorAll<HTMLElement>('button, input');
-        const lastControl = controls.item(controls.length - 1) ?? currentRow;
-        // Preserve the full tree's tab order at the virtual window's edges,
-        // including the row controls when travelling backwards.
-        if (event.target !== (event.shiftKey ? currentRow : lastControl)) {
-            return;
-        }
-        nextIndex = index + (event.shiftKey ? -1 : 1);
-    } else {
-        if (event.target !== currentRow) {
-            return;
-        }
-        switch (event.key) {
-            case 'ArrowDown': nextIndex = index + 1; break;
-            case 'ArrowUp': nextIndex = index - 1; break;
-            case 'ArrowRight':
-                if (!current.item.children.length) {
-                    return;
-                }
-                if (!current.isExpanded) {
-                    event.preventDefault();
-                    emit('toggle-expand', current.item.id);
-                    await focusRow(current.item.id);
-                    return;
-                }
-                nextIndex = index + 1;
-                break;
-            case 'ArrowLeft':
-                if (current.isExpanded) {
-                    event.preventDefault();
-                    emit('toggle-expand', current.item.id);
-                    await focusRow(current.item.id);
-                    return;
-                }
-                nextIndex = visibleRows.value.findLastIndex((row, rowIndex) => rowIndex < index && row.depth < current.depth);
-                break;
-            case 'Home': nextIndex = 0; break;
-            case 'End': nextIndex = visibleRows.value.length - 1; break;
-            default: return;
-        }
+        await handleTabKeydown(event, currentRow, index);
+        return;
     }
-    const row = visibleRows.value[nextIndex];
-    if (!row) {
+    if (event.target !== currentRow) {
+        return;
+    }
+    const shouldToggleExpand = (event.key === 'ArrowRight' && current.item.children.length > 0 && !current.isExpanded)
+        || (event.key === 'ArrowLeft' && current.isExpanded);
+    if (shouldToggleExpand) {
+        event.preventDefault();
+        emit('toggle-expand', current.item.id);
+        await focusRow(current.item.id);
+        return;
+    }
+    const nextRow = visibleRows.value[resolveNavigationTargetIndex(event.key, index, current)];
+    if (!nextRow) {
         return;
     }
     event.preventDefault();
-    await focusRow(row.item.id, event.key === 'Tab' && event.shiftKey);
+    await focusRow(nextRow.item.id);
 }
 
 const revealRowId = computed(() => visibleRows.value[resolveDocumentBookmarkRevealRowIndex(

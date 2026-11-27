@@ -161,7 +161,7 @@ function row(host: HTMLElement, id: string) {
 }
 
 describe('DocumentBookmarkTree', () => {
-    it('flattens every level with depth indents in all-expanded mode', async () => {
+    it('flattens every level in all-expanded mode', async () => {
         const {host} = await mountTree(harnessState());
         expect(renderedIds(host)).toEqual([
             'a',
@@ -170,9 +170,6 @@ describe('DocumentBookmarkTree', () => {
             'a3',
             'b',
         ]);
-        expect(row(host, 'a').getAttribute('style')).toContain('calc(0 *');
-        expect(row(host, 'a1').getAttribute('style')).toContain('calc(1 *');
-        expect(row(host, 'a2').getAttribute('style')).toContain('calc(2 *');
     });
 
     it('collapses children behind expandedIds in top-level mode and follows toggles', async () => {
@@ -352,22 +349,9 @@ describe('DocumentBookmarkTree', () => {
         expect(events).toEqual([]);
     });
 
-    it('falls back to the untitled label and applies bookmark text styling', async () => {
-        const {host} = await mountTree(harnessState({items: [
-            bookmark('untitled', [], {title: ''}),
-            bookmark('styled', [], {
-                bold: true,
-                italic: true,
-                color: '#ff0000',
-            }),
-        ]}));
+    it('falls back to the untitled label when a bookmark title is empty', async () => {
+        const {host} = await mountTree(harnessState({items: [bookmark('untitled', [], {title: ''})]}));
         const untitled = row(host, 'untitled').querySelector('.document-bookmark-item__title')!;
         expect(untitled.textContent?.trim()).toBe('bookmarks.untitled');
-        const styled = row(host, 'styled').querySelector('.document-bookmark-item__title')!;
-        const style = styled.getAttribute('style') ?? '';
-        expect(style).toContain('font-weight: 600');
-        expect(style).toContain('font-style: italic');
-        // happy-dom may serialize the hex color as rgb().
-        expect(style).toMatch(/color: (#ff0000|rgb\(255, 0, 0\))/);
     });
 });

@@ -4,7 +4,7 @@
             <strong>{{ t('scanCleanup.settings.title') }}</strong>
             <AppTooltip
                 v-if="changedSettings.length > 0"
-                :text="t('scanCleanup.settings.changedFromDefaults', {settings: changedSettings.join(', ')})"
+                :text="changedSettingsTooltip"
                 usefulness="always"
             >
                 <UButton
@@ -25,7 +25,7 @@
                 <h3>{{ t('scanCleanup.output.label') }}</h3>
                 <ScanCleanupSegmented
                     :model-value="settings.outputMode"
-                    :items="outputItems.map(item => ({...item, ariaLabel: item.fullLabel}))"
+                    :items="normalizedOutputItems"
                     :group-label="t('scanCleanup.output.label')"
                     :disabled="lossless"
                     @update:model-value="updateDocument('outputMode', $event)"
@@ -247,12 +247,12 @@
                     />
                     <div v-else class="scan-cleanup-margins-grid">
                         <UFormField
-                            v-for="side in SCAN_CLEANUP_MARGIN_SIDES"
+                            v-for="side in marginSideFields"
                             :key="side.key"
-                            :label="t(side.labelKey)"
+                            :label="side.label"
                         >
                             <UInputNumber
-                                :model-value="margins.mixed ? null : margins.value?.[side.key] ?? null"
+                                :model-value="side.value"
                                 :data-margin-side="side.key"
                                 :min="0"
                                 :max="SCAN_CLEANUP_MARGIN_MAX_MM"
@@ -303,18 +303,18 @@
                         :aria-label="t('scanCleanup.settings.contentPlacement')"
                     >
                         <UButton
-                            v-for="item in alignmentItems"
+                            v-for="item in alignmentButtons"
                             :key="item.value"
-                            :class="item.value === 'ink' ? 'scan-cleanup-alignment-ink' : undefined"
+                            :class="item.isInk ? 'scan-cleanup-alignment-ink' : undefined"
                             :aria-label="item.label"
-                            :aria-checked="!placementAlignment.mixed && placementAlignment.value === item.value"
-                            :color="!placementAlignment.mixed && placementAlignment.value === item.value ? 'primary' : 'neutral'"
-                            :variant="!placementAlignment.mixed && placementAlignment.value === item.value ? 'soft' : 'outline'"
+                            :aria-checked="item.selected"
+                            :color="item.selected ? 'primary' : 'neutral'"
+                            :variant="item.selected ? 'soft' : 'outline'"
                             role="radio"
                             size="sm"
                             :icon="item.icon"
-                            v-bind="item.value === 'ink' ? {label: item.label} : {}"
-                            @click="$emit('update-placement', item.value)"
+                            v-bind="item.labelProps"
+                            @click="emit('update-placement', item.value)"
                         />
                     </div>
                     <p v-if="placementHint" class="scan-cleanup-option-description">{{ placementHint }}</p>
@@ -322,10 +322,10 @@
 
                 <UCheckbox
                     v-if="scoped"
-                    :model-value="excluded.mixed ? 'indeterminate' : excluded.value !== true"
+                    :model-value="inclusionModelValue"
                     :label="t('scanCleanup.pages.includeInOutput')"
                     data-page-inclusion
-                    @update:model-value="$emit('update-inclusion', $event === true ? 'included' : 'excluded')"
+                    @update:model-value="emit('update-inclusion', $event === true ? 'included' : 'excluded')"
                 />
 
                 <ScanCleanupAutoValueRow
@@ -381,7 +381,7 @@
                     <div class="scan-cleanup-advanced-content">
                         <UFormField :label="t('scanCleanup.advanced.binarization.label')">
                             <USelect
-                                :model-value="settings.binarization ?? 'auto'"
+                                :model-value="binarizationModelValue"
                                 :items="binarizationItems"
                                 value-key="value"
                                 class="w-full"
@@ -391,8 +391,7 @@
                         </UFormField>
                         <UFormField :label="t('scanCleanup.advanced.despeckle.label')">
                             <USelect
-                                :model-value="settings.despeckleLevel
-                                    ?? ((settings.despeckle ?? true) ? 'normal' : 'off')"
+                                :model-value="despeckleLevelModelValue"
                                 :items="despeckleItems"
                                 value-key="value"
                                 class="w-full"
@@ -401,13 +400,13 @@
                             />
                         </UFormField>
                         <UCheckbox
-                            :model-value="settings.normalizeIllumination ?? true"
+                            :model-value="normalizeIlluminationModelValue"
                             :label="t('scanCleanup.advanced.normalizeIllumination')"
                             :disabled="lossless"
                             @update:model-value="updateDocument('normalizeIllumination', $event === true)"
                         />
                         <UCheckbox
-                            :model-value="settings.autoDewarp ?? false"
+                            :model-value="autoDewarpModelValue"
                             :label="t('scanCleanup.advanced.autoDewarp')"
                             :disabled="lossless"
                             @update:model-value="updateDocument('autoDewarp', $event === true)"
@@ -420,7 +419,7 @@
                         >
                             <template #entry>
                                 <UInputNumber
-                                    :model-value="settings.autoDewarpDepth ?? null"
+                                    :model-value="autoDewarpDepthModelValue"
                                     :min="SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MIN"
                                     :max="SCAN_CLEANUP_AUTO_DEWARP_DEPTH_MAX"
                                     :step="0.1"
@@ -590,6 +589,33 @@ const {t} = useTypedI18n();
 const resetOpen = ref(false);
 const advancedOpen = ref(false);
 const lossless = computed(() => props.settings.preserveOriginalQuality === true);
+const changedSettingsTooltip = computed(() => t('scanCleanup.settings.changedFromDefaults', {settings: props.changedSettings.join(', ')}));
+const normalizedOutputItems = computed(() => props.outputItems.map(item => ({
+    ...item,
+    ariaLabel: item.fullLabel,
+})));
+const alignmentButtons = computed(() => props.alignmentItems.map(item => {
+    const isInk = item.value === 'ink';
+    return {
+        ...item,
+        isInk,
+        labelProps: isInk ? {label: item.label} : {},
+        selected: !props.placementAlignment.mixed && props.placementAlignment.value === item.value,
+    };
+}));
+const marginSideFields = computed(() => SCAN_CLEANUP_MARGIN_SIDES.map(side => ({
+    key: side.key,
+    label: t(side.labelKey),
+    value: props.margins.mixed ? null : props.margins.value?.[side.key] ?? null,
+})));
+const inclusionModelValue = computed(() => (props.excluded.mixed ? 'indeterminate' : props.excluded.value !== true));
+const binarizationModelValue = computed(() => props.settings.binarization ?? 'auto');
+const despeckleLevelModelValue = computed(() => (
+    props.settings.despeckleLevel ?? ((props.settings.despeckle ?? true) ? 'normal' : 'off')
+));
+const normalizeIlluminationModelValue = computed(() => props.settings.normalizeIllumination ?? true);
+const autoDewarpModelValue = computed(() => props.settings.autoDewarp ?? false);
+const autoDewarpDepthModelValue = computed(() => props.settings.autoDewarpDepth ?? null);
 // Page and Selected scopes edit their own pages; All edits the defaults every
 // page starts from, so only the scoped views mark controls as overridden.
 const scoped = computed(() => props.scope !== 'all');

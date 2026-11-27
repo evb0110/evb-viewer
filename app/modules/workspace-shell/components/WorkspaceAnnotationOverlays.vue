@@ -1,24 +1,21 @@
 <template>
     <div v-show="visible" class="workspace-annotation-overlays-root">
     <PdfAnnotationNoteWindow
-        v-for="(note, noteIndex) in visibleAnnotationNoteWindows"
+        v-for="note in noteWindowItems"
         :key="note.annotationId"
         :annotation-id="note.annotationId"
-        :page-number="requirePageNumber(note.pageNumber)"
+        :page-number="note.pageNumber"
         :author="note.author"
-        :color="note.color ?? null"
+        :color="note.color"
         :created-at="note.createdAt"
         :modified-at="note.modifiedAt"
-        :text="note.draftText"
+        :text="note.text"
         :saving="note.saving"
-        :position="annotationNotePositions[note.annotationId] ?? null"
-        :z-index="NOTE_WINDOW.ACTIVE_Z_INDEX_BASE + Math.min(
-            noteIndex,
-            NOTE_WINDOW.ACTIVE_Z_INDEX_SLOTS - 1,
-        )"
-        :pane-bounds="viewportDomSnapshot?.bounds ?? null"
-        :page-rect="viewportDomSnapshot?.pageContainers.get(note.pageNumber)?.rect ?? null"
-        :marker-rect="note.markerRect ?? null"
+        :position="note.position"
+        :z-index="note.zIndex"
+        :pane-bounds="note.paneBounds"
+        :page-rect="note.pageRect"
+        :marker-rect="note.markerRect"
         @update:text="updateAnnotationNoteText(note.annotationId, $event)"
         @update:position="annotations.updateAnnotationNotePosition(note.annotationId, $event)"
         @position-applied="refreshViewportDom"
@@ -27,25 +24,25 @@
         @focus="bringAnnotationNoteToFront(note.annotationId)"
     />
     <template
-        v-for="note in anchoredAnnotationNoteWindows"
-        :key="`anchor-${note.annotationId}`"
+        v-for="anchor in minimizedAnchorItems"
+        :key="anchor.key"
     >
         <Teleport
-            v-if="minimizedIndicatorTargets[note.annotationId]"
-            :to="minimizedIndicatorTargets[note.annotationId]"
+            v-if="anchor.target"
+            :to="anchor.target"
         >
-                <AppTooltip
-                    :text="getMinimizedNotePreview(note)"
-                    :delay-duration="250"
-                >
+            <AppTooltip
+                :text="anchor.preview"
+                :delay-duration="250"
+            >
                 <button
                     type="button"
                     class="pdf-note-minimized-indicator"
-                    :style="getMinimizedIndicatorStyle(note)"
+                    :style="anchor.style"
                     :aria-label="t('annotations.openNote')"
                     @mousedown.prevent
-                    @focus="traceAnchorInteraction('anchor focused', note)"
-                    @click="handleAnchorClick(note)"
+                    @focus="traceAnchorInteraction('anchor focused', anchor.note)"
+                    @click="handleAnchorClick(anchor.note)"
                 >
                     <UIcon name="i-ph-chat" class="size-2.5" />
                 </button>
@@ -53,19 +50,19 @@
         </Teleport>
     </template>
     <template
-        v-for="note in openNoteAnchors"
-        :key="`open-anchor-${note.annotationId}`"
+        v-for="anchor in openAnchorItems"
+        :key="anchor.key"
     >
         <Teleport
-            v-if="openNoteAnchorTargets[note.annotationId]"
-            :to="openNoteAnchorTargets[note.annotationId]"
+            v-if="anchor.target"
+            :to="anchor.target"
         >
             <button
-                v-show="!openAnchorHiddenKeys.has(note.annotationId)"
+                v-show="anchor.visible"
                 type="button"
                 class="pdf-note-open-anchor"
-                :style="getMinimizedIndicatorStyle(note)"
-                :data-annotation-id="note.annotationId"
+                :style="anchor.style"
+                :data-annotation-id="anchor.annotationId"
                 :aria-label="t('annotations.openNote')"
                 @mousedown.prevent
             >
@@ -74,22 +71,21 @@
         </Teleport>
     </template>
     <svg
-        v-if="connectorLines.length > 0"
+        v-if="connectorLineItems.length > 0"
         class="pdf-note-connector-svg"
-        :style="{ pointerEvents: 'none' }"
     >
         <path
-            v-for="line in connectorLines"
+            v-for="line in connectorLineItems"
             :key="`connector-halo-${line.annotationId}`"
             :d="line.path"
-            :style="{'--annotation-note-color': line.color ?? 'var(--ui-warning)'}"
+            :style="line.style"
             class="pdf-note-connector-halo"
         />
         <path
-            v-for="line in connectorLines"
+            v-for="line in connectorLineItems"
             :key="`connector-${line.annotationId}`"
             :d="line.path"
-            :style="{'--annotation-note-color': line.color ?? 'var(--ui-warning)'}"
+            :style="line.style"
             class="pdf-note-connector-path"
         />
     </svg>
@@ -207,6 +203,52 @@ const {
     paintsPage: pageIndex => view.pdfViewerRef.value?.paintsAnnotationPage?.(pageIndex) !== false,
 });
 
+const noteWindowItems = computed(() => {
+    const snapshot = viewportDomSnapshot.value;
+    const paneBounds = snapshot?.bounds ?? null;
+    const positions = annotationNotePositions.value;
+    return visibleAnnotationNoteWindows.value.map((note, noteIndex) => ({
+        annotationId: note.annotationId,
+        pageNumber: requirePageNumber(note.pageNumber),
+        author: note.author,
+        color: note.color ?? null,
+        createdAt: note.createdAt,
+        modifiedAt: note.modifiedAt,
+        text: note.draftText,
+        saving: note.saving,
+        position: positions[note.annotationId] ?? null,
+        zIndex: NOTE_WINDOW.ACTIVE_Z_INDEX_BASE + Math.min(
+            noteIndex,
+            NOTE_WINDOW.ACTIVE_Z_INDEX_SLOTS - 1,
+        ),
+        paneBounds,
+        pageRect: snapshot?.pageContainers.get(note.pageNumber)?.rect ?? null,
+        markerRect: note.markerRect ?? null,
+    }));
+});
+
+const minimizedAnchorItems = computed(() => anchoredAnnotationNoteWindows.value.map(note => ({
+    key: `anchor-${note.annotationId}`,
+    note,
+    target: minimizedIndicatorTargets.value[note.annotationId] ?? null,
+    preview: getMinimizedNotePreview(note),
+    style: getMinimizedIndicatorStyle(note),
+})));
+
+const openAnchorItems = computed(() => openNoteAnchors.value.map(note => ({
+    key: `open-anchor-${note.annotationId}`,
+    annotationId: note.annotationId,
+    target: openNoteAnchorTargets.value[note.annotationId] ?? null,
+    visible: !openAnchorHiddenKeys.value.has(note.annotationId),
+    style: getMinimizedIndicatorStyle(note),
+})));
+
+const connectorLineItems = computed(() => connectorLines.value.map(line => ({
+    annotationId: line.annotationId,
+    path: line.path,
+    style: {'--annotation-note-color': line.color ?? 'var(--ui-warning)'},
+})));
+
 async function handleNoteMinimize(annotationId: string, focusDocument: Document | null) {
     annotations.minimizeAnnotationNote(annotationId);
     await nextTick();
@@ -289,6 +331,7 @@ function handleAnchorClick(note: IAnnotationNoteWindowEntry) {
     height: 100vh;
     z-index: var(--app-note-connector-z-index);
     overflow: visible;
+    pointer-events: none;
 }
 
 .pdf-note-connector-halo {

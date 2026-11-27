@@ -1,6 +1,6 @@
 <template>
     <div class="model-picker-content" data-model-picker-content>
-        <div v-if="!isSearching && railInstances.length" ref="rail" class="picker-rail" role="toolbar" aria-orientation="vertical" :aria-label="t('assistant.providers')" @keydown="handleRailKeydown">
+        <div v-if="showRail" ref="rail" class="picker-rail" role="toolbar" aria-orientation="vertical" :aria-label="t('assistant.providers')" @keydown="handleRailKeydown">
             <span v-if="indicatorTop !== null" class="rail-indicator" :style="{ top: `${indicatorTop}px` }" aria-hidden="true" />
             <AppTooltip :text="t('assistant.favorites')" :content="railTooltip">
                 <button type="button" class="rail-button" data-rail-tab="favorites" :aria-label="t('assistant.favorites')" :aria-pressed="tab === 'favorites'" :tabindex="tab === 'favorites' ? 0 : -1" @click="selectTab('favorites')">
@@ -8,19 +8,19 @@
                 </button>
             </AppTooltip>
             <span class="rail-separator" aria-hidden="true" />
-            <AppTooltip v-for="instance in railInstances" :key="instance.id" :text="describeInstance(instance)" :content="railTooltip">
-                <button type="button" class="rail-button" :data-rail-tab="instance.id" :aria-label="describeInstance(instance)" :aria-pressed="tab === instance.id" :disabled="!isPickableInstance(instance)" :tabindex="tab === instance.id ? 0 : -1" @click="selectTab(instance.id)">
-                    <AssistantProviderIcon class="rail-icon" :provider="instance.driver" :badge="instanceBadge(instance, instances)" />
+            <AppTooltip v-for="item in railItems" :key="item.id" :text="item.description" :content="railTooltip">
+                <button type="button" class="rail-button" :data-rail-tab="item.id" :aria-label="item.description" :aria-pressed="item.isSelected" :disabled="item.disabled" :tabindex="item.tabindex" @click="selectTab(item.id)">
+                    <AssistantProviderIcon class="rail-icon" :provider="item.driver" :badge="item.badge" />
                 </button>
             </AppTooltip>
         </div>
-        <div class="picker-list-column" :class="{ 'has-rail': !isSearching && railInstances.length }">
+        <div class="picker-list-column" :class="{ 'has-rail': showRail }">
             <div class="picker-search">
                 <UIcon name="i-ph-magnifying-glass" class="search-icon" />
-                <input ref="search" v-model="query" class="search-input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="true" :aria-controls="listId" :aria-activedescendant="highlighted ? optionId(highlighted) : undefined" :placeholder="t('assistant.searchModels')" :aria-label="t('assistant.searchModels')" @keydown="handleSearchKeydown">
+                <input ref="search" v-model="query" class="search-input" type="text" role="combobox" aria-autocomplete="list" aria-expanded="true" :aria-controls="listId" :aria-activedescendant="activeDescendantId" :placeholder="t('assistant.searchModels')" :aria-label="t('assistant.searchModels')" @keydown="handleSearchKeydown">
             </div>
             <div :id="listId" ref="list" class="picker-list app-scrollbar" role="listbox" :aria-label="t('assistant.searchModels')">
-                <template v-for="(row, index) in rows" :key="row.key">
+                <template v-for="(row, index) in renderedRows" :key="row.key">
                     <!-- The star is a separate control, so it sits beside the option rather than inside it. -->
                     <div
                         v-if="row.kind === 'model'"
@@ -30,21 +30,21 @@
                         @pointermove="highlighted = row.key"
                         @click="pick(row.item)"
                     >
-                        <div :id="optionId(row.key)" class="row-option" role="option" :aria-selected="row.key === activeKey">
-                            <AssistantProviderIcon class="row-icon" :provider="row.item.instance.driver" :badge="instanceBadge(row.item.instance, instances)" />
+                        <div :id="row.optionId" class="row-option" role="option" :aria-selected="row.isActive">
+                            <AssistantProviderIcon class="row-icon" :provider="row.item.instance.driver" :badge="row.badge" />
                             <span class="row-name" :title="row.item.model.label">{{ row.item.model.label }}<span class="sr-only">, {{ row.item.instance.label }}</span></span>
-                            <UIcon v-if="row.key === activeKey" name="i-ph-check" class="row-check" />
+                            <UIcon v-if="row.isActive" name="i-ph-check" class="row-check" />
                         </div>
                         <span class="row-trailing">
-                            <button type="button" class="row-star" :class="{ 'is-favorite': row.item.isFavorite, 'on-hover': tab === 'favorites' && !isSearching }" :aria-label="`${t(row.item.isFavorite ? 'assistant.removeFavorite' : 'assistant.addFavorite')}: ${row.item.model.label}`" :aria-pressed="row.item.isFavorite" @keydown.stop @click.stop="toggleFavorite(row.item.instance.id, row.item.model.id)">
-                                <UIcon :name="row.item.isFavorite ? 'i-ph-star-fill' : 'i-ph-star'" />
+                            <button type="button" class="row-star" :class="{ 'is-favorite': row.item.isFavorite, 'on-hover': row.hideStarUntilHover }" :aria-label="row.favoriteLabel" :aria-pressed="row.item.isFavorite" @keydown.stop @click.stop="toggleFavorite(row.item.instance.id, row.item.model.id)">
+                                <UIcon :name="row.favoriteIcon" />
                             </button>
-                            <kbd v-if="jumpLabels.get(row.key)" class="row-kbd" aria-hidden="true">{{ jumpLabels.get(row.key) }}</kbd>
+                            <kbd v-if="row.jumpLabel" class="row-kbd" aria-hidden="true">{{ row.jumpLabel }}</kbd>
                         </span>
                     </div>
                     <div
                         v-else
-                        :id="optionId(row.key)"
+                        :id="row.optionId"
                         class="picker-row is-more"
                         role="option"
                         :aria-selected="false"
@@ -54,10 +54,10 @@
                         @pointermove="highlighted = row.key"
                         @click="toggleLegacy"
                     >
-                        {{ t(row.expanded ? 'assistant.showLess' : 'assistant.showMore') }}
+                        {{ row.label }}
                     </div>
                 </template>
-                <p v-if="!rows.length" class="picker-empty">{{ t(tab === 'favorites' && !isSearching ? 'assistant.noFavorites' : 'assistant.noModelsFound') }}</p>
+                <p v-if="!renderedRows.length" class="picker-empty">{{ emptyMessage }}</p>
             </div>
         </div>
     </div>
@@ -83,6 +83,24 @@ import {
 import { useTypedI18n } from '@app/composables/useTypedI18n';
 
 type TRow = { kind: 'model'; key: string; item: IModelPickerItem } | { kind: 'more'; key: string; expanded: boolean };
+type TRenderedRow = {
+    kind: 'model';
+    key: string;
+    optionId: string;
+    item: IModelPickerItem;
+    isActive: boolean;
+    badge: ReturnType<typeof instanceBadge>;
+    favoriteLabel: string;
+    favoriteIcon: string;
+    hideStarUntilHover: boolean;
+    jumpLabel: string | undefined;
+} | {
+    kind: 'more';
+    key: string;
+    optionId: string;
+    expanded: boolean;
+    label: string;
+};
 
 const props = defineProps<{
     instances: IAssistantInstanceStatus[];
@@ -179,7 +197,50 @@ const jumpLabels = computed(() => new Map(modelRows.value.slice(0, 9).map((row, 
     row.key,
     modelJumpLabel(index),
 ])));
+const showRail = computed(() => !isSearching.value && railInstances.value.length > 0);
+const railItems = computed(() => railInstances.value.map(instance => {
+    const isSelected = tab.value === instance.id;
+    return {
+        id: instance.id,
+        driver: instance.driver,
+        badge: instanceBadge(instance, props.instances),
+        description: describeInstance(instance),
+        isSelected,
+        disabled: !isPickableInstance(instance),
+        tabindex: isSelected ? 0 : -1,
+    };
+}));
+const renderedRows = computed<TRenderedRow[]>(() => {
+    const hideStarUntilHover = tab.value === 'favorites' && !isSearching.value;
+    return rows.value.map((row): TRenderedRow => {
+        if (row.kind === 'model') {
+            const { item } = row;
+            const isFavorite = item.isFavorite;
+            return {
+                kind: 'model',
+                key: row.key,
+                optionId: optionId(row.key),
+                item,
+                isActive: row.key === activeKey.value,
+                badge: instanceBadge(item.instance, props.instances),
+                favoriteLabel: `${t(isFavorite ? 'assistant.removeFavorite' : 'assistant.addFavorite')}: ${item.model.label}`,
+                favoriteIcon: isFavorite ? 'i-ph-star-fill' : 'i-ph-star',
+                hideStarUntilHover,
+                jumpLabel: jumpLabels.value.get(row.key),
+            };
+        }
+        return {
+            kind: 'more',
+            key: row.key,
+            optionId: optionId(row.key),
+            expanded: row.expanded,
+            label: t(row.expanded ? 'assistant.showLess' : 'assistant.showMore'),
+        };
+    });
+});
+const emptyMessage = computed(() => t(tab.value === 'favorites' && !isSearching.value ? 'assistant.noFavorites' : 'assistant.noModelsFound'));
 const highlighted = ref<string | null>(null);
+const activeDescendantId = computed(() => (highlighted.value ? optionId(highlighted.value) : undefined));
 // A changed list highlights the selected model when it shows, else the first row.
 watch(rows, value => {
     if (value.some(row => row.key === highlighted.value)) return;
