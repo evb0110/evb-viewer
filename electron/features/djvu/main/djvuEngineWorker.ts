@@ -42,6 +42,7 @@ import {
     encodePpmP6,
 } from '@djvu-core/djvuPnm';
 import {
+    DJVU_MAX_COMPONENT_BYTES,
     parseDjvuPageHead,
     readDjvuSourceLayout,
     wrapDjvuComponentWithIffMagic,
@@ -217,13 +218,24 @@ async function openDiskDjvuDocument(djvuPath: string): Promise<IOpenDiskDjvuDoc>
                     try {
                         const siblingStat = fstatSync(siblingFd);
                         recordSiblingRevision(siblingPath, siblingStat);
-                        return Promise.resolve(readFdRangeSync(siblingFd, 0, Math.min(length, siblingStat.size)));
+                        const bytesToRead = Math.min(length, siblingStat.size);
+                        if (bytesToRead > DJVU_MAX_COMPONENT_BYTES) {
+                            return Promise.reject(new RangeError(
+                                `DjVu component ${name} (${siblingStat.size} bytes) exceeds the ${DJVU_MAX_COMPONENT_BYTES}-byte limit`,
+                            ));
+                        }
+                        return Promise.resolve(readFdRangeSync(siblingFd, 0, bytesToRead));
                     } finally {
                         closeSync(siblingFd);
                     }
                 }
                 const siblingStat = statSync(siblingPath);
                 recordSiblingRevision(siblingPath, siblingStat);
+                if (siblingStat.size > DJVU_MAX_COMPONENT_BYTES) {
+                    return Promise.reject(new RangeError(
+                        `DjVu component ${name} (${siblingStat.size} bytes) exceeds the ${DJVU_MAX_COMPONENT_BYTES}-byte limit`,
+                    ));
+                }
                 const bytes = readFileSync(siblingPath);
                 return Promise.resolve(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
             },
@@ -241,9 +253,19 @@ async function openDiskDjvuDocument(djvuPath: string): Promise<IOpenDiskDjvuDoc>
                 if (!siblingPath) {
                     return false;
                 }
+                let siblingStat;
                 try {
-                    const siblingStat = statSync(siblingPath);
-                    recordSiblingRevision(siblingPath, siblingStat);
+                    siblingStat = statSync(siblingPath);
+                } catch {
+                    return false;
+                }
+                recordSiblingRevision(siblingPath, siblingStat);
+                if (siblingStat.size > DJVU_MAX_COMPONENT_BYTES) {
+                    throw new RangeError(
+                        `DjVu component ${name} (${siblingStat.size} bytes) exceeds the ${DJVU_MAX_COMPONENT_BYTES}-byte limit`,
+                    );
+                }
+                try {
                     const bytes = readFileSync(siblingPath);
                     return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
                 } catch {
@@ -269,6 +291,11 @@ async function openDiskDjvuDocument(djvuPath: string): Promise<IOpenDiskDjvuDoc>
             const totalLen = CHUNK_HEADER_BYTES + formLen;
             if (offset + totalLen > fileSize) {
                 return false;
+            }
+            if (4 + totalLen > DJVU_MAX_COMPONENT_BYTES) {
+                throw new RangeError(
+                    `DjVu component ${name} (${4 + totalLen} bytes) exceeds the ${DJVU_MAX_COMPONENT_BYTES}-byte limit`,
+                );
             }
             const payload = readFdRangeSync(fd, offset, totalLen);
             if (payload.byteLength !== totalLen) {
@@ -343,10 +370,10 @@ async function readPageSizesFast(entry: IOpenDiskDjvuDoc, pageNumbers?: readonly
                 }]
                 : []
         ))
-        : [{
-            index: 0,
+        : Array.from({ length: Math.max(1, entry.docInfo.pageCount) }, (_, index) => ({
+            index,
             name: '',
-        }];
+        }));
     if (pageRequests.length === 0) {
         return [];
     }
@@ -361,7 +388,24 @@ async function readPageSizesFast(entry: IOpenDiskDjvuDoc, pageNumbers?: readonly
         return req;
     });
     const heads = await entry.layout.readComponentHeads(selectedRequests);
-    return heads.map((head, pos) => parseDjvuPageHead(head, targetIndices[pos]! + 1));
+    const results: IDjvuPageSize[] = [];
+    for (let pos = 0; pos < heads.length; pos += 1) {
+        const pageNumber = targetIndices[pos]! + 1;
+        const head = heads[pos]!;
+        try {
+            results.push(parseDjvuPageHead(head, pageNumber));
+        } catch {
+            // Fall back to full IFF page inspection for legacy forms whose INFO/BM44/PM44
+            // chunk follows NDIR/ANTa or for OLD_INDEXED documents.
+            const info = await entry.doc.getPageInfo(pageNumber);
+            results.push({
+                width: info.width,
+                height: info.height,
+                dpi: info.dpi,
+            });
+        }
+    }
+    return results;
 }
 
 function encodePgmP5(width: number, height: number, rgbBytes: Uint8Array): Uint8Array {

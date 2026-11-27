@@ -21,6 +21,7 @@
 #include "ByteStream.h"
 #include "DataPool.h"
 #include "DjVmDir.h"
+#include "DjVmDir0.h"
 #include "DjVmNav.h"
 #include "DjVuAnno.h"
 #include "DjVuDocument.h"
@@ -63,8 +64,15 @@ constexpr int32_t PIXEL_FORMAT_PBM_MSB = 2;
 
 constexpr uint32_t MIN_CACHE_BYTES = 4u * 1024u * 1024u;
 constexpr uint32_t MAX_CACHE_BYTES = 64u * 1024u * 1024u;
+constexpr size_t MAX_COMPONENT_BYTES = 64u * 1024u * 1024u;
+constexpr size_t MAX_INIT_BYTES = 64u * 1024u * 1024u;
 constexpr size_t MAX_PROVIDED_COMPONENT_CACHE_BYTES = 32u * 1024u * 1024u;
-constexpr uint64_t MAX_RENDER_BUFFER_BYTES = 512ull * 1024ull * 1024ull;
+constexpr int MAX_NATIVE_PAGE_DIM = 32768;
+constexpr uint64_t MAX_NATIVE_PAGE_PIXELS = 128ull * 1000ull * 1000ull;
+constexpr int MAX_RENDER_DIM = 32768;
+constexpr uint64_t MAX_RENDER_PIXELS = 100ull * 1000ull * 1000ull;
+constexpr uint64_t MAX_RENDER_BUFFER_BYTES = 256ull * 1024ull * 1024ull;
+constexpr int MAX_TEXT_ZONE_DEPTH = 16;
 
 // Synchronous host component reader hook.
 // JS attaches `Module.evbReadComponentSync(docId, name)` when synchronous reads
@@ -73,6 +81,8 @@ constexpr uint64_t MAX_RENDER_BUFFER_BYTES = 512ull * 1024ull * 1024ull;
 //   1: component written into wasm heap, *outPtr and *outLen populated
 //   0: async host needs to fetch component first (caller will return NEED_COMPONENT)
 //  -1: component unavailable / error
+//  -2: wasm heap allocation failed (OOM)
+//  -3: component exceeded byte limit
 EM_JS(int32_t, evb_js_read_component,
       (int32_t docId, const char *namePtr, int32_t nameLen, uint32_t *outPtr, uint32_t *outLen), {
   const reader = Module['evbReadComponentSync'];
@@ -80,7 +90,12 @@ EM_JS(int32_t, evb_js_read_component,
     return 0;
   }
   const name = UTF8ToString(namePtr, nameLen);
-  const bytes = reader(docId, name);
+  let bytes;
+  try {
+    bytes = reader(docId, name);
+  } catch (err) {
+    return (err instanceof RangeError) ? -3 : -1;
+  }
   if (bytes === null || bytes === undefined) {
     return 0;
   }
@@ -88,6 +103,9 @@ EM_JS(int32_t, evb_js_read_component,
     return -1;
   }
   const len = bytes.byteLength >>> 0;
+  if (len > 67108864) {
+    return -3;
+  }
   const ptr = _malloc(len > 0 ? len : 1);
   if (!ptr) {
     return -2;
@@ -178,46 +196,76 @@ uint16_t read_be16(const uint8_t *p) {
   return static_cast<uint16_t>((static_cast<uint16_t>(p[0]) << 8) | p[1]);
 }
 
-bool parse_jpeg_dimensions(const uint8_t *data, size_t len, int &width, int &height) {
-  if (len < 4 || data[0] != 0xFF || data[1] != 0xD8) {
+bool parse_jpeg_dimensions_from_stream(ByteStream &bs, int chunkSize, int &width, int &height) {
+  if (chunkSize < 4) {
+    return false;
+  }
+  const size_t limit = static_cast<size_t>(chunkSize);
+  uint8_t soi[2];
+  if (bs.readall(soi, 2) != 2 || soi[0] != 0xFF || soi[1] != 0xD8) {
     return false;
   }
   size_t pos = 2;
-  while (pos + 4 <= len) {
-    if (data[pos] != 0xFF) {
-      ++pos;
-      continue;
-    }
-    while (pos < len && data[pos] == 0xFF) {
-      ++pos;
-    }
-    if (pos >= len) {
+  while (pos + 2 <= limit) {
+    uint8_t byte = 0;
+    if (bs.readall(&byte, 1) != 1) {
       break;
     }
-    uint8_t marker = data[pos++];
+    ++pos;
+    if (byte != 0xFF) {
+      continue;
+    }
+    while (pos < limit) {
+      if (bs.readall(&byte, 1) != 1) {
+        return false;
+      }
+      ++pos;
+      if (byte != 0xFF) {
+        break;
+      }
+    }
+    if (byte == 0xFF) {
+      break;
+    }
+    const uint8_t marker = byte;
     if (marker == 0xD9 || marker == 0xDA) {
       break;
     }
     if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) {
       continue;
     }
-    if (pos + 2 > len) {
+    if (pos + 2 > limit) {
       break;
     }
-    uint16_t segLen = read_be16(data + pos);
-    if (segLen < 2 || pos + segLen > len) {
+    uint8_t lenBuf[2];
+    if (bs.readall(lenBuf, 2) != 2) {
       break;
     }
-    bool isSof = (marker >= 0xC0 && marker <= 0xC3)
-              || (marker >= 0xC5 && marker <= 0xC7)
-              || (marker >= 0xC9 && marker <= 0xCB)
-              || (marker >= 0xCD && marker <= 0xCF);
+    pos += 2;
+    const uint16_t segLen = read_be16(lenBuf);
+    if (segLen < 2 || pos + (static_cast<size_t>(segLen) - 2u) > limit) {
+      break;
+    }
+    const bool isSof = (marker >= 0xC0 && marker <= 0xC3)
+                    || (marker >= 0xC5 && marker <= 0xC7)
+                    || (marker >= 0xC9 && marker <= 0xCB)
+                    || (marker >= 0xCD && marker <= 0xCF);
     if (isSof && segLen >= 7) {
-      height = read_be16(data + pos + 3);
-      width = read_be16(data + pos + 5);
+      uint8_t sof[5];
+      if (bs.readall(sof, 5) != 5) {
+        break;
+      }
+      height = read_be16(sof + 1);
+      width = read_be16(sof + 3);
       return width > 0 && height > 0;
     }
-    pos += segLen;
+    const size_t skip = static_cast<size_t>(segLen) - 2u;
+    if (skip > 0) {
+      if (bs.seek(static_cast<long>(skip), SEEK_CUR, true) < 0) {
+        break;
+      }
+      pos += skip;
+    }
   }
   return false;
 }
@@ -234,6 +282,7 @@ struct EvbDjVuDocumentState {
   size_t providedBytes = 0;
   std::string needComponent;
   bool oomTriggered = false;
+  bool limitExceeded = false;
   GP<DjVuFileCache> cache;
   GP<DjVuPort> port;
   GP<DjVuDocument> doc;
@@ -267,6 +316,13 @@ class EvbDjVuPort : public DjVuPort {
     // 1. Check explicitly provided component cache (async host path).
     auto it = state_->providedComponents.find(name);
     if (it != state_->providedComponents.end()) {
+      // Touch LRU recency and pin while the current decode/page operation uses it.
+      state_->pinnedComponents.insert(name);
+      auto orderIt = std::find(state_->providedOrder.begin(), state_->providedOrder.end(), name);
+      if (orderIt != state_->providedOrder.end()) {
+        state_->providedOrder.erase(orderIt);
+      }
+      state_->providedOrder.push_back(name);
       const auto &buf = it->second;
       GP<ByteStream> bs = ByteStream::create(buf.data(), static_cast<int>(buf.size()));
       return DataPool::create(bs);
@@ -286,6 +342,10 @@ class EvbDjVuPort : public DjVuPort {
       GP<ByteStream> bs = ByteStream::create(raw, static_cast<int>(outLen));
       std::free(reinterpret_cast<void *>(static_cast<uintptr_t>(outPtr)));
       return DataPool::create(bs);
+    }
+    if (status == -3) {
+      state_->limitExceeded = true;
+      return nullptr;
     }
     if (status == -2) {
       state_->oomTriggered = true;
@@ -325,6 +385,11 @@ EvbDjVuDocumentState *get_doc(int32_t handle) {
 }
 
 int32_t check_pending_state(EvbDjVuDocumentState *state) {
+  if (state->limitExceeded) {
+    state->limitExceeded = false;
+    set_error("DjVu component exceeds maximum byte limit");
+    return EVB_DJVU_ERR_OOM;
+  }
   if (state->oomTriggered) {
     state->oomTriggered = false;
     set_error("Out of memory while reading DjVu component");
@@ -349,39 +414,45 @@ GP<DjVmDir> safe_get_djvm_dir(DjVuDocument *doc) {
   return doc->get_djvm_dir();
 }
 
-void evict_non_dict_components(EvbDjVuDocumentState *state) {
-  if (state->providedBytes <= MAX_PROVIDED_COMPONENT_CACHE_BYTES) {
+bool is_include_component(DjVmDir *dir, const std::string &name) {
+  if (!dir) {
+    return false;
+  }
+  GP<DjVmDir::File> f = dir->name_to_file(GUTF8String(name.c_str()));
+  if (!f) {
+    f = dir->id_to_file(GUTF8String(name.c_str()));
+  }
+  return f && f->is_include();
+}
+
+void evict_provided_components(EvbDjVuDocumentState *state, size_t maxBytes) {
+  if (state->providedBytes <= maxBytes) {
     return;
   }
   GP<DjVmDir> dir = safe_get_djvm_dir(state->doc);
-  size_t idx = 0;
-  while (idx < state->providedOrder.size()
-         && state->providedBytes > MAX_PROVIDED_COMPONENT_CACHE_BYTES) {
-    const std::string &name = state->providedOrder[idx];
-    if (state->pinnedComponents.count(name) > 0) {
-      ++idx;
-      continue;
-    }
-    bool isInclude = false;
-    if (dir) {
-      GP<DjVmDir::File> f = dir->name_to_file(GUTF8String(name.c_str()));
-      if (!f) {
-        f = dir->id_to_file(GUTF8String(name.c_str()));
+  // Pass 1: prefer evicting unpinned non-include (page) components oldest-first.
+  // Pass 2: if still over budget, evict unpinned include (dictionary) components
+  // oldest-first so dictionaries never bypass the cache budget permanently.
+  for (int pass = 0; pass < 2 && state->providedBytes > maxBytes; ++pass) {
+    const bool evictIncludes = (pass == 1);
+    size_t idx = 0;
+    while (idx < state->providedOrder.size() && state->providedBytes > maxBytes) {
+      const std::string &name = state->providedOrder[idx];
+      if (state->pinnedComponents.count(name) > 0) {
+        ++idx;
+        continue;
       }
-      if (f && f->is_include()) {
-        isInclude = true;
+      if (!evictIncludes && is_include_component(dir, name)) {
+        ++idx;
+        continue;
       }
+      auto it = state->providedComponents.find(name);
+      if (it != state->providedComponents.end()) {
+        state->providedBytes -= it->second.size();
+        state->providedComponents.erase(it);
+      }
+      state->providedOrder.erase(state->providedOrder.begin() + static_cast<ptrdiff_t>(idx));
     }
-    if (isInclude) {
-      ++idx;
-      continue;
-    }
-    auto it = state->providedComponents.find(name);
-    if (it != state->providedComponents.end()) {
-      state->providedBytes -= it->second.size();
-      state->providedComponents.erase(it);
-    }
-    state->providedOrder.erase(state->providedOrder.begin() + static_cast<ptrdiff_t>(idx));
   }
 }
 
@@ -392,7 +463,7 @@ struct PinnedComponentsGuard {
   ~PinnedComponentsGuard() {
     if (state && !keepPinned && !state->pinnedComponents.empty()) {
       state->pinnedComponents.clear();
-      evict_non_dict_components(state);
+      evict_provided_components(state, MAX_PROVIDED_COMPONENT_CACHE_BYTES);
     }
   }
 };
@@ -650,8 +721,9 @@ void collect_leaf_zones(
     std::string &out,
     bool &first,
     size_t &zoneCount,
-    size_t maxZones) {
-  if (zoneCount >= maxZones) {
+    size_t maxZones,
+    int depth = 0) {
+  if (zoneCount >= maxZones || depth > MAX_TEXT_ZONE_DEPTH) {
     return;
   }
   int32_t lineId = currentLineId;
@@ -692,7 +764,7 @@ void collect_leaf_zones(
     return;
   }
   for (GPosition pos = zone.children; pos; ++pos) {
-    collect_leaf_zones(txt, zone.children[pos], lineId, nextLineId, out, first, zoneCount, maxZones);
+    collect_leaf_zones(txt, zone.children[pos], lineId, nextLineId, out, first, zoneCount, maxZones, depth + 1);
   }
 }
 
@@ -710,7 +782,7 @@ GP<DjVuTXT> extract_text_from_pool_fast(const GP<DataPool> &pool) {
   if (!iff->get_chunk(chkid)) {
     return nullptr;
   }
-  if (chkid != "FORM:DJVU") {
+  if (chkid != "FORM:DJVU" && chkid != "FORM:BM44" && chkid != "FORM:PM44") {
     return nullptr;
   }
   while (iff->get_chunk(chkid)) {
@@ -747,6 +819,226 @@ struct ChunkLayerInfo {
   int height = 0;
 };
 
+struct PageHeaderInfo {
+  bool validForm = false;
+  bool hasInfo = false;
+  int rawWidth = 0;
+  int rawHeight = 0;
+  int width = 0;
+  int height = 0;
+  int dpi = 300;
+  int rotation = 0;
+  uint64_t pageBytes = 0;
+  bool hasMask = false;
+  bool hasSjbzMask = false;
+  uint64_t maskBytes = 0;
+  bool hasBg = false;
+  bool hasFg = false;
+  ChunkLayerInfo bg;
+  ChunkLayerInfo fg;
+  int maxLayerWidth = 0;
+  int maxLayerHeight = 0;
+  uint64_t maxLayerPixels = 0;
+};
+
+bool parse_iw44_header_dimensions(const uint8_t *hdr, size_t len, int &width, int &height) {
+  if (len < 8) {
+    return false;
+  }
+  if (hdr[0] != 0 || (hdr[2] & 0x7f) != 1 || hdr[3] > 2) {
+    return false;
+  }
+  width = read_be16(hdr + 4);
+  height = read_be16(hdr + 6);
+  return width > 0 && height > 0;
+}
+
+void record_layer_dims(PageHeaderInfo &out, int w, int h) {
+  if (w <= 0 || h <= 0) {
+    return;
+  }
+  out.maxLayerWidth = std::max(out.maxLayerWidth, w);
+  out.maxLayerHeight = std::max(out.maxLayerHeight, h);
+  uint64_t pixels = static_cast<uint64_t>(w) * static_cast<uint64_t>(h);
+  out.maxLayerPixels = std::max(out.maxLayerPixels, pixels);
+}
+
+bool inspect_page_header_from_pool(const GP<DataPool> &pool, PageHeaderInfo &out, bool inspectLayerDimensions) {
+  if (!pool) {
+    return false;
+  }
+  out.pageBytes = static_cast<uint64_t>(std::max(0, pool->get_size()));
+  GP<ByteStream> bs = pool->get_stream();
+  if (!bs) {
+    return false;
+  }
+  GP<IFFByteStream> iff = IFFByteStream::create(bs);
+  GUTF8String chkid;
+  if (iff->get_chunk(chkid) <= 0) {
+    return false;
+  }
+  const bool isDjvu = (chkid == "FORM:DJVU");
+  const bool isIw44 = (chkid == "FORM:BM44" || chkid == "FORM:PM44");
+  if (!isDjvu && !isIw44) {
+    return false;
+  }
+  out.validForm = true;
+
+  int chunkSize = 0;
+  while ((chunkSize = iff->get_chunk(chkid)) > 0) {
+    const std::string id(static_cast<const char *>(chkid));
+    if (isDjvu && id == "INFO") {
+      GP<DjVuInfo> info = DjVuInfo::create();
+      info->decode(*iff->get_bytestream());
+      out.rawWidth = info->width;
+      out.rawHeight = info->height;
+      out.rotation = orientation_to_degrees(info->orientation);
+      out.width = (out.rotation == 90 || out.rotation == 270) ? info->height : info->width;
+      out.height = (out.rotation == 90 || out.rotation == 270) ? info->width : info->height;
+      out.dpi = (info->dpi >= 25 && info->dpi <= 6000) ? info->dpi : 300;
+      out.hasInfo = (out.width > 0 && out.height > 0);
+    } else if (isDjvu && (id == "Sjbz" || id == "Smmr")) {
+      out.hasMask = true;
+      if (id == "Sjbz") {
+        out.hasSjbzMask = true;
+        out.maskBytes += static_cast<uint64_t>(chunkSize);
+      }
+    } else if ((isIw44 && (id == "BM44" || id == "PM44"))
+               || (isDjvu && (id == "BG44" || id == "BGjp" || id == "BG2k" || id == "PM44" || id == "BM44"))) {
+      out.hasBg = true;
+      out.bg.present = true;
+      if (out.bg.kind.empty()) out.bg.kind = id;
+      out.bg.bytes += static_cast<uint64_t>(chunkSize);
+      if ((id == "BG44" || id == "PM44" || id == "BM44") && chunkSize >= 8 && (isIw44 || inspectLayerDimensions)) {
+        uint8_t hdr[8];
+        if (iff->get_bytestream()->readall(hdr, 8) == 8) {
+          int iwW = 0;
+          int iwH = 0;
+          if (parse_iw44_header_dimensions(hdr, sizeof(hdr), iwW, iwH)) {
+            if (out.bg.width == 0) {
+              out.bg.width = iwW;
+              out.bg.height = iwH;
+            }
+            record_layer_dims(out, iwW, iwH);
+            if (isIw44 && !out.hasInfo) {
+              out.rawWidth = iwW;
+              out.rawHeight = iwH;
+              out.width = iwW;
+              out.height = iwH;
+              out.dpi = 100;
+              out.rotation = 0;
+              out.hasInfo = true;
+            }
+          }
+        }
+      } else if (id == "BGjp" && inspectLayerDimensions && out.bg.width == 0 && chunkSize >= 4) {
+        GP<ByteStream> jpegStream = iff->get_bytestream();
+        if (jpegStream && parse_jpeg_dimensions_from_stream(*jpegStream, chunkSize, out.bg.width, out.bg.height)) {
+          record_layer_dims(out, out.bg.width, out.bg.height);
+        }
+      }
+    } else if (isDjvu && (id == "FG44" || id == "FGbz" || id == "FGjp" || id == "FG2k")) {
+      out.hasFg = true;
+      out.fg.present = true;
+      if (out.fg.kind.empty()) out.fg.kind = id;
+      out.fg.bytes += static_cast<uint64_t>(chunkSize);
+      if (id == "FG44" && inspectLayerDimensions && out.fg.width == 0 && chunkSize >= 8) {
+        uint8_t hdr[8];
+        if (iff->get_bytestream()->readall(hdr, 8) == 8) {
+          int iwW = 0;
+          int iwH = 0;
+          if (parse_iw44_header_dimensions(hdr, sizeof(hdr), iwW, iwH)) {
+            out.fg.width = iwW;
+            out.fg.height = iwH;
+            record_layer_dims(out, iwW, iwH);
+          }
+        }
+      } else if (id == "FGjp" && inspectLayerDimensions && out.fg.width == 0 && chunkSize >= 4) {
+        GP<ByteStream> jpegStream = iff->get_bytestream();
+        if (jpegStream && parse_jpeg_dimensions_from_stream(*jpegStream, chunkSize, out.fg.width, out.fg.height)) {
+          record_layer_dims(out, out.fg.width, out.fg.height);
+        }
+      }
+    }
+    iff->close_chunk();
+  }
+  return true;
+}
+
+bool compute_output_row_bytes(int w, int32_t pixelFormat, uint64_t &rowSize) {
+  if (w <= 0) {
+    return false;
+  }
+  if (pixelFormat == PIXEL_FORMAT_RGBA32) {
+    rowSize = static_cast<uint64_t>(w) * 4ull;
+    return true;
+  }
+  if (pixelFormat == PIXEL_FORMAT_RGB24) {
+    rowSize = static_cast<uint64_t>(w) * 3ull;
+    return true;
+  }
+  if (pixelFormat == PIXEL_FORMAT_PBM_MSB) {
+    rowSize = (static_cast<uint64_t>(w) + 7ull) / 8ull;
+    return true;
+  }
+  return false;
+}
+
+int32_t validate_native_dimensions(int width, int height) {
+  if (width <= 0 || height <= 0) {
+    set_error("DjVu page has invalid dimensions");
+    return EVB_DJVU_ERR_INVALID;
+  }
+  uint64_t pixels = static_cast<uint64_t>(width) * static_cast<uint64_t>(height);
+  if (width > MAX_NATIVE_PAGE_DIM || height > MAX_NATIVE_PAGE_DIM || pixels > MAX_NATIVE_PAGE_PIXELS) {
+    set_error("DjVu page native dimensions exceed allocation limit");
+    return EVB_DJVU_ERR_OOM;
+  }
+  return EVB_DJVU_OK;
+}
+
+int32_t validate_render_dimensions(
+    int targetFullW,
+    int targetFullH,
+    int rx,
+    int ry,
+    int rw,
+    int rh,
+    int32_t mode,
+    int32_t pixelFormat) {
+  if (targetFullW <= 0 || targetFullH <= 0 || rw <= 0 || rh <= 0 || rx < 0 || ry < 0) {
+    set_error("Render rectangle out of bounds");
+    return EVB_DJVU_ERR_BOUNDS;
+  }
+  if (static_cast<int64_t>(rx) + static_cast<int64_t>(rw) > static_cast<int64_t>(targetFullW)
+      || static_cast<int64_t>(ry) + static_cast<int64_t>(rh) > static_cast<int64_t>(targetFullH)) {
+    set_error("Render rectangle out of bounds");
+    return EVB_DJVU_ERR_BOUNDS;
+  }
+  if (rw > MAX_RENDER_DIM || rh > MAX_RENDER_DIM) {
+    set_error("Requested DjVu render dimensions exceed allocation limit");
+    return EVB_DJVU_ERR_OOM;
+  }
+  const uint64_t pixels = static_cast<uint64_t>(rw) * static_cast<uint64_t>(rh);
+  if (pixels > MAX_RENDER_PIXELS) {
+    set_error("Requested DjVu render pixel count exceeds allocation limit");
+    return EVB_DJVU_ERR_OOM;
+  }
+  uint64_t rowSize = 0;
+  if (!compute_output_row_bytes(rw, pixelFormat, rowSize)) {
+    set_error("Unsupported pixel format");
+    return EVB_DJVU_ERR_INVALID;
+  }
+  const uint64_t outputBytes = rowSize * static_cast<uint64_t>(rh);
+  const uint64_t intermediateBpp = (mode == RENDER_MODE_MASKONLY) ? 1ull : 3ull;
+  const uint64_t intermediateBytes = pixels * intermediateBpp;
+  if (outputBytes > MAX_RENDER_BUFFER_BYTES || intermediateBytes > MAX_RENDER_BUFFER_BYTES) {
+    set_error("Requested DjVu render buffer exceeds allocation limit");
+    return EVB_DJVU_ERR_OOM;
+  }
+  return EVB_DJVU_OK;
+}
+
 }  // namespace
 
 extern "C" {
@@ -756,6 +1048,10 @@ int32_t evb_djvu_open(int32_t docId, const uint8_t *initPtr, int32_t initLen, ui
   clear_call_state();
   if (!initPtr || initLen <= 0) {
     set_error("Empty DjVu input");
+    return 0;
+  }
+  if (static_cast<size_t>(initLen) > MAX_INIT_BYTES) {
+    set_error("DjVu input exceeds maximum byte limit");
     return 0;
   }
   try {
@@ -829,6 +1125,19 @@ void evb_djvu_clear_cache(int32_t handle) {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void evb_djvu_unpin_components(int32_t handle) {
+  auto it = g_docs.find(handle);
+  if (it == g_docs.end()) {
+    return;
+  }
+  auto *state = it->second.get();
+  if (!state->pinnedComponents.empty()) {
+    state->pinnedComponents.clear();
+    evict_provided_components(state, MAX_PROVIDED_COMPONENT_CACHE_BYTES);
+  }
+}
+
+EMSCRIPTEN_KEEPALIVE
 int32_t evb_djvu_provide_component(
     int32_t handle,
     const char *namePtr,
@@ -842,12 +1151,26 @@ int32_t evb_djvu_provide_component(
     set_error("Invalid component arguments");
     return EVB_DJVU_ERR_INVALID;
   }
+  const size_t newLen = static_cast<size_t>(dataLen);
+  if (newLen > MAX_COMPONENT_BYTES) {
+    set_error("DjVu component exceeds maximum byte limit");
+    return EVB_DJVU_ERR_OOM;
+  }
   try {
     std::string name(namePtr, static_cast<size_t>(nameLen));
     auto existing = state->providedComponents.find(name);
+    const size_t existingLen = (existing != state->providedComponents.end()) ? existing->second.size() : 0;
+    const size_t netIncrease = newLen > existingLen ? (newLen - existingLen) : 0;
+    if (netIncrease > 0) {
+      const size_t targetBytes = (MAX_PROVIDED_COMPONENT_CACHE_BYTES > netIncrease)
+          ? (MAX_PROVIDED_COMPONENT_CACHE_BYTES - netIncrease)
+          : 0;
+      evict_provided_components(state, targetBytes);
+      existing = state->providedComponents.find(name);
+    }
     if (existing != state->providedComponents.end()) {
       state->providedBytes -= existing->second.size();
-      existing->second.assign(dataPtr, dataPtr + dataLen);
+      existing->second.assign(dataPtr, dataPtr + newLen);
       state->providedBytes += existing->second.size();
       auto orderIt = std::find(state->providedOrder.begin(), state->providedOrder.end(), name);
       if (orderIt != state->providedOrder.end()) {
@@ -855,13 +1178,13 @@ int32_t evb_djvu_provide_component(
       }
       state->providedOrder.push_back(name);
     } else {
-      std::vector<uint8_t> buf(dataPtr, dataPtr + dataLen);
+      std::vector<uint8_t> buf(dataPtr, dataPtr + newLen);
       state->providedBytes += buf.size();
       state->providedComponents.emplace(name, std::move(buf));
       state->providedOrder.push_back(name);
     }
     state->pinnedComponents.insert(name);
-    evict_non_dict_components(state);
+    evict_provided_components(state, MAX_PROVIDED_COMPONENT_CACHE_BYTES);
     return EVB_DJVU_OK;
   } catch (const std::bad_alloc &) {
     set_error("Out of memory storing DjVu component");
@@ -941,6 +1264,51 @@ int32_t evb_djvu_get_doc_info(int32_t handle) {
         std::snprintf(sbuf, sizeof(sbuf), ",\"size\":%d}", f->size);
         json += sbuf;
       }
+    } else if (rawType == DjVuDocument::OLD_BUNDLED) {
+      GP<DjVmDir0> dir0 = state->doc->get_djvm_dir0();
+      bool first = true;
+      std::unordered_set<std::string> emittedPages;
+      for (int p = 0; p < pageCount; ++p) {
+        GUTF8String pid = state->doc->page_to_id(p);
+        std::string pidStr(static_cast<const char *>(pid));
+        emittedPages.insert(pidStr);
+        int fsize = 0;
+        if (dir0) {
+          GP<DjVmDir0::FileRec> frec = dir0->get_file(pid);
+          if (frec && frec->size > 0) {
+            fsize = frec->size;
+          }
+        }
+        if (!first) json.push_back(',');
+        first = false;
+        json += "{\"id\":";
+        append_json_escaped(json, pid);
+        json += ",\"name\":";
+        append_json_escaped(json, pid);
+        json += ",\"title\":\"\",\"type\":\"page\",\"pageNumber\":";
+        char nbuf[48];
+        std::snprintf(nbuf, sizeof(nbuf), "%d,\"size\":%d}", p + 1, fsize);
+        json += nbuf;
+      }
+      if (dir0) {
+        const int totalFiles = dir0->get_files_num();
+        for (int i = 0; i < totalFiles; ++i) {
+          GP<DjVmDir0::FileRec> frec = dir0->get_file(i);
+          if (!frec) continue;
+          std::string fnameStr(static_cast<const char *>(frec->name));
+          if (emittedPages.count(fnameStr) > 0) continue;
+          if (!first) json.push_back(',');
+          first = false;
+          json += "{\"id\":";
+          append_json_escaped(json, frec->name);
+          json += ",\"name\":";
+          append_json_escaped(json, frec->name);
+          json += ",\"title\":\"\",\"type\":\"include\",\"pageNumber\":null,\"size\":";
+          char sbuf[32];
+          std::snprintf(sbuf, sizeof(sbuf), "%d}", std::max(0, frec->size));
+          json += sbuf;
+        }
+      }
     }
     json += "]}";
     set_output_string(json);
@@ -962,6 +1330,7 @@ int32_t evb_djvu_get_page_info(int32_t handle, int32_t pageIndex0) {
   PinnedComponentsGuard pinGuard(state);
   state->needComponent.clear();
   state->oomTriggered = false;
+  state->limitExceeded = false;
   try {
     const int pages = state->doc->get_pages_num();
     if (pageIndex0 < 0 || pageIndex0 >= pages) {
@@ -978,50 +1347,26 @@ int32_t evb_djvu_get_page_info(int32_t handle, int32_t pageIndex0) {
       set_error("Failed to open DjVu page file");
       return EVB_DJVU_ERR_INVALID;
     }
-    // Fast INFO parse from raw IFF stream without decoding JB2/IW44 bitmaps.
     GP<DataPool> pool = file->get_init_data_pool();
     if (!pool) {
       set_error("DjVu page has no data");
       return EVB_DJVU_ERR_INVALID;
     }
-    GP<ByteStream> bs = pool->get_stream();
-    GP<IFFByteStream> iff = IFFByteStream::create(bs);
-    GUTF8String chkid;
-    if (!iff->get_chunk(chkid) || chkid != "FORM:DJVU") {
-      set_error("DjVu page is not a FORM:DJVU stream");
+    PageHeaderInfo header;
+    if (!inspect_page_header_from_pool(pool, header, false) || !header.validForm) {
+      set_error("DjVu page is not a FORM:DJVU, FORM:BM44, or FORM:PM44 stream");
       return EVB_DJVU_ERR_INVALID;
     }
-    GP<DjVuInfo> info;
-    bool hasMask = false;
-    bool hasBg = false;
-    bool hasFg = false;
-    while (iff->get_chunk(chkid)) {
-      if (chkid == "INFO") {
-        info = DjVuInfo::create();
-        info->decode(*iff->get_bytestream());
-      } else if (chkid == "Sjbz" || chkid == "Smmr") {
-        hasMask = true;
-      } else if (chkid == "BG44" || chkid == "BGjp" || chkid == "BG2k" || chkid == "PM44" || chkid == "BM44") {
-        hasBg = true;
-      } else if (chkid == "FG44" || chkid == "FGbz" || chkid == "FGjp" || chkid == "FG2k") {
-        hasFg = true;
-      }
-      iff->close_chunk();
-    }
-    if (!info || info->width <= 0 || info->height <= 0) {
-      set_error("DjVu page is missing a valid INFO chunk");
+    if (!header.hasInfo || header.width <= 0 || header.height <= 0) {
+      set_error("DjVu page is missing a valid INFO or IW44 header");
       return EVB_DJVU_ERR_INVALID;
     }
-    int rotation = orientation_to_degrees(info->orientation);
-    int width = (rotation == 90 || rotation == 270) ? info->height : info->width;
-    int height = (rotation == 90 || rotation == 270) ? info->width : info->height;
-    int dpi = (info->dpi >= 25 && info->dpi <= 6000) ? info->dpi : 300;
     const char *pageType = "unknown";
-    if (hasMask && (hasBg || hasFg)) {
+    if (header.hasMask && (header.hasBg || header.hasFg)) {
       pageType = "compound";
-    } else if (hasMask) {
+    } else if (header.hasMask) {
       pageType = "bitonal";
-    } else if (hasBg) {
+    } else if (header.hasBg) {
       pageType = "photo";
     }
     char json[256];
@@ -1029,12 +1374,12 @@ int32_t evb_djvu_get_page_info(int32_t handle, int32_t pageIndex0) {
         json,
         sizeof(json),
         "{\"width\":%d,\"height\":%d,\"rawWidth\":%d,\"rawHeight\":%d,\"dpi\":%d,\"rotation\":%d,\"pageType\":\"%s\"}",
-        width,
-        height,
-        info->width,
-        info->height,
-        dpi,
-        rotation,
+        header.width,
+        header.height,
+        header.rawWidth,
+        header.rawHeight,
+        header.dpi,
+        header.rotation,
         pageType);
     set_output_string(json);
     return EVB_DJVU_OK;
@@ -1063,6 +1408,7 @@ int32_t evb_djvu_get_page_structure(int32_t handle, int32_t pageIndex0) {
   PinnedComponentsGuard pinGuard(state);
   state->needComponent.clear();
   state->oomTriggered = false;
+  state->limitExceeded = false;
   try {
     const int pages = state->doc->get_pages_num();
     if (pageIndex0 < 0 || pageIndex0 >= pages) {
@@ -1084,71 +1430,11 @@ int32_t evb_djvu_get_page_structure(int32_t handle, int32_t pageIndex0) {
       set_error("DjVu page has no data");
       return EVB_DJVU_ERR_INVALID;
     }
-    uint64_t pageBytes = static_cast<uint64_t>(std::max(0, pool->get_size()));
-    GP<ByteStream> bs = pool->get_stream();
-    GP<IFFByteStream> iff = IFFByteStream::create(bs);
-    GUTF8String chkid;
-    int formSize = iff->get_chunk(chkid);
-    if (formSize <= 0 || chkid != "FORM:DJVU") {
-      set_error("DjVu page is not a FORM:DJVU stream");
+    PageHeaderInfo header;
+    if (!inspect_page_header_from_pool(pool, header, true) || !header.validForm) {
+      set_error("DjVu page is not a FORM:DJVU, FORM:BM44, or FORM:PM44 stream");
       return EVB_DJVU_ERR_INVALID;
     }
-
-    GP<DjVuInfo> info;
-    bool hasMask = false;
-    uint64_t maskBytes = 0;
-    ChunkLayerInfo bg;
-    ChunkLayerInfo fg;
-
-    int chunkSize = 0;
-    while ((chunkSize = iff->get_chunk(chkid)) > 0) {
-      const std::string id(static_cast<const char *>(chkid));
-      if (id == "INFO") {
-        info = DjVuInfo::create();
-        info->decode(*iff->get_bytestream());
-      } else if (id == "Sjbz") {
-        hasMask = true;
-        maskBytes += static_cast<uint64_t>(chunkSize);
-      } else if (id == "BG44" || id == "BGjp" || id == "BG2k" || id == "PM44") {
-        bg.present = true;
-        if (bg.kind.empty()) bg.kind = id;
-        bg.bytes += static_cast<uint64_t>(chunkSize);
-        if ((id == "BG44" || id == "PM44") && bg.width == 0 && chunkSize >= 8) {
-          uint8_t hdr[8];
-          if (iff->get_bytestream()->readall(hdr, 8) == 8 && hdr[0] == 0) {
-            bg.width = read_be16(hdr + 4);
-            bg.height = read_be16(hdr + 6);
-          }
-        } else if (id == "BGjp" && bg.width == 0 && chunkSize <= 16 * 1024 * 1024) {
-          std::vector<uint8_t> jpeg(static_cast<size_t>(chunkSize));
-          if (iff->get_bytestream()->readall(jpeg.data(), chunkSize) == chunkSize) {
-            parse_jpeg_dimensions(jpeg.data(), jpeg.size(), bg.width, bg.height);
-          }
-        }
-      } else if (id == "FG44" || id == "FGbz" || id == "FGjp" || id == "FG2k") {
-        fg.present = true;
-        if (fg.kind.empty()) fg.kind = id;
-        fg.bytes += static_cast<uint64_t>(chunkSize);
-        if (id == "FG44" && fg.width == 0 && chunkSize >= 8) {
-          uint8_t hdr[8];
-          if (iff->get_bytestream()->readall(hdr, 8) == 8 && hdr[0] == 0) {
-            fg.width = read_be16(hdr + 4);
-            fg.height = read_be16(hdr + 6);
-          }
-        } else if (id == "FGjp" && fg.width == 0 && chunkSize <= 16 * 1024 * 1024) {
-          std::vector<uint8_t> jpeg(static_cast<size_t>(chunkSize));
-          if (iff->get_bytestream()->readall(jpeg.data(), chunkSize) == chunkSize) {
-            parse_jpeg_dimensions(jpeg.data(), jpeg.size(), fg.width, fg.height);
-          }
-        }
-      }
-      iff->close_chunk();
-    }
-
-    int rotation = info ? orientation_to_degrees(info->orientation) : 0;
-    int uprightW = info ? ((rotation == 90 || rotation == 270) ? info->height : info->width) : 0;
-    int uprightH = info ? ((rotation == 90 || rotation == 270) ? info->width : info->height) : 0;
-    int dpi = (info && info->dpi >= 25 && info->dpi <= 6000) ? info->dpi : 300;
 
     auto appendLayer = [](std::string &out, const ChunkLayerInfo &layer) {
       if (!layer.present) {
@@ -1184,37 +1470,37 @@ int32_t evb_djvu_get_page_structure(int32_t handle, int32_t pageIndex0) {
         sizeof(head),
         "{\"pageNumber\":%d,\"pageBytes\":%llu,\"rotation\":%d,",
         pageIndex0 + 1,
-        static_cast<unsigned long long>(pageBytes),
-        rotation);
+        static_cast<unsigned long long>(header.pageBytes),
+        header.rotation);
     json += head;
-    if (info && uprightW > 0 && uprightH > 0) {
+    if (header.hasInfo && header.width > 0 && header.height > 0) {
       char ibuf[128];
       std::snprintf(
           ibuf,
           sizeof(ibuf),
           "\"info\":{\"width\":%d,\"height\":%d,\"dpi\":%d},",
-          uprightW,
-          uprightH,
-          dpi);
+          header.width,
+          header.height,
+          header.dpi);
       json += ibuf;
     } else {
       json += "\"info\":null,";
     }
     char mbuf[96];
-    if (hasMask) {
+    if (header.hasSjbzMask) {
       std::snprintf(
           mbuf,
           sizeof(mbuf),
           "\"hasMask\":true,\"maskBytes\":%llu,",
-          static_cast<unsigned long long>(maskBytes));
+          static_cast<unsigned long long>(header.maskBytes));
     } else {
       std::snprintf(mbuf, sizeof(mbuf), "\"hasMask\":false,\"maskBytes\":null,");
     }
     json += mbuf;
     json += "\"background\":";
-    appendLayer(json, bg);
+    appendLayer(json, header.bg);
     json += ",\"foreground\":";
-    appendLayer(json, fg);
+    appendLayer(json, header.fg);
     json.push_back('}');
 
     set_output_string(json);
@@ -1254,15 +1540,81 @@ int32_t evb_djvu_render_page(
   PinnedComponentsGuard pinGuard(state);
   state->needComponent.clear();
   state->oomTriggered = false;
+  state->limitExceeded = false;
   try {
+    if (mode < RENDER_MODE_COLOR || mode > RENDER_MODE_FOREGROUND) {
+      set_error("Unsupported DjVu render mode");
+      return EVB_DJVU_ERR_INVALID;
+    }
+    if (pixelFormat < PIXEL_FORMAT_RGBA32 || pixelFormat > PIXEL_FORMAT_PBM_MSB) {
+      set_error("Unsupported pixel format");
+      return EVB_DJVU_ERR_INVALID;
+    }
     const int pages = state->doc->get_pages_num();
     if (pageIndex0 < 0 || pageIndex0 >= pages) {
       set_error("Page index out of bounds");
       return EVB_DJVU_ERR_BOUNDS;
     }
 
-    GP<DjVuImage> img = decode_page_image(state, pageIndex0);
+    // Validate explicitly requested target/rect dimensions before fetching or decoding the page.
+    if (fullW < 0 || fullH < 0 || rectX < 0 || rectY < 0 || rectW < 0 || rectH < 0) {
+      set_error("Render rectangle out of bounds");
+      return EVB_DJVU_ERR_BOUNDS;
+    }
+    if (fullW > 0 && fullH > 0) {
+      const int preRw = rectW > 0 ? rectW : fullW;
+      const int preRh = rectH > 0 ? rectH : fullH;
+      const int32_t preCheck = validate_render_dimensions(
+          fullW, fullH, rectX, rectY, preRw, preRh, mode, pixelFormat);
+      if (preCheck != EVB_DJVU_OK) {
+        return preCheck;
+      }
+    } else if (rectW > 0 && rectH > 0) {
+      const int32_t preCheck = validate_render_dimensions(
+          rectW, rectH, 0, 0, rectW, rectH, mode, pixelFormat);
+      if (preCheck != EVB_DJVU_OK) {
+        return preCheck;
+      }
+    }
+
+    // Inspect raw page header BEFORE decoding JB2/IW44/JPEG layers to reject oversized pages early.
+    GP<DjVuFile> rawFile = get_page_file_raw(state, pageIndex0);
     int32_t pending = check_pending_state(state);
+    if (pending != EVB_DJVU_OK) {
+      pinGuard.keepPinned = (pending == EVB_DJVU_NEED_COMPONENT);
+      return pending;
+    }
+    if (!rawFile) {
+      set_error("Failed to open DjVu page file");
+      return EVB_DJVU_ERR_INVALID;
+    }
+    PageHeaderInfo preHeader;
+    if (inspect_page_header_from_pool(rawFile->get_init_data_pool(), preHeader, true)) {
+      if (preHeader.hasInfo) {
+        const int32_t nativeCheck = validate_native_dimensions(preHeader.width, preHeader.height);
+        if (nativeCheck != EVB_DJVU_OK) {
+          return nativeCheck;
+        }
+        const int preFullW = fullW > 0 ? fullW : preHeader.width;
+        const int preFullH = fullH > 0 ? fullH : preHeader.height;
+        const int preRw = rectW > 0 ? rectW : preFullW;
+        const int preRh = rectH > 0 ? rectH : preFullH;
+        const int32_t targetCheck = validate_render_dimensions(
+            preFullW, preFullH, rectX, rectY, preRw, preRh, mode, pixelFormat);
+        if (targetCheck != EVB_DJVU_OK) {
+          return targetCheck;
+        }
+      }
+      if (preHeader.maxLayerWidth > MAX_NATIVE_PAGE_DIM
+          || preHeader.maxLayerHeight > MAX_NATIVE_PAGE_DIM
+          || preHeader.maxLayerPixels > MAX_NATIVE_PAGE_PIXELS) {
+        set_error("DjVu page layer dimensions exceed allocation limit");
+        return EVB_DJVU_ERR_OOM;
+      }
+    }
+
+    GP<DjVuImage> img = decode_page_image(state, pageIndex0);
+    pending = check_pending_state(state);
     if (pending != EVB_DJVU_OK) {
       // Clear any half-decoded file from cache before retrying with the fetched component.
       if (state->cache) state->cache->clear();
@@ -1281,9 +1633,9 @@ int32_t evb_djvu_render_page(
 
     const int nativeW = img->get_width();
     const int nativeH = img->get_height();
-    if (nativeW <= 0 || nativeH <= 0) {
-      set_error("DjVu page has invalid dimensions");
-      return EVB_DJVU_ERR_INVALID;
+    const int32_t decodedNativeCheck = validate_native_dimensions(nativeW, nativeH);
+    if (decodedNativeCheck != EVB_DJVU_OK) {
+      return decodedNativeCheck;
     }
 
     int targetFullW = fullW > 0 ? fullW : nativeW;
@@ -1293,9 +1645,10 @@ int32_t evb_djvu_render_page(
     int rw = rectW > 0 ? rectW : targetFullW;
     int rh = rectH > 0 ? rectH : targetFullH;
 
-    if (rx + rw > targetFullW || ry + rh > targetFullH || rw <= 0 || rh <= 0) {
-      set_error("Render rectangle out of bounds");
-      return EVB_DJVU_ERR_BOUNDS;
+    const int32_t targetCheck = validate_render_dimensions(
+        targetFullW, targetFullH, rx, ry, rw, rh, mode, pixelFormat);
+    if (targetCheck != EVB_DJVU_OK) {
+      return targetCheck;
     }
 
     // Top-to-bottom rectangle mapping matching ddjvu_page_render (ytoptobottom = true).
@@ -1398,6 +1751,7 @@ int32_t evb_djvu_get_page_text(int32_t handle, int32_t pageIndex0, int32_t inclu
   PinnedComponentsGuard pinGuard(state);
   state->needComponent.clear();
   state->oomTriggered = false;
+  state->limitExceeded = false;
   try {
     const int pages = state->doc->get_pages_num();
     if (pageIndex0 < 0 || pageIndex0 >= pages) {
@@ -1460,6 +1814,9 @@ int32_t evb_djvu_get_page_text(int32_t handle, int32_t pageIndex0, int32_t inclu
   } catch (const std::bad_alloc &) {
     set_error("Out of memory extracting DjVu page text");
     return EVB_DJVU_ERR_OOM;
+  } catch (const std::exception &ex) {
+    set_error(ex.what());
+    return EVB_DJVU_ERR_INTERNAL;
   }
 }
 
@@ -1471,6 +1828,7 @@ int32_t evb_djvu_page_has_text(int32_t handle, int32_t pageIndex0) {
   PinnedComponentsGuard pinGuard(state);
   state->needComponent.clear();
   state->oomTriggered = false;
+  state->limitExceeded = false;
   try {
     const int pages = state->doc->get_pages_num();
     if (pageIndex0 < 0 || pageIndex0 >= pages) {
@@ -1495,6 +1853,12 @@ int32_t evb_djvu_page_has_text(int32_t handle, int32_t pageIndex0) {
     }
     set_error(ex.get_cause() ? ex.get_cause() : "Failed to probe DjVu page text");
     return EVB_DJVU_ERR_INVALID;
+  } catch (const std::bad_alloc &) {
+    set_error("Out of memory probing DjVu page text");
+    return EVB_DJVU_ERR_OOM;
+  } catch (const std::exception &ex) {
+    set_error(ex.what());
+    return EVB_DJVU_ERR_INTERNAL;
   }
 }
 
@@ -1506,6 +1870,7 @@ int32_t evb_djvu_get_metadata(int32_t handle) {
   PinnedComponentsGuard pinGuard(state);
   state->needComponent.clear();
   state->oomTriggered = false;
+  state->limitExceeded = false;
   try {
     GMap<GUTF8String, GUTF8String> merged;
     auto mergeFromStream = [&](const GP<ByteStream> &bs) {

@@ -42,6 +42,7 @@ tar -xzf "$TARBALL" -C "$BUILD_DIR"
 
 SRC_DIR="$BUILD_DIR/djvulibre-$DJVULIBRE_VERSION"
 patch -d "$SRC_DIR" -p1 < "$SCRIPT_DIR/patches/djvulibre-$DJVULIBRE_VERSION-emscripten-nothreads.patch"
+patch -d "$SRC_DIR" -p1 < "$SCRIPT_DIR/patches/djvulibre-$DJVULIBRE_VERSION-text-zone-hierarchy.patch"
 
 # Minimal autoconf config.h for Emscripten wasm32 (single-threaded, little-endian, libjpeg).
 cat > "$SRC_DIR/config.h" <<'EOF'
@@ -196,7 +197,7 @@ for pid in "${pids[@]}"; do
   wait "$pid"
 done
 
-EXPORTED_FUNCTIONS='["_malloc","_free","_evb_djvu_open","_evb_djvu_close","_evb_djvu_clear_cache","_evb_djvu_provide_component","_evb_djvu_get_doc_info","_evb_djvu_get_page_info","_evb_djvu_get_page_structure","_evb_djvu_render_page","_evb_djvu_get_outline","_evb_djvu_get_page_text","_evb_djvu_page_has_text","_evb_djvu_get_metadata","_evb_djvu_output_ptr","_evb_djvu_output_len","_evb_djvu_release_output","_evb_djvu_error_ptr","_evb_djvu_error_len","_evb_djvu_missing_component_ptr","_evb_djvu_missing_component_len","_evb_djvu_render_width","_evb_djvu_render_height","_evb_djvu_render_present"]'
+EXPORTED_FUNCTIONS='["_malloc","_free","_evb_djvu_open","_evb_djvu_close","_evb_djvu_clear_cache","_evb_djvu_unpin_components","_evb_djvu_provide_component","_evb_djvu_get_doc_info","_evb_djvu_get_page_info","_evb_djvu_get_page_structure","_evb_djvu_render_page","_evb_djvu_get_outline","_evb_djvu_get_page_text","_evb_djvu_page_has_text","_evb_djvu_get_metadata","_evb_djvu_output_ptr","_evb_djvu_output_len","_evb_djvu_release_output","_evb_djvu_error_ptr","_evb_djvu_error_len","_evb_djvu_missing_component_ptr","_evb_djvu_missing_component_len","_evb_djvu_render_width","_evb_djvu_render_height","_evb_djvu_render_present"]'
 
 mkdir -p "$OUT_DIR"
 em++ -O3 -msimd128 -fexceptions -sUSE_LIBJPEG=1 \

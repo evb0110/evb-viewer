@@ -25,6 +25,10 @@ export type {
 };
 import { DJVU_OUTLINE_MAX_BYTES } from '@djvu-core/djvuOutline';
 import {
+    DJVU_MAX_COMPONENT_BYTES,
+    DJVU_MAX_LEGACY_BUNDLED_BYTES,
+} from '@djvu-core/djvuSourceLayout';
+import {
     analyzeForegroundColorRaster,
     encodePbmP4,
     encodePpmP6,
@@ -219,6 +223,11 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
     };
 
     const provideComponent = (mod: IDjvuLibreEmscriptenModule, handle: number, name: string, bytes: Uint8Array) => {
+        if (bytes.byteLength > DJVU_MAX_COMPONENT_BYTES) {
+            throw new RangeError(
+                `DjVu component ${name} (${bytes.byteLength} bytes) exceeds the ${DJVU_MAX_COMPONENT_BYTES}-byte limit`,
+            );
+        }
         const nameByteLength = mod.lengthBytesUTF8(name);
         const namePtr = mod._malloc(nameByteLength + 1);
         if (!namePtr) {
@@ -236,7 +245,11 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
             }
             const status = mod._evb_djvu_provide_component(handle, namePtr, nameByteLength, dataPtr, bytes.byteLength);
             if (status !== EVB_DJVU_OK) {
-                throw new Error(readError(mod));
+                const message = readError(mod);
+                if (status === EVB_DJVU_ERR_OOM) {
+                    throw new RangeError(`Out of memory: ${message}`);
+                }
+                throw new Error(message);
             }
         } finally {
             mod._free(namePtr);
@@ -246,6 +259,11 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
 
     return {
         async openDocument(options: IDjvuOpenDocumentOptions): Promise<IDjvuLibreDocument> {
+            if (options.initBytes.byteLength > DJVU_MAX_LEGACY_BUNDLED_BYTES) {
+                throw new RangeError(
+                    `DjVu document input (${options.initBytes.byteLength} bytes) exceeds the ${DJVU_MAX_LEGACY_BUNDLED_BYTES}-byte limit`,
+                );
+            }
             const mod = await getInstance();
             const docId = nextDocId++;
             if (options.readComponentSync) {
@@ -284,29 +302,35 @@ export function createDjvuLibreEngine(source: IDjvuLibreEngineSource): IDjvuLibr
 
             const callWithComponentRetry = async (invoke: () => number): Promise<void> => {
                 assertOpen();
-                for (let attempt = 0; attempt <= MAX_COMPONENT_FETCH_RETRIES; attempt += 1) {
-                    const status = invoke();
-                    if (status === EVB_DJVU_OK) {
-                        return;
-                    }
-                    if (status === EVB_DJVU_NEED_COMPONENT) {
-                        const missingName = readMissingComponent(mod);
-                        if (!missingName || !options.readComponentAsync) {
-                            throw new Error(`DjVu component is unavailable: ${missingName || '(unknown)'}`);
+                try {
+                    for (let attempt = 0; attempt <= MAX_COMPONENT_FETCH_RETRIES; attempt += 1) {
+                        const status = invoke();
+                        if (status === EVB_DJVU_OK) {
+                            return;
                         }
-                        if (attempt === MAX_COMPONENT_FETCH_RETRIES) {
-                            throw new Error(`Exceeded DjVu component fetch limit while loading ${missingName}`);
+                        if (status === EVB_DJVU_NEED_COMPONENT) {
+                            const missingName = readMissingComponent(mod);
+                            if (!missingName || !options.readComponentAsync) {
+                                throw new Error(`DjVu component is unavailable: ${missingName || '(unknown)'}`);
+                            }
+                            if (attempt === MAX_COMPONENT_FETCH_RETRIES) {
+                                throw new Error(`Exceeded DjVu component fetch limit while loading ${missingName}`);
+                            }
+                            const componentBytes = await options.readComponentAsync(missingName);
+                            assertOpen();
+                            provideComponent(mod, handle, missingName, componentBytes);
+                            continue;
                         }
-                        const componentBytes = await options.readComponentAsync(missingName);
-                        assertOpen();
-                        provideComponent(mod, handle, missingName, componentBytes);
-                        continue;
+                        const errorMessage = readError(mod);
+                        if (status === EVB_DJVU_ERR_OOM) {
+                            throw new RangeError(`Out of memory: ${errorMessage}`);
+                        }
+                        throw new Error(errorMessage);
                     }
-                    const errorMessage = readError(mod);
-                    if (status === EVB_DJVU_ERR_OOM) {
-                        throw new RangeError(`Out of memory: ${errorMessage}`);
+                } finally {
+                    if (!closed) {
+                        mod._evb_djvu_unpin_components(handle);
                     }
-                    throw new Error(errorMessage);
                 }
             };
 

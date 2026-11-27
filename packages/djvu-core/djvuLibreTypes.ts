@@ -12,6 +12,7 @@ export interface IDjvuLibreEmscriptenModule {
     _evb_djvu_open(docId: number, initPtr: number, initLen: number, cacheBytes: number): number;
     _evb_djvu_close(handle: number): void;
     _evb_djvu_clear_cache(handle: number): void;
+    _evb_djvu_unpin_components(handle: number): void;
     _evb_djvu_provide_component(
         handle: number,
         namePtr: number,
