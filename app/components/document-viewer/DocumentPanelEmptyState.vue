@@ -1,5 +1,5 @@
 <template>
-    <div class="document-panel-empty-state" :class="{ 'has-action': Boolean($slots.action) }">
+    <div class="document-panel-empty-state" :class="{ 'has-action': Boolean(slots.action) }">
         <UIcon :name="icon" class="document-panel-empty-state__icon" />
         <p class="document-panel-empty-state__title">
             {{ title }}
@@ -7,7 +7,7 @@
         <p v-if="description" class="document-panel-empty-state__description">
             {{ description }}
         </p>
-        <div v-if="$slots.action" class="document-panel-empty-state__action">
+        <div v-if="slots.action" class="document-panel-empty-state__action">
             <slot name="action" />
         </div>
     </div>
@@ -19,6 +19,7 @@ defineProps<{
     title: string;
     description?: string;
 }>();
+const slots = useSlots();
 </script>
 
 <style scoped>

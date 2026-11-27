@@ -24,17 +24,14 @@
             />
             <ellipse
                 v-else-if="entity.tool === 'circle'"
-                :cx="entity.rect.left + entity.rect.width / 2"
-                :cy="entity.rect.top + entity.rect.height / 2"
-                :rx="Math.abs(entity.rect.width / 2)"
-                :ry="Math.abs(entity.rect.height / 2)"
+                v-bind="ellipse"
             />
             <template v-else-if="entity.tool === 'draw'">
                 <component
-                    :is="entity.pdfSubtype === 'Polygon' ? 'polygon' : 'polyline'"
-                    v-for="(stroke, index) in drawableStrokePointSets"
+                    :is="drawStrokeTag"
+                    v-for="(points, index) in drawableStrokePoints"
                     :key="index"
-                    :points="formatPoints(stroke)"
+                    :points="points"
                 />
             </template>
             <rect v-else :x="entity.rect.left" :y="entity.rect.top" :width="entity.rect.width" :height="entity.rect.height" />
@@ -68,7 +65,18 @@ const renderPasses = [
     'visual',
 ] as const;
 const strokePointSets = computed(() => props.entity.strokes?.length ? props.entity.strokes : props.entity.points ? [props.entity.points] : []);
-const drawableStrokePointSets = computed(() => strokePointSets.value.filter(points => points.length > 1));
+const drawStrokeTag = computed(() => (
+    props.entity.pdfSubtype === 'Polygon' ? 'polygon' : 'polyline'
+));
+const drawableStrokePoints = computed(() => strokePointSets.value
+    .filter(points => points.length > 1)
+    .map(formatPoints));
+const ellipse = computed(() => ({
+    cx: props.entity.rect.left + props.entity.rect.width / 2,
+    cy: props.entity.rect.top + props.entity.rect.height / 2,
+    rx: Math.abs(props.entity.rect.width / 2),
+    ry: Math.abs(props.entity.rect.height / 2),
+}));
 const linePoints = computed(() => props.entity.points?.length ? props.entity.points : props.entity.strokes?.[0] ?? []);
 // Drawing tools clamp to unit page space, but an imported line, polyline or
 // ink annotation authored elsewhere is not clamped and legitimately paints

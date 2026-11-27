@@ -42,22 +42,22 @@
             aria-hidden="true"
         >
             <PdfTextMarkupAnnotation
-                v-for="entity in svgEntities.textMarkup"
-                :key="entity.identity.id"
-                :page-rotation="surface.getPageGeometry(pageIndex)?.rotation ?? 0"
-                :entity="entity"
-                :highlight-paint-quads="surface.isOriginalAppearance(entity) ? [] : highlightPaintQuads.get(entity.identity.id)"
-                :original-appearance="surface.isOriginalAppearance(entity)"
+                v-for="row in textMarkupRows"
+                :key="row.entity.identity.id"
+                :page-rotation="pageRotation"
+                :entity="row.entity"
+                :highlight-paint-quads="row.highlightPaintQuads"
+                :original-appearance="row.originalAppearance"
                 :highlight-fill-target="`#${highlightFillPlaneId}`"
-                :selected="isSelected(entity.identity.id)"
+                :selected="isSelected(row.entity.identity.id)"
                 :page-size="pageDimensions"
             />
             <PdfShapeAnnotation
-                v-for="entity in svgEntities.shapes"
-                :key="entity.identity.id"
-                :entity="entity"
-                :original-appearance="surface.isOriginalAppearance(entity)"
-                :selected="isSelected(entity.identity.id)"
+                v-for="row in shapeRows"
+                :key="row.entity.identity.id"
+                :entity="row.entity"
+                :original-appearance="row.originalAppearance"
+                :selected="isSelected(row.entity.identity.id)"
                 :page-size="pageDimensions"
             />
             <PdfShapeAnnotation
@@ -106,9 +106,9 @@
                 :display-rect="displayRectFor(entity)"
             />
             <div
-                v-if="textPlacementPreview"
+                v-if="textPlacementPreviewStyle"
                 class="pdf-annotation-editor-text-box-preview"
-                :style="{...rectStyle(textPlacementPreview!), transform: `rotate(${(360 - viewRotation) % 360}deg)`}"
+                :style="textPlacementPreviewStyle"
                 aria-hidden="true"
             />
             <PdfAnnotationSelectionHandles
@@ -116,7 +116,7 @@
                 :display-rect="selectedDisplayRect"
                 :view-rotation="viewRotation"
                 @resize-start="handleResizeStart"
-                @move-start="selectedEntity?.kind === 'text-box' && handleEntityPointerDown(selectedEntity, $event, true)"
+                @move-start="handleSelectionMoveStart"
             />
         </div>
     </div>
@@ -187,11 +187,13 @@ const layerRef = ref<HTMLElement | null>(null);
 const highlightFillPlaneId = useId();
 const editorReady = ref(false);
 const editingId = surface.editingId;
-const pageDimensions = computed(() => {
-    const geometry = surface.getPageGeometry(props.pageIndex);
-    return annotationPageDimensions(geometry?.pageView, geometry?.rotation ?? 0);
-});
-const viewRotation = computed(() => surface.getPageGeometry(props.pageIndex)?.viewRotation ?? 0);
+const pageGeometry = computed(() => surface.getPageGeometry(props.pageIndex));
+const pageRotation = computed(() => pageGeometry.value?.rotation ?? 0);
+const pageDimensions = computed(() => annotationPageDimensions(
+    pageGeometry.value?.pageView,
+    pageRotation.value,
+));
+const viewRotation = computed(() => pageGeometry.value?.viewRotation ?? 0);
 const planeStyle = computed(() => {
     const swapped = viewRotation.value === 90 || viewRotation.value === 270;
     const page = pageDimensions.value;
@@ -334,24 +336,39 @@ const svgEntities = computed(() => {
     };
 });
 
-const highlightPaintQuads = computed(() => {
+const textMarkupRows = computed(() => {
     const groups = new Map<string, IAnnotationMarkerRect[]>();
-    const byAnnotation = new Map<AnnotationId, readonly IAnnotationMarkerRect[]>();
-    for (const entity of svgEntities.value.textMarkup) {
-        if (entity.subtype !== 'Highlight' || surface.isOriginalAppearance(entity)) continue;
-        const key = `${entity.color?.toLowerCase() ?? 'default'}:${entity.opacity ?? 0.45}`;
+    const rows = svgEntities.value.textMarkup.map(entity => ({
+        entity,
+        originalAppearance: surface.isOriginalAppearance(entity),
+        highlightPaintQuads: undefined as readonly IAnnotationMarkerRect[] | undefined,
+    }));
+    for (const row of rows) {
+        if (row.originalAppearance) {
+            row.highlightPaintQuads = [];
+            continue;
+        }
+        if (row.entity.subtype !== 'Highlight') {
+            continue;
+        }
+        const key = `${row.entity.color?.toLowerCase() ?? 'default'}:${row.entity.opacity ?? 0.45}`;
         const group = groups.get(key);
         if (group) {
-            group.push(...entity.quadPoints);
-            byAnnotation.set(entity.identity.id, []);
+            group.push(...row.entity.quadPoints);
+            row.highlightPaintQuads = [];
         } else {
-            const quads = [...entity.quadPoints];
+            const quads = [...row.entity.quadPoints];
             groups.set(key, quads);
-            byAnnotation.set(entity.identity.id, quads);
+            row.highlightPaintQuads = quads;
         }
     }
-    return byAnnotation;
+    return rows;
 });
+
+const shapeRows = computed(() => svgEntities.value.shapes.map(entity => ({
+    entity,
+    originalAppearance: surface.isOriginalAppearance(entity),
+})));
 
 function shapeForRender(entity: IShapeEntity) {
     const delta = moveDelta.value;
@@ -600,12 +617,17 @@ function textPlacementRect(start: IAnnotationEditorPoint, current: IAnnotationEd
     }, viewRotation.value, pageDimensions.value);
 }
 
-const textPlacementPreview = computed(() => {
+const textPlacementPreviewStyle = computed(() => {
     const start = pointerGesture.start.value;
     const current = pointerGesture.current.value;
-    return isCreating.value && creatingTool.value === 'text' && start && current
-        ? textPlacementRect(start, current, pointerGesture.hasMoved.value)
-        : null;
+    if (!isCreating.value || creatingTool.value !== 'text' || !start || !current) {
+        return null;
+    }
+    const preview = textPlacementRect(start, current, pointerGesture.hasMoved.value);
+    return {
+        ...rectStyle(preview),
+        transform: `rotate(${(360 - viewRotation.value) % 360}deg)`,
+    };
 });
 
 function displayRectFor(entity: ITextBoxEntity | INoteEntity | IPlacedImageEntity | IShapeEntity) {
@@ -714,6 +736,12 @@ function prepareTextBoxGeometryChange() {
         return;
     }
     return commitActiveTextBoxDraftForSave();
+}
+
+function handleSelectionMoveStart(event: PointerEvent) {
+    if (selectedEntity.value?.kind === 'text-box') {
+        handleEntityPointerDown(selectedEntity.value, event, true);
+    }
 }
 
 function handleResizeStart(handle: TAnnotationResizeHandle, event: PointerEvent) {

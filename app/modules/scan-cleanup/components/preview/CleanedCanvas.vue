@@ -2,12 +2,12 @@
     <div class="cleaned-outputs" :class="{'is-spread': outputs.length > 1}">
         <div v-for="output in outputs" :key="output.metadata.half" class="output-column">
             <div
-                :ref="element => $emit('set-fit-area', output.metadata.half, element)"
+                :ref="element => emit('set-fit-area', output.metadata.half, element)"
                 class="output-fit-area"
                 :data-output-half="output.metadata.half"
             >
                 <div
-                    :ref="element => $emit('set-canvas', output.metadata.half, element)"
+                    :ref="element => emit('set-canvas', output.metadata.half, element)"
                     class="uniform-canvas"
                     :class="{'has-uniform-canvas': matchPageSize}"
                     :style="output.canvasStyle"
@@ -44,8 +44,8 @@
                                 :class="{'is-entering': output.pixelSwap.entering}"
                                 :src="output.pixelSwap.currentUrl"
                                 :alt="altByHalf[output.metadata.half] ?? ''"
-                                @transitionend="$emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
-                                @transitioncancel="$emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
+                                @transitionend="emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
+                                @transitioncancel="emit('complete', output.metadata.half, output.pixelSwap.currentUrl)"
                             >
                             <img
                                 v-if="output.pixelSwap.incomingUrl"
@@ -53,7 +53,7 @@
                                 class="cleaned-image preview-pixel is-incoming"
                                 :src="output.pixelSwap.incomingUrl"
                                 alt=""
-                                @load="$emit('load', output.metadata.half, output.pixelSwap.incomingUrl)"
+                                @load="emit('load', output.metadata.half, output.pixelSwap.incomingUrl)"
                             >
                             <img
                                 v-if="detailUrls[output.metadata.half]"
@@ -95,7 +95,7 @@ defineProps<{
     outputs: IRenderedScanCleanupOutput[];
     showMarginBoundary?: boolean;
 }>();
-defineEmits<{
+const emit = defineEmits<{
     complete: [half: TScanCleanupOutputHalf, url: string];
     load: [half: TScanCleanupOutputHalf, url: string];
     'set-canvas': [half: TScanCleanupOutputHalf, element: Element | ComponentPublicInstance | null];

@@ -71,103 +71,89 @@
             @keydown="handleKeydown"
         >
             <template #overlay="{pageNumber: position}">
-                <div
-                    class="scan-thumbnail-overlay"
-                    :class="{'is-excluded': pageOverride(naturalPage(position)).excluded}"
-                    :data-page-number="naturalPage(position)"
-                    :data-classification="classificationKind(naturalPage(position))"
-                >
-                    <div
-                        class="scan-thumbnail-actions"
-                        @click.stop
-                        @pointerdown.stop
-                    >
-                        <AppTooltip
-                            :disabled="disabled"
-                            :text="includeLabel(naturalPage(position))"
-                            usefulness="always"
+                <template v-for="overlay in [resolveOverlayProjection(position)]" :key="position">
+                    <div v-bind="overlay.containerAttrs">
+                        <div
+                            class="scan-thumbnail-actions"
+                            @click.stop
+                            @pointerdown.stop
                         >
-                            <UButton
-                                type="button"
-                                class="scan-thumbnail-exclude-toggle"
-                                :class="{'is-excluded': pageOverride(naturalPage(position)).excluded}"
-                                :color="pageOverride(naturalPage(position)).excluded ? 'neutral' : 'primary'"
-                                variant="soft"
-                                size="xs"
-                                square
-                                :icon="pageOverride(naturalPage(position)).excluded ? 'i-ph-eye-slash' : 'i-ph-eye'"
-                                role="switch"
-                                :aria-checked="!pageOverride(naturalPage(position)).excluded"
-                                :aria-label="includeLabel(naturalPage(position))"
-                                :disabled="disabled"
-                                @click="updateOverride(naturalPage(position), {
-                                    excluded: !pageOverride(naturalPage(position)).excluded,
-                                })"
-                            />
-                        </AppTooltip>
-                    </div>
-                </div>
-            </template>
-            <template #label="{pageNumber: position}">
-                <span class="scan-thumbnail-label-band">
-                    <span class="scan-thumbnail-label-row">
-                        <span
-                            class="scan-thumbnail-page-number"
-                            :class="{'is-excluded': pageOverride(naturalPage(position)).excluded}"
-                        >{{ naturalPage(position) }}</span>
-                        <span class="scan-thumbnail-markers">
-                            <span
-                                v-if="isCustomized(naturalPage(position))"
-                                class="scan-thumbnail-customized"
-                                role="img"
-                                :aria-label="t('scanCleanup.settings.scope.pageCustomized')"
-                            />
-                            <UIcon
-                                v-if="isPageActive(naturalPage(position))"
-                                name="i-ph-circle-notch"
-                                class="scan-thumbnail-active is-spinning"
-                                data-page-active="true"
-                                :aria-label="t('scanCleanup.pages.processing', {page: naturalPage(position)})"
-                            />
-                            <UIcon
-                                v-else-if="processedPages?.has(naturalPage(position))"
-                                name="i-ph-check-circle"
-                                class="scan-thumbnail-processed"
-                                :aria-label="t('scanCleanup.pages.processed')"
-                            />
                             <AppTooltip
-                                v-else-if="attentionHints(naturalPage(position)).length > 0"
-                                :text="attentionHints(naturalPage(position)).join(' ')"
+                                :disabled="disabled"
+                                :text="overlay.includeLabel"
                                 usefulness="always"
                             >
-                                <button
-                                    type="button"
-                                    class="scan-thumbnail-attention"
-                                    :aria-label="attentionHints(naturalPage(position)).join(' ')"
-                                    :disabled="disabled"
-                                    @click.stop="emit('inspect-page', naturalPage(position))"
-                                    @pointerdown.stop
-                                >
-                                    <UIcon name="i-ph-warning" aria-hidden="true" />
-                                </button>
+                                <UButton
+                                    v-bind="overlay.toggleProps"
+                                    @click="toggleExcluded(position)"
+                                />
                             </AppTooltip>
+                        </div>
+                    </div>
+                </template>
+            </template>
+            <template #label="{pageNumber: position}">
+                <template v-for="label in [resolveLabelProjection(position)]" :key="position">
+                    <span class="scan-thumbnail-label-band">
+                        <span class="scan-thumbnail-label-row">
+                            <span
+                                class="scan-thumbnail-page-number"
+                                :class="{'is-excluded': label.excluded}"
+                            >{{ label.page }}</span>
+                            <span class="scan-thumbnail-markers">
+                                <span
+                                    v-if="label.customized"
+                                    class="scan-thumbnail-customized"
+                                    role="img"
+                                    :aria-label="t('scanCleanup.settings.scope.pageCustomized')"
+                                />
+                                <UIcon
+                                    v-if="label.active"
+                                    name="i-ph-circle-notch"
+                                    class="scan-thumbnail-active is-spinning"
+                                    data-page-active="true"
+                                    :aria-label="label.activeLabel"
+                                />
+                                <UIcon
+                                    v-else-if="label.processed"
+                                    name="i-ph-check-circle"
+                                    class="scan-thumbnail-processed"
+                                    :aria-label="t('scanCleanup.pages.processed')"
+                                />
+                                <AppTooltip
+                                    v-else-if="label.attentionText"
+                                    :text="label.attentionText"
+                                    usefulness="always"
+                                >
+                                    <button
+                                        type="button"
+                                        class="scan-thumbnail-attention"
+                                        :aria-label="label.attentionText"
+                                        :disabled="disabled"
+                                        @click.stop="emit('inspect-page', label.page)"
+                                        @pointerdown.stop
+                                    >
+                                        <UIcon name="i-ph-warning" aria-hidden="true" />
+                                    </button>
+                                </AppTooltip>
+                            </span>
                         </span>
+                        <span
+                            v-if="label.detectionPending"
+                            class="scan-thumbnail-status scan-thumbnail-detection-pending"
+                            role="status"
+                            :aria-label="label.detectionPendingLabel"
+                        >
+                            <UIcon name="i-ph-circle-notch" class="is-spinning" aria-hidden="true" />
+                            <span>{{ t('scanCleanup.pages.detecting') }}</span>
+                        </span>
+                        <span
+                            v-else
+                            class="scan-thumbnail-status"
+                            :class="{'is-excluded': label.excluded}"
+                        >{{ label.summary }}</span>
                     </span>
-                    <span
-                        v-if="isDetectionPending(naturalPage(position))"
-                        class="scan-thumbnail-status scan-thumbnail-detection-pending"
-                        role="status"
-                        :aria-label="t('scanCleanup.pages.detectionPending', {page: naturalPage(position)})"
-                    >
-                        <UIcon name="i-ph-circle-notch" class="is-spinning" aria-hidden="true" />
-                        <span>{{ t('scanCleanup.pages.detecting') }}</span>
-                    </span>
-                    <span
-                        v-else
-                        class="scan-thumbnail-status"
-                        :class="{'is-excluded': pageOverride(naturalPage(position)).excluded}"
-                    >{{ statusSummary(naturalPage(position)) }}</span>
-                </span>
+                </template>
             </template>
         </DocumentThumbnailList>
     </aside>
@@ -347,27 +333,39 @@ function pageOverride(page: number) {
     );
 }
 
-function isCustomized(page: number) {
-    return !isScanCleanupPageOverrideInherited(props.overrides, pageOverride(page));
+function isCustomized(override: IScanCleanupPageOverride) {
+    return !isScanCleanupPageOverrideInherited(props.overrides, override);
 }
 
-function updateOverride(page: number, patch: Partial<IScanCleanupPageOverride>) {
+function updateOverride(
+    page: number,
+    patch: Partial<IScanCleanupPageOverride>,
+    currentOverride = pageOverride(page),
+) {
     if (props.disabled) {
         return;
     }
     emit('update:override', page, createScanCleanupPageOverride({
-        ...pageOverride(page),
+        ...currentOverride,
         ...patch,
     }));
 }
 
-function displayedOutputMode(page: number) {
+function toggleExcluded(position: number) {
+    const page = naturalPage(position);
+    const override = pageOverride(page);
+    updateOverride(page, {
+        excluded: !override.excluded,
+    }, override);
+}
+
+function displayedOutputMode(page: number, override: IScanCleanupPageOverride) {
     return resolveScanCleanupEffectiveOutputMode({
         options: {
             outputMode: props.documentOutputMode,
             preserveOriginalQuality: props.preserveOriginalQuality,
         },
-        pageOverride: pageOverride(page),
+        pageOverride: override,
         detectedOutputMode: props.recommendedOutputModes?.get(page),
     });
 }
@@ -389,32 +387,31 @@ function classificationKind(page: number) {
 // One sentence per thumbnail instead of a strip of chips: what the page will be
 // cut into, rendered as, and rotated by, dropped to "Excluded" when it will not
 // reach the output at all.
-function statusSummary(page: number) {
-    const override = pageOverride(page);
+function statusSummary(page: number, override: IScanCleanupPageOverride) {
     if (override.excluded) {
         return t('scanCleanup.pages.excludedBadge');
     }
     const rotation = override.rotationDegrees;
     return [
         scanCleanupLayoutLabel(t, override, props.classifications.get(page)),
-        scanCleanupOutputModeShortLabel(t, displayedOutputMode(page)),
+        scanCleanupOutputModeShortLabel(t, displayedOutputMode(page, override)),
         rotation === 0 ? '' : `${rotation}°`,
     ].filter(Boolean).join(' · ');
 }
 
-function attentionHints(page: number) {
+function attentionText(page: number, override: IScanCleanupPageOverride) {
     return scanCleanupPageAttentionHints(t, {
         classification: props.classifications.get(page),
         layoutConfidence: props.confidences.get(page),
-        override: pageOverride(page),
+        override,
         textAxis: props.textAxes?.get(page),
-    });
+    }).join(' ');
 }
 
-function isPageActive(page: number) {
+function isPageActive(page: number, override: IScanCleanupPageOverride) {
     return props.activePages?.has(page) === true
         && props.processedPages?.has(page) !== true
-        && !pageOverride(page).excluded;
+        && !override.excluded;
 }
 
 // A page keeps its spinner only while its own detection work is outstanding:
@@ -426,10 +423,63 @@ function isDetectionPending(page: number) {
         && props.settledPages?.has(page) !== true;
 }
 
-function includeLabel(page: number) {
-    return t(pageOverride(page).excluded
+function includeLabel(override: IScanCleanupPageOverride) {
+    return t(override.excluded
         ? 'scanCleanup.pages.excludedFromOutput'
         : 'scanCleanup.pages.includeInOutput');
+}
+
+function resolveOverlayProjection(position: number) {
+    const page = naturalPage(position);
+    const override = pageOverride(page);
+    const label = includeLabel(override);
+    return {
+        containerAttrs: {
+            class: [
+                'scan-thumbnail-overlay',
+                {'is-excluded': override.excluded},
+            ],
+            'data-page-number': page,
+            'data-classification': classificationKind(page),
+        },
+        includeLabel: label,
+        toggleProps: {
+            type: 'button' as const,
+            class: [
+                'scan-thumbnail-exclude-toggle',
+                {'is-excluded': override.excluded},
+            ],
+            color: (override.excluded ? 'neutral' : 'primary') as 'neutral' | 'primary',
+            variant: 'soft' as const,
+            size: 'xs' as const,
+            square: true,
+            icon: override.excluded ? 'i-ph-eye-slash' : 'i-ph-eye',
+            role: 'switch',
+            'aria-checked': !override.excluded,
+            'aria-label': label,
+            disabled: props.disabled,
+        },
+    };
+}
+
+function resolveLabelProjection(position: number) {
+    const page = naturalPage(position);
+    const override = pageOverride(page);
+    const active = isPageActive(page, override);
+    const processed = !active && props.processedPages?.has(page) === true;
+    const detectionPending = isDetectionPending(page);
+    return {
+        page,
+        excluded: override.excluded,
+        customized: isCustomized(override),
+        active,
+        activeLabel: active ? t('scanCleanup.pages.processing', {page}) : undefined,
+        processed,
+        attentionText: !active && !processed ? attentionText(page, override) : '',
+        detectionPending,
+        detectionPendingLabel: detectionPending ? t('scanCleanup.pages.detectionPending', {page}) : undefined,
+        summary: detectionPending ? '' : statusSummary(page, override),
+    };
 }
 
 function handleRowClick(position: number, event?: MouseEvent) {

@@ -6,19 +6,9 @@
         :class="chassisAuthority ? viewerClass : ['pdfViewer app-scrollbar app-scroll-region--balanced', viewerClass]"
         :style="containerStyle"
         data-pdf-page-track
-        v-bind="viewportStateAttributes"
-        @scroll.passive="!chassisAuthority && emit('scroll', $event)"
-        @wheel="!chassisAuthority && handleStandaloneWheel($event)"
-        @mousedown="!chassisAuthority && emit('mousedown', $event)"
-        @mousemove="!chassisAuthority && emit('mousemove', $event)"
-        @mouseup="!chassisAuthority && emit('mouseup', $event)"
-        @mouseleave="!chassisAuthority && emit('mouseleave')"
-        @click="!chassisAuthority && emit('click', $event)"
-        @dblclick="!chassisAuthority && emit('dblclick', $event)"
-        @contextmenu="!chassisAuthority && emit('contextmenu', $event)"
-        @selectstart="!chassisAuthority && emit('selectstart', $event)"
+        v-bind="viewportAttributes"
     >
-        <template v-for="item in groupedVirtualPageItems" :key="item.key">
+        <template v-for="item in renderedVirtualItems" :key="item.key">
             <div
                 v-if="item.kind === 'spacer'"
                 class="pdf-viewer-virtual-spacer"
@@ -27,53 +17,19 @@
             <div
                 v-else-if="item.kind === 'row'"
                 class="pdf-viewer-page-row"
-                :class="{ 'pdf-viewer-page-row--buffered': item.pages.every(pageItem => isBufferedPage(pageItem.page)) }"
+                :class="{ 'pdf-viewer-page-row--buffered': item.buffered }"
             >
                 <PdfViewerPage
                     v-for="pageItem in item.pages"
                     :key="pageItem.key"
-                    :page="pageItem.page"
-                    :show-skeleton="shouldRenderPageSkeleton(pageItem.page)"
-                    :defer-skeleton="deferPageSkeleton"
-                    :paint-mode="pagePaintMode"
-                    :render-failed="isPageRenderFailed(pageItem.page)"
-                    :render-error-label="pageRenderErrorLabel"
-                    :spread-single="isSpreadSingle(pageItem.page)"
-                    :buffered="isBufferedPage(pageItem.page)"
-                    :rendered="isPageRendered(pageItem.page)"
-                    :raster="pageRaster(pageItem.page)"
-                    :page-scale="getPageScale(pageItem.page)"
-                    :placeholder-style="getEffectivePagePlaceholderStyle(pageItem.page)"
-                    :placed-image="pendingImagePlacement?.pageNumber === pageItem.page ? pendingImagePlacement : null"
-                    :placed-image-busy="isPendingImagePlacementFinalizing"
-                    @page-container-mounted="emit('page-container-mounted', $event)"
-                    @page-container-unmounted="emit('page-container-unmounted', $event)"
-                    @update-placed-image-rect="emit('update-placed-image-rect', $event)"
-                    @finalize-placed-image="emit('finalize-placed-image')"
-                    @cancel-placed-image="emit('cancel-placed-image')"
+                    v-bind="pageItem.pageProps"
+                    v-on="pageListeners"
                 />
             </div>
             <PdfViewerPage
                 v-else
-                :page="item.page"
-                :show-skeleton="shouldRenderPageSkeleton(item.page)"
-                :defer-skeleton="deferPageSkeleton"
-                :paint-mode="pagePaintMode"
-                :render-failed="isPageRenderFailed(item.page)"
-                :render-error-label="pageRenderErrorLabel"
-                :spread-single="isSpreadSingle(item.page)"
-                :buffered="isBufferedPage(item.page)"
-                :rendered="isPageRendered(item.page)"
-                :raster="pageRaster(item.page)"
-                :page-scale="getPageScale(item.page)"
-                :placeholder-style="getEffectivePagePlaceholderStyle(item.page)"
-                :placed-image="pendingImagePlacement?.pageNumber === item.page ? pendingImagePlacement : null"
-                :placed-image-busy="isPendingImagePlacementFinalizing"
-                @page-container-mounted="emit('page-container-mounted', $event)"
-                @page-container-unmounted="emit('page-container-unmounted', $event)"
-                @update-placed-image-rect="emit('update-placed-image-rect', $event)"
-                @finalize-placed-image="emit('finalize-placed-image')"
-                @cancel-placed-image="emit('cancel-placed-image')"
+                v-bind="item.pageProps"
+                v-on="pageListeners"
             />
         </template>
         <div
@@ -182,6 +138,67 @@ const emit = defineEmits<{
 const chassisAuthority = injectDocumentViewerRuntime();
 let releaseViewportFeature: (() => void) | null = null;
 
+interface IPdfViewerPageBindings {
+    page: TPageNumber;
+    showSkeleton: boolean;
+    deferSkeleton: boolean;
+    paintMode: 'normal' | 'hidden' | 'shell-owned';
+    renderFailed: boolean;
+    renderErrorLabel: string;
+    spreadSingle: boolean;
+    buffered: boolean;
+    rendered: boolean;
+    raster: 'current' | 'stale' | null;
+    pageScale: IPdfPageScale | null;
+    placeholderStyle: Record<string, string> | null;
+    placedImage: IPdfImagePlacementDraft | null;
+    placedImageBusy: boolean;
+}
+
+type TRenderedVirtualItem =
+    | {
+        kind: 'spacer';
+        key: string;
+        style: Record<string, string>;
+    }
+    | {
+        kind: 'row';
+        key: string;
+        buffered: boolean;
+        pages: Array<{
+            key: string;
+            pageProps: IPdfViewerPageBindings;
+        }>;
+    }
+    | {
+        kind: 'page';
+        key: string;
+        pageProps: IPdfViewerPageBindings;
+    };
+
+const standaloneListeners = chassisAuthority
+    ? {}
+    : {
+        onScrollPassive: (event: Event) => emit('scroll', event),
+        onWheel: handleStandaloneWheel,
+        onMousedown: (event: MouseEvent) => emit('mousedown', event),
+        onMousemove: (event: MouseEvent) => emit('mousemove', event),
+        onMouseup: (event: MouseEvent) => emit('mouseup', event),
+        onMouseleave: () => emit('mouseleave'),
+        onClick: (event: MouseEvent) => emit('click', event),
+        onDblclick: (event: MouseEvent) => emit('dblclick', event),
+        onContextmenu: (event: MouseEvent) => emit('contextmenu', event),
+        onSelectstart: (event: Event) => emit('selectstart', event),
+    };
+
+const pageListeners = {
+    'page-container-mounted': (page: TPageNumber) => emit('page-container-mounted', page),
+    'page-container-unmounted': (page: TPageNumber) => emit('page-container-unmounted', page),
+    'update-placed-image-rect': (payload: IPdfImagePlacementRectUpdate) => emit('update-placed-image-rect', payload),
+    'finalize-placed-image': () => emit('finalize-placed-image'),
+    'cancel-placed-image': () => emit('cancel-placed-image'),
+};
+
 const virtualPageItems = computed(() => {
     return flattenPdfVirtualPageSegments(virtualPageSegments, {
         initialPageShell,
@@ -192,7 +209,7 @@ const virtualPageItems = computed(() => {
 // The presentation modes an observer has to read back off the rendered page
 // track. They are derived from the same class map that styles the viewer, so
 // the view model stays the single owner of the state itself.
-const viewportStateAttributes = computed(() => ({
+const viewportAttributes = computed(() => ({
     'data-pdf-continuous-scroll': viewerClass['pdfViewer--single-page'] === true ? 'false' : 'true',
     'data-pdf-view-mode': viewerClass['pdfViewer--mode-facing'] === true
         ? 'facing'
@@ -204,6 +221,7 @@ const viewportStateAttributes = computed(() => ({
         : viewerClass['pdfViewer--fit-height'] === true
             ? 'fit-height'
             : 'custom',
+    ...standaloneListeners,
 }));
 
 const groupedVirtualPageItems = computed(() => groupPdfVirtualPageItems(
@@ -214,10 +232,6 @@ const groupedVirtualPageItems = computed(() => groupPdfVirtualPageItems(
         isSpreadSingle,
     },
 ));
-
-function shouldRenderPageSkeleton(page: TPageNumber) {
-    return shouldShowSkeleton(page);
-}
 
 // The navigation ticket owns the reveal for every destination-visible page,
 // including neighbours still painting after the target canvas commits.
@@ -243,6 +257,48 @@ function getEffectivePagePlaceholderStyle(page: TPageNumber) {
         ? openingPageFrameStyle
         : getPagePlaceholderStyle(page);
 }
+
+function buildPageProps(page: TPageNumber): IPdfViewerPageBindings {
+    return {
+        page,
+        showSkeleton: shouldShowSkeleton(page),
+        deferSkeleton: deferPageSkeleton.value,
+        paintMode: pagePaintMode.value,
+        renderFailed: isPageRenderFailed(page),
+        renderErrorLabel: pageRenderErrorLabel,
+        spreadSingle: isSpreadSingle(page),
+        buffered: isBufferedPage(page),
+        rendered: isPageRendered(page),
+        raster: pageRaster(page),
+        pageScale: getPageScale(page),
+        placeholderStyle: getEffectivePagePlaceholderStyle(page),
+        placedImage: pendingImagePlacement?.pageNumber === page ? pendingImagePlacement : null,
+        placedImageBusy: isPendingImagePlacementFinalizing,
+    };
+}
+
+const renderedVirtualItems = computed<TRenderedVirtualItem[]>(() => groupedVirtualPageItems.value.map((item) => {
+    if (item.kind === 'spacer') {
+        return item;
+    }
+    if (item.kind === 'row') {
+        const pages = item.pages.map(pageItem => ({
+            key: pageItem.key,
+            pageProps: buildPageProps(pageItem.page),
+        }));
+        return {
+            kind: 'row',
+            key: item.key,
+            buffered: pages.every(entry => entry.pageProps.buffered),
+            pages,
+        };
+    }
+    return {
+        kind: 'page',
+        key: item.key,
+        pageProps: buildPageProps(item.page),
+    };
+}));
 
 function setViewerContainerElement(element: Element | ComponentPublicInstance | null) {
     setViewerContainer(chassisAuthority?.viewportElement.value

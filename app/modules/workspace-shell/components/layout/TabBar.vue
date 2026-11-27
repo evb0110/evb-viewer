@@ -16,43 +16,43 @@
                 :aria-label="t('tabs.tabListLabel')"
             >
                 <div
-                    v-for="(tab, index) in tabs"
+                    v-for="tab in tabRows"
                     :key="tab.id"
                     :data-tab-id="tab.id"
                     role="tab"
                     class="tab"
                     :class="{
-                        'is-active': tab.id === activeTabId,
+                        'is-active': tab.isActive,
                         'is-dirty': tab.isDirty,
-                        'is-dragging': isDragging && dragIndex === index,
+                        'is-dragging': tab.isDragging,
                     }"
-                    :aria-label="resolveTabTitle(tab)"
-                    :aria-description="tab.isDirty ? t('tabs.unsavedChanges') : undefined"
-                    :aria-selected="tab.id === activeTabId"
-                    :aria-posinset="index + 1"
-                    :aria-setsize="tabs.length"
-                    :tabindex="tab.id === (focusedTabId ?? activeTabId) ? 0 : -1"
+                    :aria-label="tab.title"
+                    :aria-description="tab.ariaDescription"
+                    :aria-selected="tab.isActive"
+                    :aria-posinset="tab.posinset"
+                    :aria-setsize="tab.setsize"
+                    :tabindex="tab.tabindex"
                     @focusin="handleTabFocus(tab.id)"
                     @click="handleTabClick(tab.id)"
                     @auxclick.prevent="handleAuxClick($event, tab.id)"
                     @keydown="handleTabKeydown($event, tab.id)"
-                    @pointerdown="onPointerDown($event, index)"
+                    @pointerdown="onPointerDown($event, tab.index)"
                     @contextmenu.prevent.stop="openTabContextMenu($event, tab.id)"
                 >
                     <AppTooltip
-                        :text="resolveTabTitle(tab)"
+                        :text="tab.title"
                         :delay-duration="800"
                         usefulness="overflow"
                     >
-                        <span class="tab-label">{{ tab.fileName ?? t('tabs.newTab') }}</span>
+                        <span class="tab-label">{{ tab.label }}</span>
                     </AppTooltip>
                     <button
                         type="button"
                         class="tab-close"
-                        :class="{ 'is-visible': tab.id === activeTabId }"
+                        :class="{ 'is-visible': tab.isActive }"
                         :aria-label="t('tabs.closeTab')"
                         :disabled="!canCloseTabs"
-                        :tabindex="tab.id === activeTabId && canCloseTabs ? 0 : -1"
+                        :tabindex="tab.closeTabindex"
                         @pointerdown.stop
                         @click.stop="requestClose(tab.id)"
                         @keydown.enter.stop
@@ -452,6 +452,32 @@ const {
         }
     },
 );
+
+const tabRows = computed(() => {
+    const tabStopId = focusedTabId.value ?? activeTabId;
+    const total = tabs.length;
+    const closable = canCloseTabs.value;
+    const dragging = isDragging.value;
+    const activeDragIndex = dragIndex.value;
+    return tabs.map((tab, index) => {
+        const isActive = tab.id === activeTabId;
+        const title = resolveTabTitle(tab);
+        return {
+            id: tab.id,
+            index,
+            posinset: index + 1,
+            setsize: total,
+            title,
+            label: tab.fileName ?? t('tabs.newTab'),
+            isActive,
+            isDirty: tab.isDirty,
+            isDragging: dragging && activeDragIndex === index,
+            ariaDescription: tab.isDirty ? t('tabs.unsavedChanges') : undefined,
+            tabindex: tab.id === tabStopId ? 0 : -1,
+            closeTabindex: isActive && closable ? 0 : -1,
+        };
+    });
+});
 
 function handleTabClick(tabId: string) {
     if (shouldSuppressClick()) {

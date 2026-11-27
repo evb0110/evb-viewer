@@ -62,7 +62,7 @@
                     data-fatal-runtime-action="reload"
                     color="error"
                     icon="i-ph-arrows-clockwise"
-                    @click="$emit('reload')"
+                    @click="emit('reload')"
                 >
                     {{ reloadLabel }}
                 </UButton>

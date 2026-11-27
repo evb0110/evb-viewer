@@ -15,7 +15,7 @@
                     size="xs"
                     icon="i-ph-arrow-u-up-left"
                     :label="t('scanCleanup.settingsBadges.reset')"
-                    @click="$emit('reset-settings')"
+                    @click="emit('reset-settings')"
                 />
             </AppTooltip>
         </header>
@@ -48,7 +48,7 @@
                         :model-value="settings.thickness"
                         :aria-label="t('scanCleanup.thickness.control')"
                         :disabled="!bilevelOutput"
-                        @update:model-value="$emit('thickness-input', $event ?? settings.thickness)"
+                        @update:model-value="emit('thickness-input', $event ?? settings.thickness)"
                     />
                     <div class="scan-cleanup-scale" aria-hidden="true">
                         <span>{{ t('scanCleanup.thickness.thinner') }}</span>
@@ -102,7 +102,7 @@
                     :highlighted-scope="highlightedScope"
                     :page-number="pageNumber"
                     :selected-count="selectedCount"
-                    @update:model-value="$emit('update:scope', $event)"
+                    @update:model-value="emit('update:scope', $event)"
                 />
                 <div class="scan-cleanup-scope-context" data-scope-context>
                     <span>{{ scopeContext }}</span>
@@ -158,7 +158,7 @@
                         :label="t('scanCleanup.layout.label')"
                         :mixed="layout.mixed"
                         :overridden="scoped && overrideCounts.layout > 0"
-                        @reset="$emit('reset-control-override', 'layout')"
+                        @reset="emit('reset-control-override', 'layout')"
                     />
                     <USelect
                         :model-value="layoutModelValue"
@@ -166,7 +166,7 @@
                         value-key="value"
                         class="w-full"
                         :aria-label="t('scanCleanup.layout.label')"
-                        @update:model-value="$emit('update-layout', $event)"
+                        @update:model-value="emit('update-layout', $event)"
                     />
                 </div>
 
@@ -176,13 +176,13 @@
                         :label="t('scanCleanup.settings.rotation')"
                         :mixed="rotation.mixed"
                         :overridden="scoped && overrideCounts.rotation > 0"
-                        @reset="$emit('reset-control-override', 'rotation')"
+                        @reset="emit('reset-control-override', 'rotation')"
                     />
                     <ScanCleanupSegmented
                         :model-value="rotationModelValue"
                         :items="rotationSegments"
                         :group-label="t('scanCleanup.settings.rotation')"
-                        @update:model-value="$emit('update-rotation', $event)"
+                        @update:model-value="emit('update-rotation', $event)"
                     />
                 </div>
 
@@ -192,7 +192,7 @@
                         :label="t('scanCleanup.output.pageLabel')"
                         :mixed="outputModeOverride.mixed"
                         :overridden="overrideCounts.outputMode > 0"
-                        @reset="$emit('reset-control-override', 'output-mode')"
+                        @reset="emit('reset-control-override', 'output-mode')"
                     />
                     <USelect
                         :model-value="outputModeOverrideModelValue"
@@ -201,14 +201,14 @@
                         class="w-full"
                         :aria-label="t('scanCleanup.output.pageLabel')"
                         :disabled="lossless"
-                        @update:model-value="$emit('update-output-mode', $event)"
+                        @update:model-value="emit('update-output-mode', $event)"
                     />
                     <p v-if="outputModeHint" class="scan-cleanup-option-description">{{ outputModeHint }}</p>
                 </div>
 
                 <div
                     class="scan-cleanup-margins-control"
-                    @focusin="$emit('margin-interaction', true)"
+                    @focusin="emit('margin-interaction', true)"
                     @focusout="handleMarginFocusOut"
                 >
                     <ScanCleanupSettingLabel
@@ -216,7 +216,7 @@
                         :label="t('scanCleanup.margins.title')"
                         :mixed="margins.mixed"
                         :overridden="scoped && overrideCounts.margins > 0"
-                        @reset="$emit('reset-control-override', 'margins')"
+                        @reset="emit('reset-control-override', 'margins')"
                     >
                         <AppTooltip :text="t('scanCleanup.margins.linkTooltip')" usefulness="always">
                             <UButton
@@ -230,7 +230,7 @@
                                 role="switch"
                                 :aria-checked="marginsLinked"
                                 :aria-label="t('scanCleanup.margins.link')"
-                                @click="$emit('update:margins-linked', !marginsLinked)"
+                                @click="emit('update:margins-linked', !marginsLinked)"
                             />
                         </AppTooltip>
                     </ScanCleanupSettingLabel>
@@ -271,7 +271,7 @@
                     :hint="manualSkewHint"
                     reserve-hint
                     :disabled="lossless"
-                    @reset="$emit('reset-manual-skew')"
+                    @reset="emit('reset-manual-skew')"
                 >
                     <template #entry>
                         <UInputNumber
@@ -295,7 +295,7 @@
                         :label="t('scanCleanup.settings.contentPlacement')"
                         :mixed="placementAlignment.mixed"
                         :overridden="scoped && overrideCounts.placement > 0"
-                        @reset="$emit('reset-control-override', 'placement')"
+                        @reset="emit('reset-control-override', 'placement')"
                     />
                     <div
                         class="scan-cleanup-alignment-grid"
@@ -332,13 +332,13 @@
                     v-if="manualSplitState !== 'auto'"
                     :label="t('scanCleanup.settings.manualSplit')"
                     :state="manualSplitState"
-                    @reset="$emit('reset-manual-split')"
+                    @reset="emit('reset-manual-split')"
                 />
                 <ScanCleanupAutoValueRow
                     v-if="contentBoxesState !== 'auto'"
                     :label="t('scanCleanup.settings.contentBox')"
                     :state="contentBoxesState"
-                    @reset="$emit('reset-content-boxes')"
+                    @reset="emit('reset-content-boxes')"
                 />
 
                 <UDropdownMenu

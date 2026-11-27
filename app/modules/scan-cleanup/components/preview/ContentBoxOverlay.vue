@@ -8,7 +8,7 @@
         tabindex="0"
         role="group"
         :aria-label="groupLabels[output.metadata.half]"
-        @dblclick.stop="$emit('reset', output.metadata.half)"
+        @dblclick.stop="emit('reset', output.metadata.half)"
     >
         <button
             v-for="handle in handles"
@@ -17,13 +17,13 @@
             class="content-handle"
             :class="`is-${handle}`"
             :aria-label="handleLabels[output.metadata.half]?.[handle]"
-            @pointerdown.stop="$emit('start', $event, output, handle)"
-            @pointermove.stop="$emit('move', $event)"
-            @pointerup.stop="$emit('finish', $event)"
-            @pointercancel.stop="$emit('abort', $event)"
-            @lostpointercapture.stop="$emit('lost-pointer-capture', $event)"
-            @keydown.esc.stop.prevent="$emit('cancel')"
-            @keydown="$emit('nudge', $event, output, handle)"
+            @pointerdown.stop="emit('start', $event, output, handle)"
+            @pointermove.stop="emit('move', $event)"
+            @pointerup.stop="emit('finish', $event)"
+            @pointercancel.stop="emit('abort', $event)"
+            @lostpointercapture.stop="emit('lost-pointer-capture', $event)"
+            @keydown.esc.stop.prevent="emit('cancel')"
+            @keydown="emit('nudge', $event, output, handle)"
         />
     </div>
 </template>
@@ -43,7 +43,7 @@ defineProps<{
     passThrough: boolean;
     outputs: IScanCleanupContentOverlayOutput[];
 }>();
-defineEmits<{
+const emit = defineEmits<{
     abort: [event: PointerEvent];
     cancel: [];
     finish: [event: PointerEvent];

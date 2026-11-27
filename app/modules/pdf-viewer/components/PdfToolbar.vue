@@ -30,7 +30,7 @@
             </span>
 
             <div
-                v-if="(isCommandInline('save') || isCommandInline('print') || isCommandInline('print-current-page'))"
+                v-if="showFileActionsCluster"
                 data-collapse-at="4"
                 class="toolbar-cluster"
             >
@@ -40,8 +40,8 @@
                         :save-tooltip="t('toolbar.save')"
                         :save-shortcut="shortcutLabels.save"
                         :save-as-shortcut="shortcutLabels.saveAs"
-                        :save-disabled="!hasInteractiveDocument || !canSave || isAnySaving || isHistoryBusy || isDjvuMode"
-                        :save-as-disabled="!hasInteractiveDocument || !canSaveAs || isAnySaving || isHistoryBusy || isDjvuMode"
+                        :save-disabled="isSaveCommandDisabled"
+                        :save-as-disabled="isSaveAsCommandDisabled"
                         :is-saving="isSaving"
                         :is-saving-as="isSavingAs"
                         @save="handleToolbarCommand('save')"
@@ -74,7 +74,7 @@
             </div>
 
             <div
-                v-if="(isCommandInline('undo') || isCommandInline('redo'))"
+                v-if="showHistoryCluster"
                 data-collapse-at="4"
                 class="toolbar-cluster"
             >
@@ -84,7 +84,7 @@
                         :icon="getReaderCommandToolbarIcon('undo')"
                         :tooltip="t('toolbar.undo')"
                         :shortcut="shortcutLabels.undo"
-                        :disabled="!hasInteractiveDocument || !canUndo || isHistoryBusy || isAnySaving || isDjvuMode"
+                        :disabled="isUndoCommandDisabled"
                         @click="handleToolbarCommand('undo')"
                     />
                 </div>
@@ -94,7 +94,7 @@
                         :icon="getReaderCommandToolbarIcon('redo')"
                         :tooltip="t('toolbar.redo')"
                         :shortcut="shortcutLabels.redo"
-                        :disabled="!hasInteractiveDocument || !canRedo || isHistoryBusy || isAnySaving || isDjvuMode"
+                        :disabled="isRedoCommandDisabled"
                         @click="handleToolbarCommand('redo')"
                     />
                 </div>
@@ -159,7 +159,7 @@
                         :icon="getReaderCommandToolbarIcon('quick-note')"
                         :active="isPlacingPageNote"
                         :tooltip="isPlacingPageNote ? t('annotations.placeHint') : t('annotations.stickyDescription')"
-                        :disabled="!hasInteractiveDocument || isDjvuMode"
+                        :disabled="isPdfOnlyCommandDisabled"
                         grouped
                         @click="handleToolbarCommand('quick-note')"
                     />
@@ -189,7 +189,7 @@
 
         <div class="toolbar-section toolbar-right">
             <div
-                v-if="(isCommandInline('capture-region') || isCommandInline('crop'))"
+                v-if="showRegionToolsCluster"
                 data-collapse-at="3"
                 class="toolbar-cluster"
             >
@@ -199,7 +199,7 @@
                         :icon="getReaderCommandToolbarIcon('capture-region')"
                         :active="isCapturingRegion"
                         :tooltip="t('toolbar.captureRegion')"
-                        :disabled="!hasInteractiveDocument || isDjvuMode"
+                        :disabled="isPdfOnlyCommandDisabled"
                         @click="handleToolbarCommand('capture-region')"
                     />
                 </div>
@@ -209,14 +209,14 @@
                         :icon="getReaderCommandToolbarIcon('crop')"
                         :active="isCropSelecting"
                         :tooltip="t('toolbar.crop')"
-                        :disabled="!hasInteractiveDocument || isDjvuMode"
+                        :disabled="isPdfOnlyCommandDisabled"
                         @click="handleToolbarCommand('crop')"
                     />
                 </div>
             </div>
 
             <div
-                v-if="(isCommandInline('scan-cleanup') || isCommandInline('ocr') || isCommandInline('export-docx'))"
+                v-if="showDocumentToolsCluster"
                 data-collapse-at="1"
                 class="toolbar-cluster"
             >
@@ -239,7 +239,7 @@
                         :icon="isExportingDocx ? 'ph:stop' : getReaderCommandToolbarIcon('export-docx')"
                         :tooltip="isExportingDocx ? t('ocr.cancel') : t('toolbar.exportDocx')"
                         :shortcut="shortcutLabels.exportDocx"
-                        :disabled="!isExportingDocx && (!hasInteractiveDocument || !canExportDocx || isAnySaving || isHistoryBusy)"
+                        :disabled="isExportDocxCommandDisabled"
                         @click="handleToolbarCommand('export-docx')"
                     />
                 </div>
@@ -295,11 +295,17 @@ const {
     isFullscreen = false,
     fullscreenSupported = true,
     canPrint = true,
+    canSave,
     canSaveAs = true,
+    canUndo,
+    canRedo,
+    canExportDocx,
     canToggleContinuousScroll = true,
     isAnySaving,
     isHistoryBusy,
+    isExportingDocx,
     isPreparingPrint = false,
+    isDjvuMode = false,
 } = defineProps<{
     hasPdf: boolean;
     documentBusy?: boolean;
@@ -380,6 +386,16 @@ const { t } = useTypedI18n();
 
 const shortcutLabels = useShortcutLabels();
 const hasInteractiveDocument = computed(() => hasPdf && !documentBusy && !isOpeningDocument);
+const isDocumentWorkDisabled = computed(() => !hasInteractiveDocument.value || isAnySaving || isHistoryBusy);
+const isPdfOnlyCommandDisabled = computed(() => !hasInteractiveDocument.value || isDjvuMode);
+const isPdfMutationDisabled = computed(() => isDocumentWorkDisabled.value || isDjvuMode);
+const isSaveCommandDisabled = computed(() => isPdfMutationDisabled.value || !canSave);
+const isSaveAsCommandDisabled = computed(() => isPdfMutationDisabled.value || !canSaveAs);
+const isUndoCommandDisabled = computed(() => isPdfMutationDisabled.value || !canUndo);
+const isRedoCommandDisabled = computed(() => isPdfMutationDisabled.value || !canRedo);
+const isExportDocxCommandDisabled = computed(() => (
+    !isExportingDocx && (isDocumentWorkDisabled.value || !canExportDocx)
+));
 const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
     hasInteractiveDocument: hasInteractiveDocument.value,
     canPrint,
@@ -387,6 +403,18 @@ const isPrintCommandDisabled = computed(() => isReaderPrintCommandDisabled({
     isAnySaving,
     isHistoryBusy,
 }));
+const showFileActionsCluster = computed(() => (
+    isCommandInline('save') || isCommandInline('print') || isCommandInline('print-current-page')
+));
+const showHistoryCluster = computed(() => (
+    isCommandInline('undo') || isCommandInline('redo')
+));
+const showRegionToolsCluster = computed(() => (
+    isCommandInline('capture-region') || isCommandInline('crop')
+));
+const showDocumentToolsCluster = computed(() => (
+    isCommandInline('scan-cleanup') || isCommandInline('ocr') || isCommandInline('export-docx')
+));
 // The toolbar's container queries decide which groups it shows, so the
 // prerendered page already has the final layout. The window's More tools
 // lists what they hid; it reads the tier those queries set on the probe.

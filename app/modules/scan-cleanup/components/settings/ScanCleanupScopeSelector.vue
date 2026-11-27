@@ -17,7 +17,7 @@
             :aria-checked="modelValue === item.value"
             :aria-label="item.label"
             role="radio"
-            @click="$emit('update:model-value', item.value)"
+            @click="emit('update:model-value', item.value)"
         >
             <span class="scan-cleanup-scope-label">{{ item.label }}</span>
             <span
@@ -41,7 +41,7 @@ const props = defineProps<{
     pageNumber: number;
     selectedCount: number;
 }>();
-defineEmits<{'update:model-value': [value: TScanCleanupSettingsScope]}>();
+const emit = defineEmits<{'update:model-value': [value: TScanCleanupSettingsScope]}>();
 const {t} = useTypedI18n();
 
 const scopeItems = computed(() => [

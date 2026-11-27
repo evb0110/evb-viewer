@@ -20,7 +20,7 @@
         >
             <polygon
                 v-for="zone in renderedZones"
-                :key="`${zone.selection.kind}-${zone.selection.index}`"
+                :key="zone.id"
                 class="zone-editor-polygon"
                 :class="[
                     `is-${zone.selection.kind}`,
@@ -124,8 +124,14 @@ interface IResizingZoneDrag {
 }
 
 interface IRenderedZone {
+    id: string;
     polygon: IScanCleanupNormalizedZonePolygon;
     selection: IScanCleanupZoneSelection;
+}
+
+interface ITrackedZone {
+    id: string;
+    signature: string;
 }
 
 type TZoneDrag = IDrawingZoneDrag | IMovingZoneDrag | IResizingZoneDrag;
@@ -161,8 +167,96 @@ const zones = computed<IScanCleanupManualZones>(() => props.manualZones ?? {
     picture: [],
     fill: [],
 });
+
+let nextZoneKeyId = 0;
+let previousTrackedZones: Record<TScanCleanupZoneKind, ITrackedZone[]> = {
+    picture: [],
+    fill: [],
+};
+let pendingDeletedZone: IScanCleanupZoneSelection | null = null;
+
+function createZoneId(kind: TScanCleanupZoneKind) {
+    nextZoneKeyId += 1;
+    return `${kind}-${nextZoneKeyId}`;
+}
+
+function zonePolygonSignature(polygon: IScanCleanupNormalizedZonePolygon) {
+    return `${polygon.rotationDegrees}:${polygon.points.map(point => `${point.xNormalized},${point.yNormalized}`).join(';')}`;
+}
+
+function reconcileTrackedZones(
+    kind: TScanCleanupZoneKind,
+    signatures: readonly string[],
+    previous: readonly ITrackedZone[],
+    pendingDeletedIndex: number | null,
+): ITrackedZone[] {
+    if (
+        pendingDeletedIndex !== null
+        && pendingDeletedIndex >= 0
+        && pendingDeletedIndex < previous.length
+        && signatures.length === previous.length - 1
+    ) {
+        const remaining = previous.filter((_, index) => index !== pendingDeletedIndex);
+        return signatures.map((signature, index) => ({
+            id: remaining[index]?.id ?? createZoneId(kind),
+            signature,
+        }));
+    }
+    if (signatures.length === previous.length) {
+        return signatures.map((signature, index) => ({
+            id: previous[index]?.id ?? createZoneId(kind),
+            signature,
+        }));
+    }
+    const used = new Set<number>();
+    return signatures.map((signature) => {
+        const matchIndex = previous.findIndex(
+            (entry, index) => !used.has(index) && entry.signature === signature,
+        );
+        if (matchIndex >= 0) {
+            used.add(matchIndex);
+            return {
+                id: previous[matchIndex]!.id,
+                signature,
+            };
+        }
+        return {
+            id: createZoneId(kind),
+            signature,
+        };
+    });
+}
+
+const zoneIdsByKind = computed<Record<TScanCleanupZoneKind, string[]>>(() => {
+    const deletion = pendingDeletedZone;
+    pendingDeletedZone = null;
+    const nextPicture = reconcileTrackedZones(
+        'picture',
+        zones.value.picture.map(zone => `${zone.layer}:${zonePolygonSignature(zone.polygon)}`),
+        previousTrackedZones.picture,
+        deletion?.kind === 'picture' ? deletion.index : null,
+    );
+    const nextFill = reconcileTrackedZones(
+        'fill',
+        zones.value.fill.map(zonePolygonSignature),
+        previousTrackedZones.fill,
+        deletion?.kind === 'fill' ? deletion.index : null,
+    );
+    previousTrackedZones = {
+        picture: nextPicture,
+        fill: nextFill,
+    };
+    return {
+        picture: nextPicture.map(entry => entry.id),
+        fill: nextFill.map(entry => entry.id),
+    };
+});
+
 const renderedZones = computed<IRenderedZone[]>(() => {
+    const pictureIds = zoneIdsByKind.value.picture;
+    const fillIds = zoneIdsByKind.value.fill;
     const picture = zones.value.picture.map((zone, index): IRenderedZone => ({
+        id: pictureIds[index] ?? `picture-${index}`,
         polygon: draftPolygon({
             kind: 'picture',
             index,
@@ -173,6 +267,7 @@ const renderedZones = computed<IRenderedZone[]>(() => {
         },
     }));
     const fill = zones.value.fill.map((polygon, index): IRenderedZone => ({
+        id: fillIds[index] ?? `fill-${index}`,
         polygon: draftPolygon({
             kind: 'fill',
             index,
@@ -402,6 +497,7 @@ function resizeByKey(event: KeyboardEvent, corner: TScanCleanupZoneCorner) {
     }
     const next = cloneZones();
     replaceZone(next, props.selected, resized);
+    pendingDeletedZone = null;
     emit('update:manualZones', next);
 }
 
@@ -435,6 +531,7 @@ function finishDrag(event: PointerEvent) {
             } else {
                 next.fill.push(polygon);
             }
+            pendingDeletedZone = null;
             emit('update:manualZones', next);
             emit('update:selected', selection);
         }
@@ -445,6 +542,7 @@ function finishDrag(event: PointerEvent) {
         if (!samePolygon(current.original, current.polygon)) {
             const next = cloneZones();
             replaceZone(next, current.selection, current.polygon);
+            pendingDeletedZone = null;
             emit('update:manualZones', next);
         }
     }
@@ -475,6 +573,7 @@ function deleteSelectedZone() {
     } else {
         next.fill.splice(props.selected.index, 1);
     }
+    pendingDeletedZone = { ...props.selected };
     emit('update:manualZones', next);
     emit('update:selected', null);
 }
@@ -490,15 +589,24 @@ function handleStyle(corner: TScanCleanupZoneCorner): CSSProperties {
     };
 }
 
-watch(() => props.rotationDegrees, () => {
-    cancelDrag();
-    emit('update:selected', null);
-});
-watch(() => props.disabled, disabled => {
-    if (disabled) {
-        cancelDrag();
-    }
-});
+watch(
+    [
+        () => props.rotationDegrees,
+        () => props.disabled,
+    ],
+    ([
+        rotationDegrees,
+        disabled,
+    ], [previousRotationDegrees]) => {
+        const rotationChanged = rotationDegrees !== previousRotationDegrees;
+        if (rotationChanged || disabled) {
+            cancelDrag();
+        }
+        if (rotationChanged) {
+            emit('update:selected', null);
+        }
+    },
+);
 </script>
 
 <style scoped>
