@@ -1681,3 +1681,515 @@ describe('#1761 workspace checkpoint reload race and ghost-tab prevention', () =
         });
     });
 });
+
+describe('workspace checkpoint owner lifecycle', () => {
+    function createLifecycleWebContents(id: number) {
+        let destroyed = false;
+        const emitter = new EventEmitter();
+        return Object.assign(emitter, {
+            id,
+            isDestroyed: () => destroyed,
+            destroy: () => {
+                destroyed = true;
+                emitter.emit('destroyed');
+            },
+        });
+    }
+
+    function makeCheckpoint(options: {
+        fileName: string;
+        sourceRef: string | null;
+        workingCopyRef?: string | null;
+        isDirty?: boolean;
+        capturedAt?: number;
+    }): IWorkspaceCheckpoint {
+        const paneId = requirePaneId('pane-1');
+        const tabId = requireTabId('tab-1');
+        return {
+            version: 1,
+            capturedAt: requireEpochMs(options.capturedAt ?? Date.now()),
+            activePaneId: paneId,
+            activeTabId: tabId,
+            layout: {type: 'leaf', paneId},
+            panes: [{paneId, tabIds: [tabId], activeTabId: tabId}],
+            tabs: [{
+                tabId,
+                paneId,
+                fileName: options.fileName,
+                sourceRef: options.sourceRef as never,
+                workingCopyRef: (options.workingCopyRef ?? null) as never,
+                isDirty: options.isDirty ?? false,
+                isDjvu: false,
+                currentPage: 1,
+                zoom: 1,
+                zoomMode: 'fit-width',
+            }],
+        };
+    }
+
+    it('clears owner state on destroyed so another window can recover and stale acknowledgements reject', async () => {
+        const pdf = await writeTemp('owner-destroyed.pdf', ORIGINAL);
+        const ownerA = createLifecycleWebContents(200101);
+        const ownerB = createLifecycleWebContents(200102);
+        expect(allowOpenPath(pdf, ownerA as never)).toBeTruthy();
+
+        expect(await checkpoints.saveWorkspaceCheckpoint(makeCheckpoint({fileName: 'owner-destroyed.pdf', sourceRef: pdf}), ownerA.id, ownerA as never)).toBe(true);
+        ownerA.emit('did-start-navigation', {}, 'http://localhost/', false, true);
+        expect(await checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never)).not.toBeNull();
+
+        expect(await checkpoints.hasRecoverableWorkspaceCheckpoints(ownerB.id, ownerB as never)).toBe(false);
+        expect(await checkpoints.claimWorkspaceCheckpoint(ownerB.id, ownerB as never)).toBeNull();
+
+        ownerA.destroy();
+
+        await expect(checkpoints.acknowledgeWorkspaceCheckpoint(ownerA.id, ownerA as never)).rejects.toThrow('not owned by this renderer');
+        expect(await checkpoints.hasRecoverableWorkspaceCheckpoints(ownerB.id, ownerB as never)).toBe(true);
+        const claimed = await checkpoints.claimWorkspaceCheckpoint(ownerB.id, ownerB as never);
+        expect(claimed?.tabs[0]).toMatchObject({fileName: 'owner-destroyed.pdf', sourceRef: pdf});
+        ownerB.destroy();
+    });
+
+    it('fences queued saves and concurrent claims when a closing window discards before destroyed, and rolls back if removal fails', async () => {
+        const pdf = await writeTemp('close-fence.pdf', ORIGINAL);
+        const ownerA = createLifecycleWebContents(200201);
+        const ownerB = createLifecycleWebContents(200202);
+        expect(allowOpenPath(pdf, ownerA as never)).toBeTruthy();
+        const cp = makeCheckpoint({fileName: 'close-fence.pdf', sourceRef: pdf});
+        expect(await checkpoints.saveWorkspaceCheckpoint(cp, ownerA.id, ownerA as never)).toBe(true);
+
+        const docStore = store.getDocumentStore();
+        const {port} = docStore;
+        const firstWriteStarted = gate();
+        const releaseFirstWrite = gate();
+        let blocked = false;
+        docStore.port = {
+            ...port,
+            writeAtomic: async (path, bytes) => {
+                if (!blocked && path.startsWith('workspaces/')) {
+                    blocked = true;
+                    firstWriteStarted.resolve();
+                    await releaseFirstWrite.promise;
+                }
+                return port.writeAtomic(path, bytes);
+            },
+        };
+        let inFlightSave: Promise<boolean> | undefined;
+        let queuedSave: Promise<boolean> | undefined;
+        let discardPromise: Promise<string> | undefined;
+        let claimPromise: Promise<IWorkspaceCheckpoint | null> | undefined;
+        try {
+            inFlightSave = checkpoints.saveWorkspaceCheckpoint(cp, ownerA.id, ownerA as never);
+            await firstWriteStarted.promise;
+            queuedSave = checkpoints.saveWorkspaceCheckpoint(cp, ownerA.id, ownerA as never);
+            discardPromise = checkpoints.discardWorkspaceCheckpoint(ownerA.id, ownerA as never);
+            ownerA.destroy();
+            claimPromise = checkpoints.claimWorkspaceCheckpoint(ownerB.id, ownerB as never);
+            releaseFirstWrite.resolve();
+
+            expect(await inFlightSave).toBe(true);
+            expect(await queuedSave).toBe(false);
+            expect(await discardPromise).toBeTruthy();
+            expect(await claimPromise).toBeNull();
+            expect(await port.list('workspaces')).toEqual([]);
+        } finally {
+            releaseFirstWrite.resolve();
+            await Promise.allSettled([inFlightSave, queuedSave, discardPromise, claimPromise]);
+            docStore.port = port;
+        }
+
+        // If checkpoint removal fails on close, rollback keeps recovery evidence claimable by another window.
+        const ownerA2 = createLifecycleWebContents(200203);
+        const ownerC = createLifecycleWebContents(200204);
+        expect(allowOpenPath(pdf, ownerA2 as never)).toBeTruthy();
+        expect(await checkpoints.saveWorkspaceCheckpoint(cp, ownerA2.id, ownerA2 as never)).toBe(true);
+        docStore.port = {
+            ...port,
+            remove: target => (target.startsWith('workspaces/') ? Promise.reject(new Error('EACCES injected remove')) : port.remove(target)),
+        };
+        try {
+            const failedDiscard = checkpoints.discardWorkspaceCheckpoint(ownerA2.id, ownerA2 as never);
+            ownerA2.destroy();
+            await expect(failedDiscard).rejects.toThrow('EACCES injected remove');
+        } finally {
+            docStore.port = port;
+        }
+        const recovered = await checkpoints.claimWorkspaceCheckpoint(ownerC.id, ownerC as never);
+        expect(recovered?.tabs[0]).toMatchObject({fileName: 'close-fence.pdf', sourceRef: pdf});
+        ownerB.destroy();
+        ownerC.destroy();
+    });
+
+    it('handles restore-in-flight vs discard races and closes clean shown tabs only when not discarded', async () => {
+        const pdf = await writeTemp('restore-race.pdf', ORIGINAL);
+        const ownerA = createLifecycleWebContents(200301);
+        expect(allowOpenPath(pdf, ownerA as never)).toBeTruthy();
+        const cp = makeCheckpoint({fileName: 'restore-race.pdf', sourceRef: pdf});
+
+        // 1. render-process-gone during restoring (without discard) blanks the clean shown tab and records notReopened.
+        expect(await checkpoints.saveWorkspaceCheckpoint(cp, ownerA.id, ownerA as never)).toBe(true);
+        ownerA.emit('did-start-navigation', {}, 'http://localhost/', false, true);
+        expect(await checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never)).not.toBeNull();
+        ownerA.emit('render-process-gone');
+        const reclaimed = await checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never);
+        expect(reclaimed?.tabs[0]).toMatchObject({fileName: null, sourceRef: null});
+        expect(reclaimed?.notReopened).toEqual([{fileName: 'restore-race.pdf', sourceRef: pdf}]);
+        expect(await checkpoints.acknowledgeWorkspaceCheckpoint(ownerA.id, ownerA as never)).toBe(true);
+
+        // 2. discard before render-process-gone suppresses closeRestoreDocuments and keeps the checkpoint removed.
+        expect(allowOpenPath(pdf, ownerA as never)).toBeTruthy();
+        expect(await checkpoints.saveWorkspaceCheckpoint(cp, ownerA.id, ownerA as never)).toBe(true);
+        ownerA.emit('did-start-navigation', {}, 'http://localhost/', false, true);
+        expect(await checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never)).not.toBeNull();
+        const token = await checkpoints.discardWorkspaceCheckpoint(ownerA.id, ownerA as never);
+        ownerA.emit('render-process-gone');
+        await checkpoints.flushPendingWorkspaceCheckpointSave();
+        expect(await store.getDocumentStore().port.list('workspaces')).toEqual([]);
+        checkpoints.resumeWorkspaceCheckpoint(ownerA.id, token, ownerA as never);
+
+        // 3. render-process-gone queued behind slow work, then discard before closeRestoreDocuments executes.
+        expect(allowOpenPath(pdf, ownerA as never)).toBeTruthy();
+        expect(await checkpoints.saveWorkspaceCheckpoint(cp, ownerA.id, ownerA as never)).toBe(true);
+        ownerA.emit('did-start-navigation', {}, 'http://localhost/', false, true);
+        expect(await checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never)).not.toBeNull();
+        const docStore = store.getDocumentStore();
+        const {port} = docStore;
+        const writeStarted = gate();
+        const releaseWrite = gate();
+        let blocked = false;
+        docStore.port = {
+            ...port,
+            writeAtomic: async (path, bytes) => {
+                if (!blocked && path.startsWith('workspaces/')) {
+                    blocked = true;
+                    writeStarted.resolve();
+                    await releaseWrite.promise;
+                }
+                return port.writeAtomic(path, bytes);
+            },
+        };
+        let blocker: Promise<boolean> | undefined;
+        let discardPromise: Promise<string> | undefined;
+        try {
+            blocker = checkpoints.saveWorkspaceCheckpoint(cp, ownerA.id, ownerA as never);
+            await writeStarted.promise;
+            ownerA.emit('render-process-gone');
+            discardPromise = checkpoints.discardWorkspaceCheckpoint(ownerA.id, ownerA as never);
+            releaseWrite.resolve();
+            await blocker;
+            await discardPromise;
+            await checkpoints.flushPendingWorkspaceCheckpointSave();
+            expect(await port.list('workspaces')).toEqual([]);
+        } finally {
+            releaseWrite.resolve();
+            await Promise.allSettled([blocker, discardPromise]);
+            docStore.port = port;
+        }
+        ownerA.destroy();
+    });
+
+    it.each(['reopen', 'source-remove'] as const)('aborts a mid-flight claim during %s when the claimant discards and preserves another window\'s dirty checkpoint', async (pauseStage) => {
+        const ownerB = createLifecycleWebContents(pauseStage === 'reopen' ? 200401 : 200411);
+        const ownerA = createLifecycleWebContents(pauseStage === 'reopen' ? 200402 : 200412);
+        const ownerC = createLifecycleWebContents(pauseStage === 'reopen' ? 200403 : 200413);
+        const {pdf, entry} = await openPdf(ownerB.id);
+        await store.commitDocumentMutation(entry, '1' as never, {kind: 'rewrite', source: await writeTemp(`dirty-mid-claim-${pauseStage}.pdf`, EDITED)}, 'write');
+        const cp = makeCheckpoint({
+            fileName: 'report.pdf',
+            sourceRef: pdf,
+            workingCopyRef: entry.ref,
+            isDirty: true,
+        });
+        expect(await checkpoints.saveWorkspaceCheckpoint(cp, ownerB.id, ownerB as never)).toBe(true);
+        ownerB.destroy();
+        await restart();
+
+        const docStore = store.getDocumentStore();
+        const {port} = docStore;
+        const pausedAtStage = gate();
+        const releaseStage = gate();
+        const manifestPath = `documents/${entry.doc.id}/manifest.json`;
+        let pausedOnce = false;
+        let reads = 0;
+        docStore.port = pauseStage === 'reopen'
+            ? {
+                ...port,
+                read: async (path) => {
+                    if (path === manifestPath) {
+                        reads += 1;
+                        // First read is holdsUnsavedWork; pause on reopenStoredDocument's read.
+                        if (!pausedOnce && reads >= 2) {
+                            pausedOnce = true;
+                            pausedAtStage.resolve();
+                            await releaseStage.promise;
+                        }
+                    }
+                    return port.read(path);
+                },
+            }
+            : {
+                ...port,
+                remove: async (target) => {
+                    if (!pausedOnce && target.startsWith('workspaces/')) {
+                        pausedOnce = true;
+                        pausedAtStage.resolve();
+                        await releaseStage.promise;
+                    }
+                    return port.remove(target);
+                },
+            };
+        let claimA: Promise<IWorkspaceCheckpoint | null> | undefined;
+        let discardA: Promise<string> | undefined;
+        try {
+            claimA = checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never);
+            await pausedAtStage.promise;
+            discardA = checkpoints.discardWorkspaceCheckpoint(ownerA.id, ownerA as never);
+            ownerA.destroy();
+            releaseStage.resolve();
+
+            expect(await claimA).toBeNull();
+            await discardA;
+            // Neither working copy nor bytes should be left owned by the closing window A.
+            expect(store.getWorkingCopyBackingEntry(entry.ref, ownerA.id)).toBeNull();
+            expect(await store.cleanupWorkingCopy(entry.ref, ownerA.id)).toBe(false);
+        } finally {
+            releaseStage.resolve();
+            await Promise.allSettled([claimA, discardA]);
+            docStore.port = port;
+        }
+
+        const recovered = await checkpoints.claimWorkspaceCheckpoint(ownerC.id, ownerC as never);
+        expect(recovered?.tabs[0]).toMatchObject({workingCopyRef: entry.ref, sourceRef: pdf, isDirty: true});
+        expect(await readAll(store.requireOpenDocument(entry.ref, ownerC.id))).toEqual(EDITED);
+        ownerC.destroy();
+    });
+
+    it('enforces single-claim per load, reload re-claim, mid-claim reload, and discard/resume token validation', async () => {
+        const pdf = await writeTemp('reclaim-lifecycle.pdf', ORIGINAL);
+        const ownerA = createLifecycleWebContents(200501);
+        expect(allowOpenPath(pdf, ownerA as never)).toBeTruthy();
+        const cp = makeCheckpoint({fileName: 'reclaim-lifecycle.pdf', sourceRef: pdf});
+
+        expect(await checkpoints.saveWorkspaceCheckpoint(cp, ownerA.id, ownerA as never)).toBe(true);
+        ownerA.emit('did-start-navigation', {}, 'http://localhost/', false, true);
+        expect(await checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never)).not.toBeNull();
+        // Already claimed in current load.
+        expect(await checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never)).toBeNull();
+        expect(await checkpoints.acknowledgeWorkspaceCheckpoint(ownerA.id, ownerA as never)).toBe(true);
+        // Clean checkpoint was removed on acknowledge; second acknowledge in the same load stays valid and returns false.
+        expect(await checkpoints.acknowledgeWorkspaceCheckpoint(ownerA.id, ownerA as never)).toBe(false);
+
+        // Reload resets claim state so stale acknowledge rejects and a saved checkpoint can be re-claimed.
+        expect(allowOpenPath(pdf, ownerA as never)).toBeTruthy();
+        expect(await checkpoints.saveWorkspaceCheckpoint(cp, ownerA.id, ownerA as never)).toBe(true);
+        ownerA.emit('did-start-navigation', {}, 'http://localhost/', false, true);
+        await expect(checkpoints.acknowledgeWorkspaceCheckpoint(ownerA.id, ownerA as never)).rejects.toThrow('not owned by this renderer');
+        expect(await checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never)).not.toBeNull();
+
+        // Discard token supersedes earlier tokens and resumes cleanly.
+        const token1 = await checkpoints.discardWorkspaceCheckpoint(ownerA.id, ownerA as never);
+        const token2 = await checkpoints.discardWorkspaceCheckpoint(ownerA.id, ownerA as never);
+        expect(() => checkpoints.resumeWorkspaceCheckpoint(ownerA.id, token1, ownerA as never)).toThrow('stale or invalid');
+        checkpoints.resumeWorkspaceCheckpoint(ownerA.id, token2, ownerA as never);
+        expect(() => checkpoints.resumeWorkspaceCheckpoint(ownerA.id, token2, ownerA as never)).toThrow('stale or invalid');
+
+        // A main-frame navigation arriving while claimWorkspaceCheckpoint is reading or writing does not block the reloaded page from re-claiming.
+        for (const pauseOn of ['read', 'write'] as const) {
+            expect(allowOpenPath(pdf, ownerA as never)).toBeTruthy();
+            expect(await checkpoints.saveWorkspaceCheckpoint(cp, ownerA.id, ownerA as never)).toBe(true);
+            ownerA.emit('did-start-navigation', {}, 'http://localhost/', false, true);
+            const docStore = store.getDocumentStore();
+            const {port} = docStore;
+            const reached = gate();
+            const release = gate();
+            let paused = false;
+            docStore.port = pauseOn === 'read'
+                ? {
+                    ...port,
+                    list: async (path) => {
+                        if (!paused && path === 'workspaces') {
+                            paused = true;
+                            reached.resolve();
+                            await release.promise;
+                        }
+                        return port.list(path);
+                    },
+                }
+                : {
+                    ...port,
+                    writeAtomic: async (path, bytes) => {
+                        if (!paused && path.startsWith('workspaces/')) {
+                            paused = true;
+                            reached.resolve();
+                            await release.promise;
+                        }
+                        return port.writeAtomic(path, bytes);
+                    },
+                };
+            let firstClaim: Promise<IWorkspaceCheckpoint | null> | undefined;
+            try {
+                firstClaim = checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never);
+                await reached.promise;
+                ownerA.emit('did-start-navigation', {}, 'http://localhost/', false, true);
+                release.resolve();
+                expect(await firstClaim).not.toBeNull();
+            } finally {
+                release.resolve();
+                await Promise.allSettled([firstClaim]);
+                docStore.port = port;
+            }
+            expect(await checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never)).not.toBeNull();
+            expect(await checkpoints.acknowledgeWorkspaceCheckpoint(ownerA.id, ownerA as never)).toBe(true);
+        }
+        ownerA.destroy();
+    });
+
+    it('restores a claimant\'s prior checkpoint on source-removal failure, rolls back failed mid-read discard to live, and releases working copies on tab-claim error', async () => {
+        // 1. Live window claiming a newer orphan restores its own prior checkpoint when removing the orphan fails.
+        const ownPdf = await writeTemp('own-layout.pdf', ORIGINAL);
+        const orphanPdf = await writeTemp('orphan-layout.pdf', EDITED);
+        const ownerA = createLifecycleWebContents(200601);
+        const ownerB = createLifecycleWebContents(200602);
+        expect(allowOpenPath(ownPdf, ownerA as never)).toBeTruthy();
+        expect(allowOpenPath(orphanPdf, ownerB as never)).toBeTruthy();
+        const now = Date.now();
+        expect(await checkpoints.saveWorkspaceCheckpoint(makeCheckpoint({fileName: 'own-layout.pdf', sourceRef: ownPdf, capturedAt: now}), ownerA.id, ownerA as never)).toBe(true);
+        expect(await checkpoints.saveWorkspaceCheckpoint(makeCheckpoint({fileName: 'orphan-layout.pdf', sourceRef: orphanPdf, capturedAt: now + 100}), ownerB.id, ownerB as never)).toBe(true);
+        ownerB.destroy();
+
+        const docStore = store.getDocumentStore();
+        const {port} = docStore;
+        const removeSpy = vi.spyOn(port, 'remove').mockRejectedValueOnce(new Error('EACCES remove orphan'));
+        await expect(checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never)).rejects.toThrow('EACCES remove orphan');
+        removeSpy.mockRestore();
+
+        // Both the orphan and ownerA's prior layout survive intact.
+        const ownerC = createLifecycleWebContents(200603);
+        const claimedOrphan = await checkpoints.claimWorkspaceCheckpoint(ownerC.id, ownerC as never);
+        expect(claimedOrphan?.tabs[0]).toMatchObject({fileName: 'orphan-layout.pdf', sourceRef: orphanPdf});
+        ownerA.emit('did-start-navigation', {}, 'http://localhost/', false, true);
+        const claimedOwn = await checkpoints.claimWorkspaceCheckpoint(ownerA.id, ownerA as never);
+        expect(claimedOwn?.tabs[0]).toMatchObject({fileName: 'own-layout.pdf', sourceRef: ownPdf});
+        expect(await checkpoints.acknowledgeWorkspaceCheckpoint(ownerA.id, ownerA as never)).toBe(true);
+        expect(await checkpoints.acknowledgeWorkspaceCheckpoint(ownerC.id, ownerC as never)).toBe(true);
+        ownerA.destroy();
+        ownerC.destroy();
+
+        // 2. A discard that starts while an initial claim is paused on read and then fails rolls back to live (not claimed).
+        const ownerD = createLifecycleWebContents(200604);
+        expect(allowOpenPath(ownPdf, ownerD as never)).toBeTruthy();
+        expect(await checkpoints.saveWorkspaceCheckpoint(makeCheckpoint({fileName: 'own-layout.pdf', sourceRef: ownPdf}), ownerD.id, ownerD as never)).toBe(true);
+        ownerD.emit('did-start-navigation', {}, 'http://localhost/', false, true);
+        const listReached = gate();
+        const releaseList = gate();
+        let paused = false;
+        docStore.port = {
+            ...port,
+            list: async (path) => {
+                if (!paused && path === 'workspaces') {
+                    paused = true;
+                    listReached.resolve();
+                    await releaseList.promise;
+                }
+                return port.list(path);
+            },
+            remove: target => (target.startsWith('workspaces/') ? Promise.reject(new Error('EACCES discard')) : port.remove(target)),
+        };
+        let pausedClaim: Promise<IWorkspaceCheckpoint | null> | undefined;
+        let failedDiscard: Promise<string> | undefined;
+        try {
+            pausedClaim = checkpoints.claimWorkspaceCheckpoint(ownerD.id, ownerD as never);
+            await listReached.promise;
+            failedDiscard = checkpoints.discardWorkspaceCheckpoint(ownerD.id, ownerD as never);
+            releaseList.resolve();
+            expect(await pausedClaim).toBeNull();
+            await expect(failedDiscard).rejects.toThrow('EACCES discard');
+        } finally {
+            releaseList.resolve();
+            await Promise.allSettled([pausedClaim, failedDiscard]);
+            docStore.port = port;
+        }
+        await expect(checkpoints.acknowledgeWorkspaceCheckpoint(ownerD.id, ownerD as never)).rejects.toThrow('not owned by this renderer');
+        const retried = await checkpoints.claimWorkspaceCheckpoint(ownerD.id, ownerD as never);
+        expect(retried?.tabs[0]).toMatchObject({fileName: 'own-layout.pdf', sourceRef: ownPdf});
+        expect(await checkpoints.acknowledgeWorkspaceCheckpoint(ownerD.id, ownerD as never)).toBe(true);
+        ownerD.destroy();
+
+        // 3. A multi-tab claim error waits for slower sibling reopens before rolling back all working copies.
+        const ownerE = createLifecycleWebContents(200605);
+        const ownerF = createLifecycleWebContents(200606);
+        const ownerG = createLifecycleWebContents(200607);
+        const {pdf: dirtyPdf1, entry: dirtyEntry1} = await openPdf(ownerE.id);
+        const dirtyPdf2 = await writeTemp('second-dirty.pdf', ORIGINAL);
+        const dirtyEntry2 = await store.openDocumentFromFile(dirtyPdf2, {ownerWebContentsId: ownerE.id});
+        await store.commitDocumentMutation(dirtyEntry1, '1' as never, {kind: 'rewrite', source: await writeTemp('tab-error-1.pdf', EDITED)}, 'write');
+        await store.commitDocumentMutation(dirtyEntry2, '1' as never, {kind: 'rewrite', source: await writeTemp('tab-error-2.pdf', EDITED)}, 'write');
+        const paneId = requirePaneId('pane-1');
+        const tab1Id = requireTabId('tab-1');
+        const tab2Id = requireTabId('tab-2');
+        expect(await checkpoints.saveWorkspaceCheckpoint({
+            version: 1,
+            capturedAt: requireEpochMs(Date.now()),
+            activePaneId: paneId,
+            activeTabId: tab1Id,
+            layout: {type: 'leaf', paneId},
+            panes: [{paneId, tabIds: [tab1Id, tab2Id], activeTabId: tab1Id}],
+            tabs: [
+                {
+                    tabId: tab1Id, paneId, fileName: 'report.pdf', sourceRef: dirtyPdf1 as never,
+                    workingCopyRef: dirtyEntry1.ref as never, isDirty: true, isDjvu: false, currentPage: 1, zoom: 1, zoomMode: 'fit-width',
+                },
+                {
+                    tabId: tab2Id, paneId, fileName: 'second-dirty.pdf', sourceRef: dirtyPdf2 as never,
+                    workingCopyRef: dirtyEntry2.ref as never, isDirty: true, isDjvu: false, currentPage: 1, zoom: 1, zoomMode: 'fit-width',
+                },
+            ],
+        }, ownerE.id, ownerE as never)).toBe(true);
+        ownerE.destroy();
+        await restart();
+        await store.collectStaleDocuments();
+
+        const reopenStore = store.getDocumentStore();
+        const realPort = reopenStore.port;
+        const slowManifest = `documents/${dirtyEntry2.doc.id}/manifest.json`;
+        const slowReached = gate();
+        const releaseSlow = gate();
+        let slowReads = 0;
+        reopenStore.port = {
+            ...realPort,
+            read: async (path) => {
+                if (path === slowManifest && ++slowReads === 2) {
+                    slowReached.resolve();
+                    await releaseSlow.promise;
+                }
+                return realPort.read(path);
+            },
+        };
+        const noticesModule = await import('@electron/file-access/keptOriginalNotices');
+        const noticeSpy = vi.spyOn(noticesModule, 'findKeptOriginal').mockImplementationOnce(async () => {
+            await slowReached.promise;
+            setTimeout(() => releaseSlow.resolve(), 10);
+            throw new Error('EIO kept-original lookup');
+        });
+        try {
+            await expect(checkpoints.claimWorkspaceCheckpoint(ownerF.id, ownerF as never)).rejects.toThrow('EIO kept-original lookup');
+        } finally {
+            releaseSlow.resolve();
+            noticeSpy.mockRestore();
+            reopenStore.port = realPort;
+        }
+        expect(store.getWorkingCopyBackingEntry(dirtyEntry1.ref, ownerF.id)).toBeNull();
+        expect(store.getWorkingCopyBackingEntry(dirtyEntry2.ref, ownerF.id)).toBeNull();
+        expect(await store.cleanupWorkingCopy(dirtyEntry1.ref, ownerF.id)).toBe(false);
+        expect(await store.cleanupWorkingCopy(dirtyEntry2.ref, ownerF.id)).toBe(false);
+        ownerF.destroy();
+
+        const recoveredAfterTabError = await checkpoints.claimWorkspaceCheckpoint(ownerG.id, ownerG as never);
+        expect(recoveredAfterTabError?.tabs).toEqual(expect.arrayContaining([
+            expect.objectContaining({workingCopyRef: dirtyEntry1.ref, sourceRef: dirtyPdf1, isDirty: true}),
+            expect.objectContaining({workingCopyRef: dirtyEntry2.ref, sourceRef: dirtyPdf2, isDirty: true}),
+        ]));
+        expect(await readAll(store.requireOpenDocument(dirtyEntry1.ref, ownerG.id))).toEqual(EDITED);
+        expect(await readAll(store.requireOpenDocument(dirtyEntry2.ref, ownerG.id))).toEqual(EDITED);
+        ownerG.destroy();
+    });
+});
