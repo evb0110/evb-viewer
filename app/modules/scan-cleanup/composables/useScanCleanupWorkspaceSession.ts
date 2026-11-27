@@ -1,6 +1,5 @@
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain';
-import type {IScanCleanupPagePlanEvidence} from '@contracts/scan-cleanup/electronApiScanCleanup';
 import {
     type TScanCleanupPlacementAnchorsByPage,
     resolveScanCleanupDocumentInkAnchors,
@@ -66,10 +65,12 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     let previewResult = null as ReturnType<typeof useScanCleanupPreviewSession> | null;
     const selection = useScanCleanupSelection({
         initialPage: initialPreviewPage,
-        previewResult: () => previewResult?.result.value ?? null,
         previewTotalPages: () => previewResult?.totalPages.value ?? Math.max(1, totalPages.value),
         marginsLinked: settings.marginsLinked,
         editDocumentSettings: settings.editDocumentSettings,
+        updateDocumentMargin: settings.updateMargin,
+        setDocumentMarginsLinked: settings.setMarginsLinked,
+        resetPageOverrides: settings.resetPageOverrides,
         settings: settings.values,
         saveLeader: () => saveViewState(),
     });
@@ -138,7 +139,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
         documentCanvasSignature: detection.documentCanvasSignature,
-        detectionRecords: detection.records,
+        getPreviewPageEvidence: detection.getPreviewPageEvidence,
         documentRevision,
         initialViewMode: initialPreviewViewMode,
         layoutDetectionComplete: detection.layoutDetectionComplete,
@@ -157,30 +158,8 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         sourcePath,
         totalPages,
     });
-    function resolvePagePlanEvidence(pageNumbers: readonly number[] | null) {
-        const evidenceMatchesLayout = (pageNumber: number, evidence: IScanCleanupPagePlanEvidence) => (
-            detection.authoritativeLayoutByPage.value.get(pageNumber) === evidence.layoutClassification
-        );
-        if (pageNumbers === null) {
-            return new Map<number, IScanCleanupPagePlanEvidence>([...detection.pagePlanEvidenceByPage.value].filter(
-                ([
-                    pageNumber,
-                    evidence,
-                ]) => evidenceMatchesLayout(pageNumber, evidence),
-            ));
-        }
-        const evidence = new Map<number, IScanCleanupPagePlanEvidence>();
-        for (const pageNumber of pageNumbers) {
-            const detected = detection.pagePlanEvidenceByPage.value.get(pageNumber);
-            if (detected !== undefined && evidenceMatchesLayout(pageNumber, detected)) {
-                evidence.set(pageNumber, detected);
-            }
-        }
-        return evidence;
-    }
     const run = useScanCleanupRunSession({
         active: options.active,
-        authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
         beforeRun: () => {
             previewResult.pauseForRun();
         },
@@ -194,12 +173,11 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         detectionPending: detection.pending,
         detectionStatus: detection.terminalStatus,
         documentSettingsReady: computed(() => settings.documentSettingsReady.value),
-        detectionRecords: detection.records,
         documentRevision,
         ownerId,
         placementAnchorsByPage,
         previewTotalPages: () => previewResult.totalPages.value,
-        resolvePagePlanEvidence,
+        resolveConversionEvidence: detection.resolveConversionEvidence,
         sourcePageNumbers: computed(() => {
             if (selection.settingsScope.value === 'all') {
                 return null;

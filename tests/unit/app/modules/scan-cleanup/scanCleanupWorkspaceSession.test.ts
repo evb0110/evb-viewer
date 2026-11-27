@@ -26,6 +26,7 @@ import {requireJobId} from '@contracts/shared';
 import {requireEpochMs} from '@contracts/timestamps';
 import * as platform from '@app/utils/platform';
 import {createDefaultScanCleanupSettingsFile} from '@contracts/scan-cleanup/scanCleanupSettings';
+import {createScanCleanupPageOverride} from '@contracts/scan-cleanup/scanCleanupPageOverrides';
 import {
     createScanCleanupDetectionSignature,
     createScanCleanupPlacementAnchorCalibrationSignature,
@@ -327,6 +328,12 @@ function capabilityHarness() {
     };
 }
 
+function isDetectionActive(detection: ReturnType<typeof useScanCleanupWorkspaceSession>['detection']) {
+    return detection.pending.value
+        && detection.jobProgress.value !== null
+        && detection.terminalStatus.value === null;
+}
+
 function mountSession(documentKey: string, overrides: {
     active?: () => boolean;
     currentPage?: () => number;
@@ -578,7 +585,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             updatedAtMs: requireEpochMs(Date.now() + 1_000),
         });
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
-        expect(mounted.session.detection.pagePlanEvidenceByPage.value.size).toBe(0);
+        expect(mounted.session.detection.resolveConversionEvidence(null).pagePlanEvidenceCount).toBe(0);
         const run = mounted.session.run.run();
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
         harness.emitDetection({
@@ -710,8 +717,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         harness.emitDetection(state);
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
 
-        expect(mounted.session.detection.pagePlanEvidenceByPage.value.size).toBeLessThanOrEqual(256);
-        expect(mounted.session.detection.records.value.size).toBeLessThanOrEqual(256);
+        expect(mounted.session.detection.resolveConversionEvidence(null).pagePlanEvidenceCount).toBeLessThanOrEqual(256);
+        expect(mounted.session.detection.settledPages.value.size).toBeLessThanOrEqual(256);
         await mounted.session.run.run();
 
         expect(harness.value.start).not.toHaveBeenCalled();
@@ -817,7 +824,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             .toHaveLength(prefetchedPageCalls.length);
         expect(calibration.mock.calls.filter(([request]) => request.pageNumber === 1_024))
             .toHaveLength(prefetchedPageCalibrationCalls.length);
-        expect(mounted.session.detection.pagePlanEvidenceByPage.value.has(1)).toBe(false);
+        expect(mounted.session.detection.getPreviewPageEvidence(1)?.pagePlanEvidence).toBeUndefined();
         mounted.session.selection.selectPage(1, 'single', [
             1,
             1_025,
@@ -1018,9 +1025,9 @@ describe('scan cleanup workspace session detection guidance', () => {
                 expect(mountedSession.session.detection.terminalStatus.value).toBe('completed');
                 expect(mountedSession.session.detection.detectionEvidenceComplete.value).toBe(true);
                 expect(mountedSession.session.detection.settledPages.value.has(1_025)).toBe(true);
-                expect(mountedSession.session.detection.pagePlanEvidenceByPage.value.size)
+                expect(mountedSession.session.detection.resolveConversionEvidence(null).pagePlanEvidenceCount)
                     .toBeLessThanOrEqual(256);
-                expect(mountedSession.session.detection.records.value.size)
+                expect(mountedSession.session.detection.settledPages.value.size)
                     .toBeLessThanOrEqual(256);
                 expect(mountedSession.session.detection.authoritativeLayoutByPage.value.size)
                     .toBeLessThanOrEqual(256);
@@ -1048,7 +1055,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             await vi.waitFor(() => {
                 expect(mounted.session.detection.terminalStatus.value).toBe('completed');
                 expect(mounted.session.detection.detectionEvidenceComplete.value).toBe(true);
-                expect(mounted.session.detection.progress.value?.totalUnits).toBe(3);
+                expect(mounted.session.detection.jobProgress.value?.totalUnits).toBe(3);
             });
             expect(harness.value.detectAll).toHaveBeenCalledOnce();
         } finally {
@@ -1269,7 +1276,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         }));
         harness.emitDetection(state);
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
-        await vi.waitFor(() => expect(mounted.session.detection.pagePlanEvidenceByPage.value.get(1)?.layoutClassification)
+        await vi.waitFor(() => expect(mounted.session.detection.getPreviewPageEvidence(1)?.pagePlanEvidence?.layoutClassification)
             .toBe('page-with-offcut'));
         // Ink is chosen after detection, so no summary was built for it.
         mounted.session.settings.values.pageAlignment = 'ink';
@@ -1344,8 +1351,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         harness.emitDetection(state);
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
 
-        expect(mounted.session.detection.pagePlanEvidenceByPage.value.size).toBeLessThanOrEqual(256);
-        expect(mounted.session.detection.records.value.size).toBeLessThanOrEqual(256);
+        expect(mounted.session.detection.resolveConversionEvidence(null).pagePlanEvidenceCount).toBeLessThanOrEqual(256);
+        expect(mounted.session.detection.settledPages.value.size).toBeLessThanOrEqual(256);
         await mounted.session.run.run();
 
         expect(harness.value.start).not.toHaveBeenCalled();
@@ -1413,7 +1420,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         completed.detectionResultStoreId = 'evicted-page-store';
         harness.emitDetection(completed);
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
-        expect(mounted.session.detection.pagePlanEvidenceByPage.value.has(20_001)).toBe(false);
+        expect(mounted.session.detection.getPreviewPageEvidence(20_001)?.pagePlanEvidence).toBeUndefined();
 
         expect(mounted.session.run.runDisabledReason.value).toBe('scanCleanup.errors.inkPlacementTooLarge');
         await mounted.session.run.run();
@@ -1679,7 +1686,10 @@ describe('scan cleanup workspace session detection guidance', () => {
             6,
         ]);
         mounted.session.selection.setSettingsScope('page');
-        mounted.session.selection.updateOutputModeOverride('color');
+        mounted.session.selection.updateScopeOverrides(current => ({
+            ...current,
+            outputModeOverride: 'color',
+        }));
 
         revision.value = 'revision-2';
         sourcePath.value = requireDocumentRef('/docs/new.pdf');
@@ -1718,7 +1728,10 @@ describe('scan cleanup workspace session detection guidance', () => {
             6,
         ]);
         mounted.session.selection.setSettingsScope('page');
-        mounted.session.selection.updateOutputModeOverride('color');
+        mounted.session.selection.updateScopeOverrides(current => ({
+            ...current,
+            outputModeOverride: 'color',
+        }));
 
         revision.value = 'revision-2';
         sourcePath.value = requireDocumentRef('/docs/new.pdf');
@@ -1757,7 +1770,10 @@ describe('scan cleanup workspace session detection guidance', () => {
             3,
         ]);
         mounted.session.selection.setSettingsScope('page');
-        mounted.session.selection.updateOutputModeOverride('color');
+        mounted.session.selection.updateScopeOverrides(current => ({
+            ...current,
+            outputModeOverride: 'color',
+        }));
 
         revision.value = 'revision-2';
         sourcePath.value = requireDocumentRef('/docs/new.pdf');
@@ -2202,7 +2218,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = harness.value;
         const mounted = mountSession(`incremental-detection-${Date.now()}`);
 
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         const analyses = [
             {
                 pageNumber: 2,
@@ -2264,7 +2280,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 'single-uncut-page',
             ],
         ]);
-        expect(mounted.session.detection.progress.value.completedUnits).toBe(3);
+        expect(mounted.session.detection.jobProgress.value?.completedUnits).toBe(3);
         mounted.unmount();
     });
 
@@ -2273,7 +2289,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = harness.value;
         const mounted = mountSession(`analysis-eta-${Date.now()}`, {totalPages: () => 6});
 
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         const analysisStartedAtMs = requireEpochMs(Date.now() + 1_000);
         // Detection reports itself running before any page lands. That report
         // anchors the measurement, so the queueing ahead of it is not billed to
@@ -2566,10 +2582,10 @@ describe('scan cleanup workspace session detection guidance', () => {
         await expect.poll(() => first.session.settings.documentSettingsReady.value).toBe(true);
         await expect.poll(() => second.session.settings.documentSettingsReady.value).toBe(true);
 
-        first.session.selection.updateRotation(90, [1]);
+        first.session.selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 90}));
         await nextTick();
         await flushScanCleanupDocumentPreferencesStore();
-        second.session.selection.updateRotation(180, [2]);
+        second.session.selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 180}));
         await nextTick();
         await flushScanCleanupDocumentPreferencesStore();
 
@@ -2594,15 +2610,15 @@ describe('scan cleanup workspace session detection guidance', () => {
         onTestFinished(() => { first.unmount(); second.unmount(); });
         await expect.poll(() => first.session.settings.documentSettingsReady.value).toBe(true);
         await expect.poll(() => second.session.settings.documentSettingsReady.value).toBe(true);
-        first.session.selection.updateRotation(90, [1]);
+        first.session.selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 90}));
         await nextTick();
         await flushScanCleanupDocumentPreferencesStore();
 
         // The second view changes page 1 and the first view edits page 2
         // before it has read that change back.
-        second.session.selection.updateRotation(270, [1]);
+        second.session.selection.updatePageOverride(1, createScanCleanupPageOverride({rotationDegrees: 270}));
         await nextTick();
-        first.session.selection.updateRotation(180, [2]);
+        first.session.selection.updatePageOverride(2, createScanCleanupPageOverride({rotationDegrees: 180}));
         await nextTick();
         await flushScanCleanupDocumentPreferencesStore();
 
@@ -2732,7 +2748,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         );
         expect(scanCleanupDetectionSessionCache.size).toBe(0);
         expect(mounted.session.detection.authoritativeLayoutByPage.value.size).toBe(0);
-        expect(mounted.session.detection.isDetecting.value).toBe(true);
+        expect(isDetectionActive(mounted.session.detection)).toBe(true);
         mounted.unmount();
     });
 
@@ -2806,7 +2822,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             'detect-1',
             expect.objectContaining({documentRevision: expect.any(String)}),
         );
-        expect(mounted.session.detection.isDetecting.value).toBe(false);
+        expect(isDetectionActive(mounted.session.detection)).toBe(false);
         expect(mounted.session.detection.error.value)
             .toBe('scanCleanup.errors.detectionSubscriptionFailed (detection subscription transport failed)');
         mounted.unmount();
@@ -2947,7 +2963,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         };
         newer.updatedAtMs = newerUpdatedAt;
         harness.emitDetection(newer);
-        await vi.waitFor(() => expect(mounted.session.detection.progress.value.completedUnits).toBe(2));
+        await vi.waitFor(() => expect(mounted.session.detection.jobProgress.value?.completedUnits).toBe(2));
         expect(mounted.session.detection.authoritativeLayoutByPage.value.get(1)).toBe('two-page-spread');
         expect(mounted.session.detection.recommendedOutputModeByPage.value.get(1)).toBe('color');
 
@@ -2958,7 +2974,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await subscription.promise;
         await nextTick();
 
-        expect(mounted.session.detection.progress.value.completedUnits).toBe(2);
+        expect(mounted.session.detection.jobProgress.value?.completedUnits).toBe(2);
         expect(mounted.session.detection.authoritativeLayoutByPage.value.get(1)).toBe('two-page-spread');
         expect(mounted.session.detection.recommendedOutputModeByPage.value.get(1)).toBe('color');
         mounted.unmount();
@@ -2968,7 +2984,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`auto-decision-lock-${Date.now()}`);
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         const partialResultAt = requireEpochMs(Date.now() + 1_000);
         harness.emitDetection({
             jobId: requireJobId('detect-1'),
@@ -3058,7 +3074,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`auto-decision-cancel-${Date.now()}`);
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         harness.emitDetection({
             ...detectionState('detect-1', 'queued'),
             status: 'running',
@@ -3092,7 +3108,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.cancelDetection).not.toHaveBeenCalled();
         expect(harness.value.start).not.toHaveBeenCalled();
-        expect(mounted.session.detection.isDetecting.value).toBe(true);
+        expect(isDetectionActive(mounted.session.detection)).toBe(true);
         expect(mounted.session.run.isRunning.value).toBe(false);
         expect(mounted.session.run.cancelRequested.value).toBe(false);
         expect(mounted.session.run.canRun.value).toBe(true);
@@ -3180,7 +3196,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`wait-before-start-${Date.now()}`);
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
         vi.mocked(harness.value.start).mockResolvedValue({
@@ -3234,7 +3250,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         vi.mocked(harness.value.start).mockImplementation(() => cleanupStart.promise);
         capability.value = harness.value;
         const mounted = mountSession(`terminal-caption-during-run-${Date.now()}`);
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
 
@@ -3376,7 +3392,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const documentKey = `hidden-run-detection-${Date.now()}`;
         capability.value = harness.value;
         const mounted = mountSession(documentKey, {active: () => active.value});
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
         vi.mocked(harness.value.start).mockResolvedValue({
@@ -3425,7 +3441,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`run-before-scheduled-detection-${Date.now()}`);
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         harness.emitDetection(detectionState('detect-1', 'completed'));
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
         mounted.session.settings.values.outputMode = 'grayscale';
@@ -3487,7 +3503,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             documentRevision: () => 'revision-1',
             sourceSha256: () => sourceSha256.value,
         });
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         harness.emitDetection(detectionState('detect-1', 'completed'));
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
         vi.mocked(harness.value.detectAll)
@@ -3544,7 +3560,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.detectAll).toHaveBeenCalledTimes(3);
         expect(mounted.session.detection.terminalStatus.value).toBe('completed');
-        expect(mounted.session.detection.pagePlanEvidenceByPage.value.size).toBe(3);
+        expect(mounted.session.detection.resolveConversionEvidence(null).pagePlanEvidenceCount).toBe(3);
         expect(getScanCleanupRunError(mounted.session.run.ownerId)).toBe('');
         expect(harness.value.start).toHaveBeenCalledOnce();
         mounted.unmount();
@@ -3569,7 +3585,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         expect(harness.value.detectAll).toHaveBeenCalledOnce();
         expect(harness.value.cancelDetection).not.toHaveBeenCalled();
-        expect(mounted.session.detection.isDetecting.value).toBe(true);
+        expect(isDetectionActive(mounted.session.detection)).toBe(true);
 
         harness.emitDetection(detectionState('detect-1', 'completed'));
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value)
@@ -3675,11 +3691,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         sourcePath.value = null;
         expect.soft({
             progress: detection.jobProgress.value,
-            records: detection.records.value.size,
+            settled: detection.settledPages.value.size,
             terminalStatus: detection.terminalStatus.value,
         }).toEqual({
             progress: null,
-            records: 0,
+            settled: 0,
             terminalStatus: null,
         });
         await nextTick();
@@ -3725,11 +3741,11 @@ describe('scan cleanup workspace session detection guidance', () => {
             },
         }));
 
-        await vi.waitFor(() => expect(detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(detection)).toBe(true));
         harness.emitDetection({...first, updatedAtMs: requireEpochMs(Date.now())});
         expect(detection.terminalStatus.value).toBe('completed');
         expect(detection.recommendedOutputModeByPage.value.get(1)).toBe('grayscale');
-        expect(detection.pagePlanEvidenceByPage.value.get(1)).toEqual(first.results[0]!.pagePlanEvidence);
+        expect(detection.getPreviewPageEvidence(1)?.pagePlanEvidence).toEqual(first.results[0]!.pagePlanEvidence);
         expect(detection.detectionResultStoreId.value).toBe('first-store');
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
@@ -3756,13 +3772,13 @@ describe('scan cleanup workspace session detection guidance', () => {
         // Verify the path change alone, before publishing the new legacy key.
         // Keep exercising B's cleanup even if main still exposes A's evidence.
         expect.soft({
-            records: detection.records.value.size,
+            settled: detection.settledPages.value.size,
             recommendations: detection.recommendedOutputModeByPage.value.size,
-            pagePlans: detection.pagePlanEvidenceByPage.value.size,
+            pagePlans: detection.resolveConversionEvidence(null).pagePlanEvidenceCount,
             storeId: detection.detectionResultStoreId.value,
             terminalStatus: detection.terminalStatus.value,
         }).toEqual({
-            records: 0,
+            settled: 0,
             recommendations: 0,
             pagePlans: 0,
             storeId: null,
@@ -3777,13 +3793,13 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         expect(harness.value.start).not.toHaveBeenCalled();
 
-        await vi.waitFor(() => expect(detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(detection)).toBe(true));
         harness.emitDetection({...first, updatedAtMs: requireEpochMs(Date.now())});
         // Drain the run continuations that the stale event could have woken.
         await new Promise<void>(resolve => setImmediate(resolve));
         expect(mounted.session.run.waitingForDetection.value).toBe(true);
         expect(detection.terminalStatus.value).toBeNull();
-        expect(detection.records.value.size).toBe(0);
+        expect(detection.settledPages.value.size).toBe(0);
         expect(detection.detectionResultStoreId.value).toBeNull();
         expect(harness.value.start).not.toHaveBeenCalled();
 
@@ -3796,7 +3812,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             [2, 'bw'],
             [3, 'bw'],
         ]));
-        expect(detection.pagePlanEvidenceByPage.value).toEqual(new Map(
+        expect(detection.resolveConversionEvidence(null).pagePlanEvidenceByPage).toEqual(new Map(
             second.results.map(result => [result.pageNumber, result.pagePlanEvidence]),
         ));
         expect(harness.value.start).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
@@ -3822,7 +3838,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         onTestFinished(() => mounted.unmount());
         const {detection, run} = mounted.session;
-        await vi.waitFor(() => expect(detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(detection)).toBe(true));
         const first = detectionState('detect-1', 'completed');
         first.results = first.results.map(result => ({
             ...result,
@@ -3835,13 +3851,13 @@ describe('scan cleanup workspace session detection guidance', () => {
         // Leave the previous key and revision published through scheduled admission.
         sourcePath.value = secondPath;
         await vi.waitFor(() => {
-            expect(detection.isDetecting.value || detection.terminalStatus.value === 'completed').toBe(true);
+            expect(isDetectionActive(detection) || detection.terminalStatus.value === 'completed').toBe(true);
         });
         expect({
             terminalStatus: detection.terminalStatus.value,
             recommendations: detection.recommendedOutputModeByPage.value.size,
-            records: detection.records.value.size,
-        }).toEqual({terminalStatus: null, recommendations: 0, records: 0});
+            settled: detection.settledPages.value.size,
+        }).toEqual({terminalStatus: null, recommendations: 0, settled: 0});
         expect(harness.value.detectAll).toHaveBeenCalledWith(expect.objectContaining({
             sourcePdfPath: secondPath,
             documentRevision: 'unchanged-revision',
@@ -3881,7 +3897,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = harness.value;
         const first = mountSession('cache-restore-reopen', options);
         try {
-            await vi.waitFor(() => expect(first.session.detection.isDetecting.value).toBe(true));
+            await vi.waitFor(() => expect(isDetectionActive(first.session.detection)).toBe(true));
             const completed = detectionState('detect-1', 'completed');
             completed.results = completed.results.map(result => ({
                 ...result,
@@ -3898,7 +3914,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const {detection} = reopened.session;
         await vi.waitFor(() => expect(detection.terminalStatus.value).toBe('completed'));
         expect(detection.recommendedOutputModeByPage.value.get(1)).toBe('grayscale');
-        expect(detection.records.value.size).toBe(3);
+        expect(detection.settledPages.value.size).toBe(3);
         expect(harness.value.detectAll).toHaveBeenCalledOnce();
     });
 
@@ -3911,7 +3927,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             documentRevision: () => 'revision-1',
             sourceSha256: () => sourceSha256.value,
         });
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         vi.mocked(harness.value.cancelDetection).mockImplementationOnce(() => deferredCancellation.promise);
 
         sourceSha256.value = 'd'.repeat(64);
@@ -3930,7 +3946,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         harness.emitDetection(detectionState('detect-1', 'canceled'));
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
 
-        expect(mounted.session.detection.isDetecting.value).toBe(true);
+        expect(isDetectionActive(mounted.session.detection)).toBe(true);
         expect(mounted.session.detection.terminalStatus.value).toBeNull();
         harness.emitDetection(detectionState('detect-2', 'completed'));
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
@@ -3967,7 +3983,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             `revision-during-cancel-${Date.now()}`,
             {documentRevision: () => revision.value},
         );
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         mounted.session.settings.values.outputMode = 'grayscale';
         await nextTick();
         const run = mounted.session.run.run();
@@ -4073,7 +4089,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`atomic-run-request-${Date.now()}`);
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         mounted.session.settings.values.outputMode = 'mixed';
         mounted.session.settings.values.thickness = 2;
         mounted.session.selection.setSettingsScope('page');
@@ -4124,7 +4140,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`uniform-run-evidence-${Date.now()}`);
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         const detectionEvidence: IScanCleanupPagePlanEvidence = {
             pageNumber: requirePageNumber(1),
             rotationDegrees: 0,
@@ -4215,7 +4231,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`run-bridge-error-${Date.now()}`);
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         harness.emitDetection(detectionState('detect-1', 'completed'));
         await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
         mounted.session.settings.values.outputMode = 'grayscale';
@@ -4233,7 +4249,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`run-unavailable-${Date.now()}`);
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         harness.emitDetection(detectionState('detect-1', 'completed'));
         await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
         mounted.session.settings.values.outputMode = 'grayscale';
@@ -4258,7 +4274,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`failed-detection-run-${Date.now()}`);
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         harness.emitDetection(failedDetectionState('detect-1', 'native-failure'));
         await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
 
@@ -4275,7 +4291,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         capability.value = harness.value;
         const mounted = mountSession(`insufficient-scratch-${Date.now()}`);
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         const refused: TScanCleanupDetectionJobState = {
             ...detectionState('detect-1', 'queued'),
             status: 'failed',
@@ -4330,7 +4346,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = harness.value;
         const mounted = mountSession(`late-cancel-${Date.now()}`);
 
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         const cancelPromise = mounted.session.detection.cancel();
         mounted.unmount();
         cancellation.resolve(true);
@@ -4360,7 +4376,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession(`text-axis-${Date.now()}`);
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
-        await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
+        await vi.waitFor(() => expect(isDetectionActive(mounted.session.detection)).toBe(true));
         const completed = detectionState('detect-1', 'completed');
         completed.results[0] = {
             ...completed.results[0]!,
@@ -4802,7 +4818,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
         await vi.waitFor(() => expect(visiblePageOneRequests().length).toBeGreaterThan(0));
         const previewRequestsBeforeManualCrop = visiblePageOneRequests().length;
-        const retainedEvidence = mounted.session.detection.pagePlanEvidenceByPage.value.get(1);
+        const retainedEvidence = mounted.session.detection.getPreviewPageEvidence(1)?.pagePlanEvidence;
         const manualRight = {
             xNormalized: 0.6,
             yNormalized: 0.12,
@@ -4819,7 +4835,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(mounted.session.detection.pending.value).toBe(false);
         expect(mounted.session.detection.authoritativeLayoutByPage.value.get(1))
             .toBe('two-page-spread');
-        expect(mounted.session.detection.pagePlanEvidenceByPage.value.get(1)).toBe(retainedEvidence);
+        expect(mounted.session.detection.getPreviewPageEvidence(1)?.pagePlanEvidence).toBe(retainedEvidence);
         expect(mounted.session.settings.values.pageOverrides['1']?.manualContentBoxes)
             .toEqual({right: manualRight});
         expect(visiblePageOneRequests().at(-1)?.options.pageOverrides['1']?.manualContentBoxes)
@@ -4830,7 +4846,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         harness.emitDetection(completedSpread('detect-2', 0.54));
 
         await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
-        expect(mounted.session.detection.pagePlanEvidenceByPage.value.get(1))
+        expect(mounted.session.detection.getPreviewPageEvidence(1)?.pagePlanEvidence)
             .toEqual(automaticRight(0.54));
         expect(mounted.session.settings.values.pageOverrides['1']?.manualContentBoxes)
             .toEqual({right: manualRight});
@@ -4856,8 +4872,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         harness.emitDetection(detectionState('detect-1', 'completed'));
         // The job measured page 1 before its edit: that result is not taken
         // as page 1's plan, while the untouched pages keep theirs.
-        expect(mounted.session.detection.pagePlanEvidenceByPage.value.has(1)).toBe(false);
-        expect(mounted.session.detection.pagePlanEvidenceByPage.value.has(2)).toBe(true);
+        expect(mounted.session.detection.getPreviewPageEvidence(1)?.pagePlanEvidence).toBeUndefined();
+        expect(mounted.session.detection.getPreviewPageEvidence(2)?.pagePlanEvidence).toBeDefined();
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
         expect(scanCleanupDetectionSessionCache.size).toBe(0);
@@ -5000,7 +5016,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             ([request]) => request?.pageNumber === 1
                 && request.documentPrior?.agreementStrength === 0.8,
         )).toBe(true));
-        expect(mounted.session.detection.records.value.get(1)?.result?.documentPrior).toMatchObject({
+        expect(mounted.session.detection.getPreviewPageEvidence(1)?.documentPrior).toMatchObject({
             dominantLayout: 'two-page-spread',
             cutterRatioMedian: 0.5,
         });
