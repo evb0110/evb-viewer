@@ -106,6 +106,13 @@ function cropWordToMatch(
     return cropWordByCharacterRatio(word, relativeStart, relativeEnd);
 }
 
+interface ISuffixMaxIndex {
+    readonly text: string;
+    readonly sa: Int32Array;
+    readonly maxTree: Int32Array;
+    readonly treeSize: number;
+}
+
 export interface ISearchPageWordIndex {
     readonly page: IPageWithSearchWords;
     readonly pageWords: readonly IOcrWord[];
@@ -116,7 +123,7 @@ export interface ISearchPageWordIndex {
     readonly prefixMaxEnds: number[];
     readonly failedLogicalLookups: Set<string>;
     pageTextChars: Set<number> | null;
-    pageTextBigrams: Set<number> | null;
+    suffixMaxIndex: ISuffixMaxIndex | null;
     failedIndexOfCount: number;
     nextWordIndex: number;
     fallbackCursor: number;
@@ -130,6 +137,191 @@ interface ICachedWordIndexEntry {
 }
 
 const wordIndexCache = new WeakMap<readonly IOcrWord[], ICachedWordIndexEntry>();
+const SUFFIX_INDEX_FAILURE_THRESHOLD = 16;
+
+function buildSuffixMaxIndex(text: string): ISuffixMaxIndex {
+    const length = text.length;
+    const sa = new Int32Array(length);
+    let rank = new Int32Array(length);
+    let nextRank = new Int32Array(length);
+    const order = new Int32Array(length);
+
+    if (length > 0) {
+        // Initial O(L log |Sigma| + L) rank assignment by UTF-16 code unit.
+        const uniqueCodes: number[] = [];
+        const seenCodes = new Set<number>();
+        for (let index = 0; index < length; index += 1) {
+            const code = text.charCodeAt(index);
+            if (!seenCodes.has(code)) {
+                seenCodes.add(code);
+                uniqueCodes.push(code);
+            }
+        }
+        uniqueCodes.sort((left, right) => left - right);
+        const codeToRank = new Map<number, number>();
+        for (let index = 0; index < uniqueCodes.length; index += 1) {
+            codeToRank.set(uniqueCodes[index]!, index);
+        }
+        let classes = uniqueCodes.length;
+        const count = new Int32Array(Math.max(length, classes) + 1);
+        for (let index = 0; index < length; index += 1) {
+            const r = codeToRank.get(text.charCodeAt(index))!;
+            rank[index] = r;
+            count[r]! += 1;
+        }
+        for (let index = 1; index < classes; index += 1) {
+            count[index]! += count[index - 1]!;
+        }
+        for (let index = length - 1; index >= 0; index -= 1) {
+            const r = rank[index]!;
+            count[r]! -= 1;
+            sa[count[r]!] = index;
+        }
+
+        // Prefix-doubling O(L log L) suffix array with single radix pass per round.
+        for (let step = 1; step < length && classes < length; step <<= 1) {
+            let outIndex = 0;
+            for (let index = length - step; index < length; index += 1) {
+                order[outIndex] = index;
+                outIndex += 1;
+            }
+            for (let index = 0; index < length; index += 1) {
+                const candidate = sa[index]!;
+                if (candidate >= step) {
+                    order[outIndex] = candidate - step;
+                    outIndex += 1;
+                }
+            }
+
+            count.fill(0, 0, classes);
+            for (let index = 0; index < length; index += 1) {
+                count[rank[order[index]!]!]! += 1;
+            }
+            for (let index = 1; index < classes; index += 1) {
+                count[index]! += count[index - 1]!;
+            }
+            for (let index = length - 1; index >= 0; index -= 1) {
+                const suffix = order[index]!;
+                const r = rank[suffix]!;
+                count[r]! -= 1;
+                sa[count[r]!] = suffix;
+            }
+
+            nextRank[sa[0]!] = 0;
+            let nextClasses = 1;
+            for (let index = 1; index < length; index += 1) {
+                const prev = sa[index - 1]!;
+                const curr = sa[index]!;
+                const prevSecond = prev + step < length ? rank[prev + step]! : -1;
+                const currSecond = curr + step < length ? rank[curr + step]! : -1;
+                if (rank[prev] !== rank[curr] || prevSecond !== currSecond) {
+                    nextClasses += 1;
+                }
+                nextRank[curr] = nextClasses - 1;
+            }
+            const swapped = rank;
+            rank = nextRank;
+            nextRank = swapped;
+            classes = nextClasses;
+        }
+    }
+
+    let treeSize = 1;
+    while (treeSize < length) {
+        treeSize <<= 1;
+    }
+    const maxTree = new Int32Array(treeSize * 2);
+    maxTree.fill(-1);
+    for (let index = 0; index < length; index += 1) {
+        maxTree[treeSize + index] = sa[index]!;
+    }
+    for (let node = treeSize - 1; node >= 1; node -= 1) {
+        const left = maxTree[node << 1]!;
+        const right = maxTree[(node << 1) | 1]!;
+        maxTree[node] = left > right ? left : right;
+    }
+
+    return {
+        text,
+        sa,
+        maxTree,
+        treeSize,
+    };
+}
+
+function compareSuffixToNeedle(text: string, suffixPos: number, needle: string): number {
+    const limit = Math.min(needle.length, text.length - suffixPos);
+    for (let offset = 0; offset < limit; offset += 1) {
+        const diff = text.charCodeAt(suffixPos + offset) - needle.charCodeAt(offset);
+        if (diff !== 0) {
+            return diff;
+        }
+    }
+    return limit < needle.length ? -1 : 0;
+}
+
+function maxOccurrenceInSuffixIndex(suffixIndex: ISuffixMaxIndex, needle: string): number {
+    const {
+        text,
+        sa,
+        maxTree,
+        treeSize,
+    } = suffixIndex;
+    const length = sa.length;
+    if (length === 0) {
+        return -1;
+    }
+
+    let low = 0;
+    let high = length;
+    while (low < high) {
+        const mid = low + ((high - low) >>> 1);
+        if (compareSuffixToNeedle(text, sa[mid]!, needle) < 0) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    const rangeStart = low;
+
+    low = rangeStart;
+    high = length;
+    while (low < high) {
+        const mid = low + ((high - low) >>> 1);
+        if (compareSuffixToNeedle(text, sa[mid]!, needle) <= 0) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    const rangeEnd = low;
+    if (rangeStart >= rangeEnd) {
+        return -1;
+    }
+
+    let left = rangeStart + treeSize;
+    let right = rangeEnd + treeSize;
+    let best = -1;
+    while (left < right) {
+        if ((left & 1) === 1) {
+            const candidate = maxTree[left]!;
+            if (candidate > best) {
+                best = candidate;
+            }
+            left += 1;
+        }
+        if ((right & 1) === 1) {
+            right -= 1;
+            const candidate = maxTree[right]!;
+            if (candidate > best) {
+                best = candidate;
+            }
+        }
+        left >>>= 1;
+        right >>>= 1;
+    }
+    return best;
+}
 
 function isValidPageGeometry(page: IPageWithSearchWords): page is IPageWithSearchWords & {
     words: readonly IOcrWord[];
@@ -174,14 +366,14 @@ function findLogicalWordStart(index: ISearchPageWordIndex, needle: string): numb
             }
         }
     }
-    if (index.pageTextBigrams !== null && needle.length >= 2) {
-        for (let charIndex = 0; charIndex + 1 < needle.length; charIndex += 1) {
-            const bigram = needle.charCodeAt(charIndex) * 65536 + needle.charCodeAt(charIndex + 1);
-            if (!index.pageTextBigrams.has(bigram)) {
-                index.failedLogicalLookups.add(needle);
-                return -1;
-            }
+    if (index.suffixMaxIndex !== null) {
+        const lastMatch = maxOccurrenceInSuffixIndex(index.suffixMaxIndex, needle);
+        if (lastMatch < index.logicalTextCursor) {
+            index.failedLogicalLookups.add(needle);
+            return -1;
         }
+        // Guaranteed to exist at >= logicalTextCursor; indexOf advances the cursor.
+        return pageText.indexOf(needle, index.logicalTextCursor);
     }
 
     const found = pageText.indexOf(needle, index.logicalTextCursor);
@@ -200,12 +392,8 @@ function findLogicalWordStart(index: ISearchPageWordIndex, needle: string): numb
         }
         index.pageTextChars = chars;
     }
-    if (index.pageTextBigrams === null && index.failedIndexOfCount >= 8) {
-        const bigrams = new Set<number>();
-        for (let charIndex = 0; charIndex + 1 < pageText.length; charIndex += 1) {
-            bigrams.add(pageText.charCodeAt(charIndex) * 65536 + pageText.charCodeAt(charIndex + 1));
-        }
-        index.pageTextBigrams = bigrams;
+    if (index.suffixMaxIndex === null && index.failedIndexOfCount >= SUFFIX_INDEX_FAILURE_THRESHOLD) {
+        index.suffixMaxIndex = buildSuffixMaxIndex(pageText);
     }
     return -1;
 }
@@ -303,7 +491,7 @@ export function createSearchPageWordIndex(
         prefixMaxEnds: [],
         failedLogicalLookups: new Set(),
         pageTextChars: null,
-        pageTextBigrams: null,
+        suffixMaxIndex: null,
         failedIndexOfCount: 0,
         nextWordIndex: 0,
         fallbackCursor: 0,

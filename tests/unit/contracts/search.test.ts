@@ -959,4 +959,41 @@ describe('search conformance corpus', () => {
         expect(matched?.[0]?.text).toBe('hit');
         expect(elapsedMs).toBeLessThan(150);
     });
+
+    it('avoids quadratic scans on distinct line-ending hyphens even when every char and bigram exists later on the page', async () => {
+        const {buildOcrTextLayerIndexText} = await import('@pdf-core');
+        const count = 16_000;
+        const words = [
+            ...Array.from({length: count}, (_, index) => ({
+                text: `w${String(index).padStart(5, '0')}-`,
+                x: 10,
+                y: index * 12,
+                width: 40,
+                height: 10,
+            })),
+            {
+                text: `0-x1-x2-x3-x4-x5-x6-x7-x8-x9-x${'w'.repeat(count * 4)}hit`,
+                x: 10,
+                y: count * 12,
+                width: 500,
+                height: 10,
+            },
+        ];
+        const text = buildOcrTextLayerIndexText(words);
+        const hitStart = text.indexOf('hit');
+        expect(hitStart).toBeGreaterThan(0);
+
+        const startedAt = performance.now();
+        const matched = collectSearchMatchWords({
+            text,
+            words,
+            pageWidth: 1_000,
+            pageHeight: count * 12 + 20,
+        }, hitStart, hitStart + 3);
+        const elapsedMs = performance.now() - startedAt;
+
+        expect(matched).toHaveLength(1);
+        expect(matched?.[0]?.text).toBe('hit');
+        expect(elapsedMs).toBeLessThan(500);
+    });
 });

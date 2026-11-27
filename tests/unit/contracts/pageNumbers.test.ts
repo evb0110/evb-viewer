@@ -525,5 +525,22 @@ describe('page number contracts', () => {
         expect(isPageSelected(rawComplement, 3)).toBe(true);
         expect(isPageSelected(rawComplement, 4)).toBe(false);
         expect(isPageSelected(rawComplement, 5)).toBe(true);
+
+        // Mutating the public excludedPages array in place must not observe stale cached results.
+        rawComplement.excludedPages[0] = 1;
+        expect([...iteratePageSelection(rawComplement)]).toEqual([
+            3,
+            4,
+            5,
+        ]);
+        expect([...iteratePageSelectionRanges(rawComplement)]).toEqual([{
+            startPage: 3,
+            endPage: 5,
+        }]);
+        expect(isPageSelected(rawComplement, 1)).toBe(false);
+        expect(isPageSelected(rawComplement, 2)).toBe(false);
+        expect(isPageSelected(rawComplement, 3)).toBe(true);
+        expect(isPageSelected(rawComplement, 4)).toBe(true);
+        expect(isPageSelected(rawComplement, 5)).toBe(true);
     });
 });
