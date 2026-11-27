@@ -15,7 +15,16 @@ import {
     vi,
 } from 'vitest';
 import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
-import type {IScanCleanupOptions} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {
+    IScanCleanupOptions,
+    TScanCleanupProgress,
+} from '@contracts/scan-cleanup/electronApiScanCleanup';
+import {resolveScanCleanupActivity} from '@app/modules/scan-cleanup/runtime/resolveScanCleanupActivity';
+import {
+    createScanCleanupProgressReporter,
+    type TEmitScanCleanupProgress,
+} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import type {
     IPdfPageSize,
@@ -31,7 +40,6 @@ import type {
     TScanCleanupLog,
 } from '@evb/scan-cleanup/core/types';
 import {isScanCleanupCompactLayeredRaster} from '@evb/scan-cleanup/core/types';
-import type {TEmitScanCleanupProgress} from '@evb/scan-cleanup/core/createScanCleanupProgressReporter';
 import {resolveScanCleanupPageScopeLazy} from '@evb/scan-cleanup/core/pageScope';
 
 const roots: string[] = [];
@@ -446,5 +454,275 @@ describe('runLosslessScanCleanup', () => {
         expect(onRecoveryPending.mock.calls[0]![0]).toBe(proof.promise);
         await expect(stat(join(root, 'split-pages.json'))).resolves.toBeDefined();
         await expect(stat(root)).resolves.toBeDefined();
+    });
+
+    it('keeps cumulative rasterizedUnits on every lossless classification frame so the progress buffer never drops', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-lossless-buffer-test-'));
+        roots.push(root);
+        const sourcePdfPath = join(root, 'source.pdf');
+        const stagedPdfPath = join(root, 'staged.pdf');
+        const pageCount = 4;
+        await writeFile(sourcePdfPath, '%PDF-lossless-source');
+
+        const pageSizeStore: IPdfPageSizeStore = {
+            pageCount,
+            getPage: async pageNumber => pageGeometry(pageNumber),
+            readRange: async (first, end) => Array.from({length: end - first}, (_, index) => pageGeometry(first + index)),
+            forEachChunk: async () => undefined,
+            close: async () => undefined,
+        };
+        const sourceDpi: IScanCleanupPageRasterSource = {
+            detected: true,
+            documentDpi: 300,
+            getPageRaster: () => ({
+                dpi: 300,
+                width: 2_550,
+                height: 3_300,
+            }),
+        };
+        const renderRaster: IRunScanCleanupPipelineDependencies['renderPage'] = async (
+            _paths, _log, _pageNumber, _source, outputPath,
+        ) => {await writeFile(outputPath, 'P6\n1 1\n255\n\0\0\0');};
+        const dependencies: IRunScanCleanupPipelineDependencies = {
+            getPageCount: async () => pageCount,
+            getPageSizeStore: async () => pageSizeStore,
+            detectSourceDpi: async () => sourceDpi,
+            renderPage: renderRaster,
+            renderPagePpm: renderRaster,
+            runSidecar: async (_binary, manifestPath, _signal, _log, onProgress) => {
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
+                for (const [
+                    index,
+                    page,
+                ] of manifest.pages.entries()) {
+                    const pageNumber = requirePageNumber(index + 1);
+                    onProgress({
+                        stage: 'page-started',
+                        completedPages: index,
+                        totalPages: manifest.pages.length,
+                        pageNumber,
+                    });
+                    onProgress({
+                        stage: 'page-stage',
+                        completedPages: index,
+                        totalPages: manifest.pages.length,
+                        pageNumber,
+                        subPageStage: 'analyze',
+                    });
+                    onProgress({
+                        stage: 'page-analyzed',
+                        completedPages: index,
+                        totalPages: manifest.pages.length,
+                        pageNumber,
+                    });
+                    await writeFile(page.pageMetadataPath, JSON.stringify(analysisMetadata()));
+                    onProgress({
+                        stage: 'page-complete',
+                        completedPages: index + 1,
+                        totalPages: manifest.pages.length,
+                        pageNumber,
+                    });
+                }
+            },
+            runCommand: async (_command, args) => {
+                await writeFile(args[args.indexOf('--output') + 1]!, '%PDF-1.7\n%%EOF\n');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            },
+            getAvailableScratchBytes: async () => null,
+            hashNativeBinary: async () => 'a'.repeat(64),
+        };
+
+        const frames: TScanCleanupProgress[] = [];
+        const emitProgress = createScanCleanupProgressReporter(frame => {
+            frames.push(frame);
+        }, () => true);
+
+        await runLosslessScanCleanup(
+            {
+                sourcePdfPath,
+                outputPdfPath: join(root, 'output.pdf'),
+                options: {
+                    ...options,
+                    outputMode: 'color',
+                },
+            },
+            paths(root),
+            sourcePdfPath,
+            [],
+            resolveScanCleanupPageScopeLazy(undefined, pageCount),
+            pageSizeStore,
+            sourceDpi,
+            root,
+            stagedPdfPath,
+            new AbortController().signal,
+            emitProgress,
+            () => undefined,
+            policy,
+            dependencies,
+        );
+
+        const classifyingFrames = frames.filter(frame => frame.stage === 'classifying');
+        expect(classifyingFrames.length).toBeGreaterThanOrEqual(pageCount * 3 + 1);
+        for (const frame of classifyingFrames) {
+            expect(frame.rasterizedUnits).toBe(pageCount);
+            const activity = resolveScanCleanupActivity({
+                detection: {
+                    pending: false,
+                    progress: null,
+                    analyzedPages: 0,
+                    totalPages: pageCount,
+                    calibrating: false,
+                },
+                run: {
+                    waitingForDetection: false,
+                    starting: false,
+                    progress: frame,
+                    committing: false,
+                },
+            })!;
+            expect(activity.bufferFraction).toBe(1);
+            expect(activity.fraction).not.toBeNull();
+        }
+    });
+
+    it('retains monotonic rasterizedUnits across streaming child stages and batch-completion frames', async () => {
+        const {runScanCleanupConversion: convert} = await loadScanCleanupPipelineWithBatchPages(4);
+        const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-streaming-buffer-test-'));
+        roots.push(root);
+        const sourcePdfPath = join(root, 'source.pdf');
+        const outputPdfPath = join(root, 'output.pdf');
+        const documentPageCount = 9;
+        await writeFile(sourcePdfPath, '%PDF-lossless-source');
+
+        const pageSizeStore: IPdfPageSizeStore = {
+            pageCount: documentPageCount,
+            getPage: async pageNumber => pageGeometry(pageNumber),
+            readRange: async (first, end) => Array.from({length: end - first}, (_, index) => pageGeometry(first + index)),
+            forEachChunk: async onChunk => onChunk({
+                pageCount: documentPageCount,
+                chunkIndex: 0,
+                firstPageNumber: 1,
+                offset: 0,
+                byteLength: 0,
+                pages: Array.from({length: documentPageCount}, (_, index) => pageGeometry(index + 1)),
+            }),
+            close: async () => undefined,
+        };
+        const renderRaster: IRunScanCleanupPipelineDependencies['renderPage'] = async (
+            _paths, _log, _pageNumber, _source, outputPath,
+        ) => {await writeFile(outputPath, 'P6\n1 1\n255\n\0\0\0');};
+        const dependencies: IRunScanCleanupPipelineDependencies = {
+            getPageCount: async () => documentPageCount,
+            getPageSizeStore: async () => pageSizeStore,
+            detectSourceDpi: async () => ({
+                detected: true,
+                documentDpi: 300,
+                getPageRaster: () => ({
+                    dpi: 300,
+                    width: 2_550,
+                    height: 3_300,
+                }),
+            }),
+            renderPage: renderRaster,
+            renderPagePpm: renderRaster,
+            runSidecar: async (_binary, manifestPath, _signal, _log, onProgress) => {
+                const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
+                for (const [
+                    index,
+                    page,
+                ] of manifest.pages.entries()) {
+                    const pageNumber = requirePageNumber(index + 1);
+                    onProgress({
+                        stage: 'page-started',
+                        completedPages: index,
+                        totalPages: manifest.pages.length,
+                        pageNumber,
+                    });
+                    await writeFile(page.pageMetadataPath, JSON.stringify(analysisMetadata()));
+                    onProgress({
+                        stage: 'page-complete',
+                        completedPages: index + 1,
+                        totalPages: manifest.pages.length,
+                        pageNumber,
+                    });
+                }
+            },
+            runCommand: async (_command, args) => {
+                const outputIndex = args.indexOf('--output');
+                if (outputIndex >= 0) await writeFile(args[outputIndex + 1]!, '%PDF-1.7\n%%EOF\n');
+                if (args[0] === '--empty') await writeFile(args.at(-1)!, '%PDF-1.7\n%%EOF\n');
+                return {
+                    exitCode: 0,
+                    stdout: '',
+                    stderr: '',
+                };
+            },
+            getAvailableScratchBytes: async () => null,
+            hashNativeBinary: async () => 'a'.repeat(64),
+        };
+
+        const frames: TScanCleanupProgress[] = [];
+        await convert(
+            {
+                sourcePdfPath,
+                outputPdfPath,
+                options: {
+                    ...options,
+                    outputMode: 'color',
+                },
+            },
+            paths(root),
+            new AbortController().signal,
+            frame => {
+                frames.push(frame);
+            },
+            policy,
+            () => undefined,
+            dependencies,
+        );
+
+        const renderingFrames = frames.filter(frame => frame.stage === 'rendering');
+        expect(renderingFrames.length).toBeGreaterThan(documentPageCount);
+
+        let highWaterRasterized = 0;
+        let highWaterBuffer = 0;
+        let sawPositiveBuffer = false;
+        for (const frame of renderingFrames) {
+            expect(frame.rasterizedUnits).toBeDefined();
+            expect(frame.rasterizedUnits!).toBeGreaterThanOrEqual(highWaterRasterized);
+            expect(frame.rasterizedUnits!).toBeGreaterThanOrEqual(frame.completedUnits);
+            highWaterRasterized = frame.rasterizedUnits!;
+
+            const activity = resolveScanCleanupActivity({
+                detection: {
+                    pending: false,
+                    progress: null,
+                    analyzedPages: 0,
+                    totalPages: documentPageCount,
+                    calibrating: false,
+                },
+                run: {
+                    waitingForDetection: false,
+                    starting: false,
+                    progress: frame,
+                    committing: false,
+                },
+            })!;
+            expect(activity.bufferFraction).toBeGreaterThanOrEqual(highWaterBuffer);
+            highWaterBuffer = activity.bufferFraction;
+            if (sawPositiveBuffer) {
+                expect(activity.bufferFraction).toBeGreaterThan(0);
+                expect(activity.fraction).not.toBeNull();
+            }
+            if (activity.bufferFraction > 0) {
+                sawPositiveBuffer = true;
+            }
+        }
+        expect(highWaterRasterized).toBe(documentPageCount);
+        expect(highWaterBuffer).toBe(1);
     });
 });

@@ -114,6 +114,67 @@ async function createSparseMultiGibPdf(filePath: string, payloadBytes: number) {
     }
 }
 
+/**
+ * Builds a valid >512 MiB sparse PDF with searchable text on page 1 and an
+ * unreferenced sparse stream body so batched `overlay-text` exercises the
+ * >512 MiB host-sink staging path without allocating physical disk blocks.
+ */
+async function createSparseLargeOverlaySourcePdf(filePath: string, payloadBytes: number, text: string) {
+    const handle = await open(filePath, 'w');
+    try {
+        const enc = (textValue: string) => Buffer.from(textValue, 'latin1');
+        let pos = 0;
+        const offsets: number[] = [0];
+
+        const writeAtCursor = async (buf: Buffer) => {
+            await handle.write(buf, 0, buf.byteLength, pos);
+            pos += buf.byteLength;
+        };
+
+        await writeAtCursor(enc('%PDF-1.7\n%\xE2\xE3\xCF\xD3\n'));
+
+        offsets[1] = pos;
+        await writeAtCursor(enc('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n'));
+
+        offsets[2] = pos;
+        await writeAtCursor(enc('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n'));
+
+        offsets[3] = pos;
+        await writeAtCursor(enc(
+            '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]'
+            + ' /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>\nendobj\n',
+        ));
+
+        const contentStream = `BT /F1 12 Tf 40 700 Td (${text}) Tj ET`;
+        offsets[4] = pos;
+        await writeAtCursor(enc(
+            `4 0 obj\n<< /Length ${contentStream.length} >>\nstream\n${contentStream}\nendstream\nendobj\n`,
+        ));
+
+        offsets[5] = pos;
+        await writeAtCursor(enc(
+            '5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj\n',
+        ));
+
+        offsets[6] = pos;
+        await writeAtCursor(enc(`6 0 obj\n<< /Length ${payloadBytes} >>\nstream\n`));
+        pos += payloadBytes - 1;
+        await writeAtCursor(Buffer.from([0x20]));
+        await writeAtCursor(enc('\nendstream\nendobj\n'));
+
+        const xrefStart = pos;
+        let xref = `xref\n0 ${offsets.length}\n0000000000 65535 f \n`;
+        for (let i = 1; i < offsets.length; i += 1) {
+            xref += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+        }
+        xref += `trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
+        await writeAtCursor(enc(xref));
+        return pos;
+    } finally {
+        await handle.close();
+    }
+}
+
 describe('desktop evb-pdf-page-ops.wasm host-file streaming integration', () => {
     let tempRoot = '';
 
@@ -524,6 +585,94 @@ describe('desktop evb-pdf-page-ops.wasm host-file streaming integration', () => 
             // Physical allocated bytes (512B blocks) must remain orders of magnitude below 2.1 GiB.
             expect(separateStat.blocks * 512).toBeLessThan(64 * 1024 * 1024);
         }
+    }, TIMEOUT_MS);
+
+    it('streams overlay-text when the original source PDF exceeds 512 MiB', async () => {
+        tempRoot = await mkdtemp(join(tmpdir(), 'evb-desktop-page-ops-large-overlay-'));
+        const wasmPath = resolveNativePageOpsPath()!;
+        const targetPdf = join(tempRoot, 'target.pdf');
+        const largeSourcePdf = join(tempRoot, 'source-513mib.pdf');
+        const overlaidOut = join(tempRoot, 'overlaid.pdf');
+        const instructionsPath = join(tempRoot, 'overlay-instructions.json');
+
+        const targetDoc = await PDFDocument.create();
+        targetDoc.addPage([
+            612,
+            792,
+        ]);
+        await writeFile(targetPdf, await targetDoc.save());
+
+        const sentinel = 'Large source overlay sentinel';
+        const sourceLen = await createSparseLargeOverlaySourcePdf(largeSourcePdf, 513 * 1024 * 1024, sentinel);
+        expect(sourceLen).toBeGreaterThan(512 * 1024 * 1024);
+
+        await writeFile(instructionsPath, JSON.stringify({
+            pages: [{
+                sourcePageIndex: 0,
+                outputPageIndex: 0,
+                matrix: [
+                    1,
+                    0,
+                    0,
+                    1,
+                    0,
+                    0,
+                ],
+            }],
+        }), 'utf8');
+
+        await runNativeToolCommand(wasmPath, [
+            'overlay-text',
+            '--input',
+            targetPdf,
+            '--source',
+            largeSourcePdf,
+            '--output',
+            overlaidOut,
+            '--instructions-file',
+            instructionsPath,
+        ]);
+
+        const overlaidBytes = await readFile(overlaidOut);
+        expect((await PDFDocument.load(overlaidBytes)).getPageCount()).toBe(1);
+        await runQpdf([
+            '--check',
+            overlaidOut,
+        ]);
+
+        // Verify the overlaid text stream from the >512 MiB source landed on page 1.
+        const qdfOut = join(tempRoot, 'overlaid-qdf.pdf');
+        await runQpdf([
+            '--qdf',
+            '--object-streams=disable',
+            overlaidOut,
+            qdfOut,
+        ]);
+        const qdfText = await readFile(qdfOut, 'latin1');
+        expect(qdfText).toContain(sentinel);
+
+        // No-op save-mutations --append must still copy 0 bytes and leave --output untouched.
+        const noopMutationsPath = join(tempRoot, 'noop-shapes.json');
+        const noopOut = join(tempRoot, 'noop-out.pdf');
+        await writeFile(noopMutationsPath, JSON.stringify({
+            shapes: {
+                totalPages: 1,
+                shapes: [],
+            },
+        }), 'utf8');
+        await runNativeToolCommand(wasmPath, [
+            'save-mutations',
+            '--input',
+            targetPdf,
+            '--output',
+            noopOut,
+            '--mutations-file',
+            noopMutationsPath,
+            '--modified-at',
+            'D:20260829120000Z',
+            '--append',
+        ]);
+        await expect(access(noopOut)).rejects.toMatchObject({code: 'ENOENT'});
     }, TIMEOUT_MS);
 
     it('enforces read-only alias refusal, u32 bounds, crop parity, and immediate group cancellation', async () => {

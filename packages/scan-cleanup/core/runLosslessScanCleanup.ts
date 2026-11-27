@@ -353,7 +353,9 @@ export async function runLosslessScanCleanup(
         ] of pages.entries()) {
             nativeOptionsBySource.set(batchPageNumbers[index]!, page.options);
         }
-        emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers);
+        emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, {
+            rasterizedUnits: rasterizedCount,
+        });
         await dependencies.runSidecar(paths.scanCleanupBinary, manifestPath, signal, log, nativeProgress => {
             // Native reports page numbers relative to this manifest. Keep
             // the source mapping local to the bounded batch.
@@ -367,7 +369,10 @@ export async function runLosslessScanCleanup(
                 const sourcePageNumber = batchPageNumbers[nativeProgress.pageNumber - 1];
                 if (sourcePageNumber !== undefined) {
                     activePages.start(sourcePageNumber);
-                    emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, activePages.snapshot());
+                    emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, {
+                        rasterizedUnits: rasterizedCount,
+                        ...activePages.snapshot(),
+                    });
                 }
                 return;
             }
@@ -379,14 +384,20 @@ export async function runLosslessScanCleanup(
                 const sourcePageNumber = batchPageNumbers[nativeProgress.pageNumber - 1];
                 if (sourcePageNumber !== undefined) {
                     activePages.setStage(sourcePageNumber, nativeProgress.subPageStage);
-                    emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, activePages.snapshot());
+                    emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, {
+                        rasterizedUnits: rasterizedCount,
+                        ...activePages.snapshot(),
+                    });
                 }
                 return;
             }
             if (nativeProgress.stage === 'page-analyzed' && nativeProgress.pageNumber !== undefined) {
                 const sourcePageNumber = batchPageNumbers[nativeProgress.pageNumber - 1];
                 if (sourcePageNumber !== undefined && activePages.finish(sourcePageNumber)) {
-                    emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, activePages.snapshot());
+                    emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, {
+                        rasterizedUnits: rasterizedCount,
+                        ...activePages.snapshot(),
+                    });
                 }
                 return;
             }
@@ -406,7 +417,10 @@ export async function runLosslessScanCleanup(
                     classifiedCount += 1;
                 }
             }
-            emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, activePages.snapshot());
+            emitProgress('classifying', classifiedCount, pageNumbers.length, classifiedPageNumbers, {
+                rasterizedUnits: rasterizedCount,
+                ...activePages.snapshot(),
+            });
         }, {
             allowedPathRoot: scratch,
             ...(context.onRecoveryPending === undefined ? {} : {onRecoveryPending: context.onRecoveryPending}),

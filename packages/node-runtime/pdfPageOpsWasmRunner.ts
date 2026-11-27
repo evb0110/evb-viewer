@@ -670,9 +670,9 @@ export function createPdfPageOpsWasmRunner(
                         if (!writeExactSync(sink.fd, view, at)) {
                             return -1;
                         }
+                        sink.maxLen = Math.max(sink.maxLen, at + len);
                     }
                     sink.writtenAny = true;
-                    sink.maxLen = Math.max(sink.maxLen, at + len);
                     return 0;
                 } catch {
                     return -1;

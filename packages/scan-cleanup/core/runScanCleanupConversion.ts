@@ -866,6 +866,7 @@ async function runStreamingScanCleanupConversion({
     const mappingHandle = await open(outputMappingsPath, 'w');
     const pageHandle = await open(outputPagesPath, 'w');
     const completedPageNumbers = new Set<number>();
+    let lastRasterizedUnits: number | undefined;
     // The run's own provenance, gathered from each child's stamp with its
     // output ordinals moved past the children before it.
     const runStamp = {
@@ -940,7 +941,10 @@ async function runStreamingScanCleanupConversion({
                 })));
                 sourceText.skippedNonAffine.push(...restoredBatch.skippedNonAffine);
                 for (const pageNumber of batchPageNumbers) completedPageNumbers.add(pageNumber);
-                emitProgress('rendering', batch.endOffsetExclusive, pageCount, completedPageNumbers);
+                lastRasterizedUnits = Math.max(lastRasterizedUnits ?? 0, Math.min(pageCount, batch.endOffsetExclusive));
+                emitProgress('rendering', batch.endOffsetExclusive, pageCount, completedPageNumbers, {
+                    rasterizedUnits: lastRasterizedUnits,
+                });
                 log(
                     'debug',
                     `Scan cleanup resumed bounded output batch ${String(batch.batchIndex)} `
@@ -1011,16 +1015,25 @@ async function runStreamingScanCleanupConversion({
                         const childRasterized = childStage === 'rasterizing'
                             ? childCompletedUnits
                             : progressOptions?.rasterizedUnits;
-                        const rasterizedUnits = childRasterized === undefined
-                            ? undefined
-                            : Math.min(pageCount, batch.startOffset + childRasterized);
+                        if (childRasterized !== undefined) {
+                            const reportedRasterized = Math.min(pageCount, batch.startOffset + childRasterized);
+                            lastRasterizedUnits = lastRasterizedUnits === undefined
+                                ? reportedRasterized
+                                : Math.max(lastRasterizedUnits, reportedRasterized);
+                        }
+                        if (completedPageNumbers.size > 0) {
+                            const completedFloor = Math.min(pageCount, completedPageNumbers.size);
+                            lastRasterizedUnits = lastRasterizedUnits === undefined
+                                ? completedFloor
+                                : Math.max(lastRasterizedUnits, completedFloor);
+                        }
                         emitProgress(
                             'rendering',
                             completedPageNumbers.size,
                             pageCount,
                             completedPageNumbers,
                             {
-                                ...(rasterizedUnits === undefined ? {} : {rasterizedUnits}),
+                                ...(lastRasterizedUnits === undefined ? {} : {rasterizedUnits: lastRasterizedUnits}),
                                 ...(progressOptions?.activePageNumbers === undefined ? {} : {activePageNumbers: progressOptions.activePageNumbers}),
                                 ...(progressOptions?.activeSubPageStage === undefined ? {} : {activeSubPageStage: progressOptions.activeSubPageStage}),
                             },
@@ -1028,7 +1041,10 @@ async function runStreamingScanCleanupConversion({
                     },
                 });
                 for (const pageNumber of batchPageNumbers) completedPageNumbers.add(pageNumber);
-                emitProgress('rendering', batch.endOffsetExclusive, pageCount, completedPageNumbers);
+                lastRasterizedUnits = Math.max(lastRasterizedUnits ?? 0, Math.min(pageCount, batch.endOffsetExclusive));
+                emitProgress('rendering', batch.endOffsetExclusive, pageCount, completedPageNumbers, {
+                    rasterizedUnits: lastRasterizedUnits,
+                });
                 childReport = await readChildJson<IScanCleanupRepresentationReport>(
                     join(childScratch, 'scan-cleanup-representation-report.json'),
                 );
@@ -2126,7 +2142,9 @@ async function executeScanCleanupBatch({
             `Scan cleanup resumed ${String(restoredPages.size)}/${String(rasterPlans.length)} `
             + 'completed page(s) from witness-bound checkpoint',
         );
-        emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers);
+        emitProgress('rendering', renderedPageNumbers.size, pageCount, renderedPageNumbers, {
+            rasterizedUnits: rasterizedPageNumbers.size,
+        });
     }
 
     interface IStreamingPageWorkItem {
