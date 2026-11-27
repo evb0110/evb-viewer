@@ -1,10 +1,9 @@
-import {readFileSync} from 'node:fs';
 import {PDFDocument} from 'pdf-lib';
 import {
     describe, expect, it,
 } from 'vitest';
 import {
-    lifecycle, waitForOpenFileReady, addNote, noteTexts, settleActiveOpen,
+    lifecycle, waitForOpenFileReady, addNote, noteTexts, readDownloadBytes, settleActiveOpen,
 } from './documentLifecycleTestHelpers';
 import {
     createReadingBook, readReadingView,
@@ -124,7 +123,7 @@ describe('browser document lifecycle UI', () => {
             const download = page.waitForEvent('download');
             await page.evaluate(() => Reflect.set(window, 'showSaveFilePicker', undefined));
             await page.getByRole('menuitem', {name: /^Save As/u}).click();
-            expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toContain(note);
+            expect(noteTexts(await PDFDocument.load(await readDownloadBytes(await download)))).toContain(note);
         } finally {
             await context.close();
         }

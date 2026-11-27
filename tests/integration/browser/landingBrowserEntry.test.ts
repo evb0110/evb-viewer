@@ -4,12 +4,14 @@ import {resolve} from 'node:path';
 import {
     afterAll, beforeAll, expect, it, vi,
 } from 'vitest';
-import {chromium} from 'playwright';
 import type {Browser} from 'playwright';
 import {buildNuxtDevServerEnv} from '@scripts/electron-run/electronRunLaunchConfig';
 import {
     findFreePort, killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
+import {
+    closeChromiumBrowser, connectOrLaunchChromium,
+} from './browserIntegrationChromium';
 
 let server: ReturnType<typeof spawn>;
 let browser: Browser;
@@ -63,12 +65,12 @@ beforeAll(async () => {
         const status = await fetch(`${origin}/`).then(response => response.status).catch(() => 0);
         expect(status, output).toBe(200);
     }, {timeout: 90_000});
-    browser = await chromium.launch({headless: true});
+    browser = await connectOrLaunchChromium();
 }, 180_000);
 
 afterAll(async () => {
     try {
-        await browser?.close();
+        await closeChromiumBrowser(browser);
     } finally {
         if (server?.pid) await killProcessTree(server.pid);
     }

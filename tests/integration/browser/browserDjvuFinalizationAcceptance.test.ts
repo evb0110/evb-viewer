@@ -16,9 +16,7 @@ import {
 } from 'node:path';
 import {build} from 'esbuild';
 import {decode as decodePng} from 'fast-png';
-import {
-    chromium, type Download,
-} from 'playwright';
+import type {Download} from 'playwright';
 import UTIF, {type IUtifFrame} from 'utif';
 import {
     afterAll,
@@ -27,6 +25,11 @@ import {
     expect,
     it,
 } from 'vitest';
+import {
+    closeChromiumBrowser,
+    connectOrLaunchChromium,
+    readDownloadBytes,
+} from './browserIntegrationChromium';
 import {PDF_COMBINE_MAX_OUTPUT_BYTES} from '@contracts/pdfCombineOutputPolicy';
 
 interface IBrowserImageExportAcceptance {
@@ -282,7 +285,7 @@ afterAll(async () => {
 
 describe('browser DjVu finalization acceptance in Chromium', () => {
     it('converts a tracked DjVu fixture and reopens the generated PDF', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -311,12 +314,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 reopenedPageCount: 2,
             });
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, 120_000);
 
     it('exports compact bytes through the worker and cancels its pending WASM load with trusted input', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             for (const cancel of [
                 false,
@@ -394,12 +397,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 }
             }
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 
     it('writes each DjVu image format that its chosen file name advertises', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -443,12 +446,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             expect(readJpegDpi(bytesOf(jpegResult))).toEqual(PAGE_DPI);
             expect(UTIF.decode(bytesOf(tiffResult)).map(readTiffFrameDpi)).toEqual([PAGE_DPI]);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 
     it('writes each PDF page image format that its chosen file name advertises', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -488,12 +491,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 storedName: 'page-001.jpg',
             });
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 
     it('refuses a PDF Save As to an incompatible physical handle with the localized message', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             page.on('pageerror', error => console.log('[browser export acceptance]', error.message));
@@ -512,7 +515,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             expect(result.bytes).toBe('sentinel bytes');
             expect(result.source).toBe(result.originalSource);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 
@@ -521,7 +524,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
         2,
         3,
     ])('keeps every image from two overlapping folder exports: run %s', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -558,7 +561,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 expect(Buffer.from(file.bytesBase64, 'base64').byteLength).toBeGreaterThan(100);
             }
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 
@@ -572,7 +575,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
         'abort-unknown',
         'close-unknown',
     ])('keeps completed folder images and only cleans a provably empty failed page: %s', async mode => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             page.on('pageerror', error => console.log('[browser export acceptance]', error.message));
@@ -629,7 +632,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 expect(outcome.retried.find(file => file.name === 'document-pages-001.jpg')?.bytesBase64).toBe(outcome.failed[0]!.bytesBase64);
             }
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 
@@ -677,7 +680,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             false,
         ],
     ] as const)('streams every bounded TIFF part with trusted input: %s %s collision=%s failure=%s', async (kind, destination, collision, failPage) => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage({acceptDownloads: true});
             await page.goto(origin);
@@ -746,14 +749,10 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             }>;
             if (destination === 'download') {
                 await allDownloads.promise;
-                files = await Promise.all(downloads.map(async download => {
-                    const path = await download.path();
-                    if (!path) throw new Error('Download did not finish');
-                    return {
-                        name: download.suggestedFilename(),
-                        bytes: await readFile(path),
-                    };
-                }));
+                files = await Promise.all(downloads.map(async download => ({
+                    name: download.suggestedFilename(),
+                    bytes: await readDownloadBytes(download),
+                })));
             } else {
                 files = outcome.files.filter(file => !collision || file.name !== `${base}-part-001.${extension}`).map(file => ({
                     name: file.name,
@@ -791,12 +790,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             }
             expect(pageNumber).toBe(5);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 
     it('writes a multi-page DjVu TIFF into the chosen folder with each page density', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -838,12 +837,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 ]);
             }
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 
     it('writes a multi-page PDF TIFF into the chosen folder with both pages', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -866,13 +865,13 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 expect(UTIF.decode(Buffer.from(result.bytesBase64, 'base64'))).toHaveLength(2);
             }
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
     // T3: a multi-page TIFF holds every page. Its decoded pages once had to fit
     // 64 MiB: without a file handle always, and for DjVu even with one.
     it('writes multi-page TIFFs whose decoded pages exceed 64 MiB through a handle and as a download', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -913,7 +912,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             const download = page.waitForEvent('download');
             const pdf = await runExport('pdf', 10);
             expect(pdf).toMatchObject({success: true});
-            const downloaded = await readFile((await (await download).path())!);
+            const downloaded = await readDownloadBytes(await download);
             expect((await download).suggestedFilename()).toBe('browser-letter-image-export.tif');
             expect(downloaded.byteLength).toBeGreaterThan(64 * 1024 * 1024);
             const frames = UTIF.decode(downloaded);
@@ -928,14 +927,14 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 ]),
             );
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, 120_000);
 
     // T3: a page export writes every selected page after one destination
     // choice, as desktop does; it once asked for a file name for every page.
     it('exports several pages into one chosen folder under desktop names, or as one ZIP download', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -1016,7 +1015,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 },
             });
             expect((await download).suggestedFilename()).toBe('document-pages.zip');
-            const archive = await readFile((await (await download).path())!);
+            const archive = await readDownloadBytes(await download);
             // Walk the STORED local entries the archive opens with.
             const entries: Array<{
                 name: string;
@@ -1040,12 +1039,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             ]);
             expect(entries.every(entry => entry.head.join() === JPEG_SIGNATURE.join())).toBe(true);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, 120_000);
 
     it('exposes DjVu PNG density before image data to header readers', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -1064,12 +1063,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             expect(types.indexOf('pHYs')).toBeLessThan(types.indexOf('IDAT'));
             expect(readPngDpi(bytes)).toEqual(PAGE_DPI);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 
     it('preserves the physical 1 by 2 inch PDF page in every raster format', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -1105,12 +1104,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 },
             })));
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 
     it('refuses a non-TIFF handle before writing and restricts the save picker', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.goto(origin);
@@ -1151,12 +1150,12 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
                 }
             }
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 
     it('keeps the other compact DjVu export intact after Cancel in one document', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         const releaseWasm = Promise.withResolvers<undefined>();
         try {
             const page = await browser.newPage();
@@ -1212,7 +1211,7 @@ describe('browser DjVu finalization acceptance in Chromium', () => {
             expect(result.outputBytes).toBeGreaterThan(0);
         } finally {
             releaseWasm.resolve(undefined);
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, 90_000);
 });

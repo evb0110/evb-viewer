@@ -1,14 +1,17 @@
-import { chromium } from 'playwright';
 import {
     describe,
     expect,
     it,
 } from 'vitest';
 import { toPdfScaledCssLength } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
+import {
+    closeChromiumBrowser,
+    connectOrLaunchChromium,
+} from './browserIntegrationChromium';
 
 describe('PDF stroke scale in Chromium', () => {
     it('repaints an SVG stroke when only the live page scale variable changes', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await page.setContent('<!doctype html><main id="host"></main>');
@@ -55,7 +58,7 @@ describe('PDF stroke scale in Chromium', () => {
             expect(result.updatedWidth).toBeCloseTo(6.04, 5);
             expect(result.updatedSize).toEqual(result.initialSize);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     });
 });

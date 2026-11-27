@@ -14,7 +14,7 @@ import {
 } from 'vitest';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
-    installPickerHandleFixture, openPdfFromChooser, lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, settleActiveOpen,
+    installPickerHandleFixture, openPdfFromChooser, lifecycle, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, clickCenter, readDownloadBytes, settleActiveOpen,
 } from './documentLifecycleTestHelpers';
 import {
     createReadingBook, readReadingView, openReadingBook,
@@ -224,7 +224,7 @@ describe('browser document lifecycle UI', () => {
             const download = saveMode === 'download' ? page.waitForEvent('download') : null;
             await save.click();
             if (download) {
-                expect(noteTexts(await PDFDocument.load(readFileSync(await (await download).path())))).toEqual(new Set(['Saved where I left off']));
+                expect(noteTexts(await PDFDocument.load(await readDownloadBytes(await download)))).toEqual(new Set(['Saved where I left off']));
             }
             await expect.poll(async () => [
                 await save.getAttribute('aria-busy'),
@@ -469,7 +469,7 @@ describe('B01 file command annotation isolation', () => {
                     name: 'Save',
                     exact: true,
                 }).click();
-                await (await download).path();
+                await readDownloadBytes(await download);
                 // Sticky-note text and marker creation are separate accepted commands.
                 await history('Undo');
                 await history('Undo');

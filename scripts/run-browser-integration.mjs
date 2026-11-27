@@ -26,8 +26,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     process.exitCode = result.status ?? 1;
 }
 
-// One development server owns the compiled client/worker graph for this lane.
-// Browser contexts and document state still belong to each spec.
+// One development server owns the compiled client/worker graph for this lane,
+// and one shared Chromium server serves isolated contexts across ordinary specs.
+// Persistent-context specs still launch their own browser processes.
+const BROWSER_WS_ENDPOINT_ENV = 'EVB_BROWSER_INTEGRATION_WS_ENDPOINT';
+
 /** @param {{provide: (key: string, value: string) => void}} project */
 export async function setup(project) {
     const { tsImport } = await import('tsx/esm/api');
@@ -36,15 +39,20 @@ export async function setup(project) {
             findFreePort, isProcessAlive, killProcessTree,
         },
         { buildNuxtDevServerEnv },
+        { chromium },
     ] = await Promise.all([
         tsImport('./electron-run/electronRunProcessTree.ts', import.meta.url),
         tsImport('./electron-run/electronRunLaunchConfig.ts', import.meta.url),
+        import('playwright'),
     ]);
     const port = await findFreePort();
     const origin = `http://127.0.0.1:${String(port)}`;
     const sessionName = `browser-lifecycle-${process.pid}`;
     const outputPath = resolve('.devkit', `${sessionName}.log`);
     mkdirSync(resolve('.devkit'), { recursive: true });
+    const previousWsEndpoint = process.env[BROWSER_WS_ENDPOINT_ENV];
+    /** @type {Promise<import('playwright').BrowserServer | null> | null} */
+    let browserServerPromise = null;
     let serverOutput = '';
     const devServer = spawn(process.execPath, [
         resolve(process.cwd(), 'node_modules/nuxt/bin/nuxt.mjs'),
@@ -72,7 +80,46 @@ export async function setup(project) {
     };
     devServer.stdout.on('data', captureOutput);
     devServer.stderr.on('data', captureOutput);
-    const stopServer = async () => {
+
+    /** @type {Promise<void> | null} */
+    let stopPromise = null;
+    /** @param {NodeJS.Signals} signal */
+    const handleSignal = (signal) => {
+        void stopServer().finally(() => {
+            if (process.listenerCount(signal) === 0) {
+                process.kill(process.pid, signal);
+            }
+        });
+    };
+    process.on('SIGINT', handleSignal);
+    process.on('SIGTERM', handleSignal);
+
+    const stopBrowserServer = async () => {
+        if (!browserServerPromise) return;
+        const activeServer = await browserServerPromise.catch(() => null);
+        browserServerPromise = null;
+        if (!activeServer) return;
+        const browserPid = activeServer.process()?.pid;
+        try {
+            await Promise.race([
+                activeServer.close(),
+                new Promise((_, reject) => {
+                    const timer = setTimeout(() => reject(new Error('Timed out closing browser integration Chromium server')), 10_000);
+                    timer.unref();
+                }),
+            ]);
+        } catch {
+            await activeServer.kill().catch(() => {});
+        }
+        if (browserPid && isProcessAlive(browserPid)) {
+            await killProcessTree(browserPid);
+            if (isProcessAlive(browserPid)) {
+                throw new Error('The browser integration Chromium server process did not exit');
+            }
+        }
+    };
+
+    const stopDevServer = async () => {
         try {
             if (!devServer.pid) return;
             await killProcessTree(devServer.pid);
@@ -83,7 +130,34 @@ export async function setup(project) {
             rmSync(outputPath, { force: true });
         }
     };
+
+    const stopServer = () => {
+        if (stopPromise) return stopPromise;
+        stopPromise = (async () => {
+            process.off('SIGINT', handleSignal);
+            process.off('SIGTERM', handleSignal);
+            if (previousWsEndpoint === undefined) {
+                delete process.env[BROWSER_WS_ENDPOINT_ENV];
+            } else {
+                process.env[BROWSER_WS_ENDPOINT_ENV] = previousWsEndpoint;
+            }
+            const results = await Promise.allSettled([
+                stopBrowserServer(),
+                stopDevServer(),
+            ]);
+            const rejected = results.find(result => result.status === 'rejected');
+            if (rejected) throw rejected.reason;
+        })();
+        return stopPromise;
+    };
+
     try {
+        browserServerPromise = chromium.launchServer({
+            headless: true,
+            host: '127.0.0.1',
+        });
+        // Prevent unhandled rejection if devServer startup fails before we await browserServerPromise.
+        browserServerPromise.catch(() => {});
         await once(devServer, 'spawn');
         const deadline = Date.now() + 90_000;
         while (true) {
@@ -102,6 +176,11 @@ export async function setup(project) {
             }
             await new Promise(resolveWait => setTimeout(resolveWait, 250));
         }
+        const activeBrowserServer = await browserServerPromise;
+        if (!activeBrowserServer) {
+            throw new Error('Failed to launch shared Chromium server for browser integration tests');
+        }
+        process.env[BROWSER_WS_ENDPOINT_ENV] = activeBrowserServer.wsEndpoint();
         project.provide('browserIntegrationOrigin', origin);
         project.provide('browserIntegrationServerOutputPath', outputPath);
         return stopServer;

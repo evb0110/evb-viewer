@@ -11,6 +11,7 @@ import {
     lifecycle,
     noteTexts,
     openPdfFromChooser,
+    readDownloadBytes,
 } from './documentLifecycleTestHelpers';
 
 /** Desktop's verdict for a PDF, from the browser's page tool (the same Rust function). */
@@ -132,9 +133,7 @@ describe('browser PDF open recovery', () => {
                 name: 'Save',
                 exact: true,
             }).click();
-            const path = await (await download).path();
-            if (!path) throw new Error('The repaired PDF was not saved');
-            const saved = new Uint8Array(await readFile(path));
+            const saved = new Uint8Array(await readDownloadBytes(await download));
             if (evidence) await writeFile(join(evidence, 'saved.pdf'), saved);
             // The note was appended to a base whose chain an edit can extend:
             // the saved file takes the next edit, as desktop's would.

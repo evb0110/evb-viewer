@@ -10,11 +10,13 @@ import {
 } from 'node:path';
 import {PDFDocument} from 'pdf-lib';
 import {build} from 'esbuild';
-import {chromium} from 'playwright';
 import type {Download} from 'playwright';
 import {
     describe, expect, it,
 } from 'vitest';
+import {
+    closeChromiumBrowser, connectOrLaunchChromium, readDownloadBytes,
+} from './browserIntegrationChromium';
 import type {IBrowserLifecycleTestApi} from './documentLifecycleTestHelpers';
 import {
     openPdfFromChooser, lifecycle, readPersistedDocumentBytes, waitForOpenFileReady, collectConsoleProblems, keepFileChooserInterceptionEnabled, addNote, noteTexts, readBrowserPayloadCounts, readRecoveries, settleActiveOpen,
@@ -447,7 +449,7 @@ describe('browser document lifecycle UI', () => {
         'conversion',
         'save-as',
     ] as const)('retains pending %s bytes through peer Recent clearing', async operation => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         const context = await browser.newContext({viewport: {
             width: 1_280,
             height: 900,
@@ -552,8 +554,7 @@ describe('browser document lifecycle UI', () => {
                     exact: true,
                 }).click();
                 await page.getByRole('menuitem', {name: /^Save As/u}).click();
-                const savedPath = await (await download).path();
-                const savedBytes = readFileSync(savedPath!);
+                const savedBytes = await readDownloadBytes(await download);
                 savedDigest = Array.from(createHash('sha256').update(savedBytes).digest());
                 expect((await PDFDocument.load(savedBytes)).getPageCount()).toBe(1);
             }
@@ -612,7 +613,7 @@ describe('browser document lifecycle UI', () => {
             await page.screenshot({path: resolve(process.cwd(), `.devkit/browser-pending-${operation}-reloaded.png`)});
             expect(problems).toEqual([]);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, 120_000);
 
@@ -648,9 +649,8 @@ describe('browser document lifecycle UI', () => {
                 exact:true,
             }).click();
             await page.getByRole('menuitem', {name: /^Save As/u}).click();
-            const firstPath = await (await firstDownload).path();
-            expect(firstPath).not.toBeNull();
-            expect(Array.from(noteTexts(await PDFDocument.load(readFileSync(firstPath!)))))
+            const firstBytes = await readDownloadBytes(await firstDownload);
+            expect(Array.from(noteTexts(await PDFDocument.load(firstBytes))))
                 .toContain('review first saved note');
             await page.evaluate(async () => {
                 const api = Reflect.get(window, '__evbTestApi') as IBrowserLifecycleTestApi;
@@ -711,9 +711,8 @@ describe('browser document lifecycle UI', () => {
                 'review second saved note',
             ]));
             await expect.poll(() => downloads.length, {timeout: 15_000}).toBe(1);
-            const downloadedPath = await downloads[0]!.path();
-            expect(downloadedPath).not.toBeNull();
-            expect(Array.from(noteTexts(await PDFDocument.load(readFileSync(downloadedPath!))))).toEqual(expect.arrayContaining([
+            const downloadedBytes = await readDownloadBytes(downloads[0]!);
+            expect(Array.from(noteTexts(await PDFDocument.load(downloadedBytes)))).toEqual(expect.arrayContaining([
                 'review first saved note',
                 'review second saved note',
             ]));

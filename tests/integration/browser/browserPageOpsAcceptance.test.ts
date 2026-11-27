@@ -24,6 +24,10 @@ import {
     expect,
     it,
 } from 'vitest';
+import {
+    closeChromiumBrowser,
+    connectOrLaunchChromium,
+} from './browserIntegrationChromium';
 
 let server: Server;
 let origin = '';
@@ -98,7 +102,7 @@ async function openHarness(page: Page) {
 
 describe('browser page-ops capability acceptance in Chromium', () => {
     it('saves, reopens, and remaps outlines and page labels for delete, reorder, and insert', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await openHarness(page);
@@ -192,12 +196,12 @@ describe('browser page-ops capability acceptance in Chromium', () => {
                 cropRemovedMatchesMedia: true,
             });
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, 120_000);
 
     it('reads the outline and the page labels each on its own', async () => {
-        const browser = await chromium.launch({headless: true});
+        const browser = await connectOrLaunchChromium();
         try {
             const page = await browser.newPage();
             await openHarness(page);
@@ -221,7 +225,7 @@ describe('browser page-ops capability acceptance in Chromium', () => {
                 },
             ]);
         } finally {
-            await browser.close();
+            await closeChromiumBrowser(browser);
         }
     }, 120_000);
 
