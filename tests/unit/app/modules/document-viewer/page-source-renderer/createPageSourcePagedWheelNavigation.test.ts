@@ -4,6 +4,10 @@ import {
     it,
     vi,
 } from 'vitest';
+import {
+    createDocumentViewportWritePort,
+    observeDocumentViewportWheelInteraction,
+} from '@app/modules/document-viewer/runtime/documentViewportWritePort';
 import {createPageSourcePagedWheelNavigation} from '@app/modules/document-viewer/page-source-renderer/createPageSourcePagedWheelNavigation';
 
 function createContainer() {
@@ -144,5 +148,149 @@ describe('createPageSourcePagedWheelNavigation', () => {
             preventDefault: nextPreventDefault,
         }, state)).toBe(3);
         expect(nextPreventDefault).toHaveBeenCalledOnce();
+    });
+
+    it('ignores horizontal-dominant line-mode wheel input when normalized vertical pixels exceed raw deltaX', () => {
+        const navigation = createPageSourcePagedWheelNavigation(20);
+        const container = createContainer();
+        const preventDefault = vi.fn();
+
+        // Line mode: deltaX=2 lines, deltaY=1 line -> normalized vertical deltaPx=16.
+        // Raw axis comparison must classify this as horizontal-dominant and not turn a page.
+        expect(navigation.handle({
+            cancelable: true,
+            deltaMode: 1,
+            deltaX: 2,
+            deltaY: 1,
+            timeStamp: 100,
+            preventDefault,
+        }, {
+            container,
+            continuousScroll: false,
+            currentPage: 1,
+            pageCount: 20,
+            pageHeights: Array.from({length: 20}, () => 760),
+            viewMode: 'single',
+        }, 16)).toBeNull();
+        expect(preventDefault).not.toHaveBeenCalled();
+    });
+
+    it('advances pages on repeated 1-line wheel notches spaced 100ms apart', () => {
+        const navigation = createPageSourcePagedWheelNavigation(20);
+        const container = createContainer();
+        const state = {
+            container,
+            continuousScroll: false,
+            currentPage: 1,
+            pageCount: 20,
+            pageHeights: Array.from({length: 20}, () => 760),
+            viewMode: 'single' as const,
+        };
+        const targets: number[] = [];
+
+        for (let index = 0; index < 16; index += 1) {
+            const target = navigation.handle({
+                cancelable: true,
+                deltaMode: 1,
+                deltaX: 0,
+                deltaY: 1,
+                timeStamp: index * 100,
+                preventDefault: vi.fn(),
+            }, state, 16);
+            if (target !== null) targets.push(target);
+        }
+        expect(targets.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('keeps a cancelable tail fenced across a >200ms gap while the viewport write port reports an open host sequence', () => {
+        const port = createDocumentViewportWritePort();
+        const navigation = createPageSourcePagedWheelNavigation(20);
+        const container = createContainer();
+        container.scrollTop = 0;
+
+        const makeEvent = (timeStamp: number, deltaY: number) => {
+            const event = {
+                cancelable: true,
+                clientX: 100,
+                clientY: 100,
+                defaultPrevented: false,
+                deltaMode: 0,
+                deltaX: 0,
+                deltaY,
+                timeStamp,
+                preventDefault: vi.fn(() => {
+                    event.defaultPrevented = true;
+                }),
+            };
+            return event;
+        };
+
+        // 1. Interior scroll starts the host sequence unprevented.
+        const interiorEvent = makeEvent(0, 40);
+        observeDocumentViewportWheelInteraction(port, {
+            deltaPx: 40,
+            event: interiorEvent,
+            intent: 'scroll',
+        }, container);
+        expect(navigation.handle(interiorEvent, {
+            container,
+            continuousScroll: false,
+            currentPage: 1,
+            pageCount: 20,
+            pageHeights: Array.from({length: 20}, () => 1_200),
+            viewMode: 'single',
+        }, 40)).toBeNull();
+        port.observeWheelScrollSequence('begin');
+
+        // 2. Reaching the page edge flips once to page 2.
+        container.scrollTop = 440;
+        const flipEvent = makeEvent(40, 120);
+        observeDocumentViewportWheelInteraction(port, {
+            deltaPx: 120,
+            event: flipEvent,
+            intent: 'scroll',
+        }, container);
+        expect(navigation.handle(flipEvent, {
+            container,
+            continuousScroll: false,
+            currentPage: 1,
+            pageCount: 20,
+            pageHeights: Array.from({length: 20}, () => 1_200),
+            viewMode: 'single',
+        }, 120)).toBe(2);
+
+        // 3. A cancelable decaying tail after a 260ms gap stays blocked while the host sequence is open.
+        const delayedTailEvent = makeEvent(300, 60);
+        observeDocumentViewportWheelInteraction(port, {
+            deltaPx: 60,
+            event: delayedTailEvent,
+            intent: 'scroll',
+        }, container);
+        expect(navigation.handle(delayedTailEvent, {
+            container,
+            continuousScroll: false,
+            currentPage: 2,
+            pageCount: 20,
+            pageHeights: Array.from({length: 20}, () => 760),
+            viewMode: 'single',
+        }, 60)).toBeNull();
+        expect(delayedTailEvent.preventDefault).toHaveBeenCalledOnce();
+
+        // 4. Once the host closes the sequence, a new gesture after the quiet gap flips to page 3.
+        port.observeWheelScrollSequence('end');
+        const nextGestureEvent = makeEvent(560, 120);
+        observeDocumentViewportWheelInteraction(port, {
+            deltaPx: 120,
+            event: nextGestureEvent,
+            intent: 'scroll',
+        }, container);
+        expect(navigation.handle(nextGestureEvent, {
+            container,
+            continuousScroll: false,
+            currentPage: 2,
+            pageCount: 20,
+            pageHeights: Array.from({length: 20}, () => 760),
+            viewMode: 'single',
+        }, 120)).toBe(3);
     });
 });

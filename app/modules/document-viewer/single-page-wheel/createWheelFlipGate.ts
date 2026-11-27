@@ -1,16 +1,35 @@
 import type { TWheelDirection } from '@app/modules/document-viewer/single-page-wheel/singlePageWheelTypes';
 import { createWheelGestureStream } from '@app/modules/document-viewer/input/createWheelGestureStream';
+import {
+    WHEEL_DELTA_LINE_MODE,
+    WHEEL_DELTA_PAGE_MODE,
+} from '@app/modules/document-viewer/input/documentWheelInteraction';
 
 const SAME_DIRECTION_FLIP_COOLDOWN_MS = 180;
 const SAME_DIRECTION_RENEWED_FLIP_INTERVAL_MS = 260;
 const SAME_DIRECTION_RENEWED_DELTA_MIN_PX = 40;
 const SAME_DIRECTION_RENEWED_DELTA_RATIO = 0.75;
-const SAME_DIRECTION_RENEWED_STEADY_PEAK_RATIO = 0.9;
 
 interface IWheelFlipGatePacket {
     readonly timeStamp: number;
     readonly deltaY: number;
+    readonly deltaMode?: number | undefined;
     readonly cancelable?: boolean | undefined;
+    readonly hostSequenceOpen?: boolean | undefined;
+}
+
+export interface IWheelFlipGateOptions {
+    /**
+     * Reports whether the host currently holds an open wheel scroll sequence
+     * for this viewport, keeping cancelable tails fenced across delivery gaps.
+     */
+    readonly isHostSequenceOpen?: (() => boolean) | undefined;
+    /** Optional viewport write port source for host wheel sequence state. */
+    readonly isWheelSequenceOpen?: (() => boolean) | undefined;
+}
+
+function isDiscreteWheelDeltaMode(deltaMode: number | undefined) {
+    return deltaMode === WHEEL_DELTA_LINE_MODE || deltaMode === WHEEL_DELTA_PAGE_MODE;
 }
 
 function isInSameDirectionFlipCooldown(
@@ -36,7 +55,7 @@ function isInSameDirectionFlipCooldown(
  * distinct gestures, immediate direction reversals, and sustained full-strength
  * notched-wheel spinning.
  */
-export function createWheelFlipGate() {
+export function createWheelFlipGate(options: IWheelFlipGateOptions = {}) {
     let wheelGestures = createWheelGestureStream();
     let lastObservedPacket: IWheelFlipGatePacket | null = null;
     let lastFlippedGestureId: number | null = null;
@@ -52,6 +71,9 @@ export function createWheelFlipGate() {
             deltaX: 0,
             deltaY,
             cancelable: packet.cancelable ?? true,
+            hostSequenceOpen: packet.hostSequenceOpen
+                ?? options.isHostSequenceOpen?.()
+                ?? options.isWheelSequenceOpen?.(),
         });
         lastObservedPacket = packet;
         if (observation.gestureId !== lastFlippedGestureId) {
@@ -120,19 +142,21 @@ export function createWheelFlipGate() {
             return true;
         }
 
-        // Allow rapid sustained notched-wheel spinning (repeated full-strength
-        // cancelable impulses that are not decaying) to advance steadily, while
-        // keeping decaying inertia tails of any duration bounded to one page.
-        const renewedDeltaFloor = Math.max(
-            SAME_DIRECTION_RENEWED_DELTA_MIN_PX,
-            gesturePeakDeltaMagnitude * SAME_DIRECTION_RENEWED_DELTA_RATIO,
-        );
-        const isRenewedImpulse = deltaMagnitude >= renewedDeltaFloor
-            && (
-                previousVerticalDeltaMagnitude <= 0
-                || deltaMagnitude > previousVerticalDeltaMagnitude
-                || deltaMagnitude >= gesturePeakDeltaMagnitude * SAME_DIRECTION_RENEWED_STEADY_PEAK_RATIO
-            );
+        // Allow rapid sustained notched-wheel spinning (repeated non-decreasing
+        // cancelable impulses, including 1- and 2-line or page-mode notches
+        // below the pixel-mode 40 px floor) while keeping decaying tails of any
+        // duration bounded to one page.
+        const peakFloor = gesturePeakDeltaMagnitude * SAME_DIRECTION_RENEWED_DELTA_RATIO;
+        const renewedDeltaFloor = isDiscreteWheelDeltaMode(packet.deltaMode)
+            ? peakFloor
+            : Math.max(SAME_DIRECTION_RENEWED_DELTA_MIN_PX, peakFloor);
+        const isStrengthening = previousVerticalDeltaMagnitude <= 0
+            || deltaMagnitude > previousVerticalDeltaMagnitude;
+        const isSteadyAtPeak = deltaMagnitude >= previousVerticalDeltaMagnitude
+            && deltaMagnitude >= gesturePeakDeltaMagnitude;
+        const isRenewedImpulse = deltaMagnitude > 0
+            && deltaMagnitude >= renewedDeltaFloor
+            && (isStrengthening || isSteadyAtPeak);
         return !isRenewedImpulse;
     }
 

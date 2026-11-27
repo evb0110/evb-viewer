@@ -768,6 +768,257 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
+    it('ignores horizontal-dominant line-mode wheel input and advances repeated 1-line notches', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+            scrollHeight: {value: 700},
+            scrollWidth: {value: 900},
+            scrollLeft: {
+                value: 0,
+                writable: true,
+            },
+            scrollTop: {
+                value: 0,
+                writable: true,
+            },
+        });
+        for (let pageNumber = 1; pageNumber <= 10; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container page_container--rendered';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = '<div class="page_canvas"><canvas width="500" height="660"></canvas></div>';
+            Object.defineProperties(page, {
+                offsetHeight: {value: 660},
+                offsetTop: {value: 20},
+            });
+            viewer.append(page);
+        }
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 10}, () => ({
+                width: 500,
+                height: 660,
+            })),
+            totalPages: 10,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
+        const viewportWrites = createTestPdfViewportWritePort();
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(10),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(false),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 10} as IPdfDocument),
+                updateVisibleRange: vi.fn(),
+                renderVisiblePages: vi.fn(async () => true),
+                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                getPhysicalScrollOrigin: () => 0,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            // Line mode horizontal-dominant packet: deltaX=2 lines, deltaY=1 line -> deltaPx=16.
+            const horizontalPrevent = vi.fn();
+            expect(controller.handleWheel({
+                cancelable: true,
+                deltaMode: 1,
+                deltaX: 2,
+                deltaY: 1,
+                timeStamp: 100,
+                preventDefault: horizontalPrevent,
+            }, 16)).toBe(false);
+            expect(horizontalPrevent).not.toHaveBeenCalled();
+            expect(controller.viewportAuthority.currentPage.value).toBe(1);
+
+            // Sixteen 1-line vertical notches spaced 100ms apart turn multiple pages.
+            for (let index = 0; index < 16; index += 1) {
+                controller.handleWheel({
+                    cancelable: true,
+                    deltaMode: 1,
+                    deltaX: 0,
+                    deltaY: 1,
+                    timeStamp: 500 + index * 100,
+                    preventDefault: vi.fn(),
+                }, 16);
+                await yieldToBrowser();
+            }
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.currentPage.value).toBeGreaterThanOrEqual(6);
+            });
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('keeps a cancelable tail fenced across a >200ms gap while the viewport write port reports an open host sequence', async () => {
+        const {
+            createDocumentViewportWritePort,
+            observeDocumentViewportWheelInteraction,
+        } = await import('@app/modules/document-viewer/runtime/documentViewportWritePort');
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+            scrollHeight: {value: 1_040},
+            scrollWidth: {value: 900},
+            scrollLeft: {
+                value: 0,
+                writable: true,
+            },
+            scrollTop: {
+                value: 0,
+                writable: true,
+            },
+        });
+        for (let pageNumber = 1; pageNumber <= 5; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container page_container--rendered';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = '<div class="page_canvas"><canvas width="500" height="1000"></canvas></div>';
+            Object.defineProperties(page, {
+                offsetHeight: {value: 1_000},
+                offsetTop: {value: 20},
+            });
+            viewer.append(page);
+        }
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 5}, () => ({
+                width: 500,
+                height: 1_000,
+            })),
+            totalPages: 5,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
+        const port = createDocumentViewportWritePort();
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(5),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(false),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 5} as IPdfDocument),
+                updateVisibleRange: vi.fn(),
+                renderVisiblePages: vi.fn(async () => true),
+                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                viewportWritePort: port,
+                getPageLayoutMetrics: () => layout,
+                getPhysicalScrollOrigin: () => 0,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            const makeEvent = (timeStamp: number, deltaY: number) => {
+                const event = {
+                    cancelable: true,
+                    clientX: 100,
+                    clientY: 100,
+                    defaultPrevented: false,
+                    deltaMode: 0,
+                    deltaX: 0,
+                    deltaY,
+                    timeStamp,
+                    preventDefault: vi.fn(() => {
+                        event.defaultPrevented = true;
+                    }),
+                };
+                return event;
+            };
+
+            // 1. Interior scroll starts the host sequence unprevented.
+            const interiorEvent = makeEvent(0, 40);
+            observeDocumentViewportWheelInteraction(port, {
+                deltaPx: 40,
+                event: interiorEvent,
+                intent: 'scroll',
+            }, viewer);
+            expect(controller.handleWheel(interiorEvent, 40)).toBe(false);
+            port.observeWheelScrollSequence('begin');
+
+            // 2. Reaching the bottom edge flips once to page 2.
+            viewer.scrollTop = 340;
+            const flipEvent = makeEvent(40, 120);
+            observeDocumentViewportWheelInteraction(port, {
+                deltaPx: 120,
+                event: flipEvent,
+                intent: 'scroll',
+            }, viewer);
+            expect(controller.handleWheel(flipEvent, 120)).toBe(true);
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.currentPage.value).toBe(2);
+                expect(controller.isProgrammaticNavigationActive.value).toBe(false);
+            });
+
+            // 3. A cancelable decaying tail after a 260ms gap stays blocked while the host sequence is open.
+            viewer.scrollTop = 340;
+            const delayedTailEvent = makeEvent(300, 60);
+            observeDocumentViewportWheelInteraction(port, {
+                deltaPx: 60,
+                event: delayedTailEvent,
+                intent: 'scroll',
+            }, viewer);
+            expect(controller.handleWheel(delayedTailEvent, 60)).toBe(true);
+            await yieldToBrowser();
+            expect(controller.viewportAuthority.currentPage.value).toBe(2);
+
+            // 4. After the host ends the sequence and a quiet gap passes, a new gesture flips to page 3.
+            port.observeWheelScrollSequence('end');
+            const nextGestureEvent = makeEvent(560, 120);
+            observeDocumentViewportWheelInteraction(port, {
+                deltaPx: 120,
+                event: nextGestureEvent,
+                intent: 'scroll',
+            }, viewer);
+            expect(controller.handleWheel(nextGestureEvent, 120)).toBe(true);
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.currentPage.value).toBe(3);
+            });
+        } finally {
+            scope.stop();
+        }
+    });
+
     it.each([
         0,
         1,
