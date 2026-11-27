@@ -106,8 +106,24 @@ function handleKeydown(event: KeyboardEvent) {
 function focus() { input.value?.focus({ preventScroll: true }); }
 const picker = ref<{ open: () => void } | null>(null);
 onMounted(() => { if (props.hasDocument) focus(); });
-watch(() => props.hasDocument, async available => { if (available) { await nextTick(); focus(); } });
-watch(() => props.images.length, async (count, previous) => { if (count > previous) { await nextTick(); focus(); } });
+watch(
+    () => [
+        props.hasDocument,
+        props.images.length,
+    ] as const,
+    async ([
+        available,
+        count,
+    ], [
+        wasAvailable,
+        previousCount,
+    ]) => {
+        if ((!wasAvailable && available) || count > previousCount) {
+            await nextTick();
+            focus();
+        }
+    },
+);
 defineExpose({
     focus,
     openPicker: () => picker.value?.open(),

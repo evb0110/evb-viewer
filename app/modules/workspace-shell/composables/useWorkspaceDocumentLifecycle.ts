@@ -42,10 +42,6 @@ interface IUseWorkspaceDocumentLifecycleOptions {
     openSurface: IDocumentOpenSurfaceSession;
     isShown: () => boolean;
     isDjvuMode: TReadableRef<boolean>;
-    openBatchProgress: TReadableRef<{
-        processed: number;
-        total: number
-    } | null>;
     /** The first page is on screen, or the document failed. */
     documentOpenSettled: TReadableRef<boolean>;
     readOpenFailure: () => IWorkspaceOpenFailure | null;
@@ -58,10 +54,6 @@ interface IUseWorkspaceDocumentLifecycleOptions {
     onOpened: () => void;
     hasWorkingCopy: () => boolean;
     goToPage: (page: number, options?: IScrollToPageOptions) => void;
-    formatBatchLabel: (values: {
-        processed: number;
-        total: number
-    }) => string;
 }
 
 /**
@@ -84,15 +76,6 @@ export const useWorkspaceDocumentLifecycle = (options: IUseWorkspaceDocumentLife
     // sent meanwhile wait for the open as they do once it has claimed the tab.
     let checkingOpenSource = false;
     const recent = useRecentFiles();
-
-    watch(options.openBatchProgress, (progress) => {
-        session.setOpeningLabel(progress && progress.total > 0
-            ? options.formatBatchLabel({
-                processed: Math.min(Math.max(progress.processed, 0), progress.total),
-                total: progress.total,
-            })
-            : null);
-    });
 
     // A page operation owns its reload failure, and an open the failure of
     // its document; any other failure is told here.

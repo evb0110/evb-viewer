@@ -73,7 +73,6 @@ function createEditingHarness(initialBookmarks: IBookmarkItem[]) {
         activeItemId,
         expandedBookmarkIds,
         ref('top-level'),
-        computed(() => true),
         computed(() => createParentMap(bookmarks.value)),
         computed(() => createOrderMap(bookmarks.value)),
         selectedBookmarkIds,

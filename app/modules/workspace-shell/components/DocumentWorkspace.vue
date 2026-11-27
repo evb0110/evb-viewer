@@ -427,7 +427,6 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     openSurface: documentOpenSurface,
     isShown: () => isActive || isRenderActive,
     isDjvuMode: file.isDjvuMode,
-    openBatchProgress: file.openBatchProgress,
     documentOpenSettled: presentation.documentOpenSettled,
     readOpenFailure: workspaceExpose.getOpenFailure,
     toolbarSnapshot: workspaceToolbarSnapshot,
@@ -440,7 +439,6 @@ const documentLifecycle = useWorkspaceDocumentLifecycle({
     },
     hasWorkingCopy: () => file.workingCopyPath.value !== null,
     goToPage: navigation.handleGoToPage,
-    formatBatchLabel: values => t('tabs.preparingBatch', values),
 });
 watch(() => isActive || isRenderActive, (shown, wasShown) => {
     if (wasShown && !shown) {

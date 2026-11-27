@@ -323,14 +323,26 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     }
     let mounted = false;
     let unsubscribe: (() => void) | undefined;
-    watch(requestIdentity, () => { if (mounted) void refresh(); });
-    watch(sessionKey, (key, previous) => {
-        if (previous === null && key !== null) return;
-        draft.value = '';
-        imageComposer.clearComposerImages();
-        imageComposer.closeExpandedImage();
-        deviceCode.value = '';
-        verificationUrl.value = '';
+    watch([
+        requestIdentity,
+        sessionKey,
+    ], ([
+        identity,
+        key,
+    ], [
+        previousIdentity,
+        previousKey,
+    ]) => {
+        if (identity !== previousIdentity && mounted) {
+            void refresh();
+        }
+        if (key !== previousKey && !(previousKey === null && key !== null)) {
+            draft.value = '';
+            imageComposer.clearComposerImages();
+            imageComposer.closeExpandedImage();
+            deviceCode.value = '';
+            verificationUrl.value = '';
+        }
     });
     watch(selection, value => {
         if (!value) return;

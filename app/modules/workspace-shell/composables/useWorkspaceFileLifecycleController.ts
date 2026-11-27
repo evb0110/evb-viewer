@@ -42,7 +42,7 @@ interface IUseWorkspaceFileLifecycleControllerOptions extends IPdfFileOptions {
     getOpenSurface?: (() => IDocumentOpenSurfaceSession | null) | undefined;
     /** Runs an open as the document's open transaction, which ends when the viewer presents it. */
     runDocumentOpen: (request: IWorkspaceOpenRequest, run: () => Promise<TDocumentOpenOutcome>) => Promise<boolean>;
-    document: Pick<IWorkspaceDocumentController, 'assign' | 'file' | 'commitFile' | 'snapshot'>;
+    document: Pick<IWorkspaceDocumentController, 'assign' | 'file' | 'commitFile' | 'snapshot' | 'setOpeningLabel'>;
 }
 
 function createWorkspaceFileSwitch(deps: {

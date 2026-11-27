@@ -70,57 +70,6 @@ export const usePdfViewerNavigationDiagnostics = (options: IUsePdfViewerNavigati
         },
     );
 
-    watch(options.currentPage, (next, previous) => {
-        if (next === previous) {
-            return;
-        }
-        BrowserLogger.diagnostic('pdf-nav', `[viewer-current-page-ref] ${previous}->${next}`, {
-            previous,
-            next,
-            isLoading: options.isLoading.value,
-            continuousScroll: options.continuousScroll.value,
-            fitMode: options.fitMode.value,
-            viewMode: options.viewMode.value,
-            zoom: options.zoom.value,
-            visibleRange: {
-                start: options.visibleRange.value.start,
-                end: options.visibleRange.value.end,
-            },
-            viewer: options.summarizeViewerStateForLog(),
-        });
-    });
-
-    watch(
-        () => [
-            options.visibleRange.value.start,
-            options.visibleRange.value.end,
-        ] as const,
-        (nextSnapshot, previousSnapshot) => {
-            const nextStart = nextSnapshot[0];
-            const nextEnd = nextSnapshot[1];
-            const prevStart = previousSnapshot[0];
-            const prevEnd = previousSnapshot[1];
-
-            if (nextStart === prevStart && nextEnd === prevEnd) {
-                return;
-            }
-            BrowserLogger.diagnostic('pdf-nav', `[viewer-visible-range] ${prevStart}-${prevEnd} -> ${nextStart}-${nextEnd}`, {
-                previous: {
-                    start: prevStart,
-                    end: prevEnd,
-                },
-                next: {
-                    start: nextStart,
-                    end: nextEnd,
-                },
-                currentPage: options.currentPage.value,
-                isLoading: options.isLoading.value,
-                continuousScroll: options.continuousScroll.value,
-                viewer: options.summarizeViewerStateForLog(),
-            });
-        },
-    );
-
     watch(
         () => [
             options.currentPage.value,
@@ -129,20 +78,63 @@ export const usePdfViewerNavigationDiagnostics = (options: IUsePdfViewerNavigati
             options.isLoading.value,
         ] as const,
         (snapshot: TViewerDiagnosticSnapshot, previous?: TViewerDiagnosticSnapshot) => {
-            if (
-                previous
-                && snapshot[0] === previous[0]
-                && snapshot[1] === previous[1]
-                && snapshot[2] === previous[2]
-                && snapshot[3] === previous[3]
-            ) {
-                return;
+            const [
+                page,
+                visibleStart,
+                visibleEnd,
+                isLoading,
+            ] = snapshot;
+            if (previous) {
+                const [
+                    prevPage,
+                    prevStart,
+                    prevEnd,
+                    prevLoading,
+                ] = previous;
+                const pageChanged = page !== prevPage;
+                const rangeChanged = visibleStart !== prevStart || visibleEnd !== prevEnd;
+                const loadingChanged = isLoading !== prevLoading;
+                if (!pageChanged && !rangeChanged && !loadingChanged) {
+                    return;
+                }
+                if (pageChanged) {
+                    BrowserLogger.diagnostic('pdf-nav', `[viewer-current-page-ref] ${prevPage}->${page}`, {
+                        previous: prevPage,
+                        next: page,
+                        isLoading,
+                        continuousScroll: options.continuousScroll.value,
+                        fitMode: options.fitMode.value,
+                        viewMode: options.viewMode.value,
+                        zoom: options.zoom.value,
+                        visibleRange: {
+                            start: visibleStart,
+                            end: visibleEnd,
+                        },
+                        viewer: options.summarizeViewerStateForLog(),
+                    });
+                }
+                if (rangeChanged) {
+                    BrowserLogger.diagnostic('pdf-nav', `[viewer-visible-range] ${prevStart}-${prevEnd} -> ${visibleStart}-${visibleEnd}`, {
+                        previous: {
+                            start: prevStart,
+                            end: prevEnd,
+                        },
+                        next: {
+                            start: visibleStart,
+                            end: visibleEnd,
+                        },
+                        currentPage: page,
+                        isLoading,
+                        continuousScroll: options.continuousScroll.value,
+                        viewer: options.summarizeViewerStateForLog(),
+                    });
+                }
             }
             logPdfRenderTrace('raster-scheduler-snapshot', () => ({
-                currentPage: snapshot[0],
+                currentPage: page,
                 visibleRange: {
-                    start: snapshot[1],
-                    end: snapshot[2],
+                    start: visibleStart,
+                    end: visibleEnd,
                 },
                 scheduler: options.getRasterSchedulerSnapshot(),
             }));

@@ -196,7 +196,6 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         documentSettingsReady: computed(() => settings.documentSettingsReady.value),
         detectionRecords: detection.records,
         documentRevision,
-        onCompleted: settings.dismissFirstRunGuidance,
         ownerId,
         placementAnchorsByPage,
         previewTotalPages: () => previewResult.totalPages.value,
@@ -224,11 +223,6 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     // is built, and the retained raw-raster cache makes the refresh a single
     // preview sidecar pass rather than another PDF rasterization.
     const runPreviewRefreshPages = new Set<number>();
-    watch(run.isRunning, (running, wasRunning) => {
-        if (wasRunning && !running) {
-            previewResult.schedule();
-        }
-    });
     watch([
         run.isRunning,
         selection.leader,
@@ -237,9 +231,12 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         running,
         pageNumber,
         pageCompleted,
-    ]) => {
+    ], [wasRunning]) => {
         if (!running) {
             runPreviewRefreshPages.clear();
+            if (wasRunning) {
+                previewResult.schedule();
+            }
             return;
         }
         if (!pageCompleted || runPreviewRefreshPages.has(pageNumber)) {

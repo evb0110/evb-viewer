@@ -92,6 +92,7 @@ function createOpenFlowHarness() {
         readOpenTransactionId: () => controller.snapshot.value.activeTransaction?.id ?? null,
         resetDocumentPresentation: vi.fn(),
         resetHistory: vi.fn(async (options?: IResetHistoryTestOptions) => options?.isCurrent?.() !== false),
+        setOpeningLabel: vi.fn((label: string | null) => controller.setOpeningLabel(label)),
         syncDirtyFromHistory: vi.fn(),
         t: ((key: string) => key) as TTranslateFn,
     };

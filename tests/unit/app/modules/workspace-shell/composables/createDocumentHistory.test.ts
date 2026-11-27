@@ -281,6 +281,7 @@ function createContentHistoryHarness(pathHistory: boolean, beforeRevisionPrepare
         readOpenTransactionId: () => null,
         resetDocumentPresentation: vi.fn(),
         resetHistory: options => history.resetHistory(options),
+        setOpeningLabel: vi.fn(),
         syncDirtyFromHistory: () => history.syncDirtyFromHistory(),
         t: (key, ..._args) => String(key),
     });

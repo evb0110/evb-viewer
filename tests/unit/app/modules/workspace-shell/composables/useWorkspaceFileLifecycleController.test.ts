@@ -58,7 +58,6 @@ vi.mock('@app/modules/workspace-shell/composables/usePdfFile', () => ({usePdfFil
     failurePresentation: state.pdfFailurePresentation,
     isElectron: ref(true),
     pendingDjvu: state.pendingDjvu,
-    openBatchProgress: ref(null),
     pickFileToOpen: vi.fn(),
     openFile: vi.fn(),
     openFileDirect: mocks.openFileDirect,

@@ -92,12 +92,30 @@ describe('document viewer chassis authority', () => {
         expect(first.openingPageElement.value).toBeNull();
     });
 
-    it('publishes opening-page visual state only through the connected owned frame', () => {
+    it('derives opening-page visual state from current surface commits and rejects stale generations or wrong pages', () => {
         const authority = createDocumentViewerRuntime(ref('djvu'));
+        expect(authority.openingPageVisual.value).toBe('none');
         const generation = authority.openSurface.begin({
             documentId: '/documents/scan.djvu',
             documentRevision: 'revision-1',
-        });
+        }, null, 3);
+        expect(authority.openingPageVisual.value).toBe('skeleton');
+        expect(authority.openSurface.metadataReady(5)).toBe(true);
+        expect(authority.openSurface.commitGeometry(generation, {
+            width: 600,
+            height: 800,
+            margin: 20,
+        })).toBe(true);
+        expect(authority.openSurface.commitOpeningPageFrame(generation - 1, {
+            generation: generation - 1,
+            ownerId: 'chassis-owner',
+            pageNumber: 3,
+            intentKey: 'fit-width:1',
+            style: {
+                width: '600px',
+                height: '800px',
+            },
+        })).toBe(false);
         expect(authority.openSurface.commitOpeningPageFrame(generation, {
             generation,
             ownerId: 'chassis-owner',
@@ -115,16 +133,50 @@ describe('document viewer chassis authority', () => {
         document.body.append(element);
         authority.bindOpeningPageElement(element);
 
-        expect(authority.commitOpeningPageVisual(generation - 1, 3, 'fresh')).toBe(false);
-        expect(authority.commitOpeningPageVisual(generation, 2, 'fresh')).toBe(false);
+        expect(authority.openSurface.createRenderFence({
+            generation: generation - 1,
+            documentRevision: 'revision-1',
+            renderVersion: 1,
+            requestId: 1,
+            pageNumber: 3,
+        })).toBeNull();
+        expect(authority.openSurface.createRenderFence({
+            generation,
+            documentRevision: 'revision-1',
+            renderVersion: 1,
+            requestId: 1,
+            pageNumber: 2,
+        })).toBeNull();
         expect(authority.openingPageVisual.value).toBe('skeleton');
-        expect(authority.commitOpeningPageVisual(generation, 3, 'fresh')).toBe(true);
+
+        const fence = authority.openSurface.createRenderFence({
+            generation,
+            documentRevision: 'revision-1',
+            renderVersion: 1,
+            requestId: 1,
+            pageNumber: 3,
+        });
+        expect(fence).not.toBeNull();
+        expect(authority.openSurface.commitCanvas(fence!)).toBe(true);
+        expect(authority.openSurface.commitViewport({
+            generation,
+            documentRevision: 'revision-1',
+            viewportIntentId: fence!.viewportIntentId,
+            documentGeometryRevision: 1,
+            interactionEpoch: 0,
+            pageNumber: 3,
+            left: 0,
+            top: 0,
+        })).toBe(true);
         expect(authority.openingPageVisual.value).toBe('fresh');
+
         authority.openSurface.begin({
             documentId: '/documents/next.djvu',
             documentRevision: 'revision-2',
         });
         expect(authority.openingPageVisual.value).toBe('skeleton');
+        authority.openSurface.reset();
+        expect(authority.openingPageVisual.value).toBe('none');
     });
 
     it('keeps one navigation, page-slot, and surface-budget authority across PDF and DjVu sources', async () => {

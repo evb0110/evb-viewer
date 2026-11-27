@@ -500,20 +500,25 @@ export const useDocumentPageSourceRuntime = (options: {
         () => [
             props.value.continuousScroll,
             currentPage.value,
+            props.value.documentRevisionToken ?? props.value.src,
         ] as const,
-        ([continuousScroll], previous) => {
-            if (previous && continuousScroll !== previous[0]) {
-                modeTransitionPreferredPageIndex = previous[0]
-                    ? null
-                    : Math.max(0, previous[1] - 1);
+        ([
+            continuousScroll,
+            _currentPage,
+            sourceIdentity,
+        ], previous) => {
+            if (!previous) {
+                return;
             }
-        },
-        {flush: 'sync'},
-    );
-    watch(
-        () => props.value.documentRevisionToken ?? props.value.src,
-        () => {
-            modeTransitionPreferredPageIndex = null;
+            if (sourceIdentity !== previous[2]) {
+                modeTransitionPreferredPageIndex = null;
+                return;
+            }
+            if (continuousScroll !== previous[0]) {
+                modeTransitionPreferredPageIndex = continuousScroll
+                    ? Math.max(0, previous[1] - 1)
+                    : null;
+            }
         },
         {flush: 'sync'},
     );

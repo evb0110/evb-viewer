@@ -1192,10 +1192,12 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         },
     );
     watch(
-        () => options.placementAnchorCalibrationPending?.value,
+        [
+            cacheKey,
+            () => options.placementAnchorCalibrationPending?.value,
+        ],
         () => schedule(),
     );
-    watch(cacheKey, () => schedule());
     onBeforeUnmount(() => {
         stopRawStream?.();
         cancel();

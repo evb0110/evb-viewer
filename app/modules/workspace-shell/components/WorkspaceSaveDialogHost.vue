@@ -47,7 +47,7 @@
             :geometry="crop.cropDialogGeometry.value"
             @apply="void pageOps.handleCropPages($event.pageSelection ?? $event.pages, $event.margins)"
             @remove="void pageOps.handleRemoveCrop($event.pageSelection ?? $event.pages)"
-            @update:open="crop.cropDialogOpen.value = $event"
+            @update:open="crop.handleCropDialogOpenChange"
         />
 
         <DjvuConvertDialog

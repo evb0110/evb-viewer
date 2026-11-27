@@ -1,4 +1,3 @@
-import { clamp } from 'es-toolkit/math';
 import { trackWebEvent } from '@app/utils/trackWebEvent';
 import type { TTranslateFn } from '@i18n-app';
 import {
@@ -102,6 +101,7 @@ export interface ICreateDocumentOpenFlowDeps {
     /** Empties the views of the document a new one replaces, before its source is published. */
     resetDocumentPresentation: () => void;
     resetHistory: (options?: {isCurrent?: (() => boolean) | undefined}) => Promise<boolean>;
+    setOpeningLabel: (label: string | null) => void;
     syncDirtyFromHistory: () => void;
     t: TTranslateFn;
 }
@@ -183,11 +183,21 @@ export function createDocumentOpenFlow(
             result,
         };
     }
+    function publishBatchOpeningLabel(processed: number, total: number) {
+        const normalizedTotal = Math.max(0, total);
+        deps.setOpeningLabel(normalizedTotal > 0
+            ? deps.t('tabs.preparingBatch', {
+                processed: Math.min(Math.max(processed, 0), normalizedTotal),
+                total: normalizedTotal,
+            })
+            : null);
+    }
+
     function resetOpenState() {
         state.error.value = null;
         state.failurePresentation.value = null;
         state.pendingDjvu.value = null;
-        state.openBatchProgress.value = null;
+        deps.setOpeningLabel(null);
     }
 
     function beginOpenRequest() {
@@ -583,13 +593,7 @@ export function createDocumentOpenFlow(
             }
 
             const requestId = createRequestId('document-open');
-            state.openBatchProgress.value = {
-                processed: 0,
-                total: normalizedPaths.length,
-                percent: 0,
-                elapsedMs: 0,
-                estimatedRemainingMs: null,
-            };
+            publishBatchOpeningLabel(0, normalizedPaths.length);
 
             const stopProgress = documentOpen.onOpenDocumentDirectBatchProgress(
                 (progress) => {
@@ -601,16 +605,7 @@ export function createDocumentOpenFlow(
                         return;
                     }
 
-                    state.openBatchProgress.value = {
-                        processed: Math.max(0, progress.processed),
-                        total: Math.max(0, progress.total),
-                        percent: clamp(progress.percent, 0, 100),
-                        elapsedMs: Math.max(0, progress.elapsedMs),
-                        estimatedRemainingMs:
-                            typeof progress.estimatedRemainingMs === 'number'
-                                ? Math.max(0, progress.estimatedRemainingMs)
-                                : null,
-                    };
+                    publishBatchOpeningLabel(progress.processed, progress.total);
                 },
             );
 
@@ -637,8 +632,8 @@ export function createDocumentOpenFlow(
                     error: deps.t('errors.file.invalid'),
                 } satisfies TDocumentOpenOutcome;
             }
+            deps.setOpeningLabel(null);
             if (!result) {
-                state.openBatchProgress.value = null;
                 const message = deps.t('errors.file.invalid');
                 recordHandledOpenAbsence(message, {reason: 'null-batch-open-result'});
                 return {
@@ -647,19 +642,16 @@ export function createDocumentOpenFlow(
                 } satisfies TDocumentOpenOutcome;
             }
             if (isPdfPasswordFailureResult(result)) {
-                state.openBatchProgress.value = null;
                 return await openPdfWithPasswordPrompt(openRequestId, result, 'batch');
             }
             if (isDjvuOpenResult(result)) {
-                state.openBatchProgress.value = null;
                 return prepareDjvuOpen(result, 'batch');
             }
-            state.openBatchProgress.value = null;
             return await finishPdfOpenResult(openRequestId, result, 'batch');
         } catch (e) {
             const message = classifyDocumentOpenError(e, paths.length === 1 ? paths[0] ?? null : null, deps.t);
             if (isCurrentOpenRequest(openRequestId)) {
-                state.openBatchProgress.value = null;
+                deps.setOpeningLabel(null);
                 recordOpenFailure(message, e);
             }
             return {

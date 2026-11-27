@@ -91,7 +91,6 @@ interface IUseScanCleanupRunSessionOptions {
     /** Detection's page records; a page's verdicts and plan are its `result`. */
     detectionRecords: Readonly<Ref<TScanCleanupDetectionRecords>>;
     documentRevision: ComputedRef<string>;
-    onCompleted: () => void;
     ownerId: string;
     placementAnchorsByPage: ComputedRef<TScanCleanupPlacementAnchorsByPage>;
     previewTotalPages: () => number;
@@ -736,15 +735,6 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     }
 
     const unregisterWorkspaceOwner = registerScanCleanupWorkspaceOwner(options.ownerId, options.active);
-    watch(isScanCleanupRunning, running => {
-        if (
-            !running
-            && scanCleanupRun.ownerId === options.ownerId
-            && scanCleanupRun.jobState?.status === 'completed'
-        ) {
-            options.onCompleted();
-        }
-    });
     onBeforeUnmount(() => {
         // A cleanup still waiting for this workspace's analysis cannot outlive
         // it: leaving retires the attempt the way Cancel does, instead of

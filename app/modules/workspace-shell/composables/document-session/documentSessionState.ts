@@ -21,14 +21,6 @@ import type {
 } from '@app/modules/pdf-viewer/public';
 import { getDocumentRefBaseName } from '@app/utils/documentRef';
 
-interface IOpenBatchProgressState {
-    processed: number;
-    total: number;
-    percent: number;
-    elapsedMs: number;
-    estimatedRemainingMs: number | null;
-}
-
 export type TPdfConformanceAnalysisState =
     | 'none'
     | 'waiting-initial-visual'
@@ -39,7 +31,7 @@ export type TPdfConformanceAnalysisState =
     | 'on-demand-only';
 
 /** The record the file session reads and writes: its document controller's. */
-export type TDocumentFileRecord = Pick<IWorkspaceDocumentController, 'file' | 'commitFile' | 'snapshot'>;
+export type TDocumentFileRecord = Pick<IWorkspaceDocumentController, 'file' | 'commitFile' | 'snapshot' | 'setOpeningLabel'>;
 
 /**
  * The file session's state. Where the document lives and which revision it
@@ -53,7 +45,6 @@ export interface IDocumentSessionState {
     isDirty: Ref<boolean>;
     isElectron: ComputedRef<boolean>;
     lastSaveMode: Ref<TPdfSaveMode>;
-    openBatchProgress: Ref<IOpenBatchProgressState | null>;
     originalPath: Ref<TDocumentRef | null>;
     pdfConformanceAnalysisState: Ref<TPdfConformanceAnalysisState>;
     pdfConformanceProfile: Ref<IPdfConformanceProfile | null>;
@@ -121,7 +112,6 @@ export function createDocumentSessionState(deps: {
     const recoveryDirtyBaseline = ref(false);
     const wasEncrypted = ref(false);
     const pendingDjvu = ref<TDocumentRef | null>(null);
-    const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
 
     function publishPdfSource(source: TPdfSource | null, intent: TPdfSourceJobIntent) {
         pdfSrc.value = source;
@@ -146,7 +136,7 @@ export function createDocumentSessionState(deps: {
         isDirty.value = false;
         pdfConformanceAnalysisState.value = 'none';
         pendingDjvu.value = null;
-        openBatchProgress.value = null;
+        deps.document.setOpeningLabel(null);
         requiresSaveAsOnFirstSave.value = false;
         recoveryDirtyBaseline.value = false;
         wasEncrypted.value = false;
@@ -162,7 +152,6 @@ export function createDocumentSessionState(deps: {
         isElectron: computed(() => deps.isDesktopRuntime.value),
         isActiveWorkingCopy: path => workingCopyPath.value === path,
         lastSaveMode,
-        openBatchProgress,
         originalPath,
         pdfConformanceAnalysisState,
         pdfConformanceProfile,
