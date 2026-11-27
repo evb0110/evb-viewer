@@ -93,20 +93,17 @@ pub fn normalize_illumination_with_masks(
     photo_preservation_alpha: Option<&GrayImage>,
 ) -> GrayImage {
     let paper_model = paper_background_model(prepare_illumination(source), model_exclusion_mask);
-    let paper_corrected = normalize_with_model(source, &paper_model);
+    let mut normalized = normalize_with_model(source, &paper_model);
     let semantic_corrected =
         semantic_preservation_alpha.map(|_| normalize_semantic_luminance(source));
-    let mut normalized = paper_corrected.clone();
     calibrate_paper_field(&mut normalized, None, model_exclusion_mask, None);
-    if let Some(alpha) = semantic_preservation_alpha {
+    if let (Some(alpha), Some(semantic)) =
+        (semantic_preservation_alpha, semantic_corrected.as_ref())
+    {
         // Semantic tone uses an exclusion-aware corrected endpoint while
         // ordinary paper keeps the reconstruction model that removes local
         // scanner clouds. Raw source remains photo-only.
-        blend_preserved_luminance(
-            semantic_corrected.as_ref().unwrap_or(&paper_corrected),
-            &mut normalized,
-            alpha,
-        );
+        blend_preserved_luminance(semantic, &mut normalized, alpha);
     }
     if let Some(alpha) = photo_preservation_alpha {
         blend_preserved_luminance(source, &mut normalized, alpha);
@@ -324,6 +321,7 @@ fn background_model_from_preparation(
         Some(fit) => select_background_model(
             &preparation.small,
             preparation.candidate,
+            &preparation.surface_basis,
             fit,
             picture_mask.is_none(),
         ),
@@ -380,6 +378,7 @@ fn paper_background_model(
         Some(fit) => select_background_model(
             &preparation.small,
             preparation.candidate,
+            &preparation.surface_basis,
             fit,
             !protect_content_structure,
         ),
@@ -631,88 +630,142 @@ fn normalize_with_model_target(
     model: &BackgroundModel,
     white_target: f64,
 ) -> GrayImage {
-    let mut normalized = GrayImage::new(source.width(), source.height(), 255);
-    let x_basis = precompute_chebyshev::<X_TERMS>(source.width());
-    let y_basis = precompute_chebyshev::<Y_TERMS>(source.height());
-    normalized
-        .data_mut()
-        .par_chunks_mut(source.width())
-        .enumerate()
-        .for_each(|(y, output_row)| {
-            let mut row_coefficients = [0.0; X_TERMS];
-            if let BackgroundModel::Surface(coefficients) = &model {
-                for y_term in 0..Y_TERMS {
-                    for x_term in 0..X_TERMS {
-                        row_coefficients[x_term] +=
-                            coefficients[y_term * X_TERMS + x_term] * y_basis[y][y_term];
+    let width = source.width();
+    let height = source.height();
+    let mut normalized = GrayImage::new(width, height, 255);
+    if width == 0 || height == 0 {
+        return normalized;
+    }
+    match model {
+        BackgroundModel::Surface(coefficients) => {
+            let x_basis = precompute_chebyshev::<X_TERMS>(width);
+            let y_basis = precompute_chebyshev::<Y_TERMS>(height);
+            normalized
+                .data_mut()
+                .par_chunks_mut(width)
+                .enumerate()
+                .for_each(|(y, output_row)| {
+                    let mut row_coefficients = [0.0; X_TERMS];
+                    for y_term in 0..Y_TERMS {
+                        for x_term in 0..X_TERMS {
+                            row_coefficients[x_term] +=
+                                coefficients[y_term * X_TERMS + x_term] * y_basis[y][y_term];
+                        }
                     }
-                }
-            }
-            for (x, target) in output_row.iter_mut().enumerate() {
-                let background = match &model {
-                    BackgroundModel::Surface(_) => row_coefficients
-                        .iter()
-                        .zip(&x_basis[x])
-                        .map(|(coefficient, basis)| coefficient * basis)
-                        .sum::<f64>(),
-                    BackgroundModel::Reconstruction { image, floor } => sample_bilinear(
-                        image,
-                        source_coordinate(x, source.width(), image.width()),
-                        source_coordinate(y, source.height(), image.height()),
-                    )
-                    .max(*floor),
-                }
-                .clamp(32.0, 255.0);
-                *target = (f64::from(source.get(x, y)) * white_target / background)
-                    .round()
-                    .clamp(0.0, 255.0) as u8;
-            }
-        });
+                    let source_row = source.row(y);
+                    for (x, (target, &sample)) in output_row.iter_mut().zip(source_row).enumerate()
+                    {
+                        let background = row_coefficients
+                            .iter()
+                            .zip(&x_basis[x])
+                            .map(|(coefficient, basis)| coefficient * basis)
+                            .sum::<f64>()
+                            .clamp(32.0, 255.0);
+                        *target = (f64::from(sample) * white_target / background)
+                            .round()
+                            .clamp(0.0, 255.0) as u8;
+                    }
+                });
+        }
+        BackgroundModel::Reconstruction { image, floor } => {
+            let floor = *floor;
+            normalized
+                .data_mut()
+                .par_chunks_mut(width)
+                .enumerate()
+                .for_each(|(y, output_row)| {
+                    let sy = source_coordinate(y, height, image.height());
+                    let source_row = source.row(y);
+                    for (x, (target, &sample)) in output_row.iter_mut().zip(source_row).enumerate()
+                    {
+                        let background =
+                            sample_bilinear(image, source_coordinate(x, width, image.width()), sy)
+                                .max(floor)
+                                .clamp(32.0, 255.0);
+                        *target = (f64::from(sample) * white_target / background)
+                            .round()
+                            .clamp(0.0, 255.0) as u8;
+                    }
+                });
+        }
+    }
     normalized
 }
 
 fn normalize_rgb_with_model(source: &RgbImage, model: &BackgroundModel) -> RgbImage {
-    let mut normalized = RgbImage::new(source.width(), source.height(), [255; 3]);
-    let x_basis = precompute_chebyshev::<X_TERMS>(source.width());
-    let y_basis = precompute_chebyshev::<Y_TERMS>(source.height());
-    normalized
-        .data_mut()
-        .par_chunks_mut(source.width() * 3)
-        .enumerate()
-        .for_each(|(y, output_row)| {
-            let mut row_coefficients = [0.0; X_TERMS];
-            if let BackgroundModel::Surface(coefficients) = model {
-                for y_term in 0..Y_TERMS {
-                    for x_term in 0..X_TERMS {
-                        row_coefficients[x_term] +=
-                            coefficients[y_term * X_TERMS + x_term] * y_basis[y][y_term];
+    let width = source.width();
+    let height = source.height();
+    let mut normalized = RgbImage::new(width, height, [255; 3]);
+    if width == 0 || height == 0 {
+        return normalized;
+    }
+    match model {
+        BackgroundModel::Surface(coefficients) => {
+            let x_basis = precompute_chebyshev::<X_TERMS>(width);
+            let y_basis = precompute_chebyshev::<Y_TERMS>(height);
+            normalized
+                .data_mut()
+                .par_chunks_mut(width * 3)
+                .enumerate()
+                .for_each(|(y, output_row)| {
+                    let mut row_coefficients = [0.0; X_TERMS];
+                    for y_term in 0..Y_TERMS {
+                        for x_term in 0..X_TERMS {
+                            row_coefficients[x_term] +=
+                                coefficients[y_term * X_TERMS + x_term] * y_basis[y][y_term];
+                        }
                     }
-                }
-            }
-            for (x, target) in output_row.chunks_exact_mut(3).enumerate() {
-                let background = match model {
-                    BackgroundModel::Surface(_) => row_coefficients
-                        .iter()
-                        .zip(&x_basis[x])
-                        .map(|(coefficient, basis)| coefficient * basis)
-                        .sum::<f64>(),
-                    BackgroundModel::Reconstruction { image, floor } => sample_bilinear(
-                        image,
-                        source_coordinate(x, source.width(), image.width()),
-                        source_coordinate(y, source.height(), image.height()),
-                    )
-                    .max(*floor),
-                }
-                .clamp(32.0, 255.0);
-                let factor = PAPER_WHITE_TARGET / background;
-                let source_pixel = source.get(x, y);
-                for channel in 0..3 {
-                    target[channel] = (f64::from(source_pixel[channel]) * factor)
-                        .round()
-                        .clamp(0.0, 255.0) as u8;
-                }
-            }
-        });
+                    let source_row = source.row(y);
+                    for (x, (target, source_pixel)) in output_row
+                        .chunks_exact_mut(3)
+                        .zip(source_row.chunks_exact(3))
+                        .enumerate()
+                    {
+                        let background = row_coefficients
+                            .iter()
+                            .zip(&x_basis[x])
+                            .map(|(coefficient, basis)| coefficient * basis)
+                            .sum::<f64>()
+                            .clamp(32.0, 255.0);
+                        let factor = PAPER_WHITE_TARGET / background;
+                        for channel in 0..3 {
+                            target[channel] = (f64::from(source_pixel[channel]) * factor)
+                                .round()
+                                .clamp(0.0, 255.0)
+                                as u8;
+                        }
+                    }
+                });
+        }
+        BackgroundModel::Reconstruction { image, floor } => {
+            let floor = *floor;
+            normalized
+                .data_mut()
+                .par_chunks_mut(width * 3)
+                .enumerate()
+                .for_each(|(y, output_row)| {
+                    let sy = source_coordinate(y, height, image.height());
+                    let source_row = source.row(y);
+                    for (x, (target, source_pixel)) in output_row
+                        .chunks_exact_mut(3)
+                        .zip(source_row.chunks_exact(3))
+                        .enumerate()
+                    {
+                        let background =
+                            sample_bilinear(image, source_coordinate(x, width, image.width()), sy)
+                                .max(floor)
+                                .clamp(32.0, 255.0);
+                        let factor = PAPER_WHITE_TARGET / background;
+                        for channel in 0..3 {
+                            target[channel] = (f64::from(source_pixel[channel]) * factor)
+                                .round()
+                                .clamp(0.0, 255.0)
+                                as u8;
+                        }
+                    }
+                });
+        }
+    }
     normalized
 }
 
@@ -746,20 +799,24 @@ fn semantic_paper_anchor(source: &GrayImage) -> f64 {
         .max(32) as f64
 }
 
+fn gain_lut(gain: f64) -> [u8; 256] {
+    std::array::from_fn(|value| (value as f64 * gain).round().clamp(0.0, 255.0) as u8)
+}
+
 fn normalize_semantic_luminance(source: &GrayImage) -> GrayImage {
-    let gain = PAPER_WHITE_TARGET / semantic_paper_anchor(source);
+    let lut = gain_lut(PAPER_WHITE_TARGET / semantic_paper_anchor(source));
     let mut normalized = source.clone();
     normalized.data_mut().par_iter_mut().for_each(|value| {
-        *value = (f64::from(*value) * gain).round().clamp(0.0, 255.0) as u8;
+        *value = lut[usize::from(*value)];
     });
     normalized
 }
 
 fn normalize_semantic_color(luminance: &GrayImage, source: &RgbImage) -> RgbImage {
-    let gain = PAPER_WHITE_TARGET / semantic_paper_anchor(luminance);
+    let lut = gain_lut(PAPER_WHITE_TARGET / semantic_paper_anchor(luminance));
     let mut normalized = source.clone();
     normalized.data_mut().par_iter_mut().for_each(|value| {
-        *value = (f64::from(*value) * gain).round().clamp(0.0, 255.0) as u8;
+        *value = lut[usize::from(*value)];
     });
     normalized
 }
@@ -858,8 +915,9 @@ fn calibrate_paper_field(
 
     let cluster_first = cluster_center.saturating_sub(CLUSTER_RADIUS);
     let cluster_last = (cluster_center + CLUSTER_RADIUS).min(255);
-    let mut luminance_samples = Vec::with_capacity(cluster_count);
-    let mut channel_samples = [Vec::new(), Vec::new(), Vec::new()];
+    let mut luminance_histogram = [0usize; 256];
+    let mut luminance_sample_count = 0usize;
+    let mut channel_histograms = [[0usize; 256]; 3];
     let mut minimum_x = width;
     let mut maximum_x = 0usize;
     let mut minimum_y = height;
@@ -875,11 +933,12 @@ fn calibrate_paper_field(
             if usize::from(luminance) < cluster_first || usize::from(luminance) > cluster_last {
                 continue;
             }
-            luminance_samples.push(luminance);
+            luminance_histogram[usize::from(luminance)] += 1;
+            luminance_sample_count += 1;
             if let Some(color) = normalized_color.as_deref() {
                 let pixel = color.get(x, y);
                 for channel in 0..3 {
-                    channel_samples[channel].push(pixel[channel]);
+                    channel_histograms[channel][usize::from(pixel[channel])] += 1;
                 }
             }
             minimum_x = minimum_x.min(x);
@@ -888,22 +947,28 @@ fn calibrate_paper_field(
             maximum_y = maximum_y.max(y);
         }
     }
-    if luminance_samples.len() < minimum_samples
+    if luminance_sample_count < minimum_samples
         || maximum_x.saturating_sub(minimum_x) * MIN_SPATIAL_EXTENT_DENOMINATOR < width
         || maximum_y.saturating_sub(minimum_y) * MIN_SPATIAL_EXTENT_DENOMINATOR < height
     {
         return;
     }
-    luminance_samples.sort_unstable();
-    for values in &mut channel_samples {
-        values.sort_unstable();
-    }
-    let sample_median = |values: &[u8]| values[values.len() / 2];
-    let paper_luminance = sample_median(&luminance_samples);
+    let histogram_median = |counts: &[usize; 256], len: usize| -> u8 {
+        let target = len / 2;
+        let mut cumulative = 0usize;
+        counts
+            .iter()
+            .position(|&count| {
+                cumulative += count;
+                cumulative > target
+            })
+            .unwrap_or(255) as u8
+    };
+    let paper_luminance = histogram_median(&luminance_histogram, luminance_sample_count);
     let paper_channels = normalized_color.as_ref().map(|_| {
-        channel_samples
+        channel_histograms
             .each_ref()
-            .map(|values| sample_median(values))
+            .map(|counts| histogram_median(counts, luminance_sample_count))
     });
     normalized_color
         .zip(paper_channels)
@@ -919,6 +984,12 @@ fn calibrate_paper_field(
                 .map(|channel| channel * channel)
                 .sum::<f64>()
                 .sqrt();
+            let channel_luts: [[u8; 256]; 3] = std::array::from_fn(|channel| {
+                let divisor = f64::from(paper[channel]).max(1.0);
+                std::array::from_fn(|value| {
+                    (value as f64 * 255.0 / divisor).round().clamp(0.0, 255.0) as u8
+                })
+            });
             color.data_mut().par_chunks_mut(width * 3).for_each(|row| {
                 for pixel in row.chunks_exact_mut(3) {
                     let pixel_mean =
@@ -947,10 +1018,7 @@ fn calibrate_paper_field(
                         continue;
                     }
                     for channel in 0..3 {
-                        pixel[channel] = (f64::from(pixel[channel]) * 255.0
-                            / f64::from(paper[channel]).max(1.0))
-                        .round()
-                        .clamp(0.0, 255.0) as u8;
+                        pixel[channel] = channel_luts[channel][usize::from(pixel[channel])];
                     }
                 }
             });
@@ -978,68 +1046,113 @@ fn calibrate_paper_field(
     let apply_paper_shoulder = shoulder_count
         .saturating_mul(MIN_MATERIAL_SHOULDER_COVERAGE_DENOMINATOR)
         >= sampled_outside;
-    normalized_luminance
-        .data_mut()
-        .par_chunks_mut(width)
-        .enumerate()
-        .for_each(|(y, row)| {
-            for (x, pixel) in row.iter_mut().enumerate() {
-                let value = f64::from(*pixel);
-                let scaled = value * 255.0 / paper;
-                let normalized = if !apply_paper_shoulder
-                    || value <= knee_low
-                    || mask_at(paper_shoulder_protection_mask, x, y)
-                {
-                    scaled
-                } else {
-                    let t = ((value - knee_low) / (paper - knee_low).max(1.0)).clamp(0.0, 1.0);
-                    // Ease out quickly so a broad, low-contrast paper shoulder
-                    // reaches white without a hard contour.
-                    let weight = 1.0 - (1.0 - t).powi(3);
-                    scaled * (1.0 - weight) + 255.0 * weight
-                };
-                *pixel = normalized.round().clamp(0.0, 255.0) as u8;
-            }
-        });
+    let scaled_lut: [u8; 256] =
+        std::array::from_fn(|value| (value as f64 * 255.0 / paper).round().clamp(0.0, 255.0) as u8);
+    let shoulder_lut: [u8; 256] = std::array::from_fn(|pixel| {
+        let value = pixel as f64;
+        let scaled = value * 255.0 / paper;
+        let normalized = if !apply_paper_shoulder || value <= knee_low {
+            scaled
+        } else {
+            let t = ((value - knee_low) / (paper - knee_low).max(1.0)).clamp(0.0, 1.0);
+            // Ease out quickly so a broad, low-contrast paper shoulder
+            // reaches white without a hard contour.
+            let weight = 1.0 - (1.0 - t).powi(3);
+            scaled * (1.0 - weight) + 255.0 * weight
+        };
+        normalized.round().clamp(0.0, 255.0) as u8
+    });
+    if !apply_paper_shoulder || paper_shoulder_protection_mask.is_none() {
+        let lut = if apply_paper_shoulder {
+            &shoulder_lut
+        } else {
+            &scaled_lut
+        };
+        normalized_luminance
+            .data_mut()
+            .par_chunks_mut(width)
+            .for_each(|row| {
+                for pixel in row.iter_mut() {
+                    *pixel = lut[usize::from(*pixel)];
+                }
+            });
+    } else {
+        normalized_luminance
+            .data_mut()
+            .par_chunks_mut(width)
+            .enumerate()
+            .for_each(|(y, row)| {
+                for (x, pixel) in row.iter_mut().enumerate() {
+                    let index = usize::from(*pixel);
+                    *pixel = if mask_at(paper_shoulder_protection_mask, x, y) {
+                        scaled_lut[index]
+                    } else {
+                        shoulder_lut[index]
+                    };
+                }
+            });
+    }
 }
 
 fn paper_background_plausible(source: &GrayImage, model: &BackgroundModel) -> bool {
     let sample = source.downscale_to_fit(300, 300);
-    let x_basis = precompute_chebyshev::<X_TERMS>(sample.width());
-    let y_basis = precompute_chebyshev::<Y_TERMS>(sample.height());
-    let mut modeled_luminance = Vec::with_capacity(sample.width() * sample.height());
+    let sample_width = sample.width();
+    let sample_height = sample.height();
+    let mut modeled_luminance = Vec::with_capacity(sample_width * sample_height);
     let mut paper_like = 0usize;
-    for (y, y_values) in y_basis.iter().enumerate() {
-        let mut row_coefficients = [0.0; X_TERMS];
-        if let BackgroundModel::Surface(coefficients) = model {
-            for y_term in 0..Y_TERMS {
-                for x_term in 0..X_TERMS {
-                    row_coefficients[x_term] +=
-                        coefficients[y_term * X_TERMS + x_term] * y_values[y_term];
+    match model {
+        BackgroundModel::Surface(coefficients) => {
+            let x_basis = precompute_chebyshev::<X_TERMS>(sample_width);
+            let y_basis = precompute_chebyshev::<Y_TERMS>(sample_height);
+            for (y, y_values) in y_basis.iter().enumerate() {
+                let mut row_coefficients = [0.0; X_TERMS];
+                for y_term in 0..Y_TERMS {
+                    for x_term in 0..X_TERMS {
+                        row_coefficients[x_term] +=
+                            coefficients[y_term * X_TERMS + x_term] * y_values[y_term];
+                    }
+                }
+                let sample_row = sample.row(y);
+                for (x_values, &pixel) in x_basis.iter().zip(sample_row) {
+                    let background = row_coefficients
+                        .iter()
+                        .zip(x_values)
+                        .map(|(coefficient, basis)| coefficient * basis)
+                        .sum::<f64>()
+                        .clamp(0.0, 255.0);
+                    modeled_luminance.push(background);
+                    let pixel = f64::from(pixel);
+                    if background >= MIN_PAPER_BACKGROUND_LUMINANCE
+                        && pixel >= MIN_PAPER_BACKGROUND_LUMINANCE
+                        && pixel + PAPER_MODEL_TOLERANCE >= background
+                    {
+                        paper_like += 1;
+                    }
                 }
             }
         }
-        for (x, x_values) in x_basis.iter().enumerate() {
-            let background = match model {
-                BackgroundModel::Surface(_) => row_coefficients
-                    .iter()
-                    .zip(x_values)
-                    .map(|(coefficient, basis)| coefficient * basis)
-                    .sum::<f64>(),
-                BackgroundModel::Reconstruction { image, floor } => sample_bilinear(
-                    image,
-                    source_coordinate(x, sample.width(), image.width()),
-                    source_coordinate(y, sample.height(), image.height()),
-                )
-                .max(*floor),
-            }
-            .clamp(0.0, 255.0);
-            modeled_luminance.push(background);
-            if background >= MIN_PAPER_BACKGROUND_LUMINANCE
-                && f64::from(sample.get(x, y)) >= MIN_PAPER_BACKGROUND_LUMINANCE
-                && f64::from(sample.get(x, y)) + PAPER_MODEL_TOLERANCE >= background
-            {
-                paper_like += 1;
+        BackgroundModel::Reconstruction { image, floor } => {
+            let floor = *floor;
+            for y in 0..sample_height {
+                let sy = source_coordinate(y, sample_height, image.height());
+                let sample_row = sample.row(y);
+                for (x, &pixel) in sample_row.iter().enumerate() {
+                    let background = sample_bilinear(
+                        image,
+                        source_coordinate(x, sample_width, image.width()),
+                        sy,
+                    )
+                    .max(floor)
+                    .clamp(0.0, 255.0);
+                    modeled_luminance.push(background);
+                    let pixel = f64::from(pixel);
+                    if background >= MIN_PAPER_BACKGROUND_LUMINANCE
+                        && pixel >= MIN_PAPER_BACKGROUND_LUMINANCE
+                        && pixel + PAPER_MODEL_TOLERANCE >= background
+                    {
+                        paper_like += 1;
+                    }
+                }
             }
         }
     }
@@ -1193,22 +1306,22 @@ fn fit_masked_surface_with_basis(
 fn select_background_model(
     source: &GrayImage,
     candidate: GrayImage,
+    surface_basis: &SurfaceBasis,
     fit: SurfaceFit,
     allow_reconstruction: bool,
 ) -> BackgroundModel {
     if !allow_reconstruction {
         return BackgroundModel::Surface(fit.coefficients);
     }
-    let surface_basis = SurfaceBasis::new(source.width(), source.height());
     let surface_residual = masked_model_residual(
         source,
         &fit.mask,
-        &surface_basis,
+        surface_basis,
         Some(&fit.coefficients),
         None,
     );
     let reconstruction_residual =
-        masked_model_residual(source, &fit.mask, &surface_basis, None, Some(&candidate));
+        masked_model_residual(source, &fit.mask, surface_basis, None, Some(&candidate));
     if reconstruction_residual < surface_residual {
         reconstruction_fallback(candidate)
     } else {
@@ -1482,19 +1595,36 @@ fn masked_model_residual(
 ) -> f64 {
     let mut residual_sum = 0.0;
     let mut count = 0usize;
-    for y in 0..source.height() {
-        for x in 0..source.width() {
-            let index = y * source.width() + x;
-            if !mask[index] {
-                continue;
+    let width = source.width();
+    let source_data = source.data();
+    match coefficients {
+        Some(coefficients) => {
+            for y in 0..source.height() {
+                for x in 0..width {
+                    let index = y * width + x;
+                    if !mask[index] {
+                        continue;
+                    }
+                    let basis = surface_basis.at(x, y);
+                    let model_value = evaluate_surface(coefficients, &basis);
+                    residual_sum += (model_value - f64::from(source_data[index])).abs();
+                    count += 1;
+                }
             }
-            let basis = surface_basis.at(x, y);
-            let model_value = coefficients.map_or_else(
-                || f64::from(reconstruction.expect("model candidate is required").data()[index]),
-                |coefficients| evaluate_surface(coefficients, &basis),
-            );
-            residual_sum += (model_value - f64::from(source.data()[index])).abs();
-            count += 1;
+        }
+        None => {
+            let reconstruction_data = reconstruction.expect("model candidate is required").data();
+            for ((&included, &model_val), &source_val) in mask
+                .iter()
+                .zip(reconstruction_data.iter())
+                .zip(source_data.iter())
+            {
+                if !included {
+                    continue;
+                }
+                residual_sum += (f64::from(model_val) - f64::from(source_val)).abs();
+                count += 1;
+            }
         }
     }
     residual_sum / count.max(1) as f64
@@ -1819,6 +1949,11 @@ fn solve(mut matrix: Vec<f64>, size: usize) -> Option<Vec<f64>> {
 }
 
 pub fn smooth_for_binarization(source: &GrayImage, dpi: f64) -> GrayImage {
+    let width = source.width();
+    let height = source.height();
+    if width == 0 || height == 0 {
+        return source.clone();
+    }
     let radius = ((dpi / 150.0).round() as usize).clamp(1, 4);
     let coefficients = smoothing_coefficients(radius, 2);
     if coefficients.iter().enumerate().all(|(index, &value)| {
@@ -1827,26 +1962,72 @@ pub fn smooth_for_binarization(source: &GrayImage, dpi: f64) -> GrayImage {
     }) {
         return source.clone();
     }
-    let mut horizontal = GrayImage::new(source.width(), source.height(), 255);
+    // Hoist the constant denominator without pre-dividing the kernel weights so
+    // the per-pixel division preserves bit-identical IEEE-754 rounding.
+    let weight_sum = coefficients
+        .iter()
+        .fold(0.0f64, |acc, &c| acc + c)
+        .max(1e-9);
+    let interior_start = radius.min(width);
+    let interior_end = width.saturating_sub(radius);
+    let right_start = interior_end.max(interior_start);
+
+    let mut horizontal = GrayImage::new(width, height, 255);
     horizontal
         .data_mut()
-        .par_chunks_mut(source.width())
+        .par_chunks_mut(width)
         .enumerate()
         .for_each(|(y, row)| {
-            for (x, target) in row.iter_mut().enumerate() {
-                *target = convolve(source, x, y, true, &coefficients, radius);
+            let source_row = source.row(y);
+            let convolve_clamped = |x: usize| -> u8 {
+                let mut sum = 0.0;
+                for (index, &coefficient) in coefficients.iter().enumerate() {
+                    let offset = index as isize - radius as isize;
+                    let sx = x.saturating_add_signed(offset).min(width - 1);
+                    sum += coefficient * f64::from(source_row[sx]);
+                }
+                (sum / weight_sum).round().clamp(0.0, 255.0) as u8
+            };
+            for (x, target) in row[..interior_start].iter_mut().enumerate() {
+                *target = convolve_clamped(x);
+            }
+            if interior_start < interior_end {
+                for x in interior_start..interior_end {
+                    let window = &source_row[x - radius..=x + radius];
+                    let mut sum = 0.0;
+                    for (&coefficient, &sample) in coefficients.iter().zip(window) {
+                        sum += coefficient * f64::from(sample);
+                    }
+                    row[x] = (sum / weight_sum).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+            for (offset, target) in row[right_start..].iter_mut().enumerate() {
+                *target = convolve_clamped(right_start + offset);
             }
         });
-    let mut output = GrayImage::new(source.width(), source.height(), 255);
+
+    let mut output = GrayImage::new(width, height, 255);
     output
         .data_mut()
-        .par_chunks_mut(source.width())
+        .par_chunks_mut(width)
         .enumerate()
-        .for_each(|(y, row)| {
-            for (x, target) in row.iter_mut().enumerate() {
-                *target = convolve(&horizontal, x, y, false, &coefficients, radius);
-            }
-        });
+        .for_each_init(
+            || vec![0.0f64; width],
+            |acc, (y, row)| {
+                acc.fill(0.0);
+                for (index, &coefficient) in coefficients.iter().enumerate() {
+                    let offset = index as isize - radius as isize;
+                    let sy = y.saturating_add_signed(offset).min(height - 1);
+                    let source_row = horizontal.row(sy);
+                    for (sum, &sample) in acc.iter_mut().zip(source_row) {
+                        *sum += coefficient * f64::from(sample);
+                    }
+                }
+                for (target, &sum) in row.iter_mut().zip(acc.iter()) {
+                    *target = (sum / weight_sum).round().clamp(0.0, 255.0) as u8;
+                }
+            },
+        );
     output
 }
 
@@ -1876,34 +2057,6 @@ fn smoothing_coefficients(radius: usize, degree: usize) -> Vec<f64> {
                 .sum()
         })
         .collect()
-}
-
-fn convolve(
-    source: &GrayImage,
-    x: usize,
-    y: usize,
-    horizontal: bool,
-    coefficients: &[f64],
-    radius: usize,
-) -> u8 {
-    let mut sum = 0.0;
-    let mut weight = 0.0;
-    for (index, &coefficient) in coefficients.iter().enumerate() {
-        let offset = index as isize - radius as isize;
-        let sx = if horizontal {
-            x.saturating_add_signed(offset).min(source.width() - 1)
-        } else {
-            x
-        };
-        let sy = if horizontal {
-            y
-        } else {
-            y.saturating_add_signed(offset).min(source.height() - 1)
-        };
-        sum += coefficient * f64::from(source.get(sx, sy));
-        weight += coefficient;
-    }
-    (sum / weight.max(1e-9)).round().clamp(0.0, 255.0) as u8
 }
 
 #[cfg(test)]
@@ -2079,9 +2232,10 @@ mod tests {
             }
         }
         let (small, candidate) = reconstructed_background_for_test(&source);
-        let fit = fit_masked_surface_for_test(&small, &candidate, None)
+        let surface_basis = SurfaceBasis::new(small.width(), small.height());
+        let fit = fit_masked_surface_with_basis(&small, &candidate, None, &surface_basis)
             .expect("the local-shadow fixture must retain enough surface samples");
-        let model = select_background_model(&small, candidate, fit, false);
+        let model = select_background_model(&small, candidate, &surface_basis, fit, false);
         assert!(matches!(model, BackgroundModel::Surface(_)));
     }
 
@@ -2308,6 +2462,65 @@ mod tests {
                 );
                 assert!((actual - expected).abs() <= 1e-12);
             }
+        }
+    }
+
+    #[test]
+    fn smooth_for_binarization_is_bit_identical_to_per_pixel_convolve() {
+        fn ref_convolve(
+            source: &GrayImage,
+            x: usize,
+            y: usize,
+            horizontal: bool,
+            coefficients: &[f64],
+            radius: usize,
+        ) -> u8 {
+            let mut sum = 0.0;
+            let mut weight = 0.0;
+            for (index, &c) in coefficients.iter().enumerate() {
+                let offset = index as isize - radius as isize;
+                let sx = if horizontal {
+                    x.saturating_add_signed(offset).min(source.width() - 1)
+                } else {
+                    x
+                };
+                let sy = if horizontal {
+                    y
+                } else {
+                    y.saturating_add_signed(offset).min(source.height() - 1)
+                };
+                sum += c * f64::from(source.get(sx, sy));
+                weight += c;
+            }
+            (sum / weight.max(1e-9)).round().clamp(0.0, 255.0) as u8
+        }
+
+        let mut state = 0x534d_4f4f_5448_5f52_u64;
+        for (width, height, dpi) in [(1, 1, 300.0f64), (5, 7, 450.0), (67, 53, 600.0)] {
+            let mut src = GrayImage::with_stride(width, height, width + 3, 0);
+            for y in 0..height {
+                for x in 0..width {
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1_442_695_040_888_963_407);
+                    src.set(x, y, (state >> 56) as u8);
+                }
+            }
+            let radius = ((dpi / 150.0).round() as usize).clamp(1, 4);
+            let coeffs = smoothing_coefficients(radius, 2);
+            let mut h = GrayImage::new(width, height, 255);
+            for y in 0..height {
+                for x in 0..width {
+                    h.set(x, y, ref_convolve(&src, x, y, true, &coeffs, radius));
+                }
+            }
+            let mut expected = GrayImage::new(width, height, 255);
+            for y in 0..height {
+                for x in 0..width {
+                    expected.set(x, y, ref_convolve(&h, x, y, false, &coeffs, radius));
+                }
+            }
+            assert_eq!(smooth_for_binarization(&src, dpi), expected);
         }
     }
 }

@@ -1,5 +1,5 @@
 use rayon::prelude::*;
-use std::ops::Range;
+use std::{borrow::Cow, ops::Range};
 
 /// Owned 8-bit grayscale image with an explicit byte stride.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -115,21 +115,24 @@ impl GrayImage {
         if self.width == out_width && self.height == out_height {
             return self.clone();
         }
-        let x_taps = area_taps(self.width, out_width);
-        let y_taps = area_taps(self.height, out_height);
+        let x_taps = AreaTaps::new(self.width, out_width);
+        let y_taps = AreaTaps::new(self.height, out_height);
         let area = self.width as u64 * self.height as u64;
         let mut output = Self::new(out_width, out_height, 255);
         output
             .data_mut()
             .par_chunks_mut(out_width)
             .enumerate()
-            .for_each(|(oy, output_row)| {
-                let mut columns = vec![0u64; self.width];
-                accumulate_rows(&mut columns, &y_taps[oy], |y| self.row(y));
-                for (target, taps) in output_row.iter_mut().zip(&x_taps) {
-                    *target = (weighted_sum(&columns, taps, 1, 0) / area) as u8;
-                }
-            });
+            .for_each_init(
+                || vec![0u64; self.width],
+                |columns, (oy, output_row)| {
+                    columns.fill(0);
+                    accumulate_rows(columns, y_taps.get(oy), |y| self.row(y));
+                    for (ox, target) in output_row.iter_mut().enumerate() {
+                        *target = (weighted_sum(columns, x_taps.get(ox), 1, 0) / area) as u8;
+                    }
+                },
+            );
         output
     }
 
@@ -150,11 +153,11 @@ impl GrayImage {
         // page that grows in one axis and shrinks in the other is neither
         // aliased nor blocked.
         let intermediate = if out_width < self.width {
-            self.downscale_to_dimensions(out_width, self.height)
+            Cow::Owned(self.downscale_to_dimensions(out_width, self.height))
         } else if out_height < self.height {
-            self.downscale_to_dimensions(self.width, out_height)
+            Cow::Owned(self.downscale_to_dimensions(self.width, out_height))
         } else {
-            self.clone()
+            Cow::Borrowed(self)
         };
         let x_map = axis_samples(intermediate.width, out_width);
         let y_map = axis_samples(intermediate.height, out_height);
@@ -180,31 +183,45 @@ impl GrayImage {
     }
 }
 
-/// Bilinear source neighbours and weight for every output index of one axis.
-/// Exact area-coverage weights for reducing `source_len` samples to
+/// Flattened exact area-coverage weights for reducing `source_len` samples to
 /// `out_len`: the first source index each output covers and the overlap of
 /// every covered source sample, in units of 1/`out_len`. Each output's
 /// weights sum to `source_len`, so a fractional edge pixel counts only for
 /// the share it covers and the same physical cells give the same average at
 /// any whole-number resolution multiple.
-pub(crate) fn area_taps(source_len: usize, out_len: usize) -> Vec<(usize, Vec<u64>)> {
-    let (source, out) = (source_len as u64, out_len as u64);
-    (0..out)
-        .map(|index| {
+pub(crate) struct AreaTaps {
+    spans: Vec<(usize, usize, usize)>,
+    weights: Vec<u64>,
+}
+
+impl AreaTaps {
+    pub(crate) fn new(source_len: usize, out_len: usize) -> Self {
+        let (source, out) = (source_len as u64, out_len as u64);
+        let mut spans = Vec::with_capacity(out_len);
+        let mut weights = Vec::with_capacity(source_len.saturating_add(out_len));
+        for index in 0..out {
             let (low, high) = (index * source, (index + 1) * source);
             let (first, last) = (low / out, (high - 1) / out);
-            let weights = (first..=last)
-                .map(|cell| ((cell + 1) * out).min(high) - (cell * out).max(low))
-                .collect();
-            (first as usize, weights)
-        })
-        .collect()
+            let start = weights.len();
+            for cell in first..=last {
+                weights.push(((cell + 1) * out).min(high) - (cell * out).max(low));
+            }
+            spans.push((first as usize, start, weights.len()));
+        }
+        Self { spans, weights }
+    }
+
+    #[inline]
+    pub(crate) fn get(&self, index: usize) -> (usize, &[u64]) {
+        let (first, start, end) = self.spans[index];
+        (first, &self.weights[start..end])
+    }
 }
 
 /// Adds each covered row, scaled by its vertical weight, into `columns`.
 pub(crate) fn accumulate_rows<'a>(
     columns: &mut [u64],
-    (first, weights): &(usize, Vec<u64>),
+    (first, weights): (usize, &[u64]),
     row: impl Fn(usize) -> &'a [u8],
 ) {
     for (offset, &weight) in weights.iter().enumerate() {
@@ -217,7 +234,7 @@ pub(crate) fn accumulate_rows<'a>(
 /// Weighted horizontal sum of one channel of interleaved column sums.
 pub(crate) fn weighted_sum(
     columns: &[u64],
-    (first, weights): &(usize, Vec<u64>),
+    (first, weights): (usize, &[u64]),
     channels: usize,
     channel: usize,
 ) -> u64 {

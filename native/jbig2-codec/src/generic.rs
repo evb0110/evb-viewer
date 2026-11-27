@@ -179,7 +179,8 @@ pub(crate) fn decode(
         };
         let (mut c1, mut c2, mut c3) = initial_contexts_slices(above0, above1);
 
-        for byte_idx in 0..full_bytes {
+        let mut byte_idx = 0;
+        while byte_idx < full_bytes {
             let next_a0 = if byte_idx + 1 < stride {
                 above0[byte_idx + 1]
             } else {
@@ -190,8 +191,53 @@ pub(crate) fn decode(
             } else {
                 0
             };
-            let mut n1 = (((u16::from(above0[byte_idx]) << 8) | u16::from(next_a0)) >> 5) as u8;
-            let mut n2 = (((u16::from(above1[byte_idx]) << 8) | u16::from(next_a1)) >> 4) as u8;
+            let next_c1 = (((u16::from(above0[byte_idx]) << 8) | u16::from(next_a0)) >> 5) as u8;
+            let next_c2 = (((u16::from(above1[byte_idx]) << 8) | u16::from(next_a1)) >> 4) as u8;
+
+            if c1 == 0 && c2 == 0 && c3 == 0 && next_c1 == 0 && next_c2 == 0 {
+                let run_start = byte_idx;
+                let mut run_end = byte_idx + 1;
+                while run_end < full_bytes {
+                    let n_a0 = if run_end + 1 < stride {
+                        above0[run_end + 1]
+                    } else {
+                        0
+                    };
+                    if above0[run_end] != 0 || (n_a0 & 0xe0) != 0 {
+                        break;
+                    }
+                    let n_a1 = if run_end + 1 < stride {
+                        above1[run_end + 1]
+                    } else {
+                        0
+                    };
+                    if above1[run_end] != 0 || (n_a1 & 0xf0) != 0 {
+                        break;
+                    }
+                    run_end += 1;
+                }
+                let run_bytes = run_end - run_start;
+                let (zero_bits, hit_one) = coder.decode_zero_run_ctx0(&mut contexts, run_bytes * 8);
+                if !hit_one {
+                    byte_idx = run_end;
+                    continue;
+                }
+                byte_idx = run_start + (zero_bits >> 3);
+                let bit_in_byte = zero_bits & 7;
+                let mut out_byte = 1u8;
+                c3 = 1;
+                for _ in (bit_in_byte + 1)..8 {
+                    let bit = coder.decode(&mut contexts, usize::from(c3));
+                    out_byte = (out_byte << 1) | bit;
+                    c3 = ((c3 << 1) | u16::from(bit)) & 0x0f;
+                }
+                current[byte_idx] = out_byte;
+                byte_idx += 1;
+                continue;
+            }
+
+            let mut n1 = next_c1;
+            let mut n2 = next_c2;
             let mut out_byte = 0u8;
             for _ in 0..8 {
                 let context = usize::from((c1 << 11) | (c2 << 4) | c3);
@@ -204,6 +250,7 @@ pub(crate) fn decode(
                 n2 <<= 1;
             }
             current[byte_idx] = out_byte;
+            byte_idx += 1;
         }
 
         if tail_bits > 0 {

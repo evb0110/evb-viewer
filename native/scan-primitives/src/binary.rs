@@ -1,5 +1,7 @@
 use rayon::prelude::*;
 
+const PARALLEL_PIXELS: usize = 65_536;
+
 /// Bit-packed binary image. Black pixels are one; words are MSB-first. Padding bits are zero.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BinaryImage {
@@ -95,8 +97,17 @@ impl BinaryImage {
     }
 
     pub fn invert(&self) -> Self {
-        let mut output = self.clone();
-        output.words.par_iter_mut().for_each(|word| *word = !*word);
+        let words = if self.width.saturating_mul(self.height) >= PARALLEL_PIXELS {
+            self.words.par_iter().map(|&word| !word).collect()
+        } else {
+            self.words.iter().map(|&word| !word).collect()
+        };
+        let mut output = Self {
+            width: self.width,
+            height: self.height,
+            words_per_line: self.words_per_line,
+            words,
+        };
         output.clear_padding();
         output
     }
@@ -119,17 +130,43 @@ impl BinaryImage {
     }
 
     fn zip_words(&self, other: &Self, operation: impl Fn(u32, u32) -> u32 + Sync) -> Self {
-        let mut output = self.clone();
-        output.zip_words_in_place(other, operation);
+        assert_eq!((self.width, self.height), (other.width, other.height));
+        let words = if self.width.saturating_mul(self.height) >= PARALLEL_PIXELS {
+            self.words
+                .par_iter()
+                .zip(other.words.par_iter())
+                .map(|(&left, &right)| operation(left, right))
+                .collect()
+        } else {
+            self.words
+                .iter()
+                .zip(other.words.iter())
+                .map(|(&left, &right)| operation(left, right))
+                .collect()
+        };
+        let mut output = Self {
+            width: self.width,
+            height: self.height,
+            words_per_line: self.words_per_line,
+            words,
+        };
+        output.clear_padding();
         output
     }
 
     fn zip_words_in_place(&mut self, other: &Self, operation: impl Fn(u32, u32) -> u32 + Sync) {
         assert_eq!((self.width, self.height), (other.width, other.height));
-        self.words
-            .par_iter_mut()
-            .zip(other.words.par_iter())
-            .for_each(|(target, right)| *target = operation(*target, *right));
+        if self.width.saturating_mul(self.height) >= PARALLEL_PIXELS {
+            self.words
+                .par_iter_mut()
+                .zip(other.words.par_iter())
+                .for_each(|(target, right)| *target = operation(*target, *right));
+        } else {
+            self.words
+                .iter_mut()
+                .zip(other.words.iter())
+                .for_each(|(target, right)| *target = operation(*target, *right));
+        }
         self.clear_padding();
     }
 

@@ -487,6 +487,53 @@ fn write_png_row(
     color_type: PngColorType,
     transparency: Option<PngTransparencyKey>,
 ) {
+    if transparency.is_none() {
+        match color_type {
+            PngColorType::Gray8 => {
+                let len = gray_row.len();
+                gray_row.copy_from_slice(&source[..len]);
+                if let Some(rgb_row) = rgb_row {
+                    for (target, &value) in rgb_row.chunks_exact_mut(3).zip(gray_row.iter()) {
+                        target.fill(value);
+                    }
+                }
+            }
+            PngColorType::GrayAlpha8 => {
+                for (target, pixel) in gray_row.iter_mut().zip(source.chunks_exact(2)) {
+                    *target = pixel[0];
+                }
+                if let Some(rgb_row) = rgb_row {
+                    for (target, &value) in rgb_row.chunks_exact_mut(3).zip(gray_row.iter()) {
+                        target.fill(value);
+                    }
+                }
+            }
+            PngColorType::Indexed => {
+                unreachable!("indexed PNG pixels are normalized before row conversion")
+            }
+            PngColorType::Rgb8 => {
+                for (target, pixel) in gray_row.iter_mut().zip(source.chunks_exact(3)) {
+                    *target = luma(pixel);
+                }
+                if let Some(rgb_row) = rgb_row {
+                    let len = rgb_row.len();
+                    rgb_row.copy_from_slice(&source[..len]);
+                }
+            }
+            PngColorType::Rgba8 => {
+                for (target, pixel) in gray_row.iter_mut().zip(source.chunks_exact(4)) {
+                    *target = luma(pixel);
+                }
+                if let Some(rgb_row) = rgb_row {
+                    for (target, pixel) in rgb_row.chunks_exact_mut(3).zip(source.chunks_exact(4)) {
+                        target.copy_from_slice(&pixel[..3]);
+                    }
+                }
+            }
+        }
+        return;
+    }
+
     let channels = color_type.channels();
     match color_type {
         PngColorType::Gray8 | PngColorType::GrayAlpha8 => {
@@ -498,17 +545,8 @@ fn write_png_row(
                 };
             }
             if let Some(rgb_row) = rgb_row {
-                for (target, pixel) in rgb_row
-                    .chunks_exact_mut(3)
-                    .zip(source.chunks_exact(channels))
-                {
-                    target.fill(
-                        if transparency == Some(PngTransparencyKey::gray(pixel[0])) {
-                            255
-                        } else {
-                            pixel[0]
-                        },
-                    );
+                for (target, &value) in rgb_row.chunks_exact_mut(3).zip(gray_row.iter()) {
+                    target.fill(value);
                 }
             }
         }
@@ -835,14 +873,23 @@ pub fn decode_ppm<R: Read>(
     mut reader: R,
     limits: DecodeLimits,
 ) -> Result<DecodedRaster, RasterError> {
-    let pixels = PpmPixels::read(&mut reader, limits)?;
-    let (width, height) = (pixels.width, pixels.height);
+    let mut pixels = PpmPixels::read(&mut reader, limits)?;
+    let (width, height, max_value) = (pixels.width, pixels.height, pixels.max_value);
+    if max_value != 255 {
+        let lut: [u8; 256] =
+            std::array::from_fn(|sample| scale_ppm_sample(sample as u8, max_value));
+        for byte in &mut pixels.data {
+            *byte = lut[usize::from(*byte)];
+        }
+    }
     let mut gray = GrayImage::new(width, height, 255);
-    let mut rgb = RgbImage::new(width, height, [255; 3]);
-    pixels.for_each_row(|y, row, max_value| {
-        let rgb_row = &mut rgb.data_mut()[y * width * 3..(y + 1) * width * 3];
-        write_ppm_row(gray.row_mut(y), Some(rgb_row), row, max_value);
-    });
+    for (y, rgb_row) in pixels.data.chunks_exact(pixels.row_bytes).enumerate() {
+        for (target, pixel) in gray.row_mut(y).iter_mut().zip(rgb_row.chunks_exact(3)) {
+            *target = luma(pixel);
+        }
+    }
+    let rgb = RgbImage::from_vec(width, height, pixels.data)
+        .expect("validated PPM P6 payload matches RGB dimensions");
     Ok(DecodedRaster { gray, rgb })
 }
 /// Decodes the same gray plane as `decode_ppm(..).gray` without allocating the
@@ -851,13 +898,54 @@ pub fn decode_ppm_gray<R: Read>(
     mut reader: R,
     limits: DecodeLimits,
 ) -> Result<GrayImage, RasterError> {
-    let pixels = PpmPixels::read(&mut reader, limits)?;
-    let mut gray = GrayImage::new(pixels.width, pixels.height, 255);
-    pixels.for_each_row(|y, row, max_value| write_ppm_row(gray.row_mut(y), None, row, max_value));
+    let header = parse_ppm_header(&mut reader, limits)?;
+    let row_bytes = header
+        .width
+        .checked_mul(3)
+        .ok_or_else(|| RasterError::invalid("PPM P6 row overflow"))?;
+    let _expected = row_bytes
+        .checked_mul(header.height)
+        .ok_or_else(|| RasterError::invalid("PPM P6 payload size overflow"))?;
+    let lut = (header.max_value != 255).then(|| {
+        std::array::from_fn::<u8, 256, _>(|s| scale_ppm_sample(s as u8, header.max_value))
+    });
+    let mut row = Vec::new();
+    row.try_reserve_exact(row_bytes)
+        .map_err(|_| RasterError::invalid("Unable to reserve PPM P6 row buffer"))?;
+    row.resize(row_bytes, 0);
+    let mut gray = GrayImage::new(header.width, header.height, 255);
+    for y in 0..header.height {
+        reader.read_exact(&mut row).map_err(|error| {
+            if error.kind() == io::ErrorKind::UnexpectedEof {
+                RasterError::invalid("Truncated PPM P6 payload")
+            } else {
+                error.into()
+            }
+        })?;
+        let gray_row = gray.row_mut(y);
+        match &lut {
+            None => {
+                for (target, pixel) in gray_row.iter_mut().zip(row.chunks_exact(3)) {
+                    *target = luma(pixel);
+                }
+            }
+            Some(lut) => {
+                for (target, pixel) in gray_row.iter_mut().zip(row.chunks_exact(3)) {
+                    *target = luma(&[
+                        lut[usize::from(pixel[0])],
+                        lut[usize::from(pixel[1])],
+                        lut[usize::from(pixel[2])],
+                    ]);
+                }
+            }
+        }
+    }
+    if read_ppm_byte(&mut reader)?.is_some() {
+        return Err(RasterError::invalid("PPM P6 payload has trailing bytes"));
+    }
     Ok(gray)
 }
-/// The validated PPM P6 payload: everything both decoders share before they
-/// differ in which planes they materialize.
+/// The validated PPM P6 payload for full RGB+gray decode.
 struct PpmPixels {
     width: usize,
     height: usize,
@@ -886,7 +974,7 @@ impl PpmPixels {
                 error.into()
             }
         })?;
-        if reader.read(&mut [0u8; 1])? != 0 {
+        if read_ppm_byte(reader)?.is_some() {
             return Err(RasterError::invalid("PPM P6 payload has trailing bytes"));
         }
         Ok(Self {
@@ -896,39 +984,6 @@ impl PpmPixels {
             row_bytes,
             data,
         })
-    }
-
-    fn for_each_row(self, mut row: impl FnMut(usize, &[u8], u32)) {
-        for y in 0..self.height {
-            row(
-                y,
-                &self.data[y * self.row_bytes..(y + 1) * self.row_bytes],
-                self.max_value,
-            );
-        }
-    }
-}
-fn write_ppm_row(gray_row: &mut [u8], rgb_row: Option<&mut [u8]>, source: &[u8], max_value: u32) {
-    match rgb_row {
-        Some(rgb_row) => {
-            for (target, pixel) in rgb_row.chunks_exact_mut(3).zip(source.chunks_exact(3)) {
-                for (sample, source) in target.iter_mut().zip(pixel) {
-                    *sample = scale_ppm_sample(*source, max_value);
-                }
-            }
-            for (target, pixel) in gray_row.iter_mut().zip(rgb_row.chunks_exact(3)) {
-                *target = luma(pixel);
-            }
-        }
-        None => {
-            for (target, pixel) in gray_row.iter_mut().zip(source.chunks_exact(3)) {
-                *target = luma(&[
-                    scale_ppm_sample(pixel[0], max_value),
-                    scale_ppm_sample(pixel[1], max_value),
-                    scale_ppm_sample(pixel[2], max_value),
-                ]);
-            }
-        }
     }
 }
 fn scale_ppm_sample(sample: u8, max_value: u32) -> u8 {
@@ -1569,23 +1624,47 @@ fn unfilter(
     channels: usize,
     filter: u8,
 ) -> Result<(), RasterError> {
-    for index in 0..row.len() {
-        let prior = index.checked_sub(channels);
-        let left = prior.map_or(0, |index| row[index]);
-        let up = previous[index];
-        let upper_left = prior.map_or(0, |index| previous[index]);
-        row[index] = row[index].wrapping_add(match filter {
-            0 => 0,
-            1 => left,
-            2 => up,
-            3 => ((u16::from(left) + u16::from(up)) / 2) as u8,
-            4 => paeth(left, up, upper_left),
-            _ => {
-                return Err(RasterError::invalid(format!(
-                    "Unsupported PNG filter: {filter}"
-                )))
+    debug_assert_eq!(row.len(), previous.len());
+    match filter {
+        0 => {}
+        1 => {
+            for index in channels..row.len() {
+                row[index] = row[index].wrapping_add(row[index - channels]);
             }
-        });
+        }
+        2 => {
+            for (target, &up) in row.iter_mut().zip(previous) {
+                *target = target.wrapping_add(up);
+            }
+        }
+        3 => {
+            let prefix = channels.min(row.len());
+            for (target, &up) in row[..prefix].iter_mut().zip(&previous[..prefix]) {
+                *target = target.wrapping_add(up >> 1);
+            }
+            for index in prefix..row.len() {
+                let avg =
+                    ((u16::from(row[index - channels]) + u16::from(previous[index])) >> 1) as u8;
+                row[index] = row[index].wrapping_add(avg);
+            }
+        }
+        4 => {
+            let prefix = channels.min(row.len());
+            for (target, &up) in row[..prefix].iter_mut().zip(&previous[..prefix]) {
+                *target = target.wrapping_add(paeth(0, up, 0));
+            }
+            for index in prefix..row.len() {
+                let left = row[index - channels];
+                let up = previous[index];
+                let upper_left = previous[index - channels];
+                row[index] = row[index].wrapping_add(paeth(left, up, upper_left));
+            }
+        }
+        _ => {
+            return Err(RasterError::invalid(format!(
+                "Unsupported PNG filter: {filter}"
+            )));
+        }
     }
     Ok(())
 }
@@ -1617,4 +1696,72 @@ fn write_chunk<W: Write>(writer: &mut W, kind: &[u8; 4], data: &[u8]) -> Result<
     hasher.update(data);
     writer.write_all(&hasher.finalize().to_be_bytes())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unfilter_matches_reference_across_all_png_filters() {
+        fn ref_unfilter(row: &mut [u8], previous: &[u8], channels: usize, filter: u8) {
+            for index in 0..row.len() {
+                let prior = index.checked_sub(channels);
+                let left = prior.map_or(0, |i| row[i]);
+                let up = previous[index];
+                let ul = prior.map_or(0, |i| previous[i]);
+                row[index] = row[index].wrapping_add(match filter {
+                    0 => 0,
+                    1 => left,
+                    2 => up,
+                    3 => ((u16::from(left) + u16::from(up)) / 2) as u8,
+                    4 => paeth(left, up, ul),
+                    _ => unreachable!(),
+                });
+            }
+        }
+
+        let previous: Vec<u8> = (0..37).map(|i| (i * 29 + 7) as u8).collect();
+        let raw: Vec<u8> = (0..37).map(|i| (i * 53 + 13) as u8).collect();
+        for channels in [1usize, 2, 3, 4] {
+            for filter in 0u8..=4 {
+                let mut actual = raw.clone();
+                let mut expected = raw.clone();
+                unfilter(&mut actual, &previous, channels, filter).unwrap();
+                ref_unfilter(&mut expected, &previous, channels, filter);
+                assert_eq!(actual, expected, "channels={channels} filter={filter}");
+            }
+            let mut bad = raw.clone();
+            assert!(unfilter(&mut bad, &previous, channels, 5).is_err());
+        }
+    }
+
+    #[test]
+    fn decode_ppm_and_decode_ppm_gray_match_across_max_values_and_errors() {
+        let limits = DecodeLimits {
+            max_pixels: 100_000,
+            max_dimension: 1_000,
+            max_compressed_bytes: 1_000_000,
+        };
+        for max_value in [15u32, 255] {
+            let mut ppm = format!("P6\n11 7\n{max_value}\n").into_bytes();
+            for i in 0..(11 * 7 * 3) {
+                ppm.push(((i * 19 + 5) % (max_value as usize + 1)) as u8);
+            }
+            let full = decode_ppm(Cursor::new(&ppm), limits).unwrap();
+            let gray = decode_ppm_gray(Cursor::new(&ppm), limits).unwrap();
+            assert_eq!(gray, full.gray);
+
+            // Truncated payload is rejected by both decoders.
+            let truncated = &ppm[..ppm.len() - 1];
+            assert!(decode_ppm(Cursor::new(truncated), limits).is_err());
+            assert!(decode_ppm_gray(Cursor::new(truncated), limits).is_err());
+
+            // Trailing byte is rejected by both decoders.
+            let mut trailing = ppm.clone();
+            trailing.push(0);
+            assert!(decode_ppm(Cursor::new(&trailing), limits).is_err());
+            assert!(decode_ppm_gray(Cursor::new(&trailing), limits).is_err());
+        }
+    }
 }

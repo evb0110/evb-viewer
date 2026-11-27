@@ -251,76 +251,323 @@ fn rectangular_binary_words(
     radius_y: usize,
     any: bool,
 ) -> BinaryImage {
-    if source.width() == 0 || source.height() == 0 {
-        return BinaryImage::new(source.width(), source.height());
+    let width = source.width();
+    let height = source.height();
+    if width == 0 || height == 0 {
+        return BinaryImage::new(width, height);
     }
-    let words_per_line = source.words_per_line();
-    let mut horizontal = BinaryImage::new(source.width(), source.height());
-    horizontal
-        .words_mut()
-        .par_chunks_mut(words_per_line)
-        .enumerate()
-        .for_each(|(y, output_row)| {
-            for (word_index, target) in output_row.iter_mut().enumerate() {
-                let mut combined = if any { 0 } else { u32::MAX };
-                for offset in -(radius_x as isize)..=radius_x as isize {
-                    let shifted = shifted_row_word(source, y, word_index, offset);
-                    if any {
-                        combined |= shifted;
-                    } else {
-                        combined &= shifted;
-                    }
-                }
-                *target = combined;
-            }
-        });
-    horizontal.clear_padding();
+    // Out-of-bounds pixels are zero for both dilation (OR) and erosion (AND).
+    // For erosion, any window that extends outside the image produces zero.
+    if !any && (radius_x.saturating_mul(2) >= width || radius_y.saturating_mul(2) >= height) {
+        return BinaryImage::new(width, height);
+    }
+    if radius_x == 0 && radius_y == 0 {
+        return source.clone();
+    }
 
-    let mut output = BinaryImage::new(source.width(), source.height());
+    let horizontal_owned;
+    let horizontal = if radius_x == 0 {
+        source
+    } else {
+        horizontal_owned = horizontal_binary_words(source, radius_x, any);
+        &horizontal_owned
+    };
+
+    if radius_y == 0 {
+        return horizontal.clone();
+    }
+
+    vertical_binary_words(horizontal, radius_y, any)
+}
+
+fn horizontal_binary_words(source: &BinaryImage, radius_x: usize, any: bool) -> BinaryImage {
+    let width = source.width();
+    let words_per_line = source.words_per_line();
+    let mut output = source.clone();
+    // For OR, a radius of `width - 1` already spans every pixel in the row.
+    // For AND, `radius_x * 2 < width` was checked by the caller.
+    let eff_radius = radius_x.min(width - 1);
+    let half_span = eff_radius + 1;
+    let padding_mask = if width % 32 == 0 {
+        u32::MAX
+    } else {
+        u32::MAX << (32 - width % 32)
+    };
+
     output
         .words_mut()
         .par_chunks_mut(words_per_line)
+        .for_each(|row| {
+            // Combining `in[x..=x+r]` (rightward) followed by `buf[x-r..=x]`
+            // (leftward) with an idempotent associative op (`|` or `&`) and
+            // zero-padded boundaries yields the exact symmetric window
+            // `[-r, +r]` in O(log r) in-place word-parallel passes.
+            horizontal_double_right(row, half_span, any);
+            horizontal_double_left(row, half_span, any);
+            row[words_per_line - 1] &= padding_mask;
+        });
+    output
+}
+
+/// Computes `row[x] = op_{k=0}^{len-1} row_padded[x + k]` in place, where bits
+/// past the row end are zero.
+fn horizontal_double_right(row: &mut [u32], len: usize, any: bool) {
+    let words_per_line = row.len();
+    let mut span = 1usize;
+    while span < len {
+        let step = span.min(len - span);
+        let word_shift = step / 32;
+        let bit_shift = (step % 32) as u32;
+        if bit_shift == 0 {
+            for w in 0..words_per_line {
+                let shifted = if w + word_shift < words_per_line {
+                    row[w + word_shift]
+                } else {
+                    0
+                };
+                if any {
+                    row[w] |= shifted;
+                } else {
+                    row[w] &= shifted;
+                }
+            }
+        } else {
+            let inv_shift = 32 - bit_shift;
+            for w in 0..words_per_line {
+                let hi = if w + word_shift < words_per_line {
+                    row[w + word_shift] << bit_shift
+                } else {
+                    0
+                };
+                let lo = if w + word_shift + 1 < words_per_line {
+                    row[w + word_shift + 1] >> inv_shift
+                } else {
+                    0
+                };
+                let shifted = hi | lo;
+                if any {
+                    row[w] |= shifted;
+                } else {
+                    row[w] &= shifted;
+                }
+            }
+        }
+        span += step;
+    }
+}
+
+/// Computes `row[x] = op_{k=0}^{len-1} row_padded[x - k]` in place, where bits
+/// before bit 0 are zero.
+fn horizontal_double_left(row: &mut [u32], len: usize, any: bool) {
+    let words_per_line = row.len();
+    let mut span = 1usize;
+    while span < len {
+        let step = span.min(len - span);
+        let word_shift = step / 32;
+        let bit_shift = (step % 32) as u32;
+        if bit_shift == 0 {
+            for w in (0..words_per_line).rev() {
+                let shifted = if w >= word_shift {
+                    row[w - word_shift]
+                } else {
+                    0
+                };
+                if any {
+                    row[w] |= shifted;
+                } else {
+                    row[w] &= shifted;
+                }
+            }
+        } else {
+            let inv_shift = 32 - bit_shift;
+            for w in (0..words_per_line).rev() {
+                let lo = if w >= word_shift {
+                    row[w - word_shift] >> bit_shift
+                } else {
+                    0
+                };
+                let hi = if w > word_shift {
+                    row[w - word_shift - 1] << inv_shift
+                } else {
+                    0
+                };
+                let shifted = hi | lo;
+                if any {
+                    row[w] |= shifted;
+                } else {
+                    row[w] &= shifted;
+                }
+            }
+        }
+        span += step;
+    }
+}
+
+#[derive(Default)]
+struct VerticalBinaryScratch {
+    prefix_row: Vec<u32>,
+    suffix_buf: Vec<u32>,
+}
+
+/// O(1)-per-pixel van Herk / Gil-Werman vertical binary morphology over packed
+/// 32-bit words, row-major and parallelized across output row bands.
+fn vertical_binary_words(horizontal: &BinaryImage, radius_y: usize, any: bool) -> BinaryImage {
+    let width = horizontal.width();
+    let height = horizontal.height();
+    let words_per_line = horizontal.words_per_line();
+    let src_words = horizontal.words();
+    let mut output = BinaryImage::new(width, height);
+
+    if any && radius_y >= height {
+        let mut combined = vec![0u32; words_per_line];
+        for src_row in src_words.chunks_exact(words_per_line) {
+            for (dst, &val) in combined.iter_mut().zip(src_row) {
+                *dst |= val;
+            }
+        }
+        for dst_row in output.words_mut().chunks_exact_mut(words_per_line) {
+            dst_row.copy_from_slice(&combined);
+        }
+        output.clear_padding();
+        return output;
+    }
+
+    // Both `any` (`radius_y < height`) and `!any` (`2 * radius_y < height`)
+    // guarantee `block_len = 2 * radius_y + 1` fits without overflow.
+    let block_len = radius_y * 2 + 1;
+    let band_rows = height
+        .div_ceil(rayon::current_num_threads().saturating_mul(2).max(1))
+        .max(block_len.saturating_mul(2))
+        .max(MINIMUM_BAND_ROWS)
+        .min(height);
+
+    output
+        .words_mut()
+        .par_chunks_mut(words_per_line * band_rows)
         .enumerate()
-        .for_each(|(y, output_row)| {
-            for (word_index, target) in output_row.iter_mut().enumerate() {
-                let mut combined = if any { 0 } else { u32::MAX };
-                for offset in -(radius_y as isize)..=radius_y as isize {
-                    let source_y = y as isize + offset;
-                    let word = if source_y < 0 || source_y >= source.height() as isize {
-                        0
+        .for_each_init(
+            VerticalBinaryScratch::default,
+            |scratch, (band, band_out)| {
+                let first_y = band * band_rows;
+                let band_height = band_out.len() / words_per_line;
+                let end_y = first_y + band_height;
+                let (active_start, active_end) = if any {
+                    (first_y, end_y)
+                } else {
+                    (first_y.max(radius_y), end_y.min(height - radius_y))
+                };
+                if active_start >= active_end {
+                    return;
+                }
+
+                scratch.prefix_row.resize(words_per_line, 0);
+                let mut prefix_pos: Option<usize> = None;
+                let mut suffix_block: Option<usize> = None;
+
+                for y in active_start..active_end {
+                    let (low, high) = if any {
+                        (y.saturating_sub(radius_y), (y + radius_y).min(height - 1))
                     } else {
-                        horizontal.words()[source_y as usize * words_per_line + word_index]
+                        (y - radius_y, y + radius_y)
                     };
-                    if any {
-                        combined |= word;
+                    let low_block = low / block_len;
+                    let high_block = high / block_len;
+                    let high_block_start = high_block * block_len;
+
+                    // Advance running prefix to `high`.
+                    match prefix_pos {
+                        Some(prev_high) if prev_high == high => {}
+                        Some(prev_high)
+                            if prev_high / block_len == high_block && prev_high < high =>
+                        {
+                            for r in (prev_high + 1)..=high {
+                                let src_row =
+                                    &src_words[r * words_per_line..(r + 1) * words_per_line];
+                                combine_words_in_place(&mut scratch.prefix_row, src_row, any);
+                            }
+                        }
+                        _ => {
+                            scratch.prefix_row.copy_from_slice(
+                                &src_words[high_block_start * words_per_line
+                                    ..(high_block_start + 1) * words_per_line],
+                            );
+                            for r in (high_block_start + 1)..=high {
+                                let src_row =
+                                    &src_words[r * words_per_line..(r + 1) * words_per_line];
+                                combine_words_in_place(&mut scratch.prefix_row, src_row, any);
+                            }
+                        }
+                    }
+                    prefix_pos = Some(high);
+
+                    let local_y = y - first_y;
+                    let dst_row =
+                        &mut band_out[local_y * words_per_line..(local_y + 1) * words_per_line];
+
+                    if low_block == high_block && low % block_len == 0 {
+                        dst_row.copy_from_slice(&scratch.prefix_row);
+                        continue;
+                    }
+
+                    // Populate suffix table for `low_block` once per block.
+                    if suffix_block != Some(low_block) {
+                        let b_start = low_block * block_len;
+                        let b_end = (b_start + block_len).min(height);
+                        let b_len = b_end - b_start;
+                        scratch.suffix_buf.resize(b_len * words_per_line, 0);
+                        let last_src =
+                            &src_words[(b_end - 1) * words_per_line..b_end * words_per_line];
+                        scratch.suffix_buf[(b_len - 1) * words_per_line..b_len * words_per_line]
+                            .copy_from_slice(last_src);
+                        for i in (0..b_len - 1).rev() {
+                            let src_row = &src_words[(b_start + i) * words_per_line
+                                ..(b_start + i + 1) * words_per_line];
+                            let (left_part, right_part) =
+                                scratch.suffix_buf.split_at_mut((i + 1) * words_per_line);
+                            let dst_suffix = &mut left_part[i * words_per_line..];
+                            let next_suffix = &right_part[..words_per_line];
+                            combine_words_into(dst_suffix, src_row, next_suffix, any);
+                        }
+                        suffix_block = Some(low_block);
+                    }
+
+                    let suffix_offset = (low - low_block * block_len) * words_per_line;
+                    let s_row = &scratch.suffix_buf[suffix_offset..suffix_offset + words_per_line];
+                    if low_block == high_block {
+                        dst_row.copy_from_slice(s_row);
                     } else {
-                        combined &= word;
+                        combine_words_into(dst_row, s_row, &scratch.prefix_row, any);
                     }
                 }
-                *target = combined;
-            }
-        });
+            },
+        );
     output.clear_padding();
     output
 }
 
-/// Returns a destination-aligned word whose bit at x comes from source x+offset.
-fn shifted_row_word(source: &BinaryImage, y: usize, output_word: usize, offset: isize) -> u32 {
-    let words_per_line = source.words_per_line();
-    let source_bit = output_word as isize * 32 + offset;
-    let source_word = source_bit.div_euclid(32);
-    let bit_offset = source_bit.rem_euclid(32) as u32;
-    let read = |word: isize| {
-        if word < 0 || word >= words_per_line as isize {
-            0
-        } else {
-            source.words()[y * words_per_line + word as usize]
+#[inline]
+fn combine_words_in_place(dst: &mut [u32], src: &[u32], any: bool) {
+    if any {
+        for (d, &s) in dst.iter_mut().zip(src) {
+            *d |= s;
         }
-    };
-    if bit_offset == 0 {
-        read(source_word)
     } else {
-        (read(source_word) << bit_offset) | (read(source_word + 1) >> (32 - bit_offset))
+        for (d, &s) in dst.iter_mut().zip(src) {
+            *d &= s;
+        }
+    }
+}
+
+#[inline]
+fn combine_words_into(dst: &mut [u32], left: &[u32], right: &[u32], any: bool) {
+    if any {
+        for ((d, &l), &r) in dst.iter_mut().zip(left).zip(right) {
+            *d = l | r;
+        }
+    } else {
+        for ((d, &l), &r) in dst.iter_mut().zip(left).zip(right) {
+            *d = l & r;
+        }
     }
 }
 
@@ -441,51 +688,87 @@ pub fn reconstruct_gray(marker: &GrayImage, mask: &GrayImage) -> GrayImage {
         (mask.width(), mask.height())
     );
     let mut output = marker.clone();
-    for y in 0..output.height() {
-        for x in 0..output.width() {
-            output.set(x, y, output.get(x, y).min(mask.get(x, y)));
+    reconstruct_gray_in_place::<false>(&mut output, mask);
+    output
+}
+
+/// Grayscale reconstruction by erosion, where marker values may only fall to
+/// the mask. Running the dual directly in place matches the inverted-dilation
+/// formulation bit-for-bit without allocating three inverted copies.
+pub fn reconstruct_gray_by_erosion(marker: &GrayImage, mask: &GrayImage) -> GrayImage {
+    assert_eq!(
+        (marker.width(), marker.height()),
+        (mask.width(), mask.height())
+    );
+    let mut output = marker.clone();
+    reconstruct_gray_in_place::<true>(&mut output, mask);
+    output
+}
+
+fn reconstruct_gray_in_place<const EROSION: bool>(output: &mut GrayImage, mask: &GrayImage) {
+    let width = output.width();
+    let height = output.height();
+    let clamp = |value: u8, bound: u8| {
+        if EROSION {
+            value.max(bound)
+        } else {
+            value.min(bound)
+        }
+    };
+    let propagate = |a: u8, b: u8| if EROSION { a.min(b) } else { a.max(b) };
+    let improves = |candidate: u8, current: u8| {
+        if EROSION {
+            candidate < current
+        } else {
+            candidate > current
+        }
+    };
+
+    for y in 0..height {
+        for (target, &mask_val) in output.row_mut(y).iter_mut().zip(mask.row(y)) {
+            *target = clamp(*target, mask_val);
         }
     }
-    if output.width() == 0 || output.height() == 0 {
-        return output;
+    if width == 0 || height == 0 {
+        return;
     }
 
     // Vincent's raster and anti-raster passes propagate values along the two
     // causal half-neighborhoods before the FIFO handles the remaining fronts.
-    for y in 0..output.height() {
-        for x in 0..output.width() {
+    for y in 0..height {
+        for x in 0..width {
             let mut value = output.get(x, y);
             if x > 0 {
-                value = value.max(output.get(x - 1, y));
+                value = propagate(value, output.get(x - 1, y));
             }
             if y > 0 {
-                value = value.max(output.get(x, y - 1));
+                value = propagate(value, output.get(x, y - 1));
             }
-            output.set(x, y, value.min(mask.get(x, y)));
+            output.set(x, y, clamp(value, mask.get(x, y)));
         }
     }
-    for y in (0..output.height()).rev() {
-        for x in (0..output.width()).rev() {
+    for y in (0..height).rev() {
+        for x in (0..width).rev() {
             let mut value = output.get(x, y);
-            if x + 1 < output.width() {
-                value = value.max(output.get(x + 1, y));
+            if x + 1 < width {
+                value = propagate(value, output.get(x + 1, y));
             }
-            if y + 1 < output.height() {
-                value = value.max(output.get(x, y + 1));
+            if y + 1 < height {
+                value = propagate(value, output.get(x, y + 1));
             }
-            output.set(x, y, value.min(mask.get(x, y)));
+            output.set(x, y, clamp(value, mask.get(x, y)));
         }
     }
 
     let mut queue = VecDeque::new();
-    let mut queued = vec![false; output.width() * output.height()];
-    for y in 0..output.height() {
-        for x in 0..output.width() {
+    let mut queued = vec![false; width * height];
+    for y in 0..height {
+        for x in 0..width {
             let value = output.get(x, y);
-            if neighbors4(x, y, output.width(), output.height())
-                .any(|(nx, ny)| value.min(mask.get(nx, ny)) > output.get(nx, ny))
+            if neighbors4(x, y, width, height)
+                .any(|(nx, ny)| improves(clamp(value, mask.get(nx, ny)), output.get(nx, ny)))
             {
-                let index = y * output.width() + x;
+                let index = y * width + x;
                 queued[index] = true;
                 queue.push_back(index);
             }
@@ -493,14 +776,14 @@ pub fn reconstruct_gray(marker: &GrayImage, mask: &GrayImage) -> GrayImage {
     }
     while let Some(index) = queue.pop_front() {
         queued[index] = false;
-        let x = index % output.width();
-        let y = index / output.width();
+        let x = index % width;
+        let y = index / width;
         let value = output.get(x, y);
-        for (nx, ny) in neighbors4(x, y, output.width(), output.height()) {
-            let candidate = value.min(mask.get(nx, ny));
-            if candidate > output.get(nx, ny) {
+        for (nx, ny) in neighbors4(x, y, width, height) {
+            let candidate = clamp(value, mask.get(nx, ny));
+            if improves(candidate, output.get(nx, ny)) {
                 output.set(nx, ny, candidate);
-                let neighbor_index = ny * output.width() + nx;
+                let neighbor_index = ny * width + nx;
                 if !queued[neighbor_index] {
                     queued[neighbor_index] = true;
                     queue.push_back(neighbor_index);
@@ -508,20 +791,6 @@ pub fn reconstruct_gray(marker: &GrayImage, mask: &GrayImage) -> GrayImage {
             }
         }
     }
-    output
-}
-
-/// Grayscale reconstruction by erosion, where marker values may only fall to
-/// the mask. Implementing the dual through the dilation reconstruction keeps
-/// both operations bit-exact and shares the established queue propagation.
-pub fn reconstruct_gray_by_erosion(marker: &GrayImage, mask: &GrayImage) -> GrayImage {
-    assert_eq!(
-        (marker.width(), marker.height()),
-        (mask.width(), mask.height())
-    );
-    let inverted_marker = invert_gray(marker);
-    let inverted_mask = invert_gray(mask);
-    invert_gray(&reconstruct_gray(&inverted_marker, &inverted_mask))
 }
 
 /// Fills grayscale minima that are not connected to the image frame.
@@ -538,17 +807,8 @@ pub fn fill_gray_holes(source: &GrayImage) -> GrayImage {
         marker.set(0, y, 0);
         marker.set(source.width() - 1, y, 0);
     }
-    reconstruct_gray_by_erosion(&marker, source)
-}
-
-fn invert_gray(source: &GrayImage) -> GrayImage {
-    let mut output = source.clone();
-    for y in 0..source.height() {
-        for (target, &value) in output.row_mut(y).iter_mut().zip(source.row(y)) {
-            *target = 255 - value;
-        }
-    }
-    output
+    reconstruct_gray_in_place::<true>(&mut marker, source);
+    marker
 }
 
 pub(crate) fn neighbors4(
@@ -1055,6 +1315,89 @@ mod tests {
                 reconstruct_gray(&marker, &mask),
                 reference_reconstruct_gray(&marker, &mask)
             );
+        }
+    }
+
+    #[test]
+    fn binary_word_morphology_matches_scalar_across_edge_widths_and_radii() {
+        let mut state = 0x5641_4e48_4552_4b31_u64;
+        for (width, height) in [
+            (1, 1),
+            (2, 5),
+            (7, 13),
+            (31, 33),
+            (32, 32),
+            (33, 31),
+            (63, 65),
+            (64, 64),
+            (65, 63),
+            (103, 97),
+        ] {
+            let mut image = BinaryImage::new(width, height);
+            for y in 0..height {
+                for x in 0..width {
+                    image.set(x, y, next_random(&mut state) >> 62 != 0);
+                }
+            }
+            for (rx, ry) in [
+                (0, 0),
+                (1, 0),
+                (0, 1),
+                (1, 1),
+                (15, 2),
+                (16, 16),
+                (31, 32),
+                (32, 31),
+                (33, 33),
+                (64, 5),
+                (5, 64),
+                (width, height),
+                (width + 3, height + 3),
+            ] {
+                for any in [false, true] {
+                    assert_eq!(
+                        rectangular_binary_words(&image, rx, ry, any),
+                        rectangular_binary_scalar(&image, rx, ry, any),
+                        "{width}x{height} radius=({rx},{ry}) any={any}"
+                    );
+                }
+            }
+            // Extreme radii must not overflow.
+            assert_eq!(
+                rectangular_binary_words(&image, usize::MAX, usize::MAX, false),
+                BinaryImage::new(width, height)
+            );
+            let dilated_max = rectangular_binary_words(&image, usize::MAX, usize::MAX, true);
+            assert_eq!(
+                dilated_max,
+                rectangular_binary_scalar(&image, width, height, true)
+            );
+        }
+    }
+
+    #[test]
+    fn reconstruct_gray_by_erosion_matches_inverted_dilation() {
+        let mut state = 0x4552_4f53_494f_4e31_u64;
+        for (width, height, stride_pad) in [(0, 0, 0), (1, 1, 2), (17, 19, 3), (33, 25, 0)] {
+            let mut marker = GrayImage::with_stride(width, height, width + stride_pad, 0);
+            let mut mask = GrayImage::with_stride(width, height, width + stride_pad, 0);
+            for y in 0..height {
+                for x in 0..width {
+                    marker.set(x, y, next_random(&mut state) as u8);
+                    mask.set(x, y, next_random(&mut state) as u8);
+                }
+            }
+            let invert_ref = |img: &GrayImage| {
+                let mut out = img.clone();
+                for y in 0..img.height() {
+                    for (t, &v) in out.row_mut(y).iter_mut().zip(img.row(y)) {
+                        *t = 255 - v;
+                    }
+                }
+                out
+            };
+            let expected = invert_ref(&reconstruct_gray(&invert_ref(&marker), &invert_ref(&mask)));
+            assert_eq!(reconstruct_gray_by_erosion(&marker, &mask), expected);
         }
     }
 }

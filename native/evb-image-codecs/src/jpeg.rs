@@ -351,60 +351,78 @@ pub fn resize_pixels(
         .and_then(|value| value.checked_mul(ch))
         .ok_or("Resized pixel payload size overflow")?;
     let mut output = vec![0u8; output_len];
-    if next_width < source_width || next_height < source_height {
-        let scale_x = sw as f64 / nw as f64;
-        let scale_y = sh as f64 / nh as f64;
-        for y in 0..nh {
-            let y0 = y as f64 * scale_y;
-            let y1 = (y + 1) as f64 * scale_y;
-            let sy_start = y0.floor() as usize;
-            let sy_end = y1.ceil().min(sh as f64) as usize;
-            for x in 0..nw {
-                let x0 = x as f64 * scale_x;
-                let x1 = (x + 1) as f64 * scale_x;
-                let sx_start = x0.floor() as usize;
-                let sx_end = x1.ceil().min(sw as f64) as usize;
-                let output_offset = (y * nw + x) * ch;
-                let area = (x1 - x0) * (y1 - y0);
-                for channel in 0..ch {
-                    let mut weighted_sum = 0.0;
-                    for sy in sy_start..sy_end {
-                        let overlap_y = ((sy + 1) as f64).min(y1) - (sy as f64).max(y0);
-                        if overlap_y <= 0.0 {
-                            continue;
-                        }
-                        for sx in sx_start..sx_end {
-                            let overlap_x = ((sx + 1) as f64).min(x1) - (sx as f64).max(x0);
-                            if overlap_x <= 0.0 {
-                                continue;
-                            }
-                            let source_offset = (sy * sw + sx) * ch;
-                            weighted_sum +=
-                                f64::from(pixels[source_offset + channel]) * overlap_x * overlap_y;
-                        }
-                    }
-                    output[output_offset + channel] =
-                        (weighted_sum / area).round().clamp(0.0, 255.0) as u8;
-                }
+    let x_taps = AreaTaps::new(sw, nw);
+    let y_taps = AreaTaps::new(sh, nh);
+    let area = (sw as f64) * (sh as f64);
+    let source_row_len = sw * ch;
+    let mut row_accum = vec![0u64; source_row_len];
+
+    for y in 0..nh {
+        row_accum.fill(0);
+        let (sy_first, y_weights) = y_taps.get(y);
+        for (offset, &wy) in y_weights.iter().enumerate() {
+            let row_start = (sy_first + offset) * source_row_len;
+            let src_row = &pixels[row_start..row_start + source_row_len];
+            for (acc, &px) in row_accum.iter_mut().zip(src_row) {
+                *acc += wy * u64::from(px);
             }
         }
-    } else {
-        for y in 0..nh {
-            let sy = ((y as f64 + 0.5) * sh as f64 / nh as f64)
-                .floor()
-                .min((sh - 1) as f64) as usize;
-            for x in 0..nw {
-                let sx = ((x as f64 + 0.5) * sw as f64 / nw as f64)
-                    .floor()
-                    .min((sw - 1) as f64) as usize;
-                let source_offset = (sy * sw + sx) * ch;
-                let output_offset = (y * nw + x) * ch;
-                output[output_offset..output_offset + ch]
-                    .copy_from_slice(&pixels[source_offset..source_offset + ch]);
+        let out_row = &mut output[y * nw * ch..(y + 1) * nw * ch];
+        if ch == 1 {
+            for (x, target) in out_row.iter_mut().enumerate() {
+                let (sx_first, x_weights) = x_taps.get(x);
+                let mut sum = 0u64;
+                for (offset, &wx) in x_weights.iter().enumerate() {
+                    sum += wx * row_accum[sx_first + offset];
+                }
+                *target = (sum as f64 / area).round().clamp(0.0, 255.0) as u8;
+            }
+        } else {
+            for (x, target) in out_row.chunks_exact_mut(3).enumerate() {
+                let (sx_first, x_weights) = x_taps.get(x);
+                let mut sums = [0u64; 3];
+                for (offset, &wx) in x_weights.iter().enumerate() {
+                    let base = (sx_first + offset) * 3;
+                    sums[0] += wx * row_accum[base];
+                    sums[1] += wx * row_accum[base + 1];
+                    sums[2] += wx * row_accum[base + 2];
+                }
+                target[0] = (sums[0] as f64 / area).round().clamp(0.0, 255.0) as u8;
+                target[1] = (sums[1] as f64 / area).round().clamp(0.0, 255.0) as u8;
+                target[2] = (sums[2] as f64 / area).round().clamp(0.0, 255.0) as u8;
             }
         }
     }
     Ok(output)
+}
+
+struct AreaTaps {
+    spans: Vec<(usize, usize, usize)>,
+    weights: Vec<u64>,
+}
+
+impl AreaTaps {
+    fn new(source_len: usize, out_len: usize) -> Self {
+        let (source, out) = (source_len as u64, out_len as u64);
+        let mut spans = Vec::with_capacity(out_len);
+        let mut weights = Vec::with_capacity(source_len.saturating_add(out_len));
+        for index in 0..out {
+            let (low, high) = (index * source, (index + 1) * source);
+            let (first, last) = (low / out, (high - 1) / out);
+            let start = weights.len();
+            for cell in first..=last {
+                weights.push(((cell + 1) * out).min(high) - (cell * out).max(low));
+            }
+            spans.push((first as usize, start, weights.len()));
+        }
+        Self { spans, weights }
+    }
+
+    #[inline]
+    fn get(&self, index: usize) -> (usize, &[u64]) {
+        let (first, start, end) = self.spans[index];
+        (first, &self.weights[start..end])
+    }
 }
 
 /// Decodes an 8-bit gray or RGB JPEG, shrinks it to `width` x `height` by
@@ -440,15 +458,19 @@ pub fn recompress_jpeg(
     if pixels.len() != metadata.width as usize * metadata.height as usize * channels as usize {
         return Err("Decoded JPEG does not match its frame size".into());
     }
-    let resized = resize_pixels(
-        &pixels,
-        metadata.width,
-        metadata.height,
-        channels,
-        width,
-        height,
-        max_pixels,
-    )?;
+    let resized = if width == metadata.width && height == metadata.height {
+        pixels
+    } else {
+        resize_pixels(
+            &pixels,
+            metadata.width,
+            metadata.height,
+            channels,
+            width,
+            height,
+            max_pixels,
+        )?
+    };
     let (data, color_space) = encode_pixels_as_jpeg(&resized, width, height, channels, quality)?;
     Ok(RecompressedJpeg {
         data,
@@ -700,5 +722,71 @@ mod tests {
             &[0x3f, 0x00, 0x11, 0xff, 0xd9]
         });
         jpeg
+    }
+
+    #[test]
+    fn separable_resize_matches_2d_area_average() {
+        fn ref_2d(pixels: &[u8], sw: usize, sh: usize, ch: usize, nw: usize, nh: usize) -> Vec<u8> {
+            let mut out = vec![0u8; nw * nh * ch];
+            let sx_scale = sw as f64 / nw as f64;
+            let sy_scale = sh as f64 / nh as f64;
+            for y in 0..nh {
+                let y0 = y as f64 * sy_scale;
+                let y1 = (y + 1) as f64 * sy_scale;
+                for x in 0..nw {
+                    let x0 = x as f64 * sx_scale;
+                    let x1 = (x + 1) as f64 * sx_scale;
+                    let area = (x1 - x0) * (y1 - y0);
+                    for c in 0..ch {
+                        let mut sum = 0.0;
+                        for sy in (y0.floor() as usize)..(y1.ceil().min(sh as f64) as usize) {
+                            let oy = ((sy + 1) as f64).min(y1) - (sy as f64).max(y0);
+                            if oy <= 0.0 {
+                                continue;
+                            }
+                            for sx in (x0.floor() as usize)..(x1.ceil().min(sw as f64) as usize) {
+                                let ox = ((sx + 1) as f64).min(x1) - (sx as f64).max(x0);
+                                if ox <= 0.0 {
+                                    continue;
+                                }
+                                sum += f64::from(pixels[(sy * sw + sx) * ch + c]) * ox * oy;
+                            }
+                        }
+                        out[(y * nw + x) * ch + c] = (sum / area).round().clamp(0.0, 255.0) as u8;
+                    }
+                }
+            }
+            out
+        }
+
+        let mut state = 0x4a50_4547_5253_5a31_u64;
+        for (sw, sh, nw, nh, ch) in [
+            (17, 13, 7, 5, 1),
+            (17, 13, 7, 5, 3),
+            (20, 12, 10, 12, 3),
+            (12, 20, 12, 7, 1),
+            (31, 29, 13, 11, 3),
+        ] {
+            let pixels: Vec<u8> = (0..sw * sh * ch)
+                .map(|_| {
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1_442_695_040_888_963_407);
+                    (state >> 56) as u8
+                })
+                .collect();
+            let actual = resize_pixels(
+                &pixels, sw as u32, sh as u32, ch as u8, nw as u32, nh as u32, 1_000_000,
+            )
+            .unwrap();
+            let expected = ref_2d(&pixels, sw, sh, ch, nw, nh);
+            assert_eq!(actual.len(), expected.len());
+            for (idx, (&a, &e)) in actual.iter().zip(&expected).enumerate() {
+                assert!(
+                    a.abs_diff(e) <= 1,
+                    "pixel diff > 1 at {idx} for {sw}x{sh}->{nw}x{nh} ch={ch}: {a} vs {e}"
+                );
+            }
+        }
     }
 }
