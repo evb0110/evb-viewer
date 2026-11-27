@@ -335,34 +335,19 @@ export function createBrowserDocumentsFileCapability(
                 : undefined;
             let appended: Exclude<Awaited<ReturnType<typeof appendPdfMutationsToStoreFile>>, IBrowserPageOpsWasmFailure> | undefined;
             let failure: IBrowserPageOpsWasmFailure | undefined;
-            let lease: string | null;
-            try {
-                lease = await browserDocumentStore.stageAppend(path, options.expectedDocumentRevisionToken, async (file, base) => {
-                    const result = await appendPdfMutationsToStoreFile(file, base, {
-                        mutations,
-                        modifiedAt,
-                        ...(appearanceSource ? {appearanceSource} : {}),
-                    });
-                    if (isBrowserPageOpsWasmFailure(result)) {
-                        failure = result;
-                        return null;
-                    }
-                    appended = result;
-                    return result.length;
+            const lease = await browserDocumentStore.stageAppend(path, options.expectedDocumentRevisionToken, async (file, base) => {
+                const result = await appendPdfMutationsToStoreFile(file, base, {
+                    mutations,
+                    modifiedAt,
+                    ...(appearanceSource ? {appearanceSource} : {}),
                 });
-            } catch (error) {
-                if (!(error instanceof BrowserDocumentSourceChangedError)) throw error;
-                return {
-                    applied: false,
-                    validation: null,
-                    reason: 'original-changed',
-                    externalWriteCommitted: false,
-                    error: {
-                        code: 'io',
-                        message: error.message,
-                    },
-                } satisfies IPdfNativeSaveResult;
-            }
+                if (isBrowserPageOpsWasmFailure(result)) {
+                    failure = result;
+                    return null;
+                }
+                appended = result;
+                return result.length;
+            }, {allowForeignBase: true});
             if (lease === null || !appended) {
                 return {
                     applied: false,
@@ -421,6 +406,14 @@ export function createBrowserDocumentsFileCapability(
         },
         async replaceWorkingCopyFromStagedPdfNativeMutation(path, stagedOutput, options) {
             try {
+                // Only Save As rescue may build on a foreign-staged (:1:s) base;
+                // working-copy replacement (e.g. annotation flush before Rotate/Crop)
+                // must refuse committing edits onto an externally replaced file.
+                await browserDocumentStore.assertDocumentRevisionCurrent(
+                    path,
+                    options.expectedDocumentRevisionToken,
+                    {allowStagedBase: false},
+                );
                 await browserDocumentStore.commitAppend(path, options.expectedDocumentRevisionToken, requireNativeMutationLease(path, stagedOutput));
             } finally {
                 await releaseNativeMutationLease(stagedOutput.leaseId);

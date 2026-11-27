@@ -177,6 +177,16 @@ function mockScanCleanupPreviewSource() {
                 2,
                 3,
             ])])),
+            readableRevision: vi.fn(async (_ref: string, expected?: {token?: string}) => ({
+                blob: new Blob([new Uint8Array([
+                    1,
+                    2,
+                    3,
+                ])]),
+                token: expected?.token ?? 'revision-1',
+                byteRevision: 1,
+                instance: Symbol('scan-preview-source'),
+            })),
         },
     }));
     vi.doMock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({

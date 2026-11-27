@@ -3187,7 +3187,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         })).rejects.toThrow('PDF is encrypted');
     });
 
-    it('rejects applyPdfNativeMutationsToWorkingCopy with original-changed without materializing foreign bytes when the source file changed externally', async () => {
+    it('refuses replaceWorkingCopyFromStagedPdfNativeMutation on a foreign-staged base while keeping Save As rescue working', async () => {
         let physical = await createPdfBytes();
         let lastModified = 1_000;
         const handle = createFileSystemFileHandle({
@@ -3197,10 +3197,22 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
                 lastModified,
             }),
         });
+        let savedAsBytes: Uint8Array<ArrayBuffer> | null = null;
+        const saveAsHandle = createFileSystemFileHandle({
+            name: 'rescued-copy.pdf',
+            getFile: async () => new File([savedAsBytes ?? new Uint8Array()], 'rescued-copy.pdf', {type: 'application/pdf'}),
+            createWritable: async () => createFileSystemWritableFileStream({write: async chunk => {
+                savedAsBytes = chunk instanceof Blob
+                    ? new Uint8Array(await chunk.arrayBuffer())
+                    : chunk instanceof Uint8Array
+                        ? new Uint8Array(chunk)
+                        : new Uint8Array(requireArrayBufferChunk(chunk));
+            }}),
+        });
         const {
             capability,
             browserDocumentStore: store,
-        } = await loadBrowserDocumentsFileCapability();
+        } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: async () => saveAsHandle}});
         const source = await store.registerFile(new File([physical], 'annotation-flush.pdf', {
             type: 'application/pdf',
             lastModified,
@@ -3213,25 +3225,43 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         const initialRevision = await store.getDocumentRevision(working);
         expect(entry.doc?.state().current).toBeNull();
 
-        // External process replaces the handle-backed PDF before an annotation flush (e.g. before Rotate/Crop).
+        // External process replaces the handle-backed PDF before an annotation flush (Rotate/Crop) or Save As rescue.
         physical = await createPdfBytes([400, 400]);
         lastModified = 2_000;
 
-        const applied = await capability.applyPdfNativeMutationsToWorkingCopy!(
+        // 1. Working-copy replacement (e.g. annotation flush before Rotate/Crop) refuses committing onto :1:s.
+        const flushed = await capability.applyPdfNativeMutationsToWorkingCopy!(
             working,
             {},
             requirePdfDateString('D:20260102000000Z'),
             {expectedDocumentRevisionToken: initialRevision.token},
         );
-        expect(applied).toMatchObject({
-            applied: false,
-            validation: null,
-            reason: 'original-changed',
-            externalWriteCommitted: false,
-        });
-        // The working copy must NOT be materialized to foreign revision :1:s.
-        expect(entry.doc?.state().current).toBeNull();
-        expect((await store.getDocumentRevision(working)).token).toBe(initialRevision.token);
+        expect(flushed.applied).toBe(true);
+        await expect(capability.replaceWorkingCopyFromStagedPdfNativeMutation!(
+            working,
+            flushed.stagedOutput!,
+            {expectedDocumentRevisionToken: initialRevision.token},
+        )).rejects.toMatchObject({code: 'STALE_REVISION'});
+        // Uncommitted append was discarded; working copy did not advance to r2.
+        expect(entry.doc?.state().current?.id).toBe(1);
+        expect(entry.doc?.state().current?.foreign).toBe('staged');
+
+        // 2. Save As rescue still builds on the current file with the staged annotation edits.
+        const rescued = await capability.applyPdfNativeMutationsToWorkingCopy!(
+            working,
+            {},
+            requirePdfDateString('D:20260102000001Z'),
+            {expectedDocumentRevisionToken: initialRevision.token},
+        );
+        expect(rescued.applied).toBe(true);
+        const savedRef = await capability.savePdfAs(
+            working,
+            {stagedOutput: rescued.stagedOutput!},
+            {expectedDocumentRevisionToken: initialRevision.token},
+        );
+        expect(savedRef).not.toBeNull();
+        expect(savedAsBytes).not.toBeNull();
+        expect(savedAsBytes!.byteLength).toBeGreaterThan(physical.byteLength);
     });
 });
 
