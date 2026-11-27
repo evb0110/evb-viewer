@@ -148,6 +148,11 @@ export function defineForwardedPlatformEvent<
     } as const;
 }
 
+type TPlatformIpcClientArgs<TArgs extends TPlatformFeatureSchema<unknown[]>> =
+    v.InferInput<TArgs> extends readonly unknown[]
+        ? Readonly<v.InferInput<TArgs>>
+        : unknown[];
+
 export interface IPlatformIpcMethodSpec<
     TArgs extends TPlatformFeatureSchema<unknown[]> = TPlatformFeatureSchema<unknown[]>,
     TResult extends TPlatformFeatureSchema = TPlatformFeatureSchema,
@@ -159,7 +164,7 @@ export interface IPlatformIpcMethodSpec<
         result: TResult;
         timeoutMs?: number;
     };
-    client?: {mapArgs: (...args: never[]) => v.InferOutput<TArgs>};
+    client?: {mapArgs: (...args: never[]) => TPlatformIpcClientArgs<TArgs>};
     main: {
         method: string;
         context: 'none' | 'sender';
@@ -398,7 +403,21 @@ export interface IDefinedPlatformFeature<M extends TMethods, E extends TEvents>
 
 export type TAnyDefinedPlatformFeature = IDefinedPlatformFeature<TMethods, TEvents>;
 
-export function definePlatformFeature<const M extends TMethods, const E extends TEvents>(
+type TCheckedPlatformMethodSpec<TSpec> = TSpec extends {
+    ipc: {args: infer TArgs extends TPlatformFeatureSchema<unknown[]>};
+    client: {mapArgs: (...args: never[]) => unknown};
+}
+    ? {client: {mapArgs: (...args: never[]) => TPlatformIpcClientArgs<TArgs>}}
+    : unknown;
+
+type TCheckedPlatformMethodMap<M extends TMethods> = {
+    [K in keyof M]: TCheckedPlatformMethodSpec<M[K]>;
+};
+
+export function definePlatformFeature<
+    const M extends TMethods & TCheckedPlatformMethodMap<M>,
+    const E extends TEvents,
+>(
     definition: IFeatureInput<M, E>,
 ): IDefinedPlatformFeature<M, E>;
 export function definePlatformFeature(

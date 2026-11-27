@@ -159,7 +159,7 @@ export async function readDjvuPageText(
         ...(signal === undefined ? {} : { signal }),
     }, async () => {
         try {
-            const raw = await runDjvuEngine<'getPageText'>({
+            const raw = await runDjvuEngine({
                 type: 'getPageText',
                 djvuPath: filePath,
                 pageNumber,
@@ -220,7 +220,7 @@ export async function djvuSearchDocument(djvuPath: string): Promise<ISearchIndex
         indexPath: join(directory, `${createHash('sha256').update(djvuPath).digest('hex')}.evb-search-index`),
         documentRevision: `djvu:${source.size}:${Math.trunc(source.mtimeMs)}`,
         readPages: signal => streamItems<IPageText>(async (emit, commandSignal) => {
-            const docInfo = await runDjvuEngine<'getDocInfo'>({
+            const docInfo = await runDjvuEngine({
                 type: 'getDocInfo',
                 djvuPath,
             }, {
@@ -231,7 +231,7 @@ export async function djvuSearchDocument(djvuPath: string): Promise<ISearchIndex
                 if (commandSignal.aborted) {
                     throw abortErrorFromSignal(commandSignal);
                 }
-                const raw = await runDjvuEngine<'getPageText'>({
+                const raw = await runDjvuEngine({
                     type: 'getPageText',
                     djvuPath,
                     pageNumber,
@@ -262,7 +262,7 @@ export async function addDjvuMatchGeometry(
         if (signal?.aborted) {
             throw abortErrorFromSignal(signal);
         }
-        const raw = await runDjvuEngine<'getPageText'>({
+        const raw = await runDjvuEngine({
             type: 'getPageText',
             djvuPath,
             pageNumber,
@@ -293,7 +293,7 @@ export async function detectDjvuHasText(
     signal?: AbortSignal,
     _onTerminationProof?: (proof: Promise<boolean>) => void,
 ) {
-    return runDjvuEngine<'hasText'>({
+    return runDjvuEngine({
         type: 'hasText',
         djvuPath: filePath,
     }, {

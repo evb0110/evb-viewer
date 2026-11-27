@@ -5,6 +5,15 @@ const { t } = useTypedI18n();
 t('export.scopeAll', { count: 2 });
 t('searchResults.resultCount', 3);
 t('pageNumbering.pageWord', 3);
+t('print.summary', {
+    count: 3,
+    layout: 'single',
+    orientation: 'portrait',
+});
+t('searchResults.pageWithCount', {
+    page: 1,
+    count: 2,
+});
 t('toolbar.openPdf');
 
 // @ts-expect-error placeholder params are required for pluralized renderer messages
@@ -12,6 +21,12 @@ t('export.scopeAll');
 
 // @ts-expect-error count is required even when the pluralized leaf has no {count} placeholder
 t('pageNumbering.pageWord');
+
+// @ts-expect-error count shorthand cannot drop required non-count placeholders
+t('print.summary', 3);
+
+// @ts-expect-error count shorthand cannot drop required non-count placeholders
+t('searchResults.pageWithCount', 2);
 
 // @ts-expect-error params are not allowed for plain renderer messages
 t('toolbar.openPdf', { count: 1 });

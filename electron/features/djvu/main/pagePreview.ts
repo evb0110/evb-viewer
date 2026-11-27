@@ -260,7 +260,7 @@ export async function getDjvuPageSourceInfoForViewing(
                     throw new Error('DjVu document has no pages');
                 }
                 const effectivePageNumber = Math.min(pageNumber, pageCount);
-                const pageSizes = await runDjvuEngine<'getPageSizes'>({
+                const pageSizes = await runDjvuEngine({
                     type: 'getPageSizes',
                     djvuPath,
                     pageNumbers: [effectivePageNumber],
@@ -321,7 +321,7 @@ export async function getDjvuPageSizesForViewing(
     if (cachedSizes) {
         return cachedSizes;
     }
-    const sizes = await runDjvuEngine<'getPageSizes'>({
+    const sizes = await runDjvuEngine({
         type: 'getPageSizes',
         djvuPath,
     }, {
@@ -362,7 +362,7 @@ async function* getDjvuPageSizeWindowsForViewingInternal(
     const runWindow = async (firstPage: number, lastPage: number) => {
         throwIfAborted(options.signal);
         const pageNumbers = Array.from({ length: lastPage - firstPage + 1 }, (_, i) => firstPage + i);
-        const sizes = await runDjvuEngine<'getPageSizes'>({
+        const sizes = await runDjvuEngine({
             type: 'getPageSizes',
             djvuPath,
             pageNumbers,

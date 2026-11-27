@@ -6,6 +6,8 @@ import {
     pdfSearchRequestSchema,
     pdfSearchResponseSchema,
     pdfSearchWarmIndexRequestSchema,
+    type INormalizedPdfSearchRequest,
+    type INormalizedPdfSearchWarmIndexRequest,
     type IPdfSearchProgress,
     type IPdfSearchRequestOptions,
 } from '@contracts/search';
@@ -50,7 +52,7 @@ export const SEARCH_PLATFORM_FEATURE = definePlatformFeature({
             },
             client: {mapArgs: (
                 pdfPath: string, query: string, options?: IPdfSearchRequestOptions,
-            ) => [normalizePdfSearchRequestPayload({
+            ): [INormalizedPdfSearchRequest] => [normalizePdfSearchRequestPayload({
                 pdfPath,
                 query,
                 ...options,
@@ -72,7 +74,7 @@ export const SEARCH_PLATFORM_FEATURE = definePlatformFeature({
             },
             client: {mapArgs: (
                 pdfPath: string, options?: IPdfSearchRequestOptions,
-            ) => [normalizePdfSearchWarmIndexPayload({
+            ): [INormalizedPdfSearchWarmIndexRequest] => [normalizePdfSearchWarmIndexPayload({
                 pdfPath,
                 ...options,
             })]},

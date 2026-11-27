@@ -56,15 +56,6 @@ function hasNonEmptyPage(catalogPages: ReadonlyArray<{text: string}> | null) {
     return (catalogPages ?? []).some(page => page.text.trim().length > 0);
 }
 
-function hasSerialDocxStream<T extends object>(files: T): files is T & IDocxExportFileCapability {
-    return [
-        'beginDocxFileStream',
-        'writeDocxFileStreamChunk',
-        'commitDocxFileStream',
-        'cancelDocxFileStream',
-    ].every(name => typeof Reflect.get(files, name) === 'function');
-}
-
 async function writeDocxChunksThroughSerialTransport(
     stream: Pick<IDocxExportFileCapability, 'beginDocxFileStream' | 'writeDocxFileStreamChunk' | 'commitDocxFileStream' | 'cancelDocxFileStream'>,
     outPath: TDocumentRef,
@@ -154,10 +145,6 @@ export async function exportTextAsDocx(params: {
                 && pageCount > 0
                 ? pageCount
                 : undefined;
-            if (!hasSerialDocxStream(documentFiles)) {
-                throw new Error('DOCX streaming output is unavailable on this platform');
-            }
-            const docxStream = documentFiles;
             if (
                 params.workingCopyPath
                 && params.documentRevisionToken
@@ -183,7 +170,7 @@ export async function exportTextAsDocx(params: {
                 const docxChunks = params.signal === undefined
                     ? await params.buildDocxChunks(textPages, direction)
                     : await params.buildDocxChunks(textPages, direction, params.signal);
-                await writeDocxChunksThroughSerialTransport(docxStream, outPath, docxChunks, params.signal);
+                await writeDocxChunksThroughSerialTransport(documentFiles, outPath, docxChunks, params.signal);
             } else {
                 const catalogPages = params.workingCopyPath && params.documentRevisionToken
                     ? params.signal === undefined
@@ -211,7 +198,7 @@ export async function exportTextAsDocx(params: {
                 const docxChunks = params.signal === undefined
                     ? await params.buildDocxChunks(getNonEmptyPages(catalogPages), direction)
                     : await params.buildDocxChunks(getNonEmptyPages(catalogPages), direction, params.signal);
-                await writeDocxChunksThroughSerialTransport(docxStream, outPath, docxChunks, params.signal);
+                await writeDocxChunksThroughSerialTransport(documentFiles, outPath, docxChunks, params.signal);
             }
             params.toast.add({
                 color: 'success',

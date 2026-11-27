@@ -1,3 +1,4 @@
+import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import type {
     IDocumentsFileIoCapability,
     IDocumentsMenuCapability,
@@ -29,7 +30,7 @@ export function getDocumentWorkingCopyCapability(): IDocumentsWorkingCopyCapabil
     return getPlatformAPI().documentWorkingCopy;
 }
 
-export function getDocumentFilesCapability(): IDocumentsFileIoCapability {
+export function getDocumentFilesCapability(): IDocumentsFileIoCapability & IDocxExportFileCapability {
     return getPlatformAPI().documentFiles;
 }
 

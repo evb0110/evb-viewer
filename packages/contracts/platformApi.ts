@@ -1,5 +1,6 @@
 import type { IAgentCapability } from '@contracts/agentPlatformFeature';
 import type { IDjvuCapability } from '@contracts/djvuPlatformFeature';
+import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import type {
     IDocumentsFileIoCapability,
     IDocumentsMenuCapability,
@@ -37,7 +38,7 @@ export interface IPlatformApi {
     documentPicker: IDocumentsPickerCapability;
     documentOpen: IDocumentsOpenCapability;
     documentWorkingCopy: IDocumentsWorkingCopyCapability;
-    documentFiles: IDocumentsFileIoCapability;
+    documentFiles: IDocumentsFileIoCapability & IDocxExportFileCapability;
     documentPdf: IDocumentsPdfCapability;
     documentRecentFiles: IDocumentsRecentFilesCapability;
     documentWindow: IDocumentsWindowCapability;

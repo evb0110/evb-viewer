@@ -23,7 +23,10 @@ import {UPDATES_PLATFORM_FEATURE} from '@contracts/updatesPlatformFeature';
 import {HOST_PLATFORM_FEATURE} from '@contracts/hostPlatformFeature';
 import {DJVU_PLATFORM_FEATURE} from '@contracts/djvuPlatformFeature';
 import {WINDOW_TABS_PLATFORM_FEATURE} from '@contracts/windowTabsPlatformFeature';
-import type {TAnyDefinedPlatformFeature} from '@contracts/platformFeature';
+import type {
+    TAnyDefinedPlatformFeature,
+    TFeatureMainBindings,
+} from '@contracts/platformFeature';
 import type {ICoreIpcHandlerOptions} from '@electron/platform-ipc/registerCoreIpcHandlers';
 import {registerCoreIpcHandlers} from '@electron/platform-ipc/registerCoreIpcHandlers';
 import {RAW_IPC_HANDLER_DESCRIPTORS} from '@electron/platform-ipc/rawIpcRegistration';
@@ -231,9 +234,9 @@ const platformDescriptors: readonly TPlatformDescriptor[] = [
     {
         name: 'updates',
         feature: UPDATES_PLATFORM_FEATURE,
-        create: ({loadUpdatesModule}) => loadUpdatesModule
-            ? loadUpdatesModule()
-            : import('@electron/updates'),
+        create: async ({loadUpdatesModule}) => (
+            await (loadUpdatesModule ? loadUpdatesModule() : import('@electron/updates'))
+        ) satisfies TFeatureMainBindings<typeof UPDATES_PLATFORM_FEATURE, IpcMainInvokeEvent>,
     },
     {
         name: 'host',

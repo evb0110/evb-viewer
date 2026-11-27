@@ -66,7 +66,7 @@ export interface IBrowserDocumentCapabilities {
     documentPicker: IDocumentsPickerCapability;
     documentOpen: IDocumentsOpenCapability;
     documentWorkingCopy: IDocumentsWorkingCopyCapability;
-    documentFiles: IDocumentsFileIoCapability;
+    documentFiles: IDocumentsFileIoCapability & IDocxExportFileCapability;
     documentPdf: IDocumentsPdfCapability;
     documentRecentFiles: IDocumentsRecentFilesCapability;
     documentWindow: IDocumentsWindowCapability;
