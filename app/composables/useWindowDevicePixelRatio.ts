@@ -1,3 +1,5 @@
+import { useEventListener } from '@vueuse/core';
+
 function readWindowDevicePixelRatio() {
     return typeof window !== 'undefined'
         ? window.devicePixelRatio || 1
@@ -6,25 +8,17 @@ function readWindowDevicePixelRatio() {
 
 export const useWindowDevicePixelRatio = () => {
     const pixelRatio = ref(readWindowDevicePixelRatio());
-    let mediaQuery: MediaQueryList | null = null;
-
-    function removeMediaListener() {
-        if (!mediaQuery) {
-            return;
-        }
-
-        mediaQuery.removeEventListener('change', updatePixelRatio);
-        mediaQuery = null;
-    }
+    let stopMediaListener: (() => void) | null = null;
 
     function installMediaListener() {
-        removeMediaListener();
+        stopMediaListener?.();
+        stopMediaListener = null;
         if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
             return;
         }
 
-        mediaQuery = window.matchMedia(`(resolution: ${pixelRatio.value}dppx)`);
-        mediaQuery.addEventListener('change', updatePixelRatio);
+        const mediaQuery = window.matchMedia(`(resolution: ${pixelRatio.value}dppx)`);
+        stopMediaListener = useEventListener(mediaQuery, 'change', updatePixelRatio);
     }
 
     function updatePixelRatio() {
@@ -39,14 +33,12 @@ export const useWindowDevicePixelRatio = () => {
 
     if (typeof window !== 'undefined') {
         installMediaListener();
-        window.addEventListener('resize', updatePixelRatio);
+        useEventListener(window, 'resize', updatePixelRatio);
     }
 
     onScopeDispose(() => {
-        removeMediaListener();
-        if (typeof window !== 'undefined') {
-            window.removeEventListener('resize', updatePixelRatio);
-        }
+        stopMediaListener?.();
+        stopMediaListener = null;
     });
 
     return pixelRatio;

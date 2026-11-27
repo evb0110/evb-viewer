@@ -25,7 +25,10 @@
 </template>
 
 <script setup lang="ts">
-import { useClipboard } from '@vueuse/core';
+import {
+    useClipboard,
+    useEventListener,
+} from '@vueuse/core';
 import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
 import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 import type {IRuntimeErrorReport} from '@app/composables/useRuntimeErrorReports';
@@ -327,9 +330,6 @@ watch(() => colorMode.value, async () => {
 });
 
 onBeforeUnmount(() => {
-    if (typeof window !== 'undefined') {
-        window.removeEventListener('pagehide', clearRuntimeErrorReports);
-    }
     clearRuntimeErrorReports();
     themeRepaintRevision += 1;
     while (hostEnvironmentUnsubscribers.length > 0) {
@@ -451,7 +451,7 @@ function prefetchPersistedLocaleMessages() {
 }
 
 onMounted(async () => {
-    window.addEventListener('pagehide', clearRuntimeErrorReports);
+    useEventListener(window, 'pagehide', clearRuntimeErrorReports);
     prefetchPersistedLocaleMessages();
     try {
         hostEnvironmentUnsubscribers.push(onBrowserDocumentPersistenceWarning(({

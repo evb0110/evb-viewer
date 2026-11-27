@@ -2,7 +2,10 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import {tryOnScopeDispose} from '@vueuse/core';
+import {
+    tryOnScopeDispose,
+    useEventListener,
+} from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IShutdownSaveFlushResponse,
@@ -41,25 +44,12 @@ export const useBrowserDirtyUnloadGuard = (hasPendingUnsavedChanges: () => boole
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
         preventBrowserUnloadWhenDirty(event, hasPendingUnsavedChanges());
     };
-    let beforeUnloadAttached = false;
-
-    const syncBeforeUnloadListener = (isDirty: boolean) => {
-        if (isDirty && !beforeUnloadAttached) {
-            targetWindow.addEventListener('beforeunload', handleBeforeUnload);
-            beforeUnloadAttached = true;
-        } else if (!isDirty && beforeUnloadAttached) {
-            targetWindow.removeEventListener('beforeunload', handleBeforeUnload);
-            beforeUnloadAttached = false;
+    watch(hasPendingUnsavedChanges, (isDirty, _, onCleanup) => {
+        if (!isDirty) {
+            return;
         }
-    };
-
-    const stopWatching = watch(hasPendingUnsavedChanges, syncBeforeUnloadListener, {immediate: true});
-    tryOnScopeDispose(() => {
-        stopWatching();
-        if (beforeUnloadAttached) {
-            targetWindow.removeEventListener('beforeunload', handleBeforeUnload);
-        }
-    });
+        onCleanup(useEventListener(targetWindow, 'beforeunload', handleBeforeUnload));
+    }, {immediate: true});
 };
 
 export const useShutdownSaveFlushReporting = (deps: IShutdownSaveFlushReportingDeps) => {

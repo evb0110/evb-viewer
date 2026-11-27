@@ -163,9 +163,10 @@ vi.mock('@app/composables/useSettings', () => ({useSettings: () => ({
     updateSetting: vi.fn(),
 })}));
 vi.mock('@app/composables/useRuntimeEnvironment', () => ({useRuntimeEnvironment: () => ({isDesktopRuntime: ref(true)})}));
+const clearRuntimeErrorReports = vi.fn();
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({
     reports: ref([]),
-    clearRuntimeErrorReports: vi.fn(),
+    clearRuntimeErrorReports,
     discardPendingDiagnostics: vi.fn(),
     resendPendingDiagnosticOnce: vi.fn(),
 })}));
@@ -547,5 +548,22 @@ describe('Settings save presentation lifetime', () => {
         expect(mounted.host.querySelector('.app-toast-failure-reason')?.textContent).toBe(name === 'QuotaExceededError'
             ? 'Storage is full. Free some space and try again.'
             : name === 'Error' ? 'Settings could not be written to storage. Try again.' : 'Access to storage is blocked. Allow access and try again.');
+    });
+
+    it('clears runtime error reports on pagehide while mounted and detaches the listener on unmount', () => {
+        clearRuntimeErrorReports.mockClear();
+        mountSettingsRoot();
+
+        window.dispatchEvent(new Event('pagehide'));
+        expect(clearRuntimeErrorReports).toHaveBeenCalledTimes(1);
+
+        for (const unmount of [...activeUnmounts]) {
+            unmount();
+        }
+        // Unmount clears runtime reports independently of pagehide.
+        expect(clearRuntimeErrorReports).toHaveBeenCalledTimes(2);
+
+        window.dispatchEvent(new Event('pagehide'));
+        expect(clearRuntimeErrorReports).toHaveBeenCalledTimes(2);
     });
 });

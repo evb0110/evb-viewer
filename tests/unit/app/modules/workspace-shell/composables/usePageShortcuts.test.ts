@@ -298,14 +298,47 @@ describe('usePageShortcuts', () => {
         });
         getCapturedKeyDown()?.(save);
         pressShortcut('b', {code: 'KeyB', metaKey: true, target: dialogButton});
-        const keys = mocks.useMagicKeys.mock.results[0]?.value;
-        keys.meta.value = true;
-        keys.b.value = true;
-        // The one `whenever` gate is Cmd/Ctrl+B, the sidebar toggle.
-        expect(mocks.whenever.mock.calls[0]?.[0]()).toBeFalsy();
+        expect(deps.handleToggleSidebar).not.toHaveBeenCalled();
         expect(deps.handleSave).not.toHaveBeenCalled();
         expect(deps.pdfViewerRef.value?.deleteSelectedShape).not.toHaveBeenCalled();
         vi.unstubAllGlobals();
+    });
+
+    it('ignores already-prevented, composing, and inactive-view keydown events', async () => {
+        const deps = createDeps();
+        await mountShortcuts(deps);
+
+        const prevented = createKeyboardEventFixture({key: 'f', code: 'KeyF', ctrlKey: true});
+        Object.defineProperty(prevented, 'defaultPrevented', {value: true});
+        getCapturedOnEventFired()?.(prevented);
+        expect(deps.openSearch).not.toHaveBeenCalled();
+
+        const composing = createKeyboardEventFixture({key: 'PageDown', code: 'PageDown'});
+        Object.defineProperty(composing, 'isComposing', {value: true});
+        getCapturedOnEventFired()?.(composing);
+        expect(deps.handleGoToPage).not.toHaveBeenCalled();
+
+        mocks.shouldHandleRendererMenuAccelerators.mockReturnValue(true);
+        const composingSavePreventDefault = vi.fn();
+        const composingSaveStopPropagation = vi.fn();
+        const composingSave = createKeyboardEventFixture({
+            key: 's',
+            code: 'KeyS',
+            ctrlKey: true,
+            preventDefault: composingSavePreventDefault,
+            stopPropagation: composingSaveStopPropagation,
+            target: {nodeName: 'TEXTAREA'},
+        });
+        Object.defineProperty(composingSave, 'isComposing', {value: true});
+        getCapturedKeyDown()?.(composingSave);
+        getCapturedOnEventFired()?.(composingSave);
+        expect(composingSavePreventDefault).not.toHaveBeenCalled();
+        expect(composingSaveStopPropagation).not.toHaveBeenCalled();
+        expect(deps.handleSave).not.toHaveBeenCalled();
+
+        deps.isActive.value = false;
+        expect(pressShortcut('f', {code: 'KeyF', ctrlKey: true})).not.toHaveBeenCalled();
+        expect(deps.openSearch).not.toHaveBeenCalled();
     });
 
     it('ignores modified Alt shortcuts', async () => {
