@@ -4,6 +4,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     DEFAULT_LOCALE,
@@ -38,13 +39,32 @@ describe('locale registry', () => {
         }
     });
 
-    it('keeps runtime locale stubs aligned with package message files', () => {
+    it('keeps package message files aligned with definitions and uses a single shared runtime loader', () => {
         const definitionFiles = LOCALE_DEFINITIONS
             .map(definition => definition.file)
             .toSorted();
 
         expect(listLocaleFiles('packages/i18n-app/messages')).toEqual(definitionFiles);
-        expect(listLocaleFiles('app/i18n/runtime-locales')).toEqual(definitionFiles);
+        expect(listLocaleFiles('app/i18n/runtime-locales')).toEqual(['loadLocale.ts']);
+    });
+
+    it('loads each registered locale dynamically through the shared runtime loader', async () => {
+        vi.stubGlobal('defineI18nLocale', <T>(loader: T) => loader);
+        try {
+            const { default: loadLocale } = await import('@app/i18n/runtime-locales/loadLocale') as {
+                default: (locale: string) => Promise<Record<string, unknown>>;
+            };
+
+            for (const code of LOCALE_CODES) {
+                expect(await loadLocale(code), code).toBe(LOCALE_MESSAGES[code]);
+            }
+
+            expect(await loadLocale('pt-br')).toBe(LOCALE_MESSAGES['pt-BR']);
+            expect(await loadLocale('fr-CA')).toBe(LOCALE_MESSAGES.fr);
+            expect(await loadLocale('unknown')).toBe(LOCALE_MESSAGES[DEFAULT_LOCALE]);
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 
     it('resolves regional browser tags before falling back to a base locale', () => {

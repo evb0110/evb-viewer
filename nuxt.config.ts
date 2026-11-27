@@ -411,7 +411,10 @@ export default defineNuxtConfig({
 
     i18n: {
         restructureDir: 'app',
-        locales: LOCALE_DEFINITIONS.map(locale => ({ ...locale })),
+        locales: LOCALE_DEFINITIONS.map(locale => ({
+            ...locale,
+            file: 'loadLocale.ts',
+        })),
         defaultLocale: DEFAULT_LOCALE,
         baseUrl: buildEnv.NUXT_PUBLIC_SITE_URL || 'https://web.evb-viewer.com',
         langDir: 'i18n/runtime-locales/',

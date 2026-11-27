@@ -342,28 +342,6 @@ export function checkLocaleParity(
     return errors;
 }
 
-function assertRuntimeLocaleParity(errors: string[]) {
-    const messagesDir = 'packages/i18n-app/messages';
-    const runtimeDir = 'app/i18n/runtime-locales';
-    const messagesFiles = new Set(listLocaleFileNames(messagesDir));
-    const runtimeFiles = new Set(listLocaleFileNames(runtimeDir));
-
-    const missingRuntime = difference(Array.from(messagesFiles), Array.from(runtimeFiles)).sort();
-    const missingMessages = difference(Array.from(runtimeFiles), Array.from(messagesFiles)).sort();
-
-    for (const fileName of missingRuntime) {
-        errors.push(
-            `Runtime locale stub missing: expected ${runtimeDir}/${fileName} to mirror ${messagesDir}/${fileName}`,
-        );
-    }
-
-    for (const fileName of missingMessages) {
-        errors.push(
-            `Locale messages file missing: expected ${messagesDir}/${fileName} to mirror ${runtimeDir}/${fileName}`,
-        );
-    }
-}
-
 function parseTarget(argv = process.argv.slice(2)): TLocaleTarget {
     const targetArg = argv.find(argument => argument.startsWith('--target='));
     const target = targetArg?.slice('--target='.length) ?? 'all';
@@ -390,7 +368,6 @@ async function main() {
     const errors: string[] = [];
 
     if (target === 'app' || target === 'all') {
-        assertRuntimeLocaleParity(errors);
         assertNoEnglishSchemaFallbackImports('desktop', 'packages/i18n-app/messages', errors);
         const desktopLocaleMessages = await loadLocaleMessages('packages/i18n-app/messages');
         const desktopLocaleFiles = listLocaleFileNames('packages/i18n-app/messages');
