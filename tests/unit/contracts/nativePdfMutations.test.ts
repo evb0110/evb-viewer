@@ -1611,4 +1611,48 @@ describe('native deletion reports', () => {
             pageCropRemovals: [2],
         }, 'mutations')).toThrow('conflicts');
     });
+
+    it('enforces the PDF object generation limit at 65535 across note and delete mutations', () => {
+        expect(normalizePdfNativeMutationSet({
+            updates: [{
+                ...validNoteTextUpdate,
+                generationNumber: 65_535,
+            }],
+            geometryUpdates: [{
+                ...validNoteGeometryUpdate,
+                generationNumber: 65_535,
+            }],
+            deletes: [{
+                pageIndex: 0,
+                objectNumber: 12,
+                generationNumber: 65_535,
+            }],
+        }, 'mutations')).toMatchObject({
+            updates: [{generationNumber: 65_535}],
+            geometryUpdates: [{generationNumber: 65_535}],
+            deletes: [{generationNumber: 65_535}],
+        });
+
+        expect(() => normalizePdfNativeMutationSet({
+            updates: [{
+                ...validNoteTextUpdate,
+                generationNumber: 65_536,
+            }],
+        }, 'mutations')).toThrow('must be an integer from 0 to 65535');
+
+        expect(() => normalizePdfNativeMutationSet({
+            geometryUpdates: [{
+                ...validNoteGeometryUpdate,
+                generationNumber: 65_536,
+            }],
+        }, 'mutations')).toThrow('must be an integer from 0 to 65535');
+
+        expect(() => normalizePdfNativeMutationSet({
+            deletes: [{
+                pageIndex: 0,
+                objectNumber: 12,
+                generationNumber: 65_536,
+            }],
+        }, 'mutations')).toThrow('must contain a valid pageIndex and either a PDF object ref or stableKey');
+    });
 });

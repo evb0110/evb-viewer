@@ -1,3 +1,5 @@
+export const MAX_PDF_OBJECT_GENERATION = 65_535;
+
 export interface IPdfAnnotationRef {
     objectNumber: number;
     generationNumber: number;
@@ -17,7 +19,7 @@ function parsePdfAnnotationRefParts(
         || objectNumber <= 0
         || !Number.isSafeInteger(generationNumber)
         || generationNumber < 0
-        || generationNumber > 65_535
+        || generationNumber > MAX_PDF_OBJECT_GENERATION
     ) {
         return null;
     }

@@ -7,6 +7,9 @@ interface IComputeInitialImagePlacementDimensionsOptions {
     imageCssHeight: number;
 }
 
+const INITIAL_IMAGE_MAX_PAGE_FRACTION = 0.4;
+const INITIAL_IMAGE_MIN_PAGE_FRACTION = 0.12;
+
 export function computeInitialImagePlacementDimensions(
     options: IComputeInitialImagePlacementDimensionsOptions,
 ): IImagePlacementDimensions | null {
@@ -25,10 +28,10 @@ export function computeInitialImagePlacementDimensions(
         return null;
     }
 
-    const maxCssWidth = pageWidthPx * 0.4;
-    const maxCssHeight = pageHeightPx * 0.4;
-    const minCssWidth = Math.min(pageWidthPx * 0.12, maxCssWidth);
-    const minCssHeight = Math.min(pageHeightPx * 0.12, maxCssHeight);
+    const maxCssWidth = pageWidthPx * INITIAL_IMAGE_MAX_PAGE_FRACTION;
+    const maxCssHeight = pageHeightPx * INITIAL_IMAGE_MAX_PAGE_FRACTION;
+    const minCssWidth = Math.min(pageWidthPx * INITIAL_IMAGE_MIN_PAGE_FRACTION, maxCssWidth);
+    const minCssHeight = Math.min(pageHeightPx * INITIAL_IMAGE_MIN_PAGE_FRACTION, maxCssHeight);
 
     const fitScale = Math.min(
         1,

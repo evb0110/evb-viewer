@@ -3,7 +3,12 @@ import {
     expect,
     it,
 } from 'vitest';
-import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
+import {
+    assertCaptureImageBudget,
+    CAPTURE_MAX_EDGE_PX,
+    CAPTURE_MAX_PIXELS,
+    IMAGE_EXPORT_PLATFORM_FEATURE,
+} from '@contracts/imageExportPlatformFeature';
 import { requireRequestId } from '@contracts/shared';
 import * as v from 'valibot';
 import {normalizeImageExportFileName} from '@pdf-core/imageExportFileName';
@@ -48,6 +53,28 @@ describe('image export platform feature schemas', () => {
             x: 990,
         }])).toThrow('Capture must fit the current viewport');
 
+        expect(CAPTURE_MAX_PIXELS).toBe(CAPTURE_MAX_EDGE_PX * CAPTURE_MAX_EDGE_PX);
+        expect(() => assertCaptureImageBudget(CAPTURE_MAX_EDGE_PX, CAPTURE_MAX_EDGE_PX)).not.toThrow();
+        expect(() => assertCaptureImageBudget(CAPTURE_MAX_EDGE_PX + 1, 1)).toThrow('Capture exceeds the 4096 edge or 16 Mi-pixel limit');
+        expect(() => assertCaptureImageBudget(1, CAPTURE_MAX_EDGE_PX + 1)).toThrow('Capture exceeds the 4096 edge or 16 Mi-pixel limit');
+        expect(capture.decodeArgs([{
+            x: 0,
+            y: 0,
+            width: CAPTURE_MAX_EDGE_PX,
+            height: CAPTURE_MAX_EDGE_PX,
+            viewportWidth: CAPTURE_MAX_EDGE_PX,
+            viewportHeight: CAPTURE_MAX_EDGE_PX,
+            pixelRatio: 1,
+        }])).toHaveLength(1);
+        expect(() => capture.decodeArgs([{
+            x: 0,
+            y: 0,
+            width: CAPTURE_MAX_EDGE_PX + 1,
+            height: 1,
+            viewportWidth: CAPTURE_MAX_EDGE_PX + 1,
+            viewportHeight: 1,
+            pixelRatio: 1,
+        }])).toThrow();
     });
 
     it('keeps validation and result envelopes stable', () => {

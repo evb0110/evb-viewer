@@ -77,11 +77,13 @@ const sourceKindSchema = v.picklist([
     'pdf',
     'djvu',
 ], 'sourceKind must be pdf or djvu');
+export const CAPTURE_MAX_EDGE_PX = 4096;
+export const CAPTURE_MAX_PIXELS = CAPTURE_MAX_EDGE_PX * CAPTURE_MAX_EDGE_PX;
 export const CAPTURE_MAX_BYTES = 16 * 1024 * 1024;
 export function assertCaptureImageBudget(width: number, height: number) {
     if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1
-        || width > 4096 || height > 4096 || width * height > 16 * 1024 * 1024) {
-        throw new RangeError('Capture exceeds the 4096 edge or 16 Mi-pixel limit');
+        || width > CAPTURE_MAX_EDGE_PX || height > CAPTURE_MAX_EDGE_PX || width * height > CAPTURE_MAX_PIXELS) {
+        throw new RangeError(`Capture exceeds the ${CAPTURE_MAX_EDGE_PX} edge or 16 Mi-pixel limit`);
     }
 }
 export function readCapturePngSize(bytes: Uint8Array) {
@@ -109,13 +111,13 @@ export function readCapturePngSize(bytes: Uint8Array) {
 const captureRegionSchema = v.pipe(v.object({
     x: v.pipe(v.number(), v.integer(), v.minValue(0)),
     y: v.pipe(v.number(), v.integer(), v.minValue(0)),
-    width: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(4096)),
-    height: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(4096)),
+    width: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(CAPTURE_MAX_EDGE_PX)),
+    height: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(CAPTURE_MAX_EDGE_PX)),
     viewportWidth: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65536)),
     viewportHeight: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(65536)),
     pixelRatio: v.pipe(v.number(), v.finite(), v.minValue(Number.EPSILON), v.maxValue(8)),
 }), v.check(region => region.x + region.width <= region.viewportWidth && region.y + region.height <= region.viewportHeight, 'Capture must fit the current viewport'),
-v.check(region => Math.ceil(region.width * region.pixelRatio) <= 4096 && Math.ceil(region.height * region.pixelRatio) <= 4096 && Math.ceil(region.width * region.pixelRatio) * Math.ceil(region.height * region.pixelRatio) <= 16 * 1024 * 1024, 'Capture exceeds the pixel limit'));
+v.check(region => Math.ceil(region.width * region.pixelRatio) <= CAPTURE_MAX_EDGE_PX && Math.ceil(region.height * region.pixelRatio) <= CAPTURE_MAX_EDGE_PX && Math.ceil(region.width * region.pixelRatio) * Math.ceil(region.height * region.pixelRatio) <= CAPTURE_MAX_PIXELS, 'Capture exceeds the pixel limit'));
 export type ICurrentViewCaptureRegion = v.InferOutput<typeof captureRegionSchema>;
 /** Local browser consent/paint lifetime. These values never cross IPC. */
 export interface ICurrentViewCaptureLocal {

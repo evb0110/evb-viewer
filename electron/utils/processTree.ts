@@ -12,6 +12,8 @@ interface ITerminateProcessTreeOptions {
 
 const DEFAULT_GRACE_MS = 2_500;
 const DEFAULT_TASKKILL_TIMEOUT_MS = 2_000;
+const MIN_FORCE_KILL_WAIT_MS = 250;
+const MAX_FORCE_KILL_WAIT_MS = 2_000;
 
 interface IProcessTreeRuntime {
     delay: typeof delay;
@@ -146,6 +148,7 @@ export async function terminateProcessTree(
     options: ITerminateProcessTreeOptions = {},
 ) {
     const graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
+    const forceKillWaitMs = clamp(Math.floor(graceMs / 2), MIN_FORCE_KILL_WAIT_MS, MAX_FORCE_KILL_WAIT_MS);
     const platform = options.platform ?? process.platform;
     const preferProcessGroup = options.preferProcessGroup ?? false;
     const taskkillTimeoutMs = options.taskkillTimeoutMs ?? DEFAULT_TASKKILL_TIMEOUT_MS;
@@ -158,7 +161,6 @@ export async function terminateProcessTree(
         if (await waitForExit(isDirectTargetAlive, graceMs)) return gracefulTreeKill;
         if (!isDirectTargetAlive()) return false;
         const forcedTreeKill = await runTaskkill(pid, true, taskkillTimeoutMs);
-        const forceKillWaitMs = clamp(Math.floor(graceMs / 2), 250, 2_000);
         return await waitForExit(isDirectTargetAlive, forceKillWaitMs) && forcedTreeKill;
     }
 
@@ -180,7 +182,6 @@ export async function terminateProcessTree(
     }
 
     sendPosixSignal(pid, 'SIGKILL', processGroupWasAlive && isProcessGroupAlive(pid));
-    const forceKillWaitMs = clamp(Math.floor(graceMs / 2), 250, 2_000);
     if (preferProcessGroup) {
         return waitForPreferredProcessExit(pid, forceKillWaitMs, isDirectTargetAlive);
     }

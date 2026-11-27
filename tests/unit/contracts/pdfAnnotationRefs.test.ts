@@ -5,6 +5,7 @@ import {
 } from 'vitest';
 import {
     formatPdfJsAnnotationRef,
+    MAX_PDF_OBJECT_GENERATION,
     normalizePdfJsAnnotationId,
     parsePdfAnnotationRef,
     parsePdfJsAnnotationRef,
@@ -27,7 +28,16 @@ describe('PDF.js annotation reference contract', () => {
         expect(parsePdfJsAnnotationRef('0R')).toBeNull();
         expect(parsePdfJsAnnotationRef('42 0 R')).toBeNull();
         expect(parsePdfJsAnnotationRef('9007199254740992R')).toBeNull();
-        expect(parsePdfJsAnnotationRef('42R65536')).toBeNull();
+        expect(parsePdfJsAnnotationRef(`42R${MAX_PDF_OBJECT_GENERATION}`)).toEqual({
+            objectNumber: 42,
+            generationNumber: MAX_PDF_OBJECT_GENERATION,
+        });
+        expect(parsePdfJsAnnotationRef(`42R${MAX_PDF_OBJECT_GENERATION + 1}`)).toBeNull();
+        expect(parsePdfNativeAnnotationRef(`42 ${MAX_PDF_OBJECT_GENERATION} R`)).toEqual({
+            objectNumber: 42,
+            generationNumber: MAX_PDF_OBJECT_GENERATION,
+        });
+        expect(parsePdfNativeAnnotationRef(`42 ${MAX_PDF_OBJECT_GENERATION + 1} R`)).toBeNull();
     });
 
     it('parses native PDF object references through the cross-layer parser', () => {

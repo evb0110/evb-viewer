@@ -7,6 +7,8 @@ import type {
 } from '@contracts/shared';
 
 const DOCUMENT_WHEEL_ZOOM_SENSITIVITY = 0.0016;
+const WHEEL_ZOOM_CLAMP_REBASE_EPSILON = 0.001;
+const WHEEL_ZOOM_COMMIT_DEADZONE = 0.001;
 export const DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS = 180;
 const WHEEL_LINE_DELTA_PX = 16;
 export const WHEEL_DELTA_LINE_MODE = 1;
@@ -195,7 +197,7 @@ export function resolveDocumentWheelZoomTarget(
         ? clampDocumentManualZoom(rawNextEffectiveZoom)
         : Math.min(maximumZoom, Math.max(minimumZoom, rawNextEffectiveZoom));
     const clamped = Math.abs(rawNextEffectiveZoom - nextEffectiveZoom) > Number.EPSILON;
-    if (Math.abs(rawNextEffectiveZoom - nextEffectiveZoom) >= 0.001) {
+    if (Math.abs(rawNextEffectiveZoom - nextEffectiveZoom) >= WHEEL_ZOOM_CLAMP_REBASE_EPSILON) {
         const clampedCumulativeDelta = resolveDocumentWheelCumulativeDelta(startZoom, nextEffectiveZoom);
         if (clampedCumulativeDelta !== null) {
             nextCumulativeDelta = clampedCumulativeDelta;
@@ -237,7 +239,7 @@ export function consumeDocumentWheelZoomInteraction(
     if (!target.valid) {
         return true;
     }
-    if (Math.abs(target.nextEffectiveZoom - sink.effectiveZoom) < 0.001) {
+    if (Math.abs(target.nextEffectiveZoom - sink.effectiveZoom) < WHEEL_ZOOM_COMMIT_DEADZONE) {
         if (!target.clamped && Math.abs(target.cumulativeDelta) > Number.EPSILON) {
             options.beforeZoom?.(
                 interaction,

@@ -22,6 +22,7 @@ import {
     updateLayoutSplitRatio,
 } from '@app/modules/workspace-shell/editor-panes/layoutTree';
 import { findDirectionalPaneId } from '@app/modules/workspace-shell/editor-panes/findDirectionalPaneId';
+import { LEGACY_MIN_SPLIT_RATIO } from '@app/modules/workspace-shell/layout/resolveEditorPaneSplitBounds';
 import {
     arraysEqual,
     isEditorPanesStateNormalized,
@@ -567,7 +568,7 @@ export const useEditorPanesManager = (managerOptions: {isTabEmpty: (tabId: strin
     }
 
     function setSplitRatio(splitId: string, nextRatio: number) {
-        const clamped = clamp(nextRatio, 0.15, 0.85);
+        const clamped = clamp(nextRatio, LEGACY_MIN_SPLIT_RATIO, 1 - LEGACY_MIN_SPLIT_RATIO);
 
         if (!layout.value) {
             return;

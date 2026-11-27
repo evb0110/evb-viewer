@@ -3,6 +3,7 @@ import { parsePdfAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import type { IPdfNativeAnnotationDelete } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
+import { MAX_PDF_OBJECT_GENERATION } from '@contracts/pdfAnnotationRefs';
 import {createEpochMs} from '@contracts/timestamps';
 import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/annotations/persistence/nativeFreeTextNoteProjection';
 import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
@@ -26,7 +27,7 @@ export function getNativeAnnotationDeleteCommentTargetKey(
         return null;
     }
     const targetRef = resolveNativeAnnotationDeleteRef(comment);
-    if (targetRef && targetRef.generationNumber <= 65_535) {
+    if (targetRef && targetRef.generationNumber <= MAX_PDF_OBJECT_GENERATION) {
         return `ref:${pageIndex}:${targetRef.objectNumber}:${targetRef.generationNumber}`;
     }
     const stableKey = comment.stableKey?.trim();
@@ -96,7 +97,7 @@ export function projectNativeAnnotationDeletes(
         }
         if (
             !targetRef
-            || targetRef.generationNumber > 65_535
+            || targetRef.generationNumber > MAX_PDF_OBJECT_GENERATION
             || pageIndex === null
         ) {
             return skip('pending-delete-not-native-eligible', {

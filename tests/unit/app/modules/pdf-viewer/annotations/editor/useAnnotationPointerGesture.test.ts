@@ -361,4 +361,28 @@ describe('useAnnotationPointerGesture', () => {
         expect(interaction.finishTextSelection(pointer(80, 50, 2))).toMatchObject({hasMoved: true});
         expect(interaction.isTextSelecting.value).toBe(false);
     });
+
+    it('marks pointer gestures moved only once displacement reaches the 6px drag threshold', () => {
+        const {interaction} = createHarness(scopes);
+        interaction.beginMove(gesture.annotationId, {
+            x: 0.3,
+            y: 0.4,
+        }, pointer(10, 10));
+        interaction.update({
+            x: 0.31,
+            y: 0.4,
+        }, pointer(15, 10));
+        expect(interaction.hasMoved.value).toBe(false);
+
+        interaction.update({
+            x: 0.32,
+            y: 0.4,
+        }, pointer(16, 10));
+        expect(interaction.hasMoved.value).toBe(true);
+        interaction.cancel();
+
+        expect(interaction.beginTextSelection(pointer(20, 20, 2))).toBe(true);
+        expect(interaction.updateTextSelection(pointer(25, 20, 2))).toMatchObject({hasMoved: false});
+        expect(interaction.finishTextSelection(pointer(26, 20, 2))).toMatchObject({hasMoved: true});
+    });
 });

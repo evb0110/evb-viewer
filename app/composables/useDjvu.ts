@@ -5,7 +5,7 @@ import { parseDocumentRef } from '@contracts/documentRef';
 import { createRequestId } from '@contracts/shared';
 import { SerializableError } from '@contracts/serializableError';
 import {
-    decodeFailureReceipt,
+    getFailureReceipt,
     isExpectedOutcome,
     type ExpectedOutcome,
     type FailureReceipt,
@@ -102,13 +102,6 @@ function isPromiseLike(value: unknown): value is PromiseLike<void> {
         && typeof value.then === 'function';
 }
 
-function getDjvuFailureReceipt(value: unknown): FailureReceipt | undefined {
-    if (typeof value !== 'object' || value === null || !('failure' in value)) {
-        return undefined;
-    }
-    return decodeFailureReceipt(value.failure) ?? undefined;
-}
-
 function getDjvuExpectedOutcome(value: unknown): ExpectedOutcome | undefined {
     if (typeof value !== 'object' || value === null || !('expected' in value)) {
         return undefined;
@@ -127,7 +120,7 @@ function createDjvuOpenFailure(result: IDjvuOpenResult, fallbackMessage: string)
         'djvu',
         'Open failed',
         message,
-        getDjvuFailureReceipt(result) ?? {code: 'RENDERER_DJVU_OPERATION_FAILED'},
+        getFailureReceipt(result) ?? {code: 'RENDERER_DJVU_OPERATION_FAILED'},
     );
     const error = result.errorEnvelope
         ? new SerializableError(result.errorEnvelope)
@@ -700,7 +693,7 @@ export const useDjvu = (config: {
             if (!result.success || !result.pdfPath) {
                 presentConversionFailure(
                     result.error ?? t('errors.djvu.convert'),
-                    getDjvuFailureReceipt(result),
+                    getFailureReceipt(result),
                     getDjvuExpectedOutcome(result),
                 );
                 return null;
@@ -754,7 +747,7 @@ export const useDjvu = (config: {
                 : t('errors.djvu.convert');
             const expected = getDjvuExpectedOutcome(error)
                 ?? classifyDjvuConversionExpectedOutcome(error);
-            const failure = getDjvuFailureReceipt(error);
+            const failure = getFailureReceipt(error);
             if (expected !== undefined) {
                 showExpectedConversionOutcome(message, expected);
             } else {

@@ -5,7 +5,7 @@ import type {
     TDocumentOutputJobState,
 } from '@contracts/electronApiDjvu';
 import {
-    decodeFailureReceipt,
+    getFailureReceipt,
     isExpectedOutcome,
 } from '@contracts/diagnostics/failureReceipt';
 import { getErrorMessage } from '@app/utils/error';
@@ -22,13 +22,6 @@ interface ITerminalBrowserDjvuJob {
     kind: 'open' | 'convert' | 'print';
     promise: Promise<IDjvuOpenResult> | Promise<IDjvuConvertResult> | Promise<IDjvuPrintResult>;
     timer: ReturnType<typeof setTimeout>;
-}
-
-function getFailureReceipt(error: unknown) {
-    if (typeof error !== 'object' || error === null || !('failure' in error)) {
-        return undefined;
-    }
-    return decodeFailureReceipt(error.failure) ?? undefined;
 }
 
 function getExpectedOutcome(error: unknown) {

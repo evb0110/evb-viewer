@@ -9,6 +9,7 @@ import type {
     IPdfNativeFreeTextNote,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
+import { MAX_PDF_OBJECT_GENERATION } from '@contracts/pdfAnnotationRefs';
 import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 const NATIVE_NOTE_TEXT_UPDATE_SUBTYPES = new Set([
@@ -94,7 +95,7 @@ export function buildNativeNoteTextUpdatesForSave(
             || comment.source !== 'pdf'
             || !isNativeNoteTextUpdateSubtype(comment)
             || !targetRef
-            || targetRef.generationNumber > 65_535
+            || targetRef.generationNumber > MAX_PDF_OBJECT_GENERATION
         ) {
             return skip('pending-text-not-native-eligible', {
                 stableKey,

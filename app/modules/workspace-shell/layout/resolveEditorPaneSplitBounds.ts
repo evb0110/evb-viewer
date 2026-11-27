@@ -1,7 +1,7 @@
 import {clamp} from 'es-toolkit/math';
 
 const EDITOR_PANE_MIN_SIZE_PX = 320;
-const LEGACY_MIN_SPLIT_RATIO = 0.15;
+export const LEGACY_MIN_SPLIT_RATIO = 0.15;
 
 export interface IEditorPaneSplitBounds {
     minRatio: number;
